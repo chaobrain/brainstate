@@ -18,10 +18,12 @@ from typing import Optional, Tuple
 
 import numpy as np
 
+from brainstate.graph import Node
+
 __all__ = ['Initializer', 'to_size']
 
 
-class Initializer(object):
+class Initializer(Node):
   def __call__(self, *args, **kwargs):
     raise NotImplementedError
 

@@ -17,12 +17,12 @@
 
 import math
 
-import brainunit as bu
+import brainunit as u
 import jax.numpy as jnp
 import numpy as np
 
 from brainstate import environ, random
-from brainstate.typing import ArrayLike
+from brainstate.typing import ArrayLike, SeedOrKey, DTypeLike
 from ._base import Initializer, to_size
 
 __all__ = [
@@ -124,15 +124,22 @@ class Normal(Initializer):
 
   """
 
-  def __init__(self, mean=0., scale=1., dtype=None):
+  def __init__(
+      self,
+      mean: ArrayLike = 0.,
+      scale: ArrayLike = 1.,
+      dtype: DTypeLike = None,
+      seed: SeedOrKey = None
+  ):
     super(Normal, self).__init__()
     self.scale = scale
     self.mean = mean
     self.dtype = dtype or environ.dftype()
+    self.rng = random.default_rng(seed)
 
   def __call__(self, shape):
     shape = to_size(shape)
-    weights = random.normal(size=shape, loc=self.mean, scale=self.scale, dtype=self.dtype)
+    weights = self.rng.normal(size=shape, loc=self.mean, scale=self.scale, dtype=self.dtype)
     return weights
 
   def __repr__(self):
@@ -159,7 +166,15 @@ class TruncatedNormal(Initializer):
 
   """
 
-  def __init__(self, loc=0., scale=1., lower=None, upper=None, dtype=None):
+  def __init__(
+      self,
+      loc: ArrayLike = 0.,
+      scale: ArrayLike = 1.,
+      lower: ArrayLike = None,
+      upper: ArrayLike = None,
+      dtype: DTypeLike = None,
+      seed: SeedOrKey = None,
+  ):
     super(TruncatedNormal, self).__init__()
     assert scale > 0, '`scale` must be positive.'
     self.scale = scale
@@ -167,9 +182,10 @@ class TruncatedNormal(Initializer):
     self.lower = lower
     self.upper = upper
     self.dtype = dtype or environ.dftype()
+    self.rng = random.default_rng(seed)
 
   def __call__(self, shape):
-    weights = random.truncated_normal(
+    weights = self.rng.truncated_normal(
       size=shape,
       scale=self.scale,
       lower=self.lower,
@@ -196,14 +212,21 @@ class Gamma(Initializer):
 
   """
 
-  def __init__(self, shape, scale=None, dtype=None):
+  def __init__(
+      self,
+      shape: ArrayLike,
+      scale: ArrayLike = None,
+      dtype: DTypeLike = None,
+      seed: SeedOrKey = None
+  ):
     self.shape = shape
     self.scale = scale
     self.dtype = dtype or environ.dftype()
+    self.rng = random.default_rng(seed)
 
   def __call__(self, shape):
     shape = to_size(shape)
-    weights = random.gamma(self.shape, scale=self.scale, size=shape, dtype=self.dtype)
+    weights = self.rng.gamma(self.shape, scale=self.scale, size=shape, dtype=self.dtype)
     return weights
 
   def __repr__(self):
@@ -220,13 +243,19 @@ class Exponential(Initializer):
 
   """
 
-  def __init__(self, scale=None, dtype=None):
+  def __init__(
+      self,
+      scale: ArrayLike = None,
+      dtype: DTypeLike = None,
+      seed: SeedOrKey = None
+  ):
     self.scale = scale
     self.dtype = dtype or environ.dftype()
+    self.rng = random.default_rng(seed)
 
   def __call__(self, shape):
     shape = to_size(shape)
-    weights = random.exponential(scale=self.scale, size=shape, dtype=self.dtype)
+    weights = self.rng.exponential(scale=self.scale, size=shape, dtype=self.dtype)
     return weights
 
   def __repr__(self):
@@ -244,15 +273,22 @@ class Uniform(Initializer):
     The upper limit of the uniform distribution.
   """
 
-  def __init__(self, min_val: float = 0., max_val: float = 1., dtype=None):
+  def __init__(
+      self,
+      min_val: ArrayLike = 0.,
+      max_val: ArrayLike = 1.,
+      dtype: DTypeLike = None,
+      seed: SeedOrKey = None
+  ):
     super(Uniform, self).__init__()
     self.min_val = min_val
     self.max_val = max_val
     self.dtype = dtype or environ.dftype()
+    self.rng = random.default_rng(seed)
 
   def __call__(self, shape):
     shape = to_size(shape)
-    return random.uniform(low=self.min_val, high=self.max_val, size=shape, dtype=self.dtype)
+    return self.rng.uniform(low=self.min_val, high=self.max_val, size=shape, dtype=self.dtype)
 
   def __repr__(self):
     return (f'{self.__class__.__name__}(min_val={self.min_val}, '
@@ -267,7 +303,8 @@ class VarianceScaling(Initializer):
       distribution: str,
       in_axis: int = -2,
       out_axis: int = -1,
-      dtype=None
+      dtype: DTypeLike = None,
+      seed: SeedOrKey = None
   ):
     assert mode in ['fan_in', 'fan_out', 'fan_avg']
     assert distribution in ['truncated_normal', 'normal', 'uniform']
@@ -277,6 +314,7 @@ class VarianceScaling(Initializer):
     self.out_axis = out_axis
     self.distribution = distribution
     self.dtype = dtype or environ.dftype()
+    self.rng = random.default_rng(seed)
 
   def __call__(self, shape):
     shape = to_size(shape)
@@ -289,20 +327,20 @@ class VarianceScaling(Initializer):
       denominator = (fan_in + fan_out) / 2
     else:
       raise ValueError("invalid mode for variance scaling initializer: {}".format(self.mode))
-    scale = self.scale.mantissa if isinstance(self.scale, bu.Quantity) else self.scale
-    unit = bu.get_unit(self.scale)
+    scale = self.scale.mantissa if isinstance(self.scale, u.Quantity) else self.scale
+    unit = u.get_unit(self.scale)
     variance = (scale / denominator).astype(self.dtype)
     if self.distribution == "truncated_normal":
       stddev = (jnp.sqrt(variance) / .87962566103423978).astype(self.dtype)
-      res = random.truncated_normal(-2, 2, shape, dtype=self.dtype) * stddev
+      res = self.rng.truncated_normal(-2, 2, shape, dtype=self.dtype) * stddev
     elif self.distribution == "normal":
-      res = random.randn(*shape, dtype=self.dtype) * jnp.sqrt(variance).astype(self.dtype)
+      res = self.rng.randn(*shape, dtype=self.dtype) * jnp.sqrt(variance).astype(self.dtype)
     elif self.distribution == "uniform":
-      res = (random.uniform(low=-1, high=1, size=shape, dtype=self.dtype) *
+      res = (self.rng.uniform(low=-1, high=1, size=shape, dtype=self.dtype) *
              jnp.sqrt(3 * variance).astype(self.dtype))
     else:
       raise ValueError("invalid distribution for variance scaling initializer")
-    return res if unit.is_unitless else bu.Quantity(res, unit=unit)
+    return res if unit.is_unitless else u.Quantity(res, unit=unit)
 
   def __repr__(self):
     name = self.__class__.__name__
@@ -319,14 +357,16 @@ class KaimingUniform(VarianceScaling):
       distribution: str = "uniform",
       in_axis: int = -2,
       out_axis: int = -1,
-      dtype=None
+      dtype: DTypeLike = None,
+      seed: SeedOrKey = None
   ):
     super().__init__(scale,
                      mode,
                      distribution,
                      in_axis=in_axis,
                      out_axis=out_axis,
-                     dtype=dtype)
+                     dtype=dtype,
+                     seed=seed)
 
 
 class KaimingNormal(VarianceScaling):
@@ -337,14 +377,16 @@ class KaimingNormal(VarianceScaling):
       distribution: str = "truncated_normal",
       in_axis: int = -2,
       out_axis: int = -1,
-      dtype=None
+      dtype: DTypeLike = None,
+      seed: SeedOrKey = None
   ):
     super().__init__(scale,
                      mode,
                      distribution,
                      in_axis=in_axis,
                      out_axis=out_axis,
-                     dtype=dtype)
+                     dtype=dtype,
+                     seed=seed)
 
 
 class XavierUniform(VarianceScaling):
@@ -355,14 +397,16 @@ class XavierUniform(VarianceScaling):
       distribution: str = "uniform",
       in_axis: int = -2,
       out_axis: int = -1,
-      dtype=None
+      dtype: DTypeLike = None,
+      seed: SeedOrKey = None
   ):
     super().__init__(scale,
                      mode,
                      distribution,
                      in_axis=in_axis,
                      out_axis=out_axis,
-                     dtype=dtype)
+                     dtype=dtype,
+                     seed=seed)
 
 
 class XavierNormal(VarianceScaling):
@@ -373,14 +417,16 @@ class XavierNormal(VarianceScaling):
       distribution: str = "truncated_normal",
       in_axis: int = -2,
       out_axis: int = -1,
-      dtype=None
+      dtype: DTypeLike = None,
+      seed: SeedOrKey = None
   ):
     super().__init__(scale,
                      mode,
                      distribution,
                      in_axis=in_axis,
                      out_axis=out_axis,
-                     dtype=dtype)
+                     dtype=dtype,
+                     seed=seed)
 
 
 class LecunUniform(VarianceScaling):
@@ -391,14 +437,16 @@ class LecunUniform(VarianceScaling):
       distribution: str = "uniform",
       in_axis: int = -2,
       out_axis: int = -1,
-      dtype=None
+      dtype: DTypeLike = None,
+      seed: SeedOrKey = None
   ):
     super().__init__(scale,
                      mode,
                      distribution,
                      in_axis=in_axis,
                      out_axis=out_axis,
-                     dtype=dtype)
+                     dtype=dtype,
+                     seed=seed)
 
 
 class LecunNormal(VarianceScaling):
@@ -409,14 +457,16 @@ class LecunNormal(VarianceScaling):
       distribution: str = "truncated_normal",
       in_axis: int = -2,
       out_axis: int = -1,
-      dtype=None
+      dtype: DTypeLike = None,
+      seed: SeedOrKey = None
   ):
     super().__init__(scale,
                      mode,
                      distribution,
                      in_axis=in_axis,
                      out_axis=out_axis,
-                     dtype=dtype)
+                     dtype=dtype,
+                     seed=seed)
 
 
 class Orthogonal(Initializer):
@@ -431,22 +481,24 @@ class Orthogonal(Initializer):
       self,
       scale: ArrayLike = 1.,
       axis: int = -1,
-      dtype=None
+      dtype: DTypeLike = None,
+      seed: SeedOrKey = None
   ):
     super().__init__()
     self.scale = scale
     self.axis = axis
     self.dtype = dtype or environ.dftype()
+    self.rng = random.default_rng(seed)
 
   def __call__(self, shape):
     shape = to_size(shape)
     n_rows = shape[self.axis]
     n_cols = np.prod(shape) // n_rows
     matrix_shape = (n_rows, n_cols) if n_rows > n_cols else (n_cols, n_rows)
-    norm_dst = random.normal(size=matrix_shape, dtype=self.dtype)
+    norm_dst = self.rng.normal(size=matrix_shape, dtype=self.dtype)
 
-    scale = self.scale.mantissa if isinstance(self.scale, bu.Quantity) else self.scale
-    unit = bu.get_unit(self.scale)
+    scale = self.scale.mantissa if isinstance(self.scale, u.Quantity) else self.scale
+    unit = u.get_unit(self.scale)
     q_mat, r_mat = jnp.linalg.qr(norm_dst)
     # Enforce Q is uniformly distributed
     q_mat *= jnp.sign(jnp.diag(r_mat))
@@ -455,7 +507,7 @@ class Orthogonal(Initializer):
     q_mat = jnp.reshape(q_mat, (n_rows,) + tuple(np.delete(shape, self.axis)))
     q_mat = jnp.moveaxis(q_mat, 0, self.axis)
     r = jnp.asarray(scale, dtype=self.dtype) * q_mat
-    return r if unit.is_unitless else bu.Quantity(r, unit=unit)
+    return r if unit.is_unitless else u.Quantity(r, unit=unit)
 
   def __repr__(self):
     return f'{self.__class__.__name__}(scale={self.scale}, axis={self.axis}, dtype={self.dtype})'
@@ -468,11 +520,18 @@ class DeltaOrthogonal(Initializer):
   The shape must be 3D, 4D or 5D.
   """
 
-  def __init__(self, scale=1.0, axis=-1, dtype=None):
+  def __init__(
+      self,
+      scale: ArrayLike = 1.0,
+      axis: int = -1,
+      dtype: DTypeLike = None,
+      seed: SeedOrKey = None
+  ):
     super(DeltaOrthogonal, self).__init__()
     self.scale = scale
     self.axis = axis
     self.dtype = dtype or environ.dftype()
+    self.orghogonal = Orthogonal(scale=scale, axis=axis, dtype=dtype, seed=seed)
 
   def __call__(self, shape):
     shape = to_size(shape)
@@ -480,10 +539,8 @@ class DeltaOrthogonal(Initializer):
       raise ValueError("Delta orthogonal initializer requires a 3D, 4D or 5D shape.")
     if shape[-1] < shape[-2]:
       raise ValueError("`fan_in` must be less or equal than `fan_out`. ")
-    scale = self.scale.mantissa if isinstance(self.scale, bu.Quantity) else self.scale
-    unit = bu.get_unit(self.scale)
-    ortho_matrix = Orthogonal(scale=scale, axis=self.axis, dtype=self.dtype)(*shape[-2:])
-    W = jnp.zeros(shape, dtype=self.dtype)
+    ortho_matrix = u.Quantity(self.orghogonal(*shape[-2:]))
+    W = u.math.zeros_like(ortho_matrix)
     if len(shape) == 3:
       k = shape[0]
       W = W.at[(k - 1) // 2].set(ortho_matrix)
@@ -493,7 +550,7 @@ class DeltaOrthogonal(Initializer):
     else:
       k1, k2, k3 = shape[:3]
       W = W.at[(k1 - 1) // 2, (k2 - 1) // 2, (k3 - 1) // 2].set(ortho_matrix)
-    return W if unit.is_unitless else bu.Quantity(W, unit=unit)
+    return u.maybe_decimal(W)
 
   def __repr__(self):
     return f'{self.__class__.__name__}(scale={self.scale}, axis={self.axis}, dtype={self.dtype})'
