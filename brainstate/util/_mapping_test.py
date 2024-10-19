@@ -135,3 +135,24 @@ class TestStateMap2(unittest.TestCase):
       model = Model()
       state_map = bst.graph.state_refs(model).to_flat()
       state_map = bst.util.NestedMapping(state_map)
+
+
+class TestFlattedMapping(unittest.TestCase):
+  def test1(self):
+    class Model(bst.nn.Module):
+      def __init__(self):
+        super().__init__()
+        self.batchnorm = bst.nn.BatchNorm1d([10, 3])
+        self.linear = bst.nn.Linear([10, 3], [10, 4])
+
+      def __call__(self, x):
+        return self.linear(self.batchnorm(x))
+
+    model = Model()
+    # print(model.states())
+    # print(bst.graph.states(model))
+    self.assertTrue(model.states() == bst.graph.states(model))
+
+    # print(model.nodes())
+    # print(bst.graph.nodes(model))
+    self.assertTrue(model.nodes() == bst.graph.nodes(model))

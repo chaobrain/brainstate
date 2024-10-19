@@ -13,9 +13,11 @@
 # limitations under the License.
 
 import dataclasses
+import functools
+import threading
 from abc import ABC, abstractmethod
 from functools import partial
-from typing import Any, Iterator, Mapping, TypeVar, Union
+from typing import Any, Iterator, Mapping, TypeVar, Union, Callable, Optional
 
 __all__ = [
   'PrettyType',
@@ -130,3 +132,61 @@ class PrettyMapping(PrettyRepr):
 
     for key, value in self.mapping.items():
       yield PrettyAttr(repr(key), value)
+
+
+@dataclasses.dataclass
+class GraphUtilsContext(threading.local):
+  seen_modules_repr: set[int] | None = None
+
+
+CONTEXT = GraphUtilsContext()
+
+
+def _default_repr_object(node):
+  yield PrettyType(type=type(node))
+
+
+def _default_repr_attr(node):
+  for name, value in vars(node).items():
+    if name.startswith('_'):
+      continue
+    yield PrettyAttr(name, repr(value))
+
+
+def pretty_repr_avoid_duplicate(
+    node,
+    repr_object: Optional[Callable] = None,
+    repr_attr: Optional[Callable] = None
+):
+  """
+  Pretty representation of an object avoiding duplicate representations.
+  """
+  if repr_object is None:
+    repr_object = _default_repr_object
+  if repr_attr is None:
+    repr_attr = _default_repr_attr
+
+  if CONTEXT.seen_modules_repr is None:
+    CONTEXT.seen_modules_repr = set()
+    clear_seen = True
+  else:
+    clear_seen = False
+
+  # Avoid infinite recursion
+  if id(node) in CONTEXT.seen_modules_repr:
+    yield PrettyType(type=type(node), empty_repr='...')
+    return
+
+  # repr object
+  yield from repr_object(node)
+
+  # Add to seen modules
+  CONTEXT.seen_modules_repr.add(id(node))
+
+  try:
+    # repr attributes
+    yield from repr_attr(node)
+
+  finally:
+    if clear_seen:
+      CONTEXT.seen_modules_repr = None
