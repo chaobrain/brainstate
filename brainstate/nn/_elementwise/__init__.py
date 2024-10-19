@@ -13,40 +13,10 @@
 # limitations under the License.
 # ==============================================================================
 
-
-from . import metrics
-from ._dyn_impl import *
-from ._dyn_impl import __all__ as dyn_impl_all
-from ._dynamics import *
-from ._dynamics import __all__ as dynamics_all
+from ._dropout import *
+from ._dropout import __all__ as dropout_all
 from ._elementwise import *
 from ._elementwise import __all__ as elementwise_all
-from ._event import *
-from ._event import __all__ as event_all
-from ._exp_euler import *
-from ._exp_euler import __all__ as exp_euler_all
-from ._interaction import *
-from ._interaction import __all__ as interaction_all
-from ._module import *
-from ._module import __all__ as module_all
 
-__all__ = (
-    ['metrics']
-    + dyn_impl_all
-    + dynamics_all
-    + elementwise_all
-    + module_all
-    + exp_euler_all
-    + event_all
-    + interaction_all
-)
-
-del (
-  dyn_impl_all,
-  dynamics_all,
-  elementwise_all,
-  module_all,
-  exp_euler_all,
-  event_all,
-  interaction_all,
-)
+__all__ = dropout_all + elementwise_all
+del dropout_all, elementwise_all
