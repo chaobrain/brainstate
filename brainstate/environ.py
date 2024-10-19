@@ -2,15 +2,17 @@
 
 
 import contextlib
+import dataclasses
 import functools
 import os
 import re
+import threading
 from collections import defaultdict
-from typing import Any, Callable
+from typing import Any, Callable, Dict, Hashable
 
 import numpy as np
 from jax import config, devices, numpy as jnp
-from jax._src.typing import DTypeLike
+from jax.typing import DTypeLike
 
 from .mixin import Mode
 from .util import MemScaling, IdMemScaling
@@ -32,10 +34,19 @@ T = 't'  # the current time of the current computation.
 JIT_ERROR_CHECK = 'jit_error_check'  # whether to record the current computation.
 FIT = 'fit'  # whether to fit the model.
 
+
+@dataclasses.dataclass
+class DefaultContext(threading.local):
+  # default environment settings
+  settings: Dict[Hashable, Any] = dataclasses.field(default_factory=dict)
+  # current environment settings
+  contexts: defaultdict[Hashable, Any] = dataclasses.field(default_factory=lambda: defaultdict(list))
+  # environment functions
+  functions: Dict[Hashable, Any] = dataclasses.field(default_factory=dict)
+
+
+DFAULT = DefaultContext()
 _NOT_PROVIDE = object()
-_environment_defaults = dict()  # default environment settings
-_environment_contexts = defaultdict(list)  # current environment settings
-_environment_functions = dict()  # environment functions
 
 
 @contextlib.contextmanager
@@ -74,11 +85,11 @@ def context(**kwargs):
     for k, v in kwargs.items():
 
       # update the current environment
-      _environment_contexts[k].append(v)
+      DFAULT.contexts[k].append(v)
 
       # restore the environment functions
-      if k in _environment_functions:
-        _environment_functions[k](v)
+      if k in DFAULT.functions:
+        DFAULT.functions[k](v)
 
     # yield the current all environment information
     yield all()
@@ -87,11 +98,11 @@ def context(**kwargs):
     for k, v in kwargs.items():
 
       # restore the current environment
-      _environment_contexts[k].pop()
+      DFAULT.contexts[k].pop()
 
       # restore the environment functions
-      if k in _environment_functions:
-        _environment_functions[k](get(k))
+      if k in DFAULT.functions:
+        DFAULT.functions[k](get(k))
 
     if 'precision' in kwargs:
       _set_jax_precision(last_precision)
@@ -112,11 +123,11 @@ def get(key: str, default: Any = _NOT_PROVIDE, desc: str = None):
   if key == 'host_device_count':
     return get_host_device_count()
 
-  if key in _environment_contexts:
-    if len(_environment_contexts[key]) > 0:
-      return _environment_contexts[key][-1]
-  if key in _environment_defaults:
-    return _environment_defaults[key]
+  if key in DFAULT.contexts:
+    if len(DFAULT.contexts[key]) > 0:
+      return DFAULT.contexts[key][-1]
+  if key in DFAULT.settings:
+    return DFAULT.settings[key]
 
   if default is _NOT_PROVIDE:
     if desc is not None:
@@ -145,10 +156,10 @@ def all() -> dict:
     The current default computation environment.
   """
   r = dict()
-  for k, v in _environment_contexts.items():
+  for k, v in DFAULT.contexts.items():
     if v:
       r[k] = v[-1]
-  for k, v in _environment_defaults.items():
+  for k, v in DFAULT.settings.items():
     if k not in r:
       r[k] = v
   return r
@@ -260,12 +271,12 @@ def set(
     kwargs['mode'] = mode
 
   # set default environment
-  _environment_defaults.update(kwargs)
+  DFAULT.settings.update(kwargs)
 
   # update the environment functions
   for k, v in kwargs.items():
-    if k in _environment_functions:
-      _environment_functions[k](v)
+    if k in DFAULT.functions:
+      DFAULT.functions[k](v)
 
 
 def set_host_device_count(n):
@@ -292,8 +303,8 @@ def set_host_device_count(n):
   os.environ["XLA_FLAGS"] = " ".join(["--xla_force_host_platform_device_count={}".format(n)] + xla_flags)
 
   # update the environment functions
-  if 'host_device_count' in _environment_functions:
-    _environment_functions['host_device_count'](n)
+  if 'host_device_count' in DFAULT.functions:
+    DFAULT.functions['host_device_count'](n)
 
 
 def set_platform(platform: str):
@@ -311,8 +322,8 @@ def set_platform(platform: str):
   config.update("jax_platform_name", platform)
 
   # update the environment functions
-  if 'platform' in _environment_functions:
-    _environment_functions['platform'](platform)
+  if 'platform' in DFAULT.functions:
+    DFAULT.functions['platform'](platform)
 
 
 def _set_jax_precision(precision: int):
@@ -524,8 +535,8 @@ def register_default_behavior(key: str, behavior: Callable, replace_if_exist: bo
   assert isinstance(key, str), 'key must be a string.'
   assert callable(behavior), 'behavior must be a callable.'
   if not replace_if_exist:
-    assert key not in _environment_functions, f'{key} has been registered.'
-  _environment_functions[key] = behavior
+    assert key not in DFAULT.functions, f'{key} has been registered.'
+  DFAULT.functions[key] = behavior
 
 
 set(dt=0.1, precision=32, mode=Mode(), mem_scaling=IdMemScaling())

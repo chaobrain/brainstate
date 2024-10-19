@@ -14,13 +14,16 @@
 # ==============================================================================
 
 """
-A ``State``-based Transformation System for Brain Dynamics Programming
+A ``State``-based Transformation System for Program Compilation and Augmentation
 """
 
-__version__ = "0.0.2"
+__version__ = "0.1.0"
 
+from . import augment
+from . import compile
 from . import environ
 from . import functional
+from . import graph
 from . import init
 from . import mixin
 from . import nn
@@ -30,17 +33,33 @@ from . import surrogate
 from . import transform
 from . import typing
 from . import util
-from ._visualization import *
-from ._visualization import __all__ as _visualization_all
-from ._module import *
-from ._module import __all__ as _module_all
 from ._state import *
 from ._state import __all__ as _state_all
 
 __all__ = (
-    ['environ', 'share', 'nn', 'optim', 'random',
-     'surrogate', 'functional', 'init',
-     'mixin', 'transform', 'util', 'typing'] +
-    _module_all + _state_all + _visualization_all
+    [
+      'augment', 'compile', 'environ', 'functional',
+      'graph', 'init', 'mixin', 'nn', 'optim', 'random',
+      'surrogate', 'typing', 'util',
+      # deprecated
+      'transform',
+    ] +
+    _state_all
 )
-del _module_all, _state_all, _visualization_all
+
+# ----------------------- #
+# deprecations
+# ----------------------- #
+
+from ._utils import deprecation_getattr
+
+transform._deprecations = dict()
+for key in compile.__all__:
+  transform._deprecations[key] = (f'brainstate.transform.{key}', f'brainstate.compile.{key}', getattr(compile, key))
+for key in augment.__all__:
+  transform._deprecations[key] = (f'brainstate.transform.{key}', f'brainstate.augment.{key}', getattr(augment, key))
+transform.__getattr__ = deprecation_getattr('brainstate.transform', transform._deprecations)
+del deprecation_getattr
+
+# ----------------------- #
+del _state_all

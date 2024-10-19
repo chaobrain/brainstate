@@ -13,34 +13,37 @@
 # limitations under the License.
 # ==============================================================================
 
+from __future__ import annotations
+
 import contextlib
+import dataclasses
 import threading
-from typing import Any, Tuple, Dict, List, Callable, Optional
+from functools import wraps, partial
+from typing import (Any, Union, Callable, Generic, Mapping,
+                    TypeVar, Optional, TYPE_CHECKING, Tuple, Dict, List, Sequence)
 
 import jax
 import numpy as np
 from jax.api_util import shaped_abstractify
 from jax.extend import source_info_util
 
-from brainstate.typing import ArrayLike, PyTree
+from brainstate.typing import ArrayLike, PyTree, Missing
 from brainstate.util import DictManager
+from brainstate.util._error import TraceContextError
+from brainstate.util._pretty_repr import PrettyRepr, PrettyType, PrettyAttr
+from brainstate.util._tracers import StateJaxTracer
 
 __all__ = [
-  'State', 'ShortTermState', 'LongTermState', 'ParamState',
-  'StateDictManager',
-  'StateTrace',
-  'visible_state_dict',
-  'check_state_value_tree',
+  'State', 'ShortTermState', 'LongTermState', 'ParamState', 'StateRef',
+
+  'StateDictManager', 'StateTraceStack', 'check_state_value_tree', 'check_state_jax_tracer',
 ]
 
-_pytree_registered_objects = set()
+A = TypeVar('A')
+B = TypeVar('B')
+F = TypeVar('F', bound=Callable[..., Any])
+
 max_int = np.iinfo(np.int32)
-
-
-def _register_pytree_cls(cls):
-  if cls not in _pytree_registered_objects:
-    jax.tree_util.register_pytree_node_class(cls)
-    _pytree_registered_objects.add(cls)
 
 
 # The global state of the state stack is accessed by a thread-local object.
@@ -48,16 +51,16 @@ def _register_pytree_cls(cls):
 # between threads is forbidden.
 class ThreadLocalStack(threading.local):
   def __init__(self):
-    self.stack: List[StateTrace] = []
+    self.state_stack: List[StateTraceStack] = []
+    self.tree_check: List[bool] = [False]
+    self.jax_tracer_check: List[bool] = [False]
 
 
-thread_local_stack = ThreadLocalStack()
-
-_global_context_to_check_state_tree = [False]
+TRACE_CONTEXT = ThreadLocalStack()
 
 
 @contextlib.contextmanager
-def check_state_value_tree() -> None:
+def check_state_value_tree(val: bool = True) -> None:
   """
   The contex manager to check weather the tree structure of the state value keeps consistently.
 
@@ -68,24 +71,86 @@ def check_state_value_tree() -> None:
 
   Example::
 
-  ```python
-  state = brainstate.ShortTermState(jnp.zeros((2, 3)))
-  with check_state_value_tree():
-    state.value = jnp.zeros((2, 3))
-
-    # The following code will raise an error.
-    state.value = (jnp.zeros((2, 3)), jnp.zeros((2, 3)))
-  ```
+    >>> import brainstate as bst
+    >>> import jax.numpy as jnp
+    >>> state = bst.ShortTermState(jnp.zeros((2, 3)))
+    >>> with bst.check_state_value_tree():
+    >>>   # The line below will not raise an error.
+    >>>   state.value = jnp.zeros((2, 3))
+    ...
+    >>>   # The following code will raise an error, since it changes the tree structure.
+    >>>   state.value = (jnp.zeros((2, 3)), jnp.zeros((2, 3)))
 
   """
   try:
-    _global_context_to_check_state_tree.append(True)
+    TRACE_CONTEXT.tree_check.append(val)
     yield
   finally:
-    _global_context_to_check_state_tree.pop()
+    TRACE_CONTEXT.tree_check.pop()
 
 
-class State(object):
+@contextlib.contextmanager
+def check_state_jax_tracer(val: bool = True) -> None:
+  """
+  The context manager to check whether the state is valid to trace.
+
+  Example::
+
+    >>> import jax
+    >>> import brainstate as bst
+    >>> import jax.numpy as jnp
+    >>>
+    >>> state = bst.ShortTermState(jnp.zeros((2, 3)))
+    >>>
+    >>> @jax.jit
+    >>> def run_state(b):
+    >>>   a.value = b
+    >>>   return a.value
+    >>>
+    >>>  # The following code will not raise an error, since the state is valid to trace.
+    >>> run_state(jnp.ones((2, 3)))
+    >>>
+    >>> with check_state_jax_tracer():
+    >>>   # The line below will not raise an error.
+    >>>   run_state(jnp.ones((2, 4)))
+  """
+  try:
+    TRACE_CONTEXT.jax_tracer_check.append(val)
+    yield
+  finally:
+    TRACE_CONTEXT.jax_tracer_check.pop()
+
+
+@dataclasses.dataclass
+class StateMetadata(Generic[A]):
+  """
+  The state metadata.
+
+  Args:
+    raw_value: The raw value.
+    metadata: The metadata.
+  """
+  raw_value: A
+  metadata: Mapping[str, Any] = dataclasses.field(default_factory=dict)
+
+
+def with_metadata(initializer: F, **metadata: Any) -> F:
+  """
+  A decorator to add metadata to the state.
+  """
+
+  @wraps(initializer)
+  def wrapper(*args):
+    return StateMetadata(initializer(*args), metadata=metadata)
+
+  return wrapper  # type: ignore
+
+
+def _get_trace_stack_level() -> int:
+  return len(TRACE_CONTEXT.state_stack)
+
+
+class State(Generic[A], PrettyRepr):
   """
   The pointer to specify the dynamical data.
 
@@ -93,8 +158,8 @@ class State(object):
 
   Example::
 
-    class MyState(State):
-      pass
+    >>> class MyState(State):
+    >>>   pass
 
   The typical examples of :py:class:`~.State` subclass are:
 
@@ -107,17 +172,58 @@ class State(object):
     value: PyTree. It can be anything as a pyTree.
   """
   __module__ = 'brainstate'
-  __slots__ = ('_value', '_name', '_tree', '_level', '_source_info', '_check_tree')
+  _trace_state: StateJaxTracer
+  _level: int
+  _source_info: source_info_util.SourceInfo
+  _name: Optional[str]
+  _value: PyTree
 
-  def __init__(self, value: PyTree[ArrayLike], name: Optional[str] = None):
+  def __init__(
+      self,
+      value: Union[PyTree[ArrayLike], StateMetadata[PyTree[ArrayLike]]],
+      name: Optional[str] = None,
+      **metadata: Any
+  ):
+    # avoid using self._setattr to avoid the check
+    vars(self)['_trace_state'] = StateJaxTracer()
+
+    # set the value and metadata
+    if isinstance(value, StateMetadata):
+      metadata.update(dict(value.metadata))
+      value = value.raw_value
     if isinstance(value, State):
       value = value.value
-    self._value = value
-    self._tree = jax.tree.structure(value)
-    self._check_tree = False
-    self._level = len(thread_local_stack.stack)
-    self._source_info = source_info_util.current()
-    self._name = name
+
+    # update metadata
+    metadata.update(_value=value, _level=_get_trace_stack_level(), _source_info=source_info_util.current(), _name=name)
+
+    # avoid using self._setattr to avoid the check
+    vars(self).update(metadata)
+
+  if not TYPE_CHECKING:
+    def __setattr__(self, name: str, value: Any) -> None:
+      return self._setattr(name, value)
+
+  def _setattr(self, name: str, value: Any):
+    """
+    Check if the state is valid to mutate.
+    """
+    if TRACE_CONTEXT.jax_tracer_check[-1]:
+      self.check_valid_trace(lambda: f'Cannot mutate {type(self).__name__} from a different trace level')
+    object.__setattr__(self, name, value)
+
+  def _setattr_no_check(self, name: str, value: Any):
+    """
+    Set the attribute without checking the trace level.
+    """
+    vars(self)[name] = value
+
+  def check_valid_trace(self, error_msg: Callable[[], str]):
+    """
+    Check if the state is valid to trace.
+    """
+    if not self._trace_state.is_valid():
+      raise TraceContextError(error_msg())
 
   @property
   def name(self) -> Optional[str]:
@@ -131,20 +237,15 @@ class State(object):
     """
     Set the name of the state.
     """
-    self._name = name
+    self._setattr_no_check('_name', name)
 
   @property
   def value(self) -> PyTree[ArrayLike]:
     """
     The data and its value.
     """
-    self._check_if_deleted()
-
-    # read the value by the stack (>= level)
-    trace: StateTrace
-    for trace in thread_local_stack.stack[self._level:]:
-      trace.read_its_value(self)
-    # return the value
+    self.check_if_deleted()
+    record_state_value_read(self)
     return self._value
 
   @value.setter
@@ -155,32 +256,62 @@ class State(object):
     Args:
       v: The value.
     """
+    self.write_value(v)
+
+  def write_value(self, v) -> None:
     # value checking
-    v = v.value if isinstance(v, State) else v
+    if isinstance(v, State):
+      raise ValueError('Cannot set value to a State, ' 'use `copy_from` method instead')
     self._check_value_tree(v)
     # write the value by the stack (>= level)
-    trace: StateTrace
-    for trace in thread_local_stack.stack[self._level:]:
-      trace.write_its_value(self)
+    record_state_value_write(self)
     # set the value
     self._value = v
 
+  def restore_value(self, v) -> None:
+    """
+    Restore the value of the state.
+
+    Args:
+      v: The value.
+    """
+    # value checking
+    if isinstance(v, State):
+      raise ValueError('Cannot set value to a State, ' 'use `copy_from` method instead')
+    with check_state_value_tree():
+      self._check_value_tree(v)
+    # record the value by the stack (>= level)
+    record_state_value_restore(self)
+    # set the value
+    self._value = v
+
+  def value_call(self, func: Callable[..., Any]) -> Any:
+    """
+    Call the function with the value of the state.
+    """
+    return jax.tree.map(func, self.value)
+
   def _check_value_tree(self, v):
-    if self._check_tree or _global_context_to_check_state_tree[-1]:
+    """
+    Check if the value tree structure is consistent.
+    """
+    if TRACE_CONTEXT.tree_check[-1]:
       in_tree = jax.tree.structure(v)
-      if in_tree != self._tree:
+      self_tree = jax.tree.structure(self._value)
+      if in_tree != self_tree:
         self._raise_error_with_source_info(
-          ValueError(f'The given value {in_tree} does not '
-                     f'match with the origin tree structure '
-                     f'{self._tree}.')
+          ValueError(f'The given value {in_tree} does not match with the origin tree structure {self_tree}.')
         )
 
   def _raise_error_with_source_info(self, error: Exception):
+    """
+    Raise an error with the source information for easy debugging.
+    """
     name_stack = source_info_util.current_name_stack() + self.source_info.name_stack
     with source_info_util.user_context(self.source_info.traceback, name_stack=name_stack):
       raise error
 
-  def _check_if_deleted(self):
+  def check_if_deleted(self):
     pass
 
   @property
@@ -194,51 +325,155 @@ class State(object):
     """
     return self._source_info
 
-  def tree_flatten(self):
-    """Flattens this variable.
-
-    Returns:
-      A pair where the first element is a list of leaf values
-      and the second element is a treedef representing the
-      structure of the flattened tree.
+  def copy_from(self, other: State[A]) -> None:
     """
-    return (self._value,), (self._level,)
+    Copy the state from another state.
+    """
+    if type(self) is not type(other):
+      raise ValueError(f'Cannot copy from incompatible container, '
+                       f'expected {type(self).__name__}, got {type(other).__name__}')
+    if self is other:
+      return
 
-  @classmethod
-  def tree_unflatten(cls, aux_data, flat_contents):
-    """Reconstructs a variable from the aux_data and the leaves.
+    # keep the trace state and stack level
+    trace_state = self._trace_state
+    level = self._level
+    source_info = self._source_info
+
+    # copy other metadata
+    other_vars = vars(other).copy()
+    del other_vars['_trace_state']
+    del other_vars['_level']
+    del other_vars['_source_info']
+
+    # update the metadata
+    vars_dict = vars(self)
+    vars_dict.clear()
+    vars_dict.update(other_vars, _trace_state=trace_state, _level=level, _source_info=source_info)
+
+  def update_from_ref(self, state_ref: StateRef[A]) -> None:
+    """
+    Update the state from the state reference :py:class:`StateRef`.
 
     Args:
-      aux_data:
-      flat_contents:
-
-    Returns:
-      The variable.
+      state_ref: The state reference.
     """
-    (_level,) = aux_data
-    self = cls(flat_contents[0])
-    self._level = max_int
-    return self
+    # keep the trace state and stack level
+    trace_state = self._trace_state
+    level = self._level
 
-  def __repr__(self):
-    leaves, tree = jax.tree.flatten(self._value)
-    leaves_info = [ShapeDtype(leaf.shape, leaf.dtype) for leaf in leaves]
-    tree_info = jax.tree.unflatten(tree, leaves_info)
-    if self.name is None:
-      return f'{self.__class__.__name__}({tree_info})'
-    else:
-      return f'{self.__class__.__name__}({self.name}: {tree_info})'
+    # update the metadata
+    variable_vars = vars(self)
+    variable_vars.clear()
+    variable_vars.update(state_ref.get_metadata(),
+                         _value=state_ref.value,
+                         _trace_state=trace_state,
+                         _level=level)
+
+  def replace(self, value: Any = Missing, **kwargs) -> State[Any]:
+    """
+    Replace the attribute of the state.
+    """
+    if value is not Missing:
+      kwargs['_value'] = value
+
+    # return `value` if it is a State
+    if '_value' in kwargs and isinstance(value := kwargs['_value'], State):
+      # remove value from kwargs
+      kwargs.pop('_value')
+      if type(self) is not type(value):
+        raise ValueError('Cannot replace value from incompatible container, '
+                         f'expected {type(self).__name__}, got {type(value).__name__}')
+      # if kwargs aren't empty, recursively call replace
+      # else return variable value
+      if kwargs:
+        return value.replace(**kwargs)
+      else:
+        return value
+
+    # get and update attributes
+    attributes = vars(self).copy()
+    attributes.update(**kwargs)
+    # return new instance with updated attributes
+    obj = object.__new__(type(self))
+    vars(obj).update(attributes)
+    return obj
+
+  def copy(self: State[A]) -> State[A]:
+    """
+    Copy the state.
+    """
+    obj = object.__new__(type(self))
+    attributes = vars(self).copy()
+    # keep its own trace state and stack level
+    attributes['_trace_state'] = StateJaxTracer()
+    attributes['_level'] = _get_trace_stack_level()
+    attributes['_source_info'] = source_info_util.current()
+    # update the metadata
+    vars(obj).update(attributes)
+    return obj
+
+  def to_state_ref(self: State[A]) -> StateRef[A]:
+    metadata = vars(self).copy()
+    del metadata['_value']
+    del metadata['_trace_state']
+    del metadata['_level']
+    return StateRef(type(self), self._value, **metadata)
+
+  def __pretty_repr__(self):
+    yield PrettyType(type=type(self))
+    for name, value in vars(self).items():
+      if name == '_value':
+        name = 'value'
+      if name == '_name':
+        if value is None:
+          continue
+        else:
+          name = 'name'
+      if name in ['_trace_state', '_level', '_source_info']:
+        continue
+      yield PrettyAttr(name, repr(value))
+
+  def __treescope_repr__(self, path, subtree_renderer):
+    children = {}
+    for name, value in vars(self).items():
+      if name == '_value':
+        name = 'value'
+      if name == '_name':
+        if value is None:
+          continue
+        else:
+          name = 'name'
+      if name in ['_trace_state', '_level', '_source_info']:
+        continue
+      children[name] = value
+
+    import treescope  # type: ignore[import-not-found,import-untyped]
+    return treescope.repr_lib.render_object_constructor(
+      object_type=type(self),
+      attributes=children,
+      path=path,
+      subtree_renderer=subtree_renderer,
+    )
+
+  def __eq__(self, other: object) -> bool:
+    return type(self) is type(other) and vars(other) == vars(self)
 
 
-class ShapeDtype:
-  def __init__(self, shape, dtype):
-    self.shape = shape
-    self.dtype = dtype
-    self.ndim = len(shape)
-    self.size = np.prod(shape)
+def record_state_value_read(st: State[A]):
+  trace: StateTraceStack
+  for trace in TRACE_CONTEXT.state_stack[st._level:]:
+    trace.read_its_value(st)
 
-  def __repr__(self):
-    return f'{self.dtype}{list(self.shape)}'
+
+def record_state_value_write(st: State[A]):
+  trace: StateTraceStack
+  for trace in TRACE_CONTEXT.state_stack[st._level:]:
+    trace.write_its_value(st)
+
+
+def record_state_value_restore(st: State[A]):
+  record_state_value_read(st)
 
 
 class ShortTermState(State):
@@ -256,7 +491,6 @@ class LongTermState(State):
   The long-term state, which is used to store the long-term data in the program.
 
   For example, in a training process, the weights of the model are long-term states.
-
   """
 
   __module__ = 'brainstate'
@@ -266,6 +500,7 @@ class ParamState(LongTermState):
   """
   The parameter state, which is used to store the trainable parameters in the model.
   """
+
   __module__ = 'brainstate'
 
 
@@ -326,25 +561,17 @@ class StateDictManager(DictManager):
     self[key].value = value
 
 
-class visible_state_dict(StateDictManager):
+class StateTraceStack(Generic[A]):
   """
-  The state dictionary whose elements are visible to ``.states()`` collection functions.
-  """
-  pass
-
-
-class StateTrace(object):
-  """
-  The state trace, which is used to trace the states automatically.
+  The state trace stack, which is used to trace the states automatically.
   """
 
   def __init__(self, new_arg: Callable = None):
     self.states: List[State] = []
-    self.types: List[str] = []
-    self._id2index = dict()
-    self._org_values = []
-    self._jax_trace_new_arg = new_arg
-    self._written_ids = set()
+    self.been_writen: List[bool] = []  # False: read, True: write
+    self._state_id_index = dict()
+    self._original_state_values = []
+    self._jax_trace_new_arg: Callable = new_arg
 
   def set_new_arg(self, new_arg: Callable) -> None:
     self._jax_trace_new_arg = new_arg
@@ -354,12 +581,12 @@ class StateTrace(object):
       # internal use
       state._value = jax.tree.map(lambda x: self._jax_trace_new_arg(shaped_abstractify(x)), state._value)
 
-  def __enter__(self) -> 'StateTrace':
-    thread_local_stack.stack.append(self)
+  def __enter__(self) -> 'StateTraceStack':
+    TRACE_CONTEXT.state_stack.append(self)
     return self
 
   def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
-    thread_local_stack.stack.pop()
+    TRACE_CONTEXT.state_stack.pop()
 
   def read_its_value(self, state: State) -> None:
     """
@@ -369,11 +596,11 @@ class StateTrace(object):
       state: The state.
     """
     id_ = id(state)
-    if id_ not in self._id2index:
-      self._id2index[id_] = len(self.states)
+    if id_ not in self._state_id_index:
+      self._state_id_index[id_] = len(self.states)
       self.states.append(state)
-      self.types.append('read')
-      self._org_values.append(state._value)  # internal use
+      self.been_writen.append(False)
+      self._original_state_values.append(state._value)  # internal use
       self.new_arg(state)
 
   def write_its_value(self, state: State) -> None:
@@ -384,37 +611,222 @@ class StateTrace(object):
       state: The state.
     """
     id_ = id(state)
-    if id_ not in self._id2index:
+    if id_ not in self._state_id_index:
       self.read_its_value(state)
-    if id_ not in self._written_ids:
-      index = self._id2index[id_]
-      self.types[index] = 'write'
-      self._written_ids.add(id_)
+    index = self._state_id_index[id_]
+    self.been_writen[index] = True
 
-  def collect_values(self, *categories: str, check_val_tree: bool = False) -> Tuple:
+  def get_state_values(self, separate: bool = False, replace: bool = False
+                       ) -> Sequence[PyTree] | Tuple[Sequence[PyTree], Sequence[PyTree]]:
     """
-    Collect the values by the given categories.
-
-    Args:
-      *categories: The categories.
-      check_val_tree: Whether to check the tree structure of the value.
-
-    Returns:
-      results: The values.
+    Get the values of the states.
     """
-    results = []
-    for st, ty in zip(self.states, self.types):
-      if ty in categories:
-        val = st.value
-        if check_val_tree:
-          st._check_value_tree(val)
-        results.append(val)
-    return tuple(results)
+    if separate:
+      if replace:
+        writes, reads = [], []
+        for st, been_writen in zip(self.states, self.been_writen):
+          if been_writen:
+            writes.append(st.value)
+            reads.append(None)
+          else:
+            reads.append(st.value)
+            writes.append(None)
+        return tuple(writes), tuple(reads)
+      else:
+        writes, reads = [], []
+        for st, been_writen in zip(self.states, self.been_writen):
+          if been_writen:
+            writes.append(st.value)
+          else:
+            reads.append(st.value)
+        return tuple(writes), tuple(reads)
+    else:
+      return tuple([st.value for st in self.states])
 
   def recovery_original_values(self) -> None:
     """
     Recovery the original values.
     """
-    for st, val in zip(self.states, self._org_values):
+    for st, val in zip(self.states, self._original_state_values):
       # internal use
       st._value = val
+
+  def merge(self, *traces) -> 'StateTraceStack':
+    """
+    Merge other state traces.
+    """
+    trace: StateTraceStack
+    for trace in traces:
+      for st, been_writen, org_val in zip(trace.states, trace.been_writen, trace._original_state_values):
+        if id(st) not in self._state_id_index:  # read the value
+          self._state_id_index[id(st)] = len(self.states)
+          self._original_state_values.append(org_val)  # add the original value
+          self.states.append(st)  # append the state
+          self.been_writen.append(False)
+        if been_writen:
+          self.write_its_value(st)
+    return self
+
+  def get_read_states(self, replace_writen: bool = False) -> Tuple[State, ...]:
+    """
+    Read the states that are read by the function.
+
+    Returns:
+      The states that are read by the function.
+    """
+    if replace_writen:
+      return tuple([st for st, been_writen in zip(self.states, self.been_writen) if not been_writen])
+    else:
+      return tuple([st if not been_writen else None
+                    for st, been_writen in zip(self.states, self.been_writen)])
+
+  def get_read_state_values(self, replace_writen: bool = False) -> Tuple[PyTree, ...]:
+    """
+    Read the states that are read by the function.
+
+    Returns:
+      The states that are read by the function.
+    """
+    if replace_writen:
+      return tuple([st.value if not been_writen else None for st, been_writen in zip(self.states, self.been_writen)])
+    else:
+      return tuple([st.value for st, been_writen in zip(self.states, self.been_writen) if not been_writen])
+
+  def get_write_states(self, replace_read: bool = False) -> Tuple[State, ...]:
+    """
+    Read the states that are written by the function.
+
+    Returns:
+      The states that are written by the function.
+    """
+    if replace_read:
+      return tuple([st if been_writen else None
+                    for st, been_writen in zip(self.states, self.been_writen)])
+    else:
+      return tuple([st for st, been_writen in zip(self.states, self.been_writen) if been_writen])
+
+  def get_write_state_values(self, replace_read: bool = False) -> Tuple[PyTree, ...]:
+    """
+    Read the states that are written by the function.
+
+    Returns:
+      The states that are written by the function.
+    """
+    if replace_read:
+      return tuple([st.value if been_writen else None for st, been_writen in zip(self.states, self.been_writen)])
+    else:
+      return tuple([st.value for st, been_writen in zip(self.states, self.been_writen) if been_writen])
+
+  def __add__(self, other: 'StateTraceStack') -> 'StateTraceStack':
+    """
+    Support the syntax of `+` to merge the state traces.
+    """
+    return StateTraceStack().merge(self, other)
+
+
+class StateRef(Generic[A], PrettyRepr):
+  """
+  The reference to the state.
+  """
+
+  def __init__(
+      self,
+      type: type[State[Any]],
+      value: A,
+      **metadata
+  ):
+    self.type = type
+    self.value = value
+    vars(self).update(metadata)
+
+  if TYPE_CHECKING:
+    def __getattr__(self, name: str) -> None: ...
+
+    def __setattr__(self, name: str, value: Any) -> None: ...
+
+    def __delattr__(self, name: str) -> None: ...
+
+  def __pretty_repr__(self):
+    yield PrettyType(type=type(self))
+    for name, value in vars(self).items():
+      if name == '_value':
+        name = 'value'
+      if name == '_name':
+        if value is None:
+          continue
+        else:
+          name = 'name'
+      if name in ['_trace_state', '_level', '_source_info']:
+        continue
+      yield PrettyAttr(name, repr(value))
+
+  def __treescope_repr__(self, path, subtree_renderer):
+    children = {'type': self.type}
+    for name, value in vars(self).items():
+      if name == 'type':
+        continue
+      children[name] = value
+
+    import treescope  # type: ignore[import-not-found,import-untyped]
+    return treescope.repr_lib.render_object_constructor(
+      object_type=type(self),
+      attributes=children,
+      path=path,
+      subtree_renderer=subtree_renderer,
+    )
+
+  def replace(self, value: B) -> StateRef[B]:
+    """
+    Replace the value of the state reference.
+    """
+    return StateRef(self.type, value, **self.get_metadata())
+
+  def to_state(self) -> State[A]:
+    """
+    Convert the state reference to the state.
+    """
+    # we use object.__new__ to avoid calling __init__ and bypass the
+    # __init__ logic which should not be called twice
+    metadata = self.get_metadata()
+    state = object.__new__(self.type)
+    vars(state).update(metadata, _value=self.value, _trace_state=StateJaxTracer(), _level=_get_trace_stack_level())
+    return state
+
+  def copy(self: StateRef[A]) -> StateRef[A]:
+    """
+    Copy the state reference.
+    """
+    return jax.tree.map(lambda x: x, self)
+
+  def get_metadata(self) -> Dict[str, Any]:
+    """
+    Get the metadata of the state reference
+    """
+    metadata = vars(self).copy()
+    del metadata['type']
+    del metadata['value']
+    return metadata
+
+
+def _state_ref_flatten(x: StateRef[Any], *, with_keys: bool):
+  metadata = tuple(x.get_metadata().items())
+  if with_keys:
+    node = (jax.tree_util.GetAttrKey('value'), x.value)
+  else:
+    node = x.value
+  return (node,), (x.type, metadata)
+
+
+def _state_ref_unflatten(
+    static: Tuple[type[State[A]], Tuple[Tuple[str, Any], ...]],
+    children: Tuple[A],
+) -> StateRef[A]:
+  return StateRef(type=static[0], value=children[0], **dict(static[1]))
+
+
+jax.tree_util.register_pytree_with_keys(
+  StateRef,
+  partial(_state_ref_flatten, with_keys=True),  # type: ignore
+  _state_ref_unflatten,  # type: ignore
+  flatten_func=partial(_state_ref_flatten, with_keys=False),  # type: ignore
+)

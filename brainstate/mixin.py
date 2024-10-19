@@ -15,14 +15,11 @@
 
 # -*- coding: utf-8 -*-
 
-from typing import Sequence, Optional, TypeVar
-from typing import (_SpecialForm, _type_check, _remove_dups_flatten, _UnionGenericAlias)
+from typing import (Sequence, Optional, TypeVar, _SpecialForm, _type_check, _remove_dups_flatten, _UnionGenericAlias)
 
 from brainstate.typing import PyTree
 
 T = TypeVar('T')
-State = None
-
 
 __all__ = [
   'Mixin',
@@ -42,13 +39,6 @@ __all__ = [
   'Batching',
   'Training',
 ]
-
-
-def _get_state():
-  global State
-  if State is None:
-    from brainstate._state import State
-  return State
 
 
 class Mixin(object):

@@ -13,9 +13,35 @@
 # limitations under the License.
 # ==============================================================================
 
+
+import warnings
+
+
 def set_module_as(module: str):
   def wrapper(fun: callable):
     fun.__module__ = module
     return fun
 
   return wrapper
+
+
+def _deprecate(msg):
+  warnings.simplefilter('always', DeprecationWarning)  # turn off filter
+  warnings.warn(msg, category=DeprecationWarning, stacklevel=2)
+  warnings.simplefilter('default', DeprecationWarning)  # reset filter
+
+
+def deprecation_getattr(module, deprecations):
+  def get_attr(name):
+    if name in deprecations:
+      old_name, new_name, fn = deprecations[name]
+      message = f"{old_name} is deprecated. "
+      if new_name is not None:
+        message += f'Use {new_name} instead.'
+      if fn is None:
+        raise AttributeError(message)
+      _deprecate(message)
+      return fn
+    raise AttributeError(f"module {module!r} has no attribute {name!r}")
+
+  return get_attr
