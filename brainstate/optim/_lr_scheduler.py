@@ -21,8 +21,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from brainstate.graph import Node
 from .. import environ
-from .._module import Module
 from .._state import State, LongTermState
 
 __all__ = [
@@ -53,11 +53,11 @@ def make_schedule(scalar_or_schedule):
     raise TypeError(type(scalar_or_schedule))
 
 
-class LearningRateScheduler(Module):
+class LearningRateScheduler(Node):
   """
   The learning rate scheduler.
 
-  Attributes
+  Parameters
   ----------
   lr: float, State
     The learning rate.

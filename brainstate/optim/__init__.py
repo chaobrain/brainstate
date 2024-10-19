@@ -21,6 +21,12 @@ from ._optax_optimizer import __all__ as optax_all
 from ._sgd_optimizer import *
 from ._sgd_optimizer import __all__ as optimizer_all
 
-__all__ = scheduler_all + optimizer_all + optax_all
+__all__ = (
+    scheduler_all
+    + optimizer_all
+    + optax_all
+)
 
-del optax_all, scheduler_all, optimizer_all
+del (optax_all,
+     scheduler_all,
+     optimizer_all)
