@@ -449,7 +449,15 @@ def leaky_relu(x: ArrayLike, negative_slope: ArrayLike = 1e-2) -> Union[jax.Arra
   return _keep_unit(jax.nn.leaky_relu, x, negative_slope=negative_slope)
 
 
-def hard_tanh(x: ArrayLike) -> Union[jax.Array, u.Quantity]:
+def _hard_tanh(x, min_val=- 1.0, max_val=1.0):
+  return jax.numpy.where(x > max_val, max_val, jax.numpy.where(x < min_val, min_val, x))
+
+
+def hard_tanh(
+    x: ArrayLike,
+    min_val: float = - 1.0,
+    max_val: float = 1.0
+) -> Union[jax.Array, u.Quantity]:
   r"""Hard :math:`\mathrm{tanh}` activation function.
 
   Computes the element-wise function:
@@ -463,11 +471,13 @@ def hard_tanh(x: ArrayLike) -> Union[jax.Array, u.Quantity]:
 
   Args:
     x : input array
+    min_val: float. minimum value of the linear region range. Default: -1
+    max_val: float. maximum value of the linear region range. Default: 1
 
   Returns:
     An array.
   """
-  return _keep_unit(jax.nn.hard_tanh, x)
+  return _keep_unit(_hard_tanh, x, min_val=min_val, max_val=max_val)
 
 
 def celu(x: ArrayLike, alpha: ArrayLike = 1.0) -> Union[jax.Array, u.Quantity]:
