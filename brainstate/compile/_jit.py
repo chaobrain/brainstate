@@ -24,7 +24,9 @@ from jax._src import sharding_impls
 from jax.lib import xla_client as xc
 
 from brainstate._utils import set_module_as
-from ._make_jaxpr import StatefulFunction, _ensure_index_tuple, _assign_state_values
+from brainstate.typing import Missing
+from ._make_jaxpr import StatefulFunction, _ensure_index_tuple
+from ._util import write_back_state_values
 
 __all__ = ['jit']
 
@@ -37,6 +39,9 @@ class JittedFunction(Callable):
   stateful_fun: StatefulFunction  # the stateful function for extracting states
   jitted_fun: jax.stages.Wrapped  # the jitted function
   clear_cache: Callable  # clear the cache of the jitted function
+  eval_shape: Callable  # evaluate the shape of the jitted function
+  lower: Callable  # lower the jitted function
+  trace: Callable  # trace the jitted
 
   def __call__(self, *args, **kwargs):
     pass
@@ -76,16 +81,50 @@ def _get_jitted_fun(
   def jitted_fun(*args, **params):
     if jax.config.jax_disable_jit:
       return fun.fun(*args, **params)
-    states = fun.compile_and_get_states_by_static_args(*args, **params)
-    state_vals, outs = jit_fun([st.value for st in states], *args, **params)
-    _assign_state_values(states, state_vals)
+
+    # compile the function and get the state trace
+    state_trace = fun.compile_function_and_get_state_trace(*args, **params, return_only_write=True)
+    read_state_vals = state_trace.get_read_state_values(True)
+    # call the jitted function
+    write_state_vals, outs = jit_fun(state_trace.get_state_values(), *args, **params)
+    # write the state values back to the states
+    write_back_state_values(state_trace, read_state_vals, write_state_vals)
     return outs
 
   def clear_cache():
+    """
+    Clear the cache of the jitted function.
+    """
     # clear the cache of the stateful function
     fun.clear_cache()
     # clear the cache of the jitted function
     jit_fun.clear_cache()
+
+  def eval_shape():
+    raise NotImplementedError
+
+  def lower():
+    """Lower this function explicitly for the given arguments.
+
+    A lowered function is staged out of Python and translated to a
+    compiler's input language, possibly in a backend-dependent
+    manner. It is ready for compilation but not yet compiled.
+
+    Returns:
+      A ``Lowered`` instance representing the lowering.
+    """
+    raise NotImplementedError
+
+  def trace():
+    """Trace this function explicitly for the given arguments.
+
+    A traced function is staged out of Python and translated to a jaxpr. It is
+    ready for lowering but not yet lowered.
+
+    Returns:
+      A ``Traced`` instance representing the tracing.
+    """
+    raise NotImplementedError
 
   jitted_fun: JittedFunction
 
@@ -101,12 +140,21 @@ def _get_jitted_fun(
   # clear cache
   jitted_fun.clear_cache = clear_cache
 
+  # evaluate the shape of the jitted function
+  jitted_fun.eval_shape = eval_shape
+
+  # lower the jitted function
+  jitted_fun.lower = lower
+
+  # trace the jitted
+  jitted_fun.trace = trace
+
   return jitted_fun
 
 
 @set_module_as('brainstate.compile')
 def jit(
-    fun: Callable = None,
+    fun: Callable | Missing = Missing(),
     in_shardings=sharding_impls.UNSPECIFIED,
     out_shardings=sharding_impls.UNSPECIFIED,
     static_argnums: int | Sequence[int] | None = None,
@@ -233,19 +281,19 @@ def jit(
 
   """
 
-  if fun is None:
+  if isinstance(fun, Missing):
     def wrapper(fun_again: Callable) -> JittedFunction:
       return _get_jitted_fun(fun_again,
-                             in_shardings,
-                             out_shardings,
-                             static_argnums,
-                             donate_argnums,
-                             donate_argnames,
-                             keep_unused,
-                             device,
-                             backend,
-                             inline,
-                             abstracted_axes,
+                             in_shardings=in_shardings,
+                             out_shardings=out_shardings,
+                             static_argnums=static_argnums,
+                             donate_argnums=donate_argnums,
+                             donate_argnames=donate_argnames,
+                             keep_unused=keep_unused,
+                             device=device,
+                             backend=backend,
+                             inline=inline,
+                             abstracted_axes=abstracted_axes,
                              **kwargs)
 
     return wrapper

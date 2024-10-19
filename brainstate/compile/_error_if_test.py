@@ -25,31 +25,28 @@ import brainstate as bst
 class TestJitError(unittest.TestCase):
   def test1(self):
     with self.assertRaises(jaxlib.xla_extension.XlaRuntimeError):
-      bst.transform.jit_error_if(True, 'error')
+      bst.compile.jit_error_if(True, 'error')
 
     def err_f(x):
       raise ValueError(f'error: {x}')
 
     with self.assertRaises(jaxlib.xla_extension.XlaRuntimeError):
-      bst.transform.jit_error_if(True, err_f, 1.)
+      bst.compile.jit_error_if(True, err_f, 1.)
 
   def test_vmap(self):
-
     def f(x):
-      bst.transform.jit_error_if(x, 'error: {x}', x=x)
+      bst.compile.jit_error_if(x, 'error: {x}', x=x)
 
     jax.vmap(f)(jnp.array([False, False, False]))
     with self.assertRaises(jaxlib.xla_extension.XlaRuntimeError):
       jax.vmap(f)(jnp.array([True, False, False]))
 
   def test_vmap_vmap(self):
-
     def f(x):
-      bst.transform.jit_error_if(x, 'error: {x}', x=x)
+      bst.compile.jit_error_if(x, 'error: {x}', x=x)
 
     jax.vmap(jax.vmap(f))(jnp.array([[False, False, False],
                                      [False, False, False]]))
     with self.assertRaises(jaxlib.xla_extension.XlaRuntimeError):
       jax.vmap(jax.vmap(f))(jnp.array([[False, False, False],
                                        [True, False, False]]))
-

@@ -24,8 +24,8 @@ import brainstate as bst
 class TestCond(unittest.TestCase):
   def test1(self):
     bst.random.seed(1)
-    bst.transform.cond(True, lambda: bst.random.random(10), lambda: bst.random.random(10))
-    bst.transform.cond(False, lambda: bst.random.random(10), lambda: bst.random.random(10))
+    bst.compile.cond(True, lambda: bst.random.random(10), lambda: bst.random.random(10))
+    bst.compile.cond(False, lambda: bst.random.random(10), lambda: bst.random.random(10))
 
   def test2(self):
     st1 = bst.State(bst.random.rand(10))
@@ -39,7 +39,7 @@ class TestCond(unittest.TestCase):
     def false_fun(x):
       st3.value = (st3.value + 1.) * x
 
-    bst.transform.cond(True, true_fun, false_fun, 2.)
+    bst.compile.cond(True, true_fun, false_fun, 2.)
     assert not isinstance(st1.value, jax.core.Tracer)
     assert not isinstance(st2.value, jax.core.Tracer)
     assert not isinstance(st3.value, jax.core.Tracer)
@@ -65,7 +65,7 @@ class TestSwitch(unittest.TestCase):
         return branches[2](x)
 
     def cfun(x):
-      return bst.transform.switch(x, branches, x)
+      return bst.compile.switch(x, branches, x)
 
     self.assertEqual(fun(-1), cfun(-1))
     self.assertEqual(fun(0), cfun(0))
@@ -89,7 +89,7 @@ class TestSwitch(unittest.TestCase):
       return branches[i](x, x)
 
     def cfun(x):
-      return bst.transform.switch(x, branches, x, x)
+      return bst.compile.switch(x, branches, x, x)
 
     self.assertEqual(fun(-1), cfun(-1))
     self.assertEqual(fun(0), cfun(0))
@@ -122,13 +122,13 @@ class TestSwitch(unittest.TestCase):
     branches3 = branches2 + [lambda x: jnp.sin(x) + jnp.cos(x)]  # requires one more residual slot
 
     def fun1(x, i):
-      return bst.transform.switch(i + 1, branches1, x)
+      return bst.compile.switch(i + 1, branches1, x)
 
     def fun2(x, i):
-      return bst.transform.switch(i + 1, branches2, x)
+      return bst.compile.switch(i + 1, branches2, x)
 
     def fun3(x, i):
-      return bst.transform.switch(i + 1, branches3, x)
+      return bst.compile.switch(i + 1, branches3, x)
 
     fwd1, bwd1 = get_conds(fun1)
     fwd2, bwd2 = get_conds(fun2)
@@ -148,7 +148,7 @@ class TestSwitch(unittest.TestCase):
 
   def testOneBranchSwitch(self):
     branch = lambda x: -x
-    f = lambda i, x: bst.transform.switch(i, [branch], x)
+    f = lambda i, x: bst.compile.switch(i, [branch], x)
     x = 7.
     self.assertEqual(f(-1, x), branch(x))
     self.assertEqual(f(0, x), branch(x))
@@ -166,16 +166,16 @@ class TestSwitch(unittest.TestCase):
 class TestIfElse(unittest.TestCase):
   def test1(self):
     def f(a):
-      return bst.transform.ifelse(conditions=[a < 0,
-                                              a >= 0 and a < 2,
-                                              a >= 2 and a < 5,
-                                              a >= 5 and a < 10,
-                                              a >= 10],
-                                  branches=[lambda: 1,
-                                           lambda: 2,
-                                           lambda: 3,
-                                           lambda: 4,
-                                           lambda: 5])
+      return bst.compile.ifelse(conditions=[a < 0,
+                                            a >= 0 and a < 2,
+                                            a >= 2 and a < 5,
+                                            a >= 5 and a < 10,
+                                            a >= 10],
+                                branches=[lambda: 1,
+                                          lambda: 2,
+                                          lambda: 3,
+                                          lambda: 4,
+                                          lambda: 5])
 
     self.assertTrue(f(3) == 3)
     self.assertTrue(f(1) == 2)
@@ -183,17 +183,17 @@ class TestIfElse(unittest.TestCase):
 
   def test_vmap(self):
     def f(operands):
-      f = lambda a: bst.transform.ifelse([a > 10,
-                                          jnp.logical_and(a <= 10, a > 5),
-                                          jnp.logical_and(a <= 5, a > 2),
-                                          jnp.logical_and(a <= 2, a > 0),
-                                          a <= 0],
-                                         [lambda _: 1,
-                                         lambda _: 2,
-                                         lambda _: 3,
-                                         lambda _: 4,
-                                         lambda _: 5, ],
-                                         a)
+      f = lambda a: bst.compile.ifelse([a > 10,
+                                        jnp.logical_and(a <= 10, a > 5),
+                                        jnp.logical_and(a <= 5, a > 2),
+                                        jnp.logical_and(a <= 2, a > 0),
+                                        a <= 0],
+                                       [lambda _: 1,
+                                        lambda _: 2,
+                                        lambda _: 3,
+                                        lambda _: 4,
+                                        lambda _: 5, ],
+                                       a)
       return jax.vmap(f)(operands)
 
     r = f(bst.random.randint(-20, 20, 200))
@@ -201,20 +201,20 @@ class TestIfElse(unittest.TestCase):
 
   def test_grad1(self):
     def F2(x):
-      return bst.transform.ifelse((x >= 10, x < 10),
-                                  [lambda x: x, lambda x: x ** 2, ],
-                                  x)
+      return bst.compile.ifelse((x >= 10, x < 10),
+                                [lambda x: x, lambda x: x ** 2, ],
+                                x)
 
     self.assertTrue(jax.grad(F2)(9.0) == 18.)
     self.assertTrue(jax.grad(F2)(11.0) == 1.)
 
   def test_grad2(self):
     def F3(x):
-      return bst.transform.ifelse((x >= 10, jnp.logical_and(x >= 0, x < 10), x < 0),
-                                  [lambda x: x,
-                                  lambda x: x ** 2,
-                                  lambda x: x ** 4, ],
-                                  x)
+      return bst.compile.ifelse((x >= 10, jnp.logical_and(x >= 0, x < 10), x < 0),
+                                [lambda x: x,
+                                 lambda x: x ** 2,
+                                 lambda x: x ** 4, ],
+                                x)
 
     self.assertTrue(jax.grad(F3)(9.0) == 18.)
     self.assertTrue(jax.grad(F3)(11.0) == 1.)

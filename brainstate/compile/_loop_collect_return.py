@@ -23,23 +23,28 @@ import jax
 import jax.numpy as jnp
 
 from brainstate._utils import set_module_as
-from brainstate.augment._unvmap import unvmap
-from ._make_jaxpr import StatefulFunction, _assign_state_values
+from ._make_jaxpr import StatefulFunction
 from ._progress_bar import ProgressBar
+from ._unvmap import unvmap
+from ._util import write_back_state_values, wrap_single_fun
+
+__all__ = [
+  # "scan" syntax, which is similar to jax.lax.scan
+  'scan', 'checkpointed_scan',
+  # "for_loop" syntax
+  'for_loop', 'checkpointed_for_loop',
+]
 
 X = TypeVar('X')
 Y = TypeVar('Y')
 T = TypeVar('T')
 Carry = TypeVar('Carry')
 
-__all__ = [
-  # for loop & scan
-  'scan', 'checkpointed_scan',
-  'for_loop', 'checkpointed_for_loop',
-]
 
-
-def _wrap_fun_with_pbar(fun, pbar_runner):
+def _wrap_fun_with_pbar(
+    fun: Callable[[Carry, X], Tuple[Carry, Y]],
+    pbar_runner: Callable
+):
   @wraps(fun)
   def new_fun(new_carry, inputs):
     i, old_carry = new_carry
@@ -48,19 +53,6 @@ def _wrap_fun_with_pbar(fun, pbar_runner):
     return (i + 1, old_carry), old_outputs
 
   return new_fun
-
-
-def _wrapped_scan_fun(stateful_fun: StatefulFunction, states):
-  @wraps(stateful_fun.fun)
-  def wrapped_fun(new_carry, inputs):
-    state_vals, carry = new_carry
-    assert len(states) == len(state_vals)
-    for st, val in zip(states, state_vals):
-      st.value = val
-    carry, out = stateful_fun.jaxpr_call_auto(carry, inputs)
-    return (tuple(st.value for st in states), carry), out
-
-  return wrapped_fun
 
 
 @set_module_as('brainstate.compile')
@@ -210,13 +202,17 @@ def scan(
   xs_avals = [jax.core.raise_to_shaped(jax.core.get_aval(x)) for x in xs_flat]
   x_avals = [jax.core.mapped_aval(length, 0, aval) for aval in xs_avals]
   stateful_fun = StatefulFunction(f).make_jaxpr(init, xs_tree.unflatten(x_avals))
-  all_states = stateful_fun.get_states()
-  wrapped_f = _wrapped_scan_fun(stateful_fun, all_states)
+  state_trace = stateful_fun.get_state_trace()
+  all_writen_state_vals = state_trace.get_write_state_values(True)
+  all_read_state_vals = state_trace.get_read_state_values(True)
+  wrapped_f = wrap_single_fun(stateful_fun, state_trace.been_writen, all_read_state_vals)
 
   # scan
-  init = (tuple(st.value for st in all_states), init)
-  (state_vals, carry), ys = jax.lax.scan(wrapped_f, init, xs, length=length, reverse=reverse, unroll=unroll)
-  _assign_state_values(all_states, state_vals)
+  init = (all_writen_state_vals, init)
+  (all_writen_state_vals, carry), ys = jax.lax.scan(wrapped_f, init, xs, length=length, reverse=reverse, unroll=unroll)
+  # assign the written state values and restore the read state values
+  write_back_state_values(state_trace, all_read_state_vals, all_writen_state_vals)
+  # carry
   if has_pbar:
     carry = carry[1]
   return carry, ys
@@ -229,7 +225,7 @@ def checkpointed_scan(
     length: Optional[int] = None,
     base: int = 16,
     pbar: Optional[ProgressBar] = None,
-):
+) -> Tuple[Carry, Y]:
   """
   Scan a function over leading array axes while carrying along state.
   This function is similar to :func:`~scan` but with a checkpointed version.
@@ -295,10 +291,14 @@ def checkpointed_scan(
   xs_avals = [jax.core.raise_to_shaped(jax.core.get_aval(x)) for x in xs_flat]
   x_avals = [jax.core.mapped_aval(length, 0, aval) for aval in xs_avals]
   stateful_fun = StatefulFunction(f).make_jaxpr(init, xs_tree.unflatten(x_avals))
-  all_states = stateful_fun.get_states()
-  out_info = stateful_fun.get_out_shapes()[0]
+  state_trace = stateful_fun.get_state_trace()
+  # get all states
+  been_written = state_trace.been_writen
+  read_state_vals = state_trace.get_read_state_values(True)
+  write_state_vals = state_trace.get_write_state_values(True)
 
   # initialize the collected values/dataa
+  out_info = stateful_fun.get_out_shapes()[0]
   assert len(out_info) == 2, "function in checkpointed_scan should return two data: carray and out."
   data2collection = jax.tree.map(lambda x: jnp.zeros((length,) + x.shape, x.dtype), out_info[1])
   del out_info
@@ -307,44 +307,55 @@ def checkpointed_scan(
     return inp[-1] < length
 
   def wrapped_body_fun(inp):
-    (prev_states, carray), prev_collect, i = inp
+    (prev_write_states, carray), prev_collect, i = inp
     # progress bar
     if pbar_runner is not None:
       pbar_runner(unvmap(i, op='none'))
     # call the function
+    prev_states = [w_val if write else r_val
+                   for write, w_val, r_val in zip(been_written, prev_write_states, read_state_vals)]
     new_states, (new_carray, out4updates) = stateful_fun.jaxpr_call(
-      prev_states, carray, jax.tree.map(lambda x: x[i], xs))
-    # out of bounds
+      prev_states, carray, jax.tree.map(lambda x: x[i], xs)
+    )
+    # new written states
+    new_write_states = tuple([val if write else None for write, val in zip(been_written, new_states)])
+
+    # out of length
     pred = i < length
     new_collect = jax.tree.map(
-      lambda x, update: x.at[i].set(jax.lax.select(pred, update, x[i])),
+      # lambda x, update: x.at[i].set(jax.lax.select(pred, update, x[i])),
+      lambda x, update: jax.lax.select(pred, x.at[i].set(update), x),
       prev_collect,
       out4updates,
     )
-    new_states = jax.tree.map(
-      lambda ps, ns: jax.lax.select(pred, ns, ps),
-      prev_states,
-      new_states,
+    new_write_states = jax.tree.map(
+      lambda ps, ns: None if ns is None else jax.lax.select(pred, ns, ps),
+      prev_write_states,
+      new_write_states,
+      is_leaf=lambda x: x is None
     )
     new_carray = jax.tree.map(
       lambda pc, nc: jax.lax.select(pred, nc, pc),
       carray,
       new_carray,
     )
-    return (new_states, new_carray), new_collect, i + 1
+    return (new_write_states, new_carray), new_collect, i + 1
 
   # while_loop
   rounded_max_steps = base ** int(math.ceil(math.log(length, base)))
-  (state_vals, carry), data2collection, _ = _bounded_while_loop(
-    wrapped_cond_fun,
-    wrapped_body_fun,
-    ((tuple(st.value for st in all_states), init), data2collection, 0),
-    rounded_max_steps,
-    base,
-    pbar_runner
+  (write_state_vals, carry), data2collection, _ = (
+    _bounded_while_loop(
+      wrapped_cond_fun,
+      wrapped_body_fun,
+      ((write_state_vals, init), data2collection, 0),
+      rounded_max_steps,
+      base,
+      pbar_runner
+    )
   )
-  _assign_state_values(all_states, state_vals)
-  del state_vals, all_states, stateful_fun
+  # assign the written state values and restore the read state values
+  write_back_state_values(state_trace, read_state_vals, write_state_vals)
+  del write_state_vals, read_state_vals, stateful_fun
   return carry, data2collection
 
 
@@ -358,13 +369,13 @@ def _forloop_to_scan_fun(f: Callable):
 
 @set_module_as('brainstate.compile')
 def for_loop(
-    f: Callable[[X], Y],
+    f: Callable[..., Y],
     *xs,
     length: Optional[int] = None,
     reverse: bool = False,
     unroll: int | bool = 1,
     pbar: Optional[ProgressBar] = None
-):
+) -> Y:
   """
   ``for-loop`` control flow with :py:class:`~.State`.
 
@@ -411,12 +422,12 @@ def for_loop(
 
 
 def checkpointed_for_loop(
-    f: Callable[[X], Y],
+    f: Callable[..., Y],
     *xs: X,
     length: Optional[int] = None,
     base: int = 16,
     pbar: Optional[ProgressBar] = None,
-):
+) -> Y:
   """
   ``for-loop`` control flow with :py:class:`~.State` with a checkpointed version, similar to :py:func:`for_loop`.
 

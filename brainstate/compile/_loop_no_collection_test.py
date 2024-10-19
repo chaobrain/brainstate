@@ -13,20 +13,23 @@
 # limitations under the License.
 # ==============================================================================
 
-"""
 
-This module defines the basic classes for synaptic projections.
+from unittest import TestCase
 
-"""
+import brainstate as bst
 
-from ._align_post import *
-from ._align_post import __all__ as align_post_all
-from ._align_pre import *
-from ._align_pre import __all__ as align_pre_all
-from ._delta import *
-from ._delta import __all__ as delta_all
-from ._vanilla import *
-from ._vanilla import __all__ as vanilla_all
 
-__all__ = align_post_all + align_pre_all + delta_all + vanilla_all
-del align_post_all, align_pre_all, delta_all, vanilla_all
+class TestWhileLoop(TestCase):
+  def test1(self):
+    a = bst.State(1.)
+    b = bst.State(20.)
+
+    def cond(_):
+      return a.value < b.value
+
+    def body(_):
+      a.value += 1.
+
+    bst.compile.while_loop(cond, body, None)
+
+    print(a.value, b.value)

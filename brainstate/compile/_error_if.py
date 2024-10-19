@@ -22,7 +22,7 @@ from typing import Callable, Union
 import jax
 
 from brainstate._utils import set_module_as
-from brainstate.augment._unvmap import unvmap
+from ._unvmap import unvmap
 
 __all__ = [
   'jit_error_if',

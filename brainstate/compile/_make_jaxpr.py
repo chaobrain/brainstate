@@ -64,14 +64,15 @@ import jax
 from jax._src import source_info_util
 from jax._src.linear_util import annotate
 from jax._src.traceback_util import api_boundary
+from jax.api_util import shaped_abstractify
 from jax.extend.linear_util import transformation_with_aux, wrap_init
 from jax.interpreters import partial_eval as pe
-from jax.interpreters.xla import abstractify
 from jax.util import wraps
 
-from brainstate._state import State, StateTrace
+from brainstate._state import State, StateTraceStack
 from brainstate._utils import set_module_as
 from brainstate.typing import PyTree
+from brainstate.util._tracers import new_jax_trace
 
 AxisName = Hashable
 
@@ -79,19 +80,6 @@ __all__ = [
   "StatefulFunction",
   "make_jaxpr",
 ]
-
-
-def _assign_state_values(states, state_vals) -> None:
-  """
-  Assign the state values to the states.
-
-  Args:
-    states: The states.
-    state_vals: The state values.
-  """
-  assert len(states) == len(state_vals), f'State length mismatch. {len(states)} != {len(state_vals)}.'
-  for st, val in zip(states, state_vals):
-    st.value = val
 
 
 def _ensure_index_tuple(x: Any) -> tuple[int, ...]:
@@ -103,7 +91,7 @@ def _ensure_index_tuple(x: Any) -> tuple[int, ...]:
     return tuple(jax.util.safe_map(operator.index, x))
 
 
-def _new_arg(frame, trace, aval):
+def _new_arg_fn(frame, trace, aval):
   """
   Transform a new argument to a tracer.
 
@@ -124,19 +112,28 @@ def _new_arg(frame, trace, aval):
   return tracer
 
 
-def wrapped_abstractify(x: Any) -> Any:
-  """
-  Abstractify the input.
+def _init_state_trace() -> StateTraceStack:
+  # Should be within the calling of ``jax.make_jaxpr()``
+  frame, trace = new_jax_trace()
+  state_trace: StateTraceStack = StateTraceStack()
+  # Set the function to transform the new argument to a tracer
+  state_trace.set_new_arg(functools.partial(_new_arg_fn, frame, trace))
+  return state_trace
 
-  Args:
-    x: The input.
 
-  Returns:
-    The abstractified input.
-  """
-  if isinstance(x, pe.DynamicJaxprTracer):
-    return jax.core.ShapedArray(x.aval.shape, x.aval.dtype, weak_type=x.aval.weak_type)
-  return abstractify(x)
+# def wrapped_abstractify(x: Any) -> Any:
+#   """
+#   Abstractify the input.
+#
+#   Args:
+#     x: The input.
+#
+#   Returns:
+#     The abstractified input.
+#   """
+#   if isinstance(x, pe.DynamicJaxprTracer):
+#     return jax.core.ShapedArray(x.aval.shape, x.aval.dtype, weak_type=x.aval.weak_type)
+#   return shaped_abstractify(x)
 
 
 class StatefulFunction(object):
@@ -195,13 +192,13 @@ class StatefulFunction(object):
     self.abstracted_axes = abstracted_axes
     self.state_returns = tuple(state_returns) if isinstance(state_returns, (tuple, list)) else (state_returns,)
     assert cache_type in [None, 'jit']
-    self.cache_type = cache_type
 
     # implicit parameters
-    self._jaxpr: Dict[Any, jax.core.ClosedJaxpr] = dict()
-    self._out_shapes: Dict[Any, PyTree] = dict()
-    self._jaxpr_out_tree: Dict[Any, PyTree] = dict()
-    self._state_trace: Dict[Any, StateTrace] = dict()
+    self.cache_type = cache_type
+    self._cached_jaxpr: Dict[Any, jax.core.ClosedJaxpr] = dict()
+    self._cached_out_shapes: Dict[Any, PyTree] = dict()
+    self._cached_jaxpr_out_tree: Dict[Any, PyTree] = dict()
+    self._cached_state_trace: Dict[Any, StateTraceStack] = dict()
 
   def __repr__(self) -> str:
     return (f"{self.__class__.__name__}({self.fun}, "
@@ -220,9 +217,9 @@ class StatefulFunction(object):
     Returns:
       The JAX Jaxpr representation of the function.
     """
-    if cache_key not in self._jaxpr:
+    if cache_key not in self._cached_jaxpr:
       raise ValueError(f"the function is not called with the static arguments: {cache_key}")
-    return self._jaxpr[cache_key]
+    return self._cached_jaxpr[cache_key]
 
   def get_out_shapes(self, cache_key: Hashable = ()) -> PyTree:
     """
@@ -234,9 +231,9 @@ class StatefulFunction(object):
     Returns:
       The output shapes of the function.
     """
-    if cache_key not in self._out_shapes:
+    if cache_key not in self._cached_out_shapes:
       raise ValueError(f"the function is not called with the static arguments: {cache_key}")
-    return self._out_shapes[cache_key]
+    return self._cached_out_shapes[cache_key]
 
   def get_out_treedef(self, cache_key: Hashable = ()) -> PyTree:
     """
@@ -248,9 +245,23 @@ class StatefulFunction(object):
     Returns:
       The output tree of the function.
     """
-    if cache_key not in self._jaxpr_out_tree:
+    if cache_key not in self._cached_jaxpr_out_tree:
       raise ValueError(f"the function is not called with the static arguments: {cache_key}")
-    return self._jaxpr_out_tree[cache_key]
+    return self._cached_jaxpr_out_tree[cache_key]
+
+  def get_state_trace(self, cache_key: Hashable = ()) -> StateTraceStack:
+    """
+    Read the state trace of the function.
+
+    Args:
+      cache_key: The hashable key.
+
+    Returns:
+      The state trace of the function.
+    """
+    if cache_key not in self._cached_state_trace:
+      raise ValueError(f"the function is not called with the static arguments: {cache_key}")
+    return self._cached_state_trace[cache_key]
 
   def get_states(self, cache_key: Hashable = ()) -> Tuple[State, ...]:
     """
@@ -262,9 +273,7 @@ class StatefulFunction(object):
     Returns:
       The states that are read and written by the function.
     """
-    if cache_key not in self._state_trace:
-      raise ValueError(f"the function is not called with the static arguments: {cache_key}")
-    return tuple(self._state_trace[cache_key].states)
+    return tuple(self.get_state_trace(cache_key).states)
 
   def get_read_states(self, cache_key: Hashable = ()) -> Tuple[State, ...]:
     """
@@ -276,8 +285,7 @@ class StatefulFunction(object):
     Returns:
       The states that are read by the function.
     """
-    _state_trace = self._state_trace[cache_key]
-    return tuple([st for st, ty in zip(_state_trace.states, _state_trace.types) if ty == 'read'])
+    return self.get_state_trace(cache_key).get_read_states()
 
   def get_write_states(self, cache_key: Hashable = ()) -> Tuple[State, ...]:
     """
@@ -289,8 +297,7 @@ class StatefulFunction(object):
     Returns:
       The states that are written by the function.
     """
-    state_trace = self._state_trace[cache_key]
-    return tuple([st for st, ty in zip(state_trace.states, state_trace.types) if ty == 'write'])
+    return self.get_state_trace(cache_key).get_write_states()
 
   def get_arg_cache_key(self, *args, **kwargs) -> Tuple:
     """
@@ -309,8 +316,8 @@ class StatefulFunction(object):
           static_args.append(arg)
         else:
           dyn_args.append(arg)
-      dyn_args = jax.tree.map(wrapped_abstractify, jax.tree.leaves(dyn_args))
-      dyn_kwargs = jax.tree.map(wrapped_abstractify, jax.tree.leaves(kwargs))
+      dyn_args = jax.tree.map(shaped_abstractify, jax.tree.leaves(dyn_args))
+      dyn_kwargs = jax.tree.map(shaped_abstractify, jax.tree.leaves(kwargs))
       return tuple([tuple(static_args), tuple(dyn_args), tuple(dyn_kwargs)])
     elif self.cache_type is None:
       num_arg = len(args)
@@ -318,9 +325,9 @@ class StatefulFunction(object):
     else:
       raise ValueError(f"Invalid cache type: {self.cache_type}")
 
-  def compile_and_get_states_by_static_args(self, *args, **kwargs) -> Tuple[State, ...]:
+  def compile_function_and_get_states(self, *args, **kwargs) -> Tuple[State, ...]:
     """
-    Get the states that are read and written by the function.
+    Compile the function, and get the states that are read and written by this function.
 
     Args:
       *args: The arguments to the function.
@@ -330,30 +337,41 @@ class StatefulFunction(object):
       The states that are read and written by the function.
     """
     cache_key = self.get_arg_cache_key(*args, **kwargs)
-    if cache_key not in self._state_trace:
+    if cache_key not in self._cached_state_trace:
       self.make_jaxpr(*args, **kwargs)
     return self.get_states(cache_key)
+
+  def compile_function_and_get_state_trace(
+      self, *args, return_only_write: bool = False, **kwargs
+  ) -> StateTraceStack:
+    """
+    Compile the function, and get the states that are read and written by this function.
+
+    Args:
+      *args: The arguments to the function.
+      **kwargs: The keyword arguments to the function.
+      return_only_write: If True, only return the states that are written by the function.
+
+    Returns:
+      The state trace stack.
+    """
+    cache_key = self.get_arg_cache_key(*args, **kwargs)
+    if cache_key not in self._cached_state_trace:
+      self.make_jaxpr(*args, **kwargs, return_only_write=return_only_write)
+    return self.get_state_trace(cache_key)
 
   def clear_cache(self) -> None:
     """
     Clear the compilation cache.
     """
-    self._jaxpr.clear()
-    self._out_shapes.clear()
-    self._jaxpr_out_tree.clear()
-    self._state_trace.clear()
+    self._cached_jaxpr.clear()
+    self._cached_out_shapes.clear()
+    self._cached_jaxpr_out_tree.clear()
+    self._cached_state_trace.clear()
 
-  @staticmethod
-  def _init_trace_and_newarg() -> StateTrace:
-    # Should be within the calling of ``jax.make_jaxpr()``
-    state_trace: StateTrace = StateTrace()
-    main = jax.core.thread_local_state.trace_state.trace_stack.stack[-1]
-    frame = main.jaxpr_stack[-1]
-    trace = pe.DynamicJaxprTrace(main, jax.core.cur_sublevel())
-    state_trace.set_new_arg(functools.partial(_new_arg, frame, trace))
-    return state_trace
-
-  def _wrapped_fun_to_eval(self, cache_key, *args, **kwargs) -> Tuple[Any, Tuple[State, ...]]:
+  def _wrapped_fun_to_eval(
+      self, cache_key, *args, return_only_write: bool = False, **kwargs,
+  ) -> Tuple[Any, Tuple[State, ...]]:
     """
     Wrap the function and return the states that are read and written by the function and the output of the function.
 
@@ -365,12 +383,12 @@ class StatefulFunction(object):
       A tuple of the states that are read and written by the function and the output of the function.
     """
     # state trace
-    _state_trace = self._init_trace_and_newarg()
-    self._state_trace[cache_key] = _state_trace
-    with _state_trace:
+    state_trace = _init_state_trace()
+    self._cached_state_trace[cache_key] = state_trace
+    with state_trace:
       out = self.fun(*args, **kwargs)
-      state_values = _state_trace.collect_values('read', 'write', check_val_tree=True)
-    _state_trace.recovery_original_values()
+      state_values = state_trace.get_write_state_values(True) if return_only_write else state_trace.get_state_values()
+    state_trace.recovery_original_values()
 
     # State instance as functional returns is not allowed.
     # Checking whether the states are returned.
@@ -379,7 +397,7 @@ class StatefulFunction(object):
         leaf._raise_error_with_source_info(ValueError(f"State object is not allowed to be returned: {leaf}"))
     return out, state_values
 
-  def make_jaxpr(self, *args, **kwargs):
+  def make_jaxpr(self, *args, return_only_write: bool = False, **kwargs):
     """Creates a function that produces its jaxpr given example args.
 
     A ``ClosedJaxpr`` representation of ``fun`` on those arguments. If the
@@ -396,11 +414,11 @@ class StatefulFunction(object):
     # static args
     cache_key = self.get_arg_cache_key(*args, **kwargs)
 
-    if cache_key not in self._state_trace:
+    if cache_key not in self._cached_state_trace:
       try:
         # jaxpr
         jaxpr, (out_shapes, state_shapes) = _make_jaxpr(
-          functools.partial(self._wrapped_fun_to_eval, cache_key),
+          functools.partial(self._wrapped_fun_to_eval, cache_key, return_only_write=return_only_write),
           static_argnums=self.static_argnums,
           axis_env=self.axis_env,
           return_shape=True,
@@ -408,12 +426,12 @@ class StatefulFunction(object):
         )(*args, **kwargs)
 
         # returns
-        self._jaxpr_out_tree[cache_key] = jax.tree.structure((out_shapes, state_shapes))
-        self._out_shapes[cache_key] = (out_shapes, state_shapes)
-        self._jaxpr[cache_key] = jaxpr
+        self._cached_jaxpr_out_tree[cache_key] = jax.tree.structure((out_shapes, state_shapes))
+        self._cached_out_shapes[cache_key] = (out_shapes, state_shapes)
+        self._cached_jaxpr[cache_key] = jaxpr
       except Exception as e:
         try:
-          self._state_trace.pop(cache_key)
+          self._cached_state_trace.pop(cache_key)
         except KeyError:
           pass
         raise e
@@ -436,15 +454,14 @@ class StatefulFunction(object):
     cache_key = self.get_arg_cache_key(*args, **kwargs)
     states: Sequence[State] = self.get_states(cache_key)
     assert len(state_vals) == len(states), 'State length mismatch.'
-    # # No need to check, because the make_jaxpr() has been checked whether the value's tree is correct.
-    # for val, st in zip(state_vals, states):  # check state's value tree structure
-    #   st._check_value_tree(val)
 
     # parameters
     args = tuple(args[i] for i in range(len(args)) if i not in self.static_argnums)
     args = jax.tree.flatten((args, kwargs, state_vals))[0]
 
-    # calling the function
+    # calling the function,
+    # note that this function always returns state values
+    # that both write and read by the function
     closed_jaxpr = self.get_jaxpr(cache_key)
     out_treedef = self.get_out_treedef(cache_key)
     jaxpr_outs = jax.core.eval_jaxpr(closed_jaxpr.jaxpr, closed_jaxpr.consts, *args)
@@ -452,9 +469,6 @@ class StatefulFunction(object):
     # output processing
     out, new_state_vals = out_treedef.unflatten(jaxpr_outs)
     assert len(new_state_vals) == len(state_vals), 'State length mismatch.'
-    # # No need to check, because the make_jaxpr() has been checked whether the value's tree is correct.
-    # for val, st in zip(new_state_vals, states):  # check state's value tree structure
-    #   st._check_value_tree(val)
     return new_state_vals, out
 
   def jaxpr_call_auto(self, *args, **kwargs) -> Any:
@@ -468,11 +482,13 @@ class StatefulFunction(object):
     Returns:
       The output of the function.
     """
-    cache_key = self.get_arg_cache_key(*args, **kwargs)
-    states = self.get_states(cache_key)
-    state_vals, out = self.jaxpr_call([st.value for st in states], *args, **kwargs)
-    for st, val in zip(states, state_vals):
-      st.value = val
+    state_trace = self.get_state_trace(self.get_arg_cache_key(*args, **kwargs))
+    state_vals, out = self.jaxpr_call([st.value for st in state_trace.states], *args, **kwargs)
+    for st, written, val in zip(state_trace.states, state_trace.been_writen, state_vals):
+      if written:
+        st.write_value(val)
+      else:
+        st.restore_value(val)
     return out
 
 

@@ -15,9 +15,7 @@
 
 from __future__ import annotations
 
-import operator
 from collections.abc import Callable, Sequence
-from functools import wraps, reduce
 
 import jax
 import jax.numpy as jnp
@@ -25,25 +23,12 @@ import numpy as np
 
 from brainstate._utils import set_module_as
 from ._error_if import jit_error_if
-from ._make_jaxpr import StatefulFunction, _assign_state_values
+from ._make_jaxpr import StatefulFunction
+from ._util import wrap_single_fun_in_multi_branches, write_back_state_values
 
 __all__ = [
   'cond', 'switch', 'ifelse',
 ]
-
-
-def _wrapped_fun(stateful_fun: StatefulFunction, states, return_states=True):
-  @wraps(stateful_fun.fun)
-  def wrapped_branch(state_vals, *operands):
-    assert len(states) == len(state_vals)
-    for st, val in zip(states, state_vals):
-      st.value = val
-    out = stateful_fun.jaxpr_call_auto(*operands)
-    if return_states:
-      return tuple(st.value for st in states), out
-    return out
-
-  return wrapped_branch
 
 
 @set_module_as('brainstate.compile')
@@ -109,62 +94,24 @@ def cond(pred, true_fun: Callable, false_fun: Callable, *operands):
       return false_fun(*operands)
 
   # evaluate jaxpr
-  true_fun_wrap = StatefulFunction(true_fun).make_jaxpr(*operands)
-  false_fun_wrap = StatefulFunction(false_fun).make_jaxpr(*operands)
+  stateful_true = StatefulFunction(true_fun).make_jaxpr(*operands)
+  stateful_false = StatefulFunction(false_fun).make_jaxpr(*operands)
+
+  # state trace and state values
+  state_trace = stateful_true.get_state_trace() + stateful_false.get_state_trace()
+  read_state_vals = state_trace.get_read_state_values(True)
+  write_state_vals = state_trace.get_write_state_values(True)
 
   # wrap the functions
-  all_states = tuple(set(true_fun_wrap.get_states() + false_fun_wrap.get_states()))
-  true_fun = _wrapped_fun(true_fun_wrap, all_states)
-  false_fun = _wrapped_fun(false_fun_wrap, all_states)
-
-  # operands
-  operands = ([st.value for st in all_states],) + operands
+  true_fun = wrap_single_fun_in_multi_branches(stateful_true, state_trace, read_state_vals, True)
+  false_fun = wrap_single_fun_in_multi_branches(stateful_false, state_trace, read_state_vals, True)
 
   # cond
-  state_vals, out = jax.lax.cond(pred, true_fun, false_fun, *operands)
-  _assign_state_values(all_states, state_vals)
-  return out
+  write_state_vals, out = jax.lax.cond(pred, true_fun, false_fun, write_state_vals, *operands)
 
-  # ops, ops_tree = jax.tree.flatten(operands)
-  # linear_ops = [False] * len(ops)
-  # ops_avals = tuple(jax.util.safe_map(_abstractify, ops))
-  #
-  # # true and false jaxprs
-  # jaxprs, consts, out_trees = _initial_style_jaxprs_with_common_consts(
-  #   (true_fun, false_fun), ops_tree, ops_avals, 'cond')
-  # if any(isinstance(op_aval, state.AbstractRef) for op_aval in ops_avals):
-  #   raise ValueError("Cannot pass `Ref`s into `cond`.")
-  # true_jaxpr, false_jaxpr = jaxprs
-  # out_tree, false_out_tree = out_trees
-  # if any(isinstance(out_aval, state.AbstractRef) for out_aval in true_jaxpr.out_avals + false_jaxpr.out_avals):
-  #   raise ValueError("Cannot return `Ref`s from `cond`.")
-  #
-  # _check_tree_and_avals("true_fun and false_fun output",
-  #                       out_tree, true_jaxpr.out_avals,
-  #                       false_out_tree, false_jaxpr.out_avals)
-  # joined_effects = jax.core.join_effects(true_jaxpr.effects, false_jaxpr.effects)
-  # disallowed_effects = effects.control_flow_allowed_effects.filter_not_in(joined_effects)
-  # if disallowed_effects:
-  #   raise NotImplementedError(f'Effects not supported in `cond`: {disallowed_effects}')
-  #
-  # # replace jaxpr effects
-  # index = jax.lax.convert_element_type(pred, np.int32)
-  # if joined_effects:
-  #   # Raise index in case of effects to allow data-dependence-based discharging
-  #   # of those effects (even if they don't have an explicit data dependence).
-  #   index = jax.core.raise_as_much_as_possible(index)
-  # false_jaxpr = _replace_jaxpr_effects(false_jaxpr, joined_effects)
-  # true_jaxpr = _replace_jaxpr_effects(true_jaxpr, joined_effects)
-  #
-  # # bind
-  # linear = [False] * len(consts) + linear_ops
-  # cond_outs = jax.lax.cond_p.bind(index, *consts, *ops, branches=(false_jaxpr, true_jaxpr), linear=tuple(linear))
-  #
-  # # outputs
-  # st_vals, out = jax.tree.unflatten(out_tree, cond_outs)
-  # for st, val in zip(all_states, st_vals):
-  #   st.value = val
-  # return out
+  # assign the written state values and restore the read state values
+  write_back_state_values(state_trace, read_state_vals, write_state_vals)
+  return out
 
 
 @set_module_as('brainstate.compile')
@@ -232,45 +179,21 @@ def switch(index, branches: Sequence[Callable], *operands):
     wrapped_branch.make_jaxpr(*operands)
 
   # wrap the functions
-  all_states = tuple(set(reduce(operator.add, [wrapped_branch.get_states() for wrapped_branch in wrapped_branches])))
-  branches = tuple(_wrapped_fun(wrapped_branch, all_states) for wrapped_branch in wrapped_branches)
-
-  # operands
-  operands = ([st.value for st in all_states],) + operands
+  state_trace = wrapped_branches[0].get_state_trace() + wrapped_branches[1].get_state_trace()
+  state_trace.merge(*[wrapped_branch.get_state_trace() for wrapped_branch in wrapped_branches[2:]])
+  read_state_vals = state_trace.get_read_state_values(True)
+  write_state_vals = state_trace.get_write_state_values(True)
+  branches = [
+    wrap_single_fun_in_multi_branches(wrapped_branch, state_trace, read_state_vals, True)
+    for wrapped_branch in wrapped_branches
+  ]
 
   # switch
-  state_vals, out = jax.lax.switch(index, branches, *operands)
-  _assign_state_values(all_states, state_vals)
-  return out
+  write_state_vals, out = jax.lax.switch(index, branches, write_state_vals, *operands)
 
-  # ops, ops_tree = jax.tree.flatten(operands)
-  # ops_avals = tuple(jax.util.safe_map(_abstractify, ops))
-  #
-  # # true jaxprs
-  # jaxprs, consts, out_trees = _initial_style_jaxprs_with_common_consts(
-  #   branches, ops_tree, ops_avals, primitive_name='switch')
-  # for i, (out_tree, jaxpr) in enumerate(zip(out_trees[1:], jaxprs[1:])):
-  #   _check_tree_and_avals(f"branch 0 and {i + 1} outputs",
-  #                         out_trees[0], jaxprs[0].out_avals,
-  #                         out_tree, jaxpr.out_avals)
-  # joined_effects = jax.core.join_effects(*(jaxpr.effects for jaxpr in jaxprs))
-  # disallowed_effects = effects.control_flow_allowed_effects.filter_not_in(joined_effects)
-  # if disallowed_effects:
-  #   raise NotImplementedError(f'Effects not supported in `switch`: {disallowed_effects}')
-  # if joined_effects:
-  #   # Raise index in case of effects to allow data-dependence-based discharging
-  #   # of those effects (even if they don't have an explicit data dependence).
-  #   index = jax.core.raise_as_much_as_possible(index)
-  #
-  # # bind
-  # linear = (False,) * (len(consts) + len(ops))
-  # cond_outs = jax.lax.cond_p.bind(index, *consts, *ops, branches=tuple(jaxprs), linear=linear)
-  #
-  # # outputs
-  # st_vals, out = jax.tree.unflatten(out_trees[0], cond_outs)
-  # for st, val in zip(all_states, st_vals):
-  #   st.value = val
-  # return out
+  # write back state values or restore them
+  write_back_state_values(state_trace, read_state_vals, write_state_vals)
+  return out
 
 
 @set_module_as('brainstate.compile')

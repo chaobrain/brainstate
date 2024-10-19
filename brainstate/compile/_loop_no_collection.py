@@ -21,9 +21,9 @@ from typing import Any, Callable, TypeVar
 import jax
 
 from brainstate._utils import set_module_as
-from ._conditions import _wrapped_fun
 from ._loop_collect_return import _bounded_while_loop
-from ._make_jaxpr import StatefulFunction, _assign_state_values
+from ._make_jaxpr import StatefulFunction
+from ._util import wrap_single_fun_in_multi_branches as wrap_fn, write_back_state_values
 
 X = TypeVar('X')
 Y = TypeVar('Y')
@@ -104,15 +104,21 @@ def while_loop(
   # evaluate jaxpr
   stateful_cond = StatefulFunction(cond_fun).make_jaxpr(init_val)
   stateful_body = StatefulFunction(body_fun).make_jaxpr(init_val)
-  all_states = tuple(set(stateful_cond.get_states() + stateful_body.get_states()))
-  new_cond_fun = _wrapped_fun(stateful_cond, all_states, return_states=False)
-  new_body_fun = _wrapped_fun(stateful_body, all_states, return_states=True)
+  if len(stateful_cond.get_write_states()) != 0:
+    raise ValueError("while_loop: cond_fun should not have any write states.")
+
+  # state trace and state values
+  state_trace = stateful_cond.get_state_trace() + stateful_body.get_state_trace()
+  read_state_vals = state_trace.get_read_state_values(True)
+  write_state_vals = state_trace.get_write_state_values(True)
+  new_cond_fn = wrap_fn(stateful_cond, state_trace, read_state_vals, False)
+  new_body_fn = wrap_fn(stateful_body, state_trace, read_state_vals, True)
 
   # while_loop
-  state_vals, final_val = jax.lax.while_loop(new_cond_fun,
-                                             new_body_fun,
-                                             (tuple(st.value for st in all_states), init_val))
-  _assign_state_values(all_states, state_vals)
+  state_vals, final_val = jax.lax.while_loop(new_cond_fn, new_body_fn, (write_state_vals, init_val))
+
+  # write back state values or restore them
+  write_back_state_values(state_trace, read_state_vals, state_vals)
   return final_val
 
 
@@ -155,15 +161,23 @@ def bounded_while_loop(
   # evaluate jaxpr
   stateful_cond = StatefulFunction(cond_fun).make_jaxpr(init_val)
   stateful_body = StatefulFunction(body_fun).make_jaxpr(init_val)
-  all_states = tuple(set(stateful_cond.get_states() + stateful_body.get_states()))
-  new_cond_fun = _wrapped_fun(stateful_cond, all_states, return_states=False)
-  new_body_fun = _wrapped_fun(stateful_body, all_states, return_states=True)
+  if len(stateful_cond.get_write_states()) != 0:
+    raise ValueError("while_loop: cond_fun should not have any write states.")
+
+  # state trace and state values
+  state_trace = stateful_cond.get_state_trace() + stateful_body.get_state_trace()
+  read_state_vals = state_trace.get_read_state_values(True)
+  write_state_vals = state_trace.get_write_state_values(True)
+  new_cond_fn = wrap_fn(stateful_cond, state_trace, read_state_vals, False)
+  new_body_fn = wrap_fn(stateful_body, state_trace, read_state_vals, True)
 
   # initial value
-  init_val = (tuple(st.value for st in all_states), init_val)
+  init_val = (write_state_vals, init_val)
 
   # while_loop
   rounded_max_steps = base ** int(math.ceil(math.log(max_steps, base)))
-  state_vals, val = _bounded_while_loop(new_cond_fun, new_body_fun, init_val, rounded_max_steps, base, None)
-  _assign_state_values(all_states, state_vals)
+  state_vals, val = _bounded_while_loop(new_cond_fn, new_body_fn, init_val, rounded_max_steps, base, None)
+
+  # write back state values or restore them
+  write_back_state_values(state_trace, read_state_vals, state_vals)
   return val

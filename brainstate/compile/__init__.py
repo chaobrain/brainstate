@@ -17,6 +17,8 @@
 This module contains the functions for the compilation of JAX code.
 """
 
+from ._ad_checkpoint import *
+from ._ad_checkpoint import __all__ as _ad_checkpoint_all
 from ._conditions import *
 from ._conditions import __all__ as _conditions_all
 from ._error_if import *
@@ -32,10 +34,19 @@ from ._make_jaxpr import __all__ as _make_jaxpr_all
 from ._progress_bar import *
 from ._progress_bar import __all__ as _progress_bar_all
 
-__all__ = (_jit_error_all + _conditions_all +
-           _make_jaxpr_all + _jit_all + _progress_bar_all +
-           _loops_collection + _loops_no_collection)
+__all__ = (
+    _jit_error_all + _conditions_all +
+    _make_jaxpr_all + _jit_all + _progress_bar_all +
+    _loops_collection + _loops_no_collection + _ad_checkpoint_all
+)
 
-del (_jit_error_all, _conditions_all, _loops_collection,
-     _make_jaxpr_all, _jit_all, _progress_bar_all,
-     _loops_no_collection)
+del (
+  _jit_error_all,
+  _conditions_all,
+  _loops_collection,
+  _make_jaxpr_all,
+  _jit_all,
+  _progress_bar_all,
+  _loops_no_collection,
+  _ad_checkpoint_all
+)
