@@ -19,7 +19,8 @@ from typing import Iterator, TypeVar, Hashable, Union, TYPE_CHECKING, Iterable, 
 
 import jax
 
-from ._filter import to_predicate, Filter, PathParts
+from brainstate.typing import Filter, PathParts
+from ._filter import to_predicate
 from ._pretty_repr import PrettyRepr, PrettyType, PrettyAttr
 from ._struct import dataclass
 

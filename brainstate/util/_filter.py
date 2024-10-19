@@ -14,10 +14,10 @@
 
 import builtins
 import dataclasses
-
 import typing
-from collections.abc import Hashable
-from typing import Callable, Protocol, runtime_checkable, TypeVar, Union, TYPE_CHECKING, Tuple, List
+from typing import TYPE_CHECKING
+
+from brainstate.typing import Filter, PathParts, Predicate, Key
 
 if TYPE_CHECKING:
   ellipsis = builtins.ellipsis
@@ -27,20 +27,6 @@ else:
 __all__ = [
   'to_predicate',
 ]
-
-K = TypeVar('K')
-
-
-@runtime_checkable
-class Key(Hashable, Protocol):
-  def __lt__(self: K, value: K, /) -> bool:
-    ...
-
-
-PathParts = Tuple[Key, ...]
-Predicate = Callable[[PathParts, typing.Any], bool]
-FilterLiteral = Union[type, str, Predicate, bool, ellipsis, None]
-Filter = Union[FilterLiteral, Tuple['Filter', ...], List['Filter']]
 
 
 def to_predicate(the_filter: Filter) -> Predicate:
