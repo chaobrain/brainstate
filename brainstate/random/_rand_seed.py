@@ -14,6 +14,7 @@
 # ==============================================================================
 
 from contextlib import contextmanager
+from typing import Optional
 
 import jax
 import numpy as np
@@ -22,24 +23,37 @@ from brainstate.typing import SeedOrKey
 from ._rand_state import RandomState, DEFAULT
 
 __all__ = [
-  'seed', 'default_rng', 'split_key', 'split_keys', 'seed_context',
+  'seed', 'set_key', 'default_rng', 'split_key', 'split_keys', 'seed_context', 'restore_key', 'self_assign_multi_keys',
 ]
 
 
-def split_key():
+def restore_key():
+  """Restore the default random key."""
+  DEFAULT.restore_key()
+
+
+def split_key(n: Optional[int] = None, backup: bool = False):
   """Create a new seed from the current seed.
 
   This function is useful for the consistency with JAX's random paradigm.
+
+  Parameters
+  ----------
+  n : int, optional
+    The number of seeds to generate.
+  backup : bool, optional
+    Whether to backup the current key.
 
   Returns
   -------
   key : jax.random.PRNGKey
     A new random key.
+
   """
-  return DEFAULT.split_key()
+  return DEFAULT.split_key(n=n, backup=backup)
 
 
-def split_keys(n: int):
+def split_keys(n: int, backup: bool = False):
   """Create multiple seeds from the current seed. This is used
   internally by `pmap` and `vmap` to ensure that random numbers
   are different in parallel threads.
@@ -48,13 +62,23 @@ def split_keys(n: int):
   ----------
   n : int
     The number of seeds to generate.
+  backup : bool, optional
+    Whether to backup the current key
 
   Returns
   -------
   keys : jax.random.PRNGKey
     A tuple of JAX random keys.
+
   """
-  return DEFAULT.split_keys(n)
+  return split_key(n, backup=backup)
+
+
+def self_assign_multi_keys(n: int, backup: bool = True):
+  """
+  Assign multiple keys to the current key.
+  """
+  DEFAULT.self_assign_multi_keys(n, backup=backup)
 
 
 def clone_rng(seed_or_key=None, clone: bool = True) -> RandomState:
@@ -87,6 +111,17 @@ def default_rng(seed_or_key=None) -> RandomState:
     return DEFAULT
   else:
     return RandomState(seed_or_key)
+
+
+def set_key(seed_or_key: SeedOrKey):
+  """Sets a new random key.
+
+  Parameters
+  ----------
+  seed_or_key: int
+    The random key.
+  """
+  DEFAULT.set_key(jax.random.PRNGKey(seed_or_key) if jax.numpy.shape(seed_or_key) == () else seed_or_key)
 
 
 def seed(seed_or_key: SeedOrKey = None):

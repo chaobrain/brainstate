@@ -15,6 +15,8 @@
 
 # -*- coding: utf-8 -*-
 
+from collections import namedtuple
+from functools import partial
 from operator import index
 from typing import Optional
 
@@ -23,11 +25,12 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 import numpy as np
-from jax import lax, core
+from jax import jit, vmap
+from jax import lax, core, dtypes
 
 from brainstate import environ
 from brainstate._state import State
-from brainstate.transform._error_if import jit_error_if
+from brainstate.compile._error_if import jit_error_if
 from brainstate.typing import DTypeLike, Size, SeedOrKey
 from ._random_for_unit import uniform_for_unit, permutation_for_unit
 
@@ -36,7 +39,8 @@ __all__ = ['RandomState', 'DEFAULT', ]
 
 class RandomState(State):
   """RandomState that track the random generator state. """
-  __slots__ = ()
+
+  # __slots__ = ('_backup', '_value')
 
   def __init__(self, seed_or_key: Optional[SeedOrKey] = None):
     """RandomState constructor.
@@ -59,21 +63,39 @@ class RandomState(State):
       key = seed_or_key
     super().__init__(key)
 
-  def __repr__(self) -> str:
-    print_code = repr(self.value)
-    i = print_code.index('(')
-    return f'{self.__class__.__name__}(key={print_code[i:]})'
+    self._backup = None
 
-  def _check_if_deleted(self):
-    if isinstance(self._value, jax.Array) and not isinstance(self._value, jax.core.Tracer) and self._value.is_deleted():
+  def __repr__(self):
+    return f'{self.__class__.__name__}({self.value})'
+
+  def check_if_deleted(self):
+    if (
+        isinstance(self._value, jax.Array) and
+        not isinstance(self._value, jax.core.Tracer) and
+        self._value.is_deleted()
+    ):
       self.seed()
 
   # ------------------- #
   # seed and random key #
   # ------------------- #
 
+  def backup_key(self):
+    if self._backup is not None:
+      raise ValueError('The random key has been backed up, and has not been restored.')
+    self._backup = self.value
+
+  def restore_key(self):
+    if self._backup is None:
+      raise ValueError('The random key has not been backed up.')
+    self.value = self._backup
+    self._backup = None
+
   def clone(self):
     return type(self)(self.split_key())
+
+  def set_key(self, key: SeedOrKey):
+    self.value = key
 
   def seed(self, seed_or_key: Optional[SeedOrKey] = None):
     """Sets a new random seed.
@@ -96,28 +118,47 @@ class RandomState(State):
       key = seed_or_key
     self.value = key
 
-  def split_key(self):
-    """Create a new seed from the current seed.
+  def split_key(self, n: Optional[int] = None, backup: bool = False) -> SeedOrKey:
     """
-    if not isinstance(self.value, jax.Array):
-      self.value = jnp.asarray(self.value, dtype=jnp.uint32)
-    keys = jr.split(self.value, num=2)
-    self.value = keys[0]
-    return keys[1]
-
-  def split_keys(self, n: int):
-    """Create multiple seeds from the current seed. This is used
-    internally by `pmap` and `vmap` to ensure that random numbers
-    are different in parallel threads.
+    Create a new seed from the current seed.
 
     Parameters
     ----------
-    n : int
+    n: int, optional
       The number of seeds to generate.
+    backup : bool, optional
+      Whether to backup the current key.
+
+    Returns
+    -------
+    key : SeedOrKey
+      The new seed or a tuple of JAX random keys.
     """
-    keys = jr.split(self.value, n + 1)
+    if n is not None:
+      assert isinstance(n, int) and n >= 1, f'n should be an integer greater than 1, but we got {n}'
+
+    if not isinstance(self.value, jax.Array):
+      self.value = jnp.asarray(self.value, dtype=jnp.uint32)
+    keys = jr.split(self.value, num=2 if n is None else n + 1)
     self.value = keys[0]
-    return keys[1:]
+    if backup:
+      self.backup_key()
+    if n is None:
+      return keys[1]
+    else:
+      return keys[1:]
+
+  def self_assign_multi_keys(self, n: int, backup: bool = True):
+    """
+    Self-assign multiple keys to the current random state.
+    """
+    if backup:
+      keys = jr.split(self.value, n + 1)
+      self.value = keys[0]
+      self.backup_key()
+      self.value = keys[1:]
+    else:
+      self.value = jr.split(self.value, n)
 
   # ---------------- #
   # random functions #
@@ -492,7 +533,7 @@ class RandomState(State):
     # Get upper and lower cdf values
     sqrt2 = np.array(np.sqrt(2), dtype=dtype)
     l = self.__norm_cdf((lower - loc) / scale, sqrt2, dtype)
-    u = self.__norm_cdf((upper - loc) / scale, sqrt2, dtype)
+    u_ = self.__norm_cdf((upper - loc) / scale, sqrt2, dtype)
 
     # Uniformly fill tensor with values from [l, u], then translate to
     # [2l-1, 2u-1].
@@ -500,7 +541,7 @@ class RandomState(State):
     out = uniform_for_unit(
       key, size, dtype,
       minval=lax.nextafter(2 * l - 1, np.array(np.inf, dtype=dtype)),
-      maxval=lax.nextafter(2 * u - 1, np.array(-np.inf, dtype=dtype))
+      maxval=lax.nextafter(2 * u_ - 1, np.array(-np.inf, dtype=dtype))
     )
 
     # Use inverse cdf transform for normal distribution to get truncated
@@ -617,8 +658,8 @@ class RandomState(State):
       size = jnp.shape(p)
     key = self.split_key() if key is None else _formalize_key(key)
     dtype = dtype or environ.dftype()
-    u = uniform_for_unit(key, size, dtype=dtype)
-    r = jnp.floor(jnp.log1p(-u) / jnp.log1p(-p))
+    u_ = uniform_for_unit(key, size, dtype=dtype)
+    r = jnp.floor(jnp.log1p(-u_) / jnp.log1p(-p))
     return r
 
   def _check_p2(self, p):
@@ -680,8 +721,8 @@ class RandomState(State):
       _check_shape("normal", size, mean.shape[:-1], cov.shape[:-2])
 
     if method == 'svd':
-      (u, s, _) = jnp.linalg.svd(cov)
-      factor = u * jnp.sqrt(s[..., None, :])
+      (u_, s, _) = jnp.linalg.svd(cov)
+      factor = u_ * jnp.sqrt(s[..., None, :])
     elif method == 'eigh':
       (w, v) = jnp.linalg.eigh(cov)
       factor = v * jnp.sqrt(w[..., None, :])
@@ -795,7 +836,7 @@ class RandomState(State):
     size = _size2shape(size)
     logits = jnp.log(p) - jnp.log1p(-p)
     if key is None:
-      keys = self.split_keys(2)
+      keys = self.split_key(2)
     else:
       keys = jr.split(_formalize_key(key), 2)
     rate = self.gamma(shape=n, scale=jnp.exp(-logits), size=size, key=keys[0], dtype=environ.dftype())
@@ -861,7 +902,7 @@ class RandomState(State):
       size = _size2shape(size)
       _check_shape("t", size, np.shape(df))
     if key is None:
-      keys = self.split_keys(2)
+      keys = self.split_key(2)
     else:
       keys = jr.split(_formalize_key(key), 2)
     n = jr.normal(keys[0], size, dtype=dtype)
@@ -900,7 +941,7 @@ class RandomState(State):
       size = lax.broadcast_shapes(jnp.shape(df), jnp.shape(nonc))
     size = _size2shape(size)
     if key is None:
-      keys = self.split_keys(3)
+      keys = self.split_key(3)
     else:
       keys = jr.split(_formalize_key(key), 3)
     i = jr.poisson(keys[0], 0.5 * nonc, shape=size, dtype=environ.ditype())
