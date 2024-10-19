@@ -13,6 +13,9 @@
 # limitations under the License.
 # ==============================================================================
 
+"""
+This module includes transformations for augmenting the functionalities of JAX code.
+"""
 
 from ._autograd import *
 from ._autograd import __all__ as _autograd_all
@@ -21,4 +24,3 @@ from ._mapping import __all__ as _mapping_all
 
 __all__ = _autograd_all + _mapping_all
 del _autograd_all, _mapping_all
-
