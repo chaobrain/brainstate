@@ -17,7 +17,7 @@ universal = true
 
 [project]
 name = "brainstate"
-description = "A State-based Transformation System for Brain Dynamics Programming."
+description = "A ``State``-based Transformation System for Program Compilation and Augmentation."
 readme = 'README.md'
 license = { text = 'Apache-2.0 license' }
 requires-python = '>=3.9'
@@ -61,8 +61,8 @@ dynamic = ['version']
 name = "brainstate"
 
 [project.urls]
-homepage = 'http://github.com/brainpy'
-repository = 'http://github.com/brainpy/brainstate'
+homepage = 'http://github.com/chaoming0625/brainstate'
+repository = 'http://github.com/chaoming0625/brainstate'
 
 [project.optional-dependencies]
 testing = [

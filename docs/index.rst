@@ -17,12 +17,6 @@ Installation
 
           pip install -U brainstate[cpu]
 
-    .. tab-item:: GPU (CUDA 11.0)
-
-       .. code-block:: bash
-
-          pip install -U brainstate[cuda11]
-
     .. tab-item:: GPU (CUDA 12.0)
 
        .. code-block:: bash
