@@ -37,9 +37,9 @@ import numpy as np
 from brainstate import environ
 from brainstate._state import State
 from brainstate._utils import set_module_as
-from brainstate.graph import Node, states, nodes
+from brainstate.graph import Node, states, nodes, flatten
 from brainstate.mixin import DelayedInitializer
-from brainstate.util import FlattedMapping
+from brainstate.util import FlattedMapping, NestedMapping
 from brainstate.typing import PathParts
 
 # maximum integer
@@ -172,6 +172,28 @@ class Module(Node):
       warnings.warn('The "level" argument is deprecated. Please use "allowed_hierarchy" instead.', DeprecationWarning)
 
     return states(self, *filters, allowed_hierarchy=allowed_hierarchy)
+
+  def state_trees(
+      self,
+      *filters,
+  ) -> NestedMapping[PathParts, State] | Tuple[NestedMapping[PathParts, State], ...]:
+    """
+    Collect all states in this node and the children nodes.
+
+    Parameters
+    ----------
+    filters : tuple
+      The filters to select the states.
+
+    Returns
+    -------
+    states : FlattedMapping, tuple of FlattedMapping
+      The collection contained (the path, the state).
+    """
+    graph_def, state_tree = flatten(self)
+    if len(filters):
+      return state_tree.filter(*filters)
+    return state_tree
 
   def nodes(
       self,

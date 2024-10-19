@@ -16,13 +16,13 @@ from __future__ import annotations
 
 from abc import ABCMeta
 from copy import deepcopy
-from typing import Any, Callable, Type, TypeVar, Tuple, TYPE_CHECKING, Mapping, Iterator, Sequence, List as ListType
+from typing import Any, Callable, Type, TypeVar, Tuple, TYPE_CHECKING, Mapping, Iterator, Sequence
 
 import brainunit as u
 import jax
 import numpy as np
 
-from brainstate._state import State, StateRef
+from brainstate._state import State, StateAsPyTree
 from brainstate.typing import Key
 from brainstate.util._error import TraceContextError
 from brainstate.util._pretty_repr import PrettyRepr, pretty_repr_avoid_duplicate, PrettyType, PrettyAttr
@@ -141,13 +141,21 @@ def _default_repr_attr(node: Node):
     yield PrettyAttr(name, repr(value))
 
 
+class String:
+  def __init__(self, msg):
+    self.msg = msg
+
+  def __repr__(self):
+    return self.msg
+
+
 def _to_shape_dtype(value):
   if isinstance(value, State):
-    return value.replace(raw_value=jax.tree.map(_to_shape_dtype, value.value))
+    return value.replace(jax.tree.map(_to_shape_dtype, value.value))
   elif isinstance(value, (np.ndarray, jax.Array)):
-    return f'Array(shape={value.shape}, dtype={value.dtype.name})'
+    return String(f'Array(shape={value.shape}, dtype={value.dtype.name})')
   elif isinstance(value, u.Quantity):
-    return f'Quantity(mantissa=Array(shape={value.shape}, dtype={value.dtype.name}), unit={value.unit})'
+    return String(f'Quantity(mantissa=Array(shape={value.shape}, dtype={value.dtype.name}), unit={value.unit})')
   return value
 
 
@@ -173,7 +181,7 @@ def _node_set_key(
   elif (
       hasattr(node, key)
       and isinstance(state := getattr(node, key), State)
-      and isinstance(value, StateRef)
+      and isinstance(value, StateAsPyTree)
   ):
     state.update_from_ref(value)
   else:

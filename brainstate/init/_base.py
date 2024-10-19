@@ -23,7 +23,7 @@ from brainstate.graph import Node
 __all__ = ['Initializer', 'to_size']
 
 
-class Initializer(Node):
+class Initializer:
   def __call__(self, *args, **kwargs):
     raise NotImplementedError
 

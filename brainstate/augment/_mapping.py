@@ -22,7 +22,7 @@ from typing import Any, TypeVar, Callable, Hashable, Sequence, Iterable, Mapping
 import jax
 
 from brainstate.compile._loop_collect_return import for_loop
-from brainstate.graph._graph_convert import (GraphNodeState, graph_to_tree, tree_to_graph)
+from brainstate.graph._graph_convert import (NodeStates, graph_to_tree, tree_to_graph)
 from brainstate.typing import Missing, Filter
 from brainstate.util import NestedMapping
 
@@ -78,8 +78,8 @@ class StateAxes:
 
 def _map_split_fn(ctx, path, prefix, x):
   if isinstance(prefix, StateAxes):
-    return GraphNodeState.from_split(*ctx.split(x, *prefix.filters), metadata=prefix)
-  return GraphNodeState.from_split(*ctx.split(x), metadata=prefix)
+    return NodeStates.from_split(*ctx.split(x, *prefix.filters), metadata=prefix)
+  return NodeStates.from_split(*ctx.split(x), metadata=prefix)
 
 
 @dataclasses.dataclass(eq=False)
@@ -115,13 +115,13 @@ def _map_transform(
 ):
   # jax in axes
   jax_in_axes = jax.tree.map(
-    lambda x: GraphNodeState.from_prefixes(x.axes, metadata=x) if isinstance(x, StateAxes) else x,
+    lambda x: NodeStates.from_prefixes(x.axes, metadata=x) if isinstance(x, StateAxes) else x,
     in_axes,
   )
 
   # jax out axes
   jax_out_axes = jax.tree.map(
-    lambda x: GraphNodeState.from_prefixes(x.axes, metadata=x) if isinstance(x, StateAxes) else x,
+    lambda x: NodeStates.from_prefixes(x.axes, metadata=x) if isinstance(x, StateAxes) else x,
     out_axes,
   )
 

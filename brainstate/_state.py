@@ -34,9 +34,9 @@ from brainstate.util._pretty_repr import PrettyRepr, PrettyType, PrettyAttr
 from brainstate.util._tracers import StateJaxTracer
 
 __all__ = [
-  'State', 'ShortTermState', 'LongTermState', 'ParamState', 'StateRef',
+  'State', 'ShortTermState', 'LongTermState', 'ParamState', 'StateAsPyTree',
 
-  'StateDictManager', 'StateTraceStack', 'check_state_value_tree', 'check_state_jax_tracer',
+  'StateDictManager', 'StateTraceStack', 'check_state_value_tree', 'check_state_jax_tracer', 'catch_new_states',
 ]
 
 A = TypeVar('A')
@@ -54,6 +54,7 @@ class ThreadLocalStack(threading.local):
     self.state_stack: List[StateTraceStack] = []
     self.tree_check: List[bool] = [False]
     self.jax_tracer_check: List[bool] = [False]
+    self.new_state_catcher: List[Catcher] = []
 
 
 TRACE_CONTEXT = ThreadLocalStack()
@@ -90,6 +91,29 @@ def check_state_value_tree(val: bool = True) -> None:
 
 
 @contextlib.contextmanager
+def catch_new_states(tag: str = None) -> List:
+  try:
+    catcher = Catcher(tag)
+    TRACE_CONTEXT.new_state_catcher.append(catcher)
+    yield catcher
+  finally:
+    TRACE_CONTEXT.new_state_catcher.pop()
+
+
+class Catcher:
+  def __init__(self, tag: str):
+    self.tag = tag
+    self.state_ids = set()
+    self.states = []
+
+  def append(self, state: State):
+    if id(state) not in self.state_ids:
+      self.state_ids.add(id(state))
+      self.states.append(state)
+      state.tag = self.tag
+
+
+@contextlib.contextmanager
 def check_state_jax_tracer(val: bool = True) -> None:
   """
   The context manager to check whether the state is valid to trace.
@@ -100,7 +124,7 @@ def check_state_jax_tracer(val: bool = True) -> None:
     >>> import brainstate as bst
     >>> import jax.numpy as jnp
     >>>
-    >>> state = bst.ShortTermState(jnp.zeros((2, 3)))
+    >>> a = bst.ShortTermState(jnp.zeros((2, 3)))
     >>>
     >>> @jax.jit
     >>> def run_state(b):
@@ -177,6 +201,7 @@ class State(Generic[A], PrettyRepr):
   _source_info: source_info_util.SourceInfo
   _name: Optional[str]
   _value: PyTree
+  tag: Optional[str]
 
   def __init__(
       self,
@@ -184,6 +209,8 @@ class State(Generic[A], PrettyRepr):
       name: Optional[str] = None,
       **metadata: Any
   ):
+    tag = metadata.pop('tag', None)
+
     # avoid using self._setattr to avoid the check
     vars(self)['_trace_state'] = StateJaxTracer()
 
@@ -195,10 +222,16 @@ class State(Generic[A], PrettyRepr):
       value = value.value
 
     # update metadata
-    metadata.update(_value=value, _level=_get_trace_stack_level(), _source_info=source_info_util.current(), _name=name)
+    metadata.update(_value=value,
+                    _level=_get_trace_stack_level(),
+                    _source_info=source_info_util.current(),
+                    _name=name,
+                    tag=tag)
 
     # avoid using self._setattr to avoid the check
     vars(self).update(metadata)
+
+    record_state_init(self)
 
   if not TYPE_CHECKING:
     def __setattr__(self, name: str, value: Any) -> None:
@@ -351,24 +384,16 @@ class State(Generic[A], PrettyRepr):
     vars_dict.clear()
     vars_dict.update(other_vars, _trace_state=trace_state, _level=level, _source_info=source_info)
 
-  def update_from_ref(self, state_ref: StateRef[A]) -> None:
+  def update_from_ref(self, state_ref: StateAsPyTree[A]) -> None:
     """
-    Update the state from the state reference :py:class:`StateRef`.
+    Update the state from the state reference :py:class:`StateAsPyTree`.
 
     Args:
       state_ref: The state reference.
     """
-    # keep the trace state and stack level
-    trace_state = self._trace_state
-    level = self._level
-
-    # update the metadata
     variable_vars = vars(self)
-    variable_vars.clear()
-    variable_vars.update(state_ref.get_metadata(),
-                         _value=state_ref.value,
-                         _trace_state=trace_state,
-                         _level=level)
+    variable_vars.update(**state_ref.get_metadata())
+    self.value = state_ref.value
 
   def replace(self, value: Any = Missing, **kwargs) -> State[Any]:
     """
@@ -413,12 +438,12 @@ class State(Generic[A], PrettyRepr):
     vars(obj).update(attributes)
     return obj
 
-  def to_state_ref(self: State[A]) -> StateRef[A]:
+  def to_state_ref(self: State[A]) -> StateAsPyTree[A]:
     metadata = vars(self).copy()
     del metadata['_value']
     del metadata['_trace_state']
     del metadata['_level']
-    return StateRef(type(self), self._value, **metadata)
+    return StateAsPyTree(type(self), self._value, **metadata)
 
   def __pretty_repr__(self):
     yield PrettyType(type=type(self))
@@ -430,6 +455,8 @@ class State(Generic[A], PrettyRepr):
           continue
         else:
           name = 'name'
+      if name == 'tag' and value is None:
+        continue
       if name in ['_trace_state', '_level', '_source_info']:
         continue
       yield PrettyAttr(name, repr(value))
@@ -444,6 +471,8 @@ class State(Generic[A], PrettyRepr):
           continue
         else:
           name = 'name'
+      if name == 'tag' and value is None:
+        continue
       if name in ['_trace_state', '_level', '_source_info']:
         continue
       children[name] = value
@@ -458,6 +487,12 @@ class State(Generic[A], PrettyRepr):
 
   def __eq__(self, other: object) -> bool:
     return type(self) is type(other) and vars(other) == vars(self)
+
+
+def record_state_init(st: State[A]):
+  trace: Catcher
+  for trace in TRACE_CONTEXT.new_state_catcher:
+    trace.append(st)
 
 
 def record_state_value_read(st: State[A]):
@@ -724,7 +759,7 @@ class StateTraceStack(Generic[A]):
     return StateTraceStack().merge(self, other)
 
 
-class StateRef(Generic[A], PrettyRepr):
+class StateAsPyTree(Generic[A], PrettyRepr):
   """
   The reference to the state.
   """
@@ -748,6 +783,7 @@ class StateRef(Generic[A], PrettyRepr):
 
   def __pretty_repr__(self):
     yield PrettyType(type=type(self))
+    yield PrettyAttr('type', self.type.__name__)
     for name, value in vars(self).items():
       if name == '_value':
         name = 'value'
@@ -756,7 +792,7 @@ class StateRef(Generic[A], PrettyRepr):
           continue
         else:
           name = 'name'
-      if name in ['_trace_state', '_level', '_source_info']:
+      if name in ['_trace_state', '_level', '_source_info', 'type']:
         continue
       yield PrettyAttr(name, repr(value))
 
@@ -775,11 +811,11 @@ class StateRef(Generic[A], PrettyRepr):
       subtree_renderer=subtree_renderer,
     )
 
-  def replace(self, value: B) -> StateRef[B]:
+  def replace(self, value: B) -> StateAsPyTree[B]:
     """
     Replace the value of the state reference.
     """
-    return StateRef(self.type, value, **self.get_metadata())
+    return StateAsPyTree(self.type, value, **self.get_metadata())
 
   def to_state(self) -> State[A]:
     """
@@ -792,7 +828,7 @@ class StateRef(Generic[A], PrettyRepr):
     vars(state).update(metadata, _value=self.value, _trace_state=StateJaxTracer(), _level=_get_trace_stack_level())
     return state
 
-  def copy(self: StateRef[A]) -> StateRef[A]:
+  def copy(self: StateAsPyTree[A]) -> StateAsPyTree[A]:
     """
     Copy the state reference.
     """
@@ -808,7 +844,7 @@ class StateRef(Generic[A], PrettyRepr):
     return metadata
 
 
-def _state_ref_flatten(x: StateRef[Any], *, with_keys: bool):
+def _state_ref_flatten(x: StateAsPyTree[Any], *, with_keys: bool):
   metadata = tuple(x.get_metadata().items())
   if with_keys:
     node = (jax.tree_util.GetAttrKey('value'), x.value)
@@ -820,12 +856,12 @@ def _state_ref_flatten(x: StateRef[Any], *, with_keys: bool):
 def _state_ref_unflatten(
     static: Tuple[type[State[A]], Tuple[Tuple[str, Any], ...]],
     children: Tuple[A],
-) -> StateRef[A]:
-  return StateRef(type=static[0], value=children[0], **dict(static[1]))
+) -> StateAsPyTree[A]:
+  return StateAsPyTree(type=static[0], value=children[0], **dict(static[1]))
 
 
 jax.tree_util.register_pytree_with_keys(
-  StateRef,
+  StateAsPyTree,
   partial(_state_ref_flatten, with_keys=True),  # type: ignore
   _state_ref_unflatten,  # type: ignore
   flatten_func=partial(_state_ref_flatten, with_keys=False),  # type: ignore

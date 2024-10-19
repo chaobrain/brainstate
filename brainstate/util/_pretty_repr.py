@@ -96,7 +96,7 @@ def get_repr(obj: PrettyRepr) -> str:
 
   # repr object
   if not isinstance(obj_repr, PrettyType):
-    raise TypeError(f'First item must be Config, got {type(obj_repr).__name__}')
+    raise TypeError(f'First item must be PrettyType, got {type(obj_repr).__name__}')
 
   # repr attributes
   elems = ',\n'.join(map(partial(_repr_elem, obj_repr), iterator))
@@ -186,7 +186,6 @@ def pretty_repr_avoid_duplicate(
   try:
     # repr attributes
     yield from repr_attr(node)
-
   finally:
     if clear_seen:
       CONTEXT.seen_modules_repr = None

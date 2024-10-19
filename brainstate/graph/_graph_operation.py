@@ -22,22 +22,26 @@ import jax
 import numpy as np
 from typing_extensions import TypeGuard, Unpack
 
-from brainstate._state import State, StateRef
+from brainstate._state import State, StateAsPyTree
+from brainstate._utils import set_module_as
 from brainstate.typing import PathParts, Filter, Predicate, Key
 from brainstate.util._caller import ApplyCaller, CallableProxy, DelayedAccessor
 from brainstate.util._dict import FrozenDict
 from brainstate.util._filter import to_predicate
-from brainstate.util._mapping import FlattedStateMapping, NestedMapping, FlattedMapping
+from brainstate.util._mapping import NestedMapping, FlattedMapping, StateMapping
 from brainstate.util._pretty_repr import PrettyRepr, PrettyType, PrettyAttr, PrettyMapping, MappingReprMixin
 
 _max_int = np.iinfo(np.int32).max
 
 __all__ = [
   # state management in the given graph or node
-  'pop_states', 'nodes', 'states', 'state_refs', 'update_states',
+  'pop_states', 'nodes', 'states', 'states_as_trees',
 
   # graph node operations
-  'flatten', 'unflatten', 'split', 'merge', 'iter_leaf', 'iter_node', 'clone', 'graphdef',
+  'flatten', 'unflatten', 'split', 'merge', 'iter_leaf', 'iter_node', 'clone', 'graphdef', 'call',
+
+  # others
+  'RefMap', 'GraphDef', 'NodeRef', 'NodeDef'
 ]
 
 A = TypeVar('A')
@@ -54,7 +58,7 @@ Node = TypeVar('Node')
 Leaf = TypeVar('Leaf')
 AuxData = TypeVar('AuxData')
 
-StateLeaf = StateRef[Any]
+StateLeaf = StateAsPyTree[Any]
 NodeLeaf = State[Any]
 GraphStateMapping = NestedMapping[Key, StateLeaf]
 
@@ -63,7 +67,7 @@ GraphStateMapping = NestedMapping[Key, StateLeaf]
 
 
 def _is_state_leaf(x: Any) -> TypeGuard[StateLeaf]:
-  return isinstance(x, StateRef)
+  return isinstance(x, StateAsPyTree)
 
 
 def _is_node_leaf(x: Any) -> TypeGuard[NodeLeaf]:
@@ -81,6 +85,7 @@ class RefMap(MutableMapping[A, B], MappingReprMixin[A, B]):
     mapping: A mapping or iterable of key-value pairs.
 
   """
+  __module__ = 'brainstate.graph'
 
   def __init__(self, mapping: Mapping[A, B] | Iterable[Tuple[A, B]] = ()):
     self._mapping: Dict[int, Tuple[A, B]] = {}
@@ -240,7 +245,7 @@ class HashableMapping(Mapping[HA, HB], Hashable):
     return repr(self._mapping)
 
 
-class GraphDefinition(Generic[Node]):
+class GraphDef(Generic[Node]):
   """
   A base dataclass that denotes the graph structure of a :class:`Node`.
 
@@ -258,7 +263,7 @@ class GraphDefinition(Generic[Node]):
 
 
 @dataclasses.dataclass(frozen=True, repr=False)
-class NodeRef(GraphDefinition[Node], PrettyRepr):
+class NodeRef(GraphDef[Node], PrettyRepr):
   """
   A reference to a node in the graph.
 
@@ -289,7 +294,7 @@ jax.tree_util.register_static(NodeRef)
 
 
 @dataclasses.dataclass(frozen=True, repr=False)
-class NodeDef(GraphDefinition[Node], PrettyRepr):
+class NodeDef(GraphDef[Node], PrettyRepr):
   """
   A dataclass that denotes the tree structure of a node, either :class:`Node` or :class:`State`.
 
@@ -358,11 +363,11 @@ class NodeDef(GraphDefinition[Node], PrettyRepr):
       self,
       state_map: GraphStateMapping,
       *state_maps: GraphStateMapping
-  ) -> ApplyCaller[tuple[GraphDefinition[Node], GraphStateMapping]]:
+  ) -> ApplyCaller[tuple[GraphDef[Node], GraphStateMapping]]:
     accessor = DelayedAccessor()
 
     def _apply(accessor: DelayedAccessor, *args, **kwargs) -> tuple[
-      Any, tuple[GraphDefinition[Node], GraphStateMapping]]:
+      Any, tuple[GraphDef[Node], GraphStateMapping]]:
       module = merge(self, state_map, *state_maps)
       fn = accessor(module)
       out = fn(*args, **kwargs)
@@ -384,7 +389,7 @@ def _graph_flatten(
     ref_index: RefMap[Any, Index],
     flatted_state_mapping: Dict[PathParts, StateLeaf],
     node: Node,
-) -> NodeDef[Node] | NodeRef:
+):
   """
   Recursive helper for graph flatten.
 
@@ -443,7 +448,7 @@ def _graph_flatten(
         variable_index = ref_index[value] = len(ref_index)
         leaves.append((key, NodeRef(type(value), variable_index)))
     elif _is_state_leaf(value):
-      # The instance of ``StateRef`` is a leaf.
+      # The instance of ``StateAsPyTree`` is a leaf.
       flatted_state_mapping[(*path, key)] = value
       leaves.append((key, None))
     else:
@@ -465,11 +470,12 @@ def _graph_flatten(
   return nodedef
 
 
+@set_module_as('brainstate.graph')
 def flatten(
     node: Node,
     /,
     ref_index: Optional[RefMap[Any, Index]] = None
-) -> Tuple[GraphDefinition[Node], GraphStateMapping]:
+) -> Tuple[GraphDef, GraphStateMapping]:
   """
   Flattens a graph node into a (graph_def, state_mapping) pair.
 
@@ -488,9 +494,10 @@ def flatten(
                nodes that share references.
   """
   ref_index = RefMap() if ref_index is None else ref_index
+  assert isinstance(ref_index, RefMap), f"ref_index must be a RefMap. But we got: {ref_index}"
   flatted_state_mapping: dict[PathParts, StateLeaf] = {}
   graph_def = _graph_flatten((), ref_index, flatted_state_mapping, node)
-  return graph_def, GraphStateMapping.from_flat(flatted_state_mapping)
+  return graph_def, NestedMapping.from_flat(flatted_state_mapping)
 
 
 def _get_children(graph_def, state_mapping, index_ref, index_ref_cache):
@@ -542,6 +549,9 @@ def _get_children(graph_def, state_mapping, index_ref, index_ref_cache):
 
     else:  # state field
       value = state_mapping[key]
+      if isinstance(value, StateMapping):
+        value = dict(value)
+
       if key in graph_def.static_fields:
         raise ValueError(f'Got state for static field {key!r}, this is not supported.')
 
@@ -564,9 +574,9 @@ def _get_children(graph_def, state_mapping, index_ref, index_ref_cache):
         noderef = graph_def.leaves[key]
         if noderef is None:
           # if the leaf is None, it means that the value was originally
-          # a non-StateRef leaf, however we allow providing a
-          # StateRef presumbly created by modifying the NestedMapping
-          if isinstance(value, StateRef):
+          # a non-StateAsPyTree leaf, however we allow providing a
+          # StateAsPyTree presumbly created by modifying the NestedMapping
+          if isinstance(value, StateAsPyTree):
             value = value.to_state()
           children[key] = value
 
@@ -576,7 +586,7 @@ def _get_children(graph_def, state_mapping, index_ref, index_ref_cache):
 
         else:
           # it is an unseen variable, create a new one
-          if not isinstance(value, StateRef):
+          if not isinstance(value, StateAsPyTree):
             raise ValueError(f'Expected a State type for {key!r}, but got {type(value)}.')
           # when idxmap is present, check if the Varable exists there
           # and update existing variables if it does
@@ -586,7 +596,7 @@ def _get_children(graph_def, state_mapping, index_ref, index_ref_cache):
               raise ValueError(f'Expected a State type for {key!r}, but got {type(variable)}.')
             variable.update_from_ref(value)
           else:  # if it doesn't, create a new variable
-            assert isinstance(value, StateRef)
+            assert isinstance(value, StateAsPyTree)
             variable = value.to_state()
           children[key] = variable
           index_ref[noderef.index] = variable
@@ -607,7 +617,7 @@ def _graph_unflatten(
   Recursive helper for graph unflatten.
 
   Args:
-    graph_def: A `GraphDefinition` instance or an index to a node in the cache.
+    graph_def: A `GraphDef` instance or an index to a node in the cache.
     state_mapping: A state mapping from attribute names to variables or subgraphs.
     index_ref: A mapping from indexes to nodes that have been traversed.
                If a node is already in the cache, it won't be traversed again.
@@ -634,7 +644,7 @@ def _graph_unflatten(
 
   # check if the index is already in the cache
   if graph_def.index in index_ref:
-    raise RuntimeError(f'GraphDefinition index {graph_def.index} already used.')
+    raise RuntimeError(f'GraphDef index {graph_def.index} already used.')
 
   # get the node implementation for the node type
   node_impl = get_node_impl_for_type(graph_def.type)
@@ -675,19 +685,173 @@ def _graph_unflatten(
   return node
 
 
+@set_module_as('brainstate.graph')
 def unflatten(
-    graph_def: GraphDefinition[Node],
-    state_mapping: GraphStateMapping,
+    graph_def: GraphDef,
+    state_mapping: NestedMapping[Key, StateLeaf],
     /,
     *,
     index_ref: dict[Index, Any] | None = None,
     index_ref_cache: dict[Index, Any] | None = None,
 ) -> Node:
   """
-  Unflattens a graphdef into a node with the given state mapping.
+  Unflattens a graphdef into a node with the given state tree mapping.
+
+  Example::
+
+  >>> import brainstate as bst
+  >>> class MyNode(bst.graph.Node):
+  ...   def __init__(self):
+  ...      self.a = bst.nn.Linear(2, 3)
+  ...      self.b = bst.nn.Linear(3, 4)
+  ...      self.c = [bst.nn.Linear(4, 5), bst.nn.Linear(5, 6)]
+  ...      self.d = {'x': bst.nn.Linear(6, 7), 'y': bst.nn.Linear(7, 8)}
+  ...
+  >>> graphdef, statetree = bst.graph.flatten(MyNode())
+  >>> statetree
+  NestedMapping({
+    'a': {
+      'weight': StateAsPyTree(
+        type=ParamState,
+        value={'weight': Array([[-0.8466386 , -2.0294454 , -0.6911647 ],
+               [ 0.60034966, -1.1869028 ,  0.84003365]], dtype=float32), 'bias': Array([0., 0., 0.], dtype=float32)}
+      )
+    },
+    'b': {
+      'weight': StateAsPyTree(
+        type=ParamState,
+        value={'weight': Array([[ 0.8565106 , -0.10337489],
+               [ 1.7449658 ,  0.29128835],
+               [ 0.11441387,  1.0012752 ]], dtype=float32), 'bias': Array([0., 0.], dtype=float32)}
+      )
+    },
+    'c': {
+      0: {
+        'weight': StateAsPyTree(
+          type=ParamState,
+          value={'weight': Array([[ 2.4465137, -0.5711426]], dtype=float32), 'bias': Array([0., 0.], dtype=float32)}
+        )
+      },
+      1: {
+        'weight': StateAsPyTree(
+          type=ParamState,
+          value={'weight': Array([[ 0.14321847, -2.4154725 , -0.6322363 ]], dtype=float32), 'bias': Array([0., 0., 0.], dtype=float32)}
+        )
+      }
+    },
+    'd': {
+      'x': {
+        'weight': StateAsPyTree(
+          type=ParamState,
+          value={'weight': Array([[ 0.9647322, -0.8958757,  1.585352 ]], dtype=float32), 'bias': Array([0., 0., 0.], dtype=float32)}
+        )
+      },
+      'y': {
+        'weight': StateAsPyTree(
+          type=ParamState,
+          value={'weight': Array([[-1.2904786 ,  0.5695903 ,  0.40079263,  0.8769669 ]], dtype=float32), 'bias': Array([0., 0., 0., 0.], dtype=float32)}
+        )
+      }
+    }
+  })
+  >>> node = bst.graph.unflatten(graphdef, statetree)
+  >>> node
+  MyNode(
+    a=Linear(
+      in_size=(2,),
+      out_size=(3,),
+      w_mask=None,
+      weight=ParamState(
+        value={'weight': Array([[ 0.55600464, -1.6276929 ,  0.26805446],
+               [ 1.175099  ,  1.0077754 ,  0.37592274]], dtype=float32), 'bias': Array([0., 0., 0.], dtype=float32)},
+        raw_value={'bias': 'Array(shape=(3,), dtype=float32)', 'weight': 'Array(shape=(2, 3), dtype=float32)'}
+      )
+    ),
+    b=Linear(
+      in_size=(3,),
+      out_size=(4,),
+      w_mask=None,
+      weight=ParamState(
+        value={'weight': Array([[-0.24753566,  0.18456966, -0.29438975,  0.16891003],
+               [-0.803741  , -0.46037054, -0.21617596,  0.1260884 ],
+               [-0.43074366, -0.24757433,  1.2237076 , -0.07842704]],      dtype=float32), 'bias': Array([0., 0., 0., 0.], dtype=float32)},
+        raw_value={'bias': 'Array(shape=(4,), dtype=float32)', 'weight': 'Array(shape=(3, 4), dtype=float32)'}
+      )
+    ),
+    c=[Linear(
+      in_size=(4,),
+      out_size=(5,),
+      w_mask=None,
+      weight=ParamState(
+        value={'weight': Array([[-0.22384474,  0.79441446, -0.658726  ,  0.05991402,  0.3014344 ],
+               [-1.4755846 , -0.42272082, -0.07692316,  0.03077666,  0.34513143],
+               [-0.69395834,  0.48617035,  1.1042316 ,  0.13105175, -0.25620162],
+               [ 0.50389856,  0.6998943 ,  0.43716812,  1.2168779 , -0.47325954]],      dtype=float32), 'bias': Array([0., 0., 0., 0., 0.], dtype=float32)},
+        raw_value={'bias': 'Array(shape=(5,), dtype=float32)', 'weight': 'Array(shape=(4, 5), dtype=float32)'}
+      )
+    ), Linear(
+      in_size=(5,),
+      out_size=(6,),
+      w_mask=None,
+      weight=ParamState(
+        value={'weight': Array([[ 0.07714394,  0.78213537,  0.6745718 , -0.22881542,  0.5523547 ,
+                -0.6399196 ],
+               [-0.22626828, -0.54522336,  0.07448788, -0.00464636,  1.1483842 ,
+                -0.57049096],
+               [-0.86659616,  0.5683135 , -0.7449975 ,  1.1862832 ,  0.15047254,
+                 0.68890226],
+               [-1.0325443 ,  0.2658072 , -0.10083053, -0.66915905,  0.11258496,
+                 0.5440655 ],
+               [ 0.27917263,  0.05717273, -0.5682605 , -0.88345915,  0.01314917,
+                 0.780759  ]], dtype=float32), 'bias': Array([0., 0., 0., 0., 0., 0.], dtype=float32)},
+        raw_value={'bias': 'Array(shape=(6,), dtype=float32)', 'weight': 'Array(shape=(5, 6), dtype=float32)'}
+      )
+    )],
+    d={'x': Linear(
+      in_size=(6,),
+      out_size=(7,),
+      w_mask=None,
+      weight=ParamState(
+        value={'weight': Array([[-0.24238771, -0.23202638,  0.13663477, -0.48858666,  0.80871904,
+                 0.00593298,  0.7595096 ],
+               [ 0.50457454,  0.24180941,  0.25048748,  0.8937061 ,  0.25398138,
+                -1.2400566 ,  0.00151599],
+               [-0.19136038,  0.34470603, -0.11892717, -0.12514868, -0.5871703 ,
+                 0.13572927, -1.1859009 ],
+               [-0.01580911,  0.9301295 , -1.1246226 , -0.137708  , -0.4952151 ,
+                 0.17537868,  0.98440856],
+               [ 0.6399284 ,  0.01739843,  0.61856824,  0.93258303,  0.64012206,
+                 0.22780116, -0.5763679 ],
+               [ 0.14077143, -1.0359222 ,  0.28072503,  0.2557584 , -0.50622064,
+                 0.4388198 , -0.26106128]], dtype=float32), 'bias': Array([0., 0., 0., 0., 0., 0., 0.], dtype=float32)},
+        raw_value={'bias': 'Array(shape=(7,), dtype=float32)', 'weight': 'Array(shape=(6, 7), dtype=float32)'}
+      )
+    ), 'y': Linear(
+      in_size=(7,),
+      out_size=(8,),
+      w_mask=None,
+      weight=ParamState(
+        value={'weight': Array([[-0.23334591, -0.2893582 ,  0.8071877 , -0.49038902, -0.29646504,
+                 0.13624157,  0.22763114,  0.01906361],
+               [-0.26742765,  0.20136863,  0.35148615,  0.42135832,  0.06401154,
+                -0.78036404,  0.6616062 ,  0.19437549],
+               [ 0.9229799 , -0.1205209 ,  0.69602865,  0.9685676 , -0.99886954,
+                -0.12649904, -0.15393028,  0.65067965],
+               [ 0.7020109 , -0.5452006 ,  0.3649151 , -0.42368713,  0.24738027,
+                 0.29290223, -0.63721114,  0.6007214 ],
+               [-0.45045808, -0.08538888, -0.01338054, -0.39983988,  0.4028439 ,
+                 1.0498686 , -0.24730456,  0.37612835],
+               [ 0.16273966,  0.9001257 ,  0.15190877, -1.1129239 , -0.29441378,
+                 0.5168159 , -0.4205143 ,  0.45700482],
+               [ 0.08611429, -0.9271384 , -0.562362  , -0.586757  ,  1.1611121 ,
+                 0.5137503 , -0.46277294,  0.84642583]], dtype=float32), 'bias': Array([0., 0., 0., 0., 0., 0., 0., 0.], dtype=float32)},
+        raw_value={'bias': 'Array(shape=(8,), dtype=float32)', 'weight': 'Array(shape=(7, 8), dtype=float32)'}
+      )
+    )}
+  )
 
   Args:
-    graph_def: A GraphDefinition instance.
+    graph_def: A GraphDef instance.
     state_mapping: A NestedMapping instance.
     index_ref: A mapping from indexes to nodes references found during the graph
                traversal, defaults to None. If not provided, a new empty dictionary is
@@ -705,30 +869,11 @@ def unflatten(
   return node
 
 
-def graph_pop(
-    node: Node,
-    filters: Tuple[Filter, ...],
-) -> Tuple[GraphStateMapping, ...]:
-  """
-  Pop one or more variables from the graph node.
-
-  Args:
-    node: A graph node.
-    filters: One or more filters to filter the variables to pop.
-  """
-  id_to_index: dict[int, Index] = {}
-  path_parts: PathParts = ()
-  predicates = tuple(to_predicate(filter) for filter in filters)
-  flatted_state_mappings: tuple[FlattedStateMapping[StateLeaf], ...] = tuple({} for _ in predicates)
-  _graph_pop(node, id_to_index, path_parts, flatted_state_mappings, predicates)
-  return tuple(GraphStateMapping.from_flat(flat_state) for flat_state in flatted_state_mappings)
-
-
 def _graph_pop(
     node: Node,
     id_to_index: dict[int, Index],
     path_parts: PathParts,
-    flatted_state_mappings: tuple[FlattedStateMapping[StateLeaf], ...],
+    flatted_state_mappings: tuple[FlattedMapping[PathParts, StateLeaf], ...],
     predicates: tuple[Predicate, ...],
 ) -> None:
   if not _is_node(node):
@@ -774,38 +919,32 @@ def _graph_pop(
 
 
 @overload
-def pop_states(node, filter1: Filter, /) -> GraphStateMapping: ...
+def pop_states(node, filter1: Filter, /) -> NestedMapping: ...
 
 
 @overload
-def pop_states(node, filter1: Filter, filter2: Filter, /, *filters: Filter) -> tuple[GraphStateMapping, ...]: ...
+def pop_states(node, filter1: Filter, filter2: Filter, /, *filters: Filter) -> tuple[NestedMapping, ...]: ...
 
 
+@set_module_as('brainstate.graph')
 def pop_states(
     node: Node, *filters: Filter
-) -> Union[GraphStateMapping, Tuple[GraphStateMapping, ...]]:
-  """Pop one or more :class:`State` types from the graph node.
+) -> Union[NestedMapping, Tuple[NestedMapping, ...]]:
+  """
+  Pop one or more :class:`State` types from the graph node.
 
   Example usage::
 
-    >>> from flax import nnx
+    >>> import brainstate as bst
     >>> import jax.numpy as jnp
 
-    >>> class Model(nnx.Module):
-    ...   def __init__(self, rngs):
-    ...     self.linear1 = nnx.Linear(2, 3, rngs=rngs)
-    ...     self.linear2 = nnx.Linear(3, 4, rngs=rngs)
-    ...   def __call__(self, x):
-    ...     x = self.linear1(x)
-    ...     self.sow(nnx.Intermediate, 'i', x)
-    ...     x = self.linear2(x)
-    ...     return x
+    >>> class Model(bst.graph.Node):
+    ...   def __init__(self):
+    ...     self.linear1 = bst.nn.LIF(3)
+    ...     self.linear2 = bst.nn.Linear(3, 4)
 
-    >>> x = jnp.ones((1, 2))
-    >>> model = Model(rngs=nnx.Rngs(0))
-    >>> assert not hasattr(model, 'i')
-    >>> y = model(x)
-    >>> assert hasattr(model, 'i')
+    >>> model = Model()
+    >>> with bst.
 
     >>> intermediates = nnx.pop_states(model, nnx.Intermediate)
     >>> assert intermediates['i'].value[0].shape == (1, 3)
@@ -825,13 +964,13 @@ def pop_states(
   id_to_index: dict[int, Index] = {}
   path_parts: PathParts = ()
   predicates = tuple(to_predicate(filter) for filter in filters)
-  flatted_state_mappings: tuple[FlattedStateMapping[StateLeaf], ...] = tuple({} for _ in predicates)
+  flatted_state_mappings: tuple[FlattedMapping[PathParts, StateLeaf], ...] = tuple({} for _ in predicates)
   _graph_pop(node=node,
              id_to_index=id_to_index,
              path_parts=path_parts,
              flatted_state_mappings=flatted_state_mappings,
              predicates=predicates, )
-  states = tuple(GraphStateMapping.from_flat(flat_state) for flat_state in flatted_state_mappings)
+  states = tuple(NestedMapping.from_flat(flat_state) for flat_state in flatted_state_mappings)
 
   if len(states) == 1:
     return states[0]
@@ -853,75 +992,77 @@ def _split_state(
 
 
 @overload
-def split(node: A, /) -> tuple[GraphDefinition[A], GraphStateMapping]: ...
+def split(node: A, /) -> Tuple[GraphDef, NestedMapping]:
+  ...
 
 
 @overload
-def split(node: A, first: Filter, /) -> tuple[GraphDefinition[A], GraphStateMapping]: ...
+def split(node: A, first: Filter, /) -> Tuple[GraphDef, NestedMapping]:
+  ...
+
+
+@overload
+def split(node: A, first: Filter, second: Filter, /) -> Tuple[GraphDef, NestedMapping, NestedMapping]:
+  ...
 
 
 @overload
 def split(
     node: A, first: Filter, second: Filter, /, *filters: Filter,
-) -> tuple[GraphDefinition[A], GraphStateMapping, Unpack[tuple[GraphStateMapping, ...]]]: ...
+) -> Tuple[GraphDef, NestedMapping, Unpack[Tuple[NestedMapping, ...]]]:
+  ...
 
 
+@set_module_as('brainstate.graph')
 def split(
     node: A,
     *filters: Filter
-) -> Tuple[GraphDefinition[A], GraphStateMapping, Unpack[Tuple[GraphStateMapping, ...]]]:
-  """Split a graph node into a :class:`GraphDefinition` and one or more :class:`NestedMapping`s. NestedMapping is
-  a ``Mapping`` from strings or integers to ``Variables``, Arrays or nested States. GraphDefinition
+) -> Tuple[GraphDef[A], NestedMapping, Unpack[Tuple[NestedMapping, ...]]]:
+  """Split a graph node into a :class:`GraphDef` and one or more :class:`NestedMapping`s. NestedMapping is
+  a ``Mapping`` from strings or integers to ``Variables``, Arrays or nested States. GraphDef
   contains all the static information needed to reconstruct a ``Module`` graph, it is analogous
   to JAX’s ``PyTreeDef``. :func:`split` is used in conjunction with :func:`merge` to switch
   seamlessly between stateful and stateless representations of the graph.
 
   Example usage::
 
-    >>> from flax import nnx
+    >>> from joblib.testing import param    >>> import brainstate as bst
     >>> import jax, jax.numpy as jnp
     ...
-    >>> class Foo(nnx.Module):
-    ...   def __init__(self, rngs):
-    ...     self.batch_norm = nnx.BatchNorm(2, rngs=rngs)
-    ...     self.linear = nnx.Linear(2, 3, rngs=rngs)
+    >>> class Foo(bst.graph.Node):
+    ...   def __init__(self):
+    ...     self.a = bst.nn.BatchNorm1d([10, 2])
+    ...     self.b = bst.nn.Linear(2, 3)
     ...
-    >>> node = Foo(nnx.Rngs(0))
-    >>> graphdef, params, batch_stats = nnx.split(node, nnx.Param, nnx.BatchStat)
+    >>> node = Foo()
+    >>> graphdef, params, others = bst.graph.split(node, bst.ParamState, ...)
     ...
-    >>> jax.tree.map(jnp.shape, params)
+    >>> params
     NestedMapping({
-      'batch_norm': {
-        'bias': StateRef(
-          type=Param,
-          value=(2,)
-        ),
-        'scale': StateRef(
-          type=Param,
-          value=(2,)
+      'a': {
+        'weight': StateAsPyTree(
+          type=ParamState,
+          value={'weight': Array([[-1.0013659,  1.5763807],
+                 [ 1.7149199,  2.0140953]], dtype=float32), 'bias': Array([0., 0.], dtype=float32)}
         )
       },
-      'linear': {
-        'bias': StateRef(
-          type=Param,
-          value=(3,)
-        ),
-        'kernel': StateRef(
-          type=Param,
-          value=(2, 3)
+      'b': {
+        'weight': StateAsPyTree(
+          type=ParamState,
+          value={'bias': Array([[0., 0.]], dtype=float32), 'scale': Array([[1., 1.]], dtype=float32)}
         )
       }
     })
-    >>> jax.tree.map(jnp.shape, batch_stats)
+    >>> jax.tree.map(jnp.shape, others)
     NestedMapping({
-      'batch_norm': {
-        'mean': StateRef(
-          type=BatchStat,
-          value=(2,)
+      'b': {
+        'running_mean': StateAsPyTree(
+          type=LongTermState,
+          value=(1, 2)
         ),
-        'var': StateRef(
-          type=BatchStat,
-          value=(2,)
+        'running_var': StateAsPyTree(
+          type=LongTermState,
+          value=(1, 2)
         )
       }
     })
@@ -934,43 +1075,45 @@ def split(
   Arguments:
     node: graph node to split.
     *filters: some optional filters to group the state into mutually exclusive substates.
+
   Returns:
-    ``GraphDefinition`` and one or more ``States`` equal to the number of filters passed. If no
+    ``GraphDef`` and one or more ``States`` equal to the number of filters passed. If no
     filters are passed, a single ``NestedMapping`` is returned.
   """
-  graphdef, state = flatten(node)
-  states = _split_state(state, filters)
+  graphdef, state_tree = flatten(node)
+  states = tuple(_split_state(state_tree, filters))
   return graphdef, *states
 
 
+@set_module_as('brainstate.graph')
 def merge(
-    graphdef: GraphDefinition[A],
+    graphdef: GraphDef[A],
     state_mapping: GraphStateMapping,
     /,
     *state_mappings: GraphStateMapping,
 ) -> A:
   """The inverse of :func:`split`.
 
-  ``merge`` takes a :class:`GraphDefinition` and one or more :class:`NestedMapping`'s and creates
+  ``merge`` takes a :class:`GraphDef` and one or more :class:`NestedMapping`'s and creates
   a new node with the same structure as the original node.
 
   Example usage::
 
-    >>> from flax import nnx
+    >>> import brainstate as bst
     >>> import jax, jax.numpy as jnp
     ...
-    >>> class Foo(nnx.Module):
-    ...   def __init__(self, rngs):
-    ...     self.batch_norm = nnx.BatchNorm(2, rngs=rngs)
-    ...     self.linear = nnx.Linear(2, 3, rngs=rngs)
+    >>> class Foo(bst.graph.Node):
+    ...   def __init__(self):
+    ...     self.a = bst.nn.BatchNorm1d([10, 2])
+    ...     self.b = bst.nn.Linear(2, 3)
     ...
-    >>> node = Foo(nnx.Rngs(0))
-    >>> graphdef, params, batch_stats = nnx.split(node, nnx.Param, nnx.BatchStat)
+    >>> node = Foo()
+    >>> graphdef, params, others = bst.graph.split(node, bst.ParamState, ...)
     ...
-    >>> new_node = nnx.merge(graphdef, params, batch_stats)
+    >>> new_node = bst.graph.merge(graphdef, params, others)
     >>> assert isinstance(new_node, Foo)
-    >>> assert isinstance(new_node.batch_norm, nnx.BatchNorm)
-    >>> assert isinstance(new_node.linear, nnx.Linear)
+    >>> assert isinstance(new_node.b, bst.nn.BatchNorm1d)
+    >>> assert isinstance(new_node.a, bst.nn.Linear)
 
   :func:`split` and :func:`merge` are primarily used to interact directly with JAX
   transformations, see
@@ -978,7 +1121,7 @@ def merge(
   for more information.
 
   Args:
-    graphdef: A :class:`GraphDefinition` object.
+    graphdef: A :class:`GraphDef` object.
     state_mapping: A :class:`NestedMapping` object.
     *state_mappings: Additional :class:`NestedMapping` objects.
 
@@ -988,84 +1131,6 @@ def merge(
   state_mapping = GraphStateMapping.merge(state_mapping, *state_mappings)
   node = unflatten(graphdef, state_mapping)
   return node
-
-
-def _graph_update_dynamic(node: Any, state: Mapping[Key, Any]):
-  if not _is_node(node):
-    raise RuntimeError(f'Unsupported type: {type(node)}')
-
-  node_impl = _get_node_impl(node)
-  node_dict = node_impl.node_dict(node)
-  for key, value in state.items():
-    # case 1: new state is being added
-    if key not in node_dict:
-      if isinstance(node_impl, PyTreeNodeImpl):
-        raise ValueError(f'Cannot set key {key!r} on immutable node of '
-                         f'type {type(node).__name__}')
-      if isinstance(value, State):
-        value = value.copy()  # TODO: chenge it to state_ref
-      node_impl.set_key(node, key, value)
-      continue
-
-    # check values are of the same type
-    current_value = node_dict[key]
-
-    # case 2: subgraph is being updated
-    if _is_node(current_value):
-      if _is_state_leaf(value):
-        raise ValueError(f'Expected a subgraph for {key!r}, but got: {value!r}')
-      _graph_update_dynamic(current_value, value)
-    elif isinstance(value, StateRef):
-      # case 3: state leaf is being updated
-      if not isinstance(current_value, State):
-        raise ValueError(f'Trying to update a non-State attribute {key!r} with a State: '
-                         f'{value!r}')
-      current_value.update_from_ref(value)
-    elif _is_state_leaf(value):
-      # case 4: state field is being updated
-      if isinstance(node_impl, PyTreeNodeImpl):
-        raise ValueError(f'Cannot set key {key!r} on immutable node of '
-                         f'type {type(node).__name__}')
-      node_impl.set_key(node, key, value)
-    else:
-      raise ValueError(f'Unsupported update type: {type(value)} for key {key!r}')
-
-
-def update_states(
-    node: Node,
-    state_mapping: NestedMapping,
-    /,
-    *state_mappings: NestedMapping
-) -> None:
-  """
-  Update the given graph node with a new :class:`NestedMapping` in-place.
-
-  Example usage::
-
-    >>> from flax import nnx
-    >>> import jax, jax.numpy as jnp
-
-    >>> x = jnp.ones((1, 2))
-    >>> y = jnp.ones((1, 3))
-    >>> model = nnx.Linear(2, 3, rngs=nnx.Rngs(0))
-
-    >>> def loss_fn(model, x, y):
-    ...   return jnp.mean((y - model(x))**2)
-    >>> prev_loss = loss_fn(model, x, y)
-
-    >>> grads = nnx.grad(loss_fn)(model, x, y)
-    >>> new_state = jax.tree.map(lambda p, g: p - 0.1*g, state_refs(model), grads)
-    >>> update_states(model, new_state)
-    >>> assert loss_fn(model, x, y) < prev_loss
-
-  Args:
-    node: A graph node to update.
-    state_mapping: A :class:`NestedMapping` object.
-    *state_mappings: Additional :class:`NestedMapping` objects.
-  """
-  if state_mappings:
-    state_mapping = GraphStateMapping.merge(state_mapping, *state_mappings)
-  _graph_update_dynamic(node, state_mapping.raw_mapping)
 
 
 def _filters_to_predicates(filters: Tuple[Filter, ...]) -> Tuple[Predicate, ...]:
@@ -1118,6 +1183,7 @@ def nodes(
   ...
 
 
+@set_module_as('brainstate.graph')
 def nodes(
     node,
     *filters: Filter,
@@ -1163,6 +1229,7 @@ def states(
   ...
 
 
+@set_module_as('brainstate.graph')
 def states(
     node,
     *filters: Filter,
@@ -1186,29 +1253,30 @@ def states(
 
 
 @overload
-def state_refs(
+def states_as_trees(
     node, /, flatted: bool = False
-) -> NestedMapping[Key, StateRef]:
+) -> NestedMapping[Key, StateAsPyTree]:
   ...
 
 
 @overload
-def state_refs(
+def states_as_trees(
     node, first: Filter, /, flatted: bool = False
-) -> NestedMapping[Key, StateRef]:
+) -> NestedMapping[Key, StateAsPyTree]:
   ...
 
 
 @overload
-def state_refs(
+def states_as_trees(
     node, first: Filter, second: Filter, /, *filters: Filter, flatted: bool = False
-) -> Tuple[NestedMapping[Key, StateRef], ...]:
+) -> Tuple[NestedMapping[Key, StateAsPyTree], ...]:
   ...
 
 
-def state_refs(
-    node, *filters, flatted: bool = False
-) -> NestedMapping[Key, StateRef] | tuple[NestedMapping[Key, StateRef], ...]:
+@set_module_as('brainstate.graph')
+def states_as_trees(
+    node, *filters,
+) -> NestedMapping[Key, StateAsPyTree] | tuple[NestedMapping[Key, StateAsPyTree], ...]:
   """
   Similar to :func:`split` but only returns the :class:`NestedMapping`'s indicated by the filters.
 
@@ -1225,16 +1293,15 @@ def state_refs(
 
     >>> model = Model()
     >>> # get the learnable parameters from the batch norm and linear layer
-    >>> params = bst.graph.state_refs(model, bst.ParamState)
+    >>> params = bst.graph.states_as_trees(model, bst.ParamState)
     >>> # get them separately
-    >>> params, others = bst.graph.state_refs(model, bst.ParamState, bst.ShortTermState)
+    >>> params, others = bst.graph.states_as_trees(model, bst.ParamState, bst.ShortTermState)
     >>> # get them together
-    >>> states = bst.graph.state_refs(model)
+    >>> states = bst.graph.states_as_trees(model)
 
   Args:
     node: A graph node object.
     *filters: One or more :class:`State` objects to filter by.
-    flatted: If True, the path will be flattened. If not, the path will be nested.
 
   Returns:
     One or more :class:`NestedMapping` mappings.
@@ -1250,36 +1317,40 @@ def state_refs(
   return state_mappings
 
 
-def graphdef(node: Any, /) -> GraphDefinition[Any]:
-  """Get the :class:`GraphDefinition` of the given graph node.
+@set_module_as('brainstate.graph')
+def graphdef(node: Any, /) -> GraphDef[Any]:
+  """Get the :class:`GraphDef` of the given graph node.
 
   Example usage::
 
-    >>> from flax import nnx
+    >>> import brainstate as bst
 
-    >>> model = nnx.Linear(2, 3, rngs=nnx.Rngs(0))
-    >>> graphdef, _ = nnx.split(model)
-    >>> assert graphdef == nnx.graphdef(model)
+    >>> model = bst.nn.Linear(2, 3)
+    >>> graphdef, _ = bst.graph.split(model)
+    >>> assert graphdef == bst.graph.graphdef(model)
 
   Args:
     node: A graph node object.
+
   Returns:
-    The :class:`GraphDefinition` of the :class:`Module` object.
+    The :class:`GraphDef` of the :class:`Module` object.
   """
   graphdef, _ = flatten(node)
   return graphdef
 
 
+@set_module_as('brainstate.graph')
 def clone(node: Node) -> Node:
   """
   Create a deep copy of the given graph node.
 
   Example usage::
 
-    >>> model = nnx.Linear(2, 3, rngs=nnx.Rngs(0))
+    >>> import brainstate as bst
+    >>> model = bst.nn.Linear(2, 3)
     >>> cloned_model = clone(model)
-    >>> model.bias.value += 1
-    >>> assert (model.bias.value != cloned_model.bias.value).all()
+    >>> model.weight.value['bias'] += 1
+    >>> assert (model.weight.value['bias'] != cloned_model.weight.value['bias']).all()
 
   Args:
     node: A graph node object.
@@ -1291,49 +1362,50 @@ def clone(node: Node) -> Node:
   return merge(graphdef, state)
 
 
+@set_module_as('brainstate.graph')
 def call(
-    graphdef_state: Tuple[GraphDefinition[A], GraphStateMapping],
-) -> ApplyCaller[Tuple[GraphDefinition[A], GraphStateMapping]]:
-  """Calls a method underlying graph node defined by a (GraphDefinition, NestedMapping) pair.
+    graphdef_state: Tuple[GraphDef[A], GraphStateMapping],
+) -> ApplyCaller[Tuple[GraphDef[A], GraphStateMapping]]:
+  """Calls a method underlying graph node defined by a (GraphDef, NestedMapping) pair.
 
-  ``call`` takes a ``(GraphDefinition, NestedMapping)`` pair and creates a proxy object that can be
+  ``call`` takes a ``(GraphDef, NestedMapping)`` pair and creates a proxy object that can be
   used to call methods on the underlying graph node. When a method is called, the
-  output is returned along with a new (GraphDefinition, NestedMapping) pair that represents the
+  output is returned along with a new (GraphDef, NestedMapping) pair that represents the
   updated state of the graph node. ``call`` is equivalent to :func:`merge` > ``method``
   > :func:`split`` but is more convenient to use in pure JAX functions.
 
   Example::
 
-    >>> from flax import nnx
+    >>> import brainstate as bst
     >>> import jax
     >>> import jax.numpy as jnp
     ...
-    >>> class StatefulLinear(nnx.Module):
-    ...   def __init__(self, din, dout, rngs):
-    ...     self.w = nnx.Param(jax.random.uniform(rngs(), (din, dout)))
-    ...     self.b = nnx.Param(jnp.zeros((dout,)))
-    ...     self.count = nnx.State(jnp.array(0, dtype=jnp.uint32))
+    >>> class StatefulLinear(bst.graph.Node):
+    ...   def __init__(self, din, dout):
+    ...     self.w = bst.ParamState(bst.random.rand(din, dout))
+    ...     self.b = bst.ParamState(jnp.zeros((dout,)))
+    ...     self.count = bst.State(jnp.array(0, dtype=jnp.uint32))
     ...
     ...   def increment(self):
-    ...     self.count += 1
+    ...     self.count.value += 1
     ...
     ...   def __call__(self, x):
     ...     self.increment()
-    ...     return x @ self.w + self.b
+    ...     return x @ self.w.value + self.b.value
     ...
-    >>> linear = StatefulLinear(3, 2, nnx.Rngs(0))
+    >>> linear = StatefulLinear(3, 2)
     >>> linear_state = split(linear)
     ...
     >>> @jax.jit
     ... def forward(x, linear_state):
-    ...   y, linear_state = nnx.call(linear_state)(x)
+    ...   y, linear_state = bst.graph.call(linear_state)(x)
     ...   return y, linear_state
     ...
     >>> x = jnp.ones((1, 3))
     >>> y, linear_state = forward(x, linear_state)
     >>> y, linear_state = forward(x, linear_state)
     ...
-    >>> linear = merge(*linear_state)
+    >>> linear = bst.graph.merge(*linear_state)
     >>> linear.count.value
     Array(2, dtype=uint32)
 
@@ -1342,28 +1414,27 @@ def call(
   is used to call the ``increment`` method of the ``StatefulLinear`` module
   at the ``b`` key of a ``nodes`` dictionary.
 
-    >>> class StatefulLinear(nnx.Module):
-    ...   def __init__(self, din, dout, rngs):
-    ...     self.w = nnx.Param(jax.random.uniform(rngs(), (din, dout)))
-    ...     self.b = nnx.Param(jnp.zeros((dout,)))
-    ...     self.count = nnx.State(jnp.array(0, dtype=jnp.uint32))
+    >>> class StatefulLinear(bst.graph.Node):
+    ...   def __init__(self, din, dout):
+    ...     self.w = bst.ParamState(bst.random.rand(din, dout))
+    ...     self.b = bst.ParamState(jnp.zeros((dout,)))
+    ...     self.count = bst.State(jnp.array(0, dtype=jnp.uint32))
     ...
     ...   def increment(self):
-    ...     self.count += 1
+    ...     self.count.value += 1
     ...
     ...   def __call__(self, x):
     ...     self.increment()
-    ...     return x @ self.w + self.b
+    ...     return x @ self.w.value + self.b.value
     ...
-    >>> rngs = nnx.Rngs(0)
     >>> nodes = dict(
-    ...   a=StatefulLinear(3, 2, rngs),
-    ...   b=StatefulLinear(2, 1, rngs),
+    ...   a=StatefulLinear(3, 2),
+    ...   b=StatefulLinear(2, 1),
     ... )
     ...
     >>> node_state = split(nodes)
     >>> # use attribute access
-    >>> _, node_state = nnx.call(node_state)['b'].increment()
+    >>> _, node_state = bst.graph.call(node_state)['b'].increment()
     ...
     >>> nodes = merge(*node_state)
     >>> nodes['a'].count.value
@@ -1381,6 +1452,7 @@ def call(
   return CallableProxy(pure_caller)  # type: ignore
 
 
+@set_module_as('brainstate.graph')
 def iter_leaf(
     node: Any,
     allowed_hierarchy: Tuple[int, int] = (0, _max_int)
@@ -1449,6 +1521,7 @@ def iter_leaf(
   yield from _iter_graph_leaf(node, visited, path_parts, level)
 
 
+@set_module_as('brainstate.graph')
 def iter_node(
     node: Any,
     allowed_hierarchy: Tuple[int, int] = (0, _max_int)

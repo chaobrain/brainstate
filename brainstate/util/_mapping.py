@@ -163,7 +163,7 @@ def _default_process(x):
 
 
 class NestedStateRepr(PrettyRepr):
-  def __init__(self, state: _Mapping):
+  def __init__(self, state: StateMapping):
     self.state = state
 
   def __pretty_repr__(self):
@@ -177,14 +177,16 @@ class NestedStateRepr(PrettyRepr):
   def __treescope_repr__(self, path, subtree_renderer):
     children = {}
     for k, v in self.state.items():
-      if isinstance(v, _Mapping):
+      if isinstance(v, StateMapping):
         v = NestedStateRepr(v)
       children[k] = v
     # Render as the dictionary itself at the same path.
     return subtree_renderer(children, path=path)
 
 
-class _Mapping(MutableMapping[K, V], PrettyRepr):
+class StateMapping(MutableMapping[K, V], PrettyRepr):
+  __module__ = 'brainstate.util'
+
   def __init__(
       self,
       mapping: Union[Mapping[K, Mapping | V], Iterator[Tuple[K, Mapping | V]]],
@@ -195,9 +197,9 @@ class _Mapping(MutableMapping[K, V], PrettyRepr):
     if _copy:
       _mapping = dict(mapping)
     else:
-      if not isinstance(mapping, Dict):
-        raise ValueError(f'Expected a dictionary when `_copy=False`, got {type(mapping)} instead.')
       _mapping = mapping
+    if not isinstance(_mapping, dict):
+      raise ValueError(f'Expected a dictionary when `_copy=False`, got {type(mapping)} instead.')
 
     if TYPE_CHECKING:
       self._mapping = _mapping
@@ -217,11 +219,8 @@ class _Mapping(MutableMapping[K, V], PrettyRepr):
   def __contains__(self, key) -> bool:
     return key in self._mapping
 
-  def __getitem__(self, key: K) -> NestedMapping | V:  # type: ignore
-    value = self._mapping[key]
-    if isinstance(value, Mapping):
-      return NestedMapping(value, _copy=False)
-    return value
+  def __getitem__(self, key: K) -> V:  # type: ignore
+    raise NotImplementedError
 
   def __getattr__(self, key: K) -> NestedMapping | V:  # type: ignore[misc]
     if '_mapping' not in vars(self) or key not in self._mapping:
@@ -250,34 +249,43 @@ class _Mapping(MutableMapping[K, V], PrettyRepr):
   def __pretty_repr__(self):
     yield from pretty_repr_avoid_duplicate(self, _default_repr_object, _default_repr_attr)
 
-  def split(self, *filters) -> Union[_Mapping[K, V], Tuple[_Mapping[K, V], ...]]:
+  def split(self, *filters) -> Union[StateMapping[K, V], Tuple[StateMapping[K, V], ...]]:
     raise NotImplementedError
 
-  def filter(self, *filters) -> Union[_Mapping[K, V], Tuple[_Mapping[K, V], ...]]:
+  def filter(self, *filters) -> Union[StateMapping[K, V], Tuple[StateMapping[K, V], ...]]:
     raise NotImplementedError
 
-  def merge(self, *states) -> _Mapping[K, V]:
+  def merge(self, *states) -> StateMapping[K, V]:
     raise NotImplementedError
 
 
-def _default_repr_object(node: _Mapping):
+def _default_repr_object(node: StateMapping):
   yield PrettyType(type(node), value_sep=': ', start='({', end='})')
 
 
-def _default_repr_attr(node: _Mapping):
+def _default_repr_attr(node: StateMapping):
   for k, v in node.items():
-    if isinstance(v, _Mapping):
+    if isinstance(v, StateMapping):
       v = NestedStateRepr(v)
     yield PrettyAttr(repr(k), v)
 
 
-class NestedMapping(_Mapping):
+class NestedMapping(StateMapping):
   """
   A pytree-like structure that contains a ``Mapping`` from strings or integers to leaves. 
   
   A valid leaf type is either :class:`State`, ``jax.Array``, ``numpy.ndarray`` or nested
   ``NestedMapping`` and ``FlattedMapping``.
   """
+  __module__ = 'brainstate.util'
+
+  def __getitem__(self, key: K) -> NestedMapping | V:
+    value = self._mapping[key]
+    if isinstance(value, dict):
+      return NestedMapping(value, _copy=False)
+    elif isinstance(value, Mapping):
+      return NestedMapping(value)
+    return value
 
   def __or__(self, other: NestedMapping[K, V]) -> NestedMapping[K, V]:
     if not other:
@@ -348,7 +356,7 @@ class NestedMapping(_Mapping):
       ...     return self.linear(self.batchnorm(x))
 
       >>> model = Model()
-      >>> state_map = bst.graph.state_refs(model)
+      >>> state_map = bst.graph.states_as_trees(model)
       >>> param, others = state_map.split(bst.ParamState, ...)
 
     Arguments:
@@ -431,19 +439,16 @@ class NestedMapping(_Mapping):
 
   def to_pure_dict(
       self,
-      extract_fn: Optional[ExtractValueFn] = None
   ) -> Dict[str, Any]:
-    if extract_fn is None:
-      extract_fn = lambda x: x.value if hasattr(x, 'value') else x
-    flat_values = {k: extract_fn(x) for k, x in self.to_flat().items()}
-    return nest_mapping(flat_values)
+    flat_values = {k: x for k, x in self.to_flat().items()}
+    return dict(nest_mapping(flat_values).raw_mapping)
 
   def replace_by_pure_dict(
       self,
       pure_dict: Dict[str, Any],
       replace_fn: Optional[SetValueFn] = None
   ):
-    # Works for nnx.State and nnx.StateRef
+    # Works for nnx.State and nnx.StateAsPyTree
     if replace_fn is None:
       replace_fn = lambda x, v: x.replace(v) if hasattr(x, 'replace') else v
     current_flat = self.to_flat()
@@ -454,7 +459,7 @@ class NestedMapping(_Mapping):
     self.update(nest_mapping(current_flat))
 
 
-class FlattedMapping(_Mapping):
+class FlattedMapping(StateMapping):
   """
   A pytree-like structure that contains a ``Mapping`` from strings or integers to leaves.
 
@@ -541,6 +546,15 @@ class FlattedMapping(_Mapping):
       )
     })
   """
+  __module__ = 'brainstate.util'
+
+  def __getitem__(self, key: K) -> FlattedMapping | V:
+    value = self._mapping[key]
+    if isinstance(value, dict):
+      return FlattedMapping(value, _copy=False)
+    elif isinstance(value, Mapping):
+      return FlattedMapping(value)
+    return value
 
   def __or__(self, other: FlattedMapping[K, V]) -> FlattedMapping[K, V]:
     if not other:
@@ -678,6 +692,9 @@ class FlattedMapping(_Mapping):
     values = jax.tree.map(process_fn, values)
     new_flat_state = {k: v for k, v in self._mapping.items() if contain_fn(v, values)}
     return FlattedMapping(new_flat_state)
+
+  def to_pure_dict(self, ) -> Dict[str, Any]:
+    return dict(self.raw_mapping)
 
 
 def _split_nested_mapping(

@@ -25,10 +25,10 @@ from brainstate.util import PyTreeNode, field
 from ._graph_context import SplitContext, MergeContext, split_context, merge_context
 from ._graph_node import Node as GraphNode
 from ._graph_operation import (RefMap, iter_leaf as iter_graph, _is_graph_node,
-                               GraphDefinition, GraphStateMapping)
+                               GraphDef, GraphStateMapping)
 
 __all__ = [
-  'graph_to_tree', 'tree_to_graph',
+  'graph_to_tree', 'tree_to_graph', 'NodeStates'
 ]
 
 from ..random import RandomState
@@ -111,13 +111,13 @@ def broadcast_prefix(
   return result
 
 
-class GraphNodeState(PyTreeNode):
-  _graphdef: GraphDefinition[Any] | None
+class NodeStates(PyTreeNode):
+  _graphdef: GraphDef[Any] | None
   states: tuple[GraphStateMapping, ...]
   metadata: Any = field(pytree_node=False)
 
   @property
-  def graphdef(self) -> GraphDefinition[Any]:
+  def graphdef(self) -> GraphDef[Any]:
     if self._graphdef is None:
       raise ValueError('No graphdef available')
     return self._graphdef
@@ -131,7 +131,7 @@ class GraphNodeState(PyTreeNode):
   @classmethod
   def from_split(
       cls,
-      graphdef: GraphDefinition[Any],
+      graphdef: GraphDef[Any],
       state: GraphStateMapping,
       /,
       *states: GraphStateMapping,
@@ -149,7 +149,7 @@ class GraphNodeState(PyTreeNode):
 
 
 def _default_split_fn(ctx: SplitContext, path: KeyPath, prefix: Prefix, leaf: Leaf):
-  return GraphNodeState.from_split(*ctx.split(leaf))
+  return NodeStates.from_split(*ctx.split(leaf))
 
 
 def graph_to_tree(
@@ -199,11 +199,11 @@ def graph_to_tree(
 
 def _is_tree_node(x):
   """Check if x is a TreeNode."""
-  return isinstance(x, GraphNodeState)
+  return isinstance(x, NodeStates)
 
 
 def _merge_tree_node(ctx: MergeContext, path: KeyPath, prefix: Prefix, leaf: Leaf) -> Any:
-  if not isinstance(leaf, GraphNodeState):
+  if not isinstance(leaf, NodeStates):
     raise ValueError(f'Expected TreeNode, got {type(leaf)} at path {path}')
   return ctx.merge(leaf.graphdef, *leaf.states)
 

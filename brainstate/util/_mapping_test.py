@@ -73,7 +73,7 @@ class TestNestedMapping(absltest.TestCase):
         self.layers = [bst.nn.Linear(1, 2), bst.nn.Linear(2, 3)]
 
     module = Foo()
-    state_refs = bst.graph.state_refs(module)
+    state_refs = bst.graph.states_as_trees(module)
 
     assert module.layers[0].weight.value['weight'].shape == (1, 2)
     assert state_refs.layers[0].weight.value['weight'].shape == (1, 2)
@@ -82,7 +82,7 @@ class TestNestedMapping(absltest.TestCase):
 
   def test_pure_dict(self):
     module = bst.nn.Linear(4, 5)
-    state_map = bst.graph.state_refs(module)
+    state_map = bst.graph.states_as_trees(module)
     pure_dict = state_map.to_pure_dict()
     assert isinstance(pure_dict, dict)
     assert isinstance(pure_dict['weight']['weight'], jax.Array)
@@ -106,7 +106,7 @@ class TestSplit(unittest.TestCase):
       y = model(x)
       self.assertEqual(y.shape, (1, 10, 4))
 
-    state_map = bst.graph.state_refs(model)
+    state_map = bst.graph.states_as_trees(model)
 
     with self.assertRaises(ValueError):
       params, others = state_map.split(bst.ParamState)
@@ -133,7 +133,7 @@ class TestStateMap2(unittest.TestCase):
 
     with bst.environ.context(fit=True):
       model = Model()
-      state_map = bst.graph.state_refs(model).to_flat()
+      state_map = bst.graph.states_as_trees(model).to_flat()
       state_map = bst.util.NestedMapping(state_map)
 
 

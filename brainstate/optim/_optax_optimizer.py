@@ -137,7 +137,7 @@ class OptaxOptimizer(Node):
     self.model = model
 
     # wrt
-    self.opt_state = tx.init(nnx.state_refs(model, wrt))
+    self.opt_state = tx.init(nnx.states_as_trees(model, wrt))
     self.wrt = wrt
 
   def update(self, grads):
@@ -160,18 +160,18 @@ class OptaxOptimizer(Node):
       ...   def __call__(self, x):
       ...     return self.linear(x) + self.custom_variable
       >>> model = Model(rngs=nnx.Rngs(0))
-      >>> jax.tree.map(jnp.shape, nnx.state_refs(model))
+      >>> jax.tree.map(jnp.shape, nnx.states_as_trees(model))
       State({
-        'custom_variable': StateRef(
+        'custom_variable': StateAsPyTree(
           type=CustomVariable,
           value=(1, 3)
         ),
         'linear': {
-          'bias': StateRef(
+          'bias': StateAsPyTree(
             type=Param,
             value=(3,)
           ),
-          'kernel': StateRef(
+          'kernel': StateAsPyTree(
             type=Param,
             value=(2, 3)
           )
@@ -198,7 +198,7 @@ class OptaxOptimizer(Node):
       grads: the gradients derived from ``nnx.grad``.
     """
     import optax  # type: ignore[import-not-found,import-untyped]
-    state = nnx.state_refs(self.model, self.wrt)
+    state = nnx.states_as_trees(self.model, self.wrt)
 
     updates, new_opt_state = self.tx.update(grads, self.opt_state, state)
     new_params = optax.apply_updates(state, updates)
