@@ -15,33 +15,14 @@
 
 
 __all__ = [
-  'display',
+  'BrainStateError',
+  'TraceContextError',
 ]
 
 
-import importlib.util
-
-treescope_installed = importlib.util.find_spec('treescope') is not None
-try:
-  from IPython import get_ipython
-
-  in_ipython = get_ipython() is not None
-except ImportError:
-  in_ipython = False
+class BrainStateError(Exception):
+  pass
 
 
-def display(*args):
-  """Display the given objects using the Treescope pretty-printer.
-
-  If treescope is not installed or the code is not running in IPython,
-  ``display`` will print the objects instead.
-  """
-  if not treescope_installed or not in_ipython:
-    for x in args:
-      print(x)
-    return
-
-  import treescope  # type: ignore[import-not-found,import-untyped]
-
-  for x in args:
-    treescope.display(x, ignore_exceptions=True, autovisualize=True)
+class TraceContextError(BrainStateError):
+  pass
