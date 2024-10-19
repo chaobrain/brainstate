@@ -22,9 +22,9 @@ import jax
 import numpy as np
 
 from brainstate._state import State
+from brainstate.mixin import Mode
 from brainstate.typing import ArrayLike
 from ._base import to_size
-from brainstate.mixin import Mode
 
 __all__ = [
   'param',

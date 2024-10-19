@@ -102,7 +102,7 @@ class Identity(Initializer):
     if isinstance(shape, (tuple, list)):
       if len(shape) > 2:
         raise ValueError(f'Only support initialize 2D weights for {self.__class__.__name__}.')
-    r = u.math.eye(shape, dtype=self.dtype)
+    r = u.math.eye(*shape, dtype=self.dtype)
     r = u.math.fill_diagonal(r, self.value)
     return r
 

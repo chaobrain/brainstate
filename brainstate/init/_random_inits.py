@@ -539,8 +539,8 @@ class DeltaOrthogonal(Initializer):
       raise ValueError("Delta orthogonal initializer requires a 3D, 4D or 5D shape.")
     if shape[-1] < shape[-2]:
       raise ValueError("`fan_in` must be less or equal than `fan_out`. ")
-    ortho_matrix = u.Quantity(self.orghogonal(*shape[-2:]))
-    W = u.math.zeros_like(ortho_matrix)
+    ortho_matrix = u.Quantity(self.orghogonal(shape[-2:]))
+    W = u.Quantity(u.math.zeros(shape, dtype=self.dtype), unit=u.get_unit(ortho_matrix))
     if len(shape) == 3:
       k = shape[0]
       W = W.at[(k - 1) // 2].set(ortho_matrix)
