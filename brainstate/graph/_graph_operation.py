@@ -1,4 +1,7 @@
-# Copyright 2024 The Flax Authors.
+# The file is adapted from the Flax library (https://github.com/google/flax).
+# The credit should go to the Flax authors.
+#
+# Copyright 2024 The Flax Authors & 2024 BDP Ecosystem.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -26,7 +29,7 @@ from brainstate._state import State, StateAsPyTree
 from brainstate._utils import set_module_as
 from brainstate.typing import PathParts, Filter, Predicate, Key
 from brainstate.util._caller import ApplyCaller, CallableProxy, DelayedAccessor
-from brainstate.util._dict import FrozenDict
+from brainstate.util._struct import FrozenDict
 from brainstate.util._filter import to_predicate
 from brainstate.util._mapping import NestedMapping, FlattedMapping, StateMapping
 from brainstate.util._pretty_repr import PrettyRepr, PrettyType, PrettyAttr, PrettyMapping, MappingReprMixin

@@ -13,8 +13,6 @@
 # limitations under the License.
 # ==============================================================================
 
-from ._dict import *
-from ._dict import __all__ as _dict_all
 from ._error import *
 from ._error import __all__ as _error_all
 from ._filter import *
@@ -36,7 +34,6 @@ __all__ = (
     _others_all
     + _mem_scale_all
     + _filter_all
-    + _dict_all
     + _pretty_repr_all
     + _struct_all
     + _error_all
@@ -47,7 +44,6 @@ del (
   _others_all,
   _mem_scale_all,
   _filter_all,
-  _dict_all,
   _pretty_repr_all,
   _struct_all,
   _error_all,
