@@ -1,4 +1,7 @@
-# Copyright 2024 The Flax Authors.
+# The file is adapted from the Flax library (https://github.com/google/flax).
+# The credit should go to the Flax authors.
+#
+# Copyright 2024 The Flax Authors & 2024 BDP Ecosystem.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -11,6 +14,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+# ==============================================================================
+
 
 # %%
 import jax
@@ -19,10 +24,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import optax
 
-from flax import nnx
+import brainstate as bst
 
 X = np.linspace(0, 1, 100)[:, None]
-Y = 0.8 * X**2 + 0.1 + np.random.normal(0, 0.1, size=X.shape)
+Y = 0.8 * X ** 2 + 0.1 + np.random.normal(0, 0.1, size=X.shape)
 
 
 def dataset(batch_size):
@@ -31,24 +36,26 @@ def dataset(batch_size):
     yield X[idx], Y[idx]
 
 
-class Linear(nnx.Module):
-  def __init__(self, din: int, dout: int, *, rngs: nnx.Rngs):
-    self.w = nnx.Param(jax.random.uniform(rngs.params(), (din, dout)))
-    self.b = nnx.Param(jnp.zeros((dout,)))
+class Linear(bst.nn.Module):
+  def __init__(self, din: int, dout: int):
+    super().__init__()
+    self.w = bst.ParamState(bst.random.rand(din, dout))
+    self.b = bst.ParamState(jnp.zeros((dout,)))
 
   def __call__(self, x):
     return x @ self.w.value + self.b.value
 
 
-class Count(nnx.Variable):
+class Count(bst.State):
   pass
 
 
-class MLP(nnx.Module):
-  def __init__(self, din, dhidden, dout, *, rngs: nnx.Rngs):
+class MLP(bst.nn.Module):
+  def __init__(self, din, dhidden, dout):
+    super().__init__()
     self.count = Count(jnp.array(0))
-    self.linear1 = Linear(din, dhidden, rngs=rngs)
-    self.linear2 = Linear(dhidden, dout, rngs=rngs)
+    self.linear1 = Linear(din, dhidden)
+    self.linear2 = Linear(dhidden, dout)
 
   def __call__(self, x):
     self.count.value += 1
@@ -58,25 +65,24 @@ class MLP(nnx.Module):
     return x
 
 
-model = MLP(din=1, dhidden=32, dout=1, rngs=nnx.Rngs(0))
+model = MLP(din=1, dhidden=32, dout=1)
 tx = optax.sgd(1e-3)
-optimizer = nnx.Optimizer(model, tx)
+optimizer = bst.optim.OptaxOptimizer(model.states(bst.ParamState), tx)
 
 
-@nnx.jit
-def train_step(model: MLP, optimizer: nnx.Optimizer, batch):
+@bst.compile.jit
+def train_step(batch):
   x, y = batch
 
-  def loss_fn(model: MLP):
-    y_pred = model(x)
-    return jnp.mean((y - y_pred) ** 2)
+  def loss_fn():
+    return jnp.mean((y - model(x)) ** 2)
 
-  grads: nnx.State = nnx.grad(loss_fn)(model)
+  grads = bst.augment.grad(loss_fn, model.states(bst.ParamState))()
   optimizer.update(grads)
 
 
-@nnx.jit
-def test_step(model: MLP, batch):
+@bst.compile.jit
+def test_step(batch):
   x, y = batch
   y_pred = model(x)
   loss = jnp.mean((y - y_pred) ** 2)
@@ -85,10 +91,10 @@ def test_step(model: MLP, batch):
 
 total_steps = 10_000
 for step, batch in enumerate(dataset(32)):
-  train_step(model, optimizer, batch)
+  train_step(batch)
 
   if step % 1000 == 0:
-    logs = test_step(model, (X, Y))
+    logs = test_step((X, Y))
     print(f"step: {step}, loss: {logs['loss']}")
 
   if step >= total_steps - 1:

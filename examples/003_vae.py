@@ -1,4 +1,4 @@
-# Copyright 2024 The Flax Authors.
+# Copyright 2024 BDP Ecosystem Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -11,6 +11,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+# ==============================================================================
+
 
 # %%
 import typing as tp
@@ -22,7 +24,7 @@ import numpy as np
 import optax
 from datasets import load_dataset
 
-from flax import nnx
+import brainstate as bst
 
 np.random.seed(42)
 latent_size = 32
@@ -30,7 +32,6 @@ image_shape: tp.Sequence[int] = (28, 28)
 steps_per_epoch: int = 200
 batch_size: int = 64
 epochs: int = 20
-
 
 dataset = load_dataset('mnist')
 X_train = np.array(np.stack(dataset['train']['image']), dtype=np.uint8)
@@ -43,17 +44,17 @@ print('X_train:', X_train.shape, X_train.dtype)
 print('X_test:', X_test.shape, X_test.dtype)
 
 
-class Loss(nnx.Variable):
+class Loss(bst.State):
   pass
 
 
 # %%
-class Encoder(nnx.Module):
-  def __init__(self, din: int, dmid: int, dout: int, *, rngs: nnx.Rngs):
-    self.linear1 = nnx.Linear(din, dmid, rngs=rngs)
-    self.linear_mean = nnx.Linear(dmid, dout, rngs=rngs)
-    self.linear_std = nnx.Linear(dmid, dout, rngs=rngs)
-    self.rngs = rngs
+class Encoder(bst.nn.Module):
+  def __init__(self, din: int, dmid: int, dout: int):
+    super().__init__()
+    self.linear1 = bst.nn.Linear(din, dmid)
+    self.linear_mean = bst.nn.Linear(dmid, dout)
+    self.linear_std = bst.nn.Linear(dmid, dout)
 
   def __call__(self, x: jax.Array) -> jax.Array:
     x = x.reshape((x.shape[0], -1))  # flatten
@@ -63,20 +64,17 @@ class Encoder(nnx.Module):
     mean = self.linear_mean(x)
     std = jnp.exp(self.linear_std(x))
 
-    self.kl_loss = Loss(
-      jnp.mean(
-        0.5 * jnp.mean(-jnp.log(std**2) - 1.0 + std**2 + mean**2, axis=-1)
-      )
-    )
-    key = self.rngs.noise()
-    z = mean + std * jax.random.normal(key, mean.shape)
+    loss = jnp.mean(0.5 * jnp.mean(-jnp.log(std ** 2) - 1.0 + std ** 2 + mean ** 2, axis=-1))
+    self.kl_loss = Loss(loss)
+    z = mean + std * bst.random.normal(size=mean.shape)
     return z
 
 
-class Decoder(nnx.Module):
-  def __init__(self, din: int, dmid: int, dout: int, *, rngs: nnx.Rngs):
-    self.linear1 = nnx.Linear(din, dmid, rngs=rngs)
-    self.linear2 = nnx.Linear(dmid, dout, rngs=rngs)
+class Decoder(bst.nn.Module):
+  def __init__(self, din: int, dmid: int, dout: int):
+    super().__init__()
+    self.linear1 = bst.nn.Linear(din, dmid)
+    self.linear2 = bst.nn.Linear(dmid, dout)
 
   def __call__(self, z: jax.Array) -> jax.Array:
     z = self.linear1(z)
@@ -85,20 +83,19 @@ class Decoder(nnx.Module):
     return logits
 
 
-class VAE(nnx.Module):
+class VAE(bst.nn.Module):
   def __init__(
-    self,
-    din: int,
-    hidden_size: int,
-    latent_size: int,
-    output_shape: tp.Sequence[int],
-    *,
-    rngs: nnx.Rngs,
+      self,
+      din: int,
+      hidden_size: int,
+      latent_size: int,
+      output_shape: tp.Sequence[int],
   ):
+    super().__init__()
     self.output_shape = output_shape
-    self.encoder = Encoder(din, hidden_size, latent_size, rngs=rngs)
+    self.encoder = Encoder(din, hidden_size, latent_size)
     self.decoder = Decoder(
-      latent_size, hidden_size, int(np.prod(output_shape)), rngs=rngs
+      latent_size, hidden_size, int(np.prod(output_shape))
     )
 
   def __call__(self, x: jax.Array) -> jax.Array:
@@ -110,7 +107,7 @@ class VAE(nnx.Module):
   def generate(self, z):
     logits = self.decoder(z)
     logits = jnp.reshape(logits, (-1, *self.output_shape))
-    return nnx.sigmoid(logits)
+    return jax.nn.sigmoid(logits)
 
 
 model = VAE(
@@ -118,39 +115,34 @@ model = VAE(
   hidden_size=256,
   latent_size=latent_size,
   output_shape=image_shape,
-  rngs=nnx.Rngs(0, noise=1),
 )
 
-optimizer = nnx.Optimizer(model, optax.adam(1e-3))
+optimizer = bst.optim.OptaxOptimizer(model.states(bst.ParamState), optax.adam(1e-3))
 
 
 # %%
-@nnx.jit
-def train_step(model: VAE, optimizer: nnx.Optimizer, x: jax.Array):
-  def loss_fn(model: VAE):
+@bst.compile.jit
+def train_step(x: jax.Array):
+  def loss_fn():
     logits = model(x)
-    losses = nnx.pop(model, Loss)
+    losses = bst.graph.treefy_states(model, Loss)
     kl_loss = sum(jax.tree_util.tree_leaves(losses), 0.0)
-    reconstruction_loss = jnp.mean(
-      optax.sigmoid_binary_cross_entropy(logits, x)
-    )
+    reconstruction_loss = jnp.mean(optax.sigmoid_binary_cross_entropy(logits, x))
     loss = reconstruction_loss + 0.1 * kl_loss
     return loss
 
-  loss, grads = nnx.value_and_grad(loss_fn)(model)
+  grads, loss = bst.augment.grad(loss_fn, model.states(bst.ParamState), return_value=True)()
   optimizer.update(grads)
-
   return loss
 
 
-@nnx.jit
-def forward(model: VAE, x: jax.Array) -> jax.Array:
-  y_pred = model(x)
-  return jax.nn.sigmoid(y_pred)
+@bst.compile.jit
+def forward(x: jax.Array) -> jax.Array:
+  return jax.nn.sigmoid(model(x))
 
 
-@nnx.jit
-def sample(model: VAE, z: jax.Array) -> jax.Array:
+@bst.compile.jit
+def sample(z: jax.Array) -> jax.Array:
   return model.generate(z)
 
 
@@ -162,7 +154,7 @@ for epoch in range(epochs):
     idxs = np.random.randint(0, len(X_train), size=(batch_size,))
     x_batch = X_train[idxs]
 
-    loss = train_step(model, optimizer, x_batch)
+    loss = train_step(x_batch)
     losses.append(np.asarray(loss))
 
   print(f'Epoch {epoch} loss: {np.mean(losses)}')
@@ -174,7 +166,7 @@ idxs = np.random.randint(0, len(X_test), size=(5,))
 x_sample = X_test[idxs]
 
 # get predictions
-y_pred = forward(model, x_sample)
+y_pred = forward(x_sample)
 
 # plot reconstruction
 figure = plt.figure(figsize=(3 * 5, 3 * 2))
@@ -191,7 +183,7 @@ plt.show()
 # %%
 # plot generative samples
 z_samples = np.random.normal(scale=1.5, size=(12, latent_size))
-samples = sample(model, z_samples)
+samples = sample(z_samples)
 
 figure = plt.figure(figsize=(3 * 5, 3 * 2))
 plt.title('Generative Samples')

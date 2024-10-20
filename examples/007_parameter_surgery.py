@@ -1,4 +1,7 @@
-# Copyright 2024 The Flax Authors.
+# The file is adapted from the Flax library (https://github.com/google/flax).
+# The credit should go to the Flax authors.
+#
+# Copyright 2024 The Flax Authors & 2024 BDP Ecosystem.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -11,27 +14,29 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+# ==============================================================================
 
 
 import jax
 
-from flax import nnx
+import brainstate as bst
 
 
 # lets pretend this function loads a pretrained model from a checkpoint
 def load_pretrained():
-  return nnx.Linear(784, 128, rngs=nnx.Rngs(0))
+  return bst.nn.Linear(784, 128)
 
 
 # create a simple linear classifier using a pretrained backbone
-class Classifier(nnx.Module):
-  def __init__(self, *, rngs: nnx.Rngs):
-    self.backbone = nnx.Linear(784, 128, rngs=nnx.Rngs(0))
-    self.head = nnx.Linear(128, 10, rngs=rngs)
+class Classifier(bst.nn.Module):
+  def __init__(self):
+    super().__init__()
+    self.backbone = bst.nn.Linear(784, 128)
+    self.head = bst.nn.Linear(128, 10)
 
   def __call__(self, x):
     x = self.backbone(x)
-    x = nnx.relu(x)
+    x = jax.nn.relu(x)
     x = self.head(x)
     return x
 
@@ -39,18 +44,18 @@ class Classifier(nnx.Module):
 # create the classifier using the pretrained backbone, here we are technically
 # doing "parameter surgery", however, compared to Haiku/Flax where you must manually
 # construct the parameter structure, in NNX this is done automatically
-model = Classifier(rngs=nnx.Rngs(42))
+model = Classifier()
 model.backbone = load_pretrained()
 
 
 # create a filter to select all the parameters that are not part of the
 # backbone, i.e. the classifier parameters
-is_trainable = lambda path, node: (
-  'backbone' in path and isinstance(node, nnx.Param)
-)
+def is_trainable(path, node):
+  return 'backbone' not in path and issubclass(node.type, bst.ParamState)
+
 
 # split the parameters into trainable and non-trainable parameters
-graphdef, trainable_params, non_trainable = nnx.split(model, is_trainable, ...)
+graphdef, trainable_params, non_trainable = bst.graph.treefy_split(model, is_trainable, ...)
 
 print(
   'trainable_params =',

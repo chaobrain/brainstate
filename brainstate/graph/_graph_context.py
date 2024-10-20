@@ -60,7 +60,7 @@ class SplitContext:
   """
   ref_index: RefMap[Any, Index]
 
-  def split(self, node: A, *filters: Filter) -> Tuple[GraphDef[A], Unpack[Tuple[NestedDict, ...]]]:
+  def treefy_split(self, node: A, *filters: Filter) -> Tuple[GraphDef[A], Unpack[Tuple[NestedDict, ...]]]:
     graphdef, statetree = flatten(node, self.ref_index)
     state_mappings = _split_state(statetree, filters)
     return graphdef, *state_mappings
@@ -89,7 +89,7 @@ class MergeContext:
   """
   index_ref: dict[Index, Any]
 
-  def merge(
+  def treefy_merge(
       self,
       graphdef: GraphDef[A],
       state_mapping: NestedDict,

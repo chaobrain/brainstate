@@ -1,4 +1,7 @@
-# Copyright 2024 The Flax Authors.
+# The file is adapted from the Flax library (https://github.com/google/flax).
+# The credit should go to the Flax authors.
+#
+# Copyright 2024 The Flax Authors & 2024 BDP Ecosystem.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -11,6 +14,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+# ==============================================================================
+
 
 from tempfile import TemporaryDirectory
 
@@ -18,13 +23,14 @@ import jax
 import jax.numpy as jnp
 import orbax.checkpoint as orbax
 
-from flax import nnx
+import brainstate as bst
 
 
-class MLP(nnx.Module):
-  def __init__(self, din: int, dmid: int, dout: int, *, rngs: nnx.Rngs):
-    self.dense1 = nnx.Linear(din, dmid, rngs=rngs)
-    self.dense2 = nnx.Linear(dmid, dout, rngs=rngs)
+class MLP(bst.nn.Module):
+  def __init__(self, din: int, dmid: int, dout: int):
+    super().__init__()
+    self.dense1 = bst.nn.Linear(din, dmid)
+    self.dense2 = bst.nn.Linear(dmid, dout)
 
   def __call__(self, x: jax.Array) -> jax.Array:
     x = self.dense1(x)
@@ -34,26 +40,27 @@ class MLP(nnx.Module):
 
 
 def create_model(seed: int):
-  return MLP(10, 20, 30, rngs=nnx.Rngs(seed))
+  bst.random.seed(seed)
+  return MLP(10, 20, 30)
 
 
 def create_and_save(seed: int, path: str):
   model = create_model(seed)
-  state = nnx.state(model)
+  state_tree = bst.graph.treefy_states(model)
   # Save the parameters
   checkpointer = orbax.PyTreeCheckpointer()
-  checkpointer.save(f'{path}/state', state)
+  checkpointer.save(f'{path}/state', state_tree)
 
 
 def load_model(path: str) -> MLP:
   # create that model with abstract shapes
-  model = nnx.eval_shape(lambda: create_model(0))
-  state = nnx.state(model)
+  model = bst.augment.eval_shape(lambda: create_model(0))
+  state_tree = bst.graph.treefy_states(model)
   # Load the parameters
   checkpointer = orbax.PyTreeCheckpointer()
-  state = checkpointer.restore(f'{path}/state', item=state)
+  state_tree = checkpointer.restore(f'{path}/state', item=state_tree)
   # update the model with the loaded state
-  nnx.update(model, state)
+  bst.graph.update_states(model, state_tree)
   return model
 
 

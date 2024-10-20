@@ -13,13 +13,14 @@
 # limitations under the License.
 # ==============================================================================
 
+
 import brainunit as u
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 
 import brainstate as bst
 
-bst.environ.set(dt=0.01, precision=64)
+bst.environ.set(dt=0.01)
 
 
 class HHWithEuler(bst.nn.Dynamics):
@@ -27,7 +28,7 @@ class HHWithEuler(bst.nn.Dynamics):
       self,
       size,
       keep_size: bool = False,
-      ENa=50. * (u.mS / u.cm ** 2),
+      ENa=50.,
       gNa=120.,
       EK=-77.,
       gK=36.,
@@ -89,11 +90,6 @@ class HHWithEuler(bst.nn.Dynamics):
     m = bst.nn.exp_euler_step(self.dm, self.m.value, t, self.V.value)
     h = bst.nn.exp_euler_step(self.dh, self.h.value, t, self.V.value)
     n = bst.nn.exp_euler_step(self.dn, self.n.value, t, self.V.value)
-    # dt = bst.environ.get_dt()
-    # V = self.V.value + self.dV(self.V.value, t, self.m.value, self.h.value, self.n.value, x) * dt
-    # m = self.m.value + self.dm(self.m.value, t, self.V.value) * dt
-    # h = self.h.value + self.dh(self.h.value, t, self.V.value) * dt
-    # n = self.n.value + self.dn(self.n.value, t, self.V.value) * dt
     V = self.sum_delta_inputs(init=V)
     self.spike.value = jnp.logical_and(self.V.value < self.V_th, V >= self.V_th)
     self.V.value = V
@@ -104,7 +100,7 @@ class HHWithEuler(bst.nn.Dynamics):
 
 
 hh = HHWithEuler(10)
-bst.all_init_states(hh)
+bst.nn.all_init_states(hh)
 
 
 def run(i, inp):
@@ -115,7 +111,8 @@ def run(i, inp):
 
 n = 10000
 indices = jnp.arange(n)
-vs = bst.compile.for_loop(run, indices, bst.random.uniform(1., 10., n),
+vs = bst.compile.for_loop(run,
+                          indices, bst.random.uniform(1., 10., n),
                           pbar=bst.compile.ProgressBar(count=10))
 
 plt.plot(indices * bst.environ.get_dt(), vs)

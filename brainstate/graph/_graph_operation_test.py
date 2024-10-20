@@ -142,8 +142,8 @@ class TestGraphUtils(absltest.TestCase):
     a = bst.graph.Dict(a=1, b=bst.ParamState(2))
     g = bst.graph.List([a, 3, a, bst.ParamState(4)])
 
-    graphdef, references = bst.graph.split(g)
-    g = bst.graph.merge(graphdef, references)
+    graphdef, references = bst.graph.treefy_split(g)
+    g = bst.graph.treefy_merge(graphdef, references)
 
     print(graphdef)
     print(references)
@@ -153,8 +153,8 @@ class TestGraphUtils(absltest.TestCase):
     a = {'a': 1, 'b': bst.ParamState(2)}
     g = [a, 3, a, bst.ParamState(4)]
 
-    graphdef, references = bst.graph.split(g)
-    g = bst.graph.merge(graphdef, references)
+    graphdef, references = bst.graph.treefy_split(g)
+    g = bst.graph.treefy_merge(graphdef, references)
 
     assert g[0] is not g[2]
 
@@ -162,7 +162,7 @@ class TestGraphUtils(absltest.TestCase):
     a = Dict({'a': 1, 'b': bst.ParamState(2)})
     g = List([a, 3, a, bst.ParamState(4)])
 
-    graphdef, references = bst.graph.split(g)
+    graphdef, references = bst.graph.treefy_split(g)
 
     with self.assertRaisesRegex(ValueError, 'Expected key'):
       bst.graph.unflatten(graphdef, bst.util.NestedDict({}))
@@ -173,7 +173,7 @@ class TestGraphUtils(absltest.TestCase):
       bst.nn.Linear(2, 2),
       bst.nn.BatchNorm1d([10, 2]),
     ]
-    graphdef, statetree = bst.graph.split(ls)
+    graphdef, statetree = bst.graph.treefy_split(ls)
 
     assert statetree[0]['weight'].value['weight'].shape == (2, 2)
     assert statetree[0]['weight'].value['bias'].shape == (2,)
@@ -186,10 +186,10 @@ class TestGraphUtils(absltest.TestCase):
     v = bst.ParamState(1)
     g = [v, v]
 
-    graphdef, statetree = bst.graph.split(g)
+    graphdef, statetree = bst.graph.treefy_split(g)
     assert len(statetree.to_flat()) == 1
 
-    g2 = bst.graph.merge(graphdef, statetree)
+    g2 = bst.graph.treefy_merge(graphdef, statetree)
     assert g2[0] is g2[1]
 
   def test_tied_weights(self):
@@ -203,11 +203,11 @@ class TestGraphUtils(absltest.TestCase):
         self.baz.weight = self.bar.weight
 
     node = Foo()
-    graphdef, state = bst.graph.split(node)
+    graphdef, state = bst.graph.treefy_split(node)
 
     assert len(state.to_flat()) == 1
 
-    node2 = bst.graph.merge(graphdef, state)
+    node2 = bst.graph.treefy_merge(graphdef, state)
 
     assert node2.bar.weight is node2.baz.weight
 
@@ -234,7 +234,7 @@ class TestGraphUtils(absltest.TestCase):
         return self.linear_out(x)
 
     model = Encoder()
-    graphdef, state = bst.graph.split(model)
+    graphdef, state = bst.graph.treefy_split(model)
 
     assert len(state.to_flat()) == 1
 
@@ -249,14 +249,14 @@ class TestGraphUtils(absltest.TestCase):
         self.a = bst.ParamState(1)
 
     m = Foo()
-    graphdef, statetree = bst.graph.split(m)
+    graphdef, statetree = bst.graph.treefy_split(m)
 
     assert isinstance(m.a, bst.ParamState)
     assert issubclass(statetree.a.type, bst.ParamState)
     assert m.a is not statetree.a
     assert m.a.value == statetree.a.value
 
-    m2 = bst.graph.merge(graphdef, statetree)
+    m2 = bst.graph.treefy_merge(graphdef, statetree)
 
     assert isinstance(m2.a, bst.ParamState)
     assert issubclass(statetree.a.type, bst.ParamState)
@@ -271,7 +271,7 @@ class TestGraphUtils(absltest.TestCase):
         self.b = p
 
     m = Foo()
-    graphdef, state = bst.graph.split(m)
+    graphdef, state = bst.graph.treefy_split(m)
 
     assert isinstance(m.a, bst.ParamState)
     assert isinstance(m.b, bst.ParamState)
@@ -282,7 +282,7 @@ class TestGraphUtils(absltest.TestCase):
     assert m.a.value == state.a.value
     assert m.b.value == state.a.value
 
-    m2 = bst.graph.merge(graphdef, state)
+    m2 = bst.graph.treefy_merge(graphdef, state)
 
     assert isinstance(m2.a, bst.ParamState)
     assert isinstance(m2.b, bst.ParamState)
@@ -305,13 +305,13 @@ class TestGraphUtils(absltest.TestCase):
 
     m = Foo()
 
-    graphdef, state = bst.graph.split(m)
+    graphdef, state = bst.graph.treefy_split(m)
 
     assert 'tree' in state
     assert 'a' in state.tree
     assert graphdef.subgraphs['tree'].type.__name__ == 'PytreeType'
 
-    m2 = bst.graph.merge(graphdef, state)
+    m2 = bst.graph.treefy_merge(graphdef, state)
 
     assert isinstance(m2.tree, Tree)
     assert m2.tree.a.value == 1
@@ -447,7 +447,7 @@ class TestGraphUtils(absltest.TestCase):
         self.count.value += 1
         return 1
 
-    graph_state = bst.graph.split(Counter())
+    graph_state = bst.graph.treefy_split(Counter())
 
     @jax.jit
     def update(graph_state):
@@ -458,13 +458,13 @@ class TestGraphUtils(absltest.TestCase):
     graph_state = update(graph_state)
     graph_state = update(graph_state)
 
-    counter = bst.graph.merge(*graph_state)
+    counter = bst.graph.treefy_merge(*graph_state)
 
     self.assertEqual(counter.count.value, 2)
 
   def test_stateful_linear(self):
     linear = StatefulLinear(3, 2)
-    linear_state = bst.graph.split(linear)
+    linear_state = bst.graph.treefy_split(linear)
 
     @jax.jit
     def forward(x, pure_linear):
@@ -476,7 +476,7 @@ class TestGraphUtils(absltest.TestCase):
     y, linear_state = forward(x, linear_state)
 
     self.assertEqual(linear.count.value, 0)
-    new_linear = bst.graph.merge(*linear_state)
+    new_linear = bst.graph.treefy_merge(*linear_state)
     self.assertEqual(new_linear.count.value, 2)
 
   def test_getitem(self):
@@ -484,10 +484,10 @@ class TestGraphUtils(absltest.TestCase):
       a=StatefulLinear(3, 2),
       b=StatefulLinear(2, 1),
     )
-    node_state = bst.graph.split(nodes)
+    node_state = bst.graph.treefy_split(nodes)
     _, node_state = bst.graph.call(node_state)['b'].increment()
 
-    nodes = bst.graph.merge(*node_state)
+    nodes = bst.graph.treefy_merge(*node_state)
 
     self.assertEqual(nodes['a'].count.value, 0)
     self.assertEqual(nodes['b'].count.value, 1)
@@ -550,7 +550,7 @@ class TestThreading(parameterized.TestCase):
     class MyThread(Thread):
 
       def run(self) -> None:
-        bst.graph.split(x)
+        bst.graph.treefy_split(x)
 
     thread = MyThread()
     thread.start()
@@ -578,7 +578,7 @@ class TestFlatten(unittest.TestCase):
         self.b = bst.nn.BatchNorm1d([10, 2])
 
     node = Foo()
-    graphdef, params, others = bst.graph.split(node, bst.ParamState, ...)
+    graphdef, params, others = bst.graph.treefy_split(node, bst.ParamState, ...)
 
     print(params)
     print(jax.tree.map(jnp.shape, params))
@@ -592,9 +592,9 @@ class TestFlatten(unittest.TestCase):
         self.b = bst.nn.BatchNorm1d([10, 2])
 
     node = Foo()
-    graphdef, params, others = bst.graph.split(node, bst.ParamState, ...)
+    graphdef, params, others = bst.graph.treefy_split(node, bst.ParamState, ...)
 
-    new_node = bst.graph.merge(graphdef, params, others)
+    new_node = bst.graph.treefy_merge(graphdef, params, others)
 
     assert isinstance(new_node, Foo)
     assert isinstance(new_node.b, bst.nn.BatchNorm1d)
@@ -629,7 +629,7 @@ class TestFlatten(unittest.TestCase):
     model = Model()
     with bst.catch_new_states('new'):
       bst.nn.all_init_states(model)
-    print(model.states())
+    # print(model.states())
     self.assertTrue(len(model.states()) == 2)
     model_states = bst.graph.pop_states(model, 'new')
     print(model_states)

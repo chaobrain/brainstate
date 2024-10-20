@@ -34,7 +34,7 @@ from brainstate.util._pretty_repr import PrettyRepr, PrettyType, PrettyAttr
 from brainstate.util._tracers import StateJaxTracer
 
 __all__ = [
-  'State', 'ShortTermState', 'LongTermState', 'ParamState', 'StateAsPyTree',
+  'State', 'ShortTermState', 'LongTermState', 'ParamState', 'TreefyState',
 
   'StateDictManager', 'StateTraceStack', 'check_state_value_tree', 'check_state_jax_tracer', 'catch_new_states',
 ]
@@ -384,9 +384,9 @@ class State(Generic[A], PrettyRepr):
     vars_dict.clear()
     vars_dict.update(other_vars, _trace_state=trace_state, _level=level, _source_info=source_info)
 
-  def update_from_ref(self, state_ref: StateAsPyTree[A]) -> None:
+  def update_from_ref(self, state_ref: TreefyState[A]) -> None:
     """
-    Update the state from the state reference :py:class:`StateAsPyTree`.
+    Update the state from the state reference :py:class:`TreefyState`.
 
     Args:
       state_ref: The state reference.
@@ -438,12 +438,12 @@ class State(Generic[A], PrettyRepr):
     vars(obj).update(attributes)
     return obj
 
-  def to_state_ref(self: State[A]) -> StateAsPyTree[A]:
+  def to_state_ref(self: State[A]) -> TreefyState[A]:
     metadata = vars(self).copy()
     del metadata['_value']
     del metadata['_trace_state']
     del metadata['_level']
-    return StateAsPyTree(type(self), self._value, **metadata)
+    return TreefyState(type(self), self._value, **metadata)
 
   def __pretty_repr__(self):
     yield PrettyType(type=type(self))
@@ -759,9 +759,9 @@ class StateTraceStack(Generic[A]):
     return StateTraceStack().merge(self, other)
 
 
-class StateAsPyTree(Generic[A], PrettyRepr):
+class TreefyState(Generic[A], PrettyRepr):
   """
-  The reference to the state.
+  The state as a pytree.
   """
 
   def __init__(
@@ -811,11 +811,11 @@ class StateAsPyTree(Generic[A], PrettyRepr):
       subtree_renderer=subtree_renderer,
     )
 
-  def replace(self, value: B) -> StateAsPyTree[B]:
+  def replace(self, value: B) -> TreefyState[B]:
     """
     Replace the value of the state reference.
     """
-    return StateAsPyTree(self.type, value, **self.get_metadata())
+    return TreefyState(self.type, value, **self.get_metadata())
 
   def to_state(self) -> State[A]:
     """
@@ -828,7 +828,7 @@ class StateAsPyTree(Generic[A], PrettyRepr):
     vars(state).update(metadata, _value=self.value, _trace_state=StateJaxTracer(), _level=_get_trace_stack_level())
     return state
 
-  def copy(self: StateAsPyTree[A]) -> StateAsPyTree[A]:
+  def copy(self: TreefyState[A]) -> TreefyState[A]:
     """
     Copy the state reference.
     """
@@ -844,7 +844,7 @@ class StateAsPyTree(Generic[A], PrettyRepr):
     return metadata
 
 
-def _state_ref_flatten(x: StateAsPyTree[Any], *, with_keys: bool):
+def _state_ref_flatten(x: TreefyState[Any], *, with_keys: bool):
   metadata = tuple(x.get_metadata().items())
   if with_keys:
     node = (jax.tree_util.GetAttrKey('value'), x.value)
@@ -856,12 +856,12 @@ def _state_ref_flatten(x: StateAsPyTree[Any], *, with_keys: bool):
 def _state_ref_unflatten(
     static: Tuple[type[State[A]], Tuple[Tuple[str, Any], ...]],
     children: Tuple[A],
-) -> StateAsPyTree[A]:
-  return StateAsPyTree(type=static[0], value=children[0], **dict(static[1]))
+) -> TreefyState[A]:
+  return TreefyState(type=static[0], value=children[0], **dict(static[1]))
 
 
 jax.tree_util.register_pytree_with_keys(
-  StateAsPyTree,
+  TreefyState,
   partial(_state_ref_flatten, with_keys=True),  # type: ignore
   _state_ref_unflatten,  # type: ignore
   flatten_func=partial(_state_ref_flatten, with_keys=False),  # type: ignore

@@ -25,7 +25,7 @@ import brainunit as u
 import jax
 import numpy as np
 
-from brainstate._state import State, StateAsPyTree
+from brainstate._state import State, TreefyState
 from brainstate.typing import Key
 from brainstate.util._error import TraceContextError
 from brainstate.util._pretty_repr import PrettyRepr, pretty_repr_avoid_duplicate, PrettyType, PrettyAttr
@@ -95,12 +95,12 @@ class Node(PrettyRepr, metaclass=GraphNodeMeta):
     """
     Deepcopy the object.
     """
-    from ._graph_operation import split, merge
+    from ._graph_operation import treefy_split, treefy_merge
 
-    graphdef, state = split(self)
+    graphdef, state = treefy_split(self)
     graphdef = deepcopy(graphdef)
     state = deepcopy(state)
-    return merge(graphdef, state)
+    return treefy_merge(graphdef, state)
 
   def __pretty_repr__(self):
     """
@@ -184,7 +184,7 @@ def _node_set_key(
   elif (
       hasattr(node, key)
       and isinstance(state := getattr(node, key), State)
-      and isinstance(value, StateAsPyTree)
+      and isinstance(value, TreefyState)
   ):
     state.update_from_ref(value)
   else:

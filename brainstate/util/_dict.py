@@ -190,6 +190,15 @@ class PrettyDict(dict, PrettyRepr):
   def __getattr__(self, key: K) -> NestedMapping | V:  # type: ignore[misc]
     return self[key]
 
+  def treefy_state(self):
+    """
+    Convert the ``State`` objects to a reference tree of the state.
+    """
+    from brainstate._state import State
+    leaves, treedef = jax.tree.flatten(self)
+    leaves = jax.tree.map(lambda x: x.to_state_ref() if isinstance(x, State) else x, leaves)
+    return treedef.unflatten(leaves)
+
   def to_dict(self) -> Dict[K, Dict[K, Any] | V]:
     """
     Convert the ``PrettyDict`` to a dictionary.
@@ -300,8 +309,8 @@ class NestedDict(PrettyDict):
       ...     return self.linear(self.batchnorm(x))
 
       >>> model = Model()
-      >>> state_map = bst.graph.tree_states(model)
-      >>> param, others = state_map.split(bst.ParamState, ...)
+      >>> state_map = bst.graph.treefy_states(model)
+      >>> param, others = state_map.treefy_split(bst.ParamState, ...)
 
     Arguments:
       first: The first filter
@@ -390,7 +399,6 @@ class NestedDict(PrettyDict):
       pure_dict: Dict[str, Any],
       replace_fn: Optional[SetValueFn] = None
   ):
-    # Works for nnx.State and nnx.StateAsPyTree
     if replace_fn is None:
       replace_fn = lambda x, v: x.replace(v) if hasattr(x, 'replace') else v
     current_flat = self.to_flat()

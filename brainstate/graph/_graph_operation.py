@@ -25,23 +25,23 @@ import jax
 import numpy as np
 from typing_extensions import TypeGuard, Unpack
 
-from brainstate._state import State, StateAsPyTree
+from brainstate._state import State, TreefyState
 from brainstate._utils import set_module_as
 from brainstate.typing import PathParts, Filter, Predicate, Key
 from brainstate.util._caller import ApplyCaller, CallableProxy, DelayedAccessor
-from brainstate.util._struct import FrozenDict
-from brainstate.util._filter import to_predicate
 from brainstate.util._dict import NestedDict, FlattedDict, PrettyDict
+from brainstate.util._filter import to_predicate
 from brainstate.util._pretty_repr import PrettyRepr, PrettyType, PrettyAttr, PrettyMapping, MappingReprMixin
+from brainstate.util._struct import FrozenDict
 
 _max_int = np.iinfo(np.int32).max
 
 __all__ = [
   # state management in the given graph or node
-  'pop_states', 'nodes', 'states', 'tree_states',
+  'pop_states', 'nodes', 'states', 'treefy_states', 'update_states',
 
   # graph node operations
-  'flatten', 'unflatten', 'split', 'merge', 'iter_leaf', 'iter_node', 'clone', 'graphdef', 'call',
+  'flatten', 'unflatten', 'treefy_split', 'treefy_merge', 'iter_leaf', 'iter_node', 'clone', 'graphdef', 'call',
 
   # others
   'RefMap', 'GraphDef', 'NodeRef', 'NodeDef'
@@ -61,7 +61,7 @@ Node = TypeVar('Node')
 Leaf = TypeVar('Leaf')
 AuxData = TypeVar('AuxData')
 
-StateLeaf = StateAsPyTree[Any]
+StateLeaf = TreefyState[Any]
 NodeLeaf = State[Any]
 GraphStateMapping = NestedDict[Key, StateLeaf]
 
@@ -70,7 +70,7 @@ GraphStateMapping = NestedDict[Key, StateLeaf]
 
 
 def _is_state_leaf(x: Any) -> TypeGuard[StateLeaf]:
-  return isinstance(x, StateAsPyTree)
+  return isinstance(x, TreefyState)
 
 
 def _is_node_leaf(x: Any) -> TypeGuard[NodeLeaf]:
@@ -371,7 +371,7 @@ class NodeDef(GraphDef[Node], PrettyRepr):
 
     def _apply(accessor: DelayedAccessor, *args, **kwargs) -> tuple[
       Any, tuple[GraphDef[Node], GraphStateMapping]]:
-      module = merge(self, state_map, *state_maps)
+      module = treefy_merge(self, state_map, *state_maps)
       fn = accessor(module)
       out = fn(*args, **kwargs)
       return out, flatten(module)
@@ -451,7 +451,7 @@ def _graph_flatten(
         variable_index = ref_index[value] = len(ref_index)
         leaves.append((key, NodeRef(type(value), variable_index)))
     elif _is_state_leaf(value):
-      # The instance of ``StateAsPyTree`` is a leaf.
+      # The instance of ``TreefyState`` is a leaf.
       flatted_state_mapping[(*path, key)] = value
       leaves.append((key, None))
     else:
@@ -577,9 +577,9 @@ def _get_children(graph_def, state_mapping, index_ref, index_ref_cache):
         noderef = graph_def.leaves[key]
         if noderef is None:
           # if the leaf is None, it means that the value was originally
-          # a non-StateAsPyTree leaf, however we allow providing a
-          # StateAsPyTree presumbly created by modifying the NestedDict
-          if isinstance(value, StateAsPyTree):
+          # a non-TreefyState leaf, however we allow providing a
+          # TreefyState presumbly created by modifying the NestedDict
+          if isinstance(value, TreefyState):
             value = value.to_state()
           children[key] = value
 
@@ -589,7 +589,7 @@ def _get_children(graph_def, state_mapping, index_ref, index_ref_cache):
 
         else:
           # it is an unseen variable, create a new one
-          if not isinstance(value, StateAsPyTree):
+          if not isinstance(value, TreefyState):
             raise ValueError(f'Expected a State type for {key!r}, but got {type(value)}.')
           # when idxmap is present, check if the Varable exists there
           # and update existing variables if it does
@@ -599,7 +599,7 @@ def _get_children(graph_def, state_mapping, index_ref, index_ref_cache):
               raise ValueError(f'Expected a State type for {key!r}, but got {type(variable)}.')
             variable.update_from_ref(value)
           else:  # if it doesn't, create a new variable
-            assert isinstance(value, StateAsPyTree)
+            assert isinstance(value, TreefyState)
             variable = value.to_state()
           children[key] = variable
           index_ref[noderef.index] = variable
@@ -714,14 +714,14 @@ def unflatten(
   >>> statetree
   NestedDict({
     'a': {
-      'weight': StateAsPyTree(
+      'weight': TreefyState(
         type=ParamState,
         value={'weight': Array([[-0.8466386 , -2.0294454 , -0.6911647 ],
                [ 0.60034966, -1.1869028 ,  0.84003365]], dtype=float32), 'bias': Array([0., 0., 0.], dtype=float32)}
       )
     },
     'b': {
-      'weight': StateAsPyTree(
+      'weight': TreefyState(
         type=ParamState,
         value={'weight': Array([[ 0.8565106 , -0.10337489],
                [ 1.7449658 ,  0.29128835],
@@ -730,13 +730,13 @@ def unflatten(
     },
     'c': {
       0: {
-        'weight': StateAsPyTree(
+        'weight': TreefyState(
           type=ParamState,
           value={'weight': Array([[ 2.4465137, -0.5711426]], dtype=float32), 'bias': Array([0., 0.], dtype=float32)}
         )
       },
       1: {
-        'weight': StateAsPyTree(
+        'weight': TreefyState(
           type=ParamState,
           value={'weight': Array([[ 0.14321847, -2.4154725 , -0.6322363 ]], dtype=float32), 'bias': Array([0., 0., 0.], dtype=float32)}
         )
@@ -744,13 +744,13 @@ def unflatten(
     },
     'd': {
       'x': {
-        'weight': StateAsPyTree(
+        'weight': TreefyState(
           type=ParamState,
           value={'weight': Array([[ 0.9647322, -0.8958757,  1.585352 ]], dtype=float32), 'bias': Array([0., 0., 0.], dtype=float32)}
         )
       },
       'y': {
-        'weight': StateAsPyTree(
+        'weight': TreefyState(
           type=ParamState,
           value={'weight': Array([[-1.2904786 ,  0.5695903 ,  0.40079263,  0.8769669 ]], dtype=float32), 'bias': Array([0., 0., 0., 0.], dtype=float32)}
         )
@@ -876,7 +876,7 @@ def _graph_pop(
     node: Node,
     id_to_index: dict[int, Index],
     path_parts: PathParts,
-    flatted_state_mappings: tuple[FlattedDict[PathParts, StateLeaf], ...],
+    flatted_state_dicts: tuple[FlattedDict[PathParts, StateLeaf], ...],
     predicates: tuple[Predicate, ...],
 ) -> None:
   if not _is_node(node):
@@ -895,7 +895,7 @@ def _graph_pop(
         node=value,
         id_to_index=id_to_index,
         path_parts=(*path_parts, name),
-        flatted_state_mappings=flatted_state_mappings,
+        flatted_state_dicts=flatted_state_dicts,
         predicates=predicates,
       )
       continue
@@ -906,15 +906,15 @@ def _graph_pop(
 
     node_path = (*path_parts, name)
     node_impl = _get_node_impl(node)
-    for state_mapping, predicate in zip(flatted_state_mappings, predicates):
+    for state_dicts, predicate in zip(flatted_state_dicts, predicates):
       if predicate(node_path, value):
         if isinstance(node_impl, PyTreeNodeImpl):
           raise ValueError(f'Cannot pop key {name!r} from node of type {type(node).__name__}')
         id_to_index[id(value)] = len(id_to_index)
         node_impl.pop_key(node, name)
-        if isinstance(value, State):
-          value = value.to_state_ref()
-        state_mapping[node_path] = value  # type: ignore[index] # mypy is wrong here?
+        # if isinstance(value, State):
+        #   value = value.to_state_ref()
+        state_dicts[node_path] = value  # type: ignore[index] # mypy is wrong here?
         break
     else:
       # NOTE: should we raise an error here?
@@ -922,17 +922,20 @@ def _graph_pop(
 
 
 @overload
-def pop_states(node, filter1: Filter, /) -> NestedDict: ...
+def pop_states(node, filter1: Filter, /) -> NestedDict:
+  ...
 
 
 @overload
-def pop_states(node, filter1: Filter, filter2: Filter, /, *filters: Filter) -> tuple[NestedDict, ...]: ...
+def pop_states(node, filter1: Filter, filter2: Filter, /, *filters: Filter) -> tuple[NestedDict, ...]:
+  ...
 
 
 @set_module_as('brainstate.graph')
 def pop_states(
-    node: Node, *filters: Filter
-) -> Union[NestedDict, Tuple[NestedDict, ...]]:
+    node: Node,
+    *filters: Any
+) -> Union[NestedDict[Key, State], Tuple[NestedDict[Key, State], ...]]:
   """
   Pop one or more :class:`State` types from the graph node.
 
@@ -941,17 +944,30 @@ def pop_states(
     >>> import brainstate as bst
     >>> import jax.numpy as jnp
 
-    >>> class Model(bst.graph.Node):
+    >>> class Model(bst.nn.Module):
     ...   def __init__(self):
-    ...     self.linear1 = bst.nn.LIF(3)
-    ...     self.linear2 = bst.nn.Linear(3, 4)
+    ...     super().__init__()
+    ...     self.a = bst.nn.Linear(2, 3)
+    ...     self.b = bst.nn.LIF([10, 2])
 
     >>> model = Model()
-    >>> with bst.
+    >>> with bst.catch_new_states('new'):
+    ...    bst.nn.all_init_states(model)
 
-    >>> intermediates = nnx.pop_states(model, nnx.Intermediate)
-    >>> assert intermediates['i'].value[0].shape == (1, 3)
-    >>> assert not hasattr(model, 'i')
+    >>> assert len(model.states()) == 2
+    >>> model_states = bst.graph.pop_states(model, 'new')
+    >>> model_states
+    NestedDict({
+      'b': {
+        'V': {
+          'st': ShortTermState(
+            value=Array([0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+                   0., 0., 0.], dtype=float32),
+            tag='new'
+          )
+        }
+      }
+    })
 
   Args:
     node: A graph node object.
@@ -967,13 +983,13 @@ def pop_states(
   id_to_index: dict[int, Index] = {}
   path_parts: PathParts = ()
   predicates = tuple(to_predicate(filter) for filter in filters)
-  flatted_state_mappings: tuple[FlattedDict[PathParts, StateLeaf], ...] = tuple({} for _ in predicates)
+  flatted_state_dicts: tuple[FlattedDict[PathParts, StateLeaf], ...] = tuple({} for _ in predicates)
   _graph_pop(node=node,
              id_to_index=id_to_index,
              path_parts=path_parts,
-             flatted_state_mappings=flatted_state_mappings,
+             flatted_state_dicts=flatted_state_dicts,
              predicates=predicates, )
-  states = tuple(NestedDict.from_flat(flat_state) for flat_state in flatted_state_mappings)
+  states = tuple(NestedDict.from_flat(flat_state) for flat_state in flatted_state_dicts)
 
   if len(states) == 1:
     return states[0]
@@ -995,29 +1011,29 @@ def _split_state(
 
 
 @overload
-def split(node: A, /) -> Tuple[GraphDef, NestedDict]:
+def treefy_split(node: A, /) -> Tuple[GraphDef, NestedDict]:
   ...
 
 
 @overload
-def split(node: A, first: Filter, /) -> Tuple[GraphDef, NestedDict]:
+def treefy_split(node: A, first: Filter, /) -> Tuple[GraphDef, NestedDict]:
   ...
 
 
 @overload
-def split(node: A, first: Filter, second: Filter, /) -> Tuple[GraphDef, NestedDict, NestedDict]:
+def treefy_split(node: A, first: Filter, second: Filter, /) -> Tuple[GraphDef, NestedDict, NestedDict]:
   ...
 
 
 @overload
-def split(
+def treefy_split(
     node: A, first: Filter, second: Filter, /, *filters: Filter,
 ) -> Tuple[GraphDef, NestedDict, Unpack[Tuple[NestedDict, ...]]]:
   ...
 
 
 @set_module_as('brainstate.graph')
-def split(
+def treefy_split(
     node: A,
     *filters: Filter
 ) -> Tuple[GraphDef[A], NestedDict, Unpack[Tuple[NestedDict, ...]]]:
@@ -1038,19 +1054,19 @@ def split(
     ...     self.b = bst.nn.Linear(2, 3)
     ...
     >>> node = Foo()
-    >>> graphdef, params, others = bst.graph.split(node, bst.ParamState, ...)
+    >>> graphdef, params, others = bst.graph.treefy_split(node, bst.ParamState, ...)
     ...
     >>> params
     NestedDict({
       'a': {
-        'weight': StateAsPyTree(
+        'weight': TreefyState(
           type=ParamState,
           value={'weight': Array([[-1.0013659,  1.5763807],
                  [ 1.7149199,  2.0140953]], dtype=float32), 'bias': Array([0., 0.], dtype=float32)}
         )
       },
       'b': {
-        'weight': StateAsPyTree(
+        'weight': TreefyState(
           type=ParamState,
           value={'bias': Array([[0., 0.]], dtype=float32), 'scale': Array([[1., 1.]], dtype=float32)}
         )
@@ -1059,11 +1075,11 @@ def split(
     >>> jax.tree.map(jnp.shape, others)
     NestedDict({
       'b': {
-        'running_mean': StateAsPyTree(
+        'running_mean': TreefyState(
           type=LongTermState,
           value=(1, 2)
         ),
-        'running_var': StateAsPyTree(
+        'running_var': TreefyState(
           type=LongTermState,
           value=(1, 2)
         )
@@ -1089,7 +1105,7 @@ def split(
 
 
 @set_module_as('brainstate.graph')
-def merge(
+def treefy_merge(
     graphdef: GraphDef[A],
     state_mapping: GraphStateMapping,
     /,
@@ -1111,9 +1127,9 @@ def merge(
     ...     self.b = bst.nn.Linear(2, 3)
     ...
     >>> node = Foo()
-    >>> graphdef, params, others = bst.graph.split(node, bst.ParamState, ...)
+    >>> graphdef, params, others = bst.graph.treefy_split(node, bst.ParamState, ...)
     ...
-    >>> new_node = bst.graph.merge(graphdef, params, others)
+    >>> new_node = bst.graph.treefy_merge(graphdef, params, others)
     >>> assert isinstance(new_node, Foo)
     >>> assert isinstance(new_node.b, bst.nn.BatchNorm1d)
     >>> assert isinstance(new_node.a, bst.nn.Linear)
@@ -1256,30 +1272,30 @@ def states(
 
 
 @overload
-def tree_states(
+def treefy_states(
     node, /, flatted: bool = False
-) -> NestedDict[Key, StateAsPyTree]:
+) -> NestedDict[Key, TreefyState]:
   ...
 
 
 @overload
-def tree_states(
+def treefy_states(
     node, first: Filter, /, flatted: bool = False
-) -> NestedDict[Key, StateAsPyTree]:
+) -> NestedDict[Key, TreefyState]:
   ...
 
 
 @overload
-def tree_states(
+def treefy_states(
     node, first: Filter, second: Filter, /, *filters: Filter, flatted: bool = False
-) -> Tuple[NestedDict[Key, StateAsPyTree], ...]:
+) -> Tuple[NestedDict[Key, TreefyState], ...]:
   ...
 
 
 @set_module_as('brainstate.graph')
-def tree_states(
+def treefy_states(
     node, *filters,
-) -> NestedDict[Key, StateAsPyTree] | tuple[NestedDict[Key, StateAsPyTree], ...]:
+) -> NestedDict[Key, TreefyState] | tuple[NestedDict[Key, TreefyState], ...]:
   """
   Similar to :func:`split` but only returns the :class:`NestedDict`'s indicated by the filters.
 
@@ -1296,11 +1312,11 @@ def tree_states(
 
     >>> model = Model()
     >>> # get the learnable parameters from the batch norm and linear layer
-    >>> params = bst.graph.tree_states(model, bst.ParamState)
+    >>> params = bst.graph.treefy_states(model, bst.ParamState)
     >>> # get them separately
-    >>> params, others = bst.graph.tree_states(model, bst.ParamState, bst.ShortTermState)
+    >>> params, others = bst.graph.treefy_states(model, bst.ParamState, bst.ShortTermState)
     >>> # get them together
-    >>> states = bst.graph.tree_states(model)
+    >>> states = bst.graph.treefy_states(model)
 
   Args:
     node: A graph node object.
@@ -1320,6 +1336,66 @@ def tree_states(
   return state_mappings
 
 
+def _graph_update_dynamic(node: Any, state: Mapping[Key, Any]):
+  if not _is_node(node):
+    raise RuntimeError(f'Unsupported type: {type(node)}')
+
+  node_impl = _get_node_impl(node)
+  node_dict = node_impl.node_dict(node)
+  for key, value in state.items():
+    # case 1: new state is being added
+    if key not in node_dict:
+      if isinstance(node_impl, PyTreeNodeImpl):
+        raise ValueError(f'Cannot set key {key!r} on immutable node of '
+                         f'type {type(node).__name__}')
+      if isinstance(value, State):
+        value = value.copy()  # TODO: chenge it to state_ref
+      node_impl.set_key(node, key, value)
+      continue
+
+    # check values are of the same type
+    current_value = node_dict[key]
+
+    # case 2: subgraph is being updated
+    if _is_node(current_value):
+      if _is_state_leaf(value):
+        raise ValueError(f'Expected a subgraph for {key!r}, but got: {value!r}')
+      _graph_update_dynamic(current_value, value)
+    elif isinstance(value, TreefyState):
+      # case 3: state leaf is being updated
+      if not isinstance(current_value, State):
+        raise ValueError(f'Trying to update a non-State attribute {key!r} with a State: '
+                         f'{value!r}')
+      current_value.update_from_ref(value)
+    elif _is_state_leaf(value):
+      # case 4: state field is being updated
+      if isinstance(node_impl, PyTreeNodeImpl):
+        raise ValueError(f'Cannot set key {key!r} on immutable node of '
+                         f'type {type(node).__name__}')
+      node_impl.set_key(node, key, value)
+    else:
+      raise ValueError(f'Unsupported update type: {type(value)} for key {key!r}')
+
+
+def update_states(
+    node: Node,
+    state_dict: NestedDict | FlattedDict,
+    /,
+    *state_dicts: NestedDict | FlattedDict
+) -> None:
+  """
+  Update the given graph node with a new :class:`NestedMapping` in-place.
+
+  Args:
+    node: A graph node to update.
+    state_dict: A :class:`NestedMapping` object.
+    *state_dicts: Additional :class:`NestedMapping` objects.
+  """
+  if state_dicts:
+    state_dict = NestedDict.merge(state_dict, *state_dicts)
+  _graph_update_dynamic(node, state_dict.to_dict())
+
+
 @set_module_as('brainstate.graph')
 def graphdef(node: Any, /) -> GraphDef[Any]:
   """Get the :class:`GraphDef` of the given graph node.
@@ -1329,7 +1405,7 @@ def graphdef(node: Any, /) -> GraphDef[Any]:
     >>> import brainstate as bst
 
     >>> model = bst.nn.Linear(2, 3)
-    >>> graphdef, _ = bst.graph.split(model)
+    >>> graphdef, _ = bst.graph.treefy_split(model)
     >>> assert graphdef == bst.graph.graphdef(model)
 
   Args:
@@ -1361,8 +1437,8 @@ def clone(node: Node) -> Node:
   Returns:
     A deep copy of the :class:`Module` object.
   """
-  graphdef, state = split(node)
-  return merge(graphdef, state)
+  graphdef, state = treefy_split(node)
+  return treefy_merge(graphdef, state)
 
 
 @set_module_as('brainstate.graph')
@@ -1397,7 +1473,7 @@ def call(
     ...     return x @ self.w.value + self.b.value
     ...
     >>> linear = StatefulLinear(3, 2)
-    >>> linear_state = split(linear)
+    >>> linear_state = bst.graph.treefy_split(linear)
     ...
     >>> @jax.jit
     ... def forward(x, linear_state):
@@ -1408,7 +1484,7 @@ def call(
     >>> y, linear_state = forward(x, linear_state)
     >>> y, linear_state = forward(x, linear_state)
     ...
-    >>> linear = bst.graph.merge(*linear_state)
+    >>> linear = bst.graph.treefy_merge(*linear_state)
     >>> linear.count.value
     Array(2, dtype=uint32)
 
@@ -1435,11 +1511,11 @@ def call(
     ...   b=StatefulLinear(2, 1),
     ... )
     ...
-    >>> node_state = split(nodes)
+    >>> node_state = treefy_split(nodes)
     >>> # use attribute access
     >>> _, node_state = bst.graph.call(node_state)['b'].increment()
     ...
-    >>> nodes = merge(*node_state)
+    >>> nodes = treefy_merge(*node_state)
     >>> nodes['a'].count.value
     Array(0, dtype=uint32)
     >>> nodes['b'].count.value
@@ -1447,10 +1523,10 @@ def call(
   """
 
   def pure_caller(accessor: DelayedAccessor, *args, **kwargs):
-    node = merge(*graphdef_state)
+    node = treefy_merge(*graphdef_state)
     method = accessor(node)
     out = method(*args, **kwargs)
-    return out, split(node)
+    return out, treefy_split(node)
 
   return CallableProxy(pure_caller)  # type: ignore
 

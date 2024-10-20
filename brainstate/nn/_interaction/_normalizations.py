@@ -29,7 +29,7 @@ from brainstate.nn._module import Module
 from brainstate.typing import DTypeLike, ArrayLike, Size, Axes
 
 __all__ = [
-  'BatchNorm1d', 'BatchNorm2d', 'BatchNorm3d',
+  'BatchNorm0d', 'BatchNorm1d', 'BatchNorm2d', 'BatchNorm3d',
 ]
 
 
@@ -277,6 +277,18 @@ class _BatchNorm(Module):
 
     # normalize
     return _normalize(x, mean, var, self.weight, reduction_axes, self.dtype, self.epsilon)
+
+
+class BatchNorm0d(_BatchNorm):
+  r"""1-D batch normalization [1]_.
+
+  The data should be of `(b, l, c)`, where `b` is the batch dimension,
+  `l` is the layer dimension, and `c` is the channel dimension.
+
+  %s
+  """
+  __module__ = 'brainstate.nn'
+  num_spatial_dims: int = 0
 
 
 class BatchNorm1d(_BatchNorm):

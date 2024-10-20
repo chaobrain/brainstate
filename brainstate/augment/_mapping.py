@@ -22,7 +22,7 @@ from typing import Any, TypeVar, Callable, Hashable, Sequence, Iterable, Mapping
 import jax
 
 from brainstate.compile._loop_collect_return import for_loop
-from brainstate.graph._graph_convert import (NodeStates, graph_to_tree, tree_to_graph)
+from brainstate.graph import (NodeStates, graph_to_tree, tree_to_graph)
 from brainstate.typing import Missing, Filter
 from brainstate.util import NestedDict
 
@@ -78,8 +78,8 @@ class StateAxes:
 
 def _map_split_fn(ctx, path, prefix, x):
   if isinstance(prefix, StateAxes):
-    return NodeStates.from_split(*ctx.split(x, *prefix.filters), metadata=prefix)
-  return NodeStates.from_split(*ctx.split(x), metadata=prefix)
+    return NodeStates.from_split(*ctx.treefy_split(x, *prefix.filters), metadata=prefix)
+  return NodeStates.from_split(*ctx.treefy_split(x), metadata=prefix)
 
 
 @dataclasses.dataclass(eq=False)
@@ -181,34 +181,8 @@ def vmap(
 
   Example::
 
-    >>> from flax import nnx
-    >>> from jax import random, numpy as jnp
-    ...
-    >>> model = nnx.Linear(2, 3, rngs=nnx.Rngs(0))
-    >>> x = jnp.ones((5, 2))
-    ...
-    >>> @nnx.vmap(in_axes=(None, 0), out_axes=0)
-    ... def forward(model, x):
-    ...   return model(x)
-    ...
-    >>> y = forward(model, x)
-    >>> y.shape
-    (5, 3)
-
-  >>> class LinearEnsemble(nnx.Module):
-  ...   def __init__(self, num, rngs):
-  ...     self.w = nnx.Param(jax.random.uniform(rngs(), (num, 2, 3)))
-  ...
-  >>> model = LinearEnsemble(5, rngs=nnx.Rngs(0))
-  >>> x = jnp.ones((2,))
-  ...
-  >>> @nnx.vmap(in_axes=(0, None), out_axes=0)
-  ... def forward(model, x):
-  ...   return jnp.dot(x, model.w.value)
-  ...
-  >>> y = forward(model, x)
-  >>> y.shape
-  (5, 3)
+    >>> import brainstate as bst
+    >>> import jax.numpy as jnp
 
   To control control how graph node substates are vectorized, ``StateAxes``
   can be passed to ``in_axes`` and ``out_axes`` specifying the axes to be
@@ -216,23 +190,9 @@ def vmap(
   share the parameters between the ensemble members which keeping different
   batch statistics and dropout random state::
 
-    >>> class Foo(nnx.Module):
-    ...   def __init__(self):
-    ...     self.a = nnx.Param(jnp.arange(4))
-    ...     self.b = nnx.BatchStat(jnp.arange(4))
-    ...
-    >>> state_axes = nnx.StateAxes({nnx.Param: 0, nnx.BatchStat: None})
-    >>> @nnx.vmap(in_axes=(state_axes,), out_axes=0)
-    ... def mul(foo):
-    ...   return foo.a * foo.b
-    ...
-    >>> foo = Foo()
-    >>> y = mul(foo)
-    >>> y
-    Array([[0, 0, 0, 0],
-           [0, 1, 2, 3],
-           [0, 2, 4, 6],
-           [0, 3, 6, 9]], dtype=int32)
+    >>> import brainstate as bst
+    >>> import jax.numpy as jnp
+
   """
   if isinstance(fn, Missing):
     return functools.partial(

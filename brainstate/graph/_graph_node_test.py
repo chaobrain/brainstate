@@ -23,7 +23,7 @@ class TestSequential(unittest.TestCase):
   def test1(self):
     s = bst.graph.Sequential(bst.nn.Linear(1, 2),
                              bst.nn.Linear(2, 3))
-    graphdef, states = bst.graph.split(s)
+    graphdef, states = bst.graph.treefy_split(s)
     print(states)
     self.assertTrue(len(states.to_flat()) == 2)
 
@@ -36,7 +36,7 @@ class TestStateRetrieve(unittest.TestCase):
         self.b = [bst.State(1), bst.State(2), bst.State(3)]
 
     m = Model()
-    graphdef, states = bst.graph.split(m)
+    graphdef, states = bst.graph.treefy_split(m)
     print(states.to_flat())
     self.assertTrue(len(states.to_flat()) == 3)
 
@@ -47,7 +47,7 @@ class TestStateRetrieve(unittest.TestCase):
         self.b = [bst.State(1), [bst.State(2), bst.State(3)]]
 
     m = Model()
-    graphdef, states = bst.graph.split(m)
+    graphdef, states = bst.graph.treefy_split(m)
     print(states.to_flat())
     self.assertTrue(len(states.to_flat()) == 3)
 
@@ -58,7 +58,7 @@ class TestStateRetrieve(unittest.TestCase):
         self.b = [bst.nn.Linear(1, 2), bst.nn.Linear(2, 3)]
 
     m = Model()
-    graphdef, states = bst.graph.split(m)
+    graphdef, states = bst.graph.treefy_split(m)
     print(states.to_flat())
     self.assertTrue(len(states.to_flat()) == 2)
 
@@ -69,6 +69,6 @@ class TestStateRetrieve(unittest.TestCase):
         self.b = [bst.nn.Linear(1, 2), [bst.nn.Linear(2, 3)], (bst.nn.Linear(3, 4), bst.nn.Linear(4, 5))]
 
     m = Model()
-    graphdef, states = bst.graph.split(m)
+    graphdef, states = bst.graph.treefy_split(m)
     print(states.to_flat())
     self.assertTrue(len(states.to_flat()) == 4)

@@ -152,7 +152,7 @@ class NodeStates(PyTreeNode):
 
 
 def _default_split_fn(ctx: SplitContext, path: KeyPath, prefix: Prefix, leaf: Leaf):
-  return NodeStates.from_split(*ctx.split(leaf))
+  return NodeStates.from_split(*ctx.treefy_split(leaf))
 
 
 def graph_to_tree(
@@ -192,7 +192,7 @@ def graph_to_tree(
     if rng_splits > 0:
       for path, node in iter_graph(leaves_out):
         if isinstance(node, RandomState):
-          batch_keys = node.split_keys(rng_splits)
+          batch_keys = node.split_key(rng_splits)
           rng_backup[path] = node.value  # record the random key to restore randomness
           node.value = batch_keys  # assign the batched random keys
 
@@ -208,7 +208,7 @@ def _is_tree_node(x):
 def _merge_tree_node(ctx: MergeContext, path: KeyPath, prefix: Prefix, leaf: Leaf) -> Any:
   if not isinstance(leaf, NodeStates):
     raise ValueError(f'Expected TreeNode, got {type(leaf)} at path {path}')
-  return ctx.merge(leaf.graphdef, *leaf.states)
+  return ctx.treefy_merge(leaf.graphdef, *leaf.states)
 
 
 def tree_to_graph(

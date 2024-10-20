@@ -1,4 +1,7 @@
-# Copyright 2024 The Flax Authors.
+# The file is adapted from the Flax library (https://github.com/google/flax).
+# The credit should go to the Flax authors.
+#
+# Copyright 2024 The Flax Authors & 2024 BDP Ecosystem.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -11,6 +14,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+# ==============================================================================
+
 
 import dataclasses
 import os
@@ -22,8 +27,8 @@ from jax.sharding import Mesh, PartitionSpec as P, NamedSharding
 import jax
 import jax.numpy as jnp
 import numpy as np
-from flax import nnx
-import typing as tp
+import brainstate as bst
+
 
 mesh = jax.sharding.Mesh(
   mesh_utils.create_device_mesh((2, 4)),
@@ -52,8 +57,8 @@ mesh_rules = MeshRules(
 )
 
 
-class MLP(nnx.Module):
-  def __init__(self, din, dmid, dout, rngs: nnx.Rngs):
+class MLP(bst.nn.Module):
+  def __init__(self, din, dmid, dout):
     self.w1 = nnx.Param(
       nnx.initializers.lecun_normal()(rngs.params(), (din, dmid)),
       sharding=mesh_rules('embed', 'mlp'),
