@@ -39,7 +39,7 @@ from brainstate._state import State
 from brainstate._utils import set_module_as
 from brainstate.graph import Node, states, nodes, flatten
 from brainstate.mixin import DelayedInitializer
-from brainstate.util import FlattedMapping, NestedMapping
+from brainstate.util import FlattedDict, NestedDict
 from brainstate.typing import PathParts
 
 # maximum integer
@@ -149,13 +149,13 @@ class Module(Node):
       *filters,
       allowed_hierarchy: Tuple[int, int] = (0, max_int),
       level: int = None,
-  ) -> FlattedMapping[PathParts, State] | Tuple[FlattedMapping[PathParts, State], ...]:
+  ) -> FlattedDict[PathParts, State] | Tuple[FlattedDict[PathParts, State], ...]:
     """
     Collect all states in this node and the children nodes.
 
     Parameters
     ----------
-    filters : tuple
+    filters : Any
       The filters to select the states.
     allowed_hierarchy : tuple of int
       The hierarchy of the states to be collected.
@@ -164,7 +164,7 @@ class Module(Node):
 
     Returns
     -------
-    states : FlattedMapping, tuple of FlattedMapping
+    states : FlattedDict, tuple of FlattedDict
       The collection contained (the path, the state).
     """
     if level is not None:
@@ -176,7 +176,7 @@ class Module(Node):
   def state_trees(
       self,
       *filters,
-  ) -> NestedMapping[PathParts, State] | Tuple[NestedMapping[PathParts, State], ...]:
+  ) -> NestedDict[PathParts, State] | Tuple[NestedDict[PathParts, State], ...]:
     """
     Collect all states in this node and the children nodes.
 
@@ -187,7 +187,7 @@ class Module(Node):
 
     Returns
     -------
-    states : FlattedMapping, tuple of FlattedMapping
+    states : FlattedDict, tuple of FlattedDict
       The collection contained (the path, the state).
     """
     graph_def, state_tree = flatten(self)
@@ -200,13 +200,13 @@ class Module(Node):
       *filters,
       allowed_hierarchy: Tuple[int, int] = (0, max_int),
       level: int = None,
-  ) -> FlattedMapping[PathParts, Node] | Tuple[FlattedMapping[PathParts, Node], ...]:
+  ) -> FlattedDict[PathParts, Node] | Tuple[FlattedDict[PathParts, Node], ...]:
     """
     Collect all children nodes.
 
     Parameters
     ----------
-    filters : tuple
+    filters : Any
       The filters to select the states.
     allowed_hierarchy : tuple of int
       The hierarchy of the states to be collected.
@@ -215,7 +215,7 @@ class Module(Node):
 
     Returns
     -------
-    nodes : FlattedMapping, tuple of FlattedMapping
+    nodes : FlattedDict, tuple of FlattedDict
       The collection contained (the path, the node).
     """
     if level is not None:
@@ -295,7 +295,7 @@ def all_init_states(target: Module, *args, **kwargs) -> Module:
   nodes_with_order = []
 
   # reset node whose `init_state` has no `call_order`
-  for node in list(target.nodes().values()):
+  for node in list(target.nodes(Module).values()):
     if hasattr(node.init_state, 'call_order'):
       nodes_with_order.append(node)
     else:
@@ -322,7 +322,7 @@ def all_reset_states(target: Module, *args, **kwargs) -> Module:
   nodes_with_order = []
 
   # reset node whose `init_state` has no `call_order`
-  for node in list(target.nodes().values()):
+  for node in list(target.nodes(Module).values()):
     if hasattr(node.reset_state, 'call_order'):
       nodes_with_order.append(node)
     else:

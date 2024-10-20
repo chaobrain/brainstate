@@ -23,45 +23,45 @@ import brainstate as bst
 
 class TestNestedMapping(absltest.TestCase):
   def test_create_state(self):
-    state = bst.util.NestedMapping({'a': bst.ParamState(1), 'b': {'c': bst.ParamState(2)}})
+    state = bst.util.NestedDict({'a': bst.ParamState(1), 'b': {'c': bst.ParamState(2)}})
 
     assert state['a'].value == 1
     assert state['b']['c'].value == 2
 
   def test_get_attr(self):
-    state = bst.util.NestedMapping({'a': bst.ParamState(1), 'b': {'c': bst.ParamState(2)}})
+    state = bst.util.NestedDict({'a': bst.ParamState(1), 'b': {'c': bst.ParamState(2)}})
 
     assert state.a.value == 1
-    assert state.b.c.value == 2
+    assert state.b['c'].value == 2
 
   def test_set_attr(self):
-    state = bst.util.NestedMapping({'a': bst.ParamState(1), 'b': {'c': bst.ParamState(2)}})
+    state = bst.util.NestedDict({'a': bst.ParamState(1), 'b': {'c': bst.ParamState(2)}})
 
     state.a.value = 3
-    state.b.c.value = 4
+    state.b['c'].value = 4
 
     assert state['a'].value == 3
     assert state['b']['c'].value == 4
 
   def test_set_attr_variables(self):
-    state = bst.util.NestedMapping({'a': bst.ParamState(1), 'b': {'c': bst.ParamState(2)}})
+    state = bst.util.NestedDict({'a': bst.ParamState(1), 'b': {'c': bst.ParamState(2)}})
 
     state.a.value = 3
-    state.b.c.value = 4
+    state.b['c'].value = 4
 
     assert isinstance(state.a, bst.ParamState)
     assert state.a.value == 3
-    assert isinstance(state.b.c, bst.ParamState)
-    assert state.b.c.value == 4
+    assert isinstance(state.b['c'], bst.ParamState)
+    assert state.b['c'].value == 4
 
   def test_add_nested_attr(self):
-    state = bst.util.NestedMapping({'a': bst.ParamState(1), 'b': {'c': bst.ParamState(2)}})
-    state.b.d = bst.ParamState(5)
+    state = bst.util.NestedDict({'a': bst.ParamState(1), 'b': {'c': bst.ParamState(2)}})
+    state.b['d'] = bst.ParamState(5)
 
     assert state['b']['d'].value == 5
 
   def test_delete_nested_attr(self):
-    state = bst.util.NestedMapping({'a': bst.ParamState(1), 'b': {'c': bst.ParamState(2)}})
+    state = bst.util.NestedDict({'a': bst.ParamState(1), 'b': {'c': bst.ParamState(2)}})
     del state['b']['c']
 
     assert 'c' not in state['b']
@@ -73,20 +73,20 @@ class TestNestedMapping(absltest.TestCase):
         self.layers = [bst.nn.Linear(1, 2), bst.nn.Linear(2, 3)]
 
     module = Foo()
-    state_refs = bst.graph.states_as_trees(module)
+    state_refs = bst.graph.tree_states(module)
 
     assert module.layers[0].weight.value['weight'].shape == (1, 2)
-    assert state_refs.layers[0].weight.value['weight'].shape == (1, 2)
+    assert state_refs.layers[0]['weight'].value['weight'].shape == (1, 2)
     assert module.layers[1].weight.value['weight'].shape == (2, 3)
-    assert state_refs.layers[1].weight.value['weight'].shape == (2, 3)
+    assert state_refs.layers[1]['weight'].value['weight'].shape == (2, 3)
 
   def test_pure_dict(self):
     module = bst.nn.Linear(4, 5)
-    state_map = bst.graph.states_as_trees(module)
+    state_map = bst.graph.tree_states(module)
     pure_dict = state_map.to_pure_dict()
     assert isinstance(pure_dict, dict)
-    assert isinstance(pure_dict['weight']['weight'], jax.Array)
-    assert isinstance(pure_dict['weight']['bias'], jax.Array)
+    assert isinstance(pure_dict['weight'].value['weight'], jax.Array)
+    assert isinstance(pure_dict['weight'].value['bias'], jax.Array)
 
 
 class TestSplit(unittest.TestCase):
@@ -106,7 +106,7 @@ class TestSplit(unittest.TestCase):
       y = model(x)
       self.assertEqual(y.shape, (1, 10, 4))
 
-    state_map = bst.graph.states_as_trees(model)
+    state_map = bst.graph.tree_states(model)
 
     with self.assertRaises(ValueError):
       params, others = state_map.split(bst.ParamState)
@@ -133,8 +133,8 @@ class TestStateMap2(unittest.TestCase):
 
     with bst.environ.context(fit=True):
       model = Model()
-      state_map = bst.graph.states_as_trees(model).to_flat()
-      state_map = bst.util.NestedMapping(state_map)
+      state_map = bst.graph.tree_states(model).to_flat()
+      state_map = bst.util.NestedDict(state_map)
 
 
 class TestFlattedMapping(unittest.TestCase):
@@ -153,6 +153,6 @@ class TestFlattedMapping(unittest.TestCase):
     # print(bst.graph.states(model))
     self.assertTrue(model.states() == bst.graph.states(model))
 
-    # print(model.nodes())
+    print(model.nodes())
     # print(bst.graph.nodes(model))
     self.assertTrue(model.nodes() == bst.graph.nodes(model))

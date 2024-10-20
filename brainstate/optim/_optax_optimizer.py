@@ -17,12 +17,12 @@
 from __future__ import annotations
 
 import importlib.util
-from typing import Any
+from typing import Hashable, Dict
 
-import jax.numpy as jnp
-
-from brainstate._state import ShortTermState, ParamState
+from brainstate._state import ShortTermState, ParamState, State
 from brainstate.graph import Node
+from brainstate.typing import PyTree
+from brainstate.util import FlattedDict
 
 optax_installed = importlib.util.find_spec('optax') is not None
 
@@ -31,19 +31,14 @@ __all__ = [
 ]
 
 
-class OptaxState(ShortTermState):
-  """Wrapper class for Optimizer Variables."""
-  pass
-
-
 class OptaxOptimizer(Node):
   """Simple train state for the common case with a single Optax optimizer.
 
   Example usage::
 
-    >>> import jax, jax.numpy as jnp
+    >>> import jax
+    >>> import jax.numpy as jnp
     >>> import brainstate as bst
-    >>> from brainstate import nn
     >>> import optax
     ...
     >>> class Model(bst.nn.Module):
@@ -54,75 +49,43 @@ class OptaxOptimizer(Node):
     ...   def __call__(self, x):
     ...     return self.linear2(self.linear1(x))
     ...
-    >>> x = jax.random.normal(jax.random.key(0), (1, 2))
+    >>> x = bst.random.randn(1, 2)
     >>> y = jnp.ones((1, 4))
     ...
     >>> model = Model()
     >>> tx = optax.adam(1e-3)
-    >>> state = bst.optim.OptaxOptimizer(model, tx)
+    >>> optimizer = bst.optim.OptaxOptimizer(model.states(bst.ParamState), tx)
     ...
-    >>> loss_fn = lambda model: ((model(x) - y) ** 2).mean()
-    >>> loss_fn(model)
+    >>> loss_fn = lambda: ((model(x) - y) ** 2).mean()
+    >>> loss_fn()
     Array(1.7055722, dtype=float32)
-    >>> grads = bst.transform.grad(loss_fn)(state.model)
-    >>> state.update(grads)
-    >>> loss_fn(model)
+    >>> grads = bst.augment.grad(loss_fn, model.states(bst.ParamState))()
+    >>> optimizer.update(grads)
+    >>> loss_fn()
     Array(1.6925814, dtype=float32)
-
-  Note that you can easily extend this class by subclassing it for storing
-  additional data (e.g. adding metrics).
-
-  Example usage::
-
-    >>> class TrainState(nnx.Optimizer):
-    ...   def __init__(self, model, tx, metrics):
-    ...     self.metrics = metrics
-    ...     super().__init__(model, tx)
-    ...   def update(self, *, grads, **updates):
-    ...     self.metrics.update(**updates)
-    ...     super().update(grads)
-    ...
-    >>> metrics = nnx.metrics.Average()
-    >>> state = TrainState(model, tx, metrics)
-    ...
-    >>> grads = nnx.grad(loss_fn)(state.model)
-    >>> state.update(grads=grads, values=loss_fn(state.model))
-    >>> state.metrics.compute()
-    Array(1.6925814, dtype=float32)
-    >>> state.update(grads=grads, values=loss_fn(state.model))
-    >>> state.metrics.compute()
-    Array(1.68612, dtype=float32)
 
   For more exotic usecases (e.g. multiple optimizers) it's probably best to
   fork the class and modify it.
 
   Attributes:
-    step: An ``OptaxState`` :class:`State` that tracks the step count.
-    model: The wrapped :class:`Module`.
+    states: The parameter states to update.
     tx: An Optax gradient transformation.
     opt_state: The Optax optimizer state.
   """
 
   def __init__(
       self,
-      model: Node,
+      states: FlattedDict[Hashable, ParamState],
       tx: 'optax.GradientTransformation',
-      wrt: Any = ParamState,
   ):
     """
-    Instantiate the class and wrap the :class:`Module` and Optax gradient
+    Instantiate the class and wrap the :class:`FlattedDict` and Optax gradient
     transformation. Instantiate the optimizer state to keep track of
-    :class:`State` types specified in ``wrt``. Set the step count to 0.
+    :class:`State`.
 
     Args:
-      model: An NNX Module.
+      states: A module.
       tx: An Optax gradient transformation.
-      wrt: optional argument to filter for which :class:`State`'s to keep
-        track of in the optimizer state. These should be the :class:`State`'s
-        that you plan on updating; i.e. this argument value should match the
-        ``wrt``  argument passed to the ``nnx.grad`` call that will generate the
-        gradients that will be passed into the ``grads`` argument of the
-        :func:`update` method.
     """
 
     # tx must be an instance of optax.GradientTransformation
@@ -132,77 +95,31 @@ class OptaxOptimizer(Node):
     self.tx = tx
 
     # model
-    if not callable(model):
-      raise TypeError(f"model must be a callable, got {model}")
-    self.model = model
+    if not isinstance(states, dict):
+      raise TypeError(f"states must be a dict, got {states}")
+    for k, v in states.items():
+      if not isinstance(v, State):
+        raise TypeError(f"states values must be ParamState, got {v}")
+    self.states = states
 
     # wrt
-    self.opt_state = tx.init(nnx.states_as_trees(model, wrt))
-    self.wrt = wrt
+    self.opt_state = ShortTermState(tx.init({k: v.value for k, v in states.items()}))
 
-  def update(self, grads):
-    """Updates ``step``, ``params``, ``opt_state`` and ``**kwargs`` in return value.
-    The ``grads`` must be derived from ``nnx.grad(..., wrt=self.wrt)``, where the
-    gradients are with respect to the same :class:`State` types as defined in
-    ``self.wrt`` during instantiation of this ``Optimizer``. For example::
-
-      >>> from flax import nnx
-      >>> import jax, jax.numpy as jnp
-      >>> import optax
-
-      >>> class CustomVariable(nnx.State):
-      ...   pass
-
-      >>> class Model(nnx.Module):
-      ...   def __init__(self, rngs):
-      ...     self.linear = nnx.Linear(2, 3, rngs=rngs)
-      ...     self.custom_variable = CustomVariable(jnp.ones((1, 3)))
-      ...   def __call__(self, x):
-      ...     return self.linear(x) + self.custom_variable
-      >>> model = Model(rngs=nnx.Rngs(0))
-      >>> jax.tree.map(jnp.shape, nnx.states_as_trees(model))
-      State({
-        'custom_variable': StateAsPyTree(
-          type=CustomVariable,
-          value=(1, 3)
-        ),
-        'linear': {
-          'bias': StateAsPyTree(
-            type=Param,
-            value=(3,)
-          ),
-          'kernel': StateAsPyTree(
-            type=Param,
-            value=(2, 3)
-          )
-        }
-      })
-
-      >>> # update:
-      >>> # - only Linear layer parameters
-      >>> # - only CustomVariable parameters
-      >>> # - both Linear layer and CustomVariable parameters
-      >>> loss_fn = lambda model, x, y: ((model(x) - y) ** 2).mean()
-      >>> for variable in (nnx.Param, CustomVariable, (nnx.Param, CustomVariable)):
-      ...   # make sure `wrt` arguments match for `nnx.Optimizer` and `nnx.grad`
-      ...   state = nnx.Optimizer(model, optax.adam(1e-3), wrt=variable)
-      ...   grads = nnx.grad(loss_fn, argnums=nnx.DiffState(0, variable))(
-      ...     state.model, jnp.ones((1, 2)), jnp.ones((1, 3))
-      ...   )
-      ...   state.update(grads=grads)
-
-    Note that internally this function calls ``.tx.update()`` followed by a call
-    to ``optax.apply_updates()`` to update ``params`` and ``opt_state``.
+  def update(self, grads: Dict[Hashable, PyTree]):
+    """Update the model states with the gradients.
 
     Args:
-      grads: the gradients derived from ``nnx.grad``.
+      grads: the gradients derived from ``brainstate.augment.grad``.
     """
     import optax  # type: ignore[import-not-found,import-untyped]
-    state = nnx.states_as_trees(self.model, self.wrt)
+    grads = {k: grads[k] for k in self.states.keys()}
+    states = {k: v.value for k, v in self.states.items()}
 
-    updates, new_opt_state = self.tx.update(grads, self.opt_state, state)
-    new_params = optax.apply_updates(state, updates)
-    assert isinstance(new_params, nnx.NestedMapping)
+    # compute updates
+    updates, new_opt_state = self.tx.update(grads, self.opt_state.value, states)
+    new_params = optax.apply_updates(states, updates)
 
-    nnx.update(self.model, new_params)
-    self.opt_state = new_opt_state
+    # update model states and optimizer states
+    for k, v in self.states.items():
+      v.value = new_params[k]
+    self.opt_state.value = new_opt_state

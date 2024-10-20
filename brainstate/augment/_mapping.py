@@ -24,7 +24,7 @@ import jax
 from brainstate.compile._loop_collect_return import for_loop
 from brainstate.graph._graph_convert import (NodeStates, graph_to_tree, tree_to_graph)
 from brainstate.typing import Missing, Filter
-from brainstate.util import NestedMapping
+from brainstate.util import NestedDict
 
 __all__ = [
   'StateAxes',
@@ -257,7 +257,7 @@ def vmap(
 
 
 def pmap(
-    fn: Callable[[NestedMapping, ...], Any] | Missing = Missing(),
+    fn: Callable[[NestedDict, ...], Any] | Missing = Missing(),
     axis_name: Optional[AxisName] = None,
     *,
     in_axes: Any = 0,
@@ -546,7 +546,7 @@ def _batch_and_remainder(x, batch_size: int):
 
 
 def mini_vmap(
-    f: Callable[[NestedMapping, ...], Any],
+    f: Callable[[NestedDict, ...], Any],
     *xs: X,
     batch_size: int,
 ) -> Y:

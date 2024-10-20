@@ -165,22 +165,8 @@ class TestGraphUtils(absltest.TestCase):
     graphdef, references = bst.graph.split(g)
 
     with self.assertRaisesRegex(ValueError, 'Expected key'):
-      bst.graph.unflatten(graphdef, bst.util.NestedMapping({}))
+      bst.graph.unflatten(graphdef, bst.util.NestedDict({}))
 
-  def test_update_dynamic(self):
-    a = {'a': 1, 'b': bst.ParamState(2)}
-    g = [a, 3, a, bst.ParamState(4)]
-
-    graphdef, references = bst.graph.split(g)
-
-    references[0]['b'].value = 3
-    bst.graph.update_states(g, references)
-
-    assert g[0]['b'].value == 3
-    assert g[2]['b'].value == 3
-
-    bst.graph.update_states(g, bst.util.NestedMapping({0: {'b': bst.StateAsPyTree(bst.ParamState, 4)}}))
-    assert g[0]['b'].value == 4
 
   def test_module_list(self):
     ls = [
@@ -629,7 +615,7 @@ class TestFlatten(unittest.TestCase):
     prev_loss = loss_fn(x, y)
     weights = model.states()
     grads = bst.augment.grad(loss_fn, weights)(x, y)
-    for key, val in grads.raw_mapping.items():
+    for key, val in grads.items():
       sgd(weights[key], val)
     assert loss_fn(x, y) < prev_loss
 

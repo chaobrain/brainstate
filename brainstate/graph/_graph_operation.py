@@ -31,14 +31,14 @@ from brainstate.typing import PathParts, Filter, Predicate, Key
 from brainstate.util._caller import ApplyCaller, CallableProxy, DelayedAccessor
 from brainstate.util._struct import FrozenDict
 from brainstate.util._filter import to_predicate
-from brainstate.util._mapping import NestedMapping, FlattedMapping, StateMapping
+from brainstate.util._dict import NestedDict, FlattedDict, PrettyDict
 from brainstate.util._pretty_repr import PrettyRepr, PrettyType, PrettyAttr, PrettyMapping, MappingReprMixin
 
 _max_int = np.iinfo(np.int32).max
 
 __all__ = [
   # state management in the given graph or node
-  'pop_states', 'nodes', 'states', 'states_as_trees',
+  'pop_states', 'nodes', 'states', 'tree_states',
 
   # graph node operations
   'flatten', 'unflatten', 'split', 'merge', 'iter_leaf', 'iter_node', 'clone', 'graphdef', 'call',
@@ -63,7 +63,7 @@ AuxData = TypeVar('AuxData')
 
 StateLeaf = StateAsPyTree[Any]
 NodeLeaf = State[Any]
-GraphStateMapping = NestedMapping[Key, StateLeaf]
+GraphStateMapping = NestedDict[Key, StateLeaf]
 
 
 # --------------------------------------------------------
@@ -500,7 +500,7 @@ def flatten(
   assert isinstance(ref_index, RefMap), f"ref_index must be a RefMap. But we got: {ref_index}"
   flatted_state_mapping: dict[PathParts, StateLeaf] = {}
   graph_def = _graph_flatten((), ref_index, flatted_state_mapping, node)
-  return graph_def, NestedMapping.from_flat(flatted_state_mapping)
+  return graph_def, NestedDict.from_flat(flatted_state_mapping)
 
 
 def _get_children(graph_def, state_mapping, index_ref, index_ref_cache):
@@ -552,7 +552,7 @@ def _get_children(graph_def, state_mapping, index_ref, index_ref_cache):
 
     else:  # state field
       value = state_mapping[key]
-      if isinstance(value, StateMapping):
+      if isinstance(value, PrettyDict):
         value = dict(value)
 
       if key in graph_def.static_fields:
@@ -578,7 +578,7 @@ def _get_children(graph_def, state_mapping, index_ref, index_ref_cache):
         if noderef is None:
           # if the leaf is None, it means that the value was originally
           # a non-StateAsPyTree leaf, however we allow providing a
-          # StateAsPyTree presumbly created by modifying the NestedMapping
+          # StateAsPyTree presumbly created by modifying the NestedDict
           if isinstance(value, StateAsPyTree):
             value = value.to_state()
           children[key] = value
@@ -691,7 +691,7 @@ def _graph_unflatten(
 @set_module_as('brainstate.graph')
 def unflatten(
     graph_def: GraphDef,
-    state_mapping: NestedMapping[Key, StateLeaf],
+    state_mapping: NestedDict[Key, StateLeaf],
     /,
     *,
     index_ref: dict[Index, Any] | None = None,
@@ -712,7 +712,7 @@ def unflatten(
   ...
   >>> graphdef, statetree = bst.graph.flatten(MyNode())
   >>> statetree
-  NestedMapping({
+  NestedDict({
     'a': {
       'weight': StateAsPyTree(
         type=ParamState,
@@ -855,7 +855,7 @@ def unflatten(
 
   Args:
     graph_def: A GraphDef instance.
-    state_mapping: A NestedMapping instance.
+    state_mapping: A NestedDict instance.
     index_ref: A mapping from indexes to nodes references found during the graph
                traversal, defaults to None. If not provided, a new empty dictionary is
                created. This argument can be used to unflatten a sequence of (graphdef, state_mapping)
@@ -868,7 +868,7 @@ def unflatten(
   """
   index_ref = {} if index_ref is None else index_ref
   assert isinstance(graph_def, (NodeDef, NodeRef)), f"graph_def must be a NodeDef or NodeRef. But we got: {graph_def}"
-  node = _graph_unflatten(graph_def, state_mapping.raw_mapping, index_ref, index_ref_cache)
+  node = _graph_unflatten(graph_def, state_mapping.to_dict(), index_ref, index_ref_cache)
   return node
 
 
@@ -876,7 +876,7 @@ def _graph_pop(
     node: Node,
     id_to_index: dict[int, Index],
     path_parts: PathParts,
-    flatted_state_mappings: tuple[FlattedMapping[PathParts, StateLeaf], ...],
+    flatted_state_mappings: tuple[FlattedDict[PathParts, StateLeaf], ...],
     predicates: tuple[Predicate, ...],
 ) -> None:
   if not _is_node(node):
@@ -922,17 +922,17 @@ def _graph_pop(
 
 
 @overload
-def pop_states(node, filter1: Filter, /) -> NestedMapping: ...
+def pop_states(node, filter1: Filter, /) -> NestedDict: ...
 
 
 @overload
-def pop_states(node, filter1: Filter, filter2: Filter, /, *filters: Filter) -> tuple[NestedMapping, ...]: ...
+def pop_states(node, filter1: Filter, filter2: Filter, /, *filters: Filter) -> tuple[NestedDict, ...]: ...
 
 
 @set_module_as('brainstate.graph')
 def pop_states(
     node: Node, *filters: Filter
-) -> Union[NestedMapping, Tuple[NestedMapping, ...]]:
+) -> Union[NestedDict, Tuple[NestedDict, ...]]:
   """
   Pop one or more :class:`State` types from the graph node.
 
@@ -958,7 +958,7 @@ def pop_states(
     *filters: One or more :class:`State` objects to filter by.
 
   Returns:
-    The popped :class:`NestedMapping` containing the :class:`State`
+    The popped :class:`NestedDict` containing the :class:`State`
     objects that were filtered for.
   """
   if len(filters) == 0:
@@ -967,13 +967,13 @@ def pop_states(
   id_to_index: dict[int, Index] = {}
   path_parts: PathParts = ()
   predicates = tuple(to_predicate(filter) for filter in filters)
-  flatted_state_mappings: tuple[FlattedMapping[PathParts, StateLeaf], ...] = tuple({} for _ in predicates)
+  flatted_state_mappings: tuple[FlattedDict[PathParts, StateLeaf], ...] = tuple({} for _ in predicates)
   _graph_pop(node=node,
              id_to_index=id_to_index,
              path_parts=path_parts,
              flatted_state_mappings=flatted_state_mappings,
              predicates=predicates, )
-  states = tuple(NestedMapping.from_flat(flat_state) for flat_state in flatted_state_mappings)
+  states = tuple(NestedDict.from_flat(flat_state) for flat_state in flatted_state_mappings)
 
   if len(states) == 1:
     return states[0]
@@ -988,31 +988,31 @@ def _split_state(
   if not filters:
     return (state,)
   states = state.split(*filters)
-  if isinstance(states, NestedMapping):
+  if isinstance(states, NestedDict):
     return (states,)
   assert len(states) > 0
   return states  # type: ignore[return-value]
 
 
 @overload
-def split(node: A, /) -> Tuple[GraphDef, NestedMapping]:
+def split(node: A, /) -> Tuple[GraphDef, NestedDict]:
   ...
 
 
 @overload
-def split(node: A, first: Filter, /) -> Tuple[GraphDef, NestedMapping]:
+def split(node: A, first: Filter, /) -> Tuple[GraphDef, NestedDict]:
   ...
 
 
 @overload
-def split(node: A, first: Filter, second: Filter, /) -> Tuple[GraphDef, NestedMapping, NestedMapping]:
+def split(node: A, first: Filter, second: Filter, /) -> Tuple[GraphDef, NestedDict, NestedDict]:
   ...
 
 
 @overload
 def split(
     node: A, first: Filter, second: Filter, /, *filters: Filter,
-) -> Tuple[GraphDef, NestedMapping, Unpack[Tuple[NestedMapping, ...]]]:
+) -> Tuple[GraphDef, NestedDict, Unpack[Tuple[NestedDict, ...]]]:
   ...
 
 
@@ -1020,8 +1020,8 @@ def split(
 def split(
     node: A,
     *filters: Filter
-) -> Tuple[GraphDef[A], NestedMapping, Unpack[Tuple[NestedMapping, ...]]]:
-  """Split a graph node into a :class:`GraphDef` and one or more :class:`NestedMapping`s. NestedMapping is
+) -> Tuple[GraphDef[A], NestedDict, Unpack[Tuple[NestedDict, ...]]]:
+  """Split a graph node into a :class:`GraphDef` and one or more :class:`NestedDict`s. NestedDict is
   a ``Mapping`` from strings or integers to ``Variables``, Arrays or nested States. GraphDef
   contains all the static information needed to reconstruct a ``Module`` graph, it is analogous
   to JAX’s ``PyTreeDef``. :func:`split` is used in conjunction with :func:`merge` to switch
@@ -1041,7 +1041,7 @@ def split(
     >>> graphdef, params, others = bst.graph.split(node, bst.ParamState, ...)
     ...
     >>> params
-    NestedMapping({
+    NestedDict({
       'a': {
         'weight': StateAsPyTree(
           type=ParamState,
@@ -1057,7 +1057,7 @@ def split(
       }
     })
     >>> jax.tree.map(jnp.shape, others)
-    NestedMapping({
+    NestedDict({
       'b': {
         'running_mean': StateAsPyTree(
           type=LongTermState,
@@ -1081,7 +1081,7 @@ def split(
 
   Returns:
     ``GraphDef`` and one or more ``States`` equal to the number of filters passed. If no
-    filters are passed, a single ``NestedMapping`` is returned.
+    filters are passed, a single ``NestedDict`` is returned.
   """
   graphdef, state_tree = flatten(node)
   states = tuple(_split_state(state_tree, filters))
@@ -1097,7 +1097,7 @@ def merge(
 ) -> A:
   """The inverse of :func:`split`.
 
-  ``merge`` takes a :class:`GraphDef` and one or more :class:`NestedMapping`'s and creates
+  ``merge`` takes a :class:`GraphDef` and one or more :class:`NestedDict`'s and creates
   a new node with the same structure as the original node.
 
   Example usage::
@@ -1125,8 +1125,8 @@ def merge(
 
   Args:
     graphdef: A :class:`GraphDef` object.
-    state_mapping: A :class:`NestedMapping` object.
-    *state_mappings: Additional :class:`NestedMapping` objects.
+    state_mapping: A :class:`NestedDict` object.
+    *state_mappings: Additional :class:`NestedDict` objects.
 
   Returns:
     The merged :class:`Module`.
@@ -1170,19 +1170,19 @@ def _split_flatted(
 
 
 @overload
-def nodes(node, /, allowed_hierarchy=(0, _max_int)) -> FlattedMapping[Key, Node]:
+def nodes(node, /, allowed_hierarchy=(0, _max_int)) -> FlattedDict[Key, Node]:
   ...
 
 
 @overload
-def nodes(node, first: Filter, /, allowed_hierarchy=(0, _max_int)) -> FlattedMapping[Key, Node]:
+def nodes(node, first: Filter, /, allowed_hierarchy=(0, _max_int)) -> FlattedDict[Key, Node]:
   ...
 
 
 @overload
 def nodes(
     node, first: Filter, second: Filter, /, *filters: Filter, allowed_hierarchy=(0, _max_int)
-) -> Tuple[FlattedMapping[Key, Node], ...]:
+) -> Tuple[FlattedDict[Key, Node], ...]:
   ...
 
 
@@ -1191,9 +1191,9 @@ def nodes(
     node,
     *filters: Filter,
     allowed_hierarchy: Tuple[int, int] = (0, _max_int)
-) -> Union[FlattedMapping[Key, Node], Tuple[FlattedMapping[Key, Node], ...]]:
+) -> Union[FlattedDict[Key, Node], Tuple[FlattedDict[Key, Node], ...]]:
   """
-  Similar to :func:`split` but only returns the :class:`NestedMapping`'s indicated by the filters.
+  Similar to :func:`split` but only returns the :class:`NestedDict`'s indicated by the filters.
   """
   num_filters = len(filters)
   if num_filters == 0:
@@ -1203,7 +1203,7 @@ def nodes(
 
   nodes_iterable = iter_node(node, allowed_hierarchy=allowed_hierarchy)
   flat_nodes = _split_flatted(nodes_iterable, (*filters, ...))
-  node_maps = tuple(FlattedMapping(flat_node) for flat_node in flat_nodes)
+  node_maps = tuple(FlattedDict(flat_node) for flat_node in flat_nodes)
   if num_filters < 2:
     return node_maps[0]
   return node_maps
@@ -1216,19 +1216,19 @@ def _states_generator(node, allowed_hierarchy) -> Iterable[Tuple[PathParts, Stat
 
 
 @overload
-def states(node, /, allowed_hierarchy=(0, _max_int)) -> FlattedMapping[Key, State]:
+def states(node, /, allowed_hierarchy=(0, _max_int)) -> FlattedDict[Key, State]:
   ...
 
 
 @overload
-def states(node, first: Filter, /, allowed_hierarchy=(0, _max_int)) -> FlattedMapping[Key, State]:
+def states(node, first: Filter, /, allowed_hierarchy=(0, _max_int)) -> FlattedDict[Key, State]:
   ...
 
 
 @overload
 def states(
     node, first: Filter, second: Filter, /, *filters: Filter, allowed_hierarchy=(0, _max_int)
-) -> tuple[FlattedMapping[Key, State], ...]:
+) -> tuple[FlattedDict[Key, State], ...]:
   ...
 
 
@@ -1237,9 +1237,9 @@ def states(
     node,
     *filters: Filter,
     allowed_hierarchy: Tuple[int, int] = (0, _max_int)
-) -> Union[FlattedMapping[Key, State], tuple[FlattedMapping[Key, State], ...]]:
+) -> Union[FlattedDict[Key, State], tuple[FlattedDict[Key, State], ...]]:
   """
-  Similar to :func:`split` but only returns the :class:`NestedMapping`'s indicated by the filters.
+  Similar to :func:`split` but only returns the :class:`NestedDict`'s indicated by the filters.
   """
   num_filters = len(filters)
   if num_filters == 0:
@@ -1249,39 +1249,39 @@ def states(
 
   states_iterable = _states_generator(node, allowed_hierarchy=allowed_hierarchy)
   flat_states = _split_flatted(states_iterable, (*filters, ...))
-  state_maps = tuple(FlattedMapping(flat_state) for flat_state in flat_states)
+  state_maps = tuple(FlattedDict(flat_state) for flat_state in flat_states)
   if num_filters < 2:
     return state_maps[0]
   return state_maps
 
 
 @overload
-def states_as_trees(
+def tree_states(
     node, /, flatted: bool = False
-) -> NestedMapping[Key, StateAsPyTree]:
+) -> NestedDict[Key, StateAsPyTree]:
   ...
 
 
 @overload
-def states_as_trees(
+def tree_states(
     node, first: Filter, /, flatted: bool = False
-) -> NestedMapping[Key, StateAsPyTree]:
+) -> NestedDict[Key, StateAsPyTree]:
   ...
 
 
 @overload
-def states_as_trees(
+def tree_states(
     node, first: Filter, second: Filter, /, *filters: Filter, flatted: bool = False
-) -> Tuple[NestedMapping[Key, StateAsPyTree], ...]:
+) -> Tuple[NestedDict[Key, StateAsPyTree], ...]:
   ...
 
 
 @set_module_as('brainstate.graph')
-def states_as_trees(
+def tree_states(
     node, *filters,
-) -> NestedMapping[Key, StateAsPyTree] | tuple[NestedMapping[Key, StateAsPyTree], ...]:
+) -> NestedDict[Key, StateAsPyTree] | tuple[NestedDict[Key, StateAsPyTree], ...]:
   """
-  Similar to :func:`split` but only returns the :class:`NestedMapping`'s indicated by the filters.
+  Similar to :func:`split` but only returns the :class:`NestedDict`'s indicated by the filters.
 
   Example usage::
 
@@ -1296,18 +1296,18 @@ def states_as_trees(
 
     >>> model = Model()
     >>> # get the learnable parameters from the batch norm and linear layer
-    >>> params = bst.graph.states_as_trees(model, bst.ParamState)
+    >>> params = bst.graph.tree_states(model, bst.ParamState)
     >>> # get them separately
-    >>> params, others = bst.graph.states_as_trees(model, bst.ParamState, bst.ShortTermState)
+    >>> params, others = bst.graph.tree_states(model, bst.ParamState, bst.ShortTermState)
     >>> # get them together
-    >>> states = bst.graph.states_as_trees(model)
+    >>> states = bst.graph.tree_states(model)
 
   Args:
     node: A graph node object.
     *filters: One or more :class:`State` objects to filter by.
 
   Returns:
-    One or more :class:`NestedMapping` mappings.
+    One or more :class:`NestedDict` mappings.
   """
   _, state_mapping = flatten(node)
   state_mappings: GraphStateMapping | tuple[GraphStateMapping, ...]
@@ -1369,11 +1369,11 @@ def clone(node: Node) -> Node:
 def call(
     graphdef_state: Tuple[GraphDef[A], GraphStateMapping],
 ) -> ApplyCaller[Tuple[GraphDef[A], GraphStateMapping]]:
-  """Calls a method underlying graph node defined by a (GraphDef, NestedMapping) pair.
+  """Calls a method underlying graph node defined by a (GraphDef, NestedDict) pair.
 
-  ``call`` takes a ``(GraphDef, NestedMapping)`` pair and creates a proxy object that can be
+  ``call`` takes a ``(GraphDef, NestedDict)`` pair and creates a proxy object that can be
   used to call methods on the underlying graph node. When a method is called, the
-  output is returned along with a new (GraphDef, NestedMapping) pair that represents the
+  output is returned along with a new (GraphDef, NestedDict) pair that represents the
   updated state of the graph node. ``call`` is equivalent to :func:`merge` > ``method``
   > :func:`split`` but is more convenient to use in pure JAX functions.
 

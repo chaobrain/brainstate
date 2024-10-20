@@ -26,13 +26,18 @@ from typing import (Any, Tuple, List)
 from typing_extensions import Unpack
 
 from brainstate.typing import Filter
-from brainstate.util import NestedMapping
-from ._graph_operation import (flatten, unflatten, _split_state,
-                               GraphDef, GraphStateMapping,
-                               RefMap, Index, A)
+from brainstate.util import NestedDict
+from ._graph_operation import (flatten,
+                               unflatten,
+                               _split_state,
+                               GraphDef,
+                               RefMap,
+                               Index,
+                               A)
 
 __all__ = [
-  'split_context', 'merge_context',
+  'split_context',
+  'merge_context',
 ]
 
 
@@ -55,7 +60,7 @@ class SplitContext:
   """
   ref_index: RefMap[Any, Index]
 
-  def split(self, node: A, *filters: Filter) -> Tuple[GraphDef[A], Unpack[Tuple[GraphStateMapping, ...]]]:
+  def split(self, node: A, *filters: Filter) -> Tuple[GraphDef[A], Unpack[Tuple[NestedDict, ...]]]:
     graphdef, statetree = flatten(node, self.ref_index)
     state_mappings = _split_state(statetree, filters)
     return graphdef, *state_mappings
@@ -87,11 +92,11 @@ class MergeContext:
   def merge(
       self,
       graphdef: GraphDef[A],
-      state_mapping: GraphStateMapping,
+      state_mapping: NestedDict,
       /,
-      *state_mappings: GraphStateMapping
+      *state_mappings: NestedDict
   ) -> A:
-    state_mapping = NestedMapping.merge(state_mapping, *state_mappings)
+    state_mapping = NestedDict.merge(state_mapping, *state_mappings)
     node = unflatten(graphdef, state_mapping, index_ref=self.index_ref)
     return node
 
