@@ -29,12 +29,13 @@ __all__ = [
 ]
 
 
-def exp_euler_step(fun: Callable, *args, **kwargs):
+def exp_euler_step(fn: Callable, *args, **kwargs):
   """
-  Exponential Euler method for solving ODEs.
+  One-step Exponential Euler method for solving ODEs.
 
   Examples
   --------
+
   >>> def fun(x, t):
   ...     return -x
   >>> x = 1.0
@@ -42,18 +43,20 @@ def exp_euler_step(fun: Callable, *args, **kwargs):
 
   Args:
     fun: Callable. The function to be solved.
+    *args: The input arguments.
+    **kwargs: The keyword arguments
 
   Returns:
     The integral function.
   """
   assert len(args) > 0, 'The input arguments should not be empty.'
-  if args[0].dtype not in [jnp.float32, jnp.float64, jnp.float16, jnp.bfloat16]:
+  if u.math.get_dtype(args[0]) not in [jnp.float32, jnp.float64, jnp.float16, jnp.bfloat16]:
     raise ValueError(
-      'The input data type should be float32, float64, float16, or bfloat16 '
-      'when using Exponential Euler method.'
-      f'But we got {args[0].dtype}.'
+      f'The input data type should be float64, float32, float16, or bfloat16 '
+      f'when using Exponential Euler method. But we got {args[0].dtype}.'
     )
   dt = environ.get('dt')
-  linear, derivative = vector_grad(fun, argnums=0, return_value=True)(*args, **kwargs)
+  linear, derivative = vector_grad(fn, argnums=0, return_value=True)(*args, **kwargs)
+  linear = u.Quantity(u.get_mantissa(linear), u.get_unit(derivative) / u.get_unit(args[0]))
   phi = u.math.exprel(dt * linear)
   return args[0] + dt * phi * derivative
