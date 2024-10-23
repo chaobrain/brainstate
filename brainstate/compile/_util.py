@@ -77,6 +77,49 @@ def wrap_single_fun_in_multi_branches(
   return wrapped_branch
 
 
+def wrap_single_fun_in_multi_branches_while_loop(
+    stateful_fun: StatefulFunction,
+    merged_state_trace: StateTraceStack,
+    read_state_vals: Sequence[PyTree | None],
+    return_states: bool = True
+):
+  state_ids_belong_to_this_fun = {id(st): st for st in stateful_fun.get_states()}
+
+  @wraps(stateful_fun.fun)
+  def wrapped_branch(init_val):
+    write_state_vals, init_val = init_val
+    # "write_state_vals" should have the same length as "merged_state_trace.states"
+    assert len(merged_state_trace.states) == len(write_state_vals) == len(read_state_vals)
+
+    # get all state values needed for this function, which is a subset of "write_state_vals"
+    st_vals_for_this_fun = []
+    for write, st, val_w, val_r in zip(merged_state_trace.been_writen,
+                                       merged_state_trace.states,
+                                       write_state_vals,
+                                       read_state_vals):
+      if id(st) in state_ids_belong_to_this_fun:
+        st_vals_for_this_fun.append(val_w if write else val_r)
+
+    # call this function
+    new_state_vals, out = stateful_fun.jaxpr_call(st_vals_for_this_fun, init_val)
+    assert len(new_state_vals) == len(st_vals_for_this_fun)
+
+    if return_states:
+      # get all written state values
+      new_state_vals = {id(st): val for st, val in zip(stateful_fun.get_states(), new_state_vals)}
+      write_state_vals = tuple([
+        (new_state_vals[id(st)] if id(st) in state_ids_belong_to_this_fun else w_val)
+        if write else None
+        for write, st, w_val in zip(merged_state_trace.been_writen,
+                                    merged_state_trace.states,
+                                    write_state_vals)
+      ])
+      return write_state_vals, out
+    return out
+
+  return wrapped_branch
+
+
 def wrap_single_fun(
     stateful_fun: StatefulFunction,
     been_writen: Tuple[bool],

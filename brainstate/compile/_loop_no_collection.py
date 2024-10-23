@@ -23,7 +23,8 @@ import jax
 from brainstate._utils import set_module_as
 from ._loop_collect_return import _bounded_while_loop
 from ._make_jaxpr import StatefulFunction
-from ._util import wrap_single_fun_in_multi_branches as wrap_fn, write_back_state_values
+from ._util import wrap_single_fun_in_multi_branches_while_loop as wrap_fn
+from ._util import write_back_state_values
 
 X = TypeVar('X')
 Y = TypeVar('Y')

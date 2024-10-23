@@ -33,3 +33,18 @@ class TestWhileLoop(TestCase):
     bst.compile.while_loop(cond, body, None)
 
     print(a.value, b.value)
+
+  def test2(self):
+    a = bst.State(1.)
+    b = bst.State(20.)
+
+    def cond(x):
+      return a.value < b.value
+
+    def body(x):
+      a.value += x
+      return x
+
+    r = bst.compile.while_loop(cond, body, 1.)
+
+    print(a.value, b.value, r)
