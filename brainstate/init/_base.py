@@ -18,14 +18,29 @@ from typing import Optional, Tuple
 
 import numpy as np
 
-from brainstate.graph import Node
+from brainstate.util import PrettyRepr, PrettyType, PrettyAttr
 
 __all__ = ['Initializer', 'to_size']
 
 
-class Initializer:
+class Initializer(PrettyRepr):
+  """
+  Base class for initializers.
+  """
+  __module__ = 'brainstate.init'
+
   def __call__(self, *args, **kwargs):
     raise NotImplementedError
+
+  def __pretty_repr__(self):
+    """
+    Pretty repr for the object.
+    """
+    yield PrettyType(type=type(self))
+    for name, value in vars(self).items():
+      if name.startswith('_'):
+        continue
+      yield PrettyAttr(name, repr(value))
 
 
 def to_size(x) -> Optional[Tuple[int]]:

@@ -22,7 +22,7 @@ import jax
 import numpy as np
 
 from brainstate._state import State
-from brainstate.mixin import Mode
+from brainstate._utils import set_module_as
 from brainstate.typing import ArrayLike
 from ._base import to_size
 
@@ -83,13 +83,13 @@ def _expand_params_to_match_sizes(params, sizes):
   return params
 
 
+@set_module_as('brainstate.init')
 def param(
     parameter: Union[Callable, ArrayLike, State],
     sizes: Union[int, Sequence[int]],
     batch_size: Optional[int] = None,
     allow_none: bool = True,
     allow_scalar: bool = True,
-    mode: Mode = None,
 ):
   """Initialize parameters.
 
@@ -166,6 +166,7 @@ def param(
   return type(parameter)(param_value) if isinstance(parameter, State) else param_value
 
 
+@set_module_as('brainstate.init')
 def state(
     init: Union[Callable, jax.typing.ArrayLike],
     sizes: Union[int, Sequence[int]] = None,
@@ -201,6 +202,7 @@ def state(
   return data
 
 
+@set_module_as('brainstate.init')
 def noise(
     noises: Optional[Union[ArrayLike, Callable]],
     size: Union[int, Sequence[int]],

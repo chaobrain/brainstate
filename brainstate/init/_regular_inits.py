@@ -33,17 +33,16 @@ class ZeroInit(Initializer):
 
   Initialize the weights with zeros.
   """
+  __module__ = 'brainstate.init'
 
-  def __init__(self, dtype=None):
+  def __init__(self, unit: u.Unit = u.UNITLESS):
     super(ZeroInit, self).__init__()
-    self.dtype = dtype or environ.dftype()
+    self.unit = unit
 
-  def __call__(self, shape):
+  def __call__(self, shape, dtype=None):
+    dtype = dtype or environ.dftype()
     shape = to_size(shape)
-    return u.math.zeros(shape, dtype=self.dtype)
-
-  def __repr__(self):
-    return f"{self.__class__.__name__}(dtype={self.dtype})"
+    return u.math.zeros(shape, dtype=dtype, unit=self.unit)
 
 
 class Constant(Initializer):
@@ -56,18 +55,16 @@ class Constant(Initializer):
   value : float, int, bm.ndarray
     The value to specify.
   """
+  __module__ = 'brainstate.init'
 
-  def __init__(self, value=1., dtype=None):
+  def __init__(self, value=1., ):
     super(Constant, self).__init__()
-    self.dtype = dtype or environ.dftype()
     self.value = value
 
-  def __call__(self, shape):
+  def __call__(self, shape, dtype=None):
+    dtype = dtype or environ.dftype()
     shape = to_size(shape)
-    return u.math.full(shape, self.value, dtype=self.dtype)
-
-  def __repr__(self):
-    return f'{self.__class__.__name__}(value={self.value}, dtype={self.dtype})'
+    return u.math.full(shape, self.value, dtype=dtype)
 
 
 class Identity(Initializer):
@@ -91,20 +88,19 @@ class Identity(Initializer):
          initialize recurrent networks of rectified linear units." arXiv preprint
          arXiv:1504.00941 (2015).
   """
+  __module__ = 'brainstate.init'
 
-  def __init__(self, value=1., dtype=None):
+  def __init__(self, value=1., unit: u.Unit = u.UNITLESS):
     super(Identity, self).__init__()
-    self.dtype = dtype or environ.dftype()
     self.value = value
+    self.unit = unit
 
-  def __call__(self, shape):
+  def __call__(self, shape, dtype=None):
+    dtype = dtype or environ.dftype()
     shape = to_size(shape)
     if isinstance(shape, (tuple, list)):
       if len(shape) > 2:
         raise ValueError(f'Only support initialize 2D weights for {self.__class__.__name__}.')
-    r = u.math.eye(*shape, dtype=self.dtype)
+    r = u.math.eye(*shape, dtype=dtype)
     r = u.math.fill_diagonal(r, self.value)
-    return r
-
-  def __repr__(self):
-    return f'{self.__class__.__name__}(value={self.value}, dtype={self.dtype})'
+    return u.maybe_decimal(u.Quantity(r, unit=self.unit))
