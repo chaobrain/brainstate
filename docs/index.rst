@@ -1,7 +1,75 @@
 ``brainstate`` documentation
 ============================
 
-`brainstate <https://github.com/brainpy/brainstate>`_ implements a ``State``-based transformation system for brain dynamics programming (BDP).
+`brainstate <https://github.com/brainpy/brainstate>`_ implements a ``State``-based Transformation System for Program Compilation and Augmentation.
+
+``BrainState`` is specifically designed to work with models that have states, including rate-based recurrent neural networks, spiking neural networks, and other dynamical systems.
+
+``BrainState`` is the foundation of our establishing `Brain Dynamics Programming (BDP) ecosystem <https://ecosystem-for-brain-dynamics.readthedocs.io/>`_.
+
+----
+
+Features
+^^^^^^^^^
+
+.. grid::
+
+   .. grid-item::
+      :columns: 12 12 12 6
+
+      .. card:: Pythonic
+         :class-card: sd-border-0
+         :shadow: none
+         :class-title: sd-fs-5
+
+         .. div:: sd-font-normal
+
+            ``BrainState`` provides a Pythonic interface to brain dynamics programming.
+
+
+   .. grid-item::
+      :columns: 12 12 12 6
+
+      .. card:: Event-driven Computation
+         :class-card: sd-border-0
+         :shadow: none
+         :class-title: sd-fs-5
+
+         .. div:: sd-font-normal
+
+            ``BrainState`` enables `event-driven computation <./apis/event.html>`__ for spiking neural networks,
+            and thus obtains unprecedented performance on CPU and GPU devices.
+
+
+
+   .. grid-item::
+      :columns: 12 12 12 6
+
+      .. card:: Program Compilation
+         :class-card: sd-border-0
+         :shadow: none
+         :class-title: sd-fs-5
+
+         .. div:: sd-font-normal
+
+            ``BrainState`` supports `program compilation <./apis/compile.html>`__ (such as just-in-time compilation) with its state-based IR construction.
+
+
+
+   .. grid-item::
+      :columns: 12 12 12 6
+
+      .. card:: Program Augmentation
+         :class-card: sd-border-0
+         :shadow: none
+         :class-title: sd-fs-5
+
+         .. div:: sd-font-normal
+
+            ``BrainState`` supports `augmenting program functionality <./apis/augment.html>`__ (such batching and parallelization) with its graph-based Python objects.
+
+
+
 
 ----
 
@@ -39,10 +107,35 @@ See also the BDP ecosystem
 We are building the `BDP ecosystem <https://ecosystem-for-brain-dynamics.readthedocs.io/>`_.
 
 
+.. toctree::
+   :hidden:
+   :maxdepth: 1
+   :caption: Quickstart
+
+   quickstart/simulation
+   quickstart/training
+   quickstart/analysis
+
+
 
 .. toctree::
    :hidden:
    :maxdepth: 2
+   :caption: Tutorials
+
+   tutorials/core_concepts.rst
+   tutorials.rst
+   toolboxes.rst
+   advanced_tutorials.rst
+   FAQ.rst
+   api.rst
+
+
+.. toctree::
+   :hidden:
+   :maxdepth: 2
+   :caption: API Reference
 
    api.rst
+   changelog.md
 

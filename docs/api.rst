@@ -4,7 +4,6 @@ API Documentation
 .. toctree::
    :maxdepth: 1
 
-   apis/changelog.md
    apis/brainstate.rst
    apis/augment.rst
    apis/compile.rst

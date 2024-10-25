@@ -104,18 +104,17 @@ myst_enable_extensions = [
 exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
 
 html_theme = "sphinx_book_theme"
-html_logo = "_static/brainstate.jpg"
+html_logo = "_static/brainstate.png"
 html_title = "brainstate"
 html_copy_source = True
 html_sourcelink_suffix = ""
-html_favicon = "_static/brainstate.jpg"
+html_favicon = "_static/brainstate.png"
 html_last_updated_fmt = ""
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
 html_static_path = ["_static"]
-jupyter_execute_notebooks = "off"
 thebe_config = {
     "repository_url": "https://github.com/binder-examples/jupyter-stacks-datascience",
     "repository_branch": "master",
@@ -127,8 +126,6 @@ html_theme_options = {
 }
 
 # -- Options for myst ----------------------------------------------
-# Notebook cell execution timeout; defaults to 30.
-execution_timeout = 200
 
 autodoc_default_options = {
     'exclude-members': '....,default_rng',

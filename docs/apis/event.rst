@@ -1,5 +1,5 @@
-``brainstate.event`` module
-===========================
+``brainstate.event`` module for event-driven computation
+=========================================================
 
 .. currentmodule:: brainstate.event 
 .. automodule:: brainstate.event 

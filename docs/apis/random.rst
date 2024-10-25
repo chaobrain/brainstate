@@ -1,5 +1,5 @@
-``brainstate.random`` module
-============================
+``brainstate.random`` module for random number generation
+=========================================================
 
 .. currentmodule:: brainstate.random 
 .. automodule:: brainstate.random 

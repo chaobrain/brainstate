@@ -85,5 +85,4 @@ Compilation Tools
 
    make_jaxpr
    jit_error_if
-   unvmap
 

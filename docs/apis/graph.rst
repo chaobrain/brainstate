@@ -1,5 +1,5 @@
-``brainstate.graph`` module
-===========================
+``brainstate.graph`` module for graph processing
+================================================
 
 .. currentmodule:: brainstate.graph 
 .. automodule:: brainstate.graph 

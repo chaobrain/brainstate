@@ -140,7 +140,7 @@ def load_all_states(target: Module, state_dict: Dict, **kwargs):
     target: Module. The dynamical system to load its states.
     state_dict: dict. A dict containing parameters and persistent buffers.
 
-  Returns:
+  Returns
   -------
     ``NamedTuple``  with ``missing_keys`` and ``unexpected_keys`` fields:
 
