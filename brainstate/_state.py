@@ -28,9 +28,7 @@ from jax.api_util import shaped_abstractify
 from jax.extend import source_info_util
 
 from brainstate.typing import ArrayLike, PyTree, Missing
-from brainstate.util import DictManager
-from brainstate.util._error import TraceContextError
-from brainstate.util._pretty_repr import PrettyRepr, PrettyType, PrettyAttr
+from brainstate.util import DictManager, PrettyRepr, PrettyType, PrettyAttr, TraceContextError
 from brainstate.util._tracers import StateJaxTracer
 
 __all__ = [
@@ -607,6 +605,13 @@ class StateTraceStack(Generic[A]):
     self._state_id_index = dict()
     self._original_state_values = []
     self._jax_trace_new_arg: Callable = new_arg
+
+  @property
+  def original_state_values(self) -> Tuple[PyTree, ...]:
+    """
+    The original values of the states.
+    """
+    return tuple(self._original_state_values)
 
   def set_new_arg(self, new_arg: Callable) -> None:
     self._jax_trace_new_arg = new_arg
