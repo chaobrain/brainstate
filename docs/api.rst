@@ -6,13 +6,16 @@ API Documentation
 
    apis/changelog.md
    apis/brainstate.rst
+   apis/augment.rst
+   apis/compile.rst
+   apis/graph.rst
+   apis/event.rst
+   apis/nn.rst
+   apis/functional.rst
    apis/init.rst
-   apis/mixin.rst
    apis/optim.rst
    apis/random.rst
    apis/surrogate.rst
-   apis/transform.rst
    apis/util.rst
    apis/typing.rst
-   apis/brainstate.nn.rst
-   apis/brainstate.functional.rst
+   apis/mixin.rst

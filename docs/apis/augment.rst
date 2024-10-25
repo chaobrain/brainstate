@@ -30,5 +30,3 @@ Batching and Parallelism
 
    vmap
    pmap
-   mini_vmap
-   mini_pmap

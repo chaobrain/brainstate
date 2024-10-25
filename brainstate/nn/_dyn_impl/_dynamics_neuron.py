@@ -26,7 +26,6 @@ from brainstate import init, surrogate, environ
 from brainstate._state import ShortTermState
 from brainstate.mixin import ParamDesc
 from brainstate.nn._dynamics._dynamics_base import Dynamics
-from brainstate.nn._dynamics._state_delay import StateWithDelay
 from brainstate.nn._exp_euler import exp_euler_step
 from brainstate.typing import ArrayLike, Size
 
@@ -89,10 +88,10 @@ class IF(Neuron):
     self.V_initializer = V_initializer
 
   def init_state(self, batch_size: int = None, **kwargs):
-    self.V = StateWithDelay(init.param(self.V_initializer, self.varshape, batch_size))
+    self.V = ShortTermState(init.param(self.V_initializer, self.varshape, batch_size))
 
   def reset_state(self, batch_size: int = None, **kwargs):
-    self.V.reset(init.param(self.V_initializer, self.varshape, batch_size))
+    self.V.value = init.param(self.V_initializer, self.varshape, batch_size)
 
   def get_spike(self, V=None):
     V = self.V.value if V is None else V
@@ -144,10 +143,10 @@ class LIF(Neuron):
     self.V_initializer = V_initializer
 
   def init_state(self, batch_size: int = None, **kwargs):
-    self.V = StateWithDelay(init.param(self.V_initializer, self.varshape, batch_size))
+    self.V = ShortTermState(init.param(self.V_initializer, self.varshape, batch_size))
 
   def reset_state(self, batch_size: int = None, **kwargs):
-    self.V.reset(init.param(self.V_initializer, self.varshape, batch_size))
+    self.V.value = init.param(self.V_initializer, self.varshape, batch_size)
 
   def get_spike(self, V: ArrayLike = None):
     V = self.V.value if V is None else V
@@ -200,11 +199,11 @@ class LIFRef(Neuron):
     self.V_initializer = V_initializer
 
   def init_state(self, batch_size: int = None, **kwargs):
-    self.V = StateWithDelay(init.param(self.V_initializer, self.varshape, batch_size))
+    self.V = ShortTermState(init.param(self.V_initializer, self.varshape, batch_size))
     self.last_spike_time = ShortTermState(init.param(init.Constant(-1e7 * u.ms), self.varshape, batch_size))
 
   def reset_state(self, batch_size: int = None, **kwargs):
-    self.V.reset(init.param(self.V_initializer, self.varshape, batch_size))
+    self.V.value = init.param(self.V_initializer, self.varshape, batch_size)
     self.last_spike_time.value = init.param(init.Constant(-1e7 * u.ms), self.varshape, batch_size)
 
   def get_spike(self, V: ArrayLike = None):
@@ -268,11 +267,11 @@ class ALIF(Neuron):
     self.a_initializer = a_initializer
 
   def init_state(self, batch_size: int = None, **kwargs):
-    self.V = StateWithDelay(init.param(self.V_initializer, self.varshape, batch_size))
+    self.V = ShortTermState(init.param(self.V_initializer, self.varshape, batch_size))
     self.a = ShortTermState(init.param(self.a_initializer, self.varshape, batch_size))
 
   def reset_state(self, batch_size: int = None, **kwargs):
-    self.V.reset(init.param(self.V_initializer, self.varshape, batch_size))
+    self.V.value = init.param(self.V_initializer, self.varshape, batch_size)
     self.a.value = init.param(self.a_initializer, self.varshape, batch_size)
 
   def get_spike(self, V=None, a=None):

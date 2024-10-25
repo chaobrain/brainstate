@@ -33,14 +33,18 @@ These transformations collect the results of a loop into a single array.
    ProgressBar
 
 
+
+
 While Loop
 ----------
+
 
 .. autosummary::
    :toctree: generated/
 
    while_loop
    bounded_while_loop
+
 
 
 JIT Compilation
@@ -50,6 +54,18 @@ JIT Compilation
    :toctree: generated/
 
    jit
+
+
+
+Checkpointing
+-------------
+
+.. autosummary::
+   :toctree: generated/
+
+   remat
+   checkpoint
+
 
 
 Compilation Tools

@@ -481,16 +481,41 @@ def main():
   #               filename='apis/optim.rst',
   #               header='``brainstate.optim`` module')
 
-  _write_module(module_name='brainstate.init',
-                filename='apis/auto/init.rst',
-                header='``brainstate.init`` module')
+  # _write_module(module_name='brainstate.event',
+  #               filename='apis/event.rst',
+  #               header='``brainstate.event`` module')
+
+  module_and_name = [
+    ('_dict', 'Dict Operation'),
+    ('_filter', 'Filter Operation'),
+    ('_pretty_repr', 'Pretty Representation'),
+    ('_struct', 'Struct Operation'),
+    ('_visualization', 'Visualization Operation'),
+    ('_others', 'Other Operations'),
+  ]
+  _write_submodules(module_name='brainstate.util',
+                    filename='apis/util.rst',
+                    header='``brainstate.util`` module',
+                    submodule_names=[k[0] for k in module_and_name],
+                    section_names=[k[1] for k in module_and_name])
+
+  # module_and_name = [
+  #   ('_graph_node', 'Graph Node'),
+  #   ('_graph_operation', 'Graph Operation'),
+  #   ('_graph_convert', 'Graph and Tree Conversion'),
+  #   ('_graph_context', 'Graph Processing Context Management'),
+  # ]
+  # _write_submodules(module_name='brainstate.graph',
+  #                   filename='apis/graph.rst',
+  #                   header='``brainstate.graph`` module',
+  #                   submodule_names=[k[0] for k in module_and_name],
+  #                   section_names=[k[1] for k in module_and_name])
 
   # module_and_name = [
   #   ('_state', 'State System'),
-  #   ('_module', 'Module & Container'),
   # ]
   # _write_submodules(module_name='brainstate',
-  #                   filename='apis/auto/brainstate.rst',
+  #                   filename='apis/brainstate.rst',
   #                   header='``brainstate`` module',
   #                   submodule_names=[k[0] for k in module_and_name],
   #                   section_names=[k[1] for k in module_and_name])
@@ -501,26 +526,22 @@ def main():
   #   ('_spikes', 'Spiking Operations'),
   # ]
   # _write_submodules(module_name='brainstate.functional',
-  #                   filename='apis/brainstate.functional.rst',
+  #                   filename='apis/functional.rst',
   #                   header='``brainstate.functional`` module',
   #                   submodule_names=[k[0] for k in module_and_name],
   #                   section_names=[k[1] for k in module_and_name])
 
   # module_and_name = [
-  #   ('_base', 'Base Classes'),
-  #   ('_projection', 'Synaptic Projections'),
-  #   ('_connections', 'Connection Layers'),
-  #   ('_dynamics', 'Neuronal/Synaptic Dynamics'),
-  #   ('_rate_rnns', 'Rate RNNs'),
-  #   ('_readout', 'Readout Layers'),
-  #   ('_synouts', 'Synaptic Outputs'),
+  #   ('_module', 'Base Module Classes'),
+  #   ('_interaction', 'Synaptic Interaction Layers'),
   #   ('_elementwise', 'Element-wise Layers'),
-  #   ('_normalizations', 'Normalization Layers'),
-  #   ('_poolings', 'Pooling Layers'),
-  #   ('_others', 'Other Layers'),
+  #   ('_dynamics', 'Base Dynamics Classes'),
+  #   ('_dyn_impl', 'Neuronal/Synaptic Dynamics'),
+  #   ('_exp_euler', 'Numerical Integration Methods'),
+  #   ('_collective_ops', 'Collective Operations'),
   # ]
   # _write_submodules(module_name='brainstate.nn',
-  #                   filename='apis/brainstate.nn.rst',
+  #                   filename='apis/nn.rst',
   #                   header='``brainstate.nn`` module',
   #                   submodule_names=[k[0] for k in module_and_name],
   #                   section_names=[k[1] for k in module_and_name])
