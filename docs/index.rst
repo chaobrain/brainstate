@@ -113,7 +113,9 @@ We are building the `BDP ecosystem <https://ecosystem-for-brain-dynamics.readthe
    :caption: Quickstart
 
    quickstart/concepts.ipynb
-   quickstart/snn_simulation.ipynb
+   quickstart/ann_training.ipynb
+   quickstart/snn_training.ipynb
+   quickstart/snn_training.ipynb
 
 
 
@@ -122,10 +124,15 @@ We are building the `BDP ecosystem <https://ecosystem-for-brain-dynamics.readthe
    :maxdepth: 2
    :caption: Tutorials
 
-   tutorials/checkpointing.ipynb
    tutorials/random_numbers.ipynb
+   tutorials/event_driven_computation.ipynb
+   tutorials/gspmd.ipynb
+   tutorials/optimizers.ipynb
    tutorials/program_compilation.ipynb
    tutorials/program_augmentation.ipynb
+   tutorials/checkpointing.ipynb
+   tutorials/align_pre_align_post.ipynb
+   tutorials/artificial_neural_networks.ipynb
 
 
 
