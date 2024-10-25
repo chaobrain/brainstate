@@ -45,7 +45,7 @@ class ScanMLP(bst.nn.Module):
     super().__init__()
     self.n_layers = n_layers
 
-    @bst.augment.backup_rng
+    @bst.augment.restore_rngs
     @bst.augment.vmap
     def create_block(key):
       bst.random.set_key(key)

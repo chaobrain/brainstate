@@ -17,23 +17,21 @@
 # ==============================================================================
 
 
-import dataclasses
 import os
+
 os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count=8'
 
+import dataclasses
 from matplotlib import pyplot as plt
+
 from jax.experimental import mesh_utils
-from jax.sharding import Mesh, PartitionSpec as P, NamedSharding
+from jax.sharding import PartitionSpec as P, NamedSharding
 import jax
 import jax.numpy as jnp
 import numpy as np
 import brainstate as bst
 
-
-mesh = jax.sharding.Mesh(
-  mesh_utils.create_device_mesh((2, 4)),
-  ('data', 'model'),
-)
+mesh = jax.sharding.Mesh(mesh_utils.create_device_mesh((2, 4)), ('data', 'model'))
 
 
 def named_sharding(*names: str | None) -> NamedSharding:
@@ -59,28 +57,26 @@ mesh_rules = MeshRules(
 
 class MLP(bst.nn.Module):
   def __init__(self, din, dmid, dout):
-    self.w1 = nnx.Param(
-      nnx.initializers.lecun_normal()(rngs.params(), (din, dmid)),
-      sharding=mesh_rules('embed', 'mlp'),
-    )
-    self.b1 = nnx.Param(
-      jnp.zeros((dmid,)),
-      sharding=mesh_rules('mlp'),
-    )
-    self.w2 = nnx.Param(
-      nnx.initializers.lecun_normal()(rngs.params(), (dmid, dout)),
-      sharding=mesh_rules('embed', 'mlp'),
-    )
+    super().__init__()
+    self.w1 = bst.ParamState(bst.init.LecunNormal()((din, dmid)),
+                             sharding=mesh_rules('embed', 'mlp'),
+                             )
+    self.b1 = bst.ParamState(jnp.zeros((dmid,)),
+                             sharding=mesh_rules('mlp'),
+                             )
+    self.w2 = bst.ParamState(bst.init.LecunNormal()((dmid, dout)),
+                             sharding=mesh_rules('embed', 'mlp'),
+                             )
 
   def __call__(self, x: jax.Array):
-    return nnx.relu(x @ self.w1 + self.b1) @ self.w2
+    return jax.nn.relu(x @ self.w1.value + self.b1.value) @ self.w2.value
 
 
-class SGDState(nnx.Variable):
+class SGDState(bst.State):
   pass
 
 
-class SGD(nnx.Object):
+class SGD(bst.graph.Node):
   def __init__(self, params: nnx.State, lr, decay=0.9):
     def init_optimizer_state(variable: nnx.Variable):
       return SGDState(
@@ -94,7 +90,7 @@ class SGD(nnx.Object):
 
   def update(self, grads: nnx.State):
     def update_fn(
-      params: nnx.Variable, momentum: SGDState, grad: nnx.VariableState
+        params: nnx.Variable, momentum: SGDState, grad: nnx.VariableState
     ):
       # v_t = β * v_{t-1} + (1 - β) * ∇J(θ_t)
       momentum.value = self.decay * momentum + (1 - self.decay) * grad.value
@@ -107,7 +103,7 @@ class SGD(nnx.Object):
 @nnx.jit
 def create_model():
   model = MLP(1, 32, 1, rngs=nnx.Rngs(0))
-  optimizer = SGD(nnx.variables(model, nnx.Param), 0.01, decay=0.9)
+  optimizer = SGD(nnx.variables(model, bst.ParamState), 0.01, decay=0.9)
   state = nnx.state(optimizer)
   sharded_state = jax.lax.with_sharding_constraint(
     state, nnx.get_named_sharding(state, mesh)
@@ -147,7 +143,7 @@ def train_step(model: MLP, optimizer: SGD, x, y):
 
 
 X = np.linspace(-2, 2, 100)[:, None]
-Y = 0.8 * X**2 + 0.1 + np.random.normal(0, 0.1, size=X.shape)
+Y = 0.8 * X ** 2 + 0.1 + np.random.normal(0, 0.1, size=X.shape)
 
 
 def dataset(batch_size, num_steps):
@@ -158,7 +154,7 @@ def dataset(batch_size, num_steps):
 
 losses = []
 for step, (x_batch, y_batch) in enumerate(
-  dataset(batch_size=32, num_steps=10_000)
+    dataset(batch_size=32, num_steps=10_000)
 ):
   x_batch, y_batch = jax.device_put((x_batch, y_batch), named_sharding('data'))
   loss = train_step(model, optimizer, x_batch, y_batch)
