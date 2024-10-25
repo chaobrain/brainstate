@@ -634,7 +634,7 @@ class TestFlatten(unittest.TestCase):
     model_states = bst.graph.pop_states(model, 'new')
     print(model_states)
     self.assertTrue(len(model.states()) == 1)
-    assert not hasattr(model.b.V, 'st')
+    assert not hasattr(model.b, 'V')
     # print(model.states())
 
 

@@ -23,7 +23,7 @@ from brainstate.typing import SeedOrKey
 from ._rand_state import RandomState, DEFAULT
 
 __all__ = [
-  'seed', 'set_key', 'default_rng', 'split_key', 'split_keys', 'seed_context', 'restore_key', 'self_assign_multi_keys',
+  'seed', 'set_key', 'get_key', 'default_rng', 'split_key', 'split_keys', 'seed_context', 'restore_key', 'self_assign_multi_keys',
 ]
 
 
@@ -122,6 +122,17 @@ def set_key(seed_or_key: SeedOrKey):
     The random key.
   """
   DEFAULT.set_key(jax.random.PRNGKey(seed_or_key) if jax.numpy.shape(seed_or_key) == () else seed_or_key)
+
+
+def get_key():
+  """Get a new random key.
+
+  Returns
+  -------
+  seed_or_key: int
+    The random key.
+  """
+  return DEFAULT.value
 
 
 def seed(seed_or_key: SeedOrKey = None):

@@ -140,7 +140,7 @@ def _default_repr_attr(node: Node):
     name, value = node.__leaf_fn__(name, value)
     if name.startswith('_'):
       continue
-    value = jax.tree.map(_to_shape_dtype, value, is_leaf=lambda x: isinstance(x, u.Quantity))
+    # value = jax.tree.map(_to_shape_dtype, value, is_leaf=lambda x: isinstance(x, u.Quantity))
     yield PrettyAttr(name, repr(value))
 
 

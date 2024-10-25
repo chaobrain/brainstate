@@ -20,7 +20,6 @@ import numpy as np
 from absl.testing import parameterized
 
 import brainstate as bst
-from brainstate.event._csr import CSRLinear
 
 
 def _get_csr(n_pre, n_post, prob):
@@ -47,7 +46,7 @@ class TestFixedProbCSR(parameterized.TestCase):
   def test1(self, homo_w):
     x = bst.random.rand(20) < 0.1
     indptr, indices = _get_csr(20, 40, 0.1)
-    m = CSRLinear(20, 40, indptr, indices, 1.5 if homo_w else bst.init.Normal())
+    m = bst.event.CSRLinear(20, 40, indptr, indices, 1.5 if homo_w else bst.init.Normal())
     y = m(x)
     y2 = true_fn(x, m.weight.value, indices, indptr, 40)
     self.assertTrue(jnp.allclose(y, y2))
@@ -65,7 +64,7 @@ class TestFixedProbCSR(parameterized.TestCase):
       x = bst.random.rand(n_in)
 
     indptr, indices = _get_csr(n_in, n_out, 0.1)
-    fn = bst.nn.CSRLinear(n_in, n_out, indptr, indices, 1.5 if homo_w else bst.init.Normal())
+    fn = bst.event.CSRLinear(n_in, n_out, indptr, indices, 1.5 if homo_w else bst.init.Normal())
     w = fn.weight.value
 
     def f(x, w):
@@ -97,8 +96,8 @@ class TestFixedProbCSR(parameterized.TestCase):
       x = bst.random.rand(n_in)
 
     indptr, indices = _get_csr(n_in, n_out, 0.1)
-    fn = CSRLinear(n_in, n_out, indptr, indices,
-                  1.5 if homo_w else bst.init.Normal(), grad_mode='jvp')
+    fn = bst.event.CSRLinear(n_in, n_out, indptr, indices,
+                             1.5 if homo_w else bst.init.Normal(), grad_mode='jvp')
     w = fn.weight.value
 
     def f(x, w):

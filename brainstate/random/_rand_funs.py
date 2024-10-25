@@ -572,7 +572,7 @@ def shuffle(x, axis=0, key: Optional[SeedOrKey] = None):
          [6, 7, 8],
          [0, 1, 2]])
   """
-  DEFAULT.shuffle(x, axis, key=key)
+  return DEFAULT.shuffle(x, axis, key=key)
 
 
 def beta(a, b, size: Optional[Size] = None, key: Optional[SeedOrKey] = None, dtype: DTypeLike = None):

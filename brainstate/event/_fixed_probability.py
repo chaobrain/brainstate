@@ -20,10 +20,9 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from brainstate._state import ParamState, State
+from brainstate._state import ParamState
 from brainstate._utils import set_module_as
 from brainstate.compile import for_loop
-from brainstate.augment import vmap
 from brainstate.init import param
 from brainstate.nn._module import Module
 from brainstate.random import RandomState
