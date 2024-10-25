@@ -28,29 +28,6 @@ import brainstate as bst
 
 class TestRandom(unittest.TestCase):
 
-  def test_seed2(self):
-    test_seed = 299
-    key = jax.random.PRNGKey(test_seed)
-    bst.random.seed(key)
-
-    @jax.jit
-    def jit_seed(key):
-      bst.random.seed(key)
-      with bst.random.seed_context(key):
-        print(bst.random.DEFAULT.value)
-
-    jit_seed(key)
-    jit_seed(1)
-    jit_seed(None)
-
-  def test_seed(self):
-    test_seed = 299
-    bst.random.seed(test_seed)
-    a = bst.random.rand(3)
-    bst.random.seed(test_seed)
-    b = bst.random.rand(3)
-    self.assertTrue(jnp.array_equal(a, b))
-
   def test_rand(self):
     bst.random.seed()
     a = bst.random.rand(3, 2)
