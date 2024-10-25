@@ -30,3 +30,16 @@ Batching and Parallelism
 
    vmap
    pmap
+   StateAxes
+
+
+
+Random State Processing
+-----------------------
+
+.. autosummary::
+   :toctree: generated/
+
+   restore_rngs
+
+

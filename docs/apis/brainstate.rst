@@ -4,8 +4,9 @@
 .. currentmodule:: brainstate 
 .. automodule:: brainstate 
 
-State System
-------------
+
+State Objects
+-------------
 
 .. autosummary::
    :toctree: generated/
@@ -16,7 +17,27 @@ State System
    ShortTermState
    LongTermState
    ParamState
+
+
+State to PyTree
+---------------
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+   :template: classtemplate.rst
+
    TreefyState
+
+
+State Management
+----------------
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+   :template: classtemplate.rst
+
    StateDictManager
    StateTraceStack
 
