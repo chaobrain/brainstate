@@ -16,6 +16,7 @@
 
 import unittest
 
+import brainunit as u
 import jax.numpy as jnp
 import numpy as np
 
@@ -41,8 +42,8 @@ class TestSynOutModels(unittest.TestCase):
   def test_CUBA(self):
     model = bst.nn.CUBA()
     output = model.update(self.conductance)
-    expected_output = self.conductance
-    np.testing.assert_array_almost_equal(output, expected_output)
+    expected_output = self.conductance * model.scale
+    self.assertTrue(u.math.allclose(output, expected_output))
 
   def test_MgBlock(self):
     model = bst.nn.MgBlock(E=self.E, cc_Mg=self.cc_Mg, alpha=self.alpha, beta=self.beta, V_offset=self.V_offset)

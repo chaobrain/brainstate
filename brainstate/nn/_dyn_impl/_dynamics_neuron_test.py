@@ -18,6 +18,7 @@
 
 import unittest
 
+import brainunit as u
 import jax
 import jax.numpy as jnp
 
@@ -36,46 +37,51 @@ class TestNeuron(unittest.TestCase):
       bst.nn.Neuron(self.in_size).get_spike()  # Neuron is an abstract base class
 
   def generate_input(self):
-    return bst.random.randn(self.time_steps, self.batch_size, self.in_size)
+    return bst.random.randn(self.time_steps, self.batch_size, self.in_size) * u.mA
 
   def test_if_neuron(self):
-    neuron = IF(self.in_size)
-    inputs = self.generate_input()
+    with bst.environ.context(dt=0.1 * u.ms):
+      neuron = IF(self.in_size)
+      inputs = self.generate_input()
 
-    # Test initialization
-    self.assertEqual(neuron.in_size, (self.in_size,))
-    self.assertEqual(neuron.out_size, (self.in_size,))
+      # Test initialization
+      self.assertEqual(neuron.in_size, (self.in_size,))
+      self.assertEqual(neuron.out_size, (self.in_size,))
 
-    # Test forward pass
-    state = neuron.init_state(self.batch_size)
-    for t in range(self.time_steps):
-      out = neuron(inputs[t])
-      self.assertEqual(out.shape, (self.batch_size, self.in_size))
+      # Test forward pass
+      state = neuron.init_state(self.batch_size)
 
-    # Test spike generation
-    v = jnp.linspace(-1, 1, 100)
-    spikes = neuron.get_spike(v)
-    self.assertTrue(jnp.all((spikes >= 0) & (spikes <= 1)))
+      for t in range(self.time_steps):
+        out = neuron(inputs[t])
+        self.assertEqual(out.shape, (self.batch_size, self.in_size))
+
+      # Test spike generation
+      v = jnp.linspace(-1, 1, 100) * u.mV
+      spikes = neuron.get_spike(v)
+      self.assertTrue(jnp.all((spikes >= 0) & (spikes <= 1)))
 
   def test_lif_neuron(self):
-    tau = 20.0
-    neuron = LIF(self.in_size, tau=tau)
-    inputs = self.generate_input()
+    with bst.environ.context(dt=0.1 * u.ms):
+      tau = 20.0 * u.ms
+      neuron = LIF(self.in_size, tau=tau)
+      inputs = self.generate_input()
 
-    # Test initialization
-    self.assertEqual(neuron.in_size, (self.in_size,))
-    self.assertEqual(neuron.out_size, (self.in_size,))
-    self.assertEqual(neuron.tau, tau)
+      # Test initialization
+      self.assertEqual(neuron.in_size, (self.in_size,))
+      self.assertEqual(neuron.out_size, (self.in_size,))
+      self.assertEqual(neuron.tau, tau)
 
-    # Test forward pass
-    state = neuron.init_state(self.batch_size)
-    for t in range(self.time_steps):
-      out = neuron(inputs[t])
-      self.assertEqual(out.shape, (self.batch_size, self.in_size))
+      # Test forward pass
+      state = neuron.init_state(self.batch_size)
+      call = bst.compile.jit(neuron)
+
+      for t in range(self.time_steps):
+        out = call(inputs[t])
+        self.assertEqual(out.shape, (self.batch_size, self.in_size))
 
   def test_alif_neuron(self):
-    tau = 20.0
-    tau_ada = 100.0
+    tau = 20.0 * u.ms
+    tau_ada = 100.0 * u.ms
     neuron = ALIF(self.in_size, tau=tau, tau_a=tau_ada)
     inputs = self.generate_input()
 
@@ -87,15 +93,17 @@ class TestNeuron(unittest.TestCase):
 
     # Test forward pass
     neuron.init_state(self.batch_size)
-    for t in range(self.time_steps):
-      out = neuron(inputs[t])
-      self.assertEqual(out.shape, (self.batch_size, self.in_size))
+    call = bst.compile.jit(neuron)
+    with bst.environ.context(dt=0.1 * u.ms):
+      for t in range(self.time_steps):
+        out = call(inputs[t])
+        self.assertEqual(out.shape, (self.batch_size, self.in_size))
 
   def test_spike_function(self):
     for NeuronClass in [IF, LIF, ALIF]:
       neuron = NeuronClass(self.in_size)
       neuron.init_state()
-      v = jnp.linspace(-1, 1, self.in_size)
+      v = jnp.linspace(-1, 1, self.in_size) * u.mV
       spikes = neuron.get_spike(v)
       self.assertTrue(jnp.all((spikes >= 0) & (spikes <= 1)))
 
@@ -104,27 +112,33 @@ class TestNeuron(unittest.TestCase):
       neuron = NeuronClass(self.in_size, spk_reset='soft')
       inputs = self.generate_input()
       state = neuron.init_state(self.batch_size)
-      for t in range(self.time_steps):
-        out = neuron(inputs[t])
-        self.assertTrue(jnp.all(neuron.V.value <= neuron.V_th))
+      call = bst.compile.jit(neuron)
+      with bst.environ.context(dt=0.1 * u.ms):
+        for t in range(self.time_steps):
+          out = call(inputs[t])
+          self.assertTrue(jnp.all(neuron.V.value <= neuron.V_th))
 
   def test_hard_reset(self):
     for NeuronClass in [IF, LIF, ALIF]:
       neuron = NeuronClass(self.in_size, spk_reset='hard')
       inputs = self.generate_input()
       state = neuron.init_state(self.batch_size)
-      for t in range(self.time_steps):
-        out = neuron(inputs[t])
-        self.assertTrue(jnp.all((neuron.V.value < neuron.V_th) | (neuron.V.value == 0)))
+      call = bst.compile.jit(neuron)
+      with bst.environ.context(dt=0.1 * u.ms):
+        for t in range(self.time_steps):
+          out = call(inputs[t])
+          self.assertTrue(jnp.all((neuron.V.value < neuron.V_th) | (neuron.V.value == 0. * u.mV)))
 
   def test_detach_spike(self):
     for NeuronClass in [IF, LIF, ALIF]:
       neuron = NeuronClass(self.in_size)
       inputs = self.generate_input()
       state = neuron.init_state(self.batch_size)
-      for t in range(self.time_steps):
-        out = neuron(inputs[t])
-        self.assertFalse(jax.tree_util.tree_leaves(out)[0].aval.weak_type)
+      call = bst.compile.jit(neuron)
+      with bst.environ.context(dt=0.1 * u.ms):
+        for t in range(self.time_steps):
+          out = call(inputs[t])
+          self.assertFalse(jax.tree_util.tree_leaves(out)[0].aval.weak_type)
 
   def test_keep_size(self):
     in_size = (2, 3)
@@ -133,11 +147,13 @@ class TestNeuron(unittest.TestCase):
       self.assertEqual(neuron.in_size, in_size)
       self.assertEqual(neuron.out_size, in_size)
 
-      inputs = bst.random.randn(self.time_steps, self.batch_size, *in_size)
+      inputs = bst.random.randn(self.time_steps, self.batch_size, *in_size) * u.mA
       state = neuron.init_state(self.batch_size)
-      for t in range(self.time_steps):
-        out = neuron(inputs[t])
-        self.assertEqual(out.shape, (self.batch_size, *in_size))
+      call = bst.compile.jit(neuron)
+      with bst.environ.context(dt=0.1 * u.ms):
+        for t in range(self.time_steps):
+          out = call(inputs[t])
+          self.assertEqual(out.shape, (self.batch_size, *in_size))
 
 
 if __name__ == '__main__':

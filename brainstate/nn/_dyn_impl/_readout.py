@@ -87,12 +87,11 @@ class LeakySpikeReadout(Neuron):
       V_th: ArrayLike = 1.,
       w_init: Callable = init.KaimingNormal(),
       spk_fun: Callable = surrogate.ReluGrad(),
-      spk_dtype: DTypeLike = None,
       spk_reset: str = 'soft',
       name: str = None,
   ):
     super().__init__(size, keep_size=keep_size, name=name,
-                     spk_fun=spk_fun, spk_dtype=spk_dtype, spk_reset=spk_reset)
+                     spk_fun=spk_fun, spk_reset=spk_reset)
 
     # parameters
     self.tau = init.param(tau, (self.num,))

@@ -42,7 +42,7 @@ class ZeroInit(Initializer):
   def __call__(self, shape, dtype=None):
     dtype = dtype or environ.dftype()
     shape = to_size(shape)
-    return u.math.zeros(shape, dtype=dtype, unit=self.unit)
+    return u.maybe_decimal(u.math.zeros(shape, dtype=dtype, unit=self.unit))
 
 
 class Constant(Initializer):
@@ -64,7 +64,7 @@ class Constant(Initializer):
   def __call__(self, shape, dtype=None):
     dtype = dtype or environ.dftype()
     shape = to_size(shape)
-    return u.math.full(shape, self.value, dtype=dtype)
+    return u.maybe_decimal(u.math.full(shape, self.value, dtype=dtype))
 
 
 class Identity(Initializer):

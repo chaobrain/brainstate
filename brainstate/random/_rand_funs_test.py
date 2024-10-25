@@ -565,6 +565,5 @@ class TestRandom(unittest.TestCase):
 class TestRandomKey(unittest.TestCase):
   def test_clear_memory(self):
     bst.random.split_key()
-    bst.util.clear_buffer_memory()
     print(bst.random.DEFAULT.value)
     self.assertTrue(isinstance(bst.random.DEFAULT.value, np.ndarray))

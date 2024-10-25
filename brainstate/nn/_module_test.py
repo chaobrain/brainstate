@@ -32,7 +32,6 @@ class TestDelay(unittest.TestCase):
     delay.init_state()
     with self.assertRaises(KeyError):
       delay.register_entry('c', 10.)
-    bst.util.clear_buffer_memory()
 
   def test_rotation_delay(self):
     rotation_delay = bst.nn.Delay(jnp.ones((1,)))
@@ -58,7 +57,6 @@ class TestDelay(unittest.TestCase):
       self.assertTrue(jnp.allclose(rotation_delay.at('a'), jnp.ones((1,)) * i))
       self.assertTrue(jnp.allclose(rotation_delay.at('b'), jnp.maximum(jnp.ones((1,)) * i - n1, 0.)))
       self.assertTrue(jnp.allclose(rotation_delay.at('c'), jnp.maximum(jnp.ones((1,)) * i - n2, 0.)))
-    bst.util.clear_buffer_memory()
 
   def test_concat_delay(self):
     rotation_delay = bst.nn.Delay(jnp.ones([1]), delay_method='concat')
@@ -80,7 +78,7 @@ class TestDelay(unittest.TestCase):
       self.assertTrue(jnp.allclose(rotation_delay.at('a'), jnp.ones((1,)) * i))
       self.assertTrue(jnp.allclose(rotation_delay.at('b'), jnp.maximum(jnp.ones((1,)) * i - n1, 0.)))
       self.assertTrue(jnp.allclose(rotation_delay.at('c'), jnp.maximum(jnp.ones((1,)) * i - n2, 0.)))
-    bst.util.clear_buffer_memory()
+    # bst.util.clear_buffer_memory()
 
   def test_jit_erro(self):
     rotation_delay = bst.nn.Delay(jnp.ones([1]), time=2., delay_method='concat', interp_method='round')
@@ -124,7 +122,6 @@ class TestDelay(unittest.TestCase):
             self.assertTrue(jnp.allclose(retrieve(t - t0, i), jnp.ones(shape) * i))
             self.assertTrue(jnp.allclose(retrieve(t - t1, i), jnp.maximum(jnp.ones(shape) * i - n1, 0.)))
             self.assertTrue(jnp.allclose(retrieve(t - t2, i), jnp.maximum(jnp.ones(shape) * i - n2, 0.)))
-        bst.util.clear_buffer_memory()
 
   def test_linear_interp(self):
     for shape in [(1,), (1, 1), (1, 1, 1)]:
@@ -155,7 +152,6 @@ class TestDelay(unittest.TestCase):
             self.assertTrue(jnp.allclose(retrieve(t - t0, i), jnp.maximum(jnp.ones(shape) * i - n0, 0.)))
             self.assertTrue(jnp.allclose(retrieve(t - t1, i), jnp.maximum(jnp.ones(shape) * i - n1, 0.)))
             self.assertTrue(jnp.allclose(retrieve(t - t2, i), jnp.maximum(jnp.ones(shape) * i - n2, 0.)))
-        bst.util.clear_buffer_memory()
 
   def test_rotation_and_concat_delay(self):
     rotation_delay = bst.nn.Delay(jnp.ones((1,)))
@@ -183,7 +179,6 @@ class TestDelay(unittest.TestCase):
       self.assertTrue(jnp.allclose(rotation_delay.at('a'), concat_delay.at('a'), ))
       self.assertTrue(jnp.allclose(rotation_delay.at('b'), concat_delay.at('b'), ))
       self.assertTrue(jnp.allclose(rotation_delay.at('c'), concat_delay.at('c'), ))
-    bst.util.clear_buffer_memory()
 
 
 class TestModule(unittest.TestCase):
