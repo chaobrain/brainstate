@@ -192,6 +192,7 @@ def sigmoid(
   .. plot::
      :include-source: True
 
+     >>> import jax
      >>> import brainstate.nn as nn
      >>> import brainstate as bst
      >>> import matplotlib.pyplot as plt
@@ -289,6 +290,7 @@ def piecewise_quadratic(
   .. plot::
      :include-source: True
 
+     >>> import jax
      >>> import brainstate.nn as nn
      >>> import brainstate as bst
      >>> import matplotlib.pyplot as plt
@@ -383,6 +385,7 @@ def piecewise_exp(
   .. plot::
      :include-source: True
 
+     >>> import jax
      >>> import brainstate.nn as nn
      >>> import brainstate as bst
      >>> import matplotlib.pyplot as plt
@@ -471,6 +474,7 @@ def soft_sign(
   .. plot::
      :include-source: True
 
+     >>> import jax
      >>> import brainstate.nn as nn
      >>> import brainstate as bst
      >>> import matplotlib.pyplot as plt
@@ -555,6 +559,7 @@ def arctan(
   .. plot::
      :include-source: True
 
+     >>> import jax
      >>> import brainstate.nn as nn
      >>> import brainstate as bst
      >>> import matplotlib.pyplot as plt
@@ -652,6 +657,7 @@ def nonzero_sign_log(
   .. plot::
      :include-source: True
 
+     >>> import jax
      >>> import brainstate.nn as nn
      >>> import brainstate as bst
      >>> import matplotlib.pyplot as plt
@@ -740,6 +746,7 @@ def erf(
   .. plot::
      :include-source: True
 
+     >>> import jax
      >>> import brainstate.nn as nn
      >>> import brainstate as bst
      >>> import matplotlib.pyplot as plt
@@ -846,6 +853,7 @@ def piecewise_leaky_relu(
   .. plot::
      :include-source: True
 
+     >>> import jax
      >>> import brainstate.nn as nn
      >>> import brainstate as bst
      >>> import matplotlib.pyplot as plt
@@ -958,6 +966,7 @@ def squarewave_fourier_series(
   .. plot::
      :include-source: True
 
+     >>> import jax
      >>> import brainstate.nn as nn
      >>> import brainstate as bst
      >>> import matplotlib.pyplot as plt
@@ -1058,6 +1067,7 @@ def s2nn(
   .. plot::
      :include-source: True
 
+     >>> import jax
      >>> import brainstate.nn as nn
      >>> import brainstate as bst
      >>> import matplotlib.pyplot as plt
@@ -1158,6 +1168,7 @@ def q_pseudo_spike(
   .. plot::
      :include-source: True
 
+     >>> import jax
      >>> import brainstate.nn as nn
      >>> import brainstate as bst
      >>> import matplotlib.pyplot as plt
@@ -1255,6 +1266,7 @@ def leaky_relu(
   .. plot::
      :include-source: True
 
+     >>> import jax
      >>> import brainstate.nn as nn
      >>> import brainstate as bst
      >>> import matplotlib.pyplot as plt
@@ -1358,6 +1370,7 @@ def log_tailed_relu(
   .. plot::
      :include-source: True
 
+     >>> import jax
      >>> import brainstate.nn as nn
      >>> import brainstate as bst
      >>> import matplotlib.pyplot as plt
@@ -1436,6 +1449,7 @@ def relu_grad(
   .. plot::
      :include-source: True
 
+     >>> import jax
      >>> import brainstate.nn as nn
      >>> import brainstate as bst
      >>> import matplotlib.pyplot as plt
@@ -1517,6 +1531,7 @@ def gaussian_grad(
   .. plot::
      :include-source: True
 
+     >>> import jax
      >>> import brainstate.nn as nn
      >>> import brainstate as bst
      >>> import matplotlib.pyplot as plt
@@ -1611,6 +1626,7 @@ def multi_gaussian_grad(
   .. plot::
      :include-source: True
 
+     >>> import jax
      >>> import brainstate.nn as nn
      >>> import brainstate as bst
      >>> import matplotlib.pyplot as plt
@@ -1692,6 +1708,7 @@ def inv_square_grad(
   .. plot::
      :include-source: True
 
+     >>> import jax
      >>> import brainstate.nn as nn
      >>> import brainstate as bst
      >>> import matplotlib.pyplot as plt
@@ -1765,6 +1782,7 @@ def slayer_grad(
   .. plot::
      :include-source: True
 
+     >>> import jax
      >>> import brainstate.nn as nn
      >>> import brainstate as bst
      >>> import matplotlib.pyplot as plt
