@@ -83,8 +83,9 @@ def _get_jitted_fun(
       return fun.fun(*args, **params)
 
     # compile the function and get the state trace
-    state_trace = fun.compile_function_and_get_state_trace(*args, **params, return_only_write=True)
-    read_state_vals = state_trace.get_read_state_values(True)
+    with jax.ensure_compile_time_eval():
+      state_trace = fun.compile_function_and_get_state_trace(*args, **params, return_only_write=True)
+      read_state_vals = state_trace.get_read_state_values(True)
     # call the jitted function
     write_state_vals, outs = jit_fun(state_trace.get_state_values(), *args, **params)
     # write the state values back to the states

@@ -21,7 +21,7 @@ from brainstate.random import DEFAULT, RandomState
 from brainstate.typing import Missing
 
 __all__ = [
-  'backup_rng'
+  'restore_rngs'
 ]
 
 
@@ -58,7 +58,7 @@ def _rng_backup(
   return wrapper
 
 
-def backup_rng(
+def restore_rngs(
     fn: Callable = Missing(),
     rngs: Union[RandomState, Sequence[RandomState]] = DEFAULT,
 ) -> Callable:
