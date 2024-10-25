@@ -52,7 +52,7 @@ Features
 
          .. div:: sd-font-normal
 
-            ``BrainState`` supports `program compilation <./apis/compile.html>`__ (such as just-in-time compilation) with its state-based IR construction.
+            ``BrainState`` supports `program compilation <./apis/compile.html>`__ (such as just-in-time compilation) with its `state-based <./apis/brainstate.html>`__ IR construction.
 
 
 
@@ -66,7 +66,7 @@ Features
 
          .. div:: sd-font-normal
 
-            ``BrainState`` supports `augmenting program functionality <./apis/augment.html>`__ (such batching and parallelization) with its graph-based Python objects.
+            ``BrainState`` supports program `functionality augmentation <./apis/augment.html>`__ (such batching) with its `graph-based <./apis/graph.html>`__ Python objects.
 
 
 
@@ -112,9 +112,8 @@ We are building the `BDP ecosystem <https://ecosystem-for-brain-dynamics.readthe
    :maxdepth: 1
    :caption: Quickstart
 
-   quickstart/simulation
-   quickstart/training
-   quickstart/analysis
+   quickstart/concepts.ipynb
+   quickstart/snn_simulation.ipynb
 
 
 
@@ -123,12 +122,20 @@ We are building the `BDP ecosystem <https://ecosystem-for-brain-dynamics.readthe
    :maxdepth: 2
    :caption: Tutorials
 
-   tutorials/core_concepts.rst
-   tutorials.rst
-   toolboxes.rst
-   advanced_tutorials.rst
-   FAQ.rst
-   api.rst
+   tutorials/checkpointing.ipynb
+   tutorials/random_numbers.ipynb
+   tutorials/program_compilation.ipynb
+   tutorials/program_augmentation.ipynb
+
+
+
+.. toctree::
+   :hidden:
+   :maxdepth: 2
+   :caption: Examples
+
+   examples/core_examples.rst
+
 
 
 .. toctree::
@@ -136,6 +143,6 @@ We are building the `BDP ecosystem <https://ecosystem-for-brain-dynamics.readthe
    :maxdepth: 2
    :caption: API Reference
 
-   api.rst
    changelog.md
+   api.rst
 

@@ -43,3 +43,17 @@ Random State Processing
    restore_rngs
 
 
+
+Shape Evaluation
+----------------
+
+
+.. autosummary::
+   :toctree: generated/
+
+   eval_shape
+
+
+
+
+
