@@ -147,22 +147,13 @@ class Optimizer(Node):
   weight_states: StateDictManager  # states to train, invisible to ``.states()``
 
   def __init__(
-      self,
-      lr: Union[float, LearningRateScheduler, State],
-      name: Optional[str] = None
+      self, lr: Union[float, LearningRateScheduler, State],
   ):
-    super().__init__(name=name)
     self.lr: LearningRateScheduler = make_schedule(lr)
     self.weight_states = StateDictManager()
 
   def register_trainable_weights(self, train_states: Optional[Dict[str, State]] = None):
     raise NotImplementedError
-
-  def __repr__(self):
-    return f"{self.__class__.__name__}(lr={self.lr}{self.extra_repr()})"
-
-  def extra_repr(self) -> str:
-    return ''
 
   def update(self, grads: dict):
     raise NotImplementedError
@@ -173,18 +164,11 @@ class _WeightDecayOptimizer(Optimizer):
       self,
       lr: Union[float, LearningRateScheduler, State],
       weight_decay: Optional[float] = None,
-      name: Optional[str] = None
   ):
-    super().__init__(lr=lr, name=name)
+    super().__init__(lr=lr)
     self.lr: LearningRateScheduler = make_schedule(lr)
     assert weight_decay is None or 0. <= weight_decay <= 1., 'weight_decay must be in [0, 1].'
     self.weight_decay = (fcast(weight_decay) if weight_decay is not None else None)
-
-  def extra_repr(self) -> str:
-    return ''
-
-  def __repr__(self):
-    return f"{self.__class__.__name__}(lr={self.lr}, weight_decay={self.weight_decay}{self.extra_repr()})"
 
 
 class SGD(_WeightDecayOptimizer):
@@ -210,9 +194,8 @@ class SGD(_WeightDecayOptimizer):
       self,
       lr: Union[float, LearningRateScheduler, State],
       weight_decay: Optional[float] = None,
-      name: Optional[str] = None
   ):
-    super().__init__(lr=lr, weight_decay=weight_decay, name=name)
+    super().__init__(lr=lr, weight_decay=weight_decay)
 
   def register_trainable_weights(self, states: Optional[Dict[str, State]] = None):
     states = dict() if states is None else states
@@ -267,11 +250,10 @@ class Momentum(_WeightDecayOptimizer):
       lr: Union[float, LearningRateScheduler, State],
       momentum: float = 0.9,
       weight_decay: Optional[float] = None,
-      name: Optional[str] = None
   ):
-    super(Momentum, self).__init__(lr=lr, weight_decay=weight_decay, name=name)
+    super(Momentum, self).__init__(lr=lr, weight_decay=weight_decay)
     self.momentum = fcast(momentum)
-    self.momentum_states = dict()
+    self.momentum_states = StateDictManager()
 
   def extra_repr(self) -> str:
     return f", momentum={self.momentum}"
@@ -334,12 +316,11 @@ class MomentumNesterov(_WeightDecayOptimizer):
       lr: Union[float, LearningRateScheduler, State],
       weight_decay: Optional[float] = None,
       momentum: float = 0.9,
-      name: Optional[str] = None
   ):
-    super(MomentumNesterov, self).__init__(lr=lr, weight_decay=weight_decay, name=name)
+    super(MomentumNesterov, self).__init__(lr=lr, weight_decay=weight_decay)
 
     self.momentum = fcast(momentum)
-    self.momentum_states = dict()
+    self.momentum_states = StateDictManager()
 
   def extra_repr(self) -> str:
     return f", momentum={self.momentum}"
@@ -403,11 +384,10 @@ class Adagrad(_WeightDecayOptimizer):
       lr: Union[float, LearningRateScheduler, State],
       weight_decay: Optional[float] = None,
       epsilon: float = 1e-6,
-      name: Optional[str] = None
   ):
-    super().__init__(lr=lr, weight_decay=weight_decay, name=name)
+    super().__init__(lr=lr, weight_decay=weight_decay)
     self.epsilon = fcast(epsilon)
-    self.cache_states = dict()
+    self.cache_states = StateDictManager()
 
   def extra_repr(self) -> str:
     return f", epsilon={self.epsilon}"
@@ -483,14 +463,13 @@ class Adadelta(_WeightDecayOptimizer):
       weight_decay: Optional[float] = None,
       epsilon: float = 1e-6,
       rho: float = 0.95,
-      name: Optional[str] = None
   ):
-    super().__init__(lr=lr, weight_decay=weight_decay, name=name)
+    super().__init__(lr=lr, weight_decay=weight_decay)
 
     self.epsilon = fcast(epsilon)
     self.rho = fcast(rho)
-    self.cache_states = dict()
-    self.delta_states = dict()
+    self.cache_states = StateDictManager()
+    self.delta_states = StateDictManager()
 
   def extra_repr(self) -> str:
     return f", epsilon={self.epsilon}, rho={self.rho}"
@@ -558,13 +537,12 @@ class RMSProp(_WeightDecayOptimizer):
       weight_decay: Optional[float] = None,
       epsilon: float = 1e-6,
       rho: float = 0.9,
-      name: Optional[str] = None
   ):
-    super(RMSProp, self).__init__(lr=lr, weight_decay=weight_decay, name=name)
+    super(RMSProp, self).__init__(lr=lr, weight_decay=weight_decay)
 
     self.epsilon = fcast(epsilon)
     self.rho = fcast(rho)
-    self.cache_states = dict()
+    self.cache_states = StateDictManager()
 
   def extra_repr(self) -> str:
     return f", epsilon={self.epsilon}, rho={self.rho}"
@@ -611,8 +589,6 @@ class Adam(_WeightDecayOptimizer):
   eps: optional, float
     A positive scalar value for epsilon, a small constant for
     numerical stability (default 1e-8).
-  name : optional, str
-    The optimizer name.
 
   References
   ----------
@@ -626,17 +602,14 @@ class Adam(_WeightDecayOptimizer):
       beta2: float = 0.999,
       eps: float = 1e-8,
       weight_decay: Optional[float] = None,
-      name: Optional[str] = None
   ):
-    super(Adam, self).__init__(lr=lr,
-                               weight_decay=weight_decay,
-                               name=name)
+    super(Adam, self).__init__(lr=lr, weight_decay=weight_decay)
 
     self.beta1 = fcast(beta1)
     self.beta2 = fcast(beta2)
     self.eps = fcast(eps)
-    self.m1_states = dict()
-    self.m2_states = dict()
+    self.m1_states = StateDictManager()
+    self.m2_states = StateDictManager()
 
   def extra_repr(self) -> str:
     return f", beta1={self.beta1}, beta2={self.beta2}, eps={self.eps}"
@@ -710,17 +683,14 @@ class LARS(_WeightDecayOptimizer):
       weight_decay: float = 1e-4,
       tc: float = 1e-3,
       eps: float = 1e-5,
-      name: Optional[str] = None
   ):
-    super(LARS, self).__init__(lr=lr,
-                               weight_decay=weight_decay,
-                               name=name)
+    super(LARS, self).__init__(lr=lr, weight_decay=weight_decay)
     assert self.weight_decay is None, 'LARS does not support weight decay.'
 
     self.momentum = fcast(momentum)
     self.tc = fcast(tc)
     self.eps = fcast(eps)
-    self.momentum_states = dict()
+    self.momentum_states = StateDictManager()
 
   def extra_repr(self) -> str:
     return f", momentum={self.momentum}, tc={self.tc}, eps={self.eps}"
@@ -805,9 +775,8 @@ class Adan(_WeightDecayOptimizer):
       eps: float = 1e-8,
       weight_decay: float = 0.02,
       no_prox: bool = False,
-      name: Optional[str] = None,
   ):
-    super(Adan, self).__init__(lr=lr, weight_decay=weight_decay, name=name)
+    super(Adan, self).__init__(lr=lr, weight_decay=weight_decay)
 
     assert len(betas) == 3
     if eps < 0.:
@@ -822,10 +791,10 @@ class Adan(_WeightDecayOptimizer):
     self.betas = fcast(jnp.asarray(betas))
     self.eps = fcast(eps)
     self.no_prox = no_prox
-    self.exp_avg_states = dict()
-    self.exp_avg_sq_states = dict()
-    self.exp_avg_diff_states = dict()
-    self.pre_grad_states = dict()
+    self.exp_avg_states = StateDictManager()
+    self.exp_avg_sq_states = StateDictManager()
+    self.exp_avg_diff_states = StateDictManager()
+    self.pre_grad_states = StateDictManager()
 
   def extra_repr(self) -> str:
     return f", betas={self.betas}, eps={self.eps}, weight_decay={self.weight_decay}, no_prox={self.no_prox}"
@@ -939,8 +908,6 @@ class AdamW(_WeightDecayOptimizer):
   amsgrad: bool
     whether to use the AMSGrad variant of this algorithm
     from the paper `On the Convergence of Adam and Beyond`.
-  name : optional, str
-    The optimizer name.
 
   References
   ----------
@@ -956,11 +923,8 @@ class AdamW(_WeightDecayOptimizer):
       eps: float = 1e-8,
       weight_decay: float = 1e-2,
       amsgrad: bool = False,
-      name: Optional[str] = None,
   ):
-    super(AdamW, self).__init__(lr=lr,
-                                weight_decay=weight_decay,
-                                name=name)
+    super(AdamW, self).__init__(lr=lr, weight_decay=weight_decay)
 
     if eps < 0.:
       raise ValueError("Invalid epsilon value: {}".format(eps))
@@ -975,10 +939,10 @@ class AdamW(_WeightDecayOptimizer):
     self.beta2 = fcast(beta2)
     self.eps = fcast(eps)
     self.amsgrad = amsgrad
-    self.m1_states = dict()
-    self.m2_states = dict()
+    self.m1_states = StateDictManager()
+    self.m2_states = StateDictManager()
     if self.amsgrad:
-      self.vmax_states = dict()
+      self.vmax_states = StateDictManager()
 
   def extra_repr(self) -> str:
     return (f", beta1={self.beta1}, beta2={self.beta2}, eps={self.eps}"
@@ -1077,11 +1041,8 @@ class SM3(_WeightDecayOptimizer):
       momentum: float = 0.,
       eps: float = 1e-30,
       weight_decay: Optional[float] = None,
-      name: Optional[str] = None,
   ):
-    super(SM3, self).__init__(lr=lr,
-                              weight_decay=weight_decay,
-                              name=name)
+    super(SM3, self).__init__(lr=lr, weight_decay=weight_decay)
 
     if not 0.0 <= momentum < 1.0:
       raise ValueError("Invalid momentum: {0}".format(momentum))
@@ -1093,7 +1054,7 @@ class SM3(_WeightDecayOptimizer):
     self.eps = fcast(eps)
     self.beta = fcast(beta)
     self.momentum = fcast(momentum)
-    self.memory_states = dict()
+    self.memory_states = StateDictManager()
 
   def extra_repr(self) -> str:
     return f", beta={self.beta}, momentum={self.momentum}, eps={self.eps}"

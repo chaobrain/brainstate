@@ -21,9 +21,9 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from brainstate import environ
+from brainstate._state import State, LongTermState
 from brainstate.graph import Node
-from .. import environ
-from .._state import State, LongTermState
 
 __all__ = [
   'LearningRateScheduler',
@@ -102,12 +102,6 @@ class LearningRateScheduler(Node):
     """
     pass
 
-  def __repr__(self):
-    return f'{self.__class__.__name__}(lr={self.lr.value}, last_epoch={self.last_epoch.value}{self.extra_repr()})'
-
-  def extra_repr(self):
-    return ''
-
   def __call__(self, i=None):
     raise NotImplementedError
 
@@ -148,11 +142,6 @@ class CallBasedLRScheduler(LearningRateScheduler):
     """
     self.last_call.value += 1
 
-  def __repr__(self):
-    return (f'{self.__class__.__name__}(lr={self.lr.value}, '
-            f'last_epoch={self.last_epoch.value}, '
-            f'last_call={self.last_call.value}{self.extra_repr()})')
-
 
 class StepLR(LearningRateScheduler):
   """Decays the learning rate of each parameter group by gamma every
@@ -188,9 +177,6 @@ class StepLR(LearningRateScheduler):
   def __call__(self, i=None):
     i = (self.last_epoch.value + 1) if i is None else i
     return self.lr * self.gamma ** (jnp.floor_divide(i, self.step_size))
-
-  def extra_repr(self):
-    return f', gamma={self.gamma}, step_size={self.step_size}'
 
 
 class MultiStepLR(LearningRateScheduler):
@@ -234,9 +220,6 @@ class MultiStepLR(LearningRateScheduler):
     conditions = jnp.logical_and((i >= self.milestones[:-1]), (i < self.milestones[1:]))
     p = jnp.argmax(conditions)
     return self.lr * self.gamma ** p
-
-  def extra_repr(self):
-    return f', milestones={self.milestones}, gamma={self.gamma}'
 
 
 class CosineAnnealingLR(LearningRateScheduler):
@@ -299,9 +282,6 @@ class CosineAnnealingLR(LearningRateScheduler):
   def __call__(self, i=None):
     i = (self.last_epoch.value + 1) if i is None else i
     return self.eta_min + (self.lr - self.eta_min) * (1 + jnp.cos(jnp.pi * i / self.T_max)) / 2
-
-  def extra_repr(self):
-    return f', T_max={self.T_max}, eta_min={self.eta_min}'
 
 
 class CosineAnnealingWarmRestarts(CallBasedLRScheduler):
@@ -383,9 +363,6 @@ class CosineAnnealingWarmRestarts(CallBasedLRScheduler):
     i = (self.last_call.value + 1) if i is None else i
     return jnp.floor(i / self.num_call_per_epoch)
 
-  def extra_repr(self):
-    return f', T_0={self.T_0}, T_mult={self.T_mult}, eta_min={self.eta_min}'
-
 
 class ExponentialLR(LearningRateScheduler):
   """Decays the learning rate of each parameter group by gamma every epoch.
@@ -413,9 +390,6 @@ class ExponentialLR(LearningRateScheduler):
     i = (self.last_epoch.value + 1) if i is None else i
     return self.lr * self.gamma ** i
 
-  def extra_repr(self):
-    return f', gamma={self.gamma}'
-
 
 class ExponentialDecayLR(CallBasedLRScheduler):
   def __init__(self, lr, decay_steps, decay_rate, last_epoch: int = -1, last_call: int = -1):
@@ -426,9 +400,6 @@ class ExponentialDecayLR(CallBasedLRScheduler):
   def __call__(self, i=None):
     i = (self.last_call.value + 1) if i is None else i
     return self.lr * self.decay_rate ** (i / self.decay_steps)
-
-  def extra_repr(self):
-    return f', decay_steps={self.decay_steps}, decay_rate={self.decay_rate}'
 
 
 class InverseTimeDecayLR(ExponentialDecayLR):
@@ -444,9 +415,6 @@ class InverseTimeDecayLR(ExponentialDecayLR):
     else:
       return self.lr / (1 + self.decay_rate * i / self.decay_steps)
 
-  def extra_repr(self):
-    return f', decay_steps={self.decay_steps}, decay_rate={self.decay_rate}, staircase={self.staircase}'
-
 
 class PolynomialDecayLR(CallBasedLRScheduler):
   def __init__(self, lr, decay_steps, final_lr, power=1.0, last_epoch: int = -1, last_call: int = -1):
@@ -460,9 +428,6 @@ class PolynomialDecayLR(CallBasedLRScheduler):
     i = jnp.minimum(i, self.decay_steps)
     step_mult = (1 - i / self.decay_steps) ** self.power
     return step_mult * (self.lr - self.final_lr) + self.final_lr
-
-  def extra_repr(self):
-    return f', decay_steps={self.decay_steps}, final_lr={self.final_lr}, power={self.power}'
 
 
 class PiecewiseConstantLR(CallBasedLRScheduler):
@@ -481,6 +446,3 @@ class PiecewiseConstantLR(CallBasedLRScheduler):
   def __call__(self, i=None):
     i = (self.last_call.value + 1) if i is None else i
     return self.values[jnp.sum(i > self.boundaries)]
-
-  def extra_repr(self):
-    return f', boundaries={self.boundaries}, values={self.values}'
