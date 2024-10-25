@@ -235,6 +235,14 @@ class PrettyDict(dict, PrettyRepr):
   def merge(self, *states) -> PrettyDict[K, V]:
     raise NotImplementedError
 
+  def subset(self, *filters) -> Union[PrettyDict[K, V], Tuple[PrettyDict[K, V], ...]]:
+    """
+    Subset a ``PrettyDict`` into one or more ``PrettyDict``'s. The user must pass at least one
+    ``Filter`` (i.e. :class:`State`), and the filters must be exhaustive (i.e. they must cover all
+    :class:`State` types in the ``PrettyDict``).
+    """
+    return self.filter(*filters)
+
 
 class NestedDict(PrettyDict):
   """

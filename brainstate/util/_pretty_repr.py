@@ -48,6 +48,9 @@ class PrettyType:
 
 @dataclasses.dataclass
 class PrettyAttr:
+  """
+  Configuration for pretty representation of attributes.
+  """
   key: str
   value: Union[str, Any]
   start: str = ''
@@ -58,14 +61,13 @@ class PrettyRepr(ABC):
   """
   Interface for pretty representation of objects.
 
-  Example:
-  ```
-  class MyObject(PrettyRepr):
-    def __pretty_repr__(self):
-      yield PrettyType(type='MyObject', start='{', end='}')
-      yield PrettyAttr('key', self.key)
-      yield PrettyAttr('value', self.value)
-  ```
+  Example::
+
+    >>> class MyObject(PrettyRepr):
+    >>>   def __pretty_repr__(self):
+    >>>     yield PrettyType(type='MyObject', start='{', end='}')
+    >>>     yield PrettyAttr('key', self.key)
+    >>>     yield PrettyAttr('value', self.value)
 
   """
   __slots__ = ()
@@ -90,6 +92,9 @@ def _repr_elem(obj: PrettyType, elem: Any) -> str:
 
 
 def get_repr(obj: PrettyRepr) -> str:
+  """
+  Get the pretty representation of an object.
+  """
   if not isinstance(obj, PrettyRepr):
     raise TypeError(f'Object {obj!r} is not representable')
 
@@ -115,6 +120,9 @@ def get_repr(obj: PrettyRepr) -> str:
 
 
 class MappingReprMixin(Mapping[A, B]):
+  """
+  Mapping mixin for pretty representation.
+  """
   def __pretty_repr__(self):
     yield PrettyType(type='', value_sep=': ', start='{', end='}')
 
@@ -137,11 +145,11 @@ class PrettyMapping(PrettyRepr):
 
 
 @dataclasses.dataclass
-class GraphUtilsContext(threading.local):
+class PrettyReprContext(threading.local):
   seen_modules_repr: set[int] | None = None
 
 
-CONTEXT = GraphUtilsContext()
+CONTEXT = PrettyReprContext()
 
 
 def _default_repr_object(node):

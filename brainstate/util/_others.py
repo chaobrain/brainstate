@@ -13,12 +13,14 @@
 # limitations under the License.
 # ==============================================================================
 
+
 import copy
 import functools
 import gc
+import threading
 import types
 from collections.abc import Iterable
-from typing import Any, Callable, Tuple, Union
+from typing import Any, Callable, Tuple, Union, Dict
 
 import jax
 from jax.lib import xla_bridge
@@ -32,6 +34,23 @@ __all__ = [
   'DictManager',
   'DotDict',
 ]
+
+
+class NameContext(threading.local):
+  def __init__(self):
+    self.typed_names: Dict[str, int] = {}
+
+
+NAME = NameContext()
+
+
+def get_unique_name(type_: str):
+  """Get the unique name for the given object type."""
+  if type_ not in NAME.typed_names:
+    NAME.typed_names[type_] = 0
+  name = f'{type_}{NAME.typed_names[type_]}'
+  NAME.typed_names[type_] += 1
+  return name
 
 
 @jax.tree_util.register_pytree_node_class
