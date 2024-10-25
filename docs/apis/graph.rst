@@ -1,5 +1,5 @@
-``brainstate.graph`` module for graph processing
-================================================
+``brainstate.graph`` for pygraph processing
+===========================================
 
 .. currentmodule:: brainstate.graph 
 .. automodule:: brainstate.graph 

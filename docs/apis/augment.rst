@@ -1,5 +1,5 @@
-``brainstate.augment`` module for program augmentation
-======================================================
+``brainstate.augment`` for program augmentation
+===============================================
 
 .. currentmodule:: brainstate.augment
 .. automodule:: brainstate.augment

@@ -1,5 +1,5 @@
-``brainstate.compile`` module for program compilation
-=====================================================
+``brainstate.compile`` for program compilation
+==============================================
 
 .. currentmodule:: brainstate.compile
 .. automodule:: brainstate.compile
