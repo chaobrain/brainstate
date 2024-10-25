@@ -81,7 +81,7 @@ class LeakySpikeReadout(Neuron):
 
   def __init__(
       self,
-      in_size: Size,
+      size: Size,
       keep_size: bool = False,
       tau: ArrayLike = 5.,
       V_th: ArrayLike = 1.,
@@ -91,7 +91,7 @@ class LeakySpikeReadout(Neuron):
       spk_reset: str = 'soft',
       name: str = None,
   ):
-    super().__init__(in_size, keep_size=keep_size, name=name,
+    super().__init__(size, keep_size=keep_size, name=name,
                      spk_fun=spk_fun, spk_dtype=spk_dtype, spk_reset=spk_reset)
 
     # parameters

@@ -15,14 +15,14 @@
 
 
 from . import metrics
+from ._collective_ops import *
+from ._collective_ops import __all__ as collective_ops_all
 from ._dyn_impl import *
 from ._dyn_impl import __all__ as dyn_impl_all
 from ._dynamics import *
 from ._dynamics import __all__ as dynamics_all
 from ._elementwise import *
 from ._elementwise import __all__ as elementwise_all
-from ._event import *
-from ._event import __all__ as event_all
 from ._exp_euler import *
 from ._exp_euler import __all__ as exp_euler_all
 from ._interaction import *
@@ -32,21 +32,21 @@ from ._module import __all__ as module_all
 
 __all__ = (
     ['metrics']
+    + collective_ops_all
     + dyn_impl_all
     + dynamics_all
     + elementwise_all
     + module_all
     + exp_euler_all
-    + event_all
     + interaction_all
 )
 
 del (
+  collective_ops_all,
   dyn_impl_all,
   dynamics_all,
   elementwise_all,
   module_all,
   exp_euler_all,
-  event_all,
   interaction_all,
 )

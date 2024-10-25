@@ -32,15 +32,14 @@ class Embedding(Module):
   Args:
     num_embeddings: Size of embedding dictionary. Must be non-negative.
     embedding_size: Size of each embedding vector. Must be non-negative.
-    embed_init: The initializer for the embedding lookup table, of shape `(num_embeddings, embedding_size)`.
-
+    embedding_init: The initializer for the embedding lookup table, of shape `(num_embeddings, embedding_size)`.
   """
 
   def __init__(
       self,
       num_embeddings: int,
       embedding_size: int,
-      embed_init: Union[Callable, ArrayLike] = init.LecunUniform(),
+      embedding_init: Union[Callable, ArrayLike] = init.LecunUniform(),
       name: Optional[str] = None,
   ):
     super().__init__(name=name)
@@ -52,7 +51,7 @@ class Embedding(Module):
     self.embedding_size = embedding_size
     self.out_size = (embedding_size,)
 
-    weight = init.param(embed_init, (self.num_embeddings, self.embedding_size))
+    weight = init.param(embedding_init, (self.num_embeddings, self.embedding_size))
     self.weight = ParamState(weight)
 
   def update(self, indices: ArrayLike):

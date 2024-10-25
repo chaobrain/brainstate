@@ -19,6 +19,7 @@ import numbers
 from functools import partial
 from typing import Optional, Dict, Callable, Union, Sequence, Type
 
+import brainunit as u
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -27,8 +28,9 @@ from brainstate import environ
 from brainstate._state import ShortTermState, State
 from brainstate.compile import jit_error_if
 from brainstate.graph import Node
-from brainstate.mixin import DelayedInit
-from brainstate.nn._module import call_order
+from brainstate.mixin import ParamDesc
+from brainstate.nn._collective_ops import call_order
+from brainstate.nn._module import Module
 from brainstate.typing import ArrayLike, PyTree
 
 __all__ = [
@@ -88,7 +90,7 @@ class DelayAccess(Node):
     return self.refs['delay'].at(self._delay_entry, *self.indices)
 
 
-class Delay(Node, DelayedInit):
+class Delay(Module):
   """
   Generate Delays for the given :py:class:`~.State` instance.
 
@@ -120,7 +122,6 @@ class Delay(Node, DelayedInit):
 
   __module__ = 'brainstate.nn'
 
-  non_hashable_params = ('time', 'entries', 'name')
   max_time: float  #
   max_length: int
   history: Optional[ShortTermState]
@@ -128,13 +129,12 @@ class Delay(Node, DelayedInit):
   def __init__(
       self,
       target_info: PyTree,
-      time: Optional[Union[int, float]] = None,  # delay time
+      time: Optional[Union[int, float, u.Quantity]] = None,  # delay time
       init: Optional[Union[ArrayLike, Callable]] = None,  # delay data before t0
       entries: Optional[Dict] = None,  # delay access entry
       delay_method: Optional[str] = _DELAY_ROTATE,  # delay method
       interp_method: str = _INTERP_LINEAR,  # interpolation method
   ):
-
     # target information
     self.target_info = jax.tree.map(lambda a: jax.ShapeDtypeStruct(a.shape, a.dtype), target_info)
 
@@ -414,29 +414,40 @@ class Delay(Node, DelayedInit):
       raise ValueError(f'Unknown updating method "{self.delay_method}"')
 
 
-class StateWithDelay(Node):
+class StateWithDelay(Delay):
   """
   A ``State`` type that defines the state in a differential equation.
   """
 
   __module__ = 'brainstate.nn'
 
-  st: State  # state
-  dl: Optional[Delay]  # delay
+  state: State  # state
 
-  def __init__(self, value: PyTree, type: Type = ShortTermState, **metadata):
-    # state
-    self.st = type(value, **metadata)
-    # delay
-    self.dl = None
+  def __init__(self, target: Node, item: str):
+    super().__init__(None)
+
+    self._target = target
+    self._target_term = item
 
   @property
-  def value(self) -> PyTree:
-    return self.st.value
+  def state(self) -> State:
+    r = getattr(self._target, self._target_term)
+    if not isinstance(r, State):
+      raise TypeError(f'The term "{self._target_term}" in the module "{self._target}" is not a State.')
+    return r
 
-  @value.setter
-  def value(self, val: PyTree):
-    self.st.value = val
+  @call_order(3)
+  def init_state(self, *args, **kwargs):
+    """
+    State initialization function.
+    """
+    state = self.state
+    self.target_info = jax.tree.map(lambda a: jax.ShapeDtypeStruct(a.shape, a.dtype), state.value)
+    super().init_state(*args, **kwargs)
 
-  def reset(self, value: PyTree):
-    raise NotImplementedError
+  def update(self, *args) -> None:
+    """
+    Update the delay variable with the new data.
+    """
+    value = self.state.value
+    return super().update(value)

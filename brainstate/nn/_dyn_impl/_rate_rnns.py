@@ -23,7 +23,7 @@ import jax.numpy as jnp
 
 from brainstate import random, init, functional
 from brainstate._state import ShortTermState, ParamState
-from brainstate.mixin import DelayedInit
+from brainstate.mixin import ParamDesc
 from brainstate.nn._interaction._connections import Linear
 from brainstate.nn._module import Module
 from brainstate.typing import ArrayLike
@@ -33,7 +33,7 @@ __all__ = [
 ]
 
 
-class RNNCell(Module, DelayedInit):
+class RNNCell(Module, ParamDesc):
   """
   Base class for RNN cells.
   """

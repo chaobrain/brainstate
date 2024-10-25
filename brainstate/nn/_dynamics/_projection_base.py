@@ -13,12 +13,13 @@
 # limitations under the License.
 # ==============================================================================
 
-from typing import Optional, Union, Callable
+from typing import Union, Callable
 
 from brainstate._state import State
-from brainstate._utils import set_module_as
-from brainstate.mixin import AlignPost, DelayedInitializer, BindCondData, JointTypes
-from brainstate.nn._module import Module, call_order
+from brainstate.mixin import AlignPost, ParamDescriber, BindCondData, JointTypes
+from brainstate.nn._collective_ops import call_order
+from brainstate.nn._module import Module
+from brainstate.util._others import get_unique_name
 from ._dynamics_base import Dynamics, maybe_init_prefetch, Prefetch, PrefetchDelayAt
 from ._synouts import SynOut
 
@@ -30,7 +31,7 @@ __all__ = [
 
 
 class Interaction(Module):
-  pass
+  __module__ = 'brainstate.nn'
 
 
 def _check_modules(*modules):
@@ -63,8 +64,8 @@ def get_post_repr(syn, out):
 
 
 def align_post_add_bef_update(
-    syn_desc: DelayedInitializer[AlignPost],
-    out_desc: DelayedInitializer[BindCondData],
+    syn_desc: ParamDescriber[AlignPost],
+    out_desc: ParamDescriber[BindCondData],
     post: Dynamics,
     proj_name: str
 ):
@@ -92,11 +93,10 @@ class _AlignPost(Module):
     self.syn = syn
     self.out = out
 
-  def interaction(self, *args, **kwargs):
+  def update(self, *args, **kwargs):
     self.out.bind_cond(self.syn(*args, **kwargs))
 
 
-@set_module_as('braininit')
 class AlignPostProj(Interaction):
   """
   Full-chain synaptic projection with the align-post reduction and the automatic synapse merging.
@@ -128,22 +128,21 @@ class AlignPostProj(Interaction):
     syn: The synaptic dynamics.
     out: The synaptic output.
     post: The post-synaptic neuron group.
-    name: str. The projection name.
   """
+  __module__ = 'brainstate.nn'
 
   def __init__(
       self,
       *modules,
       comm: Callable,
-      syn: Union[DelayedInitializer[AlignPost], AlignPost],
-      out: Union[DelayedInitializer[SynOut], SynOut],
+      syn: Union[ParamDescriber[AlignPost], AlignPost],
+      out: Union[ParamDescriber[SynOut], SynOut],
       post: Dynamics,
-      name: Optional[str] = None,
   ):
-    super().__init__(name=name)
+    super().__init__(name=get_unique_name(self.__class__.__name__))
 
     # checking modules
-    self.modules = _check_modules(modules)
+    self.modules = _check_modules(*modules)
 
     # checking communication model
     if not callable(comm):
@@ -152,16 +151,18 @@ class AlignPostProj(Interaction):
       )
 
     # checking synapse and output models
-    if is_instance(syn, DelayedInitializer[AlignPost]):
-      if not is_instance(out, DelayedInitializer[SynOut]):
+    if is_instance(syn, ParamDescriber[AlignPost]):
+      if not is_instance(out, ParamDescriber[SynOut]):
         raise TypeError(
-          f'The output should be an instance of {DelayedInitializer[SynOut]}, but got {out}.'
+          f'The output should be an instance of describer {ParamDescriber[SynOut]} when '
+          f'the synapse is a describer, but we got {out}.'
         )
       merging = True
     else:
       if not is_instance(out, SynOut):
         raise TypeError(
-          f'The output should be an instance of {SynOut}, but got {out}.'
+          f'The output should be an instance of {SynOut} when the synapse is '
+          f'not a describer, but we got {out}.'
         )
       merging = False
     self.merging = merging
@@ -204,7 +205,6 @@ class AlignPostProj(Interaction):
       self.out.bind_cond(conductance)
 
 
-@set_module_as('brainstate.nn')
 class DeltaProj(Interaction):
   """Full-chain of the synaptic projection for the Delta synapse model.
 
@@ -236,28 +236,24 @@ class DeltaProj(Interaction):
     delay: The synaptic delay.
     comm: DynamicalSystem. The synaptic communication.
     post: DynamicalSystem. The post-synaptic neuron group.
-    name: str. The projection name.
   """
 
-  _invisible_nodes = ['post']
+  __module__ = 'brainstate.nn'
 
-  def __init__(
-      self,
-      *modules,
-      comm: Callable,
-      post: Dynamics,
-      name: Optional[str] = None,
-  ):
-    super().__init__(name=name)
+  def __init__(self, *modules, comm: Callable, post: Dynamics, label=None):
+    super().__init__(name=get_unique_name(self.__class__.__name__))
+
+    self.label = label
 
     # checking modules
-    self.modules = _check_modules(modules)
+    self.modules = _check_modules(*modules)
 
     # checking communication model
     if not callable(comm):
       raise TypeError(
         f'The communication should be an instance of callable function, but got {comm}.'
       )
+    self.comm = comm
 
     # post model
     if not isinstance(post, Dynamics):
@@ -274,11 +270,11 @@ class DeltaProj(Interaction):
   def update(self, *x):
     for module in self.modules:
       x = (call_module(module, *x),)
-    assert len(x) == 1
-    self.post.add_delta_input(self.name, x[0])
+    assert len(x) == 1, f'The output of the modules should be a single value, but got {x}.'
+    x = self.comm(x[0])
+    self.post.add_delta_input(self.name, x, label=self.label)
 
 
-@set_module_as('brainintegrate')
 class CurrentProj(Interaction):
   """
   Full-chain synaptic projection with the align-pre reduction and delay+synapse updating and merging.
@@ -308,9 +304,8 @@ class CurrentProj(Interaction):
     comm: The synaptic communication.
     out: The synaptic output.
     post: The post-synaptic neuron group.
-    name: str. The projection name.
   """
-  _invisible_nodes = ['post']
+  __module__ = 'brainstate.nn'
 
   def __init__(
       self,
@@ -318,9 +313,8 @@ class CurrentProj(Interaction):
       comm: Callable,
       out: SynOut,
       post: Dynamics,
-      name: Optional[str] = None,
   ):
-    super().__init__(name=name)
+    super().__init__(name=get_unique_name(self.__class__.__name__))
 
     # pre-synaptic neuron group
     if not isinstance(prefetch, (Prefetch, PrefetchDelayAt)):

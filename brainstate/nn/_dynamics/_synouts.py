@@ -19,9 +19,10 @@ from __future__ import annotations
 
 from typing import Optional
 
+import brainunit as u
 import jax.numpy as jnp
 
-from brainstate.mixin import DelayedInit, BindCondData
+from brainstate.mixin import ParamDesc, BindCondData
 from brainstate.nn._module import Module
 from brainstate.typing import ArrayLike
 
@@ -30,7 +31,7 @@ __all__ = [
 ]
 
 
-class SynOut(Module, DelayedInit, BindCondData):
+class SynOut(Module, ParamDesc, BindCondData):
   """
   Base class for synaptic outputs.
 
@@ -39,8 +40,8 @@ class SynOut(Module, DelayedInit, BindCondData):
 
   __module__ = 'brainstate.nn'
 
-  def __init__(self, name: Optional[str] = None):
-    super().__init__(name=name)
+  def __init__(self, ):
+    super().__init__()
     self._conductance = None
 
   def __call__(self, *args, **kwargs):
@@ -65,8 +66,6 @@ class COBA(SynOut):
   ----------
   E: ArrayLike
     The reversal potential.
-  name: str
-    The model name.
 
   See Also
   --------
@@ -74,8 +73,8 @@ class COBA(SynOut):
   """
   __module__ = 'brainstate.nn'
 
-  def __init__(self, E: ArrayLike, name: Optional[str] = None):
-    super().__init__(name=name)
+  def __init__(self, E: ArrayLike):
+    super().__init__()
 
     self.E = E
 
@@ -94,8 +93,8 @@ class CUBA(SynOut):
 
   Parameters
   ----------
-  name: str
-    The model name.
+  scale: ArrayLike
+    The scaling factor for the conductance. Default 1. [mV]
 
   See Also
   --------
@@ -103,11 +102,12 @@ class CUBA(SynOut):
   """
   __module__ = 'brainstate.nn'
 
-  def __init__(self, name: Optional[str] = None, ):
-    super().__init__(name=name)
+  def __init__(self, scale: ArrayLike = u.volt):
+    super().__init__()
+    self.scale = scale
 
   def update(self, conductance, potential=None):
-    return conductance
+    return conductance * self.scale
 
 
 class MgBlock(SynOut):
@@ -139,8 +139,6 @@ class MgBlock(SynOut):
     Concentration of Magnesium ion. Default 1.2 [mM].
   V_offset: ArrayLike
     The offset potential. Default 0. [mV]
-  name: str
-    The model name.
   """
   __module__ = 'brainstate.nn'
 
@@ -151,9 +149,8 @@ class MgBlock(SynOut):
       alpha: ArrayLike = 0.062,
       beta: ArrayLike = 3.57,
       V_offset: ArrayLike = 0.,
-      name: Optional[str] = None,
   ):
-    super().__init__(name=name)
+    super().__init__()
 
     self.E = E
     self.V_offset = V_offset

@@ -25,8 +25,8 @@ import brainstate as bst
 
 class TestModuleGroup(unittest.TestCase):
   def test_initialization(self):
-    group = bst.nn.ModuleGroup()
-    self.assertIsInstance(group, bst.nn.ModuleGroup)
+    group = bst.nn.DynamicsGroup()
+    self.assertIsInstance(group, bst.nn.DynamicsGroup)
 
 
 class TestProjection(unittest.TestCase):

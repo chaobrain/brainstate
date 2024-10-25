@@ -21,7 +21,7 @@ All the basic dynamics class for the ``brainstate``.
 
 For handling dynamical systems:
 
-- ``ModuleGroup``: The class for a group of modules, which update ``Projection`` first,
+- ``DynamicsGroup``: The class for a group of modules, which update ``Projection`` first,
                    then ``Dynamics``, finally others.
 - ``Projection``: The class for the synaptic projection.
 - ``Dynamics``: The class for the dynamical system.
@@ -33,19 +33,24 @@ For handling the delays:
 
 """
 
-from typing import Any, Dict, Callable, Hashable, Optional, Union, TypeVar
+from typing import Any, Dict, Callable, Hashable, Optional, Union, TypeVar, TYPE_CHECKING
 
 import numpy as np
+import brainunit as u
 
+from brainstate import environ
 from brainstate._state import State
-from brainstate.mixin import DelayedInitializer
+from brainstate.graph import Node
+from brainstate.mixin import ParamDescriber
 from brainstate.nn._module import Module
 from brainstate.typing import Size, ArrayLike
 from ._state_delay import StateWithDelay, Delay
 
 __all__ = [
-  'ModuleGroup', 'Projection', 'Dynamics',
+  'DynamicsGroup', 'Projection', 'Dynamics', 'Prefetch',
 ]
+
+from .. import call_order
 
 T = TypeVar('T')
 _max_order = 10
@@ -88,7 +93,6 @@ class Dynamics(Module):
      - ``.update_local_delays()``
      - ``.reset_local_delays()``
 
-
   There are several essential attributes:
 
   - ``size``: the geometry of the neuron group. For example, `(10, )` denotes a line of
@@ -101,7 +105,6 @@ class Dynamics(Module):
     size: The neuron group geometry.
     name: The name of the dynamic system.
     keep_size: Whether keep the geometry information.
-    mode: The computing mode.
   """
 
   __module__ = 'brainstate.nn'
@@ -197,7 +200,8 @@ class Dynamics(Module):
     if self._current_inputs is None:
       self._current_inputs = dict()
     if key in self._current_inputs:
-      raise ValueError(f'Key "{key}" has been defined and used in the current inputs of {self}.')
+      if id(self._current_inputs[key]) != id(inp):
+        raise ValueError(f'Key "{key}" has been defined and used in the current inputs of {self}.')
     self._current_inputs[key] = inp
 
   def add_delta_input(
@@ -218,7 +222,8 @@ class Dynamics(Module):
     if self._delta_inputs is None:
       self._delta_inputs = dict()
     if key in self._delta_inputs:
-      raise ValueError(f'Key "{key}" has been defined and used.')
+      if id(self._delta_inputs[key]) != id(inp):
+        raise ValueError(f'Key "{key}" has been defined and used.')
     self._delta_inputs[key] = inp
 
   def get_input(self, key: str):
@@ -254,14 +259,16 @@ class Dynamics(Module):
       return init
     if label is None:
       # no label
-      for key, out in self._current_inputs.items():
-        init = init + out(*args, **kwargs)
+      for key in tuple(self._current_inputs.keys()):
+        out = self._current_inputs.pop(key)
+        init = init + (out(*args, **kwargs) if callable(out) else out)
     else:
       # has label
       label_repr = _input_label_start(label)
-      for key, out in self._current_inputs.items():
+      for key in tuple(self._current_inputs.keys()):
         if key.startswith(label_repr):
-          init = init + out(*args, **kwargs)
+          out = self._current_inputs[key]
+          init = init + (out(*args, **kwargs) if callable(out) else out)
     return init
 
   def sum_delta_inputs(self, init: Any, *args, label: Optional[str] = None, **kwargs):
@@ -281,14 +288,16 @@ class Dynamics(Module):
       return init
     if label is None:
       # no label
-      for key, out in self._delta_inputs.items():
-        init = init + out(*args, **kwargs)
+      for key in tuple(self._delta_inputs.keys()):
+        out = self._delta_inputs.pop(key)
+        init = init + (out(*args, **kwargs) if callable(out) else out)
     else:
       # has label
       label_repr = _input_label_start(label)
-      for key, out in self._delta_inputs.items():
+      for key in tuple(self._delta_inputs.keys()):
         if key.startswith(label_repr):
-          init = init + out(*args, **kwargs)
+          out = self._delta_inputs[key]
+          init = init + (out(*args, **kwargs) if callable(out) else out)
     return init
 
   @property
@@ -359,7 +368,7 @@ class Dynamics(Module):
     # ``before_updates``
     if self.before_updates is not None:
       for model in self.before_updates.values():
-        if hasattr(model, '_receive_input'):
+        if hasattr(model, '_receive_update_input'):
           model(*args, **kwargs)
         else:
           model()
@@ -370,7 +379,7 @@ class Dynamics(Module):
     # ``after_updates``
     if self.after_updates is not None:
       for model in self.after_updates.values():
-        if hasattr(model, '_not_receive_output'):
+        if hasattr(model, '_not_receive_update_output'):
           model()
         else:
           model(ret)
@@ -380,7 +389,7 @@ class Dynamics(Module):
     return Prefetch(self, item)
 
   def align_pre(
-      self, dyn: Union[DelayedInitializer[T], T]
+      self, dyn: Union[ParamDescriber[T], T]
   ) -> T:
     """
     Align the dynamics before the interaction.
@@ -388,7 +397,7 @@ class Dynamics(Module):
     if isinstance(dyn, Dynamics):
       self._add_after_update(dyn.name, dyn)
       return dyn
-    elif isinstance(dyn, DelayedInitializer):
+    elif isinstance(dyn, ParamDescriber):
       if not isinstance(dyn.cls, Dynamics):
         raise TypeError(f'The input {dyn} should be an instance of {Dynamics}.')
       if not self._has_after_update(dyn.identifier):
@@ -404,12 +413,13 @@ class Dynamics(Module):
     return name, value
 
 
-class Prefetch:
+class Prefetch(Node):
   """
   Prefetch a variable of the given module.
   """
 
-  def __init__(self, module: Dynamics, item: str):
+  def __init__(self, module: Module, item: str):
+    super().__init__()
     self.module = module
     self.item = item
 
@@ -422,7 +432,7 @@ class Prefetch:
     return item.value if isinstance(item, State) else item
 
 
-class PrefetchDelay:
+class PrefetchDelay(Node):
   def __init__(self, module: Dynamics, item: str):
     self.module = module
     self.item = item
@@ -431,34 +441,53 @@ class PrefetchDelay:
     return PrefetchDelayAt(self.module, self.item, time)
 
 
-class PrefetchDelayAt:
+class PrefetchDelayAt(Node):
+  """
+  Prefetch the delay of a variable in the given module at a specific time.
+
+  Args:
+    module: The module that has the item with the name specified by ``item`` argument.
+    item: The item that has the delay.
+    time: The time to retrieve the delay.
+  """
   def __init__(self, module: Dynamics, item: str, time: ArrayLike):
+    super().__init__()
+    assert isinstance(module, Dynamics), ''
     self.module = module
     self.item = item
     self.time = time
+    self.step = u.math.asarray(time / environ.get_dt(), dtype=environ.ditype())
+
+    # register the delay
+    key = _get_delay_key(item)
+    if not module._has_after_update(key):
+      module._add_after_update(key, not_receive_update_output(StateWithDelay(module, item)))
+    self.state_delay: StateWithDelay = module._get_after_update(key)
+    self.state_delay.register_delay(time)
 
   def __call__(self, *args, **kwargs):
-    item = _get_prefetch_item_delay(self)
-    return item.retrieve_at_time(self.time)
+    # return self.state_delay.retrieve_at_time(self.time)
+    return self.state_delay.retrieve_at_step(self.step)
 
 
-def _get_prefetch_item(target) -> State:
+def _get_delay_key(item) -> str:
+  return f'{item}-delay'
+
+
+def _get_prefetch_item(target: Union[Prefetch, PrefetchDelayAt]) -> Any:
   item = getattr(target.module, target.item, None)
   if item is None:
-    raise AttributeError(f'The target {target} should have an `{target.item}` attribute.')
-  if not isinstance(item, State):
-    raise TypeError(f'The prefetch target should be a brainstate.State. But got {item}.')
+    raise AttributeError(f'The target {target.module} should have an `{target.item}` attribute.')
   return item
 
 
-def _get_prefetch_item_delay(target) -> Delay:
-  item = _get_prefetch_item(target)
-  if not isinstance(item, StateWithDelay):
+def _get_prefetch_item_delay(target: Union[Prefetch, PrefetchDelay, PrefetchDelayAt]) -> Delay:
+  assert isinstance(target.module, Dynamics), (f'The target module should be an instance '
+                                               f'of Dynamics. But got {target.module}.')
+  delay = target.module._get_after_update(_get_delay_key(target.item))
+  if not isinstance(delay, StateWithDelay):
     raise TypeError(f'The prefetch target should be a {StateWithDelay.__name__} when accessing '
-                    f'its delay. But got {item}.')
-  delay = getattr(item, 'delay', None)
-  if not isinstance(delay, Delay):
-    raise TypeError(f'The delay of the prefetch target should be an instance of {Delay}. But got {delay}.')
+                    f'its delay. But got {delay}.')
   return delay
 
 
@@ -474,7 +503,7 @@ def maybe_init_prefetch(target, *args, **kwargs):
     delay.register_delay(target.time)
 
 
-class ModuleGroup(Module):
+class DynamicsGroup(Module):
   """
   A group of :py:class:`~.Module` in which the updating order does not matter.
 
@@ -485,10 +514,11 @@ class ModuleGroup(Module):
 
   __module__ = 'brainstate.nn'
 
-  def __init__(self, *children_as_tuple, **children_as_dict):
-    super().__init__()
-    self.layers_tuple = tuple(children_as_tuple)
-    self.layers_dict = dict(children_as_dict)
+  if not TYPE_CHECKING:
+    def __init__(self, *children_as_tuple, **children_as_dict):
+      super().__init__()
+      self.layers_tuple = tuple(children_as_tuple)
+      self.layers_dict = dict(children_as_dict)
 
   def update(self, *args, **kwargs):
     """
@@ -528,7 +558,7 @@ def receive_update_output(cls: object):
   return cls
 
 
-def not_receive_update_output(cls: object):
+def not_receive_update_output(cls: T) -> T:
   """
   The decorator to mark the object (as the after updates) to not receive the output of the update function.
 

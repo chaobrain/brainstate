@@ -37,7 +37,7 @@ class TestReadoutModels(unittest.TestCase):
     self.assertEqual(output.shape, (self.batch_size, self.out_size))
 
   def test_LeakySpikeReadout(self):
-    model = bst.nn.LeakySpikeReadout(in_size=self.in_size, tau=self.tau, V_th=self.V_th)
+    model = bst.nn.LeakySpikeReadout(size=self.in_size, tau=self.tau, V_th=self.V_th)
     model.init_state(batch_size=self.batch_size)
     with bst.environ.context(t=0.):
       output = model.update(self.x)

@@ -27,7 +27,6 @@ import jax.numpy as jnp
 import numpy as np
 
 from brainstate import environ
-from brainstate.mixin import Mode
 from brainstate.nn._module import Module
 from brainstate.typing import Size
 
@@ -448,8 +447,6 @@ class MaxPool2d(_MaxPool):
   channel_axis: int, optional
     Axis of the spatial channels for which pooling is skipped.
     If ``None``, there is no channel axis.
-  mode: Mode
-    The computation mode.
   name: optional, str
     The object name.
 
@@ -541,8 +538,6 @@ class MaxPool3d(_MaxPool):
   channel_axis: int, optional
     Axis of the spatial channels for which pooling is skipped.
     If ``None``, there is no channel axis.
-  mode: Mode
-    The computation mode.
   name: optional, str
     The object name.
 
@@ -616,8 +611,6 @@ class AvgPool1d(_AvgPool):
   channel_axis: int, optional
     Axis of the spatial channels for which pooling is skipped.
     If ``None``, there is no channel axis.
-  mode: Mode
-    The computation mode.
   name: optional, str
     The object name.
 
@@ -698,8 +691,6 @@ class AvgPool2d(_AvgPool):
   channel_axis: int, optional
     Axis of the spatial channels for which pooling is skipped.
     If ``None``, there is no channel axis.
-  mode: Mode
-    The computation mode.
   name: optional, str
     The object name.
   """
@@ -788,8 +779,6 @@ class AvgPool3d(_AvgPool):
   channel_axis: int, optional
     Axis of the spatial channels for which pooling is skipped.
     If ``None``, there is no channel axis.
-  mode: Mode
-    The computation mode.
   name: optional, str
     The object name.
 
@@ -865,8 +854,6 @@ class _AdaptivePool(Module):
     The down-sampling operation.
   name: str
     The class name.
-  mode: Mode
-    The computing mode.
   """
 
   def __init__(
@@ -964,8 +951,6 @@ class AdaptiveAvgPool1d(_AdaptivePool):
     If ``None``, there is no channel axis.
   name: str
     The class name.
-  mode: Mode
-    The computing mode.
   """
   __module__ = 'brainstate.nn'
 
@@ -1026,8 +1011,6 @@ class AdaptiveAvgPool2d(_AdaptivePool):
     If ``None``, there is no channel axis.
   name: str
     The class name.
-  mode: Mode
-    The computing mode.
   """
   __module__ = 'brainstate.nn'
 
@@ -1089,8 +1072,6 @@ class AdaptiveAvgPool3d(_AdaptivePool):
     If ``None``, there is no channel axis.
   name: str
     The class name.
-  mode: Mode
-    The computing mode.
   """
   __module__ = 'brainstate.nn'
 
@@ -1121,8 +1102,6 @@ class AdaptiveMaxPool1d(_AdaptivePool):
     If ``None``, there is no channel axis.
   name: str
     The class name.
-  mode: Mode
-    The computing mode.
   """
   __module__ = 'brainstate.nn'
 
@@ -1153,8 +1132,6 @@ class AdaptiveMaxPool2d(_AdaptivePool):
     If ``None``, there is no channel axis.
   name: str
     The class name.
-  mode: Mode
-    The computing mode.
   """
   __module__ = 'brainstate.nn'
 
@@ -1185,8 +1162,6 @@ class AdaptiveMaxPool3d(_AdaptivePool):
     If ``None``, there is no channel axis.
   name: str
     The class name.
-  mode: Mode
-    The computing mode.
   """
   __module__ = 'brainstate.nn'
 

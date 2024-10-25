@@ -26,34 +26,22 @@ The basic classes include:
 
 """
 
-import math
 import warnings
-from collections import namedtuple
-from typing import Dict, Callable, Hashable, Sequence, Optional, Tuple, Union
+from typing import Sequence, Optional, Tuple, Union, TYPE_CHECKING
 
-import jax
 import numpy as np
 
-from brainstate import environ
 from brainstate._state import State
-from brainstate._utils import set_module_as
 from brainstate.graph import Node, states, nodes, flatten
-from brainstate.mixin import DelayedInitializer
-from brainstate.util import FlattedDict, NestedDict
+from brainstate.mixin import ParamDescriber
 from brainstate.typing import PathParts
+from brainstate.util import FlattedDict, NestedDict
 
 # maximum integer
 max_int = np.iinfo(np.int32).max
 
-# the maximum order
-_max_order = 10
-
-# State Load Results
-StateLoadResult = namedtuple('StateLoadResult', ['missing_keys', 'unexpected_keys'])
-
 __all__ = [
   'Module', 'ElementWiseBlock', 'Sequential',
-  'call_order', 'all_init_states', 'all_reset_states', 'all_load_states', 'all_save_states', 'assign_state_values',
 ]
 
 
@@ -78,17 +66,16 @@ class Module(Node):
   _out_size: Optional[Tuple[int, ...]]
   _name: Optional[str]
 
-  def __init__(self, name: str = None):
-    super().__init__()
+  if not TYPE_CHECKING:
+    def __init__(self, name: str = None):
+      # check the name
+      if name is not None:
+        assert isinstance(name, str), f'The name must be a string, but we got {type(name)}: {name}'
+      self._name = name
 
-    # check the name
-    if name is not None:
-      assert isinstance(name, str), f'The name must be a string, but we got {type(name)}: {name}'
-    self._name = name
-
-    # input and output size
-    self._in_size = None
-    self._out_size = None
+      # input and output size
+      self._in_size = None
+      self._out_size = None
 
   @property
   def name(self):
@@ -246,195 +233,6 @@ class ElementWiseBlock(Module):
   __module__ = 'brainstate.nn'
 
 
-@set_module_as('brainstate.nn')
-def call_order(level: int = 0, check_order_boundary: bool = True):
-  """The decorator for indicating the resetting level.
-
-  The function takes an optional integer argument level with a default value of 0.
-
-  The lower the level, the earlier the function is called.
-
-  >>> import brainstate as bst
-  >>> bst.nn.call_order(0)
-  >>> bst.nn.call_order(-1)
-  >>> bst.nn.call_order(-2)
-
-  Parameters
-  ----------
-  level: int
-    The call order level.
-  check_order_boundary: bool
-    Whether check the boundary of function call order. If True,
-    the order that not in [0,  10) will raise a ValueError.
-
-  Returns
-  -------
-  The function to warp.
-  """
-  if check_order_boundary and (level < 0 or level >= _max_order):
-    raise ValueError(f'"call_order" must be an integer in [0, {_max_order}). but we got {level}.')
-
-  def wrap(fun: Callable):
-    fun.call_order = level
-    return fun
-
-  return wrap
-
-
-@set_module_as('brainstate.nn')
-def all_init_states(target: Module, *args, **kwargs) -> Module:
-  """
-  Collectively initialize states of all children nodes in the given target.
-
-  Args:
-    target: The target Module.
-
-  Returns:
-    The target Module.
-  """
-  nodes_with_order = []
-
-  # reset node whose `init_state` has no `call_order`
-  for node in list(target.nodes(Module).values()):
-    if hasattr(node.init_state, 'call_order'):
-      nodes_with_order.append(node)
-    else:
-      node.init_state(*args, **kwargs)
-
-  # reset the node's states
-  for node in sorted(nodes_with_order, key=lambda x: x.init_state.call_order):
-    node.init_state(*args, **kwargs)
-
-  return target
-
-
-@set_module_as('brainstate.nn')
-def all_reset_states(target: Module, *args, **kwargs) -> Module:
-  """
-  Collectively reset states of all children nodes in the given target.
-
-  Args:
-    target: The target Module.
-
-  Returns:
-    The target Module.
-  """
-  nodes_with_order = []
-
-  # reset node whose `init_state` has no `call_order`
-  for node in list(target.nodes(Module).values()):
-    if hasattr(node.reset_state, 'call_order'):
-      nodes_with_order.append(node)
-    else:
-      node.reset_state(*args, **kwargs)
-
-  # reset the node's states
-  for node in sorted(nodes_with_order, key=lambda x: x.reset_state.call_order):
-    node.reset_state(*args, **kwargs)
-
-  return target
-
-
-@set_module_as('brainstate.nn')
-def all_load_states(target: Module, state_dict: Dict, **kwargs):
-  """
-  Copy parameters and buffers from :attr:`state_dict` into
-  this module and its descendants.
-
-  Args:
-    target: Module. The dynamical system to load its states.
-    state_dict: dict. A dict containing parameters and persistent buffers.
-
-  Returns:
-  -------
-    ``NamedTuple``  with ``missing_keys`` and ``unexpected_keys`` fields:
-
-    * **missing_keys** is a list of str containing the missing keys
-    * **unexpected_keys** is a list of str containing the unexpected keys
-  """
-  missing_keys = []
-  unexpected_keys = []
-  for name, node in target.nodes().items():
-    r = node.load_state(state_dict[name], **kwargs)
-    if r is not None:
-      missing, unexpected = r
-      missing_keys.extend([f'{name}.{key}' for key in missing])
-      unexpected_keys.extend([f'{name}.{key}' for key in unexpected])
-  return StateLoadResult(missing_keys, unexpected_keys)
-
-
-@set_module_as('brainstate.nn')
-def all_save_states(target: Module, **kwargs) -> Dict:
-  """
-  Save all states in the ``target`` as a dictionary for later disk serialization.
-
-  Args:
-    target: Module. The node to save its states.
-
-  Returns:
-    Dict. The state dict for serialization.
-  """
-  return {key: node.save_state(**kwargs) for key, node in target.nodes().items()}
-
-
-@set_module_as('brainstate.nn')
-def assign_state_values(target: Module, *state_by_abs_path: Dict):
-  """
-  Assign state values according to the given state dictionary.
-
-  Parameters
-  ----------
-  target: Module
-    The target module.
-  state_by_abs_path: dict
-    The state dictionary which is accessed by the "absolute" accessing method.
-
-  """
-  all_states = dict()
-  for state in state_by_abs_path:
-    all_states.update(state)
-  variables = target.states()
-  keys1 = set(all_states.keys())
-  keys2 = set(variables.keys())
-  for key in keys2.intersection(keys1):
-    variables[key].value = jax.numpy.asarray(all_states[key])
-  unexpected_keys = list(keys1 - keys2)
-  missing_keys = list(keys2 - keys1)
-  return unexpected_keys, missing_keys
-
-
-def _input_label_start(label: str):
-  # unify the input label repr.
-  return f'{label} // '
-
-
-def _input_label_repr(name: str, label: Optional[str] = None):
-  # unify the input label repr.
-  return name if label is None else (_input_label_start(label) + str(name))
-
-
-def _repr_context(repr_str, indent):
-  splits = repr_str.split('\n')
-  splits = [(s if i == 0 else (indent + s)) for i, s in enumerate(splits)]
-  return '\n'.join(splits)
-
-
-def _get_delay(delay_time, delay_step):
-  if delay_time is None:
-    if delay_step is None:
-      return 0., 0
-    else:
-      assert isinstance(delay_step, int), '"delay_step" should be an integer.'
-      if delay_step == 0:
-        return 0., 0
-      delay_time = delay_step * environ.get_dt()
-  else:
-    assert delay_step is None, '"delay_step" should be None if "delay_time" is given.'
-    # assert isinstance(delay_time, (int, float))
-    delay_step = math.ceil(delay_time / environ.get_dt())
-  return delay_time, delay_step
-
-
 class Sequential(Module):
   """
   A sequential `input-output` module.
@@ -514,7 +312,7 @@ class Sequential(Module):
 
 
 def _format_module(module, in_size):
-  if isinstance(module, DelayedInitializer):
+  if isinstance(module, ParamDescriber):
     module = module(in_size=in_size)
     assert isinstance(module, Module), 'The module should be an instance of Module.'
     out_size = module.out_size
