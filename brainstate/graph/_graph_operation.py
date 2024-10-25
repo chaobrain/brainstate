@@ -952,7 +952,7 @@ def pop_states(
 
     >>> model = Model()
     >>> with bst.catch_new_states('new'):
-    ...    bst.nn.all_init_states(model)
+    ...    bst.nn.init_all_states(model)
 
     >>> assert len(model.states()) == 2
     >>> model_states = bst.graph.pop_states(model, 'new')

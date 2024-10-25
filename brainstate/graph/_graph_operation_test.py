@@ -628,7 +628,7 @@ class TestFlatten(unittest.TestCase):
 
     model = Model()
     with bst.catch_new_states('new'):
-      bst.nn.all_init_states(model)
+      bst.nn.init_all_states(model)
     # print(model.states())
     self.assertTrue(len(model.states()) == 2)
     model_states = bst.graph.pop_states(model, 'new')
