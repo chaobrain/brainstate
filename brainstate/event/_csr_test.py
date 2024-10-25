@@ -14,37 +14,43 @@
 # ==============================================================================
 
 
-import jax
+import jax.numpy
 import jax.numpy as jnp
+import numpy as np
 from absl.testing import parameterized
 
 import brainstate as bst
-from brainstate.nn._event.linear import EventDense
+from brainstate.event._csr import CSRLinear
 
 
-class TestEventLinear(parameterized.TestCase):
+def _get_csr(n_pre, n_post, prob):
+  n_conn = int(n_post * prob)
+  indptr = np.arange(n_pre + 1) * n_conn
+  indices = np.random.randint(0, n_post, (n_pre * n_conn,))
+  return indptr, indices
+
+
+def true_fn(x, w, indices, indptr, n_out):
+  homo_w = jnp.size(w) == 1
+
+  post = jnp.zeros((n_out,))
+  for i_pre in range(x.shape[0]):
+    ids = indices[indptr[i_pre]: indptr[i_pre + 1]]
+    post = post.at[ids].add(w * x[i_pre] if homo_w else w[indptr[i_pre]: indptr[i_pre + 1]] * x[i_pre])
+  return post
+
+
+class TestFixedProbCSR(parameterized.TestCase):
   @parameterized.product(
     homo_w=[True, False],
-    bool_x=[True, False],
   )
-  def test1(self, homo_w, bool_x):
+  def test1(self, homo_w):
     x = bst.random.rand(20) < 0.1
-    if not bool_x:
-      x = jnp.asarray(x, dtype=float)
-    m = EventDense(20, 40, 1.5 if homo_w else bst.init.KaimingUniform())
+    indptr, indices = _get_csr(20, 40, 0.1)
+    m = CSRLinear(20, 40, indptr, indices, 1.5 if homo_w else bst.init.Normal())
     y = m(x)
-    print(y)
-
-    self.assertTrue(jnp.allclose(y, (x.sum() * m.weight.value) if homo_w else (x @ m.weight.value)))
-
-  def test_grad_bool(self):
-    n_in = 20
-    n_out = 30
-    x = bst.random.rand(n_in) < 0.3
-    fn = EventDense(n_in, n_out, bst.init.KaimingUniform())
-
-    with self.assertRaises(TypeError):
-      print(jax.grad(lambda x: fn(x).sum())(x))
+    y2 = true_fn(x, m.weight.value, indices, indptr, 40)
+    self.assertTrue(jnp.allclose(y, y2))
 
   @parameterized.product(
     bool_x=[True, False],
@@ -58,25 +64,25 @@ class TestEventLinear(parameterized.TestCase):
     else:
       x = bst.random.rand(n_in)
 
-    fn = EventDense(n_in, n_out, 1.5 if homo_w else bst.init.KaimingUniform())
+    indptr, indices = _get_csr(n_in, n_out, 0.1)
+    fn = bst.nn.CSRLinear(n_in, n_out, indptr, indices, 1.5 if homo_w else bst.init.Normal())
     w = fn.weight.value
 
     def f(x, w):
       fn.weight.value = w
       return fn(x).sum()
 
-    r1 = jax.grad(f, argnums=(0, 1))(x, w)
+    r = jax.grad(f, argnums=(0, 1))(x, w)
 
     # -------------------
     # TRUE gradients
 
     def f2(x, w):
-      y = (x @ (jnp.ones([n_in, n_out]) * w)) if homo_w else (x @ w)
-      return y.sum()
+      return true_fn(x, w, indices, indptr, n_out).sum()
 
     r2 = jax.grad(f2, argnums=(0, 1))(x, w)
-    self.assertTrue(jnp.allclose(r1[0], r2[0]))
-    self.assertTrue(jnp.allclose(r1[1], r2[1]))
+    self.assertTrue(jnp.allclose(r[0], r2[0]))
+    self.assertTrue(jnp.allclose(r[1], r2[1]))
 
   @parameterized.product(
     bool_x=[True, False],
@@ -90,7 +96,9 @@ class TestEventLinear(parameterized.TestCase):
     else:
       x = bst.random.rand(n_in)
 
-    fn = EventDense(n_in, n_out, 1.5 if homo_w else bst.init.KaimingUniform(), grad_mode='jvp')
+    indptr, indices = _get_csr(n_in, n_out, 0.1)
+    fn = CSRLinear(n_in, n_out, indptr, indices,
+                  1.5 if homo_w else bst.init.Normal(), grad_mode='jvp')
     w = fn.weight.value
 
     def f(x, w):
@@ -103,9 +111,8 @@ class TestEventLinear(parameterized.TestCase):
     # TRUE gradients
 
     def f2(x, w):
-      y = (x @ (jnp.ones([n_in, n_out]) * w)) if homo_w else (x @ w)
-      return y
+      return true_fn(x, w, indices, indptr, n_out)
 
-    o2, r2 = jax.jvp(f, (x, w), (jnp.ones_like(x), jnp.ones_like(w)))
-    self.assertTrue(jnp.allclose(o1, o2))
+    o2, r2 = jax.jvp(f2, (x, w), (jnp.ones_like(x), jnp.ones_like(w)))
     self.assertTrue(jnp.allclose(r1, r2))
+    self.assertTrue(jnp.allclose(o1, o2))

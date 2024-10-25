@@ -21,7 +21,9 @@ import jax.numpy as jnp
 import numpy as np
 
 from brainstate._state import ParamState, State
+from brainstate._utils import set_module_as
 from brainstate.compile import for_loop
+from brainstate.augment import vmap
 from brainstate.init import param
 from brainstate.nn._module import Module
 from brainstate.random import RandomState
@@ -29,13 +31,13 @@ from brainstate.typing import ArrayLike
 from ._misc import FloatScalar, IntScalar
 
 __all__ = [
-  'EventFixedProb',
+  'FixedProb',
 ]
 
 
-class EventFixedProb(Module):
+class FixedProb(Module):
   """
-  The EventFixedProb module implements a fixed probability connection with CSR sparse data structure.
+  The FixedProb module implements a fixed probability connection with CSR sparse data structure.
 
   Parameters
   ----------
@@ -56,7 +58,7 @@ class EventFixedProb(Module):
       Name of the module.
   """
 
-  __module__ = 'brainstate.nn'
+  __module__ = 'brainstate.event'
 
   def __init__(
       self,
@@ -88,26 +90,28 @@ class EventFixedProb(Module):
     else:
       rng = RandomState(seed)
       self.indices = for_loop(lambda i: rng.choice(n_post, size=(self.n_conn,), replace=False), np.arange(n_pre))
+    self.indices = u.math.asarray(self.indices)
 
     # maximum synaptic conductance
     weight = param(weight, (self.n_pre, self.n_conn), allow_none=False)
     self.weight = ParamState(weight)
 
   def update(self, spk: jax.Array) -> Union[jax.Array, u.Quantity]:
-    weight = self.weight.value if isinstance(self.weight, State) else self.weight
     device_kind = jax.devices()[0].platform  # spk.device.device_kind
     if device_kind == 'cpu':
-      return cpu_event_fixed_prob(u.math.asarray(self.indices),
-                                  u.math.asarray(weight),
-                                  u.math.asarray(spk),
-                                  n_post=self.n_post, grad_mode=self.grad_mode)
+      return cpu_fixed_prob(self.indices,
+                            u.math.asarray(self.weight.value),
+                            u.math.asarray(spk),
+                            n_post=self.n_post,
+                            grad_mode=self.grad_mode)
     elif device_kind in ['gpu', 'tpu']:
       raise NotImplementedError()
     else:
       raise ValueError(f"Unsupported device: {device_kind}")
 
 
-def cpu_event_fixed_prob(
+@set_module_as('brainstate.event')
+def cpu_fixed_prob(
     indices: jax.Array,
     weight: Union[u.Quantity, jax.Array],
     spk: jax.Array,
@@ -116,7 +120,7 @@ def cpu_event_fixed_prob(
     grad_mode: str = 'vjp'
 ) -> Union[u.Quantity, jax.Array]:
   """
-  The EventFixedProb module implements a fixed probability connection with CSR sparse data structure.
+  The FixedProb module implements a fixed probability connection with CSR sparse data structure.
 
   Parameters
   ----------

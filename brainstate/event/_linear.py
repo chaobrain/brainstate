@@ -21,19 +21,20 @@ import jax.numpy as jnp
 import numpy as np
 
 from brainstate._state import ParamState, State
+from brainstate._utils import set_module_as
 from brainstate.init import param
 from brainstate.nn._module import Module
 from brainstate.typing import ArrayLike
 from ._misc import IntScalar
 
 __all__ = [
-  'EventDense',
+  'Linear',
 ]
 
 
-class EventDense(Module):
+class Linear(Module):
   """
-  The EventFixedProb module implements a fixed probability connection with CSR sparse data structure.
+  The FixedProb module implements a fixed probability connection with CSR sparse data structure.
 
   Parameters
   ----------
@@ -47,7 +48,7 @@ class EventDense(Module):
       Name of the module.
   """
 
-  __module__ = 'brainstate.nn'
+  __module__ = 'brainstate.event'
 
   def __init__(
       self,
@@ -72,8 +73,8 @@ class EventDense(Module):
 
   def update(self, spk: jax.Array) -> Union[jax.Array, u.Quantity]:
     weight = self.weight.value if isinstance(self.weight, State) else self.weight
-    # if u.math.size(weight) == 1:
-    #   return u.math.ones(self.n_post) * (u.math.sum(spk) * weight)
+    if u.math.size(weight) == 1:
+      return u.math.ones(self.n_post) * (u.math.sum(spk) * weight)
 
     device_kind = jax.devices()[0].platform  # spk.device.device_kind
     if device_kind == 'cpu':
@@ -87,6 +88,7 @@ class EventDense(Module):
       raise ValueError(f"Unsupported device: {device_kind}")
 
 
+@set_module_as('brainstate.event')
 def cpu_event_linear(
     g_max: Union[u.Quantity, jax.Array],
     spk: jax.Array,
@@ -95,7 +97,7 @@ def cpu_event_linear(
     grad_mode: str = 'vjp'
 ) -> Union[u.Quantity, jax.Array]:
   """
-  The EventFixedProb module implements a fixed probability connection with CSR sparse data structure.
+  The FixedProb module implements a fixed probability connection with CSR sparse data structure.
 
   Parameters
   ----------

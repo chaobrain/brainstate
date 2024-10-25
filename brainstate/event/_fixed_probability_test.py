@@ -19,7 +19,7 @@ import jax.numpy as jnp
 from absl.testing import parameterized
 
 import brainstate as bst
-from brainstate.nn._event.fixed_probability import EventFixedProb
+from brainstate.event._fixed_probability import FixedProb
 
 
 class TestFixedProbCSR(parameterized.TestCase):
@@ -29,18 +29,18 @@ class TestFixedProbCSR(parameterized.TestCase):
   def test1(self, allow_multi_conn):
     x = bst.random.rand(20) < 0.1
     # x = bst.random.rand(20)
-    m = EventFixedProb(20, 40, 0.1, 1.0, seed=123, allow_multi_conn=allow_multi_conn)
+    m = FixedProb(20, 40, 0.1, 1.0, seed=123, allow_multi_conn=allow_multi_conn)
     y = m(x)
     print(y)
 
-    m2 = EventFixedProb(20, 40, 0.1, bst.init.KaimingUniform(), seed=123)
+    m2 = FixedProb(20, 40, 0.1, bst.init.KaimingUniform(), seed=123)
     print(m2(x))
 
   def test_grad_bool(self):
     n_in = 20
     n_out = 30
     x = bst.random.rand(n_in) < 0.3
-    fn = EventFixedProb(n_in, n_out, 0.1, bst.init.KaimingUniform(), seed=123)
+    fn = FixedProb(n_in, n_out, 0.1, bst.init.KaimingUniform(), seed=123)
 
     def f(x):
       return fn(x).sum()
@@ -61,9 +61,9 @@ class TestFixedProbCSR(parameterized.TestCase):
       x = bst.random.rand(n_in)
 
     if homo_w:
-      fn = EventFixedProb(n_in, n_out, 0.1, 1.5, seed=123)
+      fn = FixedProb(n_in, n_out, 0.1, 1.5, seed=123)
     else:
-      fn = EventFixedProb(n_in, n_out, 0.1, bst.init.KaimingUniform(), seed=123)
+      fn = FixedProb(n_in, n_out, 0.1, bst.init.KaimingUniform(), seed=123)
     w = fn.weight.value
 
     def f(x, w):
@@ -101,7 +101,7 @@ class TestFixedProbCSR(parameterized.TestCase):
     else:
       x = bst.random.rand(n_in)
 
-    fn = EventFixedProb(n_in, n_out, 0.1, 1.5 if homo_w else bst.init.KaimingUniform(), seed=123, grad_mode='jvp')
+    fn = FixedProb(n_in, n_out, 0.1, 1.5 if homo_w else bst.init.KaimingUniform(), seed=123, grad_mode='jvp')
     w = fn.weight.value
 
     def f(x, w):

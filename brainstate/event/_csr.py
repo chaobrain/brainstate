@@ -21,19 +21,20 @@ import jax.numpy as jnp
 import numpy as np
 
 from brainstate._state import ParamState, State
+from brainstate._utils import set_module_as
 from brainstate.init import param
 from brainstate.nn._module import Module
 from brainstate.typing import ArrayLike
 from ._misc import IntScalar
 
 __all__ = [
-  'EventCSR',
+  'CSRLinear',
 ]
 
 
-class EventCSR(Module):
+class CSRLinear(Module):
   """
-  The EventCSR module implements a fixed probability connection with CSR sparse data structure.
+  The CSRLinear module implements a fixed probability connection with CSR sparse data structure.
 
   Parameters
   ----------
@@ -47,7 +48,7 @@ class EventCSR(Module):
       Name of the module.
   """
 
-  __module__ = 'brainstate.nn'
+  __module__ = 'brainstate.event'
 
   def __init__(
       self,
@@ -76,16 +77,13 @@ class EventCSR(Module):
     assert indptr.ndim == 1, f"indptr must be 1D. Got: {indptr.ndim}"
     assert indices.ndim == 1, f"indices must be 1D. Got: {indices.ndim}"
     assert indptr.size == n_pre + 1, f"indptr must have size {n_pre + 1}. Got: {indptr.size}"
-    self.indptr = indptr
-    self.indices = indices
+    self.indptr = u.math.asarray(indptr)
+    self.indices = u.math.asarray(indices)
 
     # maximum synaptic conductance
     weight = param(weight, (len(indices),), allow_none=False)
-    # if callable(weight):
-    #   pass
-    # else:
-    #   if u.math.size(weight) != 1 and u.math.size(weight) != len(self.indices):
-    #     raise ValueError(f"weight must be 1D or 2D with size {len(self.indices)}. Got: {u.math.size(weight)}")
+    if u.math.size(weight) != 1 and u.math.size(weight) != len(self.indices):
+      raise ValueError(f"weight must be 1D or 2D with size {len(self.indices)}. Got: {u.math.size(weight)}")
     self.weight = ParamState(weight)
 
   def update(self, spk: jax.Array) -> Union[jax.Array, u.Quantity]:
@@ -100,8 +98,8 @@ class EventCSR(Module):
     if device_kind == 'cpu':
       return cpu_event_csr(
         u.math.asarray(spk),
-        u.math.asarray(self.indptr),
-        u.math.asarray(self.indices),
+        self.indptr,
+        self.indices,
         u.math.asarray(weight),
         n_post=self.n_post, grad_mode=self.grad_mode
       )
@@ -111,6 +109,7 @@ class EventCSR(Module):
       raise ValueError(f"Unsupported device: {device_kind}")
 
 
+@set_module_as('brainstate.event')
 def cpu_event_csr(
     spk: jax.Array,
     indptr: jax.Array,
@@ -121,7 +120,7 @@ def cpu_event_csr(
     grad_mode: str = 'vjp'
 ) -> Union[u.Quantity, jax.Array]:
   """
-  The EventCSR module implements a fixed probability connection with CSR sparse data structure.
+  The CSRLinear module implements a fixed probability connection with CSR sparse data structure.
 
   Parameters
   ----------
