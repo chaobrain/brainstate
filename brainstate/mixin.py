@@ -23,8 +23,8 @@ T = TypeVar('T')
 
 __all__ = [
   'Mixin',
-  'DelayedInit',
-  'DelayedInitializer',
+  'ParamDesc',
+  'ParamDescriber',
   'AlignPost',
   'BindCondData',
   'UpdateReturn',
@@ -49,12 +49,12 @@ class Mixin(object):
   pass
 
 
-class DelayedInit(Mixin):
+class ParamDesc(Mixin):
   """
   :py:class:`~.Mixin` indicates the function for describing initialization parameters.
 
   This mixin enables the subclass has a classmethod ``delayed``, which
-  produces an instance of :py:class:`~.DelayedInitializer`.
+  produces an instance of :py:class:`~.ParamDescriber`.
 
   Note this Mixin can be applied in any Python object.
   """
@@ -62,8 +62,8 @@ class DelayedInit(Mixin):
   non_hashable_params: Optional[Sequence[str]] = None
 
   @classmethod
-  def delayed(cls, *args, **kwargs) -> 'DelayedInitializer':
-    return DelayedInitializer(cls, *args, **kwargs)
+  def desc(cls, *args, **kwargs) -> 'ParamDescriber':
+    return ParamDescriber(cls, *args, **kwargs)
 
 
 class HashableDict(dict):
@@ -79,9 +79,9 @@ class NoSubclassMeta(type):
     return type.__new__(cls, name, bases, dict(classdict))
 
 
-class DelayedInitializer(metaclass=NoSubclassMeta):
+class ParamDescriber(metaclass=NoSubclassMeta):
   """
-  DelayedInit initialization for parameter describers.
+  ParamDesc initialization for parameter describers.
   """
 
   def __init__(self, cls: T, *desc_tuple, **desc_dict):
@@ -101,7 +101,7 @@ class DelayedInitializer(metaclass=NoSubclassMeta):
     return self.__call__(*args, **kwargs)
 
   def __instancecheck__(self, instance):
-    if not isinstance(instance, DelayedInitializer):
+    if not isinstance(instance, ParamDescriber):
       return False
     if not issubclass(instance.cls, self.cls):
       return False
@@ -109,7 +109,7 @@ class DelayedInitializer(metaclass=NoSubclassMeta):
 
   @classmethod
   def __class_getitem__(cls, item: type):
-    return DelayedInitializer(item)
+    return ParamDescriber(item)
 
   @property
   def identifier(self):

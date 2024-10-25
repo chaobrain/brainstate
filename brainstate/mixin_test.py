@@ -21,8 +21,8 @@ import brainstate as bc
 class TestMixin(unittest.TestCase):
   def test_mixin(self):
     self.assertTrue(bc.mixin.Mixin)
-    self.assertTrue(bc.mixin.DelayedInit)
-    self.assertTrue(bc.mixin.DelayedInitializer)
+    self.assertTrue(bc.mixin.ParamDesc)
+    self.assertTrue(bc.mixin.ParamDescriber)
     self.assertTrue(bc.mixin.JointTypes)
     self.assertTrue(bc.mixin.OneOfTypes)
     self.assertTrue(bc.mixin.Mode)
