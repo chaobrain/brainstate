@@ -13,6 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 
+from __future__ import annotations
 
 from collections import namedtuple
 from typing import Dict, Callable, TypeVar
@@ -29,7 +30,6 @@ MAX_ORDER = 10
 StateLoadResult = namedtuple('StateLoadResult', ['missing_keys', 'unexpected_keys'])
 
 T = TypeVar('T', bound=Module)
-
 
 __all__ = [
   'MAX_ORDER', 'call_order', 'init_all_states', 'reset_all_states',

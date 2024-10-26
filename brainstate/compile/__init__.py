@@ -17,7 +17,6 @@
 This module contains the functions for the compilation of JAX code.
 """
 
-
 from ._ad_checkpoint import *
 from ._ad_checkpoint import __all__ as _ad_checkpoint_all
 from ._conditions import *

@@ -14,6 +14,7 @@
 # ==============================================================================
 
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 
 import functools
 from typing import Union, Dict, Optional, Tuple, Any, TypeVar

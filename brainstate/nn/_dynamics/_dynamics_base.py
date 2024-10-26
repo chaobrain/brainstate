@@ -32,11 +32,12 @@ For handling the delays:
 - ``DelayAccess``: The class for the delay access.
 
 """
+from __future__ import annotations
 
 from typing import Any, Dict, Callable, Hashable, Optional, Union, TypeVar, TYPE_CHECKING
 
-import numpy as np
 import brainunit as u
+import numpy as np
 
 from brainstate import environ
 from brainstate._state import State
@@ -49,8 +50,6 @@ from ._state_delay import StateWithDelay, Delay
 __all__ = [
   'DynamicsGroup', 'Projection', 'Dynamics', 'Prefetch',
 ]
-
-from .. import call_order
 
 T = TypeVar('T')
 _max_order = 10
@@ -450,6 +449,7 @@ class PrefetchDelayAt(Node):
     item: The item that has the delay.
     time: The time to retrieve the delay.
   """
+
   def __init__(self, module: Dynamics, item: str, time: ArrayLike):
     super().__init__()
     assert isinstance(module, Dynamics), ''

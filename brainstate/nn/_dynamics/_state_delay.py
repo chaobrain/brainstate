@@ -13,11 +13,12 @@
 # limitations under the License.
 # ==============================================================================
 
+from __future__ import annotations
 
 import math
 import numbers
 from functools import partial
-from typing import Optional, Dict, Callable, Union, Sequence, Type
+from typing import Optional, Dict, Callable, Union, Sequence
 
 import brainunit as u
 import jax
@@ -28,7 +29,6 @@ from brainstate import environ
 from brainstate._state import ShortTermState, State
 from brainstate.compile import jit_error_if
 from brainstate.graph import Node
-from brainstate.mixin import ParamDesc
 from brainstate.nn._collective_ops import call_order
 from brainstate.nn._module import Module
 from brainstate.typing import ArrayLike, PyTree

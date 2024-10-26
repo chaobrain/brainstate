@@ -28,7 +28,6 @@ from brainstate.nn._dynamics._dynamics_base import Dynamics
 from brainstate.nn._exp_euler import exp_euler_step
 from brainstate.typing import ArrayLike, Size
 
-
 __all__ = [
   'Synapse', 'Expon', 'STP', 'STD', 'AMPA', 'GABAa',
 ]

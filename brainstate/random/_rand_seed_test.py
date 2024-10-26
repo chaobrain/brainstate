@@ -14,16 +14,10 @@
 # ==============================================================================
 
 
-
-
-import platform
 import unittest
 
 import jax.numpy as jnp
 import jax.random
-import jax.random as jr
-import numpy as np
-import pytest
 
 import brainstate as bst
 
@@ -53,4 +47,3 @@ class TestRandom(unittest.TestCase):
     bst.random.seed(test_seed)
     b = bst.random.rand(3)
     self.assertTrue(jnp.array_equal(a, b))
-

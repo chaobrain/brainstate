@@ -18,7 +18,6 @@ import platform
 import unittest
 
 import jax.numpy as jnp
-import jax.random
 import jax.random as jr
 import numpy as np
 import pytest
@@ -560,7 +559,6 @@ class TestRandom(unittest.TestCase):
     bst.random.seed()
     a = bst.random.t([1., 2.], size=None)
     self.assertTupleEqual(a.shape, (2,))
-
 
 # class TestRandomKey(unittest.TestCase):
 #   def test_clear_memory(self):

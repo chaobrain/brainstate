@@ -17,8 +17,6 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 import brainunit as u
 import jax.numpy as jnp
 

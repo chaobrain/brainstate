@@ -13,6 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 
+from __future__ import annotations
 
 from brainstate.nn._dynamics._dynamics_base import Projection
 

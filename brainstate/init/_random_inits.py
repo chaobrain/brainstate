@@ -14,6 +14,7 @@
 # ==============================================================================
 
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 
 import math
 
@@ -184,7 +185,7 @@ class TruncatedNormal(Initializer):
     self.rng = random.default_rng(seed)
     self.unit = unit
 
-  def __call__(self, shape, dtype: DTypeLike = None,):
+  def __call__(self, shape, dtype: DTypeLike = None, ):
     dtype = dtype or environ.dftype()
     weights = self.rng.truncated_normal(
       size=shape,
@@ -222,7 +223,7 @@ class Gamma(Initializer):
     self.rng = random.default_rng(seed)
     self.unit = unit
 
-  def __call__(self, shape, dtype: DTypeLike = None,):
+  def __call__(self, shape, dtype: DTypeLike = None, ):
     shape = to_size(shape)
     dtype = dtype or environ.dftype()
     weights = self.rng.gamma(self.shape, scale=self.scale, size=shape, dtype=dtype)
@@ -250,7 +251,7 @@ class Exponential(Initializer):
     self.rng = random.default_rng(seed)
     self.unit = unit
 
-  def __call__(self, shape, dtype: DTypeLike = None,):
+  def __call__(self, shape, dtype: DTypeLike = None, ):
     shape = to_size(shape)
     dtype = dtype or environ.dftype()
     weights = self.rng.exponential(scale=self.scale, size=shape, dtype=dtype)
@@ -282,7 +283,7 @@ class Uniform(Initializer):
     self.rng = random.default_rng(seed)
     self.unit = unit
 
-  def __call__(self, shape, dtype: DTypeLike = None,):
+  def __call__(self, shape, dtype: DTypeLike = None, ):
     shape = to_size(shape)
     dtype = dtype or environ.dftype()
     weights = self.rng.uniform(low=self.min_val, high=self.max_val, size=shape, dtype=dtype)
@@ -312,7 +313,7 @@ class VarianceScaling(Initializer):
     self.rng = random.default_rng(seed)
     self.unit = unit
 
-  def __call__(self, shape, dtype: DTypeLike = None,):
+  def __call__(self, shape, dtype: DTypeLike = None, ):
     shape = to_size(shape)
     dtype = dtype or environ.dftype()
     fan_in, fan_out = _compute_fans(shape, in_axis=self.in_axis, out_axis=self.out_axis)
@@ -492,7 +493,7 @@ class Orthogonal(Initializer):
     self.rng = random.default_rng(seed)
     self.unit = unit
 
-  def __call__(self, shape, dtype: DTypeLike = None,):
+  def __call__(self, shape, dtype: DTypeLike = None, ):
     dtype = dtype or environ.dftype()
     shape = to_size(shape)
     n_rows = shape[self.axis]
@@ -532,7 +533,7 @@ class DeltaOrthogonal(Initializer):
     self.orghogonal = Orthogonal(scale=scale, axis=axis, seed=seed)
     self.unit = unit
 
-  def __call__(self, shape, dtype: DTypeLike = None,):
+  def __call__(self, shape, dtype: DTypeLike = None, ):
     shape = to_size(shape)
     dtype = dtype or environ.dftype()
     if len(shape) not in [3, 4, 5]:

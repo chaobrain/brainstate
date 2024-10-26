@@ -76,7 +76,6 @@ class TestPool(parameterized.TestCase):
 
     out = nn.MaxPool2d(2, 2, channel_axis=2, padding=(1, 1))(arr)
     self.assertTrue(out.shape == (16, 17, 32, 5))
-    
 
   def test_AvgPool2d_v1(self):
     arr = bst.random.rand(16, 32, 32, 8)
@@ -98,7 +97,6 @@ class TestPool(parameterized.TestCase):
 
     out = nn.AvgPool2d(2, 2, channel_axis=2, padding=(1, 1))(arr)
     self.assertTrue(out.shape == (16, 17, 32, 5))
-    
 
   @parameterized.named_parameters(
     dict(testcase_name=f'target_size={target_size}',
@@ -118,7 +116,6 @@ class TestPool(parameterized.TestCase):
     out = _adaptive_pool1d(arr, target_size, op)
     print(out.shape)
     self.assertTrue(out.shape == (target_size,))
-    
 
   def test_AdaptiveAvgPool2d_v1(self):
     input = bst.random.randn(64, 8, 9)
@@ -137,7 +134,6 @@ class TestPool(parameterized.TestCase):
 
     output = nn.AdaptiveAvgPool2d((2, 3), channel_axis=None)(input)
     self.assertTrue(output.shape == (64, 2, 3))
-    
 
   def test_AdaptiveAvgPool2d_v2(self):
     bst.random.seed()
@@ -155,21 +151,18 @@ class TestPool(parameterized.TestCase):
     output = nn.AdaptiveAvgPool2d((2, 3), channel_axis=1)(input)
     self.assertTrue(output.shape == (128, 64, 2, 3))
     print()
-    
 
   def test_AdaptiveAvgPool3d_v1(self):
     input = bst.random.randn(10, 128, 64, 32)
     net = nn.AdaptiveAvgPool3d(target_size=[6, 5, 3], channel_axis=0)
     output = net(input)
     self.assertTrue(output.shape == (10, 6, 5, 3))
-    
 
   def test_AdaptiveAvgPool3d_v2(self):
     input = bst.random.randn(10, 20, 128, 64, 32)
     net = nn.AdaptiveAvgPool3d(target_size=[6, 5, 3])
     output = net(input)
     self.assertTrue(output.shape == (10, 6, 5, 3, 32))
-    
 
   @parameterized.product(
     axis=(-1, 0, 1)
@@ -178,7 +171,6 @@ class TestPool(parameterized.TestCase):
     input = bst.random.randn(32, 16)
     net = nn.AdaptiveMaxPool1d(target_size=4, channel_axis=axis)
     output = net(input)
-    
 
   @parameterized.product(
     axis=(-1, 0, 1, 2)
@@ -187,7 +179,6 @@ class TestPool(parameterized.TestCase):
     input = bst.random.randn(2, 32, 16)
     net = nn.AdaptiveMaxPool1d(target_size=4, channel_axis=axis)
     output = net(input)
-    
 
   @parameterized.product(
     axis=(-1, 0, 1, 2)
@@ -196,7 +187,6 @@ class TestPool(parameterized.TestCase):
     input = bst.random.randn(32, 16, 12)
     net = nn.AdaptiveAvgPool2d(target_size=[5, 4], channel_axis=axis)
     output = net(input)
-    
 
   @parameterized.product(
     axis=(-1, 0, 1, 2, 3)
@@ -205,7 +195,6 @@ class TestPool(parameterized.TestCase):
     input = bst.random.randn(2, 32, 16, 12)
     net = nn.AdaptiveAvgPool2d(target_size=[5, 4], channel_axis=axis)
     output = net(input)
-    
 
   @parameterized.product(
     axis=(-1, 0, 1, 2, 3)
@@ -215,7 +204,6 @@ class TestPool(parameterized.TestCase):
     net = nn.AdaptiveMaxPool3d(target_size=[6, 5, 4], channel_axis=axis)
     output = net(input)
     print()
-    
 
   @parameterized.product(
     axis=(-1, 0, 1, 2, 3, 4)
@@ -224,7 +212,6 @@ class TestPool(parameterized.TestCase):
     input = bst.random.randn(2, 128, 64, 32, 16)
     net = nn.AdaptiveMaxPool3d(target_size=[6, 5, 4], channel_axis=axis)
     output = net(input)
-    
 
 
 if __name__ == '__main__':

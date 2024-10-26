@@ -13,12 +13,12 @@
 # limitations under the License.
 # ==============================================================================
 
+from ._dict import *
+from ._dict import __all__ as _mapping_all
 from ._error import *
 from ._error import __all__ as _error_all
 from ._filter import *
 from ._filter import __all__ as _filter_all
-from ._dict import *
-from ._dict import __all__ as _mapping_all
 from ._others import *
 from ._others import __all__ as _others_all
 from ._pretty_repr import *

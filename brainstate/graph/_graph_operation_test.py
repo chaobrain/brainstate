@@ -167,7 +167,6 @@ class TestGraphUtils(absltest.TestCase):
     with self.assertRaisesRegex(ValueError, 'Expected key'):
       bst.graph.unflatten(graphdef, bst.util.NestedDict({}))
 
-
   def test_module_list(self):
     ls = [
       bst.nn.Linear(2, 2),

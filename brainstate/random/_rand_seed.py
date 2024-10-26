@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+from __future__ import annotations
 
 from contextlib import contextmanager
 from typing import Optional
@@ -23,7 +24,8 @@ from brainstate.typing import SeedOrKey
 from ._rand_state import RandomState, DEFAULT
 
 __all__ = [
-  'seed', 'set_key', 'get_key', 'default_rng', 'split_key', 'split_keys', 'seed_context', 'restore_key', 'self_assign_multi_keys',
+  'seed', 'set_key', 'get_key', 'default_rng', 'split_key', 'split_keys', 'seed_context', 'restore_key',
+  'self_assign_multi_keys',
 ]
 
 

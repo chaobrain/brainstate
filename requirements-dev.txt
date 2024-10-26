@@ -1,5 +1,6 @@
 -r requirements.txt
 optax
+tqdm
 
 # test requirements
 pytest

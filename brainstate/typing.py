@@ -13,6 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 
+from __future__ import annotations
 
 import builtins
 import functools as ft
@@ -24,7 +25,6 @@ import jax
 import numpy as np
 
 tp = importlib.import_module("typing")
-
 
 __all__ = [
   'PathParts',
