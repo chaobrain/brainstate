@@ -13,7 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 
-
+from __future__ import annotations
 import jax.numpy
 import jax.numpy as jnp
 import numpy as np

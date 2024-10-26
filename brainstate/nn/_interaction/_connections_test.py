@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-
+from __future__ import annotations
 import jax.numpy as jnp
 import pytest
 from absl.testing import absltest

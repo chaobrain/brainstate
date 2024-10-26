@@ -13,6 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 
+from __future__ import annotations
 import unittest
 from collections.abc import Callable
 from functools import partial

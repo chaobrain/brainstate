@@ -13,7 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 
-
+from __future__ import annotations
 from absl.testing import absltest
 from absl.testing import parameterized
 
