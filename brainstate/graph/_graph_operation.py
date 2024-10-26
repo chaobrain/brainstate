@@ -143,7 +143,7 @@ class PyTreeNodeImpl(NodeImplBase[Node, Leaf, AuxData]):
   unflatten: Callable[[tuple[tuple[Key, Leaf], ...], AuxData], Node]
 
 
-NodeImpl = GraphNodeImpl[Node, Leaf, AuxData] | PyTreeNodeImpl[Node, Leaf, AuxData]
+NodeImpl = Union[GraphNodeImpl[Node, Leaf, AuxData], PyTreeNodeImpl[Node, Leaf, AuxData]]
 
 # --------------------------------------------------------
 # Graph Node implementation: start
