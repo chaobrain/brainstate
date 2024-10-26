@@ -213,17 +213,6 @@ class PrettyDict(dict, PrettyRepr):
     return get_repr(self)
 
   def __pretty_repr__(self):
-    def _default_repr_object(node: PrettyDict):
-      yield PrettyType(type(node), value_sep=': ', start='({', end='})')
-
-    def _default_repr_attr(node: PrettyDict):
-      for k, v in node.items():
-        if isinstance(v, dict):
-          v = PrettyDict(v)
-        if isinstance(v, PrettyDict):
-          v = NestedStateRepr(v)
-        yield PrettyAttr(repr(k), v)
-
     yield from pretty_repr_avoid_duplicate(self, _default_repr_object, _default_repr_attr)
 
   def split(self, *filters) -> Union[PrettyDict[K, V], Tuple[PrettyDict[K, V], ...]]:
@@ -242,6 +231,19 @@ class PrettyDict(dict, PrettyRepr):
     :class:`State` types in the ``PrettyDict``).
     """
     return self.filter(*filters)
+
+
+def _default_repr_object(node: PrettyDict):
+  yield PrettyType(type(node), value_sep=': ', start='({', end='})')
+
+
+def _default_repr_attr(node: PrettyDict):
+  for k, v in node.items():
+    if isinstance(v, dict):
+      v = PrettyDict(v)
+    if isinstance(v, PrettyDict):
+      v = NestedStateRepr(v)
+    yield PrettyAttr(repr(k), v)
 
 
 class NestedDict(PrettyDict):

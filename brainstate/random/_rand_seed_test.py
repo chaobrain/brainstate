@@ -44,6 +44,7 @@ class TestRandom(unittest.TestCase):
     jit_seed(key)
     jit_seed(1)
     jit_seed(None)
+    bst.random.seed(1)
 
   def test_seed(self):
     test_seed = 299

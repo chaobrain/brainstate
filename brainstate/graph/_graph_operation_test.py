@@ -637,6 +637,30 @@ class TestFlatten(unittest.TestCase):
     assert not hasattr(model.b, 'V')
     # print(model.states())
 
+  def test2(self):
+    class MLP(bst.graph.Node):
+      def __init__(self, din: int, dmid: int, dout: int, n_layer: int = 3):
+        self.input = bst.nn.Linear(din, dmid)
+        self.layers = [bst.nn.Linear(dmid, dmid) for _ in range(n_layer)]
+        self.output = bst.nn.Linear(dmid, dout)
+
+      def __call__(self, x):
+        x = bst.functional.relu(self.input(x))
+        for layer in self.layers:
+          x = bst.functional.relu(layer(x))
+        return self.output(x)
+
+    model = MLP(2, 1, 3)
+    graph_def, treefy_states = bst.graph.treefy_split(model)
+
+    print(graph_def)
+    print(treefy_states)
+
+    # states = bst.graph.states(model)
+    # print(states)
+    # nest_states = states.to_nest()
+    # print(nest_states)
+
 
 if __name__ == '__main__':
   absltest.main()

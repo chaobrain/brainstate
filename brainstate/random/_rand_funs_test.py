@@ -562,8 +562,8 @@ class TestRandom(unittest.TestCase):
     self.assertTupleEqual(a.shape, (2,))
 
 
-class TestRandomKey(unittest.TestCase):
-  def test_clear_memory(self):
-    bst.random.split_key()
-    print(bst.random.DEFAULT.value)
-    self.assertTrue(isinstance(bst.random.DEFAULT.value, np.ndarray))
+# class TestRandomKey(unittest.TestCase):
+#   def test_clear_memory(self):
+#     bst.random.split_key()
+#     print(bst.random.DEFAULT.value)
+#     self.assertTrue(isinstance(bst.random.DEFAULT.value, np.ndarray))

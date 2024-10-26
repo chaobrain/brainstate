@@ -106,7 +106,8 @@ def get_repr(obj: PrettyRepr) -> str:
     raise TypeError(f'First item must be PrettyType, got {type(obj_repr).__name__}')
 
   # repr attributes
-  elems = ',\n'.join(map(partial(_repr_elem, obj_repr), iterator))
+  elem_reprs = tuple(map(partial(_repr_elem, obj_repr), iterator))
+  elems = ',\n'.join(elem_reprs)
   if elems:
     elems = '\n' + elems + '\n'
   else:
@@ -146,7 +147,8 @@ class PrettyMapping(PrettyRepr):
 
 @dataclasses.dataclass
 class PrettyReprContext(threading.local):
-  seen_modules_repr: set[int] | None = None
+  # seen_modules_repr: set[int] | None = None
+  seen_modules_repr: dict[int, Any] | None = None
 
 
 CONTEXT = PrettyReprContext()
@@ -177,7 +179,8 @@ def pretty_repr_avoid_duplicate(
     repr_attr = _default_repr_attr
 
   if CONTEXT.seen_modules_repr is None:
-    CONTEXT.seen_modules_repr = set()
+    # CONTEXT.seen_modules_repr = set()
+    CONTEXT.seen_modules_repr = dict()
     clear_seen = True
   else:
     clear_seen = False
@@ -191,7 +194,8 @@ def pretty_repr_avoid_duplicate(
   yield from repr_object(node)
 
   # Add to seen modules
-  CONTEXT.seen_modules_repr.add(id(node))
+  # CONTEXT.seen_modules_repr.add(id(node))
+  CONTEXT.seen_modules_repr[id(node)] = node
 
   try:
     # repr attributes
