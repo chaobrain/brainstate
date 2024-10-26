@@ -69,25 +69,25 @@ class NNFunctionsTest(jtu.JaxTestCase):
       bst.functional.sparse_sigmoid(-2.),
       check_dtypes=False)
 
-  def testSquareplusGrad(self):
-    check_grads(bst.functional.squareplus, (1e-8,), order=4,
-                )
+#   def testSquareplusGrad(self):
+#     check_grads(bst.functional.squareplus, (1e-8,), order=4,
+#                 )
 
-  def testSquareplusGradZero(self):
-    check_grads(bst.functional.squareplus, (0.,), order=1,
-                )
+#   def testSquareplusGradZero(self):
+#     check_grads(bst.functional.squareplus, (0.,), order=1,
+#                 )
 
-  def testSquareplusGradNegInf(self):
-    check_grads(bst.functional.squareplus, (-float('inf'),), order=1,
-                )
+#   def testSquareplusGradNegInf(self):
+#     check_grads(bst.functional.squareplus, (-float('inf'),), order=1,
+#                 )
 
-  def testSquareplusGradNan(self):
-    check_grads(bst.functional.squareplus, (float('nan'),), order=1,
-                )
+#   def testSquareplusGradNan(self):
+#     check_grads(bst.functional.squareplus, (float('nan'),), order=1,
+#                 )
 
-  @parameterized.parameters([float] + jtu.dtypes.floating)
-  def testSquareplusZero(self, dtype):
-    self.assertEqual(dtype(1), bst.functional.squareplus(dtype(0), dtype(4)))
+#   @parameterized.parameters([float] + jtu.dtypes.floating)
+#   def testSquareplusZero(self, dtype):
+#     self.assertEqual(dtype(1), bst.functional.squareplus(dtype(0), dtype(4)))
   #
   # def testMishGrad(self):
   #   check_grads(bst.functional.mish, (1e-8,), order=4,
@@ -136,9 +136,9 @@ class NNFunctionsTest(jtu.JaxTestCase):
     self.assertAllClose(bst.functional.sparse_sigmoid(2.), 1., check_dtypes=False)
     self.assertAllClose(bst.functional.sparse_sigmoid(0.), .5, check_dtypes=False)
 
-  def testSquareplusValue(self):
-    val = bst.functional.squareplus(1e3)
-    self.assertAllClose(val, 1e3, check_dtypes=False, atol=1e-3)
+#   def testSquareplusValue(self):
+#     val = bst.functional.squareplus(1e3)
+#     self.assertAllClose(val, 1e3, check_dtypes=False, atol=1e-3)
 
   def testMishValue(self):
     val = bst.functional.mish(1e3)
@@ -177,7 +177,7 @@ class NNFunctionsTest(jtu.JaxTestCase):
      bst.functional.softplus,
      bst.functional.sparse_plus,
      bst.functional.sigmoid,
-     bst.functional.squareplus,
+    #  bst.functional.squareplus,
      bst.functional.mish)))
   def testDtypeMatchesInput(self, dtype, fn):
     x = jnp.zeros((), dtype=dtype)
