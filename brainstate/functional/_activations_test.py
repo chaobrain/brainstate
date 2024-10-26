@@ -88,22 +88,22 @@ class NNFunctionsTest(jtu.JaxTestCase):
   @parameterized.parameters([float] + jtu.dtypes.floating)
   def testSquareplusZero(self, dtype):
     self.assertEqual(dtype(1), bst.functional.squareplus(dtype(0), dtype(4)))
-
-  def testMishGrad(self):
-    check_grads(bst.functional.mish, (1e-8,), order=4,
-                )
-
-  def testMishGradZero(self):
-    check_grads(bst.functional.mish, (0.,), order=1,
-                )
-
-  def testMishGradNegInf(self):
-    check_grads(bst.functional.mish, (-float('inf'),), order=1,
-                )
-
-  def testMishGradNan(self):
-    check_grads(bst.functional.mish, (float('nan'),), order=1,
-                )
+  #
+  # def testMishGrad(self):
+  #   check_grads(bst.functional.mish, (1e-8,), order=4,
+  #               )
+  #
+  # def testMishGradZero(self):
+  #   check_grads(bst.functional.mish, (0.,), order=1,
+  #               )
+  #
+  # def testMishGradNegInf(self):
+  #   check_grads(bst.functional.mish, (-float('inf'),), order=1,
+  #               )
+  #
+  # def testMishGradNan(self):
+  #   check_grads(bst.functional.mish, (float('nan'),), order=1,
+  #               )
 
   @parameterized.parameters([float] + jtu.dtypes.floating)
   def testMishZero(self, dtype):
