@@ -78,6 +78,7 @@ jobs:
           python -m pip install --upgrade pip setuptools  --no-cache-dir
           python -m pip install -r requirements-dev.txt  --no-cache-dir
           python -m pip install jax-metal --no-cache-dir
+          python -m pip install jax==0.4.30 jaxlib==0.4.30 --no-cache-dir
           pip install .  --no-cache-dir
       - name: Test with pytest
         run: |
