@@ -15,12 +15,13 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, Union
 
+import brainunit as u
 import jax
-import jax.numpy as jnp
 
-from .._utils import set_module_as
+from brainstate._utils import set_module_as
+from brainstate.typing import ArrayLike
 
 __all__ = [
   'weight_standardization',
@@ -29,18 +30,18 @@ __all__ = [
 
 @set_module_as('brainstate.functional')
 def weight_standardization(
-    w: jax.typing.ArrayLike,
+    w: ArrayLike,
     eps: float = 1e-4,
     gain: Optional[jax.Array] = None,
     out_axis: int = -1,
-):
+) -> Union[jax.Array, u.Quantity]:
   """
   Scaled Weight Standardization,
   see `Micro-Batch Training with Batch-Channel Normalization and Weight Standardization <https://paperswithcode.com/paper/weight-standardization>`_.
 
   Parameters
   ----------
-  w : jax.typing.ArrayLike
+  w : ArrayLike
       The weight tensor.
   eps : float
       A small value to avoid division by zero.
@@ -51,7 +52,7 @@ def weight_standardization(
 
   Returns
   -------
-  jax.typing.ArrayLike
+  ArrayLike
       The scaled weight tensor.
   """
   if out_axis < 0:
@@ -63,9 +64,19 @@ def weight_standardization(
       fan_in *= w.shape[i]
       axes.append(i)
   # normalize the weight
-  mean = jnp.mean(w, axis=axes, keepdims=True)
-  var = jnp.var(w, axis=axes, keepdims=True)
-  scale = jax.lax.rsqrt(jnp.maximum(var * fan_in, eps))
+  mean = u.math.mean(w, axis=axes, keepdims=True)
+  var = u.math.var(w, axis=axes, keepdims=True)
+
+  temp = u.math.maximum(var * fan_in, eps)
+  if isinstance(temp, u.Quantity):
+    unit = temp.unit
+    temp = temp.mantissa
+    if unit.is_unitless:
+      scale = jax.lax.rsqrt(temp)
+    else:
+      scale = u.Quantity(jax.lax.rsqrt(temp), unit=1 / unit ** 0.5)
+  else:
+    scale = jax.lax.rsqrt(temp)
   if gain is not None:
     scale = gain * scale
   shift = mean * scale

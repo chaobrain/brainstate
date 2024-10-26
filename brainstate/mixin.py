@@ -15,19 +15,18 @@
 
 # -*- coding: utf-8 -*-
 
-from typing import Sequence, Optional, TypeVar
-from typing import (_SpecialForm, _type_check, _remove_dups_flatten, _UnionGenericAlias)
+from __future__ import annotations
 
-from .typing import PyTree
+from typing import (Sequence, Optional, TypeVar, _SpecialForm, _type_check, _remove_dups_flatten, _UnionGenericAlias)
+
+from brainstate.typing import PyTree
 
 T = TypeVar('T')
-State = None
-
 
 __all__ = [
   'Mixin',
-  'DelayedInit',
-  'DelayedInitializer',
+  'ParamDesc',
+  'ParamDescriber',
   'AlignPost',
   'BindCondData',
   'UpdateReturn',
@@ -44,13 +43,6 @@ __all__ = [
 ]
 
 
-def _get_state():
-  global State
-  if State is None:
-    from brainstate._state import State
-  return State
-
-
 class Mixin(object):
   """Base Mixin object.
 
@@ -59,12 +51,12 @@ class Mixin(object):
   pass
 
 
-class DelayedInit(Mixin):
+class ParamDesc(Mixin):
   """
   :py:class:`~.Mixin` indicates the function for describing initialization parameters.
 
   This mixin enables the subclass has a classmethod ``delayed``, which
-  produces an instance of :py:class:`~.DelayedInitializer`.
+  produces an instance of :py:class:`~.ParamDescriber`.
 
   Note this Mixin can be applied in any Python object.
   """
@@ -72,8 +64,8 @@ class DelayedInit(Mixin):
   non_hashable_params: Optional[Sequence[str]] = None
 
   @classmethod
-  def delayed(cls, *args, **kwargs) -> 'DelayedInitializer':
-    return DelayedInitializer(cls, *args, **kwargs)
+  def desc(cls, *args, **kwargs) -> 'ParamDescriber':
+    return ParamDescriber(cls, *args, **kwargs)
 
 
 class HashableDict(dict):
@@ -89,9 +81,9 @@ class NoSubclassMeta(type):
     return type.__new__(cls, name, bases, dict(classdict))
 
 
-class DelayedInitializer(metaclass=NoSubclassMeta):
+class ParamDescriber(metaclass=NoSubclassMeta):
   """
-  DelayedInit initialization for parameter describers.
+  ParamDesc initialization for parameter describers.
   """
 
   def __init__(self, cls: T, *desc_tuple, **desc_dict):
@@ -111,7 +103,7 @@ class DelayedInitializer(metaclass=NoSubclassMeta):
     return self.__call__(*args, **kwargs)
 
   def __instancecheck__(self, instance):
-    if not isinstance(instance, DelayedInitializer):
+    if not isinstance(instance, ParamDescriber):
       return False
     if not issubclass(instance.cls, self.cls):
       return False
@@ -119,7 +111,7 @@ class DelayedInitializer(metaclass=NoSubclassMeta):
 
   @classmethod
   def __class_getitem__(cls, item: type):
-    return DelayedInitializer(item)
+    return ParamDescriber(item)
 
   @property
   def identifier(self):

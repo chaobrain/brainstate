@@ -1,5 +1,5 @@
-``brainstate.surrogate`` module
-===============================
+``brainstate.surrogate`` for gradient surrogate functions
+=========================================================
 
 .. currentmodule:: brainstate.surrogate 
 .. automodule:: brainstate.surrogate 

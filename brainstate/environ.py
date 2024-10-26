@@ -1,27 +1,47 @@
+# Copyright 2024 BDP Ecosystem Limited. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
+
 # -*- coding: utf-8 -*-
 
+from __future__ import annotations
 
 import contextlib
+import dataclasses
 import functools
 import os
 import re
+import threading
 from collections import defaultdict
-from typing import Any, Callable
+from typing import Any, Callable, Dict, Hashable
 
 import numpy as np
 from jax import config, devices, numpy as jnp
-from jax._src.typing import DTypeLike
+from jax.typing import DTypeLike
 
 from .mixin import Mode
 from .util import MemScaling, IdMemScaling
 
 __all__ = [
-  'set', 'context', 'get', 'all',
-  'set_host_device_count', 'set_platform',
-  'get_host_device_count', 'get_platform',
-  'get_dt', 'get_mode', 'get_mem_scaling', 'get_precision',
-  'tolerance', 'register_default_behavior',
+  # functions for environment settings
+  'set', 'context', 'get', 'all', 'set_host_device_count', 'set_platform',
+  # functions for getting default behaviors
+  'get_host_device_count', 'get_platform', 'get_dt', 'get_mode', 'get_mem_scaling', 'get_precision',
+  # functions for default data types
   'dftype', 'ditype', 'dutype', 'dctype',
+  # others
+  'tolerance', 'register_default_behavior',
 ]
 
 # Default, there are several shared arguments in the global context.
@@ -30,10 +50,19 @@ T = 't'  # the current time of the current computation.
 JIT_ERROR_CHECK = 'jit_error_check'  # whether to record the current computation.
 FIT = 'fit'  # whether to fit the model.
 
+
+@dataclasses.dataclass
+class DefaultContext(threading.local):
+  # default environment settings
+  settings: Dict[Hashable, Any] = dataclasses.field(default_factory=dict)
+  # current environment settings
+  contexts: defaultdict[Hashable, Any] = dataclasses.field(default_factory=lambda: defaultdict(list))
+  # environment functions
+  functions: Dict[Hashable, Any] = dataclasses.field(default_factory=dict)
+
+
+DFAULT = DefaultContext()
 _NOT_PROVIDE = object()
-_environment_defaults = dict()  # default environment settings
-_environment_contexts = defaultdict(list)  # current environment settings
-_environment_functions = dict()  # environment functions
 
 
 @contextlib.contextmanager
@@ -57,8 +86,9 @@ def context(**kwargs):
 
   """
   if 'platform' in kwargs:
-    raise ValueError('Cannot set platform in environment context. '
-                     'Please use set_platform() or set() for the global setting.')
+    raise ValueError('\n'
+                     'Cannot set platform in "context" environment. \n'
+                     'You should set platform in the global environment by "set_platform()" or "set()".')
   if 'host_device_count' in kwargs:
     raise ValueError('Cannot set host_device_count in environment context. '
                      'Please use set_host_device_count() or set() for the global setting.')
@@ -71,11 +101,11 @@ def context(**kwargs):
     for k, v in kwargs.items():
 
       # update the current environment
-      _environment_contexts[k].append(v)
+      DFAULT.contexts[k].append(v)
 
       # restore the environment functions
-      if k in _environment_functions:
-        _environment_functions[k](v)
+      if k in DFAULT.functions:
+        DFAULT.functions[k](v)
 
     # yield the current all environment information
     yield all()
@@ -84,11 +114,11 @@ def context(**kwargs):
     for k, v in kwargs.items():
 
       # restore the current environment
-      _environment_contexts[k].pop()
+      DFAULT.contexts[k].pop()
 
       # restore the environment functions
-      if k in _environment_functions:
-        _environment_functions[k](get(k))
+      if k in DFAULT.functions:
+        DFAULT.functions[k](get(k))
 
     if 'precision' in kwargs:
       _set_jax_precision(last_precision)
@@ -109,11 +139,11 @@ def get(key: str, default: Any = _NOT_PROVIDE, desc: str = None):
   if key == 'host_device_count':
     return get_host_device_count()
 
-  if key in _environment_contexts:
-    if len(_environment_contexts[key]) > 0:
-      return _environment_contexts[key][-1]
-  if key in _environment_defaults:
-    return _environment_defaults[key]
+  if key in DFAULT.contexts:
+    if len(DFAULT.contexts[key]) > 0:
+      return DFAULT.contexts[key][-1]
+  if key in DFAULT.settings:
+    return DFAULT.settings[key]
 
   if default is _NOT_PROVIDE:
     if desc is not None:
@@ -135,12 +165,17 @@ def get(key: str, default: Any = _NOT_PROVIDE, desc: str = None):
 def all() -> dict:
   """
   Get all the current default computation environment.
+
+  Returns
+  -------
+  r: dict
+    The current default computation environment.
   """
   r = dict()
-  for k, v in _environment_contexts.items():
+  for k, v in DFAULT.contexts.items():
     if v:
       r[k] = v[-1]
-  for k, v in _environment_defaults.items():
+  for k, v in DFAULT.settings.items():
     if k not in r:
       r[k] = v
   return r
@@ -227,6 +262,8 @@ def set(
   """
   Set the global default computation environment.
 
+
+
   Args:
     platform: str. The computing platform. Either 'cpu', 'gpu' or 'tpu'.
     host_device_count: int. The number of host devices.
@@ -250,12 +287,12 @@ def set(
     kwargs['mode'] = mode
 
   # set default environment
-  _environment_defaults.update(kwargs)
+  DFAULT.settings.update(kwargs)
 
   # update the environment functions
   for k, v in kwargs.items():
-    if k in _environment_functions:
-      _environment_functions[k](v)
+    if k in DFAULT.functions:
+      DFAULT.functions[k](v)
 
 
 def set_host_device_count(n):
@@ -282,21 +319,27 @@ def set_host_device_count(n):
   os.environ["XLA_FLAGS"] = " ".join(["--xla_force_host_platform_device_count={}".format(n)] + xla_flags)
 
   # update the environment functions
-  if 'host_device_count' in _environment_functions:
-    _environment_functions['host_device_count'](n)
+  if 'host_device_count' in DFAULT.functions:
+    DFAULT.functions['host_device_count'](n)
 
 
 def set_platform(platform: str):
   """
   Changes platform to CPU, GPU, or TPU. This utility only takes
   effect at the beginning of your program.
+
+  Args:
+    platform: str. The computing platform. Either 'cpu', 'gpu' or 'tpu'.
+
+  Raises:
+    ValueError: If the platform is not in ['cpu', 'gpu', 'tpu'].
   """
   assert platform in ['cpu', 'gpu', 'tpu']
   config.update("jax_platform_name", platform)
 
   # update the environment functions
-  if 'platform' in _environment_functions:
-    _environment_functions['platform'](platform)
+  if 'platform' in DFAULT.functions:
+    DFAULT.functions['platform'](platform)
 
 
 def _set_jax_precision(precision: int):
@@ -369,6 +412,23 @@ def _get_complex(precision: int):
 def dftype() -> DTypeLike:
   """
   Default floating data type.
+
+  This function returns the default floating data type based on the current precision.
+  If you want the data dtype is changed with the setting of the precision by ``brainstate.environ.set(precision)``,
+  you can use this function to get the default floating data type, and create the data by using ``dtype=dftype()``.
+
+  For example, if the precision is set to 32, the default floating data type is ``np.float32``.
+
+  >>> import brainstate as bst
+  >>> import numpy as np
+  >>> with bst.environ.context(precision=32):
+  ...    a = np.zeros(1, dtype=bst.environ.dftype())
+  >>> print(a.dtype)
+
+  Returns
+  -------
+  float_dtype: DTypeLike
+    The default floating data type.
   """
   return _get_float(get_precision())
 
@@ -376,6 +436,24 @@ def dftype() -> DTypeLike:
 def ditype() -> DTypeLike:
   """
   Default integer data type.
+
+  This function returns the default integer data type based on the current precision.
+  If you want the data dtype is changed with the setting of the precision by ``brainstate.environ.set(precision)``,
+  you can use this function to get the default integer data type, and create the data by using ``dtype=ditype()``.
+
+  For example, if the precision is set to 32, the default integer data type is ``np.int32``.
+
+  >>> import brainstate as bst
+  >>> import numpy as np
+  >>> with bst.environ.context(precision=32):
+  ...    a = np.zeros(1, dtype=bst.environ.ditype())
+  >>> print(a.dtype)
+  int32
+
+  Returns
+  -------
+  int_dtype: DTypeLike
+    The default integer data type.
   """
   return _get_int(get_precision())
 
@@ -383,6 +461,25 @@ def ditype() -> DTypeLike:
 def dutype() -> DTypeLike:
   """
   Default unsigned integer data type.
+
+  This function returns the default unsigned integer data type based on the current precision.
+  If you want the data dtype is changed with the setting of the precision
+  by ``brainstate.environ.set(precision)``, you can use this function to get the default
+  unsigned integer data type, and create the data by using ``dtype=dutype()``.
+
+  For example, if the precision is set to 32, the default unsigned integer data type is ``np.uint32``.
+
+  >>> import brainstate as bst
+  >>> import numpy as np
+  >>> with bst.environ.context(precision=32):
+  ...   a = np.zeros(1, dtype=bst.environ.dutype())
+  >>> print(a.dtype)
+  uint32
+
+  Returns
+  -------
+  uint_dtype: DTypeLike
+    The default unsigned integer data type.
   """
   return _get_uint(get_precision())
 
@@ -390,6 +487,24 @@ def dutype() -> DTypeLike:
 def dctype() -> DTypeLike:
   """
   Default complex data type.
+
+  This function returns the default complex data type based on the current precision.
+  If you want the data dtype is changed with the setting of the precision by ``brainstate.environ.set(precision)``,
+  you can use this function to get the default complex data type, and create the data by using ``dtype=dctype()``.
+
+  For example, if the precision is set to 32, the default complex data type is ``np.complex64``.
+
+  >>> import brainstate as bst
+  >>> import numpy as np
+  >>> with bst.environ.context(precision=32):
+  ...    a = np.zeros(1, dtype=bst.environ.dctype())
+  >>> print(a.dtype)
+  complex64
+
+  Returns
+  -------
+  complex_dtype: DTypeLike
+    The default complex data type.
   """
   return _get_complex(get_precision())
 
@@ -405,7 +520,27 @@ def tolerance():
 
 def register_default_behavior(key: str, behavior: Callable, replace_if_exist: bool = False):
   """
-  Register a default behavior for a specific key.
+  Register a default behavior for a specific global key parameter.
+
+  For example, you can register a default behavior for the key 'dt' by::
+
+  >>> import brainstate as bst
+  >>> def dt_behavior(dt):
+  ...     print(f'Set the default dt to {dt}.')
+  ...
+  >>> bst.environ.register_default_behavior('dt', dt_behavior)
+
+  Then, when you set the default dt by `brainstate.environ.set(dt=0.1)`, the behavior
+  `dt_behavior` will be called with
+  `dt_behavior(0.1)`.
+
+  >>> bst.environ.set(dt=0.1)
+  Set the default dt to 0.1.
+  >>> with bst.environ.context(dt=0.2):
+  ...     pass
+  Set the default dt to 0.2.
+  Set the default dt to 0.1.
+
 
   Args:
     key: str. The key to register.
@@ -416,9 +551,8 @@ def register_default_behavior(key: str, behavior: Callable, replace_if_exist: bo
   assert isinstance(key, str), 'key must be a string.'
   assert callable(behavior), 'behavior must be a callable.'
   if not replace_if_exist:
-    assert key not in _environment_functions, f'{key} has been registered.'
-  _environment_functions[key] = behavior
+    assert key not in DFAULT.functions, f'{key} has been registered.'
+  DFAULT.functions[key] = behavior
 
 
 set(dt=0.1, precision=32, mode=Mode(), mem_scaling=IdMemScaling())
-

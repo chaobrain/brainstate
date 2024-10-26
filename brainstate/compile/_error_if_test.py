@@ -1,0 +1,53 @@
+# Copyright 2024 BDP Ecosystem Limited. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
+
+from __future__ import annotations
+import unittest
+
+import jax
+import jax.numpy as jnp
+import jaxlib.xla_extension
+
+import brainstate as bst
+
+
+class TestJitError(unittest.TestCase):
+  def test1(self):
+    with self.assertRaises(jaxlib.xla_extension.XlaRuntimeError):
+      bst.compile.jit_error_if(True, 'error')
+
+    def err_f(x):
+      raise ValueError(f'error: {x}')
+
+    with self.assertRaises(jaxlib.xla_extension.XlaRuntimeError):
+      bst.compile.jit_error_if(True, err_f, 1.)
+
+  def test_vmap(self):
+    def f(x):
+      bst.compile.jit_error_if(x, 'error: {x}', x=x)
+
+    jax.vmap(f)(jnp.array([False, False, False]))
+    with self.assertRaises(jaxlib.xla_extension.XlaRuntimeError):
+      jax.vmap(f)(jnp.array([True, False, False]))
+
+  def test_vmap_vmap(self):
+    def f(x):
+      bst.compile.jit_error_if(x, 'error: {x}', x=x)
+
+    jax.vmap(jax.vmap(f))(jnp.array([[False, False, False],
+                                     [False, False, False]]))
+    with self.assertRaises(jaxlib.xla_extension.XlaRuntimeError):
+      jax.vmap(jax.vmap(f))(jnp.array([[False, False, False],
+                                       [True, False, False]]))

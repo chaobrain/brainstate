@@ -23,7 +23,6 @@ extensions/cmake-build-debug
 BrainPyExamples/
 BrainModels/
 book/
-docs/examples
 docs/apis/jaxsetting.rst
 docs/quickstart/data
 examples/recurrent_neural_network/neurogym
@@ -226,3 +225,4 @@ cython_debug/
 /examples/dynamics_simulation/Joglekar_2018_data/
 /docs/apis/deprecated/generated/
 /dist-hist/
+/.VSCodeCounter/

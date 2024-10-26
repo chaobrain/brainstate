@@ -13,17 +13,23 @@
 # limitations under the License.
 # ==============================================================================
 
+from __future__ import annotations
 
+import builtins
 import functools as ft
+import importlib
 import inspect
-import typing
-from typing import Sequence, Protocol, Union, Any, Generic, TypeVar, Tuple
 
-import brainunit as bu
+import brainunit as u
 import jax
 import numpy as np
 
+tp = importlib.import_module("typing")
+
 __all__ = [
+  'PathParts',
+  'Predicate',
+  'Filter',
   'PyTree',
   'Size',
   'Axes',
@@ -31,21 +37,38 @@ __all__ = [
   'ArrayLike',
   'DType',
   'DTypeLike',
+  'Missing',
 ]
 
-_T = TypeVar("_T")
-
-_Annotation = TypeVar("_Annotation")
+K = tp.TypeVar('K')
 
 
-class _Array(Generic[_Annotation]):
+@tp.runtime_checkable
+class Key(tp.Hashable, tp.Protocol):
+  def __lt__(self: K, value: K, /) -> bool:
+    ...
+
+
+Ellipsis = builtins.ellipsis if tp.TYPE_CHECKING else tp.Any
+
+PathParts = tp.Tuple[Key, ...]
+Predicate = tp.Callable[[PathParts, tp.Any], bool]
+FilterLiteral = tp.Union[type, str, Predicate, bool, Ellipsis, None]
+Filter = tp.Union[FilterLiteral, tp.Tuple['Filter', ...], tp.List['Filter']]
+
+_T = tp.TypeVar("_T")
+
+_Annotation = tp.TypeVar("_Annotation")
+
+
+class _Array(tp.Generic[_Annotation]):
   pass
 
 
 _Array.__module__ = "builtins"
 
 
-def _item_to_str(item: Union[str, type, slice]) -> str:
+def _item_to_str(item: tp.Union[str, type, slice]) -> str:
   if isinstance(item, slice):
     if item.step is not None:
       raise NotImplementedError
@@ -59,7 +82,7 @@ def _item_to_str(item: Union[str, type, slice]) -> str:
 
 
 def _maybe_tuple_to_str(
-    item: Union[str, type, slice, Tuple[Union[str, type, slice], ...]]
+    item: tp.Union[str, type, slice, tp.Tuple[tp.Union[str, type, slice], ...]]
 ) -> str:
   if isinstance(item, tuple):
     if len(item) == 0:
@@ -89,7 +112,7 @@ class Array:
 Array.__module__ = "builtins"
 
 
-class _FakePyTree(Generic[_T]):
+class _FakePyTree(tp.Generic[_T]):
   pass
 
 
@@ -162,7 +185,7 @@ class _MetaPyTree(type):
 
     X.__name__ = name
     X.__qualname__ = name
-    if getattr(typing, "GENERATING_DOCUMENTATION", False):
+    if getattr(tp, "GENERATING_DOCUMENTATION", False):
       X.__module__ = "builtins"
     else:
       X.__module__ = "brainstate.typing"
@@ -173,7 +196,7 @@ class _MetaPyTree(type):
 # instancecheck for PyTree[foo], but subclassing
 # `type(Generic[int])`, i.e. `typing._GenericAlias` is disallowed.
 PyTree = _MetaPyTree("PyTree", (), {})
-if getattr(typing, "GENERATING_DOCUMENTATION", False):
+if getattr(tp, "GENERATING_DOCUMENTATION", False):
   PyTree.__module__ = "builtins"
 else:
   PyTree.__module__ = "brainstate.typing"
@@ -231,9 +254,9 @@ f. A structure can end with a `...`, to denote that the PyTree must be a prefix 
     cases, all named pieces must already have been seen and their structures bound.
 """  # noqa: E501
 
-Size = Union[int, Sequence[int]]
-Axes = Union[int, Sequence[int]]
-SeedOrKey = Union[int, jax.Array, np.ndarray]
+Size = tp.Union[int, tp.Sequence[int]]
+Axes = tp.Union[int, tp.Sequence[int]]
+SeedOrKey = tp.Union[int, jax.Array, np.ndarray]
 
 # --- Array --- #
 
@@ -241,12 +264,12 @@ SeedOrKey = Union[int, jax.Array, np.ndarray]
 # standard JAX array (i.e. not including future non-standard array types like
 # KeyArray and BInt). It's different than np.typing.ArrayLike in that it doesn't
 # accept arbitrary sequences, nor does it accept string data.
-ArrayLike = Union[
+ArrayLike = tp.Union[
   jax.Array,  # JAX array type
   np.ndarray,  # NumPy array type
   np.bool_, np.number,  # NumPy scalar types
   bool, int, float, complex,  # Python scalar types
-  bu.Quantity,  # Quantity
+  u.Quantity,  # Quantity
 ]
 
 # --- Dtype --- #
@@ -255,7 +278,7 @@ ArrayLike = Union[
 DType = np.dtype
 
 
-class SupportsDType(Protocol):
+class SupportsDType(tp.Protocol):
   @property
   def dtype(self) -> DType: ...
 
@@ -265,9 +288,13 @@ class SupportsDType(Protocol):
 # because JAX doesn't support objects or structured dtypes.
 # Unlike np.typing.DTypeLike, we exclude None, and instead require
 # explicit annotations when None is acceptable.
-DTypeLike = Union[
+DTypeLike = tp.Union[
   str,  # like 'float32', 'int32'
-  type[Any],  # like np.float32, np.int32, float, int
+  type[tp.Any],  # like np.float32, np.int32, float, int
   np.dtype,  # like np.dtype('float32'), np.dtype('int32')
   SupportsDType,  # like jnp.float32, jnp.int32
 ]
+
+
+class Missing:
+  pass

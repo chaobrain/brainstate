@@ -1,5 +1,5 @@
-``brainstate.random`` module
-============================
+``brainstate.random`` for random number generation
+==================================================
 
 .. currentmodule:: brainstate.random 
 .. automodule:: brainstate.random 
@@ -28,7 +28,9 @@ Random Helper Functions
    seed_context
    default_rng
    split_key
-   split_keys
+   set_key
+   restore_key
+   self_assign_multi_keys
 
 
 Random Sampling (``numpy`` random)

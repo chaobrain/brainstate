@@ -13,60 +13,40 @@
 # limitations under the License.
 # ==============================================================================
 
-from ._base import *
-from ._base import __all__ as base_all
-from ._connections import *
-from ._connections import __all__ as connections_all
+
+from . import metrics
+from ._collective_ops import *
+from ._collective_ops import __all__ as collective_ops_all
+from ._dyn_impl import *
+from ._dyn_impl import __all__ as dyn_impl_all
 from ._dynamics import *
 from ._dynamics import __all__ as dynamics_all
 from ._elementwise import *
 from ._elementwise import __all__ as elementwise_all
-from ._embedding import *
-from ._embedding import __all__ as embed_all
-from ._misc import *
-from ._misc import __all__ as _misc_all
-from ._normalizations import *
-from ._normalizations import __all__ as normalizations_all
-from ._others import *
-from ._others import __all__ as others_all
-from ._poolings import *
-from ._poolings import __all__ as poolings_all
-from ._projection import *
-from ._projection import __all__ as _projection_all
-from ._rate_rnns import *
-from ._rate_rnns import __all__ as rate_rnns
-from ._readout import *
-from ._readout import __all__ as readout_all
-from ._synouts import *
-from ._synouts import __all__ as synouts_all
+from ._exp_euler import *
+from ._exp_euler import __all__ as exp_euler_all
+from ._interaction import *
+from ._interaction import __all__ as interaction_all
+from ._module import *
+from ._module import __all__ as module_all
 
 __all__ = (
-    base_all +
-    connections_all +
-    dynamics_all +
-    elementwise_all +
-    embed_all +
-    normalizations_all +
-    others_all +
-    poolings_all +
-    rate_rnns +
-    readout_all +
-    synouts_all +
-    _projection_all +
-    _misc_all
+    ['metrics']
+    + collective_ops_all
+    + dyn_impl_all
+    + dynamics_all
+    + elementwise_all
+    + module_all
+    + exp_euler_all
+    + interaction_all
 )
 
 del (
-  base_all,
-  connections_all,
+  collective_ops_all,
+  dyn_impl_all,
   dynamics_all,
   elementwise_all,
-  embed_all,
-  normalizations_all,
-  others_all,
-  poolings_all,
-  readout_all,
-  synouts_all,
-  _projection_all,
-  _misc_all
+  module_all,
+  exp_euler_all,
+  interaction_all,
 )

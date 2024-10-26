@@ -14,6 +14,7 @@
 # ==============================================================================
 
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 
 from typing import Union, Callable, Optional, Sequence
 
@@ -22,6 +23,7 @@ import jax
 import numpy as np
 
 from brainstate._state import State
+from brainstate._utils import set_module_as
 from brainstate.typing import ArrayLike
 from ._base import to_size
 
@@ -36,7 +38,7 @@ def _is_scalar(x):
   return bu.math.isscalar(x)
 
 
-def are_shapes_broadcastable(shape1, shape2):
+def are_broadcastable_shapes(shape1, shape2):
   """
   Check if two shapes are broadcastable.
 
@@ -82,6 +84,7 @@ def _expand_params_to_match_sizes(params, sizes):
   return params
 
 
+@set_module_as('brainstate.init')
 def param(
     parameter: Union[Callable, ArrayLike, State],
     sizes: Union[int, Sequence[int]],
@@ -143,7 +146,7 @@ def param(
     raise ValueError(f'Unknown parameter type: {type(parameter)}')
 
   # Check if the shape of the parameter matches the given size
-  if not are_shapes_broadcastable(parameter.shape, sizes):
+  if not are_broadcastable_shapes(parameter.shape, sizes):
     raise ValueError(f'The shape of the parameter {parameter.shape} does not match with the given size {sizes}')
 
   # Expand the parameter to match the given batch size
@@ -164,6 +167,7 @@ def param(
   return type(parameter)(param_value) if isinstance(parameter, State) else param_value
 
 
+@set_module_as('brainstate.init')
 def state(
     init: Union[Callable, jax.typing.ArrayLike],
     sizes: Union[int, Sequence[int]] = None,
@@ -199,6 +203,7 @@ def state(
   return data
 
 
+@set_module_as('brainstate.init')
 def noise(
     noises: Optional[Union[ArrayLike, Callable]],
     size: Union[int, Sequence[int]],

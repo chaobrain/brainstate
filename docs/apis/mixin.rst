@@ -8,11 +8,10 @@
    :toctree: generated/
 
    Mixin
-   DelayedInit
-   DelayedInitializer
+   ParamDesc
+   ParamDescriber
    AlignPost
    BindCondData
-   UpdateReturn
    Mode
    JointMode
    Batching
