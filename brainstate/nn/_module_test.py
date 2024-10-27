@@ -202,3 +202,9 @@ class TestModule(unittest.TestCase):
     print(b.states())
     print(b.states(level=0))
     print(b.states(level=0))
+
+
+if __name__ == '__main__':
+  with bst.environ.context(dt=0.1):
+    unittest.main()
+

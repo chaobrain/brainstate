@@ -26,8 +26,9 @@ class TestExpEuler(unittest.TestCase):
     def fun(x, tau):
       return -x / tau
 
-    with self.assertRaises(AssertionError):
-      r = bst.nn.exp_euler_step(fun, 1.0 * u.mV, 1. * u.ms)
+    with bst.environ.context(dt=0.1):
+      with self.assertRaises(AssertionError):
+        r = bst.nn.exp_euler_step(fun, 1.0 * u.mV, 1. * u.ms)
 
     with bst.environ.context(dt=1. * u.ms):
       r = bst.nn.exp_euler_step(fun, 1.0 * u.mV, 1. * u.ms)
