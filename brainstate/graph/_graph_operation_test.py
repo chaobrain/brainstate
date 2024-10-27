@@ -557,7 +557,7 @@ class TestThreading(parameterized.TestCase):
     thread.join()
 
 
-class TestFlatten(unittest.TestCase):
+class TestGraphOperation(unittest.TestCase):
   def test1(self):
     class MyNode(bst.graph.Node):
       def __init__(self):
@@ -637,7 +637,7 @@ class TestFlatten(unittest.TestCase):
     assert not hasattr(model.b, 'V')
     # print(model.states())
 
-  def test2(self):
+  def test_treefy_split(self):
     class MLP(bst.graph.Node):
       def __init__(self, din: int, dmid: int, dout: int, n_layer: int = 3):
         self.input = bst.nn.Linear(din, dmid)
@@ -660,6 +660,29 @@ class TestFlatten(unittest.TestCase):
     # print(states)
     # nest_states = states.to_nest()
     # print(nest_states)
+
+  def test_states(self):
+    class MLP(bst.graph.Node):
+      def __init__(self, din: int, dmid: int, dout: int, n_layer: int = 3):
+        self.input = bst.nn.Linear(din, dmid)
+        self.layers = [bst.nn.Linear(dmid, dmid) for _ in range(n_layer)]
+        self.output = bst.nn.LIF(dout)
+
+      def __call__(self, x):
+        x = bst.functional.relu(self.input(x))
+        for layer in self.layers:
+          x = bst.functional.relu(layer(x))
+        return self.output(x)
+
+    model = bst.nn.init_all_states(MLP(2, 1, 3))
+    states = bst.graph.states(model)
+    print(states)
+    nest_states = states.to_nest()
+    print(nest_states)
+
+    params, others = bst.graph.states(model, bst.ParamState, bst.ShortTermState)
+    print(params)
+    print(others)
 
 
 if __name__ == '__main__':

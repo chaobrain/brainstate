@@ -21,7 +21,7 @@ import matplotlib.pyplot as plt
 import brainstate as bst
 
 
-class HHWithEuler(bst.nn.Dynamics):
+class HH(bst.nn.Dynamics):
   def __init__(
       self,
       size,
@@ -93,7 +93,7 @@ class HHWithEuler(bst.nn.Dynamics):
     return spike
 
 
-hh = HHWithEuler(10)
+hh = HH(10)
 bst.nn.init_all_states(hh)
 dt = 0.01 * u.ms
 
