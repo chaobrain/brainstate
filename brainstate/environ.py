@@ -31,7 +31,7 @@ from jax import config, devices, numpy as jnp
 from jax.typing import DTypeLike
 
 from .mixin import Mode
-from .util import MemScaling, IdMemScaling
+from .util import MemScaling
 
 __all__ = [
   # functions for environment settings
@@ -555,4 +555,5 @@ def register_default_behavior(key: str, behavior: Callable, replace_if_exist: bo
   DFAULT.functions[key] = behavior
 
 
-set(dt=0.1, precision=32, mode=Mode(), mem_scaling=IdMemScaling())
+set(precision=32)
+

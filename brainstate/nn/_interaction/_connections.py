@@ -116,7 +116,7 @@ class Linear(Module):
     weight = params['weight']
     if self.w_mask is not None:
       weight = weight * self.w_mask
-    y = jnp.dot(x, weight)
+    y = u.math.dot(x, weight)
     if 'bias' in params:
       y = y + params['bias']
     return y
