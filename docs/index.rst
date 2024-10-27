@@ -37,7 +37,7 @@ Features
 
          .. div:: sd-font-normal
 
-            ``BrainState`` enables `event-driven computation <./apis/event.rst>`__ for spiking neural networks,
+            ``BrainState`` enables `event-driven computation <./apis/event.html>`__ for spiking neural networks,
             and thus obtains unprecedented performance on CPU and GPU devices.
 
 
@@ -52,7 +52,7 @@ Features
 
          .. div:: sd-font-normal
 
-            ``BrainState`` supports `program compilation <./apis/compile.rst>`__ (such as just-in-time compilation) with its `state-based <./apis/brainstate.rst>`__ IR construction.
+            ``BrainState`` supports `program compilation <./apis/compile.html>`__ (such as just-in-time compilation) with its `state-based <./apis/brainstate.html>`__ IR construction.
 
 
 
@@ -66,7 +66,7 @@ Features
 
          .. div:: sd-font-normal
 
-            ``BrainState`` supports program `functionality augmentation <./apis/augment.rst>`__ (such batching) with its `graph-based <./apis/graph.rst>`__ Python objects.
+            ``BrainState`` supports program `functionality augmentation <./apis/augment.html>`__ (such batching) with its `graph-based <./apis/graph.html>`__ Python objects.
 
 
 

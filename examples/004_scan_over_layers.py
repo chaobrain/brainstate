@@ -60,10 +60,12 @@ class ScanMLP(bst.nn.Module):
       # Feed the output of the previous layer to the next layer
       block: Block = bst.graph.treefy_merge(graphdef, block_tree)
       activation.value = block(activation.value)
+      return bst.graph.treefy_split(block)[1]
 
     # Loop over each layer in the block tree
     graphdef, statetree = bst.graph.treefy_split(self.layers)
-    bst.compile.for_loop(loop_fn, statetree)
+    block_trees = bst.compile.for_loop(loop_fn, statetree)
+    bst.graph.update_states(self.layers, block_trees)
     return activation.value
 
 

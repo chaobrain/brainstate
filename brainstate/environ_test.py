@@ -42,6 +42,8 @@ class TestEnviron(unittest.TestCase):
         self.assertEqual(a.device(), 'cpu')
 
   def test_register_default_behavior(self):
+    bst.environ.set(dt=0.1)
+
     dt_ = 0.1
 
     def dt_behavior(dt):

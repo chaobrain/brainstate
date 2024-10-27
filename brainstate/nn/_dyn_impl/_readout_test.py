@@ -45,4 +45,5 @@ class TestReadoutModels(unittest.TestCase):
 
 
 if __name__ == '__main__':
-  unittest.main()
+  with bst.environ.context(dt=0.1):
+    unittest.main()

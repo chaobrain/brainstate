@@ -118,7 +118,7 @@ def reset_all_states(target: Module, *args, **kwargs) -> Module:
   nodes_with_order = []
 
   # reset node whose `init_state` has no `call_order`
-  for path, node in nodes(target).items():
+  for path, node in nodes(target).filter(Module).items():
     if hasattr(node.reset_state, 'call_order'):
       nodes_with_order.append(node)
     else:
