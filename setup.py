@@ -59,11 +59,11 @@ setup(
   packages=packages,
   python_requires='>=3.9',
   install_requires=['numpy>=1.15', 'jax', 'tqdm', 'brainunit>=0.0.2'],
-  url='https://github.com/chaoming0625/brainstate',
+  url='https://github.com/chaobrain/brainstate',
   project_urls={
-    "Bug Tracker": "https://github.com/chaoming0625/brainstate/issues",
+    "Bug Tracker": "https://github.com/chaobrain/brainstate/issues",
     "Documentation": "https://brainstate.readthedocs.io/",
-    "Source Code": "https://github.com/chaoming0625/brainstate",
+    "Source Code": "https://github.com/chaobrain/brainstate",
   },
   extras_require={
     'cpu': ['jaxlib'],

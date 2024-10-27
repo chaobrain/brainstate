@@ -1,7 +1,7 @@
 ``brainstate`` documentation
 ============================
 
-`brainstate <https://github.com/brainpy/brainstate>`_ implements a ``State``-based Transformation System for Program Compilation and Augmentation.
+`brainstate <https://github.com/chaobrain/brainstate>`_ implements a ``State``-based Transformation System for Program Compilation and Augmentation.
 
 ``BrainState`` is specifically designed to work with models that have states, including rate-based recurrent neural networks, spiking neural networks, and other dynamical systems.
 
@@ -37,7 +37,7 @@ Features
 
          .. div:: sd-font-normal
 
-            ``BrainState`` enables `event-driven computation <./apis/event.html>`__ for spiking neural networks,
+            ``BrainState`` enables `event-driven computation <./apis/event.rst>`__ for spiking neural networks,
             and thus obtains unprecedented performance on CPU and GPU devices.
 
 
@@ -52,7 +52,7 @@ Features
 
          .. div:: sd-font-normal
 
-            ``BrainState`` supports `program compilation <./apis/compile.html>`__ (such as just-in-time compilation) with its `state-based <./apis/brainstate.html>`__ IR construction.
+            ``BrainState`` supports `program compilation <./apis/compile.rst>`__ (such as just-in-time compilation) with its `state-based <./apis/brainstate.rst>`__ IR construction.
 
 
 
@@ -66,7 +66,7 @@ Features
 
          .. div:: sd-font-normal
 
-            ``BrainState`` supports program `functionality augmentation <./apis/augment.html>`__ (such batching) with its `graph-based <./apis/graph.html>`__ Python objects.
+            ``BrainState`` supports program `functionality augmentation <./apis/augment.rst>`__ (such batching) with its `graph-based <./apis/graph.rst>`__ Python objects.
 
 
 
@@ -112,7 +112,8 @@ We are building the `BDP ecosystem <https://ecosystem-for-brain-dynamics.readthe
    :maxdepth: 1
    :caption: Quickstart
 
-   quickstart/concepts.ipynb
+   quickstart/concepts-en.ipynb
+   quickstart/concepts-zh.ipynb
    quickstart/ann_training.ipynb
    quickstart/snn_training.ipynb
    quickstart/snn_training.ipynb
@@ -124,6 +125,7 @@ We are building the `BDP ecosystem <https://ecosystem-for-brain-dynamics.readthe
    :maxdepth: 2
    :caption: Tutorials
 
+   tutorials/pygraph-zh.ipynb
    tutorials/random_numbers.ipynb
    tutorials/event_driven_computation.ipynb
    tutorials/gspmd.ipynb
