@@ -1222,7 +1222,7 @@ def nodes(
   node_maps = tuple(FlattedDict(flat_node) for flat_node in flat_nodes)
   if num_filters < 2:
     return node_maps[0]
-  return node_maps
+  return node_maps[:num_filters]
 
 
 def _states_generator(node, allowed_hierarchy) -> Iterable[Tuple[PathParts, State]]:
@@ -1268,7 +1268,7 @@ def states(
   state_maps = tuple(FlattedDict(flat_state) for flat_state in flat_states)
   if num_filters < 2:
     return state_maps[0]
-  return state_maps
+  return state_maps[:num_filters]
 
 
 @overload

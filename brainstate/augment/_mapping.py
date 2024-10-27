@@ -25,10 +25,12 @@ from brainstate.compile._loop_collect_return import for_loop
 from brainstate.graph import (NodeStates, graph_to_tree, tree_to_graph)
 from brainstate.typing import Missing, Filter
 from brainstate.util import NestedDict
+from ._random import restore_rngs
 
 __all__ = [
   'StateAxes',
   'vmap',
+  'vmap_with_default_rng',
   'pmap',
   'mini_vmap',
   'mini_pmap',
@@ -214,6 +216,39 @@ def vmap(
                         spmd_axis_name=spmd_axis_name,
                         rng_splits=rng_splits,
                         rng_restore=rng_restore, )
+
+
+def vmap_with_default_rng(
+    fn: F | Missing = Missing(),
+    *,
+    in_axes: int | None | Sequence[Any] = 0,
+    out_axes: Any = 0,
+    axis_name: AxisName | None = None,
+    axis_size: int | None = None,
+    spmd_axis_name: AxisName | tuple[AxisName, ...] | None = None,
+) -> F | Callable[[F], F]:
+  if isinstance(fn, Missing):
+    return functools.partial(
+      vmap_with_default_rng,
+      in_axes=in_axes,
+      out_axes=out_axes,
+      axis_name=axis_name,
+      axis_size=axis_size,
+      spmd_axis_name=spmd_axis_name,
+    )  # type: ignore[return-value]
+
+  return restore_rngs(
+    _map_transform(
+      jax.vmap,
+      fn,
+      in_axes=in_axes,
+      out_axes=out_axes,
+      axis_name=axis_name,
+      axis_size=axis_size,
+      spmd_axis_name=spmd_axis_name
+
+    )
+  )
 
 
 def pmap(

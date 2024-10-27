@@ -61,8 +61,8 @@ dynamic = ['version']
 name = "brainstate"
 
 [project.urls]
-homepage = 'http://github.com/chaoming0625/brainstate'
-repository = 'http://github.com/chaoming0625/brainstate'
+homepage = 'http://github.com/chaobrain/brainstate'
+repository = 'http://github.com/chaobrain/brainstate'
 
 [project.optional-dependencies]
 testing = [

@@ -22,6 +22,7 @@ import jax
 
 from brainstate._utils import set_module_as
 from ._module import Module
+from brainstate.graph import nodes
 
 # the maximum order
 MAX_ORDER = 10
@@ -85,12 +86,12 @@ def init_all_states(target: T, *args, exclude=None, **kwargs) -> T:
   """
   nodes_with_order = []
 
-  nodes = target.nodes(Module)
+  nodes_ = nodes(target).filter(Module)
   if exclude is not None:
-    nodes = nodes - nodes.filter(exclude)
+    nodes_ = nodes_ - nodes_.filter(exclude)
 
   # reset node whose `init_state` has no `call_order`
-  for node in list(nodes.values()):
+  for node in list(nodes_.values()):
     if hasattr(node.init_state, 'call_order'):
       nodes_with_order.append(node)
     else:
@@ -117,7 +118,7 @@ def reset_all_states(target: Module, *args, **kwargs) -> Module:
   nodes_with_order = []
 
   # reset node whose `init_state` has no `call_order`
-  for node in list(target.nodes(Module).values()):
+  for path, node in nodes(target).items():
     if hasattr(node.reset_state, 'call_order'):
       nodes_with_order.append(node)
     else:
@@ -149,12 +150,12 @@ def load_all_states(target: Module, state_dict: Dict, **kwargs):
   """
   missing_keys = []
   unexpected_keys = []
-  for name, node in target.nodes().items():
-    r = node.load_state(state_dict[name], **kwargs)
+  for path, node in nodes(target).items():
+    r = node.load_state(state_dict[path], **kwargs)
     if r is not None:
       missing, unexpected = r
-      missing_keys.extend([f'{name}.{key}' for key in missing])
-      unexpected_keys.extend([f'{name}.{key}' for key in unexpected])
+      missing_keys.extend([f'{path}.{key}' for key in missing])
+      unexpected_keys.extend([f'{path}.{key}' for key in unexpected])
   return StateLoadResult(missing_keys, unexpected_keys)
 
 
