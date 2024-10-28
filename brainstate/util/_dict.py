@@ -631,6 +631,10 @@ class FlattedDict(PrettyDict):
         raise TypeError(f'Expected Nested or Flatted Mapping, got {type(state)} instead.')
     return FlattedDict(new_state)
 
+  def to_dict_values(self):
+    from brainstate._state import State
+    return {k: v.value if isinstance(v, State) else v for k, v in self.items()}
+
 
 def _split_nested_mapping(
     mapping: NestedDict[K, V],

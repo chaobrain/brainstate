@@ -20,8 +20,8 @@ from __future__ import annotations
 import numbers
 from typing import Callable
 
+import brainunit as u
 import jax
-import jax.numpy as jnp
 
 from brainstate import environ, init, surrogate
 from brainstate._state import ShortTermState, ParamState
@@ -46,7 +46,7 @@ class LeakyRateReadout(Module):
       self,
       in_size: Size,
       out_size: Size,
-      tau: ArrayLike = 5.,
+      tau: ArrayLike = 5. * u.ms,
       w_init: Callable = init.KaimingNormal(),
       name: str = None,
   ):
@@ -56,7 +56,7 @@ class LeakyRateReadout(Module):
     self.in_size = (in_size,) if isinstance(in_size, numbers.Integral) else tuple(in_size)
     self.out_size = (out_size,) if isinstance(out_size, numbers.Integral) else tuple(out_size)
     self.tau = init.param(tau, self.in_size)
-    self.decay = jnp.exp(-environ.get_dt() / self.tau)
+    self.decay = u.math.exp(-environ.get_dt() / self.tau)
 
     # weights
     self.weight = ParamState(init.param(w_init, (self.in_size[0], self.out_size[0])))
@@ -74,7 +74,7 @@ class LeakyRateReadout(Module):
 
 class LeakySpikeReadout(Neuron):
   """
-  Integrate-and-fire neuron model.
+  Integrate-and-fire neuron model with leaky dynamics.
   """
 
   __module__ = 'brainstate.nn'
@@ -83,9 +83,10 @@ class LeakySpikeReadout(Neuron):
       self,
       size: Size,
       keep_size: bool = False,
-      tau: ArrayLike = 5.,
-      V_th: ArrayLike = 1.,
-      w_init: Callable = init.KaimingNormal(),
+      tau: ArrayLike = 5. * u.ms,
+      V_th: ArrayLike = 1. * u.mV,
+      w_init: Callable = init.KaimingNormal(unit=u.mV),
+      V_initializer: ArrayLike = init.ZeroInit(unit=u.mV),
       spk_fun: Callable = surrogate.ReluGrad(),
       spk_reset: str = 'soft',
       name: str = None,
@@ -94,17 +95,18 @@ class LeakySpikeReadout(Neuron):
                      spk_fun=spk_fun, spk_reset=spk_reset)
 
     # parameters
-    self.tau = init.param(tau, (self.num,))
-    self.V_th = init.param(V_th, (self.num,))
+    self.tau = init.param(tau, (self.varshape,))
+    self.V_th = init.param(V_th, (self.varshape,))
+    self.V_initializer = V_initializer
 
     # weights
-    self.weight = ParamState(init.param(w_init, (self.in_size[0], self.out_size[0])))
+    self.weight = ParamState(init.param(w_init, (self.in_size[-1], self.out_size[-1])))
 
   def init_state(self, batch_size, **kwargs):
-    self.V = ShortTermState(init.param(init.Constant(0.), self.varshape, batch_size))
+    self.V = ShortTermState(init.param(self.V_initializer, self.varshape, batch_size))
 
   def reset_state(self, batch_size, **kwargs):
-    self.V.value = init.param(init.Constant(0.), self.varshape, batch_size)
+    self.V.value = init.param(self.V_initializer, self.varshape, batch_size)
 
   @property
   def spike(self):
