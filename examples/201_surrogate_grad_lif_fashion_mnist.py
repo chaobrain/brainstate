@@ -151,15 +151,14 @@ with bst.environ.context(dt=1.0 * u.ms):
     # Here we set up our regularize loss
     # The strength parameters here are merely a guess and there should be ample
     # room for improvement by tuning these parameters.
-    # l1_loss = 1e-5 * u.math.sum(r_spikes)  # L1 loss on total number of spikes
-    # l2_loss = 1e-5 * u.math.mean(u.math.sum(u.math.sum(r_spikes, axis=0), axis=0) ** 2)  # L2 loss on spikes per neuron
+    l1_loss = 1e-5 * u.math.sum(r_spikes)  # L1 loss on total number of spikes
+    l2_loss = 1e-5 * u.math.mean(u.math.sum(u.math.sum(r_spikes, axis=0), axis=0) ** 2)  # L2 loss on spikes per neuron
 
     # predictions
     predicts = u.math.max(outs, axis=0)  # max over time, [T, B, C] -> [B, C]
     loss = bts.metric.softmax_cross_entropy_with_integer_labels(predicts, ys).mean()
     correct_n = u.math.sum(ys == u.math.argmax(predicts, axis=1))  # compare to labels
-    # return loss + l2_loss + l1_loss, acc
-    return loss, correct_n
+    return loss + l2_loss + l1_loss, correct_n
 
 
   @bst.compile.jit

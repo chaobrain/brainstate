@@ -68,11 +68,11 @@ class ValinaRNNCell(RNNCell):
     super().__init__(name=name)
 
     # parameters
-    self._state_initializer = state_init
     self.num_out = num_out
     self.num_in = num_in
     self.in_size = (num_in,)
     self.out_size = (num_out,)
+    self._state_initializer = state_init
 
     # activation function
     if isinstance(activation, str):
@@ -82,8 +82,7 @@ class ValinaRNNCell(RNNCell):
       self.activation = activation
 
     # weights
-    name = self.name + '_W' if self.name else None
-    self.W = Linear(num_in + num_out, num_out, w_init=w_init, b_init=b_init, name=name)
+    self.W = Linear(num_in + num_out, num_out, w_init=w_init, b_init=b_init)
 
   def init_state(self, batch_size: int = None, **kwargs):
     self.h = ShortTermState(init.param(self._state_initializer, self.num_out, batch_size))
@@ -140,10 +139,8 @@ class GRUCell(RNNCell):
       self.activation = activation
 
     # weights
-    self.Wrz = Linear(num_in + num_out, num_out * 2, w_init=w_init, b_init=b_init,
-                      name=self.name + '_Wrz' if name else None)
-    self.Wh = Linear(num_in + num_out, num_out, w_init=w_init, b_init=b_init,
-                     name=self.name + '_Wh' if name else None)
+    self.Wrz = Linear(num_in + num_out, num_out * 2, w_init=w_init, b_init=b_init)
+    self.Wh = Linear(num_in + num_out, num_out, w_init=w_init, b_init=b_init)
 
   def init_state(self, batch_size: int = None, **kwargs):
     self.h = ShortTermState(init.param(self._state_initializer, [self.num_out], batch_size))
@@ -220,10 +217,8 @@ class MGUCell(RNNCell):
       self.activation = activation
 
     # weights
-    self.Wf = Linear(num_in + num_out, num_out, w_init=w_init, b_init=b_init,
-                     name=self.name + '_Wf' if self.name else None)
-    self.Wh = Linear(num_in + num_out, num_out, w_init=w_init, b_init=b_init,
-                     name=self.name + '_Wh' if self.name else None)
+    self.Wf = Linear(num_in + num_out, num_out, w_init=w_init, b_init=b_init)
+    self.Wh = Linear(num_in + num_out, num_out, w_init=w_init, b_init=b_init)
 
   def init_state(self, batch_size: int = None, **kwargs):
     self.h = ShortTermState(init.param(self._state_initializer, [self.num_out], batch_size))
@@ -327,8 +322,7 @@ class LSTMCell(RNNCell):
       self.activation = activation
 
     # weights
-    self.W = Linear(num_in + num_out, num_out * 4, w_init=w_init, b_init=b_init,
-                    name=self.name + '_W' if self.name else None)
+    self.W = Linear(num_in + num_out, num_out * 4, w_init=w_init, b_init=b_init)
 
   def init_state(self, batch_size: int = None, **kwargs):
     self.c = ShortTermState(init.param(self._state_initializer, [self.num_out], batch_size))
@@ -378,8 +372,7 @@ class URLSTMCell(RNNCell):
       self.activation = activation
 
     # weights
-    self.W = Linear(num_in + num_out, num_out * 4, w_init=w_init, b_init=None,
-                    name=self.name + '_Wg' if self.name else None)
+    self.W = Linear(num_in + num_out, num_out * 4, w_init=w_init, b_init=None)
     self.bias = ParamState(self._forget_bias())
 
   def _forget_bias(self):

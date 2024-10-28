@@ -2,3 +2,4 @@ matplotlib
 datasets
 dendritex
 optax
+brainscale>=0.1.0
