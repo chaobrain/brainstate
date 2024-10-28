@@ -137,8 +137,8 @@ We are building the `BDP ecosystem <https://ecosystem-for-brain-dynamics.readthe
 
 
    tutorials/state-en.ipynb
-   tutorials/pygraph-en.ipynb
    tutorials/program_compilation-en.ipynb
+   tutorials/pygraph-en.ipynb
    tutorials/program_augmentation-en.ipynb
    tutorials/event_driven_computation-en.ipynb
    tutorials/optimizers-en.ipynb
@@ -146,7 +146,7 @@ We are building the `BDP ecosystem <https://ecosystem-for-brain-dynamics.readthe
    tutorials/random_numbers-en.ipynb
    tutorials/checkpointing-en.ipynb
    tutorials/artificial_neural_networks-en.ipynb
-   tutorials/align_pre_align_post-en.ipynb
+   tutorials/spiking_neural_networks-en.ipynb
 
 .. toctree::
    :hidden:
@@ -154,8 +154,8 @@ We are building the `BDP ecosystem <https://ecosystem-for-brain-dynamics.readthe
    :caption: 使用教程
 
    tutorials/state-zh.ipynb
-   tutorials/pygraph-zh.ipynb
    tutorials/program_compilation-zh.ipynb
+   tutorials/pygraph-zh.ipynb
    tutorials/program_augmentation-zh.ipynb
    tutorials/event_driven_computation-zh.ipynb
    tutorials/optimizers-zh.ipynb
@@ -163,7 +163,7 @@ We are building the `BDP ecosystem <https://ecosystem-for-brain-dynamics.readthe
    tutorials/random_numbers-zh.ipynb
    tutorials/checkpointing-zh.ipynb
    tutorials/artificial_neural_networks-zh.ipynb
-   tutorials/align_pre_align_post-zh.ipynb
+   tutorials/spiking_neural_networks-zh.ipynb
 
 
 .. toctree::
