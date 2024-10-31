@@ -18,6 +18,7 @@
 
 
 from tempfile import TemporaryDirectory
+import os
 
 import jax
 import jax.numpy as jnp
@@ -49,7 +50,7 @@ def create_and_save(seed: int, path: str):
   state_tree = bst.graph.treefy_states(model)
   # Save the parameters
   checkpointer = orbax.PyTreeCheckpointer()
-  checkpointer.save(f'{path}/state', state_tree)
+  checkpointer.save(os.path.join(path, 'state'), state_tree)
 
 
 def load_model(path: str) -> MLP:
@@ -58,7 +59,7 @@ def load_model(path: str) -> MLP:
   state_tree = bst.graph.treefy_states(model)
   # Load the parameters
   checkpointer = orbax.PyTreeCheckpointer()
-  state_tree = checkpointer.restore(f'{path}/state', item=state_tree)
+  state_tree = checkpointer.restore(os.path.join(path, 'state'), item=state_tree)
   # update the model with the loaded state
   bst.graph.update_states(model, state_tree)
   return model
