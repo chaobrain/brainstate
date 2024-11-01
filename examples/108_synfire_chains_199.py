@@ -51,13 +51,13 @@ delay = 5.0 * u.ms  # ms
 
 
 class Population(bst.nn.Neuron):
-  def __init__(self, size, **kwargs):
-    super().__init__(size, **kwargs)
+  def __init__(self, in_size, **kwargs):
+    super().__init__(in_size, **kwargs)
 
   def init_state(self, *args, **kwargs):
-    self.V = bst.ShortTermState(Vr + bst.random.random(self.num) * (Vt - Vr))
-    self.x = bst.ShortTermState(u.math.zeros(self.num) * u.mV)
-    self.y = bst.ShortTermState(u.math.zeros(self.num) * u.mV)
+    self.V = bst.HiddenState(Vr + bst.random.random(self.num) * (Vt - Vr))
+    self.x = bst.HiddenState(u.math.zeros(self.num) * u.mV)
+    self.y = bst.HiddenState(u.math.zeros(self.num) * u.mV)
     self.spike = bst.ShortTermState(u.math.zeros(self.num, dtype=bool))
     self.t_last_spike = bst.ShortTermState(u.math.ones(self.num) * -1e7 * u.ms)
 
@@ -123,7 +123,7 @@ class Net(bst.nn.DynamicsGroup):
     super().__init__()
     times = bst.random.randn(n_spike) * spike_sigma + 20 * u.ms
     self.ext = bst.nn.SpikeTime(n_spike, times=times, indices=u.math.arange(n_spike), need_sort=False)
-    self.pop = Population(size=n_groups * group_size)
+    self.pop = Population(in_size=n_groups * group_size)
     self.syn = Projection(self.pop)
 
   def update(self, t, i):

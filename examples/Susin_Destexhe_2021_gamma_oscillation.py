@@ -47,7 +47,8 @@ Ch_par = dict(
 
 class AdEx(bst.nn.Neuron):
   def __init__(
-      self, size,
+      self,
+      in_size,
       # neuronal parameters
       Vth=-40 * u.mV, delta=2. * u.mV, tau_ref=5. * u.ms, tau_w=500 * u.ms,
       a=4 * u.nS, b=20 * u.pA, C=150 * u.pF,
@@ -60,7 +61,7 @@ class AdEx(bst.nn.Neuron):
       ge_initializer=bst.init.Constant(0. * u.nS),
       gi_initializer=bst.init.Constant(0. * u.nS),
   ):
-    super().__init__(size=size)
+    super().__init__(in_size=in_size)
 
     # neuronal parameters
     self.Vth = Vth
@@ -89,14 +90,14 @@ class AdEx(bst.nn.Neuron):
 
   def init_state(self, batch_size=None):
     # neuronal variables
-    self.V = bst.ShortTermState(bst.init.param(self.V_initializer, self.varshape, batch_size))
-    self.w = bst.ShortTermState(bst.init.param(self.w_initializer, self.varshape, batch_size))
+    self.V = bst.HiddenState(bst.init.param(self.V_initializer, self.varshape, batch_size))
+    self.w = bst.HiddenState(bst.init.param(self.w_initializer, self.varshape, batch_size))
     self.t_last_spike = bst.ShortTermState(bst.init.param(bst.init.Constant(-1e7 * u.ms), self.varshape, batch_size))
     self.spike = bst.ShortTermState(bst.init.param(lambda s: u.math.zeros(s, bool), self.varshape, batch_size))
 
     # synaptic parameters
-    self.ge = bst.ShortTermState(bst.init.param(self.ge_initializer, self.varshape, batch_size))
-    self.gi = bst.ShortTermState(bst.init.param(self.gi_initializer, self.varshape, batch_size))
+    self.ge = bst.HiddenState(bst.init.param(self.ge_initializer, self.varshape, batch_size))
+    self.gi = bst.HiddenState(bst.init.param(self.gi_initializer, self.varshape, batch_size))
 
   def dV(self, V, w, ge, gi, Iext):
     I = ge * (self.E_e - V) + gi * (self.E_i - V)

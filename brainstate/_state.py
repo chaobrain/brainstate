@@ -32,7 +32,7 @@ from brainstate.util import DictManager, PrettyRepr, PrettyType, PrettyAttr, Tra
 from brainstate.util._tracers import StateJaxTracer
 
 __all__ = [
-  'State', 'ShortTermState', 'LongTermState', 'ParamState', 'TreefyState',
+  'State', 'ShortTermState', 'LongTermState', 'HiddenState', 'ParamState', 'TreefyState',
 
   'StateDictManager', 'StateTraceStack', 'check_state_value_tree', 'check_state_jax_tracer', 'catch_new_states',
 ]
@@ -527,6 +527,16 @@ class LongTermState(State):
   """
 
   __module__ = 'brainstate'
+
+
+
+class HiddenState(ShortTermState):
+  """
+  The hidden state, which is used to store the hidden data in a dynamic model.
+  """
+
+  __module__ = 'brainstate'
+
 
 
 class ParamState(LongTermState):

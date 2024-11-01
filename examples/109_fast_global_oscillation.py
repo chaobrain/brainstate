@@ -41,12 +41,12 @@ sparseness = C / N
 
 
 class LIF(bst.nn.Neuron):
-  def __init__(self, size, **kwargs):
-    super().__init__(size, **kwargs)
+  def __init__(self, in_size, **kwargs):
+    super().__init__(in_size, **kwargs)
 
   def init_state(self, *args, **kwargs):
     # variables
-    self.V = bst.ShortTermState(bst.init.param(bst.init.Constant(Vr), self.varshape))
+    self.V = bst.HiddenState(bst.init.param(bst.init.Constant(Vr), self.varshape))
     self.t_last_spike = bst.ShortTermState(bst.init.param(bst.init.Constant(-1e7 * u.ms), self.varshape))
 
   def update(self):

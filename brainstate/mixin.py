@@ -55,7 +55,7 @@ class ParamDesc(Mixin):
   """
   :py:class:`~.Mixin` indicates the function for describing initialization parameters.
 
-  This mixin enables the subclass has a classmethod ``delayed``, which
+  This mixin enables the subclass has a classmethod ``desc``, which
   produces an instance of :py:class:`~.ParamDescriber`.
 
   Note this Mixin can be applied in any Python object.
@@ -166,7 +166,7 @@ class UpdateReturn(Mixin):
     It should be a pytree, with each element as a ``jax.Array``.
 
     .. note::
-       Should not include the batch axis and batch size.
+       Should not include the batch axis and batch in_size.
        These information will be inferred from the ``mode`` attribute.
 
     """
@@ -358,7 +358,7 @@ class Batching(Mode):
     self.batch_axis = batch_axis
 
   def __repr__(self):
-    return f'{self.__class__.__name__}(size={self.batch_size}, axis={self.batch_axis})'
+    return f'{self.__class__.__name__}(in_size={self.batch_size}, axis={self.batch_axis})'
 
 
 class Training(Mode):

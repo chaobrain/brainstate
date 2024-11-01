@@ -86,7 +86,7 @@ class RNNCell(bst.nn.Module):
       self.state2train = bst.ParamState(bst.init.param(bst.init.ZeroInit(), (self.num_out,), allow_none=False))
 
   def init_state(self, batch_size=None, **kwargs):
-    self.state = bst.ShortTermState(bst.init.param(self._state_initializer, (self.num_out,), batch_size))
+    self.state = bst.HiddenState(bst.init.param(self._state_initializer, (self.num_out,), batch_size))
     if self.train_state:
       self.state.value = jnp.repeat(jnp.expand_dims(self.state2train.value, axis=0), batch_size, axis=0)
 

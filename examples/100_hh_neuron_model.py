@@ -24,8 +24,7 @@ import brainstate as bst
 class HH(bst.nn.Dynamics):
   def __init__(
       self,
-      size,
-      keep_size: bool = False,
+      in_size,
       ENa=50. * u.mV, gNa=120. * u.mS / u.cm ** 2,
       EK=-77. * u.mV, gK=36. * u.mS / u.cm ** 2,
       EL=-54.387 * u.mV, gL=0.03 * u.mS / u.cm ** 2,
@@ -33,7 +32,7 @@ class HH(bst.nn.Dynamics):
       C=1.0 * u.uF / u.cm ** 2
   ):
     # initialization
-    super().__init__(size=size, keep_size=keep_size)
+    super().__init__(in_size)
 
     # parameters
     self.ENa = ENa
@@ -64,10 +63,10 @@ class HH(bst.nn.Dynamics):
   dn = lambda self, n, t, V: (self.n_alpha(V) * (1 - n) - self.n_beta(V) * n) / u.ms
 
   def init_state(self, batch_size=None):
-    self.V = bst.ShortTermState(jnp.ones(self.varshape, bst.environ.dftype()) * -65. * u.mV)
-    self.m = bst.ShortTermState(self.m_inf(self.V.value))
-    self.h = bst.ShortTermState(self.h_inf(self.V.value))
-    self.n = bst.ShortTermState(self.n_inf(self.V.value))
+    self.V = bst.HiddenState(jnp.ones(self.varshape, bst.environ.dftype()) * -65. * u.mV)
+    self.m = bst.HiddenState(self.m_inf(self.V.value))
+    self.h = bst.HiddenState(self.h_inf(self.V.value))
+    self.n = bst.HiddenState(self.n_inf(self.V.value))
 
   def dV(self, V, t, m, h, n, I):
     I = self.sum_current_inputs(I, V)

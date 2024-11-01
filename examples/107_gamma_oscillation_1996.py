@@ -29,10 +29,10 @@ import brainstate as bst
 
 class HH(bst.nn.Neuron):
   def __init__(
-      self, size, ENa=55. * u.mV, EK=-90. * u.mV, EL=-65 * u.mV, C=1.0 * u.uF,
+      self, in_size, ENa=55. * u.mV, EK=-90. * u.mV, EL=-65 * u.mV, C=1.0 * u.uF,
       gNa=35. * u.msiemens, gK=9. * u.msiemens, gL=0.1 * u.msiemens, V_th=20. * u.mV, phi=5.0
   ):
-    super().__init__(size=size)
+    super().__init__(in_size)
 
     # parameters
     self.ENa = ENa
@@ -47,10 +47,10 @@ class HH(bst.nn.Neuron):
 
   def init_state(self, *args, **kwargs):
     # variables
-    self.V = bst.ShortTermState(-70. * u.mV + bst.random.randn(*self.varshape) * 20 * u.mV)
-    self.h = bst.ShortTermState(bst.init.param(bst.init.Constant(0.6), self.varshape))
-    self.n = bst.ShortTermState(bst.init.param(bst.init.Constant(0.3), self.varshape))
-    self.spike = bst.ShortTermState(bst.init.param(lambda s: u.math.zeros(s, dtype=bool), self.varshape))
+    self.V = bst.HiddenState(-70. * u.mV + bst.random.randn(*self.varshape) * 20 * u.mV)
+    self.h = bst.HiddenState(bst.init.param(bst.init.Constant(0.6), self.varshape))
+    self.n = bst.HiddenState(bst.init.param(bst.init.Constant(0.3), self.varshape))
+    self.spike = bst.HiddenState(bst.init.param(lambda s: u.math.zeros(s, dtype=bool), self.varshape))
 
   def dh(self, h, t, V):
     alpha = 0.07 * u.math.exp(-(V / u.mV + 58) / 20)
@@ -87,13 +87,13 @@ class HH(bst.nn.Neuron):
 
 
 class Synapse(bst.nn.Synapse):
-  def __init__(self, size, alpha=12 / u.ms, beta=0.1 / u.ms):
-    super().__init__(size=size)
+  def __init__(self, in_size, alpha=12 / u.ms, beta=0.1 / u.ms):
+    super().__init__(in_size=in_size)
     self.alpha = alpha
     self.beta = beta
 
   def init_state(self, *args, **kwargs):
-    self.g = bst.ShortTermState(bst.init.param(bst.init.ZeroInit(), self.varshape))
+    self.g = bst.HiddenState(bst.init.param(bst.init.ZeroInit(), self.varshape))
 
   def update(self, pre_V):
     f_v = lambda v: 1 / (1 + u.math.exp(-v / u.mV / 2))

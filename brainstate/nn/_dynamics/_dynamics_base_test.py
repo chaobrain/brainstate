@@ -16,6 +16,7 @@
 # -*- coding: utf-8 -*-
 
 from __future__ import annotations
+
 import unittest
 
 import numpy as np
@@ -24,64 +25,56 @@ import brainstate as bst
 
 
 class TestModuleGroup(unittest.TestCase):
-  def test_initialization(self):
-    group = bst.nn.DynamicsGroup()
-    self.assertIsInstance(group, bst.nn.DynamicsGroup)
+    def test_initialization(self):
+        group = bst.nn.DynamicsGroup()
+        self.assertIsInstance(group, bst.nn.DynamicsGroup)
 
 
 class TestProjection(unittest.TestCase):
-  def test_initialization(self):
-    proj = bst.nn.Projection()
-    self.assertIsInstance(proj, bst.nn.Projection)
+    def test_initialization(self):
+        proj = bst.nn.Projection()
+        self.assertIsInstance(proj, bst.nn.Projection)
 
-  def test_update_not_implemented(self):
-    proj = bst.nn.Projection()
-    with self.assertRaises(ValueError):
-      proj.update()
+    def test_update_not_implemented(self):
+        proj = bst.nn.Projection()
+        with self.assertRaises(ValueError):
+            proj.update()
 
 
 class TestDynamics(unittest.TestCase):
-  def test_initialization(self):
-    dyn = bst.nn.Dynamics(size=10)
-    self.assertIsInstance(dyn, bst.nn.Dynamics)
-    self.assertEqual(dyn.size, (10,))
-    self.assertEqual(dyn.num, 10)
+    def test_initialization(self):
+        dyn = bst.nn.Dynamics(in_size=10)
+        self.assertIsInstance(dyn, bst.nn.Dynamics)
+        self.assertEqual(dyn.size, (10,))
+        self.assertEqual(dyn.num, 10)
 
-  def test_size_validation(self):
-    with self.assertRaises(ValueError):
-      bst.nn.Dynamics(size=[])
-    with self.assertRaises(ValueError):
-      bst.nn.Dynamics(size="invalid")
+    def test_size_validation(self):
+        with self.assertRaises(ValueError):
+            bst.nn.Dynamics(in_size=[])
+        with self.assertRaises(ValueError):
+            bst.nn.Dynamics(in_size="invalid")
 
-  def test_input_handling(self):
-    dyn = bst.nn.Dynamics(size=10)
-    dyn.add_current_input("test_current", lambda: np.random.rand(10))
-    dyn.add_delta_input("test_delta", lambda: np.random.rand(10))
+    def test_input_handling(self):
+        dyn = bst.nn.Dynamics(in_size=10)
+        dyn.add_current_input("test_current", lambda: np.random.rand(10))
+        dyn.add_delta_input("test_delta", lambda: np.random.rand(10))
 
-    self.assertIn("test_current", dyn.current_inputs)
-    self.assertIn("test_delta", dyn.delta_inputs)
+        self.assertIn("test_current", dyn.current_inputs)
+        self.assertIn("test_delta", dyn.delta_inputs)
 
-  def test_duplicate_input_key(self):
-    dyn = bst.nn.Dynamics(size=10)
-    dyn.add_current_input("test", lambda: np.random.rand(10))
-    with self.assertRaises(ValueError):
-      dyn.add_current_input("test", lambda: np.random.rand(10))
+    def test_duplicate_input_key(self):
+        dyn = bst.nn.Dynamics(in_size=10)
+        dyn.add_current_input("test", lambda: np.random.rand(10))
+        with self.assertRaises(ValueError):
+            dyn.add_current_input("test", lambda: np.random.rand(10))
 
-  def test_varshape(self):
-    dyn = bst.nn.Dynamics(size=(2, 3), keep_size=True)
-    self.assertEqual(dyn.varshape, (2, 3))
-    dyn = bst.nn.Dynamics(size=(2, 3))
-    self.assertEqual(dyn.varshape, (6,))
+    def test_varshape(self):
+        dyn = bst.nn.Dynamics(in_size=(2, 3))
+        self.assertEqual(dyn.varshape, (2, 3))
+        dyn = bst.nn.Dynamics(in_size=(2, 3))
+        self.assertEqual(dyn.varshape, (6,))
 
-  def test_keep_size(self):
-    dyn_keep = bst.nn.Dynamics(size=(2, 3), keep_size=True)
-    dyn_flatten = bst.nn.Dynamics(size=(2, 3), keep_size=False)
-
-    self.assertEqual(dyn_keep.in_size, (2, 3))
-    self.assertEqual(dyn_keep.out_size, (2, 3))
-    self.assertEqual(dyn_flatten.in_size, (6,))
-    self.assertEqual(dyn_flatten.out_size, (6,))
 
 
 if __name__ == '__main__':
-  unittest.main()
+    unittest.main()
