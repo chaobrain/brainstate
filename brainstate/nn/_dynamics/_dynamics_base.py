@@ -234,7 +234,13 @@ class Dynamics(Module):
         else:
             raise ValueError(f'Input key {key} is not in current/delta inputs of the module {self}.')
 
-    def sum_current_inputs(self, init: Any, *args, label: Optional[str] = None, **kwargs):
+    def sum_current_inputs(
+        self,
+        init: Any,
+        *args,
+        label: Optional[str] = None,
+        **kwargs
+    ):
         """
         Summarize all current inputs by the defined input functions ``.current_inputs``.
 
@@ -252,8 +258,10 @@ class Dynamics(Module):
         if label is None:
             # no label
             for key in tuple(self._current_inputs.keys()):
-                out = self._current_inputs.pop(key)
+                out = self._current_inputs[key]
                 init = init + (out(*args, **kwargs) if callable(out) else out)
+                if not callable(out):
+                    self._current_inputs.pop(key)
         else:
             # has label
             label_repr = _input_label_start(label)
@@ -261,9 +269,17 @@ class Dynamics(Module):
                 if key.startswith(label_repr):
                     out = self._current_inputs[key]
                     init = init + (out(*args, **kwargs) if callable(out) else out)
+                    if not callable(out):
+                        self._current_inputs.pop(key)
         return init
 
-    def sum_delta_inputs(self, init: Any, *args, label: Optional[str] = None, **kwargs):
+    def sum_delta_inputs(
+        self,
+        init: Any,
+        *args,
+        label: Optional[str] = None,
+        **kwargs
+    ):
         """
         Summarize all delta inputs by the defined input functions ``.delta_inputs``.
 
@@ -281,8 +297,10 @@ class Dynamics(Module):
         if label is None:
             # no label
             for key in tuple(self._delta_inputs.keys()):
-                out = self._delta_inputs.pop(key)
+                out = self._delta_inputs[key]
                 init = init + (out(*args, **kwargs) if callable(out) else out)
+                if not callable(out):
+                    self._delta_inputs.pop(key)
         else:
             # has label
             label_repr = _input_label_start(label)
@@ -290,6 +308,8 @@ class Dynamics(Module):
                 if key.startswith(label_repr):
                     out = self._delta_inputs[key]
                     init = init + (out(*args, **kwargs) if callable(out) else out)
+                    if not callable(out):
+                        self._delta_inputs.pop(key)
         return init
 
     @property
