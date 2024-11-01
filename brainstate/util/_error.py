@@ -15,14 +15,14 @@
 
 
 __all__ = [
-  'BrainStateError',
-  'TraceContextError',
+    'BrainStateError',
+    'TraceContextError',
 ]
 
 
 class BrainStateError(Exception):
-  pass
+    pass
 
 
 class TraceContextError(BrainStateError):
-  pass
+    pass

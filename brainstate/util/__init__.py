@@ -41,12 +41,12 @@ __all__ = (
     + _visualization_all
 )
 del (
-  _others_all,
-  _mem_scale_all,
-  _filter_all,
-  _pretty_repr_all,
-  _struct_all,
-  _error_all,
-  _mapping_all,
-  _visualization_all,
+    _others_all,
+    _mem_scale_all,
+    _filter_all,
+    _pretty_repr_all,
+    _struct_all,
+    _error_all,
+    _mapping_all,
+    _visualization_all,
 )

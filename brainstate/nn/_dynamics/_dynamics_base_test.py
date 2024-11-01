@@ -75,6 +75,5 @@ class TestDynamics(unittest.TestCase):
         self.assertEqual(dyn.varshape, (6,))
 
 
-
 if __name__ == '__main__':
     unittest.main()

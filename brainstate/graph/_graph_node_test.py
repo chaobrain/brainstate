@@ -14,61 +14,62 @@
 # ==============================================================================
 
 from __future__ import annotations
+
 import unittest
 
 import brainstate as bst
 
 
 class TestSequential(unittest.TestCase):
-  def test1(self):
-    s = bst.graph.Sequential(bst.nn.Linear(1, 2),
-                             bst.nn.Linear(2, 3))
-    graphdef, states = bst.graph.treefy_split(s)
-    print(states)
-    self.assertTrue(len(states.to_flat()) == 2)
+    def test1(self):
+        s = bst.graph.Sequential(bst.nn.Linear(1, 2),
+                                 bst.nn.Linear(2, 3))
+        graphdef, states = bst.graph.treefy_split(s)
+        print(states)
+        self.assertTrue(len(states.to_flat()) == 2)
 
 
 class TestStateRetrieve(unittest.TestCase):
-  def test_list_of_states_1(self):
-    class Model(bst.graph.Node):
-      def __init__(self):
-        self.a = [1, 2, 3]
-        self.b = [bst.State(1), bst.State(2), bst.State(3)]
+    def test_list_of_states_1(self):
+        class Model(bst.graph.Node):
+            def __init__(self):
+                self.a = [1, 2, 3]
+                self.b = [bst.State(1), bst.State(2), bst.State(3)]
 
-    m = Model()
-    graphdef, states = bst.graph.treefy_split(m)
-    print(states.to_flat())
-    self.assertTrue(len(states.to_flat()) == 3)
+        m = Model()
+        graphdef, states = bst.graph.treefy_split(m)
+        print(states.to_flat())
+        self.assertTrue(len(states.to_flat()) == 3)
 
-  def test_list_of_states_2(self):
-    class Model(bst.graph.Node):
-      def __init__(self):
-        self.a = [1, 2, 3]
-        self.b = [bst.State(1), [bst.State(2), bst.State(3)]]
+    def test_list_of_states_2(self):
+        class Model(bst.graph.Node):
+            def __init__(self):
+                self.a = [1, 2, 3]
+                self.b = [bst.State(1), [bst.State(2), bst.State(3)]]
 
-    m = Model()
-    graphdef, states = bst.graph.treefy_split(m)
-    print(states.to_flat())
-    self.assertTrue(len(states.to_flat()) == 3)
+        m = Model()
+        graphdef, states = bst.graph.treefy_split(m)
+        print(states.to_flat())
+        self.assertTrue(len(states.to_flat()) == 3)
 
-  def test_list_of_node_1(self):
-    class Model(bst.graph.Node):
-      def __init__(self):
-        self.a = [1, 2, 3]
-        self.b = [bst.nn.Linear(1, 2), bst.nn.Linear(2, 3)]
+    def test_list_of_node_1(self):
+        class Model(bst.graph.Node):
+            def __init__(self):
+                self.a = [1, 2, 3]
+                self.b = [bst.nn.Linear(1, 2), bst.nn.Linear(2, 3)]
 
-    m = Model()
-    graphdef, states = bst.graph.treefy_split(m)
-    print(states.to_flat())
-    self.assertTrue(len(states.to_flat()) == 2)
+        m = Model()
+        graphdef, states = bst.graph.treefy_split(m)
+        print(states.to_flat())
+        self.assertTrue(len(states.to_flat()) == 2)
 
-  def test_list_of_node_2(self):
-    class Model(bst.graph.Node):
-      def __init__(self):
-        self.a = [1, 2, 3]
-        self.b = [bst.nn.Linear(1, 2), [bst.nn.Linear(2, 3)], (bst.nn.Linear(3, 4), bst.nn.Linear(4, 5))]
+    def test_list_of_node_2(self):
+        class Model(bst.graph.Node):
+            def __init__(self):
+                self.a = [1, 2, 3]
+                self.b = [bst.nn.Linear(1, 2), [bst.nn.Linear(2, 3)], (bst.nn.Linear(3, 4), bst.nn.Linear(4, 5))]
 
-    m = Model()
-    graphdef, states = bst.graph.treefy_split(m)
-    print(states.to_flat())
-    self.assertTrue(len(states.to_flat()) == 4)
+        m = Model()
+        graphdef, states = bst.graph.treefy_split(m)
+        print(states.to_flat())
+        self.assertTrue(len(states.to_flat()) == 4)
