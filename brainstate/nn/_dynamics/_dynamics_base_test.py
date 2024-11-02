@@ -45,8 +45,8 @@ class TestDynamics(unittest.TestCase):
     def test_initialization(self):
         dyn = bst.nn.Dynamics(in_size=10)
         self.assertIsInstance(dyn, bst.nn.Dynamics)
-        self.assertEqual(dyn.size, (10,))
-        self.assertEqual(dyn.num, 10)
+        self.assertEqual(dyn.in_size, (10,))
+        self.assertEqual(dyn.out_size, (10,))
 
     def test_size_validation(self):
         with self.assertRaises(ValueError):
@@ -72,7 +72,7 @@ class TestDynamics(unittest.TestCase):
         dyn = bst.nn.Dynamics(in_size=(2, 3))
         self.assertEqual(dyn.varshape, (2, 3))
         dyn = bst.nn.Dynamics(in_size=(2, 3))
-        self.assertEqual(dyn.varshape, (6,))
+        self.assertEqual(dyn.varshape, (2, 3))
 
 
 if __name__ == '__main__':

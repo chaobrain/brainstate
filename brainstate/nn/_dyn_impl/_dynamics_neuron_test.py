@@ -144,7 +144,7 @@ class TestNeuron(unittest.TestCase):
     def test_keep_size(self):
         in_size = (2, 3)
         for NeuronClass in [IF, LIF, ALIF]:
-            neuron = NeuronClass(in_size, keep_size=True)
+            neuron = NeuronClass(in_size)
             self.assertEqual(neuron.in_size, in_size)
             self.assertEqual(neuron.out_size, in_size)
 

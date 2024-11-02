@@ -114,7 +114,7 @@ class TestSynapse(unittest.TestCase):
     def test_keep_size(self):
         in_size = (2, 3)
         for SynapseClass in [Expon, ]:
-            synapse = SynapseClass(in_size, keep_size=True)
+            synapse = SynapseClass(in_size)
             self.assertEqual(synapse.in_size, in_size)
             self.assertEqual(synapse.out_size, in_size)
 
