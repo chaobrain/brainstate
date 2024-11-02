@@ -31,38 +31,38 @@ Y = 0.8 * X ** 2 + 0.1 + np.random.normal(0, 0.1, size=X.shape)
 
 
 def dataset(batch_size):
-  while True:
-    idx = np.random.choice(len(X), size=batch_size)
-    yield X[idx], Y[idx]
+    while True:
+        idx = np.random.choice(len(X), size=batch_size)
+        yield X[idx], Y[idx]
 
 
 class Linear(bst.nn.Module):
-  def __init__(self, din: int, dout: int):
-    super().__init__()
-    self.w = bst.ParamState(bst.random.rand(din, dout))
-    self.b = bst.ParamState(jnp.zeros((dout,)))
+    def __init__(self, din: int, dout: int):
+        super().__init__()
+        self.w = bst.ParamState(bst.random.rand(din, dout))
+        self.b = bst.ParamState(jnp.zeros((dout,)))
 
-  def __call__(self, x):
-    return x @ self.w.value + self.b.value
+    def __call__(self, x):
+        return x @ self.w.value + self.b.value
 
 
 class Count(bst.State):
-  pass
+    pass
 
 
 class MLP(bst.nn.Module):
-  def __init__(self, din, dhidden, dout):
-    super().__init__()
-    self.count = Count(jnp.array(0))
-    self.linear1 = Linear(din, dhidden)
-    self.linear2 = Linear(dhidden, dout)
+    def __init__(self, din, dhidden, dout):
+        super().__init__()
+        self.count = Count(jnp.array(0))
+        self.linear1 = Linear(din, dhidden)
+        self.linear2 = Linear(dhidden, dout)
 
-  def __call__(self, x):
-    self.count.value += 1
-    x = self.linear1(x)
-    x = jax.nn.relu(x)
-    x = self.linear2(x)
-    return x
+    def __call__(self, x):
+        self.count.value += 1
+        x = self.linear1(x)
+        x = jax.nn.relu(x)
+        x = self.linear2(x)
+        return x
 
 
 model = MLP(din=1, dhidden=32, dout=1)
@@ -71,33 +71,33 @@ optimizer = bst.optim.OptaxOptimizer(model.states(bst.ParamState), optax.sgd(1e-
 
 @bst.compile.jit
 def train_step(batch):
-  x, y = batch
+    x, y = batch
 
-  def loss_fn():
-    return jnp.mean((y - model(x)) ** 2)
+    def loss_fn():
+        return jnp.mean((y - model(x)) ** 2)
 
-  grads = bst.augment.grad(loss_fn, model.states(bst.ParamState))()
-  optimizer.update(grads)
+    grads = bst.augment.grad(loss_fn, model.states(bst.ParamState))()
+    optimizer.update(grads)
 
 
 @bst.compile.jit
 def test_step(batch):
-  x, y = batch
-  y_pred = model(x)
-  loss = jnp.mean((y - y_pred) ** 2)
-  return {'loss': loss}
+    x, y = batch
+    y_pred = model(x)
+    loss = jnp.mean((y - y_pred) ** 2)
+    return {'loss': loss}
 
 
 total_steps = 10_000
 for step, batch in enumerate(dataset(32)):
-  train_step(batch)
+    train_step(batch)
 
-  if step % 1000 == 0:
-    logs = test_step((X, Y))
-    print(f"step: {step}, loss: {logs['loss']}")
+    if step % 1000 == 0:
+        logs = test_step((X, Y))
+        print(f"step: {step}, loss: {logs['loss']}")
 
-  if step >= total_steps - 1:
-    break
+    if step >= total_steps - 1:
+        break
 
 print('times called:', model.count.value)
 

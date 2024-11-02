@@ -21,10 +21,11 @@
 #
 
 
-import jax
 import brainunit as u
-import brainstate as bst
+import jax
 import matplotlib.pyplot as plt
+
+import brainstate as bst
 
 Vr = 10. * u.mV
 theta = 20. * u.mV
@@ -41,59 +42,59 @@ sparseness = C / N
 
 
 class LIF(bst.nn.Neuron):
-  def __init__(self, in_size, **kwargs):
-    super().__init__(in_size, **kwargs)
+    def __init__(self, in_size, **kwargs):
+        super().__init__(in_size, **kwargs)
 
-  def init_state(self, *args, **kwargs):
-    # variables
-    self.V = bst.HiddenState(bst.init.param(bst.init.Constant(Vr), self.varshape))
-    self.t_last_spike = bst.ShortTermState(bst.init.param(bst.init.Constant(-1e7 * u.ms), self.varshape))
+    def init_state(self, *args, **kwargs):
+        # variables
+        self.V = bst.HiddenState(bst.init.param(bst.init.Constant(Vr), self.varshape))
+        self.t_last_spike = bst.ShortTermState(bst.init.param(bst.init.Constant(-1e7 * u.ms), self.varshape))
 
-  def update(self):
-    # integrate membrane potential
-    fv = lambda V: (-V + self.sum_current_inputs(muext, V)) / tau
-    gv = lambda V: sigmaext / u.math.sqrt(tau)
-    V = bst.nn.exp_euler_step(fv, gv, self.V.value)
-    V = self.sum_delta_inputs(V)
+    def update(self):
+        # integrate membrane potential
+        fv = lambda V: (-V + self.sum_current_inputs(muext, V)) / tau
+        gv = lambda V: sigmaext / u.math.sqrt(tau)
+        V = bst.nn.exp_euler_step(fv, gv, self.V.value)
+        V = self.sum_delta_inputs(V)
 
-    # refractory period
-    t = bst.environ.get('t')
-    in_ref = (t - self.t_last_spike.value) <= taurefr
-    V = u.math.where(in_ref, self.V.value, V)
+        # refractory period
+        t = bst.environ.get('t')
+        in_ref = (t - self.t_last_spike.value) <= taurefr
+        V = u.math.where(in_ref, self.V.value, V)
 
-    # spike
-    spike = V >= theta
-    self.V.value = u.math.where(spike, Vr, V)
-    self.t_last_spike.value = u.math.where(spike, t, self.t_last_spike.value)
-    return spike
+        # spike
+        spike = V >= theta
+        self.V.value = u.math.where(spike, Vr, V)
+        self.t_last_spike.value = u.math.where(spike, t, self.t_last_spike.value)
+        return spike
 
 
 class Net(bst.nn.DynamicsGroup):
-  def __init__(self, num):
-    super().__init__()
-    self.group = LIF(num)
-    self.delay = bst.nn.Delay(jax.ShapeDtypeStruct((num,), bool), delta)
-    self.syn = bst.nn.DeltaProj(
-      comm=bst.event.FixedProb(num, num, sparseness, weight=-J),
-      post=self.group
-    )
+    def __init__(self, num):
+        super().__init__()
+        self.group = LIF(num)
+        self.delay = bst.nn.Delay(jax.ShapeDtypeStruct((num,), bool), delta)
+        self.syn = bst.nn.DeltaProj(
+            comm=bst.event.FixedProb(num, num, sparseness, weight=-J),
+            post=self.group
+        )
 
-  def update(self, t, i):
-    with bst.environ.context(t=t, i=i):
-      self.syn(self.delay.retrieve_at_step((delta / bst.environ.get_dt()).astype(int)))
-      spike = self.group()
-      self.delay(spike)
-      return spike
+    def update(self, t, i):
+        with bst.environ.context(t=t, i=i):
+            self.syn(self.delay.retrieve_at_step((delta / bst.environ.get_dt()).astype(int)))
+            spike = self.group()
+            self.delay(spike)
+            return spike
 
 
 with bst.environ.context(dt=0.1 * u.ms):
-  # initialize network
-  net = bst.nn.init_all_states(Net(N))
+    # initialize network
+    net = bst.nn.init_all_states(Net(N))
 
-  # simulation
-  times = u.math.arange(0. * u.ms, duration, bst.environ.get_dt())
-  indices = u.math.arange(times.size)
-  spikes = bst.compile.for_loop(net.update, times, indices, pbar=bst.compile.ProgressBar(10))
+    # simulation
+    times = u.math.arange(0. * u.ms, duration, bst.environ.get_dt())
+    indices = u.math.arange(times.size)
+    spikes = bst.compile.for_loop(net.update, times, indices, pbar=bst.compile.ProgressBar(10))
 
 # visualization
 times = times.to_decimal(u.ms)

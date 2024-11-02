@@ -104,7 +104,7 @@ class SpikeTime(Dynamics):
             self.i.value += 1
             return spikes
 
-        spike = u.math.zeros(self.num, dtype=self.spk_type)
+        spike = u.math.zeros(self.varshape, dtype=self.spk_type)
         spike = while_loop(_cond_fun, _body_fun, spike)
         return spike
 
