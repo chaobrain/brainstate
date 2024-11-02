@@ -37,10 +37,10 @@ __all__ = (
 )
 
 del (
-  dyn_neuron_all,
-  dyn_synapse_all,
-  inputs_all,
-  readout_all,
-  alignpost_all,
-  rate_rnns,
+    dyn_neuron_all,
+    dyn_synapse_all,
+    inputs_all,
+    readout_all,
+    alignpost_all,
+    rate_rnns,
 )

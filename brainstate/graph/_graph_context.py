@@ -36,18 +36,18 @@ from ._graph_operation import (flatten,
                                A)
 
 __all__ = [
-  'split_context',
-  'merge_context',
+    'split_context',
+    'merge_context',
 ]
 
 
 @dataclasses.dataclass
 class GraphContext(threading.local):
-  """
-  A context manager for handling complex state updates.
-  """
-  ref_index_stack: List[SplitContext] = dataclasses.field(default_factory=list)
-  index_ref_stack: List[MergeContext] = dataclasses.field(default_factory=list)
+    """
+    A context manager for handling complex state updates.
+    """
+    ref_index_stack: List[SplitContext] = dataclasses.field(default_factory=list)
+    index_ref_stack: List[MergeContext] = dataclasses.field(default_factory=list)
 
 
 GRAPH_CONTEXT = GraphContext()
@@ -55,64 +55,64 @@ GRAPH_CONTEXT = GraphContext()
 
 @dataclasses.dataclass
 class SplitContext:
-  """
-  A context manager for handling graph splitting.
-  """
-  ref_index: RefMap[Any, Index]
+    """
+    A context manager for handling graph splitting.
+    """
+    ref_index: RefMap[Any, Index]
 
-  def treefy_split(self, node: A, *filters: Filter) -> Tuple[GraphDef[A], Unpack[Tuple[NestedDict, ...]]]:
-    graphdef, statetree = flatten(node, self.ref_index)
-    state_mappings = _split_state(statetree, filters)
-    return graphdef, *state_mappings
+    def treefy_split(self, node: A, *filters: Filter) -> Tuple[GraphDef[A], Unpack[Tuple[NestedDict, ...]]]:
+        graphdef, statetree = flatten(node, self.ref_index)
+        state_mappings = _split_state(statetree, filters)
+        return graphdef, *state_mappings
 
 
 @contextlib.contextmanager
 def split_context():
-  """
-  A context manager for handling graph splitting.
-  """
-  index_ref: RefMap[Any, Index] = RefMap()
-  flatten_ctx = SplitContext(index_ref)
-  GRAPH_CONTEXT.ref_index_stack.append(flatten_ctx)
+    """
+    A context manager for handling graph splitting.
+    """
+    index_ref: RefMap[Any, Index] = RefMap()
+    flatten_ctx = SplitContext(index_ref)
+    GRAPH_CONTEXT.ref_index_stack.append(flatten_ctx)
 
-  try:
-    yield flatten_ctx
-  finally:
-    GRAPH_CONTEXT.ref_index_stack.pop()
-    del flatten_ctx.ref_index
+    try:
+        yield flatten_ctx
+    finally:
+        GRAPH_CONTEXT.ref_index_stack.pop()
+        del flatten_ctx.ref_index
 
 
 @dataclasses.dataclass
 class MergeContext:
-  """
-  A context manager for handling graph merging.
-  """
-  index_ref: dict[Index, Any]
+    """
+    A context manager for handling graph merging.
+    """
+    index_ref: dict[Index, Any]
 
-  def treefy_merge(
-      self,
-      graphdef: GraphDef[A],
-      state_mapping: NestedDict,
-      /,
-      *state_mappings: NestedDict
-  ) -> A:
-    state_mapping = NestedDict.merge(state_mapping, *state_mappings)
-    node = unflatten(graphdef, state_mapping, index_ref=self.index_ref)
-    return node
+    def treefy_merge(
+        self,
+        graphdef: GraphDef[A],
+        state_mapping: NestedDict,
+        /,
+        *state_mappings: NestedDict
+    ) -> A:
+        state_mapping = NestedDict.merge(state_mapping, *state_mappings)
+        node = unflatten(graphdef, state_mapping, index_ref=self.index_ref)
+        return node
 
 
 @contextlib.contextmanager
 def merge_context():
-  """
-  A context manager for handling graph merging.
-  """
-  index_ref: dict[Index, Any] = {}
+    """
+    A context manager for handling graph merging.
+    """
+    index_ref: dict[Index, Any] = {}
 
-  unflatten_ctx = MergeContext(index_ref)
-  GRAPH_CONTEXT.index_ref_stack.append(unflatten_ctx)
+    unflatten_ctx = MergeContext(index_ref)
+    GRAPH_CONTEXT.index_ref_stack.append(unflatten_ctx)
 
-  try:
-    yield unflatten_ctx
-  finally:
-    GRAPH_CONTEXT.index_ref_stack.pop()
-    del unflatten_ctx.index_ref
+    try:
+        yield unflatten_ctx
+    finally:
+        GRAPH_CONTEXT.index_ref_stack.pop()
+        del unflatten_ctx.index_ref

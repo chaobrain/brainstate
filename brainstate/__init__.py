@@ -39,11 +39,11 @@ from ._state import __all__ as _state_all
 
 __all__ = (
     [
-      'augment', 'compile', 'environ', 'event', 'functional',
-      'graph', 'init', 'mixin', 'nn', 'optim', 'random',
-      'surrogate', 'typing', 'util',
-      # deprecated
-      'transform',
+        'augment', 'compile', 'environ', 'event', 'functional',
+        'graph', 'init', 'mixin', 'nn', 'optim', 'random',
+        'surrogate', 'typing', 'util',
+        # deprecated
+        'transform',
     ] +
     _state_all
 )
@@ -56,9 +56,9 @@ from ._utils import deprecation_getattr
 
 transform._deprecations = dict()
 for key in compile.__all__:
-  transform._deprecations[key] = (f'brainstate.transform.{key}', f'brainstate.compile.{key}', getattr(compile, key))
+    transform._deprecations[key] = (f'brainstate.transform.{key}', f'brainstate.compile.{key}', getattr(compile, key))
 for key in augment.__all__:
-  transform._deprecations[key] = (f'brainstate.transform.{key}', f'brainstate.augment.{key}', getattr(augment, key))
+    transform._deprecations[key] = (f'brainstate.transform.{key}', f'brainstate.augment.{key}', getattr(augment, key))
 transform.__getattr__ = deprecation_getattr('brainstate.transform', transform._deprecations)
 del deprecation_getattr
 

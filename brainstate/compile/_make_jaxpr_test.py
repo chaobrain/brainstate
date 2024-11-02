@@ -14,6 +14,7 @@
 # ==============================================================================
 
 from __future__ import annotations
+
 import unittest
 
 import jax
@@ -24,110 +25,110 @@ import brainstate as bst
 
 
 class TestMakeJaxpr(unittest.TestCase):
-  def test_compar_jax_make_jaxpr(self):
-    def func4(arg):  # Arg is a pair
-      temp = arg[0] + jnp.sin(arg[1]) * 3.
-      c = bst.random.rand_like(arg[0])
-      return jnp.sum(temp + c)
+    def test_compar_jax_make_jaxpr(self):
+        def func4(arg):  # Arg is a pair
+            temp = arg[0] + jnp.sin(arg[1]) * 3.
+            c = bst.random.rand_like(arg[0])
+            return jnp.sum(temp + c)
 
-    key = bst.random.DEFAULT.value
-    jaxpr = jax.make_jaxpr(func4)((jnp.zeros(8), jnp.ones(8)))
-    print(jaxpr)
-    self.assertTrue(len(jaxpr.in_avals) == 2)
-    self.assertTrue(len(jaxpr.consts) == 1)
-    self.assertTrue(len(jaxpr.out_avals) == 1)
-    self.assertTrue(jnp.allclose(jaxpr.consts[0], key))
+        key = bst.random.DEFAULT.value
+        jaxpr = jax.make_jaxpr(func4)((jnp.zeros(8), jnp.ones(8)))
+        print(jaxpr)
+        self.assertTrue(len(jaxpr.in_avals) == 2)
+        self.assertTrue(len(jaxpr.consts) == 1)
+        self.assertTrue(len(jaxpr.out_avals) == 1)
+        self.assertTrue(jnp.allclose(jaxpr.consts[0], key))
 
-    bst.random.seed(1)
-    print(bst.random.DEFAULT.value)
+        bst.random.seed(1)
+        print(bst.random.DEFAULT.value)
 
-    jaxpr2, states = bst.compile.make_jaxpr(func4)((jnp.zeros(8), jnp.ones(8)))
-    print(jaxpr2)
-    self.assertTrue(len(jaxpr2.in_avals) == 3)
-    self.assertTrue(len(jaxpr2.out_avals) == 2)
-    self.assertTrue(len(jaxpr2.consts) == 0)
-    print(bst.random.DEFAULT.value)
+        jaxpr2, states = bst.compile.make_jaxpr(func4)((jnp.zeros(8), jnp.ones(8)))
+        print(jaxpr2)
+        self.assertTrue(len(jaxpr2.in_avals) == 3)
+        self.assertTrue(len(jaxpr2.out_avals) == 2)
+        self.assertTrue(len(jaxpr2.consts) == 0)
+        print(bst.random.DEFAULT.value)
 
-  def test_StatefulFunction_1(self):
-    def func4(arg):  # Arg is a pair
-      temp = arg[0] + jnp.sin(arg[1]) * 3.
-      c = bst.random.rand_like(arg[0])
-      return jnp.sum(temp + c)
+    def test_StatefulFunction_1(self):
+        def func4(arg):  # Arg is a pair
+            temp = arg[0] + jnp.sin(arg[1]) * 3.
+            c = bst.random.rand_like(arg[0])
+            return jnp.sum(temp + c)
 
-    fun = bst.compile.StatefulFunction(func4).make_jaxpr((jnp.zeros(8), jnp.ones(8)))
-    print(fun.get_states())
-    print(fun.get_jaxpr())
+        fun = bst.compile.StatefulFunction(func4).make_jaxpr((jnp.zeros(8), jnp.ones(8)))
+        print(fun.get_states())
+        print(fun.get_jaxpr())
 
-  def test_StatefulFunction_2(self):
-    st1 = bst.State(jnp.ones(10))
+    def test_StatefulFunction_2(self):
+        st1 = bst.State(jnp.ones(10))
 
-    def f1(x):
-      st1.value = x + st1.value
+        def f1(x):
+            st1.value = x + st1.value
 
-    def f2(x):
-      jaxpr = bst.compile.make_jaxpr(f1)(x)
-      c = 1. + x
-      return c
+        def f2(x):
+            jaxpr = bst.compile.make_jaxpr(f1)(x)
+            c = 1. + x
+            return c
 
-    def f3(x):
-      jaxpr = bst.compile.make_jaxpr(f1)(x)
-      c = 1.
-      return c
+        def f3(x):
+            jaxpr = bst.compile.make_jaxpr(f1)(x)
+            c = 1.
+            return c
 
-    print()
-    jaxpr = bst.compile.make_jaxpr(f1)(jnp.zeros(1))
-    print(jaxpr)
-    jaxpr = jax.make_jaxpr(f2)(jnp.zeros(1))
-    print(jaxpr)
-    jaxpr = jax.make_jaxpr(f3)(jnp.zeros(1))
-    print(jaxpr)
-    jaxpr, _ = bst.compile.make_jaxpr(f3)(jnp.zeros(1))
-    print(jaxpr)
-    self.assertTrue(jnp.allclose(jax.core.jaxpr_as_fun(jaxpr)(jnp.zeros(1), st1.value)[0],
-                                 f3(jnp.zeros(1))))
+        print()
+        jaxpr = bst.compile.make_jaxpr(f1)(jnp.zeros(1))
+        print(jaxpr)
+        jaxpr = jax.make_jaxpr(f2)(jnp.zeros(1))
+        print(jaxpr)
+        jaxpr = jax.make_jaxpr(f3)(jnp.zeros(1))
+        print(jaxpr)
+        jaxpr, _ = bst.compile.make_jaxpr(f3)(jnp.zeros(1))
+        print(jaxpr)
+        self.assertTrue(jnp.allclose(jax.core.jaxpr_as_fun(jaxpr)(jnp.zeros(1), st1.value)[0],
+                                     f3(jnp.zeros(1))))
 
-  def test_compar_jax_make_jaxpr2(self):
-    st1 = bst.State(jnp.ones(10))
+    def test_compar_jax_make_jaxpr2(self):
+        st1 = bst.State(jnp.ones(10))
 
-    def fa(x):
-      st1.value = x + st1.value
+        def fa(x):
+            st1.value = x + st1.value
 
-    def ffa(x):
-      jaxpr, states = bst.compile.make_jaxpr(fa)(x)
-      c = 1. + x
-      return c
+        def ffa(x):
+            jaxpr, states = bst.compile.make_jaxpr(fa)(x)
+            c = 1. + x
+            return c
 
-    jaxpr, states = bst.compile.make_jaxpr(ffa)(jnp.zeros(1))
-    print()
-    print(jaxpr)
-    print(states)
-    print(jax.core.jaxpr_as_fun(jaxpr)(jnp.zeros(1), st1.value))
-    jaxpr = jax.make_jaxpr(ffa)(jnp.zeros(1))
-    print(jaxpr)
-    print(jax.core.jaxpr_as_fun(jaxpr)(jnp.zeros(1)))
+        jaxpr, states = bst.compile.make_jaxpr(ffa)(jnp.zeros(1))
+        print()
+        print(jaxpr)
+        print(states)
+        print(jax.core.jaxpr_as_fun(jaxpr)(jnp.zeros(1), st1.value))
+        jaxpr = jax.make_jaxpr(ffa)(jnp.zeros(1))
+        print(jaxpr)
+        print(jax.core.jaxpr_as_fun(jaxpr)(jnp.zeros(1)))
 
-  def test_compar_jax_make_jaxpr3(self):
-    def fa(x):
-      return 1.
+    def test_compar_jax_make_jaxpr3(self):
+        def fa(x):
+            return 1.
 
-    jaxpr, states = bst.compile.make_jaxpr(fa)(jnp.zeros(1))
-    print()
-    print(jaxpr)
-    print(states)
-    # print(jax.core.jaxpr_as_fun(jaxpr)(jnp.zeros(1)))
-    jaxpr = jax.make_jaxpr(fa)(jnp.zeros(1))
-    print(jaxpr)
-    # print(jax.core.jaxpr_as_fun(jaxpr)(jnp.zeros(1)))
+        jaxpr, states = bst.compile.make_jaxpr(fa)(jnp.zeros(1))
+        print()
+        print(jaxpr)
+        print(states)
+        # print(jax.core.jaxpr_as_fun(jaxpr)(jnp.zeros(1)))
+        jaxpr = jax.make_jaxpr(fa)(jnp.zeros(1))
+        print(jaxpr)
+        # print(jax.core.jaxpr_as_fun(jaxpr)(jnp.zeros(1)))
 
 
 def test_return_states():
-  import jax.numpy
+    import jax.numpy
 
-  a = bst.State(jax.numpy.ones(3))
+    a = bst.State(jax.numpy.ones(3))
 
-  @bst.compile.jit
-  def f():
-    return a
+    @bst.compile.jit
+    def f():
+        return a
 
-  with pytest.raises(ValueError):
-    f()
+    with pytest.raises(ValueError):
+        f()

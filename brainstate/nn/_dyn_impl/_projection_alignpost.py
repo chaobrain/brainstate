@@ -22,4 +22,4 @@ __all__ = [
 
 
 class ExponentialSynapse(Projection):
-  pass
+    pass

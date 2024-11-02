@@ -35,7 +35,7 @@ class CANN1D(bst.nn.Dynamics):
       self, num, tau=1., tau_v=50., k=1., a=0.3, A=0.2, J0=1.,
       z_min=-u.math.pi, z_max=u.math.pi, m=0.3
   ):
-    super().__init__(size=num)
+    super().__init__(num)
 
     # parameters
     self.tau = tau  # The synaptic time constant
@@ -59,9 +59,9 @@ class CANN1D(bst.nn.Dynamics):
 
   def init_state(self, *args, **kwargs):
     # variables
-    self.r = bst.ShortTermState(u.math.zeros(self.varshape))
-    self.u = bst.ShortTermState(u.math.zeros(self.varshape))
-    self.v = bst.ShortTermState(u.math.zeros(self.varshape))
+    self.r = bst.HiddenState(u.math.zeros(self.varshape))
+    self.u = bst.HiddenState(u.math.zeros(self.varshape))
+    self.v = bst.HiddenState(u.math.zeros(self.varshape))
 
   def dist(self, d):
     d = u.math.remainder(d, self.z_range)

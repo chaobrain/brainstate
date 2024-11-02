@@ -136,7 +136,8 @@ class ExponentialSmooth(object):
 
 class GIF(bst.nn.Neuron):
   def __init__(
-      self, size,
+      self,
+      in_size,
       V_rest=0. * u.mV,
       V_th_inf=1. * u.mV,
       R=1. * u.ohm,
@@ -147,10 +148,9 @@ class GIF(bst.nn.Neuron):
       I2_initializer: Callable = bst.init.ZeroInit(unit=u.mA),
       spike_fun: Callable = bst.surrogate.ReluGrad(),
       spk_reset: str = 'soft',
-      keep_size: bool = False,
       name: str = None,
   ):
-    super().__init__(size, keep_size=keep_size, name=name, spk_fun=spike_fun, spk_reset=spk_reset)
+    super().__init__(in_size, name=name, spk_fun=spike_fun, spk_reset=spk_reset)
 
     # params
     self.V_rest = bst.init.param(V_rest, self.varshape, allow_none=False)

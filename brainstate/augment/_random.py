@@ -22,56 +22,56 @@ from brainstate.random import DEFAULT, RandomState
 from brainstate.typing import Missing
 
 __all__ = [
-  'restore_rngs'
+    'restore_rngs'
 ]
 
 
 class RngBackupRestore:
-  def __init__(self, rngs: Sequence[RandomState]):
-    self.rngs = rngs
-    self.rng_keys = []
+    def __init__(self, rngs: Sequence[RandomState]):
+        self.rngs = rngs
+        self.rng_keys = []
 
-  def backup(self):
-    self.rng_keys = [rng.value for rng in self.rngs]
+    def backup(self):
+        self.rng_keys = [rng.value for rng in self.rngs]
 
-  def restore(self):
-    for rng, key in zip(self.rngs, self.rng_keys):
-      rng.value = key
-    self.rng_keys = []
+    def restore(self):
+        for rng, key in zip(self.rngs, self.rng_keys):
+            rng.value = key
+        self.rng_keys = []
 
 
 def _rng_backup(
     fn: Callable,
     rngs: Union[RandomState, Sequence[RandomState]]
 ) -> Callable:
-  rng_processor = RngBackupRestore(rngs)
+    rng_processor = RngBackupRestore(rngs)
 
-  @functools.wraps(fn)
-  def wrapper(*args, **kwargs):
-    # backup the random state
-    rng_processor.backup()
-    # call the function
-    out = fn(*args, **kwargs)
-    # restore the random state
-    rng_processor.restore()
-    return out
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        # backup the random state
+        rng_processor.backup()
+        # call the function
+        out = fn(*args, **kwargs)
+        # restore the random state
+        rng_processor.restore()
+        return out
 
-  return wrapper
+    return wrapper
 
 
 def restore_rngs(
     fn: Callable = Missing(),
     rngs: Union[RandomState, Sequence[RandomState]] = DEFAULT,
 ) -> Callable:
-  """
-  Backup the current random state and restore it after the function call.
-  """
-  if isinstance(fn, Missing):
-    return functools.partial(_rng_backup, rngs=rngs)
+    """
+    Backup the current random state and restore it after the function call.
+    """
+    if isinstance(fn, Missing):
+        return functools.partial(_rng_backup, rngs=rngs)
 
-  if isinstance(rngs, RandomState):
-    rngs = [rngs]
-  assert isinstance(rngs, Sequence), 'rngs must be a RandomState or a sequence of RandomState instances.'
-  for rng in rngs:
-    assert isinstance(rng, RandomState), 'rngs must be a RandomState or a sequence of RandomState instances.'
-  return _rng_backup(fn, rngs=rngs)
+    if isinstance(rngs, RandomState):
+        rngs = [rngs]
+    assert isinstance(rngs, Sequence), 'rngs must be a RandomState or a sequence of RandomState instances.'
+    for rng in rngs:
+        assert isinstance(rng, RandomState), 'rngs must be a RandomState or a sequence of RandomState instances.'
+    return _rng_backup(fn, rngs=rngs)

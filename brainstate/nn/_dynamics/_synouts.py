@@ -20,142 +20,142 @@ from __future__ import annotations
 import brainunit as u
 import jax.numpy as jnp
 
-from brainstate.mixin import ParamDesc, BindCondData
+from brainstate.mixin import BindCondData
 from brainstate.nn._module import Module
 from brainstate.typing import ArrayLike
 
 __all__ = [
-  'SynOut', 'COBA', 'CUBA', 'MgBlock',
+    'SynOut', 'COBA', 'CUBA', 'MgBlock',
 ]
 
 
-class SynOut(Module, ParamDesc, BindCondData):
-  """
-  Base class for synaptic outputs.
+class SynOut(Module, BindCondData):
+    """
+    Base class for synaptic outputs.
 
-  :py:class:`~.SynOut` is also subclass of :py:class:`~.ParamDesc` and :py:class:`~.BindCondData`.
-  """
+    :py:class:`~.SynOut` is also subclass of :py:class:`~.ParamDesc` and :py:class:`~.BindCondData`.
+    """
 
-  __module__ = 'brainstate.nn'
+    __module__ = 'brainstate.nn'
 
-  def __init__(self, ):
-    super().__init__()
-    self._conductance = None
+    def __init__(self, ):
+        super().__init__()
+        self._conductance = None
 
-  def __call__(self, *args, **kwargs):
-    if self._conductance is None:
-      raise ValueError(f'Please first pack conductance data at the current step using '
-                       f'".{BindCondData.bind_cond.__name__}(data)". {self}')
-    ret = self.update(self._conductance, *args, **kwargs)
-    return ret
+    def __call__(self, *args, **kwargs):
+        if self._conductance is None:
+            raise ValueError(f'Please first pack conductance data at the current step using '
+                             f'".{BindCondData.bind_cond.__name__}(data)". {self}')
+        ret = self.update(self._conductance, *args, **kwargs)
+        return ret
 
 
 class COBA(SynOut):
-  r"""
-  Conductance-based synaptic output.
+    r"""
+    Conductance-based synaptic output.
 
-  Given the synaptic conductance, the model output the post-synaptic current with
+    Given the synaptic conductance, the model output the post-synaptic current with
 
-  .. math::
+    .. math::
 
-     I_{syn}(t) = g_{\mathrm{syn}}(t) (E - V(t))
+       I_{syn}(t) = g_{\mathrm{syn}}(t) (E - V(t))
 
-  Parameters
-  ----------
-  E: ArrayLike
-    The reversal potential.
+    Parameters
+    ----------
+    E: ArrayLike
+      The reversal potential.
 
-  See Also
-  --------
-  CUBA
-  """
-  __module__ = 'brainstate.nn'
+    See Also
+    --------
+    CUBA
+    """
+    __module__ = 'brainstate.nn'
 
-  def __init__(self, E: ArrayLike):
-    super().__init__()
+    def __init__(self, E: ArrayLike):
+        super().__init__()
 
-    self.E = E
+        self.E = E
 
-  def update(self, conductance, potential):
-    return conductance * (self.E - potential)
+    def update(self, conductance, potential):
+        return conductance * (self.E - potential)
 
 
 class CUBA(SynOut):
-  r"""Current-based synaptic output.
+    r"""Current-based synaptic output.
 
-  Given the conductance, this model outputs the post-synaptic current with a identity function:
+    Given the conductance, this model outputs the post-synaptic current with a identity function:
 
-  .. math::
+    .. math::
 
-     I_{\mathrm{syn}}(t) = g_{\mathrm{syn}}(t)
+       I_{\mathrm{syn}}(t) = g_{\mathrm{syn}}(t)
 
-  Parameters
-  ----------
-  scale: ArrayLike
-    The scaling factor for the conductance. Default 1. [mV]
+    Parameters
+    ----------
+    scale: ArrayLike
+      The scaling factor for the conductance. Default 1. [mV]
 
-  See Also
-  --------
-  COBA
-  """
-  __module__ = 'brainstate.nn'
+    See Also
+    --------
+    COBA
+    """
+    __module__ = 'brainstate.nn'
 
-  def __init__(self, scale: ArrayLike = u.volt):
-    super().__init__()
-    self.scale = scale
+    def __init__(self, scale: ArrayLike = u.volt):
+        super().__init__()
+        self.scale = scale
 
-  def update(self, conductance, potential=None):
-    return conductance * self.scale
+    def update(self, conductance, potential=None):
+        return conductance * self.scale
 
 
 class MgBlock(SynOut):
-  r"""Synaptic output based on Magnesium blocking.
+    r"""Synaptic output based on Magnesium blocking.
 
-  Given the synaptic conductance, the model output the post-synaptic current with
+    Given the synaptic conductance, the model output the post-synaptic current with
 
-  .. math::
+    .. math::
 
-     I_{syn}(t) = g_{\mathrm{syn}}(t) (E - V(t)) g_{\infty}(V,[{Mg}^{2+}]_{o})
+       I_{syn}(t) = g_{\mathrm{syn}}(t) (E - V(t)) g_{\infty}(V,[{Mg}^{2+}]_{o})
 
-  where The fraction of channels :math:`g_{\infty}` that are not blocked by magnesium can be fitted to
+    where The fraction of channels :math:`g_{\infty}` that are not blocked by magnesium can be fitted to
 
-  .. math::
+    .. math::
 
-     g_{\infty}(V,[{Mg}^{2+}]_{o}) = (1+{e}^{-\alpha V} \frac{[{Mg}^{2+}]_{o}} {\beta})^{-1}
+       g_{\infty}(V,[{Mg}^{2+}]_{o}) = (1+{e}^{-\alpha V} \frac{[{Mg}^{2+}]_{o}} {\beta})^{-1}
 
-  Here :math:`[{Mg}^{2+}]_{o}` is the extracellular magnesium concentration.
+    Here :math:`[{Mg}^{2+}]_{o}` is the extracellular magnesium concentration.
 
-  Parameters
-  ----------
-  E: ArrayLike
-    The reversal potential for the synaptic current. [mV]
-  alpha: ArrayLike
-    Binding constant. Default 0.062
-  beta: ArrayLike
-    Unbinding constant. Default 3.57
-  cc_Mg: ArrayLike
-    Concentration of Magnesium ion. Default 1.2 [mM].
-  V_offset: ArrayLike
-    The offset potential. Default 0. [mV]
-  """
-  __module__ = 'brainstate.nn'
+    Parameters
+    ----------
+    E: ArrayLike
+      The reversal potential for the synaptic current. [mV]
+    alpha: ArrayLike
+      Binding constant. Default 0.062
+    beta: ArrayLike
+      Unbinding constant. Default 3.57
+    cc_Mg: ArrayLike
+      Concentration of Magnesium ion. Default 1.2 [mM].
+    V_offset: ArrayLike
+      The offset potential. Default 0. [mV]
+    """
+    __module__ = 'brainstate.nn'
 
-  def __init__(
-      self,
-      E: ArrayLike = 0.,
-      cc_Mg: ArrayLike = 1.2,
-      alpha: ArrayLike = 0.062,
-      beta: ArrayLike = 3.57,
-      V_offset: ArrayLike = 0.,
-  ):
-    super().__init__()
+    def __init__(
+        self,
+        E: ArrayLike = 0.,
+        cc_Mg: ArrayLike = 1.2,
+        alpha: ArrayLike = 0.062,
+        beta: ArrayLike = 3.57,
+        V_offset: ArrayLike = 0.,
+    ):
+        super().__init__()
 
-    self.E = E
-    self.V_offset = V_offset
-    self.cc_Mg = cc_Mg
-    self.alpha = alpha
-    self.beta = beta
+        self.E = E
+        self.V_offset = V_offset
+        self.cc_Mg = cc_Mg
+        self.alpha = alpha
+        self.beta = beta
 
-  def update(self, conductance, potential):
-    norm = (1 + self.cc_Mg / self.beta * jnp.exp(self.alpha * (self.V_offset - potential)))
-    return conductance * (self.E - potential) / norm
+    def update(self, conductance, potential):
+        norm = (1 + self.cc_Mg / self.beta * jnp.exp(self.alpha * (self.V_offset - potential)))
+        return conductance * (self.E - potential) / norm

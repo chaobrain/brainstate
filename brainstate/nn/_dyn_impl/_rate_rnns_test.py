@@ -14,6 +14,7 @@
 # ==============================================================================
 
 from __future__ import annotations
+
 import unittest
 
 import jax.numpy as jnp
@@ -22,42 +23,42 @@ import brainstate as bst
 
 
 class TestRateRNNModels(unittest.TestCase):
-  def setUp(self):
-    self.num_in = 3
-    self.num_out = 3
-    self.batch_size = 4
-    self.x = jnp.ones((self.batch_size, self.num_in))
+    def setUp(self):
+        self.num_in = 3
+        self.num_out = 3
+        self.batch_size = 4
+        self.x = jnp.ones((self.batch_size, self.num_in))
 
-  def test_ValinaRNNCell(self):
-    model = bst.nn.ValinaRNNCell(num_in=self.num_in, num_out=self.num_out)
-    model.init_state(batch_size=self.batch_size)
-    output = model.update(self.x)
-    self.assertEqual(output.shape, (self.batch_size, self.num_out))
+    def test_ValinaRNNCell(self):
+        model = bst.nn.ValinaRNNCell(num_in=self.num_in, num_out=self.num_out)
+        model.init_state(batch_size=self.batch_size)
+        output = model.update(self.x)
+        self.assertEqual(output.shape, (self.batch_size, self.num_out))
 
-  def test_GRUCell(self):
-    model = bst.nn.GRUCell(num_in=self.num_in, num_out=self.num_out)
-    model.init_state(batch_size=self.batch_size)
-    output = model.update(self.x)
-    self.assertEqual(output.shape, (self.batch_size, self.num_out))
+    def test_GRUCell(self):
+        model = bst.nn.GRUCell(num_in=self.num_in, num_out=self.num_out)
+        model.init_state(batch_size=self.batch_size)
+        output = model.update(self.x)
+        self.assertEqual(output.shape, (self.batch_size, self.num_out))
 
-  def test_MGUCell(self):
-    model = bst.nn.MGUCell(num_in=self.num_in, num_out=self.num_out)
-    model.init_state(batch_size=self.batch_size)
-    output = model.update(self.x)
-    self.assertEqual(output.shape, (self.batch_size, self.num_out))
+    def test_MGUCell(self):
+        model = bst.nn.MGUCell(num_in=self.num_in, num_out=self.num_out)
+        model.init_state(batch_size=self.batch_size)
+        output = model.update(self.x)
+        self.assertEqual(output.shape, (self.batch_size, self.num_out))
 
-  def test_LSTMCell(self):
-    model = bst.nn.LSTMCell(num_in=self.num_in, num_out=self.num_out)
-    model.init_state(batch_size=self.batch_size)
-    output = model.update(self.x)
-    self.assertEqual(output.shape, (self.batch_size, self.num_out))
+    def test_LSTMCell(self):
+        model = bst.nn.LSTMCell(num_in=self.num_in, num_out=self.num_out)
+        model.init_state(batch_size=self.batch_size)
+        output = model.update(self.x)
+        self.assertEqual(output.shape, (self.batch_size, self.num_out))
 
-  def test_URLSTMCell(self):
-    model = bst.nn.URLSTMCell(num_in=self.num_in, num_out=self.num_out)
-    model.init_state(batch_size=self.batch_size)
-    output = model.update(self.x)
-    self.assertEqual(output.shape, (self.batch_size, self.num_out))
+    def test_URLSTMCell(self):
+        model = bst.nn.URLSTMCell(num_in=self.num_in, num_out=self.num_out)
+        model.init_state(batch_size=self.batch_size)
+        output = model.update(self.x)
+        self.assertEqual(output.shape, (self.batch_size, self.num_out))
 
 
 if __name__ == '__main__':
-  unittest.main()
+    unittest.main()

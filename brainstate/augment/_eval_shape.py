@@ -25,7 +25,7 @@ from brainstate.graph import graph_to_tree, tree_to_graph
 A = TypeVar('A')
 
 __all__ = [
-  'eval_shape',
+    'eval_shape',
 ]
 
 
@@ -34,16 +34,16 @@ def eval_shape(
     *args: Any,
     **kwargs: Any,
 ) -> A:
-  """
-  Evaluate the shape of the output of a function.
-  """
+    """
+    Evaluate the shape of the output of a function.
+    """
 
-  @functools.wraps(f)
-  def _eval_shape_fn(*args_, **kwargs_):
-    args_, kwargs_ = tree_to_graph((args_, kwargs_))
-    out = f(*args_, **kwargs_)
-    return graph_to_tree(out)[0]
+    @functools.wraps(f)
+    def _eval_shape_fn(*args_, **kwargs_):
+        args_, kwargs_ = tree_to_graph((args_, kwargs_))
+        out = f(*args_, **kwargs_)
+        return graph_to_tree(out)[0]
 
-  args, kwargs = graph_to_tree((args, kwargs))[0]
-  out = jax.eval_shape(_eval_shape_fn, *args, **kwargs)
-  return tree_to_graph(out)
+    args, kwargs = graph_to_tree((args, kwargs))[0]
+    out = jax.eval_shape(_eval_shape_fn, *args, **kwargs)
+    return tree_to_graph(out)

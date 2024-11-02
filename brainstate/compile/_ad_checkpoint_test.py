@@ -14,6 +14,7 @@
 # ==============================================================================
 
 from __future__ import annotations
+
 import jax
 import jax.numpy as jnp
 from absl.testing import absltest
@@ -22,29 +23,29 @@ import brainstate as bst
 
 
 class TestRemat(absltest.TestCase):
-  def test_basic_remat(self):
-    module = bst.compile.remat(bst.nn.Linear(2, 3))
-    y = module(jnp.ones((1, 2)))
-    assert y.shape == (1, 3)
+    def test_basic_remat(self):
+        module = bst.compile.remat(bst.nn.Linear(2, 3))
+        y = module(jnp.ones((1, 2)))
+        assert y.shape == (1, 3)
 
-  def test_remat_with_scan(self):
-    class ScanLinear(bst.nn.Module):
-      def __init__(self):
-        super().__init__()
-        self.linear = bst.nn.Linear(3, 3)
+    def test_remat_with_scan(self):
+        class ScanLinear(bst.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.linear = bst.nn.Linear(3, 3)
 
-      def __call__(self, x: jax.Array):
-        @bst.compile.remat
-        def fun(x: jax.Array, _):
-          x = self.linear(x)
-          return x, None
+            def __call__(self, x: jax.Array):
+                @bst.compile.remat
+                def fun(x: jax.Array, _):
+                    x = self.linear(x)
+                    return x, None
 
-        return bst.compile.scan(fun, x, None, length=10)[0]
+                return bst.compile.scan(fun, x, None, length=10)[0]
 
-    m = ScanLinear()
+        m = ScanLinear()
 
-    assert m.linear.weight.value['weight'].shape == (3, 3)
-    assert m.linear.weight.value['bias'].shape == (3,)
+        assert m.linear.weight.value['weight'].shape == (3, 3)
+        assert m.linear.weight.value['bias'].shape == (3,)
 
-    y = m(jnp.ones((10, 3)))
-    assert y.shape == (10, 3)
+        y = m(jnp.ones((10, 3)))
+        assert y.shape == (10, 3)

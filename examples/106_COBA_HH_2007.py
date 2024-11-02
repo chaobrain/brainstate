@@ -63,16 +63,16 @@ class HH(bst.nn.Dynamics):
   Hodgkin-Huxley neuron model.
   """
 
-  def __init__(self, size):
-    super().__init__(size)
+  def __init__(self, in_size):
+    super().__init__(in_size)
 
   def init_state(self, *args, **kwargs):
     # variables
-    self.V = bst.ShortTermState(El + (bst.random.randn(*self.varshape) * 5 - 5) * u.mV)
-    self.m = bst.ShortTermState(u.math.zeros(self.varshape))
-    self.n = bst.ShortTermState(u.math.zeros(self.varshape))
-    self.h = bst.ShortTermState(u.math.zeros(self.varshape))
-    self.spike = bst.ShortTermState(u.math.zeros(self.varshape, dtype=bool))
+    self.V = bst.HiddenState(El + (bst.random.randn(*self.varshape) * 5 - 5) * u.mV)
+    self.m = bst.HiddenState(u.math.zeros(self.varshape))
+    self.n = bst.HiddenState(u.math.zeros(self.varshape))
+    self.h = bst.HiddenState(u.math.zeros(self.varshape))
+    self.spike = bst.HiddenState(u.math.zeros(self.varshape, dtype=bool))
 
   def reset_state(self, *args, **kwargs):
     self.V.value = El + (bst.random.randn(self.varshape) * 5 - 5)

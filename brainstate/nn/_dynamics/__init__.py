@@ -30,8 +30,8 @@ __all__ = (
 )
 
 del (
-  dyn_all,
-  projection_all,
-  state_delay_all,
-  synouts_all
+    dyn_all,
+    projection_all,
+    state_delay_all,
+    synouts_all
 )
