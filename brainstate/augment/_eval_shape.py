@@ -16,11 +16,13 @@
 from __future__ import annotations
 
 import functools
-from typing import Callable, TypeVar, Any
+from typing import Any, TypeVar, Callable, Sequence, Union
 
 import jax
 
 from brainstate.graph import graph_to_tree, tree_to_graph
+from brainstate.random import DEFAULT, RandomState
+from ._random import restore_rngs
 
 __all__ = [
     'eval_shape',
@@ -32,6 +34,7 @@ A = TypeVar('A')
 def eval_shape(
     fn: Callable[..., A],
     *args: Any,
+    rngs: Union[RandomState, Sequence[RandomState]] = DEFAULT,
     **kwargs: Any,
 ) -> A:
     """
@@ -77,6 +80,9 @@ def eval_shape(
         **kwargs: a keyword argument dict of arrays, scalars, or (nested) standard
               Python containers (pytrees) of those types. As in ``args``, array values
               need only be duck-typed to have ``shape`` and ``dtype`` attributes.
+        rngs: a :class:`RandomState` or a sequence of :class:`RandomState` objects
+                representing the random number generators to use. If not provided, the
+                default random number generator will be used.
 
     Returns:
         out: a nested PyTree containing :class:`jax.ShapeDtypeStruct` objects as leaves.
@@ -85,6 +91,7 @@ def eval_shape(
     """
 
     @functools.wraps(fn)
+    @restore_rngs(rngs=rngs)
     def _eval_shape_fn(*args_, **kwargs_):
         args_, kwargs_ = tree_to_graph((args_, kwargs_))
         out = fn(*args_, **kwargs_)

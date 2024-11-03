@@ -37,3 +37,4 @@ class TestEvalShape(unittest.TestCase):
 
         r = bst.augment.eval_shape(lambda: MLP(1, 2, 3))
         print(r)
+        print(bst.random.DEFAULT)
