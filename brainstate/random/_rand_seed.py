@@ -186,32 +186,16 @@ def seed_context(seed_or_key: SeedOrKey):
     ...     print(bst.random.rand(2))
     [0.95598125 0.4032725 ]
 
-    .. note::
-
-       The context manager does not only set the seed for the AX random state, but also for the numpy random state.
-
     Args:
       seed_or_key: The seed (an integer) or jax random key.
 
     """
+    # get the old random key
     old_jrand_key = DEFAULT.value
-    old_np_state = np.random.get_state()
     try:
-        # step 1: set the seed of numpy random state
-        try:
-            if np.size(seed_or_key) == 1:  # seed
-                np.random.seed(seed_or_key)
-            elif np.size(seed_or_key) == 2:  # jax random key
-                np.random.seed(seed_or_key[0])
-            else:
-                raise ValueError(f"seed_or_key should be an integer or a tuple of two integers.")
-        except jax.errors.TracerArrayConversionError:
-            pass
-
-        # step 2: set the seed of jax random state
+        # set the seed of jax random state
         DEFAULT.seed(seed_or_key)
         yield
     finally:
         # restore the random state
-        np.random.set_state(old_np_state)
         DEFAULT.seed(old_jrand_key)

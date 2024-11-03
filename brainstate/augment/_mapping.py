@@ -21,8 +21,8 @@ from typing import Any, TypeVar, Callable, Hashable, Sequence, Iterable, Mapping
 
 import jax
 
-from brainstate.compile._loop_collect_return import for_loop
 from brainstate.graph import (NodeStates, graph_to_tree, tree_to_graph)
+from brainstate.random import DEFAULT, RandomState
 from brainstate.typing import Missing, Filter
 from brainstate.util import NestedDict
 from ._random import restore_rngs
@@ -30,16 +30,11 @@ from ._random import restore_rngs
 __all__ = [
     'StateAxes',
     'vmap',
-    'vmap_with_default_rng',
     'pmap',
-    'mini_vmap',
-    'mini_pmap',
 ]
 
 AxisName = Hashable
 F = TypeVar("F", bound=Callable)
-X = TypeVar("X")
-Y = TypeVar("Y")
 Index = int
 Carry = TypeVar("Carry")
 
@@ -47,6 +42,14 @@ Carry = TypeVar("Carry")
 class StateAxes:
     """
     A class to represent the axes of a state.
+
+    This class is used to control how graph nodes like Modules are vectorized or
+    parallelized by specifying the axes to be applied to substates of the graph
+    node given a Filter.
+
+    Args:
+        filter_axes: A mapping from filters to axes. The axes can be an index, a carry or None.
+
     """
 
     def __init__(
@@ -87,7 +90,6 @@ def _map_split_fn(ctx, path, prefix, x):
 @dataclasses.dataclass(eq=False)
 class MapFn:
     f: Callable[..., Any]
-    in_axes: Any
     out_axes: Any
 
     def __post_init__(self):
@@ -99,7 +101,7 @@ class MapFn:
         # call the function
         out = self.f(*args)
         # graph to pytree
-        pure_out, _ = graph_to_tree(out, prefix=self.out_axes, split_fn=_map_split_fn)
+        pure_out = graph_to_tree(out, prefix=self.out_axes, split_fn=_map_split_fn)
         return pure_out
 
 
@@ -109,10 +111,7 @@ def _map_transform(
     *,
     in_axes: Optional[int | Sequence[Any]] = 0,
     out_axes: Any = 0,
-    # specific to 'brainstate'
-    rng_splits: int = 0,
-    rng_restore: bool = True,
-    # transform kwargs
+    rngs: Union[RandomState, Sequence[RandomState]] = DEFAULT,
     **transform_kwargs,
 ):
     # jax in axes
@@ -128,18 +127,22 @@ def _map_transform(
     )
 
     # mapped function
-    mapped_fn = transform(MapFn(f, in_axes, out_axes), in_axes=jax_in_axes, out_axes=jax_out_axes, **transform_kwargs)
+    mapped_fn = transform(MapFn(f, out_axes),
+                          in_axes=jax_in_axes,
+                          out_axes=jax_out_axes,
+                          **transform_kwargs)
 
     @functools.wraps(f)
+    @restore_rngs(rngs=rngs)  # restore the random key of default random number generator
     def map_wrapper(*args):
         # graph to pytree
-        pure_args, rng_backup = graph_to_tree(args, prefix=in_axes, split_fn=_map_split_fn, rng_splits=rng_splits)
+        pure_args = graph_to_tree(args, prefix=in_axes, split_fn=_map_split_fn)
 
         # vmap with pytree
         pure_out = mapped_fn(*pure_args)
 
         # pytree to graph
-        return tree_to_graph(pure_out, rng_backup=rng_backup if (rng_restore and rng_splits > 0) else dict())
+        return tree_to_graph(pure_out)
 
     return map_wrapper  # type: ignore
 
@@ -152,48 +155,137 @@ def vmap(
     axis_name: AxisName | None = None,
     axis_size: int | None = None,
     spmd_axis_name: AxisName | tuple[AxisName, ...] | None = None,
-    # specific to 'brainstate'
-    rng_splits: int = 0,
-    rng_restore: bool = True,
+    # brainstate specific arguments
+    rngs: Union[RandomState, Sequence[RandomState]] = DEFAULT,
 ) -> F | Callable[[F], F]:
-    """Reference-aware version of `jax.vmap <https://jax.readthedocs.io/en/latest/_autosummary/jax.vmap.html>`__.
+    """
+    Vectorizing map. Creates a function which maps ``fun`` over argument axes.
 
-    Args:
-      f: Function to be mapped over additional axes.
-      in_axes: An integer, None, or sequence of values specifying which input
-        array axes to map over (see `jax.vmap
-        <https://jax.readthedocs.io/en/latest/_autosummary/jax.vmap.html>`__). In
-        addition to integers and None, :class:`StateAxes`  can be used to control
-        how graph nodes like Modules are vectorized by specifying the axes to be
-        applied to substates of the graph node given a `Filter
-        <https://flax.readthedocs.io/en/latest/nnx/filters_guide.html>`__.
-      out_axes: An integer, None, or pytree indicating where the mapped axis
-        should appear in the output (see `jax.vmap
-        <https://jax.readthedocs.io/en/latest/_autosummary/jax.vmap.html>`__).
-      axis_name: Optional, a hashable Python object used to identify the mapped
-        axis so that parallel collectives can be applied.
-      axis_size: Optional, an integer indicating the size of the axis to be
-        mapped. If not provided, the mapped axis size is inferred from arguments.
+    The transformation :func:`vmap` is designed to work with ``pygraph`` structure
+    defined in the ``brainstate`` library. It is used to vectorize functions by
+    pushing the mapped axis down into primitive operations.
 
-    Returns:
-      Batched/vectorized version of ``f`` with arguments that correspond to
-      those of ``f``, but with extra array axes at positions indicated by
-      ``in_axes``, and a return value that corresponds to that of ``f``, but
-      with extra array axes at positions indicated by ``out_axes``.
+    More information please see `jax.vmap <https://jax.readthedocs.io/en/latest/_autosummary/jax.vmap.html>`__.
 
-    Example::
 
-      >>> import brainstate as bst
-      >>> import jax.numpy as jnp
+    These are several example usage::
 
-    To control control how graph node substates are vectorized, ``StateAxes``
+        >>> import brainstate as bst
+        >>> import jax.numpy as jnp
+
+        >>> model = bst.nn.Linear(2, 3)
+        >>> x = jnp.ones((5, 2))
+
+        >>> @bst.augment.vmap(in_axes=(None, 0), out_axes=0)
+        ... def forward(model, x):
+        ...     return model(x)
+
+        >>> y = forward(model, x)
+        >>> print(y.shape)
+        (5, 3)
+
+    Another example with a more complex model::
+
+        >>> class LinearEnsemble(bst.nn.Module):
+        ...     def __init__(self, n: int):
+        ...         super().__init__()
+        ...         self.n = n
+        ...         self.w = bst.ParamState(bst.random.random((n, 2, 3)))
+
+        >>> model = LinearEnsemble(5)
+        >>> x = jnp.ones((2,))
+
+        >>> @bst.augment.vmap(in_axes=(0, None), out_axes=0)
+        ... def forward(model, x):
+        ...     return jnp.dot(x, model.w.value)
+
+        >>> y = forward(model, x)
+        >>> print(y.shape)
+        (5, 3)
+
+    To control how different types of states are vectorized, ``StateAxes``
     can be passed to ``in_axes`` and ``out_axes`` specifying the axes to be
     applied to each substate given a filter. The following example shows how to
     share the parameters between the ensemble members which keeping different
     batch statistics and dropout random state::
 
-      >>> import brainstate as bst
-      >>> import jax.numpy as jnp
+    >>> class Foo(bst.nn.Module):
+    ...     def __init__(self):
+    ...         super().__init__()
+    ...         self.a = bst.ParamState(jnp.arange(4))
+    ...         self.b = bst.ShortTermState(jnp.arange(4))
+
+    >>> state_axes = bst.augment.StateAxes({bst.ParamState: 0, bst.ShortTermState: None})
+    >>> @bst.augment.vmap(in_axes=(state_axes,), out_axes=0)
+    ... def mul(foo):
+    ...     return foo.a.value * foo.b.value
+
+    >>> model = Foo()
+    >>> y = mul(model)
+    >>> print(y.shape)
+    (4, 4)
+
+    Args:
+        fn: Function to be mapped over additional axes.
+        in_axes: An integer, None, or sequence of values specifying which input
+          array axes to map over.
+
+          If each positional argument to ``fun`` is an array, then ``in_axes`` can
+          be an integer, a None, or a tuple of integers and Nones with length equal
+          to the number of positional arguments to ``fun``. An integer or ``None``
+          indicates which array axis to map over for all arguments (with ``None``
+          indicating not to map any axis), and a tuple indicates which axis to map
+          for each corresponding positional argument. Axis integers must be in the
+          range ``[-ndim, ndim)`` for each array, where ``ndim`` is the number of
+          dimensions (axes) of the corresponding input array.
+
+          If the positional arguments to ``fun`` are container (pytree) types, ``in_axes``
+          must be a sequence with length equal to the number of positional arguments to
+          ``fun``, and for each argument the corresponding element of ``in_axes`` can
+          be a container with a matching pytree structure specifying the mapping of its
+          container elements. In other words, ``in_axes`` must be a container tree prefix
+          of the positional argument tuple passed to ``fun``. See this link for more detail:
+          https://jax.readthedocs.io/en/latest/pytrees.html#applying-optional-parameters-to-pytrees
+
+          Either ``axis_size`` must be provided explicitly, or at least one
+          positional argument must have ``in_axes`` not None. The sizes of the
+          mapped input axes for all mapped positional arguments must all be equal.
+
+          Arguments passed as keywords are always mapped over their leading axis
+          (i.e. axis index 0).
+
+          See below for examples.
+
+        out_axes: An integer, None, or (nested) standard Python container
+          (tuple/list/dict) thereof indicating where the mapped axis should appear
+          in the output. All outputs with a mapped axis must have a non-None
+          ``out_axes`` specification. Axis integers must be in the range ``[-ndim,
+          ndim)`` for each output array, where ``ndim`` is the number of dimensions
+          (axes) of the array returned by the :func:`vmap`-ed function, which is one
+          more than the number of dimensions (axes) of the corresponding array
+          returned by ``fun``.
+        axis_name: Optional, a hashable Python object used to identify the mapped
+          axis so that parallel collectives can be applied.
+        axis_size: Optional, an integer indicating the size of the axis to be
+          mapped. If not provided, the mapped axis size is inferred from arguments.
+        spmd_axis_name: Optional, a hashable Python object or tuple of hashable
+            Python objects used to identify the mapped axis so that parallel collectives
+            can be applied. This is used to specify multiple axes to be mapped over
+            in a nested :func:`vmap` call. The length of the tuple must match the
+            number of nested :func:`vmap` calls. The first element of the tuple
+            corresponds to the outermost :func:`vmap` call, the second element to
+            the next outermost, and so on. If the tuple is not provided, the
+            ``axis_name`` is used for all nested :func:`vmap` calls.
+        rngs: Optional, a random number generator or sequence of random number
+            generators to be used in the mapped function. These random number
+            generators are restored their random key after the mapped function is
+            executed.
+
+    Returns:
+        Batched/vectorized version of ``fun`` with arguments that correspond to
+        those of ``fun``, but with extra array axes at positions indicated by
+        ``in_axes``, and a return value that corresponds to that of ``fun``, but
+        with extra array axes at positions indicated by ``out_axes``.
 
     """
     if isinstance(fn, Missing):
@@ -204,50 +296,18 @@ def vmap(
             axis_name=axis_name,
             axis_size=axis_size,
             spmd_axis_name=spmd_axis_name,
-            rng_splits=rng_splits,
-            rng_restore=rng_restore,
+            rngs=rngs,
         )  # type: ignore[return-value]
 
-    return _map_transform(jax.vmap, fn,
-                          in_axes=in_axes,
-                          out_axes=out_axes,
-                          axis_name=axis_name,
-                          axis_size=axis_size,
-                          spmd_axis_name=spmd_axis_name,
-                          rng_splits=rng_splits,
-                          rng_restore=rng_restore, )
-
-
-def vmap_with_default_rng(
-    fn: F | Missing = Missing(),
-    *,
-    in_axes: int | None | Sequence[Any] = 0,
-    out_axes: Any = 0,
-    axis_name: AxisName | None = None,
-    axis_size: int | None = None,
-    spmd_axis_name: AxisName | tuple[AxisName, ...] | None = None,
-) -> F | Callable[[F], F]:
-    if isinstance(fn, Missing):
-        return functools.partial(
-            vmap_with_default_rng,
-            in_axes=in_axes,
-            out_axes=out_axes,
-            axis_name=axis_name,
-            axis_size=axis_size,
-            spmd_axis_name=spmd_axis_name,
-        )  # type: ignore[return-value]
-
-    return restore_rngs(
-        _map_transform(
-            jax.vmap,
-            fn,
-            in_axes=in_axes,
-            out_axes=out_axes,
-            axis_name=axis_name,
-            axis_size=axis_size,
-            spmd_axis_name=spmd_axis_name
-
-        )
+    return _map_transform(
+        jax.vmap,
+        fn,
+        in_axes=in_axes,
+        out_axes=out_axes,
+        axis_name=axis_name,
+        axis_size=axis_size,
+        spmd_axis_name=spmd_axis_name,
+        rngs=rngs
     )
 
 
@@ -263,8 +323,8 @@ def pmap(
     axis_size: Optional[int] = None,
     donate_argnums: int | Iterable[int] = (),
     global_arg_shapes: Optional[Tuple[Tuple[int, ...], ...]] = None,
-    rng_splits: int = 0,
-    rng_restore: bool = True,
+    # brainstate specific arguments
+    rngs: Union[RandomState, Sequence[RandomState]] = DEFAULT,
 ) -> Callable[[F], F] | F:
     """
     Parallel map with support for collective operations.
@@ -284,32 +344,70 @@ def pmap(
     product of the mapped axis sizes must be less than or equal to the number of
     XLA devices.
 
-    .. note::
-      :py:func:`pmap` compiles ``fun``, so while it can be combined with
-      :py:func:`jit`, it's usually unnecessary.
+    More information please see `jax.vmap <https://jax.readthedocs.io/en/latest/_autosummary/jax.vmap.html>`__.
 
-    :py:func:`pmap` requires that all of the participating devices are identical.
-    For example, it is not possible to use :py:func:`pmap` to parallelize a
-    computation across two different models of GPU. It is currently an error for
-    the same device to participate twice in the same `pmap`.
+    If there are 4 XLA devices available, the following example will execute
+    the function in parallel on each device::
 
-    **Multi-process platforms:** On multi-process platforms such as TPU pods,
-    :py:func:`pmap` is designed to be used in SPMD Python programs, where every
-    process is running the same Python code such that all processes run the same
-    pmapped function in the same order. Each process should still call the pmapped
-    function with mapped axis size equal to the number of *local* devices (unless
-    ``devices`` is specified, see below), and an array of the same leading axis
-    size will be returned as usual. However, any collective operations in ``fun``
-    will be computed over *all* participating devices, including those on other
-    processes, via device-to-device communication.  Conceptually, this can be
-    thought of as running a pmap over a single array sharded across processes,
-    where each process "sees" only its local shard of the input and output. The
-    SPMD model requires that the same multi-process pmaps must be run in the same
-    order on all devices, but they can be interspersed with arbitrary operations
-    running in a single process.
+
+        >>> import brainstate as bst
+        >>> import jax.numpy as jnp
+
+        >>> model = bst.nn.Linear(2, 3)
+        >>> x = jnp.ones((4, 2))
+
+        >>> @bst.augment.vmap(in_axes=(None, 0), out_axes=0)
+        ... def forward(model, x):
+        ...     return model(x)
+
+        >>> y = forward(model, x)
+        >>> print(y.shape)
+        (4, 3)
+
+    Another example with a more complex model::
+
+        >>> class LinearEnsemble(bst.nn.Module):
+        ...     def __init__(self, n: int):
+        ...         super().__init__()
+        ...         self.n = n
+        ...         self.w = bst.ParamState(bst.random.random((n, 2, 3)))
+
+        >>> model = LinearEnsemble(4)
+        >>> x = jnp.ones((2,))
+
+        >>> @bst.augment.vmap(in_axes=(0, None), out_axes=0)
+        ... def forward(model, x):
+        ...     return jnp.dot(x, model.w.value)
+
+        >>> y = forward(model, x)
+        >>> print(y.shape)
+        (4, 3)
+
+    To control how different types of states are vectorized, ``StateAxes``
+    can be passed to ``in_axes`` and ``out_axes`` specifying the axes to be
+    applied to each substate given a filter. The following example shows how to
+    share the parameters between the ensemble members which keeping different
+    batch statistics and dropout random state::
+
+    >>> class Foo(bst.nn.Module):
+    ...     def __init__(self):
+    ...         super().__init__()
+    ...         self.a = bst.ParamState(jnp.arange(4))
+    ...         self.b = bst.ShortTermState(jnp.arange(4))
+
+    >>> state_axes = bst.augment.StateAxes({bst.ParamState: 0, bst.ShortTermState: None})
+    >>> @bst.augment.vmap(in_axes=(state_axes,), out_axes=0)
+    ... def mul(foo):
+    ...     return foo.a.value * foo.b.value
+
+    >>> model = Foo()
+    >>> y = mul(model)
+    >>> print(y.shape)
+    (4, 4)
+
 
     Args:
-      fun: Function to be mapped over argument axes. Its arguments and return
+      fn: Function to be mapped over argument axes. Its arguments and return
         value should be arrays, scalars, or (nested) standard Python containers
         (tuple/list/dict) thereof. Positional arguments indicated by
         ``static_broadcasted_argnums`` can be anything at all, provided they are
@@ -366,128 +464,16 @@ def pmap(
         the same length as the number of global arguments, and each inner tuple
         should have the same length as the corresponding argument. The shapes of
         the global arguments must be the same on all devices.
+      rngs: Optional, a random number generator or sequence of random number
+        generators to be used in the mapped function. These random number
+        generators are restored their random key after the mapped function is
+        executed.
 
     Returns:
       A parallelized version of ``fun`` with arguments that correspond to those of
       ``fun`` but with extra array axes at positions indicated by ``in_axes`` and
       with output that has an additional leading array axis (with the same size).
 
-    For example, assuming 8 XLA devices are available, :py:func:`pmap` can be used
-    as a map along a leading array axis:
-
-    >>> import jax.numpy as jnp
-    >>>
-    >>> out = pmap(lambda x: x ** 2)(jnp.arange(8))  # doctest: +SKIP
-    >>> print(out)  # doctest: +SKIP
-    [0, 1, 4, 9, 16, 25, 36, 49]
-
-    When the leading dimension is smaller than the number of available devices JAX
-    will simply run on a subset of devices:
-
-    >>> x = jnp.arange(3 * 2 * 2.).reshape((3, 2, 2))
-    >>> y = jnp.arange(3 * 2 * 2.).reshape((3, 2, 2)) ** 2
-    >>> out = pmap(jnp.dot)(x, y)  # doctest: +SKIP
-    >>> print(out)  # doctest: +SKIP
-    [[[    4.     9.]
-      [   12.    29.]]
-     [[  244.   345.]
-      [  348.   493.]]
-     [[ 1412.  1737.]
-      [ 1740.  2141.]]]
-
-    If your leading dimension is larger than the number of available devices you
-    will get an error:
-
-    >>> pmap(lambda x: x ** 2)(jnp.arange(9))  # doctest: +SKIP
-    ValueError: ... requires 9 replicas, but only 8 XLA devices are available
-
-    As with :py:func:`vmap`, using ``None`` in ``in_axes`` indicates that an
-    argument doesn't have an extra axis and should be broadcasted, rather than
-    mapped, across the replicas:
-
-    >>> x, y = jnp.arange(2.), 4.
-    >>> out = pmap(lambda x, y: (x + y, y * 2.), in_axes=(0, None))(x, y)  # doctest: +SKIP
-    >>> print(out)  # doctest: +SKIP
-    ([4., 5.], [8., 8.])
-
-    Note that :py:func:`pmap` always returns values mapped over their leading axis,
-    equivalent to using ``out_axes=0`` in :py:func:`vmap`.
-
-    In addition to expressing pure maps, :py:func:`pmap` can also be used to express
-    parallel single-program multiple-data (SPMD) programs that communicate via
-    collective operations. For example:
-
-    >>> f = lambda x: x / jax.lax.psum(x, axis_name='i')
-    >>> out = pmap(f, axis_name='i')(jnp.arange(4.))  # doctest: +SKIP
-    >>> print(out)  # doctest: +SKIP
-    [ 0.          0.16666667  0.33333334  0.5       ]
-    >>> print(out.sum())  # doctest: +SKIP
-    1.0
-
-    In this example, ``axis_name`` is a string, but it can be any Python object
-    with ``__hash__`` and ``__eq__`` defined.
-
-    The argument ``axis_name`` to :py:func:`pmap` names the mapped axis so that
-    collective operations, like :func:`jax.lax.psum`, can refer to it. Axis names
-    are important particularly in the case of nested :py:func:`pmap` functions,
-    where collective operations can operate over distinct axes:
-
-    >>> from functools import partial
-    >>> import jax
-    >>>
-    >>> @partial(pmap, axis_name='rows')
-    ... @partial(pmap, axis_name='cols')
-    ... def normalize(x):
-    ...   row_normed = x / jax.lax.psum(x, 'rows')
-    ...   col_normed = x / jax.lax.psum(x, 'cols')
-    ...   doubly_normed = x / jax.lax.psum(x, ('rows', 'cols'))
-    ...   return row_normed, col_normed, doubly_normed
-    >>>
-    >>> x = jnp.arange(8.).reshape((4, 2))
-    >>> row_normed, col_normed, doubly_normed = normalize(x)  # doctest: +SKIP
-    >>> print(row_normed.sum(0))  # doctest: +SKIP
-    [ 1.  1.]
-    >>> print(col_normed.sum(1))  # doctest: +SKIP
-    [ 1.  1.  1.  1.]
-    >>> print(doubly_normed.sum((0, 1)))  # doctest: +SKIP
-    1.0
-
-    On multi-process platforms, collective operations operate over all devices,
-    including those on other processes. For example, assuming the following code
-    runs on two processes with 4 XLA devices each:
-
-    >>> f = lambda x: x + jax.lax.psum(x, axis_name='i')
-    >>> data = jnp.arange(4) if jax.process_index() == 0 else jnp.arange(4, 8)
-    >>> out = pmap(f, axis_name='i')(data)  # doctest: +SKIP
-    >>> print(out)  # doctest: +SKIP
-    [28 29 30 31] # on process 0
-    [32 33 34 35] # on process 1
-
-    Each process passes in a different length-4 array, corresponding to its 4
-    local devices, and the psum operates over all 8 values. Conceptually, the two
-    length-4 arrays can be thought of as a sharded length-8 array (in this example
-    equivalent to jnp.arange(8)) that is mapped over, with the length-8 mapped
-    axis given name 'i'. The pmap call on each process then returns the
-    corresponding length-4 output shard.
-
-    The ``devices`` argument can be used to specify exactly which devices are used
-    to run the parallel computation. For example, again assuming a single process
-    with 8 devices, the following code defines two parallel computations, one
-    which runs on the first six devices and one on the remaining two:
-
-    >>> from functools import partial
-    >>> @partial(pmap, axis_name='i', devices=jax.devices()[:6])
-    ... def f1(x):
-    ...   return x / jax.lax.psum(x, axis_name='i')
-    >>>
-    >>> @partial(pmap, axis_name='i', devices=jax.devices()[-2:])
-    ... def f2(x):
-    ...   return jax.lax.psum(x ** 2, axis_name='i')
-    >>>
-    >>> print(f1(jnp.arange(6.)))  # doctest: +SKIP
-    [0.         0.06666667 0.13333333 0.2        0.26666667 0.33333333]
-    >>> print(f2(jnp.array([2., 3.])))  # doctest: +SKIP
-    [ 13.  13.]
     """
 
     if isinstance(fn, Missing):
@@ -502,108 +488,20 @@ def pmap(
             axis_size=axis_size,
             donate_argnums=donate_argnums,
             global_arg_shapes=global_arg_shapes,
-            rng_splits=rng_splits,
-            rng_restore=rng_restore,
+            rngs=rngs,
         )  # type: ignore[return-value]
 
-    return _map_transform(jax.pmap, fn,
-                          in_axes=in_axes,
-                          out_axes=out_axes,
-                          axis_name=axis_name,
-                          static_broadcasted_argnums=static_broadcasted_argnums,
-                          devices=devices,
-                          backend=backend,
-                          axis_size=axis_size,
-                          donate_argnums=donate_argnums,
-                          global_arg_shapes=global_arg_shapes,
-                          rng_splits=rng_splits,
-                          rng_restore=rng_restore, )
-
-
-def _flatten(x):
-    return x.reshape(-1, *x.shape[2:])
-
-
-def _batch_and_remainder(x, batch_size: int):
-    leaves, treedef = jax.tree.flatten(x)
-
-    scan_leaves = []
-    remainder_leaves = []
-    for leaf in leaves:
-        num_batches, _ = divmod(leaf.shape[0], batch_size)
-        total_batch_elems = num_batches * batch_size
-        scan_leaves.append(leaf[:total_batch_elems].reshape(num_batches, batch_size, *leaf.shape[1:]))
-        remainder_leaves.append(leaf[total_batch_elems:])
-
-    scan_tree = treedef.unflatten(scan_leaves)
-    remainder_tree = treedef.unflatten(remainder_leaves)
-    return scan_tree, remainder_tree
-
-
-def mini_vmap(
-    f: Callable[[NestedDict, ...], Any],
-    *xs: X,
-    batch_size: int,
-) -> Y:
-    """
-    A memory-efficient version of :func:`vmap`, map a function over leading array axes.
-
-    Like Python's builtin map, except inputs and outputs are in the form of
-    stacked arrays. Consider using the :func:`~jax.vmap` compile instead, unless you
-    need to apply a function element by element for reduced memory usage or
-    heterogeneous computation with other control flow primitives.
-
-    When ``xs`` is an array type, the semantics of :func:`~map` are given by this
-    Python implementation::
-
-      def map(f, xs):
-        return np.stack([f(x) for x in xs])
-
-    Like :func:`~scan`, :func:`~map` is implemented in terms of JAX primitives so
-    many of the same advantages over a Python loop apply: ``xs`` may be an
-    arbitrary nested pytree type, and the mapped computation is compiled only
-    once.
-
-    If ``batch_size`` is provided, the computation is executed in batches of that size
-    and parallelized using :func:`~jax.vmap`. This can be used as either a more performant
-    version of ``map`` or as a memory-efficient version of ``vmap``. If the axis is not
-    divisible by the batch size, the remainder is processed in a separate ``vmap`` and
-    concatenated to the result.
-
-      >>> x = jax.numpy.ones((10, 3, 4))
-      >>> def f(x):
-      ...   print('inner shape:', x.shape)
-      ...   return x + 1
-      >>> y = mini_vmap(f, x, batch_size=3)
-      inner shape: (3, 4)
-      inner shape: (3, 4)
-      >>> y.shape
-      (10, 3, 4)
-
-    In the example above, "inner shape" is printed twice, once while tracing the batched
-    computation and once while tracing the remainder computation.
-
-    Args:
-      f: a Python function to apply element-wise over the first axis or axes of ``xs``.
-      xs: values over which to map along the leading axis.
-      batch_size: (optional) integer specifying the size of the batch for each step to execute in parallel.
-
-    Returns:
-      Mapped values.
-    """
-    scan_xs, remainder_xs = _batch_and_remainder(xs, batch_size)
-    scan_ys = for_loop(vmap(f), scan_xs)
-    remainder_ys = vmap(f)(remainder_xs)
-    ys = jax.tree.map(lambda x, y: jax.numpy.concatenate([_flatten(x), y], axis=0), scan_ys, remainder_ys)
-    return ys
-
-
-def mini_pmap(f, *xs, batch_size: int, **kwargs):
-    """
-    A memory-efficient version of :func:`pmap`, map a function over leading array axes on multiple devices.
-    """
-    scan_xs, remainder_xs = _batch_and_remainder(xs, batch_size)
-    scan_ys = for_loop(pmap(f, **kwargs), scan_xs)
-    remainder_ys = pmap(f, **kwargs)(remainder_xs)
-    ys = jax.tree.map(lambda x, y: jax.numpy.concatenate([_flatten(x), y], axis=0), scan_ys, remainder_ys)
-    return ys
+    return _map_transform(
+        jax.pmap,
+        fn,
+        in_axes=in_axes,
+        out_axes=out_axes,
+        axis_name=axis_name,
+        static_broadcasted_argnums=static_broadcasted_argnums,
+        devices=devices,
+        backend=backend,
+        axis_size=axis_size,
+        donate_argnums=donate_argnums,
+        global_arg_shapes=global_arg_shapes,
+        rngs=rngs,
+    )

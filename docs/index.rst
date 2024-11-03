@@ -134,10 +134,10 @@ We are building the `Brain Dynamics Programming ecosystem <https://ecosystem-for
 
    tutorials/state-en.ipynb
    tutorials/state-zh.ipynb
-   tutorials/program_compilation-en.ipynb
-   tutorials/program_compilation-zh.ipynb
    tutorials/pygraph-en.ipynb
    tutorials/pygraph-zh.ipynb
+   tutorials/program_compilation-en.ipynb
+   tutorials/program_compilation-zh.ipynb
    tutorials/program_augmentation-en.ipynb
    tutorials/program_augmentation-zh.ipynb
    tutorials/event_driven_computation-en.ipynb

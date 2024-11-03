@@ -37,10 +37,8 @@ class TestVmap(unittest.TestCase):
             self.assertTrue(id(m2.a) == id(m3.a))
             return m2, m3
 
-        m2, m3 = create_model(bst.random.split_key(10, backup=True))
+        m2, m3 = create_model(bst.random.split_key(10))
         self.assertTrue(id(m2.a) == id(m3.a))
-        self.assertTrue(isinstance(bst.random.DEFAULT.value, jax.core.Tracer))
-        bst.random.restore_key()
         jax.core.concrete_or_error(None, bst.random.DEFAULT.value)
 
     def test_vmap_return_keep_reference_pass_into_fun(self):
@@ -68,7 +66,6 @@ class TestVmap(unittest.TestCase):
 
         model = create_model(bst.random.split_keys(10))
         print(model.weight.value_call(jnp.shape))
-        self.assertTrue(isinstance(bst.random.DEFAULT.value, jax.core.Tracer))
         model.weight.value_call(lambda x: jax.core.concrete_or_error(None, x))
         bst.random.seed()
 
@@ -110,3 +107,47 @@ class TestVmap(unittest.TestCase):
         print(y.shape)
         print(model.weight.value_call(jnp.shape))
         print(model.weight.value)
+
+    def test_vmap1(self):
+        model = bst.nn.Linear(2, 3)
+        x = jnp.ones((5, 2))
+
+        @bst.augment.vmap(in_axes=(None, 0), out_axes=0)
+        def forward(model, x):
+            return model(x)
+
+        y = forward(model, x)
+        print(y.shape)
+
+    def test_vmap2(self):
+        class LinearEnsemble(bst.nn.Module):
+            def __init__(self, num):
+                super().__init__()
+                self.w = bst.ParamState(bst.random.random((num, 2, 3)))
+
+        model = LinearEnsemble(5)
+        x = jnp.ones((2,))
+
+        @bst.augment.vmap(in_axes=(0, None), out_axes=0)
+        def forward(model, x):
+            return jnp.dot(x, model.w.value)
+
+        y = forward(model, x)
+        print(y.shape)
+
+    def test_vmap3(self):
+        class Foo(bst.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.a = bst.ParamState(jnp.arange(4))
+                self.b = bst.ShortTermState(jnp.arange(4))
+
+        state_axes = bst.augment.StateAxes({bst.ParamState: 0, bst.ShortTermState: None})
+
+        @bst.augment.vmap(in_axes=(state_axes,), out_axes=0)
+        def mul(foo):
+            return foo.a.value * foo.b.value
+
+        foo = Foo()
+        y = mul(foo)
+        print(y.shape)

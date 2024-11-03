@@ -392,6 +392,7 @@ def _graph_flatten(
     ref_index: RefMap[Any, Index],
     flatted_state_mapping: Dict[PathParts, StateLeaf],
     node: Node,
+    treefy_state: bool = False,
 ):
     """
     Recursive helper for graph flatten.
@@ -438,7 +439,7 @@ def _graph_flatten(
     for key, value in values:
         if _is_node(value):
             # Recursively flatten the subgraph.
-            nodedef = _graph_flatten((*path, key), ref_index, flatted_state_mapping, value)
+            nodedef = _graph_flatten((*path, key), ref_index, flatted_state_mapping, value, treefy_state)
             subgraphs.append((key, nodedef))
         elif isinstance(value, State):
             # If the variable is in the cache, add a reference to it.
@@ -447,7 +448,7 @@ def _graph_flatten(
             else:
                 # If the variable is not in the cache, add it to the cache.
                 # This is done to avoid multiple references to the same variable.
-                flatted_state_mapping[(*path, key)] = value.to_state_ref()
+                flatted_state_mapping[(*path, key)] = (value.to_state_ref() if treefy_state else value)
                 variable_index = ref_index[value] = len(ref_index)
                 leaves.append((key, NodeRef(type(value), variable_index)))
         elif _is_state_leaf(value):
@@ -477,8 +478,9 @@ def _graph_flatten(
 def flatten(
     node: Node,
     /,
-    ref_index: Optional[RefMap[Any, Index]] = None
-) -> Tuple[GraphDef, GraphStateMapping]:
+    ref_index: Optional[RefMap[Any, Index]] = None,
+    treefy_state: bool = True,
+) -> Tuple[GraphDef, NestedDict]:
     """
     Flattens a graph node into a (graph_def, state_mapping) pair.
 
@@ -491,15 +493,16 @@ def flatten(
         >>> print(state_mapping)
 
     Args:
-      node: A graph node.
-      ref_index: A mapping from nodes to indexes, defaults to None. If not provided, a new
+        node: A graph node.
+        ref_index: A mapping from nodes to indexes, defaults to None. If not provided, a new
                  empty dictionary is created. This argument can be used to flatten a sequence of graph
                  nodes that share references.
+        treefy_state: If True, the state mapping will be a NestedDict instead of a flat dictionary.
     """
     ref_index = RefMap() if ref_index is None else ref_index
     assert isinstance(ref_index, RefMap), f"ref_index must be a RefMap. But we got: {ref_index}"
     flatted_state_mapping: dict[PathParts, StateLeaf] = {}
-    graph_def = _graph_flatten((), ref_index, flatted_state_mapping, node)
+    graph_def = _graph_flatten((), ref_index, flatted_state_mapping, node, treefy_state)
     return graph_def, NestedDict.from_flat(flatted_state_mapping)
 
 
@@ -559,9 +562,10 @@ def _get_children(graph_def, state_mapping, index_ref, index_ref_cache):
                 raise ValueError(f'Got state for static field {key!r}, this is not supported.')
 
             if key in graph_def.subgraphs:
-                if _is_state_leaf(value):
-                    raise ValueError(
-                        f'Expected value of type {graph_def.subgraphs[key]} for {key!r}, but got {value!r}')
+                # if _is_state_leaf(value):
+                if isinstance(value, (TreefyState, State)):
+                    raise ValueError(f'Expected value of type {graph_def.subgraphs[key]} '
+                                     f'for {key!r}, but got {value!r}')
                 if not isinstance(value, dict):
                     raise TypeError(f'Expected a dict for {key!r}, but got {type(value)}.')
 
@@ -572,7 +576,8 @@ def _get_children(graph_def, state_mapping, index_ref, index_ref_cache):
                     children[key] = _graph_unflatten(subgraphdef, value, index_ref, index_ref_cache)
 
             elif key in graph_def.leaves:
-                if not _is_state_leaf(value):
+                # if not _is_state_leaf(value):
+                if not isinstance(value, (TreefyState, State)):
                     raise ValueError(f'Expected a leaf for {key!r}, but got {value!r}')
 
                 noderef = graph_def.leaves[key]
@@ -582,6 +587,8 @@ def _get_children(graph_def, state_mapping, index_ref, index_ref_cache):
                     # TreefyState presumbly created by modifying the NestedDict
                     if isinstance(value, TreefyState):
                         value = value.to_state()
+                    # elif isinstance(value, State):
+                    #     value = value
                     children[key] = value
 
                 elif noderef.index in index_ref:
@@ -590,7 +597,7 @@ def _get_children(graph_def, state_mapping, index_ref, index_ref_cache):
 
                 else:
                     # it is an unseen variable, create a new one
-                    if not isinstance(value, TreefyState):
+                    if not isinstance(value, (TreefyState, State)):
                         raise ValueError(f'Expected a State type for {key!r}, but got {type(value)}.')
                     # when idxmap is present, check if the Varable exists there
                     # and update existing variables if it does
@@ -598,10 +605,19 @@ def _get_children(graph_def, state_mapping, index_ref, index_ref_cache):
                         variable = index_ref_cache[noderef.index]
                         if not isinstance(variable, State):
                             raise ValueError(f'Expected a State type for {key!r}, but got {type(variable)}.')
-                        variable.update_from_ref(value)
+                        if isinstance(value, TreefyState):
+                            variable.update_from_ref(value)
+                        elif isinstance(value, State):
+                            variable.restore_value(value)
+                        else:
+                            raise ValueError(f'Expected a State type for {key!r}, but got {type(value)}.')
                     else:  # if it doesn't, create a new variable
-                        assert isinstance(value, TreefyState)
-                        variable = value.to_state()
+                        if isinstance(value, TreefyState):
+                            variable = value.to_state()
+                        elif isinstance(value, State):
+                            variable = value
+                        else:
+                            raise ValueError(f'Expected a State type for {key!r}, but got {type(value)}.')
                     children[key] = variable
                     index_ref[noderef.index] = variable
 
@@ -768,7 +784,6 @@ def unflatten(
         weight=ParamState(
           value={'weight': Array([[ 0.55600464, -1.6276929 ,  0.26805446],
                  [ 1.175099  ,  1.0077754 ,  0.37592274]], dtype=float32), 'bias': Array([0., 0., 0.], dtype=float32)},
-          raw_value={'bias': 'Array(shape=(3,), dtype=float32)', 'weight': 'Array(shape=(2, 3), dtype=float32)'}
         )
       ),
       b=Linear(
@@ -779,7 +794,6 @@ def unflatten(
           value={'weight': Array([[-0.24753566,  0.18456966, -0.29438975,  0.16891003],
                  [-0.803741  , -0.46037054, -0.21617596,  0.1260884 ],
                  [-0.43074366, -0.24757433,  1.2237076 , -0.07842704]],      dtype=float32), 'bias': Array([0., 0., 0., 0.], dtype=float32)},
-          raw_value={'bias': 'Array(shape=(4,), dtype=float32)', 'weight': 'Array(shape=(3, 4), dtype=float32)'}
         )
       ),
       c=[Linear(
@@ -791,7 +805,6 @@ def unflatten(
                  [-1.4755846 , -0.42272082, -0.07692316,  0.03077666,  0.34513143],
                  [-0.69395834,  0.48617035,  1.1042316 ,  0.13105175, -0.25620162],
                  [ 0.50389856,  0.6998943 ,  0.43716812,  1.2168779 , -0.47325954]],      dtype=float32), 'bias': Array([0., 0., 0., 0., 0.], dtype=float32)},
-          raw_value={'bias': 'Array(shape=(5,), dtype=float32)', 'weight': 'Array(shape=(4, 5), dtype=float32)'}
         )
       ), Linear(
         in_size=(5,),
@@ -808,7 +821,6 @@ def unflatten(
                    0.5440655 ],
                  [ 0.27917263,  0.05717273, -0.5682605 , -0.88345915,  0.01314917,
                    0.780759  ]], dtype=float32), 'bias': Array([0., 0., 0., 0., 0., 0.], dtype=float32)},
-          raw_value={'bias': 'Array(shape=(6,), dtype=float32)', 'weight': 'Array(shape=(5, 6), dtype=float32)'}
         )
       )],
       d={'x': Linear(
@@ -828,7 +840,6 @@ def unflatten(
                    0.22780116, -0.5763679 ],
                  [ 0.14077143, -1.0359222 ,  0.28072503,  0.2557584 , -0.50622064,
                    0.4388198 , -0.26106128]], dtype=float32), 'bias': Array([0., 0., 0., 0., 0., 0., 0.], dtype=float32)},
-          raw_value={'bias': 'Array(shape=(7,), dtype=float32)', 'weight': 'Array(shape=(6, 7), dtype=float32)'}
         )
       ), 'y': Linear(
         in_size=(7,),
@@ -849,7 +860,6 @@ def unflatten(
                    0.5168159 , -0.4205143 ,  0.45700482],
                  [ 0.08611429, -0.9271384 , -0.562362  , -0.586757  ,  1.1611121 ,
                    0.5137503 , -0.46277294,  0.84642583]], dtype=float32), 'bias': Array([0., 0., 0., 0., 0., 0., 0., 0.], dtype=float32)},
-          raw_value={'bias': 'Array(shape=(8,), dtype=float32)', 'weight': 'Array(shape=(7, 8), dtype=float32)'}
         )
       )}
     )

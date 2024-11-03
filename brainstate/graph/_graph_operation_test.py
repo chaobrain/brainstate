@@ -126,30 +126,64 @@ class StatefulLinear(bst.nn.Module):
 
 
 class TestGraphUtils(absltest.TestCase):
+    def test_flatten_treey_state(self):
+        a = {'a': 1, 'b': bst.ParamState(2)}
+        g = [a, 3, a, bst.ParamState(4)]
+
+        refmap = bst.graph.RefMap()
+        graphdef, states = bst.graph.flatten(g, ref_index=refmap, treefy_state=True)
+
+        states[0]['b'].value = 2
+        states[3].value = 4
+
+        assert isinstance(states[0]['b'], bst.TreefyState)
+        assert isinstance(states[3], bst.TreefyState)
+        assert isinstance(states, bst.util.NestedDict)
+        assert len(refmap) == 2
+        assert a['b'] in refmap
+        assert g[3] in refmap
+
     def test_flatten(self):
         a = {'a': 1, 'b': bst.ParamState(2)}
         g = [a, 3, a, bst.ParamState(4)]
 
         refmap = bst.graph.RefMap()
-        graphdef, state = bst.graph.flatten(g, ref_index=refmap)
+        graphdef, states = bst.graph.flatten(g, ref_index=refmap, treefy_state=False)
 
-        state[0]['b'].raw_value = 2
-        state[3].raw_value = 4
+        states[0]['b'].value = 2
+        states[3].value = 4
 
+        assert isinstance(states[0]['b'], bst.State)
+        assert isinstance(states[3], bst.State)
         assert len(refmap) == 2
         assert a['b'] in refmap
         assert g[3] in refmap
 
-    def test_unflatten(self):
+    def test_unflatten_treey_state(self):
         a = bst.graph.Dict(a=1, b=bst.ParamState(2))
-        g = bst.graph.List([a, 3, a, bst.ParamState(4)])
+        g1 = bst.graph.List([a, 3, a, bst.ParamState(4)])
 
-        graphdef, references = bst.graph.treefy_split(g)
-        g = bst.graph.treefy_merge(graphdef, references)
+        graphdef, references = bst.graph.flatten(g1, treefy_state=True)
+        g = bst.graph.unflatten(graphdef, references)
 
         print(graphdef)
         print(references)
         assert g[0] is g[2]
+        assert g1[3] is not g[3]
+        assert g1[0]['b'] is not g[0]['b']
+
+    def test_unflatten(self):
+        a = bst.graph.Dict(a=1, b=bst.ParamState(2))
+        g1 = bst.graph.List([a, 3, a, bst.ParamState(4)])
+
+        graphdef, references = bst.graph.flatten(g1, treefy_state=False)
+        g = bst.graph.unflatten(graphdef, references)
+
+        print(graphdef)
+        print(references)
+        assert g[0] is g[2]
+        assert g1[3] is g[3]
+        assert g1[0]['b'] is g[0]['b']
 
     def test_unflatten_pytree(self):
         a = {'a': 1, 'b': bst.ParamState(2)}
@@ -497,7 +531,7 @@ class TestGraphUtils(absltest.TestCase):
         m = bst.nn.Linear(2, 3, )
         impure_tree = (m, 1, {'b': m})
 
-        pure_tree = bst.graph.graph_to_tree(impure_tree)[0]
+        pure_tree = bst.graph.graph_to_tree(impure_tree)
 
         t1 = pure_tree[0]
         t2 = pure_tree[2]['b']

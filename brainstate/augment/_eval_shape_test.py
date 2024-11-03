@@ -14,25 +14,27 @@
 # ==============================================================================
 
 
-from ._base import *
-from ._base import __all__ as base_all
-from ._lr_scheduler import *
-from ._lr_scheduler import __all__ as scheduler_all
-from ._optax_optimizer import *
-from ._optax_optimizer import __all__ as optax_all
-from ._sgd_optimizer import *
-from ._sgd_optimizer import __all__ as optimizer_all
+from __future__ import annotations
 
-__all__ = (
-    base_all
-    + scheduler_all
-    + optimizer_all
-    + optax_all
-)
+import unittest
 
-del (
-    base_all,
-    optax_all,
-    scheduler_all,
-    optimizer_all,
-)
+import brainstate as bst
+
+
+class TestEvalShape(unittest.TestCase):
+    def test1(self):
+        class MLP(bst.nn.Module):
+            def __init__(self, n_in, n_mid, n_out):
+                super().__init__()
+                self.dense1 = bst.nn.Linear(n_in, n_mid)
+                self.dense2 = bst.nn.Linear(n_mid, n_out)
+
+            def __call__(self, x):
+                x = self.dense1(x)
+                x = bst.functional.relu(x)
+                x = self.dense2(x)
+                return x
+
+        r = bst.augment.eval_shape(lambda: MLP(1, 2, 3))
+        print(r)
+        print(bst.random.DEFAULT)
