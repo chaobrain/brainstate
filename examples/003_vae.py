@@ -117,7 +117,8 @@ model = VAE(
     output_shape=image_shape,
 )
 
-optimizer = bst.optim.OptaxOptimizer(model.states(bst.ParamState), optax.adam(1e-3))
+optimizer = bst.optim.OptaxOptimizer(optax.adam(1e-3))
+optimizer.register_trainable_weights(model.states(bst.ParamState))
 
 
 # %%

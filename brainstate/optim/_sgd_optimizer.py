@@ -25,7 +25,7 @@ import jax.numpy as jnp
 
 from brainstate import environ
 from brainstate._state import State, LongTermState, StateDictManager
-from brainstate.graph import Node
+from ._base import Optimizer
 from ._lr_scheduler import make_schedule, LearningRateScheduler
 
 __all__ = [
@@ -35,7 +35,7 @@ __all__ = [
     'OptimState',
 
     # commonly used optimizers
-    'Optimizer',
+    'SGDOptimizer',
     'SGD',
     'Momentum',
     'MomentumNesterov',
@@ -135,8 +135,9 @@ class OptimState(LongTermState):
     pass
 
 
-class Optimizer(Node):
-    """Base Optimizer Class.
+class SGDOptimizer(Optimizer):
+    """
+    Base Optimizer Class.
 
     Parameters
     ----------
@@ -145,22 +146,15 @@ class Optimizer(Node):
     """
 
     lr: LearningRateScheduler  # learning rate
-    weight_states: StateDictManager  # states to train, invisible to ``.states()``
 
     def __init__(
         self, lr: Union[float, LearningRateScheduler, State],
     ):
+        super().__init__()
         self.lr: LearningRateScheduler = make_schedule(lr)
-        self.weight_states = StateDictManager()
-
-    def register_trainable_weights(self, train_states: Optional[Dict[str, State]] = None):
-        raise NotImplementedError
-
-    def update(self, grads: dict):
-        raise NotImplementedError
 
 
-class _WeightDecayOptimizer(Optimizer):
+class _WeightDecayOptimizer(SGDOptimizer):
     def __init__(
         self,
         lr: Union[float, LearningRateScheduler, State],
@@ -203,15 +197,15 @@ class SGD(_WeightDecayOptimizer):
         assert isinstance(states, dict), '"states" must be a dict of brainstate.State.'
         for k, v in states.items():
             assert isinstance(v, State), f'"{k}" must be an instance of brainstate.State.'
-            self.weight_states.add_unique_elem(k, v)
+            self.param_states.add_unique_value(k, v)
 
     def update(self, grads: dict):
         lr = self.lr()
-        weight_values, grad_values = to_same_dict_tree(self.weight_states, grads)
+        weight_values, grad_values = to_same_dict_tree(self.param_states, grads)
         updates = jax.tree.map(functools.partial(_sgd, lr=lr, weight_decay=self.weight_decay),
                                weight_values,
                                grad_values)
-        self.weight_states.assign_values(updates)
+        self.param_states.assign_values(updates)
         self.lr.step_call()
 
 
@@ -262,13 +256,13 @@ class Momentum(_WeightDecayOptimizer):
 
         for k, v in train_states.items():
             assert isinstance(v, State), f'"{k}" must be an instance of brainstate.State.'
-            self.weight_states.add_unique_elem(k, v)
-            self.momentum_states[k] = OptimState(u.math.tree_zeros_like(v.value))
+            if self.param_states.add_unique_value(k, v):
+                self.momentum_states[k] = OptimState(u.math.tree_zeros_like(v.value))
 
     def update(self, grads: dict):
         lr = self.lr()
         states_values, grad_values, momentum_values = to_same_dict_tree(
-            self.weight_states, grads, self.momentum_states
+            self.param_states, grads, self.momentum_states
         )
         momentum_values = jax.tree.map(
             lambda vv, gg: self.momentum * vv - lr * gg,
@@ -281,7 +275,7 @@ class Momentum(_WeightDecayOptimizer):
             momentum_values
         )
         self.momentum_states.assign_values(momentum_values)
-        self.weight_states.assign_values(new_weight_values)
+        self.param_states.assign_values(new_weight_values)
         self.lr.step_call()
 
 
@@ -325,19 +319,19 @@ class MomentumNesterov(_WeightDecayOptimizer):
         assert isinstance(train_states, dict), '"states" must be a dict of brainstate.State.'
         for k, v in train_states.items():
             assert isinstance(v, State), f'"{k}" must be an instance of brainstate.State.'
-            self.weight_states.add_unique_elem(k, v)
-            self.momentum_states[k] = OptimState(u.math.tree_zeros_like(v.value))
+            if self.param_states.add_unique_value(k, v):
+                self.momentum_states[k] = OptimState(u.math.tree_zeros_like(v.value))
 
     def update(self, grads: dict):
         lr = self.lr()
-        states_values, grad_values, momentum_values = to_same_dict_tree(self.weight_states, grads, self.momentum_states)
+        states_values, grad_values, momentum_values = to_same_dict_tree(self.param_states, grads, self.momentum_states)
         momentum_values = jax.tree.map(lambda mv, gv: self.momentum * mv - lr * gv,
                                        momentum_values,
                                        grad_values)
         weight_values = jax.tree.map(functools.partial(_sgd, lr=lr, weight_decay=self.weight_decay),
                                      states_values,
                                      momentum_values)
-        self.weight_states.assign_values(weight_values)
+        self.param_states.assign_values(weight_values)
         self.momentum_states.assign_values(momentum_values)
         self.lr.step_call()
 
@@ -389,19 +383,19 @@ class Adagrad(_WeightDecayOptimizer):
         assert isinstance(train_states, dict), '"states" must be a dict of brainstate.State.'
         for k, v in train_states.items():
             assert isinstance(v, State), f'"{k}" must be an instance of brainstate.State.'
-            self.weight_states.add_unique_elem(k, v)
-            self.cache_states[k] = OptimState(u.math.tree_zeros_like(v.value))
+            if self.param_states.add_unique_value(k, v):
+                self.cache_states[k] = OptimState(u.math.tree_zeros_like(v.value))
 
     def update(self, grads: dict):
         lr = self.lr()
-        cache_values, grad_values, weight_values = to_same_dict_tree(self.cache_states, grads, self.weight_states)
+        cache_values, grad_values, weight_values = to_same_dict_tree(self.cache_states, grads, self.param_states)
         cache_values = jax.tree.map(lambda cv, gv: cv + gv ** 2, cache_values, grad_values)
         updates = jax.tree.map(lambda cv, gv: lr * gv / jnp.sqrt(cv + self.epsilon), cache_values, grad_values)
         weight_values = jax.tree.map(functools.partial(_sgd, weight_decay=self.weight_decay),
                                      weight_values,
                                      updates)
         self.cache_states.assign_values(cache_values)
-        self.weight_states.assign_values(weight_values)
+        self.param_states.assign_values(weight_values)
         self.lr.step_call()
 
 
@@ -468,13 +462,13 @@ class Adadelta(_WeightDecayOptimizer):
         assert isinstance(train_states, dict), '"states" must be a dict of brainstate.State.'
         for k, v in train_states.items():
             assert isinstance(v, State), f'"{k}" must be an instance of brainstate.State.'
-            self.weight_states.add_unique_elem(k, v)
-            self.cache_states[k] = OptimState(u.math.tree_zeros_like(v.value))
-            self.delta_states[k] = OptimState(u.math.tree_zeros_like(v.value))
+            if self.param_states.add_unique_value(k, v):
+                self.cache_states[k] = OptimState(u.math.tree_zeros_like(v.value))
+                self.delta_states[k] = OptimState(u.math.tree_zeros_like(v.value))
 
     def update(self, grads: dict):
         weight_values, grad_values, cache_values, delta_values = to_same_dict_tree(
-            self.weight_states, grads, self.cache_states, self.delta_states)
+            self.param_states, grads, self.cache_states, self.delta_states)
         cache_values = jax.tree.map(lambda cv, gv: self.rho * cv + (1 - self.rho) * gv ** 2, cache_values, grad_values)
         updates = jax.tree.map(lambda gv, dv, cv: gv * jnp.sqrt(dv + self.epsilon) / jnp.sqrt(cv + self.epsilon),
                                grad_values, delta_values, cache_values)
@@ -482,7 +476,7 @@ class Adadelta(_WeightDecayOptimizer):
         weight_values = jax.tree.map(functools.partial(_sgd, weight_decay=self.weight_decay),
                                      weight_values,
                                      updates)
-        self.weight_states.assign_values(weight_values)
+        self.param_states.assign_values(weight_values)
         self.delta_states.assign_values(delta_values)
         self.cache_states.assign_values(cache_values)
         self.lr.step_call()
@@ -538,18 +532,18 @@ class RMSProp(_WeightDecayOptimizer):
         assert isinstance(train_states, dict), '"states" must be a dict of brainstate.State.'
         for k, v in train_states.items():
             assert isinstance(v, State), f'"{k}" must be an instance of brainstate.State.'
-            self.weight_states.add_unique_elem(k, v)
-            self.cache_states[k] = OptimState(u.math.tree_zeros_like(v.value))
+            if self.param_states.add_unique_value(k, v):
+                self.cache_states[k] = OptimState(u.math.tree_zeros_like(v.value))
 
     def update(self, grads: dict):
         lr = self.lr()
-        weight_values, grad_values, cache_values = to_same_dict_tree(self.weight_states, grads, self.cache_states)
+        weight_values, grad_values, cache_values = to_same_dict_tree(self.param_states, grads, self.cache_states)
         cache_values = jax.tree.map(lambda cv, gv: self.rho * cv + (1 - self.rho) * gv ** 2, cache_values, grad_values)
         update = jax.tree.map(lambda gv, cv: lr * gv / jnp.sqrt(cv + self.epsilon), grad_values, cache_values)
         weight_values = jax.tree.map(functools.partial(_sgd, weight_decay=self.weight_decay),
                                      weight_values,
                                      update)
-        self.weight_states.assign_values(weight_values)
+        self.param_states.assign_values(weight_values)
         self.cache_states.assign_values(cache_values)
         self.lr.step_call()
 
@@ -603,23 +597,23 @@ class Adam(_WeightDecayOptimizer):
 
         for k, v in train_states.items():
             assert isinstance(v, State), f'"{k}" must be an instance of brainstate.State.'
-            self.weight_states.add_unique_elem(k, v)
-            self.m1_states[k] = OptimState(u.math.tree_zeros_like(v.value))
-            self.m2_states[k] = OptimState(u.math.tree_zeros_like(v.value))
+            if self.param_states.add_unique_value(k, v):
+                self.m1_states[k] = OptimState(u.math.tree_zeros_like(v.value))
+                self.m2_states[k] = OptimState(u.math.tree_zeros_like(v.value))
 
     def update(self, grads: dict):
         lr = self.lr()
         lr = lr / (1 - self.beta1 ** (self.lr.last_epoch.value + 2))
         lr = lr * jnp.sqrt(1 - self.beta2 ** (self.lr.last_epoch.value + 2))
         weight_values, grad_values, m1_values, m2_values = to_same_dict_tree(
-            self.weight_states, grads, self.m1_states, self.m2_states)
+            self.param_states, grads, self.m1_states, self.m2_states)
         m1_values = jax.tree.map(lambda m1, gv: self.beta1 * m1 + (1 - self.beta1) * gv, m1_values, grad_values)
         m2_values = jax.tree.map(lambda m2, gv: self.beta2 * m2 + (1 - self.beta2) * gv ** 2, m2_values, grad_values)
         update = jax.tree.map(lambda m1, m2: lr * m1 / (jnp.sqrt(m2) + self.eps), m1_values, m2_values)
         weight_values = jax.tree.map(functools.partial(_sgd, weight_decay=self.weight_decay),
                                      weight_values,
                                      update)
-        self.weight_states.assign_values(weight_values)
+        self.param_states.assign_values(weight_values)
         self.m1_states.assign_values(m1_values)
         self.m2_states.assign_values(m2_values)
         self.lr.step_call()
@@ -680,12 +674,12 @@ class LARS(_WeightDecayOptimizer):
         assert isinstance(train_states, dict), '"states" must be a dict of brainstate.State.'
         for k, v in train_states.items():
             assert isinstance(v, State), f'"{k}" must be an instance of brainstate.State.'
-            self.weight_states.add_unique_elem(k, v)
-            self.momentum_states[k] = OptimState(u.math.tree_zeros_like(v.value))
+            if self.param_states.add_unique_value(k, v):
+                self.momentum_states[k] = OptimState(u.math.tree_zeros_like(v.value))
 
     def update(self, grads: dict):
         lr = self.lr()
-        weight_values, grad_values, momentum_values = to_same_dict_tree(self.weight_states, grads, self.momentum_states)
+        weight_values, grad_values, momentum_values = to_same_dict_tree(self.param_states, grads, self.momentum_states)
 
         def _lars_update(pv, gv, mv):
             p_norm = jnp.linalg.norm(pv)
@@ -697,7 +691,7 @@ class LARS(_WeightDecayOptimizer):
 
         momentum_values = jax.tree.map(_lars_update, weight_values, grad_values, momentum_values)
         weight_values = jax.tree.map(lambda pv, mv: pv - mv, weight_values, momentum_values)
-        self.weight_states.assign_values(weight_values)
+        self.param_states.assign_values(weight_values)
         self.momentum_states.assign_values(momentum_values)
         self.lr.step_call()
 
@@ -781,11 +775,11 @@ class Adan(_WeightDecayOptimizer):
         assert isinstance(train_states, dict), '"states" must be a dict of brainstate.State.'
         for k, v in train_states.items():
             assert isinstance(v, State), f'"{k}" must be an instance of brainstate.State.'
-            self.weight_states.add_unique_elem(k, v)
-            self.exp_avg_states[k] = OptimState(u.math.tree_zeros_like(v.value))
-            self.exp_avg_sq_states[k] = OptimState(u.math.tree_zeros_like(v.value))
-            self.exp_avg_diff_states[k] = OptimState(u.math.tree_zeros_like(v.value))
-            self.pre_grad_states[k] = OptimState(u.math.tree_zeros_like(v.value))
+            if self.param_states.add_unique_value(k, v):
+                self.exp_avg_states[k] = OptimState(u.math.tree_zeros_like(v.value))
+                self.exp_avg_sq_states[k] = OptimState(u.math.tree_zeros_like(v.value))
+                self.exp_avg_diff_states[k] = OptimState(u.math.tree_zeros_like(v.value))
+                self.pre_grad_states[k] = OptimState(u.math.tree_zeros_like(v.value))
 
     def update(self, grads: dict):
         lr = self.lr()
@@ -795,7 +789,7 @@ class Adan(_WeightDecayOptimizer):
         correct_n = 1 / (1 - (1 - self.betas[2]) ** (step + 1))
         m_values, n_values, v_values, pre_g_values, weight_values, grad_values = to_same_dict_tree(
             self.exp_avg_states, self.exp_avg_diff_states, self.exp_avg_sq_states, self.pre_grad_states,
-            self.weight_states, grads)
+            self.param_states, grads)
 
         def _adan_update(m, n, v, pre_g, g, p):
             m = m * (1 - self.betas[0]) + self.betas[0] * g
@@ -816,7 +810,7 @@ class Adan(_WeightDecayOptimizer):
         self.exp_avg_states.assign_values(m_values)
         self.exp_avg_diff_states.assign_values(n_values)
         self.exp_avg_sq_states.assign_values(v_values)
-        self.weight_states.assign_values(weight_values)
+        self.param_states.assign_values(weight_values)
         self.lr.step_call()
 
 
@@ -926,11 +920,11 @@ class AdamW(_WeightDecayOptimizer):
         assert isinstance(train_states, dict), '"states" must be a dict of brainstate.State.'
         for k, v in train_states.items():
             assert isinstance(v, State), f'"{k}" must be an instance of brainstate.State.'
-            self.weight_states.add_unique_elem(k, v)
-            self.m1_states[k] = OptimState(u.math.tree_zeros_like(v.value))
-            self.m2_states[k] = OptimState(u.math.tree_zeros_like(v.value))
-            if self.amsgrad:
-                self.vmax_states[k] = OptimState(u.math.tree_zeros_like(v.value))
+            if self.param_states.add_unique_value(k, v):
+                self.m1_states[k] = OptimState(u.math.tree_zeros_like(v.value))
+                self.m2_states[k] = OptimState(u.math.tree_zeros_like(v.value))
+                if self.amsgrad:
+                    self.vmax_states[k] = OptimState(u.math.tree_zeros_like(v.value))
 
     def update(self, grads: dict):
         lr_old = self.lr()
@@ -954,15 +948,15 @@ class AdamW(_WeightDecayOptimizer):
 
         if self.amsgrad:
             weight_values, m1_values, m2_values, vmax_values = to_same_dict_tree(
-                self.weight_states, self.m1_states, self.m2_states, self.vmax_states)
+                self.param_states, self.m1_states, self.m2_states, self.vmax_states)
             weight_values, m1_values, m2_values, vmax_values = jax.tree.map(
                 _adamw_update, weight_values, m1_values, m2_values, grads, vmax_values)
             self.vmax_states.assign_values(vmax_values)
         else:
-            weight_values, m1_values, m2_values = to_same_dict_tree(self.weight_states, self.m1_states, self.m2_states)
+            weight_values, m1_values, m2_values = to_same_dict_tree(self.param_states, self.m1_states, self.m2_states)
             weight_values, m1_values, m2_values = jax.tree.map(
                 _adamw_update, weight_values, m1_values, m2_values, grads)
-        self.weight_states.assign_values(weight_values)
+        self.param_states.assign_values(weight_values)
         self.m1_states.assign_values(m1_values)
         self.m2_states.assign_values(m2_values)
         self.lr.step_call()
@@ -1034,19 +1028,19 @@ class SM3(_WeightDecayOptimizer):
         assert isinstance(train_states, dict), '"states" must be a dict of brainstate.State.'
         for k, v in train_states.items():
             assert isinstance(v, State), f'"{k}" must be an instance of brainstate.State.'
-            self.weight_states.add_unique_elem(k, v)
-            rank, ndim, dtype = v.value.shape, v.value.ndim, v.value.dtype
-            for i in range(ndim):
-                shape = [1] * ndim
-                shape[i] = rank[i]
-                self.memory_states[f'{k}_m{i}'] = State(jnp.zeros(shape, dtype=dtype))
-            if self.momentum > 0.:
-                self.memory_states[f'{k}_mbuffer'] = State(jnp.zeros_like(v.value))
+            if self.param_states.add_unique_value(k, v):
+                rank, ndim, dtype = v.value.shape, v.value.ndim, v.value.dtype
+                for i in range(ndim):
+                    shape = [1] * ndim
+                    shape[i] = rank[i]
+                    self.memory_states[f'{k}_m{i}'] = State(jnp.zeros(shape, dtype=dtype))
+                if self.momentum > 0.:
+                    self.memory_states[f'{k}_mbuffer'] = State(jnp.zeros_like(v.value))
 
     def update(self, grads: dict):
         lr = self.lr()
 
-        for k, p in self.weight_states.items():
+        for k, p in self.param_states.items():
             g = grads[k]
             ndim = p.ndim
             update = self.memory_states[f'{k}_m0'].value

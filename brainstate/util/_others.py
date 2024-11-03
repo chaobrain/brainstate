@@ -62,6 +62,7 @@ class DictManager(dict):
     :py:class:`~.DictManager` supports all features of python dict.
     """
     __module__ = 'brainstate.util'
+    _val_id_to_key: dict
 
     def subset(self, sep: Union[type, Tuple[type, ...], Callable]) -> 'DictManager':
         """
@@ -89,14 +90,37 @@ class DictManager(dict):
                 gather[k] = v
         return gather
 
-    def add_unique_elem(self, key: Any, var: Any):
-        """Add a new element."""
-        self._check_elem(var)
+    def add_unique_key(self, key: Any, val: Any):
+        """
+        Add a new element and check if the value is same or not.
+        """
+        self._check_elem(val)
         if key in self:
-            if id(var) != id(self[key]):
+            if id(val) != id(self[key]):
                 raise ValueError(f'{key} has been registered by {self[key]}, the new value is different from it.')
         else:
-            self[key] = var
+            self[key] = val
+
+    def add_unique_value(self, key: Any, val: Any) -> bool:
+        """
+        Add a new element and check if the val is unique.
+
+        Parameters:
+            key: The key of the element.
+            val: The value of the element
+
+        Returns:
+            bool: True if the value is unique, False otherwise.
+        """
+        self._check_elem(val)
+        if not hasattr(self, '_val_id_to_key'):
+            self._val_id_to_key = {id(v): k for k, v in self.items()}
+        if id(val) not in self._val_id_to_key:
+            self._val_id_to_key[id(val)] = key
+            self[key] = val
+            return True
+        else:
+            return False
 
     def unique(self) -> 'DictManager':
         """
@@ -112,6 +136,22 @@ class DictManager(dict):
                 seen.add(id(v))
                 gather[k] = v
         return gather
+
+    def unique_(self):
+        """
+        Get a new type of collections with unique values.
+
+        If one value is assigned to two or more keys,
+        then only one pair of (key, value) will be returned.
+        """
+        seen = set()
+        for k in tuple(self.keys()):
+            v = self[k]
+            if id(v) not in seen:
+                seen.add(id(v))
+            else:
+                self.pop(k)
+        return self
 
     def assign(self, *args) -> None:
         """
