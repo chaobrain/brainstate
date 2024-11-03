@@ -531,7 +531,7 @@ class TestGraphUtils(absltest.TestCase):
         m = bst.nn.Linear(2, 3, )
         impure_tree = (m, 1, {'b': m})
 
-        pure_tree = bst.graph.graph_to_tree(impure_tree)[0]
+        pure_tree = bst.graph.graph_to_tree(impure_tree)
 
         t1 = pure_tree[0]
         t2 = pure_tree[2]['b']

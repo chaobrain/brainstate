@@ -292,6 +292,27 @@ class GradientTransform(PrettyRepr):
         return self._return(rets)
 
 
+_doc_of_return = '''
+
+    1. When ``grad_states`` is None
+        - ``has_aux=False`` + ``return_value=False`` => ``arg_grads``.
+        - ``has_aux=True`` + ``return_value=False`` => ``(arg_grads, aux_data)``.
+        - ``has_aux=False`` + ``return_value=True`` => ``(arg_grads, loss_value)``.
+        - ``has_aux=True`` + ``return_value=True`` => ``(arg_grads, loss_value, aux_data)``.
+    2. When ``grad_states`` is not None and ``argnums`` is None
+        - ``has_aux=False`` + ``return_value=False`` => ``var_grads``.
+        - ``has_aux=True`` + ``return_value=False`` => ``(var_grads, aux_data)``.
+        - ``has_aux=False`` + ``return_value=True`` => ``(var_grads, loss_value)``.
+        - ``has_aux=True`` + ``return_value=True`` => ``(var_grads, loss_value, aux_data)``.
+    3. When ``grad_states`` is not None and ``argnums`` is not None
+        - ``has_aux=False`` + ``return_value=False`` => ``(var_grads, arg_grads)``.
+        - ``has_aux=True`` + ``return_value=False`` => ``((var_grads, arg_grads), aux_data)``.
+        - ``has_aux=False`` + ``return_value=True`` => ``((var_grads, arg_grads), loss_value)``.
+        - ``has_aux=True`` + ``return_value=True`` => ``((var_grads, arg_grads), loss_value, aux_data)``.
+
+'''
+
+
 @set_module_as("brainstate.augment")
 def grad(
     fun: Callable = Missing(),
@@ -305,6 +326,8 @@ def grad(
 ) -> GradientTransform | Callable[[Callable], GradientTransform]:
     """
     Compute the gradient of a scalar-valued function with respect to its arguments.
+
+    %s
 
     Args:
       fun: callable. the scalar-valued function to be differentiated.
@@ -363,6 +386,9 @@ def grad(
                                                    reduce_axes=reduce_axes))
 
 
+grad.__doc__ = grad.__doc__ % _doc_of_return
+
+
 @set_module_as("brainstate.augment")
 def vector_grad(
     func: Callable = Missing(),
@@ -373,27 +399,10 @@ def vector_grad(
 ) -> GradientTransform | Callable[[Callable], GradientTransform]:
     """Take vector-valued gradients for function ``func``.
 
-    Same as `brainpy.math.grad <./brainpy.math.autograd.grad.html>`_,
-    `brainpy.math.jacrev <./brainpy.math.autograd.jacrev.html>`_ and
-    `brainpy.math.jacfwd <./brainpy.math.autograd.jacfwd.html>`_,
+    Same as :py:func:`grad`, :py:func:`jacrev`, and :py:func:`jacfwd`, 
     the returns in this function are different for different argument settings.
 
-    1. When "grad_states" is None
-      - "has_aux=False" + "return_value=False" => ``arg_grads``.
-      - "has_aux=True" + "return_value=False" => ``(arg_grads, aux_data)``.
-      - "has_aux=False" + "return_value=True" => ``(arg_grads, loss_value)``.
-      - "has_aux=True" + "return_value=True" => ``(arg_grads, loss_value, aux_data)``.
-    2. When "grad_states" is not None and "argnums" is None
-      - "has_aux=False" + "return_value=False" => ``var_grads``.
-      - "has_aux=True" + "return_value=False" => ``(var_grads, aux_data)``.
-      - "has_aux=False" + "return_value=True" => ``(var_grads, loss_value)``.
-      - "has_aux=True" + "return_value=True" => ``(var_grads, loss_value, aux_data)``.
-    3. When "grad_states" is not None and "argnums" is not None
-      - "has_aux=False" + "return_value=False" => ``(var_grads, arg_grads)``.
-      - "has_aux=True" + "return_value=False" => ``((var_grads, arg_grads), aux_data)``.
-      - "has_aux=False" + "return_value=True" => ``((var_grads, arg_grads), loss_value)``.
-      - "has_aux=True" + "return_value=True" => ``((var_grads, arg_grads), loss_value, aux_data)``.
-
+    %s
 
     Parameters
     ----------
@@ -436,6 +445,9 @@ def vector_grad(
                                  has_aux=False if has_aux is None else has_aux)
 
 
+vector_grad.__doc__ = vector_grad.__doc__ % _doc_of_return
+
+
 @set_module_as("brainstate.augment")
 def jacrev(
     fun: Callable,
@@ -453,24 +465,8 @@ def jacrev(
     computation on functions and class functions. Moreover, it supports returning
     value ("return_value") and returning auxiliary data ("has_aux").
 
-    Same as `brainpy.math.grad <./brainpy.math.autograd.grad.html>`_, the returns are
-    different for different argument settings in ``brainpy.math.jacrev``.
+    %s
 
-    1. When "grad_states" is None
-      - "has_aux=False" + "return_value=False" => ``arg_grads``.
-      - "has_aux=True" + "return_value=False" => ``(arg_grads, aux_data)``.
-      - "has_aux=False" + "return_value=True" => ``(arg_grads, loss_value)``.
-      - "has_aux=True" + "return_value=True" => ``(arg_grads, loss_value, aux_data)``.
-    2. When "grad_states" is not None and "argnums" is None
-      - "has_aux=False" + "return_value=False" => ``var_grads``.
-      - "has_aux=True" + "return_value=False" => ``(var_grads, aux_data)``.
-      - "has_aux=False" + "return_value=True" => ``(var_grads, loss_value)``.
-      - "has_aux=True" + "return_value=True" => ``(var_grads, loss_value, aux_data)``.
-    3. When "grad_states" is not None and "argnums" is not None
-      - "has_aux=False" + "return_value=False" => ``(var_grads, arg_grads)``.
-      - "has_aux=True" + "return_value=False" => ``((var_grads, arg_grads), aux_data)``.
-      - "has_aux=False" + "return_value=True" => ``((var_grads, arg_grads), loss_value)``.
-      - "has_aux=True" + "return_value=True" => ``((var_grads, arg_grads), loss_value, aux_data)``.
 
     Parameters
     ----------
@@ -509,6 +505,8 @@ def jacrev(
                                                    allow_int=allow_int))
 
 
+jacrev.__doc__ = jacrev.__doc__ % _doc_of_return
+
 jacobian = jacrev
 
 
@@ -527,24 +525,7 @@ def jacfwd(
     computation on functions and class functions. Moreover, it supports returning
     value ("return_value") and returning auxiliary data ("has_aux").
 
-    Same as `brainpy.math.grad <./brainpy.math.autograd.grad.html>`_, the returns are
-    different for different argument settings in ``brainpy.math.jacfwd``.
-
-    1. When "grad_states" is None
-      - "has_aux=False" + "return_value=False" => ``arg_grads``.
-      - "has_aux=True" + "return_value=False" => ``(arg_grads, aux_data)``.
-      - "has_aux=False" + "return_value=True" => ``(arg_grads, loss_value)``.
-      - "has_aux=True" + "return_value=True" => ``(arg_grads, loss_value, aux_data)``.
-    2. When "grad_states" is not None and "argnums" is None
-      - "has_aux=False" + "return_value=False" => ``var_grads``.
-      - "has_aux=True" + "return_value=False" => ``(var_grads, aux_data)``.
-      - "has_aux=False" + "return_value=True" => ``(var_grads, loss_value)``.
-      - "has_aux=True" + "return_value=True" => ``(var_grads, loss_value, aux_data)``.
-    3. When "grad_states" is not None and "argnums" is not None
-      - "has_aux=False" + "return_value=False" => ``(var_grads, arg_grads)``.
-      - "has_aux=True" + "return_value=False" => ``((var_grads, arg_grads), aux_data)``.
-      - "has_aux=False" + "return_value=True" => ``((var_grads, arg_grads), loss_value)``.
-      - "has_aux=True" + "return_value=True" => ``((var_grads, arg_grads), loss_value, aux_data)``.
+    %s
 
     Parameters
     ----------
@@ -577,6 +558,9 @@ def jacfwd(
                              transform_params=dict(holomorphic=holomorphic))
 
 
+jacfwd.__doc__ = jacfwd.__doc__ % _doc_of_return
+
+
 @set_module_as("brainstate.augment")
 def hessian(
     func: Callable,
@@ -588,6 +572,8 @@ def hessian(
 ) -> GradientTransform:
     """
     Hessian of ``func`` as a dense array.
+
+    %s
 
     Parameters
     ----------
@@ -617,3 +603,6 @@ def hessian(
                              return_value=return_value,
                              has_aux=False if has_aux is None else has_aux,
                              transform_params=dict(holomorphic=holomorphic))
+
+
+hessian.__doc__ = hessian.__doc__ % _doc_of_return

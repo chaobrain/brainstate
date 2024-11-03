@@ -26,17 +26,27 @@ __all__ = [
 ]
 
 
-class RngBackupRestore:
+class RngRestore:
+    """
+    Backup and restore the random state of a sequence of RandomState instances.
+    """
+
     def __init__(self, rngs: Sequence[RandomState]):
-        self.rngs = rngs
+        self.rngs: Sequence[RandomState] = rngs
         self.rng_keys = []
 
     def backup(self):
+        """
+        Backup the current random key of the RandomState instances.
+        """
         self.rng_keys = [rng.value for rng in self.rngs]
 
     def restore(self):
+        """
+        Restore the random key of the RandomState instances.
+        """
         for rng, key in zip(self.rngs, self.rng_keys):
-            rng.value = key
+            rng.restore_value(key)
         self.rng_keys = []
 
 
@@ -44,16 +54,16 @@ def _rng_backup(
     fn: Callable,
     rngs: Union[RandomState, Sequence[RandomState]]
 ) -> Callable:
-    rng_processor = RngBackupRestore(rngs)
+    rng_restorer = RngRestore(rngs)
 
     @functools.wraps(fn)
     def wrapper(*args, **kwargs):
         # backup the random state
-        rng_processor.backup()
+        rng_restorer.backup()
         # call the function
         out = fn(*args, **kwargs)
         # restore the random state
-        rng_processor.restore()
+        rng_restorer.restore()
         return out
 
     return wrapper
@@ -65,9 +75,21 @@ def restore_rngs(
 ) -> Callable:
     """
     Backup the current random state and restore it after the function call.
+
+    Parameters
+    ----------
+    fn : Callable, optional
+        The function to be wrapped.
+    rngs : Union[RandomState, Sequence[RandomState]]
+        The random state to be backed up and restored. If not provided, the default RandomState instance will be used.
+
+    Returns
+    -------
+    Callable
+        The wrapped function.
     """
     if isinstance(fn, Missing):
-        return functools.partial(_rng_backup, rngs=rngs)
+        return functools.partial(restore_rngs, rngs=rngs)
 
     if isinstance(rngs, RandomState):
         rngs = [rngs]
