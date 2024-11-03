@@ -39,7 +39,8 @@ class TestOptaxOptimizer(unittest.TestCase):
 
         model = Model()
         tx = optax.adam(1e-3)
-        optimizer = bst.optim.OptaxOptimizer(model.states(bst.ParamState), tx)
+        optimizer = bst.optim.OptaxOptimizer(tx)
+        optimizer.register_trainable_weights(model.states(bst.ParamState))
 
         loss_fn = lambda: ((model(x) - y) ** 2).mean()
         prev_loss = loss_fn()

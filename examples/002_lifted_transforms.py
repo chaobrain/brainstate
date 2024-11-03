@@ -66,7 +66,8 @@ class MLP(bst.nn.Module):
 
 
 model = MLP(din=1, dhidden=32, dout=1)
-optimizer = bst.optim.OptaxOptimizer(model.states(bst.ParamState), optax.sgd(1e-3))
+optimizer = bst.optim.OptaxOptimizer(optax.sgd(1e-3))
+optimizer.register_trainable_weights(model.states(bst.ParamState))
 
 
 @bst.compile.jit

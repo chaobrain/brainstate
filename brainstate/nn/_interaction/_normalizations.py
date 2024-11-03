@@ -83,7 +83,7 @@ def _compute_stats(
         the variance without subtracting the mean.
 
     Returns:
-      A pair ``(mean, var)``.
+      A pair ``(mean, val)``.
     """
     if dtype is None:
         dtype = jax.numpy.result_type(x)
@@ -141,7 +141,7 @@ def _normalize(
       The normalized input.
     """
     if mean is not None:
-        assert var is not None, 'mean and var must be both None or not None.'
+        assert var is not None, 'mean and val must be both None or not None.'
         stats_shape = list(x.shape)
         for axis in reduction_axes:
             stats_shape[axis] = 1
@@ -153,8 +153,8 @@ def _normalize(
         if weights is not None:
             y = _scale_operation(y, weights.value)
     else:
-        assert var is None, 'mean and var must be both None or not None.'
-        assert weights is None, 'scale and bias are not supported without mean and var'
+        assert var is None, 'mean and val must be both None or not None.'
+        assert weights is None, 'scale and bias are not supported without mean and val'
         y = x
     return jnp.asarray(y, dtype)
 

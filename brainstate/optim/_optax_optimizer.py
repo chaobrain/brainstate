@@ -17,12 +17,11 @@
 from __future__ import annotations
 
 import importlib.util
-from typing import Hashable, Dict
+from typing import Hashable, Dict, Optional
 
-from brainstate._state import ShortTermState, ParamState, State
-from brainstate.graph import Node
+from brainstate._state import ShortTermState, State, StateDictManager
 from brainstate.typing import PyTree
-from brainstate.util import FlattedDict
+from ._base import Optimizer
 
 optax_installed = importlib.util.find_spec('optax') is not None
 
@@ -31,7 +30,7 @@ __all__ = [
 ]
 
 
-class OptaxOptimizer(Node):
+class OptaxOptimizer(Optimizer):
     """Simple train state for the common case with a single Optax optimizer.
 
     Example usage::
@@ -54,7 +53,8 @@ class OptaxOptimizer(Node):
       ...
       >>> model = Model()
       >>> tx = optax.adam(1e-3)
-      >>> optimizer = bst.optim.OptaxOptimizer(model.states(bst.ParamState), tx)
+      >>> optimizer = bst.optim.OptaxOptimizer(tx)
+      >>> optimizer.register_trainable_weights(model.states(bst.ParamState))
       ...
       >>> loss_fn = lambda: ((model(x) - y) ** 2).mean()
       >>> loss_fn()
@@ -68,14 +68,15 @@ class OptaxOptimizer(Node):
     fork the class and modify it.
 
     Attributes:
-      states: The parameter states to update.
+      param_states: The parameter states to update.
       tx: An Optax gradient transformation.
-      opt_state: The Optax optimizer state.
     """
+
+    param_states: StateDictManager
+    opt_state: Optional[ShortTermState]
 
     def __init__(
         self,
-        states: FlattedDict[Hashable, ParamState],
         tx: 'optax.GradientTransformation',
     ):
         """
@@ -84,9 +85,9 @@ class OptaxOptimizer(Node):
         :class:`State`.
 
         Args:
-          states: A module.
           tx: An Optax gradient transformation.
         """
+        super().__init__()
 
         # tx must be an instance of optax.GradientTransformation
         import optax  # type: ignore[import-not-found,import-untyped]
@@ -94,16 +95,22 @@ class OptaxOptimizer(Node):
             raise TypeError(f"tx must be an instance of optax.GradientTransformation, got {tx}")
         self.tx = tx
 
+        # optimizer state
+        self.opt_state = None
+
+    def register_trainable_weights(self, param_states: Dict[Hashable, State]):
         # model
-        if not isinstance(states, dict):
-            raise TypeError(f"states must be a dict, got {states}")
-        for k, v in states.items():
+        if not isinstance(param_states, dict):
+            raise TypeError(f"states must be a dict, got {param_states}")
+        for k, v in param_states.items():
             if not isinstance(v, State):
                 raise TypeError(f"states values must be ParamState, got {v}")
-        self.states = states
+        self.param_states.update(param_states)
+        self.param_states.unique_()
 
         # wrt
-        self.opt_state = ShortTermState(tx.init({k: v.value for k, v in states.items()}))
+        self.opt_state = ShortTermState(self.tx.init({k: v.value for k, v in self.param_states.items()}))
+        return self
 
     def update(self, grads: Dict[Hashable, PyTree]):
         """Update the model states with the gradients.
@@ -111,15 +118,18 @@ class OptaxOptimizer(Node):
         Args:
           grads: the gradients derived from ``brainstate.augment.grad``.
         """
+        if self.opt_state is None:
+            raise ValueError("register_trainable_weights must be called before update.")
+
         import optax  # type: ignore[import-not-found,import-untyped]
-        grads = {k: grads[k] for k in self.states.keys()}
-        states = {k: v.value for k, v in self.states.items()}
+        grads = {k: grads[k] for k in self.param_states.keys()}
+        states = {k: v.value for k, v in self.param_states.items()}
 
         # compute updates
         updates, new_opt_state = self.tx.update(grads, self.opt_state.value, states)
         new_params = optax.apply_updates(states, updates)
 
         # update model states and optimizer states
-        for k, v in self.states.items():
+        for k, v in self.param_states.items():
             v.value = new_params[k]
         self.opt_state.value = new_opt_state
