@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import inspect
 from functools import partial, wraps
-from typing import Union, Callable, Dict, Sequence, Optional, Any, Tuple, TypeVar
+from typing import Union, Callable, Dict, Sequence, Optional, Any, Tuple, TypeVar, Iterator
 
 import jax
 from jax import numpy as jnp
@@ -42,6 +42,7 @@ from jax.extend import linear_util
 from brainstate._state import State, StateTraceStack
 from brainstate._utils import set_module_as
 from brainstate.typing import PyTree, Missing
+from brainstate.util import PrettyType, PrettyAttr, PrettyRepr
 
 __all__ = [
     'vector_grad', 'grad', 'jacrev', 'jacfwd', 'jacobian', 'hessian',
@@ -158,7 +159,7 @@ def _jacfwd(fun, argnums=0, holomorphic=False, has_aux=False, return_value=False
     return jacfun
 
 
-class GradientTransform(object):
+class GradientTransform(PrettyRepr):
     """
     Automatic Differentiation Transformations for the ``State`` system.
     """
@@ -210,32 +211,36 @@ class GradientTransform(object):
         else:
             self._transform = transform(self._fun_without_aux, argnums=self._argnums, has_aux=True, **_grad_setting)
 
-    def __repr__(self):
-        name = self.__class__.__name__
-        format_ref = (f'{name}(target={self.target}, \n' +
-                      f'{" " * len(name)} num_of_grad_vars={len(self._grad_states)}, \n'
-                      f'{" " * len(name)} num_of_dyn_vars={len(self._states_to_be_written)})')
-        return format_ref
+    def __pretty_repr__(self) -> Iterator[Union[PrettyType, PrettyAttr]]:
+        yield PrettyType(self.__class__.__name__)
+        yield PrettyAttr("target", self.target)
+        yield PrettyAttr("grad_states", self._grad_states)
+        yield PrettyAttr("grad_tree", self._grad_tree)
+        yield PrettyAttr("argnums", self._nonvar_argnums)
+        yield PrettyAttr("return_value", self._return_value)
+        yield PrettyAttr("has_aux", self._has_aux)
+        yield PrettyAttr("transform", self._transform)
 
-    def __call_target(self, *args, **kwargs):
+    def _call_target(self, *args, **kwargs):
         if self._states_to_be_written is None:
             with StateTraceStack() as stack:
                 output = self.target(*args, **kwargs)
-                grad_ids = set([id(v) for v in self._grad_states])
-                self._states_to_be_written = [st for st in stack.get_write_states() if id(st) not in grad_ids]
+                # grad_ids = set([id(v) for v in self._grad_states])
+                # self._states_to_be_written = [st for st in stack.get_write_states() if id(st) not in grad_ids]
+                self._states_to_be_written = [st for st in stack.get_write_states()]
         else:
             output = self.target(*args, **kwargs)
         return output
 
     def _fun_with_aux(self, grad_values: tuple, *args, **kwargs):
         for v, d in zip(self._grad_states, grad_values):
-            v._value = d
+            v.restore_value(d)
         # Users should return the auxiliary data like::
         # >>> # 1. example of return one data
         # >>> return scalar_loss, data
         # >>> # 2. example of return multiple data
         # >>> return scalar_loss, (data1, data2, ...)
-        outs = self.__call_target(*args, **kwargs)
+        outs = self._call_target(*args, **kwargs)
         # outputs: [0] is the value for gradient,
         #          [1] is other values for return
         assert self._states_to_be_written is not None, "The states to be written should be collected."
@@ -243,17 +248,17 @@ class GradientTransform(object):
 
     def _fun_without_aux(self, grad_values: tuple, *args, **kwargs):
         for v, d in zip(self._grad_states, grad_values):
-            v._value = d
+            v.restore_value(d)
         # Users should return the scalar value like this::
         # >>> return scalar_loss
-        out = self.__call_target(*args, **kwargs)
+        out = self._call_target(*args, **kwargs)
         assert self._states_to_be_written is not None, "The states to be written should be collected."
         return out, (out, [v.value for v in self._grad_states], [v.value for v in self._states_to_be_written])
 
-    def __return(self, rets):
+    def _return(self, rets):
         grads, (outputs, new_grad_vals, new_dyn_vals) = rets
         for i, val in enumerate(new_grad_vals):
-            self._grad_states[i].value = val
+            self._grad_states[i].restore_value(val)
         for i, val in enumerate(new_dyn_vals):
             self._states_to_be_written[i].value = val
 
@@ -284,7 +289,7 @@ class GradientTransform(object):
         self, *args, **kwargs
     ) -> Gradient | Tuple[Gradient, LossValue] | Tuple[Gradient, AuxData] | Tuple[Gradient, LossValue, AuxData]:
         rets = self._transform([v.value for v in self._grad_states], *args, **kwargs)
-        return self.__return(rets)
+        return self._return(rets)
 
 
 @set_module_as("brainstate.augment")
