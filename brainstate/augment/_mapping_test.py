@@ -151,3 +151,60 @@ class TestVmap(unittest.TestCase):
         foo = Foo()
         y = mul(foo)
         print(y.shape)
+
+    def test_vmap4(self):
+        class Foo(bst.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.a = bst.ParamState(jnp.arange(4))
+                self.b = bst.ShortTermState(jnp.arange(4))
+
+            def __call__(self):
+                self.b.value = self.a.value * self.b.value
+
+        @bst.augment.vmap
+        def mul(foo):
+            foo()
+            return foo
+
+        foo = Foo()
+        with bst.StateTraceStack() as trace:
+            m = mul(foo)
+
+        self.assertTrue(m is foo)
+        print(m.a.value, foo.a.value)
+        self.assertTrue(jnp.allclose(m.a.value, foo.a.value))
+        print(m.b.value, foo.b.value)
+        self.assertTrue(jnp.allclose(m.b.value, foo.b.value))
+        print(trace.get_write_states())
+        self.assertTrue(len(trace.get_write_states()) == 1)
+        print(trace.get_read_states())
+        self.assertTrue(len(trace.get_read_states()) == 2)
+
+    def test_vmap5(self):
+        class Foo(bst.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.a = bst.ParamState(jnp.arange(4))
+                self.b = bst.ShortTermState(jnp.arange(4))
+
+            def __call__(self):
+                self.b.value = self.a.value * self.b.value
+
+        @bst.augment.vmap
+        def mul(foo):
+            foo()
+
+        foo = Foo()
+        with bst.StateTraceStack() as trace:
+            mul(foo)
+
+        print(foo.a.value)
+        print(foo.b.value)
+        self.assertTrue(jnp.allclose(foo.a.value, jnp.arange(4)))
+        self.assertTrue(jnp.allclose(foo.b.value, jnp.arange(4) * jnp.arange(4)))
+
+        print(trace.get_write_states())
+        print(trace.get_read_states())
+
+

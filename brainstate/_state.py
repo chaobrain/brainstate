@@ -199,6 +199,7 @@ class State(Generic[A], PrettyRepr):
     _source_info: source_info_util.SourceInfo
     _name: Optional[str]
     _value: PyTree
+    _been_writen: bool  # useful in `unflatten` and `flatten` graph processing
     tag: Optional[str]
 
     def __init__(
@@ -224,7 +225,8 @@ class State(Generic[A], PrettyRepr):
                         _level=_get_trace_stack_level(),
                         _source_info=source_info_util.current(),
                         _name=name,
-                        tag=tag)
+                        tag=tag,
+                        _been_writen=False)
 
         # avoid using self._setattr to avoid the check
         vars(self).update(metadata)
@@ -288,6 +290,7 @@ class State(Generic[A], PrettyRepr):
           v: The value.
         """
         self.write_value(v)
+        self._been_writen = True
 
     def write_value(self, v) -> None:
         # value checking
@@ -356,32 +359,6 @@ class State(Generic[A], PrettyRepr):
         """
         return self._source_info
 
-    def copy_from(self, other: State[A]) -> None:
-        """
-        Copy the state from another state.
-        """
-        if type(self) is not type(other):
-            raise ValueError(f'Cannot copy from incompatible container, '
-                             f'expected {type(self).__name__}, got {type(other).__name__}')
-        if self is other:
-            return
-
-        # keep the trace state and stack level
-        trace_state = self._trace_state
-        level = self._level
-        source_info = self._source_info
-
-        # copy other metadata
-        other_vars = vars(other).copy()
-        del other_vars['_trace_state']
-        del other_vars['_level']
-        del other_vars['_source_info']
-
-        # update the metadata
-        vars_dict = vars(self)
-        vars_dict.clear()
-        vars_dict.update(other_vars, _trace_state=trace_state, _level=level, _source_info=source_info)
-
     def update_from_ref(self, state_ref: TreefyState[A]) -> None:
         """
         Update the state from the state reference :py:class:`TreefyState`.
@@ -389,9 +366,13 @@ class State(Generic[A], PrettyRepr):
         Args:
           state_ref: The state reference.
         """
+        metadata = state_ref.get_metadata()
         variable_vars = vars(self)
-        variable_vars.update(**state_ref.get_metadata())
-        self.value = state_ref.value
+        variable_vars.update(**metadata)
+        if metadata.pop('_been_writen', True):
+            self.value = state_ref.value
+        else:
+            self.restore_value(state_ref.value)
 
     def replace(self, value: Any = Missing, **kwargs) -> State[Any]:
         """
@@ -432,6 +413,7 @@ class State(Generic[A], PrettyRepr):
         attributes['_trace_state'] = StateJaxTracer()
         attributes['_level'] = _get_trace_stack_level()
         attributes['_source_info'] = source_info_util.current()
+        attributes.pop('_been_writen', None)
         # update the metadata
         vars(obj).update(attributes)
         return obj
@@ -455,7 +437,7 @@ class State(Generic[A], PrettyRepr):
                     name = 'name'
             if name == 'tag' and value is None:
                 continue
-            if name in ['_trace_state', '_level', '_source_info']:
+            if name in ['_trace_state', '_level', '_source_info', '_been_writen']:
                 continue
             yield PrettyAttr(name, repr(value))
 
@@ -471,7 +453,7 @@ class State(Generic[A], PrettyRepr):
                     name = 'name'
             if name == 'tag' and value is None:
                 continue
-            if name in ['_trace_state', '_level', '_source_info']:
+            if name in ['_trace_state', '_level', '_source_info', '_been_writen']:
                 continue
             children[name] = value
 
@@ -723,10 +705,10 @@ class StateTraceStack(Generic[A]):
           The states that are read by the function.
         """
         if replace_writen:
-            return tuple([st for st, been_writen in zip(self.states, self.been_writen) if not been_writen])
-        else:
             return tuple([st if not been_writen else None
                           for st, been_writen in zip(self.states, self.been_writen)])
+        else:
+            return tuple([st for st, been_writen in zip(self.states, self.been_writen) if not been_writen])
 
     def get_read_state_values(self, replace_writen: bool = False) -> Tuple[PyTree, ...]:
         """
