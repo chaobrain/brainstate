@@ -52,8 +52,8 @@ def check_consistent_aliasing(
     # collect all paths and prefixes for each node
     for path, value in iter_leaf(node):
         if isinstance(value, State):
-            value.check_valid_trace(lambda: f'Trying to extract graph node '
-                                            f'from different trace level, got {value!r}')
+            # value.check_valid_trace(lambda: f'Trying to extract graph node '
+            #                                 f'from different trace level, got {value!r}')
             if value in node_prefixes:
                 paths_prefixes = node_prefixes[value]
                 paths_prefixes.append((path, prefix))
