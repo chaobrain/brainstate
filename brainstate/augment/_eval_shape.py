@@ -42,32 +42,32 @@ def eval_shape(
 
     Here's an example::
 
-    >>> import brainstate as bst
-    >>> class MLP:
-    ...     def __init__(self, n_in, n_mid, n_out):
-    ...         self.dense1 = bst.nn.Linear(n_in, n_mid)
-    ...         self.dense2 = bst.nn.Linear(n_mid, n_out)
+        >>> import brainstate as bst
+        >>> class MLP:
+        ...     def __init__(self, n_in, n_mid, n_out):
+        ...         self.dense1 = bst.nn.Linear(n_in, n_mid)
+        ...         self.dense2 = bst.nn.Linear(n_mid, n_out)
 
-    >>> r = bst.augment.eval_shape(lambda: MLP(1, 2, 3))
-    >>> r
-    MLP(
-      dense1=Linear(
-        in_size=(1,),
-        out_size=(2,),
-        w_mask=None,
-        weight=ParamState(
-          value={'bias': ShapeDtypeStruct(shape=(2,), dtype=float32), 'weight': ShapeDtypeStruct(shape=(1, 2), dtype=float32)}
+        >>> r = bst.augment.eval_shape(lambda: MLP(1, 2, 3))
+        >>> r
+        MLP(
+          dense1=Linear(
+            in_size=(1,),
+            out_size=(2,),
+            w_mask=None,
+            weight=ParamState(
+              value={'bias': ShapeDtypeStruct(shape=(2,), dtype=float32), 'weight': ShapeDtypeStruct(shape=(1, 2), dtype=float32)}
+            )
+          ),
+          dense2=Linear(
+            in_size=(2,),
+            out_size=(3,),
+            w_mask=None,
+            weight=ParamState(
+              value={'bias': ShapeDtypeStruct(shape=(3,), dtype=float32), 'weight': ShapeDtypeStruct(shape=(2, 3), dtype=float32)}
+            )
+          )
         )
-      ),
-      dense2=Linear(
-        in_size=(2,),
-        out_size=(3,),
-        w_mask=None,
-        weight=ParamState(
-          value={'bias': ShapeDtypeStruct(shape=(3,), dtype=float32), 'weight': ShapeDtypeStruct(shape=(2, 3), dtype=float32)}
-        )
-      )
-    )
 
     Args:
         fn: The function whose output shape should be evaluated.

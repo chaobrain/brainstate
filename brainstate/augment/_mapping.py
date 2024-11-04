@@ -21,7 +21,8 @@ from typing import Any, TypeVar, Callable, Hashable, Sequence, Iterable, Mapping
 
 import jax
 
-from brainstate.graph import (NodeStates, graph_to_tree, tree_to_graph)
+from brainstate.graph import (NodeStates, graph_to_tree, tree_to_graph, update_context)
+from brainstate.graph._graph_convert import clear_non_graph_nodes
 from brainstate.random import DEFAULT, RandomState
 from brainstate.typing import Missing, Filter
 from brainstate.util import NestedDict
@@ -90,22 +91,33 @@ def _map_split_fn(ctx, path, prefix, x):
 @dataclasses.dataclass(eq=False)
 class MapFn:
     f: Callable[..., Any]
+    in_axes: Any
     out_axes: Any
+    ctxtag: str
 
     def __post_init__(self):
         functools.update_wrapper(self, self.f)
 
     def __call__(self, *pure_args: Tuple[Any, ...]):
         # pytree to graph
-        args = tree_to_graph(pure_args)
+        args = tree_to_graph(pure_args, ctxtag=self.ctxtag)
+
         # call the function
         out = self.f(*args)
+
         # graph to pytree
-        pure_out = graph_to_tree(out, prefix=self.out_axes, split_fn=_map_split_fn)
-        return pure_out
+        args_out = clear_non_graph_nodes(args)
+        pure_args_out, pure_out = graph_to_tree(
+            (args_out, out),
+            prefix=(self.in_axes, self.out_axes),
+            split_fn=_map_split_fn,
+            ctxtag=self.ctxtag,
+        )
+        return pure_args_out, pure_out
 
 
 def _map_transform(
+    ctxtag,
     transform,
     f: F,
     *,
@@ -127,22 +139,26 @@ def _map_transform(
     )
 
     # mapped function
-    mapped_fn = transform(MapFn(f, out_axes),
-                          in_axes=jax_in_axes,
-                          out_axes=jax_out_axes,
-                          **transform_kwargs)
+    mapped_fn = transform(
+        MapFn(f, in_axes, out_axes, ctxtag),
+        in_axes=jax_in_axes,
+        out_axes=(jax_in_axes, jax_out_axes),
+        **transform_kwargs
+    )
 
     @functools.wraps(f)
     @restore_rngs(rngs=rngs)  # restore the random key of default random number generator
+    @update_context(ctxtag)
     def map_wrapper(*args):
         # graph to pytree
-        pure_args = graph_to_tree(args, prefix=in_axes, split_fn=_map_split_fn)
+        pure_args = graph_to_tree(args, prefix=in_axes, split_fn=_map_split_fn, ctxtag=ctxtag)
 
         # vmap with pytree
-        pure_out = mapped_fn(*pure_args)
+        pure_args_out, pure_out = mapped_fn(*pure_args)
 
         # pytree to graph
-        return tree_to_graph(pure_out)
+        _args_out, out = tree_to_graph((pure_args_out, pure_out), ctxtag=ctxtag)
+        return out
 
     return map_wrapper  # type: ignore
 
@@ -209,21 +225,21 @@ def vmap(
     share the parameters between the ensemble members which keeping different
     batch statistics and dropout random state::
 
-    >>> class Foo(bst.nn.Module):
-    ...     def __init__(self):
-    ...         super().__init__()
-    ...         self.a = bst.ParamState(jnp.arange(4))
-    ...         self.b = bst.ShortTermState(jnp.arange(4))
+        >>> class Foo(bst.nn.Module):
+        ...     def __init__(self):
+        ...         super().__init__()
+        ...         self.a = bst.ParamState(jnp.arange(4))
+        ...         self.b = bst.ShortTermState(jnp.arange(4))
 
-    >>> state_axes = bst.augment.StateAxes({bst.ParamState: 0, bst.ShortTermState: None})
-    >>> @bst.augment.vmap(in_axes=(state_axes,), out_axes=0)
-    ... def mul(foo):
-    ...     return foo.a.value * foo.b.value
+        >>> state_axes = bst.augment.StateAxes({bst.ParamState: 0, bst.ShortTermState: None})
+        >>> @bst.augment.vmap(in_axes=(state_axes,), out_axes=0)
+        ... def mul(foo):
+        ...     return foo.a.value * foo.b.value
 
-    >>> model = Foo()
-    >>> y = mul(model)
-    >>> print(y.shape)
-    (4, 4)
+        >>> model = Foo()
+        >>> y = mul(model)
+        >>> print(y.shape)
+        (4, 4)
 
     Args:
         fn: Function to be mapped over additional axes.
@@ -300,6 +316,7 @@ def vmap(
         )  # type: ignore[return-value]
 
     return _map_transform(
+        'vmap',  # ctxtag
         jax.vmap,
         fn,
         in_axes=in_axes,
@@ -389,21 +406,21 @@ def pmap(
     share the parameters between the ensemble members which keeping different
     batch statistics and dropout random state::
 
-    >>> class Foo(bst.nn.Module):
-    ...     def __init__(self):
-    ...         super().__init__()
-    ...         self.a = bst.ParamState(jnp.arange(4))
-    ...         self.b = bst.ShortTermState(jnp.arange(4))
+        >>> class Foo(bst.nn.Module):
+        ...     def __init__(self):
+        ...         super().__init__()
+        ...         self.a = bst.ParamState(jnp.arange(4))
+        ...         self.b = bst.ShortTermState(jnp.arange(4))
 
-    >>> state_axes = bst.augment.StateAxes({bst.ParamState: 0, bst.ShortTermState: None})
-    >>> @bst.augment.vmap(in_axes=(state_axes,), out_axes=0)
-    ... def mul(foo):
-    ...     return foo.a.value * foo.b.value
+        >>> state_axes = bst.augment.StateAxes({bst.ParamState: 0, bst.ShortTermState: None})
+        >>> @bst.augment.vmap(in_axes=(state_axes,), out_axes=0)
+        ... def mul(foo):
+        ...     return foo.a.value * foo.b.value
 
-    >>> model = Foo()
-    >>> y = mul(model)
-    >>> print(y.shape)
-    (4, 4)
+        >>> model = Foo()
+        >>> y = mul(model)
+        >>> print(y.shape)
+        (4, 4)
 
 
     Args:
@@ -492,6 +509,7 @@ def pmap(
         )  # type: ignore[return-value]
 
     return _map_transform(
+        'pmap',  # ctxtag
         jax.pmap,
         fn,
         in_axes=in_axes,

@@ -18,12 +18,12 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, Iterable, TypeVar, Hashable, Optional, Tuple, List, Dict
+from typing import Any, Callable, Iterable, TypeVar, Hashable, Optional, Tuple, List
 
 import jax
 
 from brainstate._state import State
-from brainstate.typing import Missing, PyTree, SeedOrKey, PathParts
+from brainstate.typing import Missing, PyTree, PathParts
 from brainstate.util import PyTreeNode, field
 from ._graph_context import SplitContext, MergeContext, split_context, merge_context
 from ._graph_operation import (RefMap, iter_leaf, _is_graph_node, GraphDef, GraphStateMapping)
@@ -31,8 +31,6 @@ from ._graph_operation import (RefMap, iter_leaf, _is_graph_node, GraphDef, Grap
 __all__ = [
     'graph_to_tree', 'tree_to_graph', 'NodeStates'
 ]
-
-from ..random import RandomState
 
 Node = TypeVar('Node')
 Leaf = TypeVar('Leaf')
@@ -158,6 +156,7 @@ def graph_to_tree(
     prefix: Any = Missing,
     split_fn: Callable[[SplitContext, KeyPath, Prefix, Leaf], Any] = _default_split_fn,
     map_non_graph_nodes: bool = False,
+    ctxtag: str | None = None,
     check_aliasing: bool = True,
 ) -> PyTree:
     """
@@ -170,7 +169,7 @@ def graph_to_tree(
     assert len(leaf_keys) == len(leaf_prefixes)
 
     # Split the tree
-    with split_context() as ctx:
+    with split_context(ctxtag) as ctx:
         leaves_out = []
         node_prefixes = RefMap[Any, list[tuple[PathParts, Any]]]()
         for (keypath, leaf), leaf_prefix in zip(leaf_keys, leaf_prefixes):
@@ -207,6 +206,7 @@ def tree_to_graph(
     is_node_leaf: Callable[[Leaf], bool] = _is_tree_node,
     is_leaf: Callable[[Leaf], bool] = _is_tree_node,
     map_non_graph_nodes: bool = False,
+    ctxtag: str | None = None,
 ) -> Any:
     """
     Convert a tree of TreeNode objects to a tree of pytree objects.
@@ -227,7 +227,7 @@ def tree_to_graph(
     leaf_keys, treedef = jax.tree_util.tree_flatten_with_path(tree, is_leaf=is_leaf)
     assert len(leaf_keys) == len(leaf_prefixes), "Mismatched number of keys and prefixes"
 
-    with merge_context() as ctx:
+    with merge_context(ctxtag) as ctx:
         leaves_out = []
         for (keypath, leaf), leaf_prefix in zip(leaf_keys, leaf_prefixes):
             if is_node_leaf(leaf):
@@ -240,3 +240,7 @@ def tree_to_graph(
 
     pytree_out = jax.tree.unflatten(treedef, leaves_out)
     return pytree_out
+
+
+def clear_non_graph_nodes(tree):
+    return jax.tree.map(lambda x: x if _is_graph_node(x) else None, tree)
