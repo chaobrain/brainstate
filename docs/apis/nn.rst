@@ -29,19 +29,26 @@ Synaptic Interaction Layers
    ScaledWSLinear
    SignedWLinear
    CSRLinear
+   CSCLinear
+   COOLinear
+   AllToAll
+   OneToOne
+
    Conv1d
    Conv2d
    Conv3d
    ScaledWSConv1d
    ScaledWSConv2d
    ScaledWSConv3d
-   AllToAll
+
    BatchNorm0d
    BatchNorm1d
    BatchNorm2d
    BatchNorm3d
+
    Flatten
    Unflatten
+
    AvgPool1d
    AvgPool2d
    AvgPool3d
@@ -54,6 +61,7 @@ Synaptic Interaction Layers
    AdaptiveMaxPool1d
    AdaptiveMaxPool2d
    AdaptiveMaxPool3d
+
    Embedding
 
 

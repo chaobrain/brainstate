@@ -27,8 +27,8 @@ from brainstate.compile import for_loop
 from brainstate.init import param
 from brainstate.nn._module import Module
 from brainstate.random import RandomState
-from brainstate.typing import ArrayLike
-from ._misc import FloatScalar, IntScalar
+from brainstate.typing import ArrayLike, Size
+from ._misc import FloatScalar
 
 __all__ = [
     'FixedProb',
@@ -41,19 +41,24 @@ class FixedProb(Module):
 
     Parameters
     ----------
-    n_pre : int
-        Number of pre-synaptic neurons.
-    n_post : int
-        Number of post-synaptic neurons.
+    in_size : Size
+        Number of pre-synaptic neurons, i.e., input size.
+    out_size : Size
+        Number of post-synaptic neurons, i.e., output size.
     prob : float
-        Probability of connection.
+        Probability of connection, i.e., connection probability.
     weight : float or callable or jax.Array or brainunit.Quantity
-        Maximum synaptic conductance.
+        Maximum synaptic conductance, i.e., synaptic weight.
     allow_multi_conn : bool, optional
         Whether multiple connections are allowed from a single pre-synaptic neuron.
         Default is True, meaning that a value of ``a`` can be selected multiple times.
-    prob : float
-        Probability of connection.
+    seed: int, optional
+        Random seed. Default is None. If None, the default random seed will be used.
+    grad_mode : str, optional
+        Gradient mode. Default is 'vjp'. Can be 'vjp' or 'jvp'.
+
+        - 'vjp': Compatible with the vector-Jacobian product (VJP) autodiff method.
+        - 'jvp': Compatible with the Jacobian-vector product (JVP) autodiff method.
     name : str, optional
         Name of the module.
     """
@@ -62,39 +67,42 @@ class FixedProb(Module):
 
     def __init__(
         self,
-        n_pre: IntScalar,
-        n_post: IntScalar,
+        in_size: Size,
+        out_size: Size,
         prob: FloatScalar,
         weight: Union[Callable, ArrayLike],
         allow_multi_conn: bool = True,
         seed: Optional[int] = None,
+        grad_mode: str = 'vjp',
+        block_size: int = 128,
         name: Optional[str] = None,
-        grad_mode: str = 'vjp'
     ):
         super().__init__(name=name)
-        self.n_pre = n_pre
-        self.n_post = n_post
-        self.in_size = n_pre
-        self.out_size = n_post
 
-        self.n_conn = int(n_post * prob)
+        # network size
+        self.in_size = in_size
+        self.out_size = out_size
+        self.n_conn = int(self.out_size[-1] * prob)
         if self.n_conn < 1:
-            raise ValueError(
-                f"The number of connections must be at least 1. Got: int({n_post} * {prob}) = {self.n_conn}")
+            raise ValueError(f"The number of connections must be at least 1. "
+                             f"Got: int({self.out_size[-1]} * {prob}) = {self.n_conn}")
 
+        # gradient mode
         assert grad_mode in ['vjp', 'jvp'], f"Unsupported grad_mode: {grad_mode}"
         self.grad_mode = grad_mode
 
         # indices of post connected neurons
         if allow_multi_conn:
-            self.indices = np.random.RandomState(seed).randint(0, n_post, size=(self.n_pre, self.n_conn))
+            rng = np.random.RandomState(seed)
+            self.indices = rng.randint(0, self.out_size[-1], size=(self.in_size[-1], self.n_conn))
         else:
             rng = RandomState(seed)
-            self.indices = for_loop(lambda i: rng.choice(n_post, size=(self.n_conn,), replace=False), np.arange(n_pre))
+            self.indices = for_loop(lambda i: rng.choice(self.out_size[-1], size=(self.n_conn,), replace=False),
+                                    np.arange(self.in_size[-1]))
         self.indices = u.math.asarray(self.indices)
 
         # maximum synaptic conductance
-        weight = param(weight, (self.n_pre, self.n_conn), allow_none=False)
+        weight = param(weight, (self.in_size[-1], self.n_conn), allow_none=False)
         self.weight = ParamState(weight)
 
     def update(self, spk: jax.Array) -> Union[jax.Array, u.Quantity]:
@@ -103,7 +111,7 @@ class FixedProb(Module):
             return cpu_fixed_prob(self.indices,
                                   u.math.asarray(self.weight.value),
                                   u.math.asarray(spk),
-                                  n_post=self.n_post,
+                                  n_post=self.out_size[-1],
                                   grad_mode=self.grad_mode)
         elif device_kind in ['gpu', 'tpu']:
             raise NotImplementedError()

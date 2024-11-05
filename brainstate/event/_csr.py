@@ -21,12 +21,11 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from brainstate._state import ParamState, State
+from brainstate._state import ParamState
 from brainstate._utils import set_module_as
 from brainstate.init import param
 from brainstate.nn._module import Module
-from brainstate.typing import ArrayLike
-from ._misc import IntScalar
+from brainstate.typing import ArrayLike, Size
 
 __all__ = [
     'CSRLinear',
@@ -39,12 +38,12 @@ class CSRLinear(Module):
 
     Parameters
     ----------
-    n_pre : int
-        Number of pre-synaptic neurons.
-    n_post : int
-        Number of post-synaptic neurons.
+    in_size : Size
+        Number of pre-synaptic neurons, i.e., input size.
+    out_size : Size
+        Number of post-synaptic neurons, i.e., output size.
     weight : float or callable or jax.Array or brainunit.Quantity
-        Maximum synaptic conductance.
+        Maximum synaptic conductance or a function that returns the maximum synaptic conductance.
     name : str, optional
         Name of the module.
     """
@@ -53,8 +52,8 @@ class CSRLinear(Module):
 
     def __init__(
         self,
-        n_pre: IntScalar,
-        n_post: IntScalar,
+        in_size: Size,
+        out_size: Size,
         indptr: ArrayLike,
         indices: ArrayLike,
         weight: Union[Callable, ArrayLike],
@@ -63,10 +62,11 @@ class CSRLinear(Module):
     ):
         super().__init__(name=name)
 
-        self.in_size = n_pre
-        self.out_size = n_post
-        self.n_pre = n_pre
-        self.n_post = n_post
+        # network size
+        self.in_size = in_size
+        self.out_size = out_size
+        self.n_pre = self.in_size[-1]
+        self.n_post = self.out_size[-1]
 
         # gradient mode
         assert grad_mode in ['vjp', 'jvp'], f"Unsupported grad_mode: {grad_mode}"
@@ -77,9 +77,10 @@ class CSRLinear(Module):
         indices = jnp.asarray(indices)
         assert indptr.ndim == 1, f"indptr must be 1D. Got: {indptr.ndim}"
         assert indices.ndim == 1, f"indices must be 1D. Got: {indices.ndim}"
-        assert indptr.size == n_pre + 1, f"indptr must have size {n_pre + 1}. Got: {indptr.size}"
-        self.indptr = u.math.asarray(indptr)
-        self.indices = u.math.asarray(indices)
+        assert indptr.size == self.n_pre + 1, f"indptr must have size {self.n_pre + 1}. Got: {indptr.size}"
+        with jax.ensure_compile_time_eval():
+            self.indptr = u.math.asarray(indptr)
+            self.indices = u.math.asarray(indices)
 
         # maximum synaptic conductance
         weight = param(weight, (len(indices),), allow_none=False)
@@ -88,7 +89,9 @@ class CSRLinear(Module):
         self.weight = ParamState(weight)
 
     def update(self, spk: jax.Array) -> Union[jax.Array, u.Quantity]:
-        weight = self.weight.value if isinstance(self.weight, State) else self.weight
+        weight = self.weight.value
+
+        # return zero if no pre-synaptic neurons
         if len(self.indices) == 0:
             r = u.math.zeros(spk.shape[:-1] + (self.n_post,),
                              dtype=weight.dtype,
@@ -96,6 +99,8 @@ class CSRLinear(Module):
             return u.maybe_decimal(r)
 
         device_kind = jax.devices()[0].platform  # spk.device.device_kind
+
+        # CPU implementation
         if device_kind == 'cpu':
             return cpu_event_csr(
                 u.math.asarray(spk),
@@ -104,8 +109,11 @@ class CSRLinear(Module):
                 u.math.asarray(weight),
                 n_post=self.n_post, grad_mode=self.grad_mode
             )
+
+        # GPU/TPU implementation
         elif device_kind in ['gpu', 'tpu']:
             raise NotImplementedError()
+
         else:
             raise ValueError(f"Unsupported device: {device_kind}")
 

@@ -25,7 +25,7 @@ from brainstate._state import ParamState, State
 from brainstate._utils import set_module_as
 from brainstate.init import param
 from brainstate.nn._module import Module
-from brainstate.typing import ArrayLike
+from brainstate.typing import ArrayLike, Size
 from ._misc import IntScalar
 
 __all__ = [
@@ -39,10 +39,10 @@ class Linear(Module):
 
     Parameters
     ----------
-    n_pre : int
-        Number of pre-synaptic neurons.
-    n_post : int
-        Number of post-synaptic neurons.
+    in_size : Size
+        Number of pre-synaptic neurons, i.e., input size.
+    out_size : Size
+        Number of post-synaptic neurons, i.e., output size.
     weight : float or callable or jax.Array or brainunit.Quantity
         Maximum synaptic conductance.
     name : str, optional
@@ -53,35 +53,36 @@ class Linear(Module):
 
     def __init__(
         self,
-        n_pre: IntScalar,
-        n_post: IntScalar,
+        in_size: Size,
+        out_size: Size,
         weight: Union[Callable, ArrayLike],
         name: Optional[str] = None,
         grad_mode: str = 'vjp'
     ):
         super().__init__(name=name)
-        self.n_pre = n_pre
-        self.n_post = n_post
-        self.in_size = n_pre
-        self.out_size = n_post
 
+        # network size
+        self.in_size = in_size
+        self.out_size = out_size
+
+        # gradient mode
         assert grad_mode in ['vjp', 'jvp'], f"Unsupported grad_mode: {grad_mode}"
         self.grad_mode = grad_mode
 
         # maximum synaptic conductance
-        weight = param(weight, (self.n_pre, self.n_post), allow_none=False)
+        weight = param(weight, (self.in_size[-1], self.out_size[-1]), allow_none=False)
         self.weight = ParamState(weight)
 
     def update(self, spk: jax.Array) -> Union[jax.Array, u.Quantity]:
         weight = self.weight.value if isinstance(self.weight, State) else self.weight
         if u.math.size(weight) == 1:
-            return u.math.ones(self.n_post) * (u.math.sum(spk) * weight)
+            return u.math.ones(self.out_size) * (u.math.sum(spk) * weight)
 
         device_kind = jax.devices()[0].platform  # spk.device.device_kind
         if device_kind == 'cpu':
             return cpu_event_linear(u.math.asarray(weight),
                                     u.math.asarray(spk),
-                                    n_post=self.n_post,
+                                    n_post=self.out_size[-1],
                                     grad_mode=self.grad_mode)
         elif device_kind in ['gpu', 'tpu']:
             raise NotImplementedError()
