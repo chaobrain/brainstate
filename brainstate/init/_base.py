@@ -25,30 +25,30 @@ __all__ = ['Initializer', 'to_size']
 
 
 class Initializer(PrettyRepr):
-  """
-  Base class for initializers.
-  """
-  __module__ = 'brainstate.init'
-
-  def __call__(self, *args, **kwargs):
-    raise NotImplementedError
-
-  def __pretty_repr__(self):
     """
-    Pretty repr for the object.
+    Base class for initializers.
     """
-    yield PrettyType(type=type(self))
-    for name, value in vars(self).items():
-      if name.startswith('_'):
-        continue
-      yield PrettyAttr(name, repr(value))
+    __module__ = 'brainstate.init'
+
+    def __call__(self, *args, **kwargs):
+        raise NotImplementedError
+
+    def __pretty_repr__(self):
+        """
+        Pretty repr for the object.
+        """
+        yield PrettyType(type=type(self))
+        for name, value in vars(self).items():
+            if name.startswith('_'):
+                continue
+            yield PrettyAttr(name, repr(value))
 
 
 def to_size(x) -> Optional[Tuple[int]]:
-  if isinstance(x, (tuple, list)):
-    return tuple(x)
-  if isinstance(x, (int, np.integer)):
-    return (x,)
-  if x is None:
-    return x
-  raise ValueError(f'Cannot make a size for {x}')
+    if isinstance(x, (tuple, list)):
+        return tuple(x)
+    if isinstance(x, (int, np.integer)):
+        return (x,)
+    if x is None:
+        return x
+    raise ValueError(f'Cannot make a size for {x}')

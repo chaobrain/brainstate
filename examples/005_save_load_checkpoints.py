@@ -28,21 +28,21 @@ import brainstate as bst
 
 
 class MLP(bst.nn.Module):
-  def __init__(self, din: int, dmid: int, dout: int):
-    super().__init__()
-    self.dense1 = bst.nn.Linear(din, dmid)
-    self.dense2 = bst.nn.Linear(dmid, dout)
+    def __init__(self, din: int, dmid: int, dout: int):
+        super().__init__()
+        self.dense1 = bst.nn.Linear(din, dmid)
+        self.dense2 = bst.nn.Linear(dmid, dout)
 
-  def __call__(self, x: jax.Array) -> jax.Array:
-    x = self.dense1(x)
-    x = jax.nn.relu(x)
-    x = self.dense2(x)
-    return x
+    def __call__(self, x: jax.Array) -> jax.Array:
+        x = self.dense1(x)
+        x = jax.nn.relu(x)
+        x = self.dense2(x)
+        return x
 
 
 def create_model(seed: int):
-  bst.random.seed(seed)
-  return MLP(10, 20, 30)
+    bst.random.seed(seed)
+    return MLP(10, 20, 30)
 
 
 def create_and_save(seed: int, path: str):
@@ -66,11 +66,11 @@ def load_model(path: str) -> MLP:
 
 
 with TemporaryDirectory() as tmpdir:
-  # create a checkpoint
-  create_and_save(42, tmpdir)
-  # load model from checkpoint
-  model = load_model(tmpdir)
-  # run the model
-  y = model(jnp.ones((1, 10)))
-  print(model)
-  print(y)
+    # create a checkpoint
+    create_and_save(42, tmpdir)
+    # load model from checkpoint
+    model = load_model(tmpdir)
+    # run the model
+    y = model(jnp.ones((1, 10)))
+    print(model)
+    print(y)

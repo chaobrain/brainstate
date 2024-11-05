@@ -13,25 +13,28 @@
 # limitations under the License.
 # ==============================================================================
 
-from ._dynamics_base import *
-from ._dynamics_base import __all__ as dyn_all
-from ._projection_base import *
-from ._projection_base import __all__ as projection_all
-from ._state_delay import *
-from ._state_delay import __all__ as state_delay_all
-from ._synouts import *
-from ._synouts import __all__ as synouts_all
 
-__all__ = (
-    dyn_all
-    + projection_all
-    + state_delay_all
-    + synouts_all
-)
+from __future__ import annotations
 
-del (
-    dyn_all,
-    projection_all,
-    state_delay_all,
-    synouts_all
-)
+import unittest
+
+import brainstate as bst
+
+
+class TestEvalShape(unittest.TestCase):
+    def test1(self):
+        class MLP(bst.nn.Module):
+            def __init__(self, n_in, n_mid, n_out):
+                super().__init__()
+                self.dense1 = bst.nn.Linear(n_in, n_mid)
+                self.dense2 = bst.nn.Linear(n_mid, n_out)
+
+            def __call__(self, x):
+                x = self.dense1(x)
+                x = bst.functional.relu(x)
+                x = self.dense2(x)
+                return x
+
+        r = bst.augment.eval_shape(lambda: MLP(1, 2, 3))
+        print(r)
+        print(bst.random.DEFAULT)

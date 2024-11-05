@@ -37,41 +37,42 @@
 
 
 import brainunit as u
-import brainstate as bst
 import matplotlib.pyplot as plt
+
+import brainstate as bst
 
 
 class EINet(bst.nn.DynamicsGroup):
-  def __init__(self, n_exc, n_inh, prob, JE, JI):
-    super().__init__()
-    self.n_exc = n_exc
-    self.n_inh = n_inh
-    self.num = n_exc + n_inh
+    def __init__(self, n_exc, n_inh, prob, JE, JI):
+        super().__init__()
+        self.n_exc = n_exc
+        self.n_inh = n_inh
+        self.num = n_exc + n_inh
 
-    # neurons
-    self.N = bst.nn.LIF(n_exc + n_inh, V_rest=-52. * u.mV, V_th=-50. * u.mV, V_reset=-60. * u.mV, tau=10. * u.ms,
-                        V_initializer=bst.init.Normal(-60., 10., unit=u.mV), spk_reset='soft')
+        # neurons
+        self.N = bst.nn.LIF(n_exc + n_inh, V_rest=-52. * u.mV, V_th=-50. * u.mV, V_reset=-60. * u.mV, tau=10. * u.ms,
+                            V_initializer=bst.init.Normal(-60., 10., unit=u.mV), spk_reset='soft')
 
-    # synapses
-    self.E = bst.nn.AlignPostProj(
-      comm=bst.event.FixedProb(n_exc, self.num, prob, JE),
-      syn=bst.nn.Expon.desc(self.num, tau=2. * u.ms),
-      out=bst.nn.CUBA.desc(),
-      post=self.N,
-    )
-    self.I = bst.nn.AlignPostProj(
-      comm=bst.event.FixedProb(n_inh, self.num, prob, JI),
-      syn=bst.nn.Expon.desc(self.num, tau=2. * u.ms),
-      out=bst.nn.CUBA.desc(),
-      post=self.N,
-    )
+        # synapses
+        self.E = bst.nn.AlignPostProj(
+            comm=bst.event.FixedProb(n_exc, self.num, prob, JE),
+            syn=bst.nn.Expon.desc(self.num, tau=2. * u.ms),
+            out=bst.nn.CUBA.desc(),
+            post=self.N,
+        )
+        self.I = bst.nn.AlignPostProj(
+            comm=bst.event.FixedProb(n_inh, self.num, prob, JI),
+            syn=bst.nn.Expon.desc(self.num, tau=2. * u.ms),
+            out=bst.nn.CUBA.desc(),
+            post=self.N,
+        )
 
-  def update(self, inp):
-    spks = self.N.get_spike() != 0.
-    self.E(spks[:self.n_exc])
-    self.I(spks[self.n_exc:])
-    self.N(inp)
-    return self.N.get_spike()
+    def update(self, inp):
+        spks = self.N.get_spike() != 0.
+        self.E(spks[:self.n_exc])
+        self.I(spks[self.n_exc:])
+        self.N(inp)
+        return self.N.get_spike()
 
 
 # connectivity

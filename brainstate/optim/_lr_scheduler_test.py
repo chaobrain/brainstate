@@ -14,6 +14,7 @@
 # ==============================================================================
 
 from __future__ import annotations
+
 import unittest
 
 import jax.numpy as jnp
@@ -22,28 +23,28 @@ import brainstate as bst
 
 
 class TestMultiStepLR(unittest.TestCase):
-  def test1(self):
-    lr = bst.optim.MultiStepLR(0.1, [10, 20, 30], gamma=0.1)
-    for i in range(40):
-      r = lr(i)
-      if i < 10:
-        self.assertEqual(r, 0.1)
-      elif i < 20:
-        self.assertTrue(jnp.allclose(r, 0.01))
-      elif i < 30:
-        self.assertTrue(jnp.allclose(r, 0.001))
-      else:
-        self.assertTrue(jnp.allclose(r, 0.0001))
+    def test1(self):
+        lr = bst.optim.MultiStepLR(0.1, [10, 20, 30], gamma=0.1)
+        for i in range(40):
+            r = lr(i)
+            if i < 10:
+                self.assertEqual(r, 0.1)
+            elif i < 20:
+                self.assertTrue(jnp.allclose(r, 0.01))
+            elif i < 30:
+                self.assertTrue(jnp.allclose(r, 0.001))
+            else:
+                self.assertTrue(jnp.allclose(r, 0.0001))
 
-  def test2(self):
-    lr = bst.transform.jit(bst.optim.MultiStepLR(0.1, [10, 20, 30], gamma=0.1))
-    for i in range(40):
-      r = lr(i)
-      if i < 10:
-        self.assertEqual(r, 0.1)
-      elif i < 20:
-        self.assertTrue(jnp.allclose(r, 0.01))
-      elif i < 30:
-        self.assertTrue(jnp.allclose(r, 0.001))
-      else:
-        self.assertTrue(jnp.allclose(r, 0.0001))
+    def test2(self):
+        lr = bst.transform.jit(bst.optim.MultiStepLR(0.1, [10, 20, 30], gamma=0.1))
+        for i in range(40):
+            r = lr(i)
+            if i < 10:
+                self.assertEqual(r, 0.1)
+            elif i < 20:
+                self.assertTrue(jnp.allclose(r, 0.01))
+            elif i < 30:
+                self.assertTrue(jnp.allclose(r, 0.001))
+            else:
+                self.assertTrue(jnp.allclose(r, 0.0001))

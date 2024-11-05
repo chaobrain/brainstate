@@ -23,37 +23,37 @@ import brainstate as bst
 
 
 class TestForLoop(unittest.TestCase):
-  def test_for_loop(self):
-    a = bst.ShortTermState(0.)
-    b = bst.ShortTermState(0.)
+    def test_for_loop(self):
+        a = bst.ShortTermState(0.)
+        b = bst.ShortTermState(0.)
 
-    def f(i):
-      a.value += (1 + b.value)
-      return a.value
+        def f(i):
+            a.value += (1 + b.value)
+            return a.value
 
-    n_iter = 10
-    ops = np.arange(n_iter)
-    r = bst.compile.for_loop(f, ops)
+        n_iter = 10
+        ops = np.arange(n_iter)
+        r = bst.compile.for_loop(f, ops)
 
-    print(a)
-    print(b)
-    self.assertTrue(a.value == n_iter)
-    self.assertTrue(jnp.allclose(r, ops + 1))
+        print(a)
+        print(b)
+        self.assertTrue(a.value == n_iter)
+        self.assertTrue(jnp.allclose(r, ops + 1))
 
-  def test_checkpointed_for_loop(self):
-    a = bst.ShortTermState(0.)
-    b = bst.ShortTermState(0.)
+    def test_checkpointed_for_loop(self):
+        a = bst.ShortTermState(0.)
+        b = bst.ShortTermState(0.)
 
-    def f(i):
-      a.value += (1 + b.value)
-      return a.value
+        def f(i):
+            a.value += (1 + b.value)
+            return a.value
 
-    n_iter = 18
-    ops = jnp.arange(n_iter)
-    r = bst.compile.checkpointed_for_loop(f, ops, base=2, pbar=bst.compile.ProgressBar())
+        n_iter = 18
+        ops = jnp.arange(n_iter)
+        r = bst.compile.checkpointed_for_loop(f, ops, base=2, pbar=bst.compile.ProgressBar())
 
-    print(a)
-    print(b)
-    print(r)
-    self.assertTrue(a.value == n_iter)
-    self.assertTrue(jnp.allclose(r, ops + 1))
+        print(a)
+        print(b)
+        print(r)
+        self.assertTrue(a.value == n_iter)
+        self.assertTrue(jnp.allclose(r, ops + 1))

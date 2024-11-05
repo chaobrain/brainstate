@@ -22,37 +22,37 @@ import brainstate as bst
 
 
 class TestEnviron(unittest.TestCase):
-  def test_precision(self):
-    with bst.environ.context(precision=64):
-      a = bst.random.randn(1)
-      self.assertEqual(a.dtype, jnp.float64)
+    def test_precision(self):
+        with bst.environ.context(precision=64):
+            a = bst.random.randn(1)
+            self.assertEqual(a.dtype, jnp.float64)
 
-    with bst.environ.context(precision=32):
-      a = bst.random.randn(1)
-      self.assertEqual(a.dtype, jnp.float32)
+        with bst.environ.context(precision=32):
+            a = bst.random.randn(1)
+            self.assertEqual(a.dtype, jnp.float32)
 
-    with bst.environ.context(precision=16):
-      a = bst.random.randn(1)
-      self.assertEqual(a.dtype, jnp.bfloat16)
+        with bst.environ.context(precision=16):
+            a = bst.random.randn(1)
+            self.assertEqual(a.dtype, jnp.bfloat16)
 
-  def test_platform(self):
-    with self.assertRaises(ValueError):
-      with bst.environ.context(platform='cpu'):
-        a = bst.random.randn(1)
-        self.assertEqual(a.device(), 'cpu')
+    def test_platform(self):
+        with self.assertRaises(ValueError):
+            with bst.environ.context(platform='cpu'):
+                a = bst.random.randn(1)
+                self.assertEqual(a.device(), 'cpu')
 
-  def test_register_default_behavior(self):
-    bst.environ.set(dt=0.1)
+    def test_register_default_behavior(self):
+        bst.environ.set(dt=0.1)
 
-    dt_ = 0.1
+        dt_ = 0.1
 
-    def dt_behavior(dt):
-      nonlocal dt_
-      dt_ = dt
-      print(f'dt: {dt}')
+        def dt_behavior(dt):
+            nonlocal dt_
+            dt_ = dt
+            print(f'dt: {dt}')
 
-    bst.environ.register_default_behavior('dt', dt_behavior)
+        bst.environ.register_default_behavior('dt', dt_behavior)
 
-    with bst.environ.context(dt=0.2):
-      self.assertEqual(dt_, 0.2)
-    self.assertEqual(dt_, 0.1)
+        with bst.environ.context(dt=0.2):
+            self.assertEqual(dt_, 0.2)
+        self.assertEqual(dt_, 0.1)

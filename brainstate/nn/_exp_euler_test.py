@@ -14,6 +14,7 @@
 # ==============================================================================
 
 from __future__ import annotations
+
 import unittest
 
 import brainunit as u
@@ -22,14 +23,14 @@ import brainstate as bst
 
 
 class TestExpEuler(unittest.TestCase):
-  def test1(self):
-    def fun(x, tau):
-      return -x / tau
+    def test1(self):
+        def fun(x, tau):
+            return -x / tau
 
-    with bst.environ.context(dt=0.1):
-      with self.assertRaises(AssertionError):
-        r = bst.nn.exp_euler_step(fun, 1.0 * u.mV, 1. * u.ms)
+        with bst.environ.context(dt=0.1):
+            with self.assertRaises(AssertionError):
+                r = bst.nn.exp_euler_step(fun, 1.0 * u.mV, 1. * u.ms)
 
-    with bst.environ.context(dt=1. * u.ms):
-      r = bst.nn.exp_euler_step(fun, 1.0 * u.mV, 1. * u.ms)
-      print(r)
+        with bst.environ.context(dt=1. * u.ms):
+            r = bst.nn.exp_euler_step(fun, 1.0 * u.mV, 1. * u.ms)
+            print(r)

@@ -23,32 +23,32 @@ import brainstate as bst
 
 
 class TestReadoutModels(unittest.TestCase):
-  def setUp(self):
-    self.in_size = 3
-    self.out_size = 3
-    self.batch_size = 4
-    self.tau = 5.0
-    self.V_th = 1.0
-    self.x = jnp.ones((self.batch_size, self.in_size))
+    def setUp(self):
+        self.in_size = 3
+        self.out_size = 3
+        self.batch_size = 4
+        self.tau = 5.0
+        self.V_th = 1.0
+        self.x = jnp.ones((self.batch_size, self.in_size))
 
-  def test_LeakyRateReadout(self):
-    with bst.environ.context(dt=0.1):
-      model = bst.nn.LeakyRateReadout(in_size=self.in_size, out_size=self.out_size, tau=self.tau)
-      model.init_state(batch_size=self.batch_size)
-      output = model.update(self.x)
-      self.assertEqual(output.shape, (self.batch_size, self.out_size))
+    def test_LeakyRateReadout(self):
+        with bst.environ.context(dt=0.1):
+            model = bst.nn.LeakyRateReadout(in_size=self.in_size, out_size=self.out_size, tau=self.tau)
+            model.init_state(batch_size=self.batch_size)
+            output = model.update(self.x)
+            self.assertEqual(output.shape, (self.batch_size, self.out_size))
 
-  def test_LeakySpikeReadout(self):
-    with bst.environ.context(dt=0.1):
-      model = bst.nn.LeakySpikeReadout(size=self.in_size, tau=self.tau, V_th=self.V_th,
-                                       V_initializer=bst.init.ZeroInit(),
-                                       w_init=bst.init.KaimingNormal())
-      model.init_state(batch_size=self.batch_size)
-      with bst.environ.context(t=0.):
-        output = model.update(self.x)
-      self.assertEqual(output.shape, (self.batch_size, self.out_size))
+    def test_LeakySpikeReadout(self):
+        with bst.environ.context(dt=0.1):
+            model = bst.nn.LeakySpikeReadout(in_size=self.in_size, tau=self.tau, V_th=self.V_th,
+                                             V_initializer=bst.init.ZeroInit(),
+                                             w_init=bst.init.KaimingNormal())
+            model.init_state(batch_size=self.batch_size)
+            with bst.environ.context(t=0.):
+                output = model.update(self.x)
+            self.assertEqual(output.shape, (self.batch_size, self.out_size))
 
 
 if __name__ == '__main__':
-  with bst.environ.context(dt=0.1):
-    unittest.main()
+    with bst.environ.context(dt=0.1):
+        unittest.main()

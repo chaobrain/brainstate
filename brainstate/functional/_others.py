@@ -23,7 +23,7 @@ import jax.numpy as jnp
 from brainstate.typing import PyTree
 
 __all__ = [
-  'clip_grad_norm',
+    'clip_grad_norm',
 ]
 
 
@@ -32,17 +32,17 @@ def clip_grad_norm(
     max_norm: float | jax.Array,
     norm_type: int | str | None = None
 ):
-  """
-  Clips gradient norm of an iterable of parameters.
+    """
+    Clips gradient norm of an iterable of parameters.
 
-  The norm is computed over all gradients together, as if they were
-  concatenated into a single vector. Gradients are modified in-place.
+    The norm is computed over all gradients together, as if they were
+    concatenated into a single vector. Gradients are modified in-place.
 
-  Args:
-      grad (PyTree): an iterable of Tensors or a single Tensor that will have gradients normalized
-      max_norm (float): max norm of the gradients.
-      norm_type (int, str, None): type of the used p-norm. Can be ``'inf'`` for infinity norm.
-  """
-  norm_fn = partial(jnp.linalg.norm, ord=norm_type)
-  norm = norm_fn(jnp.asarray(jax.tree.leaves(jax.tree.map(norm_fn, grad))))
-  return jax.tree.map(lambda x: jnp.where(norm < max_norm, x, x * max_norm / (norm + 1e-6)), grad)
+    Args:
+        grad (PyTree): an iterable of Tensors or a single Tensor that will have gradients normalized
+        max_norm (float): max norm of the gradients.
+        norm_type (int, str, None): type of the used p-norm. Can be ``'inf'`` for infinity norm.
+    """
+    norm_fn = partial(jnp.linalg.norm, ord=norm_type)
+    norm = norm_fn(jnp.asarray(jax.tree.leaves(jax.tree.map(norm_fn, grad))))
+    return jax.tree.map(lambda x: jnp.where(norm < max_norm, x, x * max_norm / (norm + 1e-6)), grad)

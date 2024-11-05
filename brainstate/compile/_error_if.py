@@ -25,24 +25,24 @@ from brainstate._utils import set_module_as
 from ._unvmap import unvmap
 
 __all__ = [
-  'jit_error_if',
+    'jit_error_if',
 ]
 
 
 def _err_jit_true_branch(err_fun, args, kwargs):
-  jax.debug.callback(err_fun, *args, **kwargs)
+    jax.debug.callback(err_fun, *args, **kwargs)
 
 
 def _err_jit_false_branch(args, kwargs):
-  pass
+    pass
 
 
 def _error_msg(msg, *arg, **kwargs):
-  if len(arg):
-    msg = msg % arg
-  if len(kwargs):
-    msg = msg.format(**kwargs)
-  raise ValueError(msg)
+    if len(arg):
+        msg = msg % arg
+    if len(kwargs):
+        msg = msg.format(**kwargs)
+    raise ValueError(msg)
 
 
 @set_module_as('brainstate.compile')
@@ -52,43 +52,43 @@ def jit_error_if(
     *err_args,
     **err_kwargs,
 ):
-  """
-  Check errors in a jit function.
+    """
+    Check errors in a jit function.
 
-  Examples
-  --------
+    Examples
+    --------
 
-  It can give a function which receive arguments that passed from the JIT variables and raise errors.
+    It can give a function which receive arguments that passed from the JIT variables and raise errors.
 
-  >>> def error(x):
-  >>>    raise ValueError(f'error {x}')
-  >>> x = jax.random.uniform(jax.random.PRNGKey(0), (10,))
-  >>> jit_error_if(x.sum() < 5., error, x)
+    >>> def error(x):
+    >>>    raise ValueError(f'error {x}')
+    >>> x = jax.random.uniform(jax.random.PRNGKey(0), (10,))
+    >>> jit_error_if(x.sum() < 5., error, x)
 
-  Or, it can be a simple string message.
+    Or, it can be a simple string message.
 
-  >>> x = jax.random.uniform(jax.random.PRNGKey(0), (10,))
-  >>> jit_error_if(x.sum() < 5., "Error: the sum is less than 5. Got {s}", s=x.sum())
+    >>> x = jax.random.uniform(jax.random.PRNGKey(0), (10,))
+    >>> jit_error_if(x.sum() < 5., "Error: the sum is less than 5. Got {s}", s=x.sum())
 
 
-  Parameters
-  ----------
-  pred: bool, Array
-    The boolean prediction.
-  error: callable, str
-    The error function, which raise errors, or a string indicating the error message.
-  err_args: 
-    The arguments which passed into `err_f`.
-  err_kwargs: 
-    The keywords which passed into `err_f`.
-  """
-  if isinstance(error, str):
-    error = partial(_error_msg, error)
+    Parameters
+    ----------
+    pred: bool, Array
+      The boolean prediction.
+    error: callable, str
+      The error function, which raise errors, or a string indicating the error message.
+    err_args:
+      The arguments which passed into `err_f`.
+    err_kwargs:
+      The keywords which passed into `err_f`.
+    """
+    if isinstance(error, str):
+        error = partial(_error_msg, error)
 
-  jax.lax.cond(
-    unvmap(pred, op='any'),
-    partial(_err_jit_true_branch, error),
-    _err_jit_false_branch,
-    jax.tree.map(functools.partial(unvmap, op='none'), err_args),
-    jax.tree.map(functools.partial(unvmap, op='none'), err_kwargs),
-  )
+    jax.lax.cond(
+        unvmap(pred, op='any'),
+        partial(_err_jit_true_branch, error),
+        _err_jit_false_branch,
+        jax.tree.map(functools.partial(unvmap, op='none'), err_args),
+        jax.tree.map(functools.partial(unvmap, op='none'), err_kwargs),
+    )

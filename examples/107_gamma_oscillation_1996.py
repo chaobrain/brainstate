@@ -28,99 +28,100 @@ import brainstate as bst
 
 
 class HH(bst.nn.Neuron):
-  def __init__(
-      self, size, ENa=55. * u.mV, EK=-90. * u.mV, EL=-65 * u.mV, C=1.0 * u.uF,
-      gNa=35. * u.msiemens, gK=9. * u.msiemens, gL=0.1 * u.msiemens, V_th=20. * u.mV, phi=5.0
-  ):
-    super().__init__(size=size)
+    def __init__(
+        self, in_size, ENa=55. * u.mV, EK=-90. * u.mV, EL=-65 * u.mV, C=1.0 * u.uF,
+        gNa=35. * u.msiemens, gK=9. * u.msiemens, gL=0.1 * u.msiemens, V_th=20. * u.mV, phi=5.0
+    ):
+        super().__init__(in_size)
 
-    # parameters
-    self.ENa = ENa
-    self.EK = EK
-    self.EL = EL
-    self.C = C
-    self.gNa = gNa
-    self.gK = gK
-    self.gL = gL
-    self.V_th = V_th
-    self.phi = phi
+        # parameters
+        self.ENa = ENa
+        self.EK = EK
+        self.EL = EL
+        self.C = C
+        self.gNa = gNa
+        self.gK = gK
+        self.gL = gL
+        self.V_th = V_th
+        self.phi = phi
 
-  def init_state(self, *args, **kwargs):
-    # variables
-    self.V = bst.ShortTermState(-70. * u.mV + bst.random.randn(*self.varshape) * 20 * u.mV)
-    self.h = bst.ShortTermState(bst.init.param(bst.init.Constant(0.6), self.varshape))
-    self.n = bst.ShortTermState(bst.init.param(bst.init.Constant(0.3), self.varshape))
-    self.spike = bst.ShortTermState(bst.init.param(lambda s: u.math.zeros(s, dtype=bool), self.varshape))
+    def init_state(self, *args, **kwargs):
+        # variables
+        self.V = bst.HiddenState(-70. * u.mV + bst.random.randn(*self.varshape) * 20 * u.mV)
+        self.h = bst.HiddenState(bst.init.param(bst.init.Constant(0.6), self.varshape))
+        self.n = bst.HiddenState(bst.init.param(bst.init.Constant(0.3), self.varshape))
+        self.spike = bst.HiddenState(bst.init.param(lambda s: u.math.zeros(s, dtype=bool), self.varshape))
 
-  def dh(self, h, t, V):
-    alpha = 0.07 * u.math.exp(-(V / u.mV + 58) / 20)
-    beta = 1 / (u.math.exp(-0.1 * (V / u.mV + 28)) + 1)
-    dhdt = alpha * (1 - h) - beta * h
-    return self.phi * dhdt / u.ms
+    def dh(self, h, t, V):
+        alpha = 0.07 * u.math.exp(-(V / u.mV + 58) / 20)
+        beta = 1 / (u.math.exp(-0.1 * (V / u.mV + 28)) + 1)
+        dhdt = alpha * (1 - h) - beta * h
+        return self.phi * dhdt / u.ms
 
-  def dn(self, n, t, V):
-    alpha = -0.01 * (V / u.mV + 34) / (u.math.exp(-0.1 * (V / u.mV + 34)) - 1)
-    beta = 0.125 * u.math.exp(-(V / u.mV + 44) / 80)
-    dndt = alpha * (1 - n) - beta * n
-    return self.phi * dndt / u.ms
+    def dn(self, n, t, V):
+        alpha = -0.01 * (V / u.mV + 34) / (u.math.exp(-0.1 * (V / u.mV + 34)) - 1)
+        beta = 0.125 * u.math.exp(-(V / u.mV + 44) / 80)
+        dndt = alpha * (1 - n) - beta * n
+        return self.phi * dndt / u.ms
 
-  def dV(self, V, t, h, n, Iext):
-    m_alpha = -0.1 * (V / u.mV + 35) / (u.math.exp(-0.1 * (V / u.mV + 35)) - 1)
-    m_beta = 4 * u.math.exp(-(V / u.mV + 60) / 18)
-    m = m_alpha / (m_alpha + m_beta)
-    INa = self.gNa * m ** 3 * h * (V - self.ENa)
-    IK = self.gK * n ** 4 * (V - self.EK)
-    IL = self.gL * (V - self.EL)
-    dVdt = (- INa - IK - IL + self.sum_current_inputs(Iext, V)) / self.C
-    return dVdt
+    def dV(self, V, t, h, n, Iext):
+        m_alpha = -0.1 * (V / u.mV + 35) / (u.math.exp(-0.1 * (V / u.mV + 35)) - 1)
+        m_beta = 4 * u.math.exp(-(V / u.mV + 60) / 18)
+        m = m_alpha / (m_alpha + m_beta)
+        INa = self.gNa * m ** 3 * h * (V - self.ENa)
+        IK = self.gK * n ** 4 * (V - self.EK)
+        IL = self.gL * (V - self.EL)
+        dVdt = (- INa - IK - IL + self.sum_current_inputs(Iext, V)) / self.C
+        return dVdt
 
-  def update(self, x=0. * u.uA):
-    t = bst.environ.get('t')
-    V = bst.nn.exp_euler_step(self.dV, self.V.value, t, self.h.value, self.n.value, x)
-    h = bst.nn.exp_euler_step(self.dh, self.h.value, t, V)
-    n = bst.nn.exp_euler_step(self.dn, self.n.value, t, V)
-    self.spike.value = u.math.logical_and(self.V.value < self.V_th, V >= self.V_th)
-    self.V.value = V
-    self.h.value = h
-    self.n.value = n
-    return self.V.value
+    def update(self, x=0. * u.uA):
+        t = bst.environ.get('t')
+        V = bst.nn.exp_euler_step(self.dV, self.V.value, t, self.h.value, self.n.value, x)
+        h = bst.nn.exp_euler_step(self.dh, self.h.value, t, V)
+        n = bst.nn.exp_euler_step(self.dn, self.n.value, t, V)
+        self.spike.value = u.math.logical_and(self.V.value < self.V_th, V >= self.V_th)
+        self.V.value = V
+        self.h.value = h
+        self.n.value = n
+        return self.V.value
 
 
 class Synapse(bst.nn.Synapse):
-  def __init__(self, size, alpha=12 / u.ms, beta=0.1 / u.ms):
-    super().__init__(size=size)
-    self.alpha = alpha
-    self.beta = beta
+    def __init__(self, in_size, alpha=12 / u.ms, beta=0.1 / u.ms):
+        super().__init__(in_size=in_size)
+        self.alpha = alpha
+        self.beta = beta
 
-  def init_state(self, *args, **kwargs):
-    self.g = bst.ShortTermState(bst.init.param(bst.init.ZeroInit(), self.varshape))
+    def init_state(self, *args, **kwargs):
+        self.g = bst.HiddenState(bst.init.param(bst.init.ZeroInit(), self.varshape))
 
-  def update(self, pre_V):
-    f_v = lambda v: 1 / (1 + u.math.exp(-v / u.mV / 2))
-    ds = lambda s: self.alpha * f_v(pre_V) * (1 - s) - self.beta * s
-    self.g.value = bst.nn.exp_euler_step(ds, self.g.value)
-    return self.g.value
+    def update(self, pre_V):
+        f_v = lambda v: 1 / (1 + u.math.exp(-v / u.mV / 2))
+        ds = lambda s: self.alpha * f_v(pre_V) * (1 - s) - self.beta * s
+        self.g.value = bst.nn.exp_euler_step(ds, self.g.value)
+        return self.g.value
 
 
 class GammaNet(bst.nn.DynamicsGroup):
-  def __init__(self, num: int = 100):
-    super().__init__()
-    self.neu = HH(num)
-    # self.syn = bst.nn.GABAa(num, alpha=12 / (u.ms * u.mM), beta=0.1 / u.ms)
-    self.syn = Synapse(num)
-    self.proj = bst.nn.CurrentProj(
-      self.syn.prefetch('g'),
-      comm=bst.nn.AllToAll(self.neu.varshape, self.neu.varshape, include_self=False, w_init=0.1 * u.msiemens / num),
-      out=bst.nn.COBA(E=-75. * u.mV),
-      post=self.neu
-    )
+    def __init__(self, num: int = 100):
+        super().__init__()
+        self.neu = HH(num)
+        # self.syn = bst.nn.GABAa(num, alpha=12 / (u.ms * u.mM), beta=0.1 / u.ms)
+        self.syn = Synapse(num)
+        self.proj = bst.nn.CurrentProj(
+            self.syn.prefetch('g'),
+            comm=bst.nn.AllToAll(self.neu.varshape, self.neu.varshape, include_self=False,
+                                 w_init=0.1 * u.msiemens / num),
+            out=bst.nn.COBA(E=-75. * u.mV),
+            post=self.neu
+        )
 
-  def update(self, t):
-    with bst.environ.context(t=t):
-      self.proj()
-      self.syn(self.neu(I_inp))
-      # visualize spikes and membrane potentials of the first 5 neurons
-      return self.neu.spike.value, self.neu.V.value[:5]
+    def update(self, t):
+        with bst.environ.context(t=t):
+            self.proj()
+            self.syn(self.neu(I_inp))
+            # visualize spikes and membrane potentials of the first 5 neurons
+            return self.neu.spike.value, self.neu.V.value[:5]
 
 
 # background input
@@ -132,8 +133,8 @@ bst.nn.init_all_states(net)
 
 # simulation
 with bst.environ.context(dt=0.01 * u.ms):
-  times = u.math.arange(0. * u.ms, 500. * u.ms, bst.environ.get_dt())
-  spikes, vs = bst.compile.for_loop(net.update, times, pbar=bst.compile.ProgressBar(10))
+    times = u.math.arange(0. * u.ms, 500. * u.ms, bst.environ.get_dt())
+    spikes, vs = bst.compile.for_loop(net.update, times, pbar=bst.compile.ProgressBar(10))
 
 # visualization
 times = times.to_decimal(u.ms)
