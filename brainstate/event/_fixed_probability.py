@@ -74,7 +74,8 @@ class FixedProb(Module):
         allow_multi_conn: bool = True,
         seed: Optional[int] = None,
         grad_mode: str = 'vjp',
-        block_size: int = 128,
+        float_as_event: bool = True,
+        block_size: int = 64,
         name: Optional[str] = None,
     ):
         super().__init__(name=name)
