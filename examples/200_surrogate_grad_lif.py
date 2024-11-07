@@ -45,10 +45,10 @@ class SNN(bst.nn.DynamicsGroup):
         self.i2r = bst.nn.Sequential(
             bst.nn.Linear(
                 num_in, num_rec,
-                w_init=bst.init.KaimingNormal(scale=2., unit=u.mA),
+                w_init=bst.init.KaimingNormal(scale=7*(1-(u.math.exp(-bst.environ.get_dt()/(1*u.ms)))), unit=u.mA),
                 b_init=bst.init.ZeroInit(unit=u.mA)
             ),
-            bst.nn.Expon(num_rec, tau=10. * u.ms, g_initializer=bst.init.Constant(0. * u.mA))
+            bst.nn.Expon(num_rec, tau=5. * u.ms, g_initializer=bst.init.Constant(0. * u.mA))
         )
         # recurrent: r
         self.r = bst.nn.LIF(
@@ -104,12 +104,12 @@ def predict_and_visualize_net_activity(net):
 
 with bst.environ.context(dt=1.0 * u.ms):
     # network
-    net = SNN(100, 20, 2)
+    net = SNN(100, 4, 2)
 
     # dataset
-    num_step = 1000
+    num_step = 200
     num_sample = 256
-    freq = 20 * u.Hz
+    freq = 5 * u.Hz
     x_data = bst.random.rand(num_step, num_sample, net.num_in) < freq * bst.environ.get_dt()
     y_data = u.math.asarray(bst.random.rand(num_sample) < 0.5, dtype=int)
 
@@ -117,7 +117,7 @@ with bst.environ.context(dt=1.0 * u.ms):
     predict_and_visualize_net_activity(net)
 
     # brainstate optimizer
-    optimizer = bst.optim.Adam(lr=1e-3)
+    optimizer = bst.optim.Adam(lr=3e-3, beta1=0.9, beta2=0.999)
     optimizer.register_trainable_weights(net.states(bst.ParamState))
 
 
@@ -142,7 +142,7 @@ with bst.environ.context(dt=1.0 * u.ms):
     # train the network
     train_losses = []
     t0 = time.time()
-    for i in range(1, 1001):
+    for i in range(1, 3001):
         loss = train_fn()
         train_losses.append(loss)
         if i % 100 == 0:
