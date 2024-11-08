@@ -26,6 +26,7 @@ from . import event
 from . import functional
 from . import graph
 from . import init
+from . import lax
 from . import mixin
 from . import nn
 from . import optim
@@ -40,7 +41,7 @@ from ._state import __all__ as _state_all
 __all__ = (
     [
         'augment', 'compile', 'environ', 'event', 'functional',
-        'graph', 'init', 'mixin', 'nn', 'optim', 'random',
+        'graph', 'init', 'lax', 'mixin', 'nn', 'optim', 'random',
         'surrogate', 'typing', 'util',
         # deprecated
         'transform',

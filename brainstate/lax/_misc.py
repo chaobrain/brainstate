@@ -14,7 +14,7 @@
 # ==============================================================================
 
 __all__ = [
-    'after_all', 'reduce', 'stop_gradient', 'reduce_precision',
+    'after_all', 'reduce', 'reduce_precision',
 
     # getting attribute funcs
     'broadcast_shapes', 'is_finite',
@@ -22,18 +22,25 @@ __all__ = [
     # convolution
     'conv_dimension_numbers', 'conv_general_dilated', 'conv_general_dilated_local', 'conv_general_dilated_patches',
     'conv_with_general_padding',
+
+    # custom gradient operators
+    'stop_gradient', 'custom_linear_solve', 'custom_root',
+
+    # sharding-related operators
+    'with_sharding_constraint',
 ]
 
-def after_all(*args): pass
+def after_all(x): pass
 def reduce(x): pass
-def stop_gradient(x): pass
-def reduce_precision(x, precision): pass
-
-def broadcast_shapes(*shapes): pass
+def reduce_precision(x): pass
+def broadcast_shapes(x): pass
 def is_finite(x): pass
-
 def conv_dimension_numbers(x): pass
-def conv_general_dilated(x, y, window_strides, padding): pass
-def conv_general_dilated_local(x, y, window_strides, padding): pass
-def conv_general_dilated_patches(x, y, window_strides, padding): pass
-def conv_with_general_padding(x, y, window_strides, padding): pass
+def conv_general_dilated(x): pass
+def conv_general_dilated_local(x): pass
+def conv_general_dilated_patches(x): pass
+def conv_with_general_padding(x): pass
+def stop_gradient(x): pass
+def custom_linear_solve(x): pass
+def custom_root(x): pass
+def with_sharding_constraint(x): pass
