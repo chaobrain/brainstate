@@ -24,7 +24,7 @@ from brainstate._utils import set_module_as
 from brainstate.typing import ArrayLike
 
 __all__ = [
-  'weight_standardization',
+    'weight_standardization',
 ]
 
 
@@ -35,49 +35,49 @@ def weight_standardization(
     gain: Optional[jax.Array] = None,
     out_axis: int = -1,
 ) -> Union[jax.Array, u.Quantity]:
-  """
-  Scaled Weight Standardization,
-  see `Micro-Batch Training with Batch-Channel Normalization and Weight Standardization <https://paperswithcode.com/paper/weight-standardization>`_.
+    """
+    Scaled Weight Standardization,
+    see `Micro-Batch Training with Batch-Channel Normalization and Weight Standardization <https://paperswithcode.com/paper/weight-standardization>`_.
 
-  Parameters
-  ----------
-  w : ArrayLike
-      The weight tensor.
-  eps : float
-      A small value to avoid division by zero.
-  gain : Array
-      The gain function, by default None.
-  out_axis : int
-      The output axis, by default -1.
+    Parameters
+    ----------
+    w : ArrayLike
+        The weight tensor.
+    eps : float
+        A small value to avoid division by zero.
+    gain : Array
+        The gain function, by default None.
+    out_axis : int
+        The output axis, by default -1.
 
-  Returns
-  -------
-  ArrayLike
-      The scaled weight tensor.
-  """
-  if out_axis < 0:
-    out_axis = w.ndim + out_axis
-  fan_in = 1  # get the fan-in of the weight tensor
-  axes = []  # get the axes of the weight tensor
-  for i in range(w.ndim):
-    if i != out_axis:
-      fan_in *= w.shape[i]
-      axes.append(i)
-  # normalize the weight
-  mean = u.math.mean(w, axis=axes, keepdims=True)
-  var = u.math.var(w, axis=axes, keepdims=True)
+    Returns
+    -------
+    ArrayLike
+        The scaled weight tensor.
+    """
+    if out_axis < 0:
+        out_axis = w.ndim + out_axis
+    fan_in = 1  # get the fan-in of the weight tensor
+    axes = []  # get the axes of the weight tensor
+    for i in range(w.ndim):
+        if i != out_axis:
+            fan_in *= w.shape[i]
+            axes.append(i)
+    # normalize the weight
+    mean = u.math.mean(w, axis=axes, keepdims=True)
+    var = u.math.var(w, axis=axes, keepdims=True)
 
-  temp = u.math.maximum(var * fan_in, eps)
-  if isinstance(temp, u.Quantity):
-    unit = temp.unit
-    temp = temp.mantissa
-    if unit.is_unitless:
-      scale = jax.lax.rsqrt(temp)
+    temp = u.math.maximum(var * fan_in, eps)
+    if isinstance(temp, u.Quantity):
+        unit = temp.unit
+        temp = temp.mantissa
+        if unit.is_unitless:
+            scale = jax.lax.rsqrt(temp)
+        else:
+            scale = u.Quantity(jax.lax.rsqrt(temp), unit=1 / unit ** 0.5)
     else:
-      scale = u.Quantity(jax.lax.rsqrt(temp), unit=1 / unit ** 0.5)
-  else:
-    scale = jax.lax.rsqrt(temp)
-  if gain is not None:
-    scale = gain * scale
-  shift = mean * scale
-  return w * scale - shift
+        scale = jax.lax.rsqrt(temp)
+    if gain is not None:
+        scale = gain * scale
+    shift = mean * scale
+    return w * scale - shift

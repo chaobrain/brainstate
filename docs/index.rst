@@ -104,7 +104,7 @@ See also the BDP ecosystem
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 
-We are building the `BDP ecosystem <https://ecosystem-for-brain-dynamics.readthedocs.io/>`_.
+We are building the `Brain Dynamics Programming ecosystem <https://ecosystem-for-brain-dynamics.readthedocs.io/>`_.
 
 
 .. toctree::
@@ -113,20 +113,16 @@ We are building the `BDP ecosystem <https://ecosystem-for-brain-dynamics.readthe
    :caption: Quickstart
 
    quickstart/concepts-en.ipynb
-   quickstart/ann_training-en.ipynb
-   quickstart/snn_simulation-en.ipynb
-   quickstart/snn_training-en.ipynb
-
-
-.. toctree::
-   :hidden:
-   :maxdepth: 1
-   :caption: 快速开始
-
    quickstart/concepts-zh.ipynb
+   quickstart/ann_training-en.ipynb
    quickstart/ann_training-zh.ipynb
+   quickstart/snn_simulation-en.ipynb
    quickstart/snn_simulation-zh.ipynb
+   quickstart/snn_training-en.ipynb
    quickstart/snn_training-zh.ipynb
+
+
+
 
 
 
@@ -137,33 +133,29 @@ We are building the `BDP ecosystem <https://ecosystem-for-brain-dynamics.readthe
 
 
    tutorials/state-en.ipynb
-   tutorials/program_compilation-en.ipynb
-   tutorials/pygraph-en.ipynb
-   tutorials/program_augmentation-en.ipynb
-   tutorials/event_driven_computation-en.ipynb
-   tutorials/optimizers-en.ipynb
-   tutorials/gspmd-en.ipynb
-   tutorials/random_numbers-en.ipynb
-   tutorials/checkpointing-en.ipynb
-   tutorials/artificial_neural_networks-en.ipynb
-   tutorials/spiking_neural_networks-en.ipynb
-
-.. toctree::
-   :hidden:
-   :maxdepth: 2
-   :caption: 使用教程
-
    tutorials/state-zh.ipynb
-   tutorials/program_compilation-zh.ipynb
+   tutorials/pygraph-en.ipynb
    tutorials/pygraph-zh.ipynb
+   tutorials/program_compilation-en.ipynb
+   tutorials/program_compilation-zh.ipynb
+   tutorials/program_augmentation-en.ipynb
    tutorials/program_augmentation-zh.ipynb
+   tutorials/event_driven_computation-en.ipynb
    tutorials/event_driven_computation-zh.ipynb
+   tutorials/optimizers-en.ipynb
    tutorials/optimizers-zh.ipynb
+   tutorials/gspmd-en.ipynb
    tutorials/gspmd-zh.ipynb
+   tutorials/random_numbers-en.ipynb
    tutorials/random_numbers-zh.ipynb
+   tutorials/checkpointing-en.ipynb
    tutorials/checkpointing-zh.ipynb
+   tutorials/artificial_neural_networks-en.ipynb
    tutorials/artificial_neural_networks-zh.ipynb
+   tutorials/spiking_neural_networks-en.ipynb
    tutorials/spiking_neural_networks-zh.ipynb
+
+
 
 
 .. toctree::

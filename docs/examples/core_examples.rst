@@ -1,7 +1,7 @@
 Core examples
 =============
 
-Core examples are hosted on the GitHub repository in the `examples <https://github.com/chaoming0625/brainstate/tree/main/examples>`__
+Core examples are hosted on the GitHub repository in the `examples <https://github.com/chaobrain/brainstate/tree/main/examples>`__
 directory.
 
 Each example is designed to be **self-contained and easily forkable**.

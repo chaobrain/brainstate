@@ -21,55 +21,55 @@ from jax.interpreters import partial_eval as pe
 from ._pretty_repr import PrettyRepr, PrettyType, PrettyAttr
 
 __all__ = [
-  'StateJaxTracer',
+    'StateJaxTracer',
 ]
 
 
 def new_jax_trace():
-  main = jax.core.thread_local_state.trace_state.trace_stack.stack[-1]
-  frame = main.jaxpr_stack[-1]
-  trace = pe.DynamicJaxprTrace(main, jax.core.cur_sublevel())
-  return frame, trace
+    main = jax.core.thread_local_state.trace_state.trace_stack.stack[-1]
+    frame = main.jaxpr_stack[-1]
+    trace = pe.DynamicJaxprTrace(main, jax.core.cur_sublevel())
+    return frame, trace
 
 
 def current_jax_trace():
-  """Returns the Jax tracing state."""
-  if jax.__version_info__ <= (0, 4, 33):
-    return jax.core.thread_local_state.trace_state.trace_stack.dynamic
-  return jax.core.get_opaque_trace_state(convention="nnx")
+    """Returns the Jax tracing state."""
+    if jax.__version_info__ <= (0, 4, 33):
+        return jax.core.thread_local_state.trace_state.trace_stack.dynamic
+    return jax.core.get_opaque_trace_state(convention="nnx")
 
 
 class StateJaxTracer(PrettyRepr):
-  __slots__ = ['_jax_trace']
+    __slots__ = ['_jax_trace']
 
-  def __init__(self):
-    self._jax_trace = current_jax_trace()
+    def __init__(self):
+        self._jax_trace = current_jax_trace()
 
-  @property
-  def jax_trace(self):
-    return self._jax_trace
+    @property
+    def jax_trace(self):
+        return self._jax_trace
 
-  def is_valid(self) -> bool:
-    if jax.__version_info__ <= (0, 4, 33):
-      return self._jax_trace is current_jax_trace()
-    else:
-      return self._jax_trace == current_jax_trace()
+    def is_valid(self) -> bool:
+        if jax.__version_info__ <= (0, 4, 33):
+            return self._jax_trace is current_jax_trace()
+        else:
+            return self._jax_trace == current_jax_trace()
 
-  def __eq__(self, other):
-    if jax.__version_info__ <= (0, 4, 33):
-      return isinstance(other, StateJaxTracer) and self._jax_trace is other._jax_trace
-    else:
-      return isinstance(other, StateJaxTracer) and self._jax_trace == other._jax_trace
+    def __eq__(self, other):
+        if jax.__version_info__ <= (0, 4, 33):
+            return isinstance(other, StateJaxTracer) and self._jax_trace is other._jax_trace
+        else:
+            return isinstance(other, StateJaxTracer) and self._jax_trace == other._jax_trace
 
-  def __pretty_repr__(self):
-    yield PrettyType(f'{type(self).__name__}')
-    yield PrettyAttr('jax_trace', self._jax_trace)
+    def __pretty_repr__(self):
+        yield PrettyType(f'{type(self).__name__}')
+        yield PrettyAttr('jax_trace', self._jax_trace)
 
-  def __treescope_repr__(self, path, subtree_renderer):
-    import treescope  # type: ignore[import-not-found,import-untyped]
-    return treescope.repr_lib.render_object_constructor(
-      object_type=type(self),
-      attributes={'jax_trace': self._jax_trace},
-      path=path,
-      subtree_renderer=subtree_renderer,
-    )
+    def __treescope_repr__(self, path, subtree_renderer):
+        import treescope  # type: ignore[import-not-found,import-untyped]
+        return treescope.repr_lib.render_object_constructor(
+            object_type=type(self),
+            attributes={'jax_trace': self._jax_trace},
+            path=path,
+            subtree_renderer=subtree_renderer,
+        )

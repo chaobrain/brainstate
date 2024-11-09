@@ -46,12 +46,12 @@ __all__ = (
 )
 
 del (
-  _jit_error_all,
-  _conditions_all,
-  _loops_collection,
-  _make_jaxpr_all,
-  _jit_all,
-  _progress_bar_all,
-  _loops_no_collection,
-  _ad_checkpoint_all
+    _jit_error_all,
+    _conditions_all,
+    _loops_collection,
+    _make_jaxpr_all,
+    _jit_all,
+    _progress_bar_all,
+    _loops_no_collection,
+    _ad_checkpoint_all
 )

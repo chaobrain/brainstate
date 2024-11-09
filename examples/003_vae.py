@@ -45,119 +45,120 @@ print('X_test:', X_test.shape, X_test.dtype)
 
 
 class Loss(bst.State):
-  pass
+    pass
 
 
 # %%
 class Encoder(bst.nn.Module):
-  def __init__(self, din: int, dmid: int, dout: int):
-    super().__init__()
-    self.linear1 = bst.nn.Linear(din, dmid)
-    self.linear_mean = bst.nn.Linear(dmid, dout)
-    self.linear_std = bst.nn.Linear(dmid, dout)
+    def __init__(self, din: int, dmid: int, dout: int):
+        super().__init__()
+        self.linear1 = bst.nn.Linear(din, dmid)
+        self.linear_mean = bst.nn.Linear(dmid, dout)
+        self.linear_std = bst.nn.Linear(dmid, dout)
 
-  def __call__(self, x: jax.Array) -> jax.Array:
-    x = x.reshape((x.shape[0], -1))  # flatten
-    x = self.linear1(x)
-    x = jax.nn.relu(x)
+    def __call__(self, x: jax.Array) -> jax.Array:
+        x = x.reshape((x.shape[0], -1))  # flatten
+        x = self.linear1(x)
+        x = jax.nn.relu(x)
 
-    mean = self.linear_mean(x)
-    std = jnp.exp(self.linear_std(x))
+        mean = self.linear_mean(x)
+        std = jnp.exp(self.linear_std(x))
 
-    loss = jnp.mean(0.5 * jnp.mean(-jnp.log(std ** 2) - 1.0 + std ** 2 + mean ** 2, axis=-1))
-    self.kl_loss = Loss(loss)
-    z = mean + std * bst.random.normal(size=mean.shape)
-    return z
+        loss = jnp.mean(0.5 * jnp.mean(-jnp.log(std ** 2) - 1.0 + std ** 2 + mean ** 2, axis=-1))
+        self.kl_loss = Loss(loss)
+        z = mean + std * bst.random.normal(size=mean.shape)
+        return z
 
 
 class Decoder(bst.nn.Module):
-  def __init__(self, din: int, dmid: int, dout: int):
-    super().__init__()
-    self.linear1 = bst.nn.Linear(din, dmid)
-    self.linear2 = bst.nn.Linear(dmid, dout)
+    def __init__(self, din: int, dmid: int, dout: int):
+        super().__init__()
+        self.linear1 = bst.nn.Linear(din, dmid)
+        self.linear2 = bst.nn.Linear(dmid, dout)
 
-  def __call__(self, z: jax.Array) -> jax.Array:
-    z = self.linear1(z)
-    z = jax.nn.relu(z)
-    logits = self.linear2(z)
-    return logits
+    def __call__(self, z: jax.Array) -> jax.Array:
+        z = self.linear1(z)
+        z = jax.nn.relu(z)
+        logits = self.linear2(z)
+        return logits
 
 
 class VAE(bst.nn.Module):
-  def __init__(
-      self,
-      din: int,
-      hidden_size: int,
-      latent_size: int,
-      output_shape: tp.Sequence[int],
-  ):
-    super().__init__()
-    self.output_shape = output_shape
-    self.encoder = Encoder(din, hidden_size, latent_size)
-    self.decoder = Decoder(
-      latent_size, hidden_size, int(np.prod(output_shape))
-    )
+    def __init__(
+        self,
+        din: int,
+        hidden_size: int,
+        latent_size: int,
+        output_shape: tp.Sequence[int],
+    ):
+        super().__init__()
+        self.output_shape = output_shape
+        self.encoder = Encoder(din, hidden_size, latent_size)
+        self.decoder = Decoder(
+            latent_size, hidden_size, int(np.prod(output_shape))
+        )
 
-  def __call__(self, x: jax.Array) -> jax.Array:
-    z = self.encoder(x)
-    logits = self.decoder(z)
-    logits = jnp.reshape(logits, (-1, *self.output_shape))
-    return logits
+    def __call__(self, x: jax.Array) -> jax.Array:
+        z = self.encoder(x)
+        logits = self.decoder(z)
+        logits = jnp.reshape(logits, (-1, *self.output_shape))
+        return logits
 
-  def generate(self, z):
-    logits = self.decoder(z)
-    logits = jnp.reshape(logits, (-1, *self.output_shape))
-    return jax.nn.sigmoid(logits)
+    def generate(self, z):
+        logits = self.decoder(z)
+        logits = jnp.reshape(logits, (-1, *self.output_shape))
+        return jax.nn.sigmoid(logits)
 
 
 model = VAE(
-  din=int(np.prod(image_shape)),
-  hidden_size=256,
-  latent_size=latent_size,
-  output_shape=image_shape,
+    din=int(np.prod(image_shape)),
+    hidden_size=256,
+    latent_size=latent_size,
+    output_shape=image_shape,
 )
 
-optimizer = bst.optim.OptaxOptimizer(model.states(bst.ParamState), optax.adam(1e-3))
+optimizer = bst.optim.OptaxOptimizer(optax.adam(1e-3))
+optimizer.register_trainable_weights(model.states(bst.ParamState))
 
 
 # %%
 @bst.compile.jit
 def train_step(x: jax.Array):
-  def loss_fn():
-    logits = model(x)
-    losses = bst.graph.treefy_states(model, Loss)
-    kl_loss = sum(jax.tree_util.tree_leaves(losses), 0.0)
-    reconstruction_loss = jnp.mean(optax.sigmoid_binary_cross_entropy(logits, x))
-    loss = reconstruction_loss + 0.1 * kl_loss
-    return loss
+    def loss_fn():
+        logits = model(x)
+        losses = bst.graph.treefy_states(model, Loss)
+        kl_loss = sum(jax.tree_util.tree_leaves(losses), 0.0)
+        reconstruction_loss = jnp.mean(optax.sigmoid_binary_cross_entropy(logits, x))
+        loss = reconstruction_loss + 0.1 * kl_loss
+        return loss
 
-  grads, loss = bst.augment.grad(loss_fn, model.states(bst.ParamState), return_value=True)()
-  optimizer.update(grads)
-  return loss
+    grads, loss = bst.augment.grad(loss_fn, model.states(bst.ParamState), return_value=True)()
+    optimizer.update(grads)
+    return loss
 
 
 @bst.compile.jit
 def forward(x: jax.Array) -> jax.Array:
-  return jax.nn.sigmoid(model(x))
+    return jax.nn.sigmoid(model(x))
 
 
 @bst.compile.jit
 def sample(z: jax.Array) -> jax.Array:
-  return model.generate(z)
+    return model.generate(z)
 
 
 # %%
 
 for epoch in range(epochs):
-  losses = []
-  for step in range(steps_per_epoch):
-    idxs = np.random.randint(0, len(X_train), size=(batch_size,))
-    x_batch = X_train[idxs]
+    losses = []
+    for step in range(steps_per_epoch):
+        idxs = np.random.randint(0, len(X_train), size=(batch_size,))
+        x_batch = X_train[idxs]
 
-    loss = train_step(x_batch)
-    losses.append(np.asarray(loss))
+        loss = train_step(x_batch)
+        losses.append(np.asarray(loss))
 
-  print(f'Epoch {epoch} loss: {np.mean(losses)}')
+    print(f'Epoch {epoch} loss: {np.mean(losses)}')
 
 # exit()
 # %%
@@ -172,11 +173,11 @@ y_pred = forward(x_sample)
 figure = plt.figure(figsize=(3 * 5, 3 * 2))
 plt.title('Reconstruction Samples')
 for i in range(5):
-  plt.subplot(2, 5, i + 1)
-  plt.imshow(x_sample[i], cmap='gray')
-  plt.subplot(2, 5, 5 + i + 1)
-  plt.imshow(y_pred[i], cmap='gray')
-  # # tbwriter.add_figure("VAE Example", figure, epochs)
+    plt.subplot(2, 5, i + 1)
+    plt.imshow(x_sample[i], cmap='gray')
+    plt.subplot(2, 5, 5 + i + 1)
+    plt.imshow(y_pred[i], cmap='gray')
+    # # tbwriter.add_figure("VAE Example", figure, epochs)
 
 plt.show()
 
@@ -188,10 +189,10 @@ samples = sample(z_samples)
 figure = plt.figure(figsize=(3 * 5, 3 * 2))
 plt.title('Generative Samples')
 for i in range(5):
-  plt.subplot(2, 5, 2 * i + 1)
-  plt.imshow(samples[i], cmap='gray')
-  plt.subplot(2, 5, 2 * i + 2)
-  plt.imshow(samples[i + 1], cmap='gray')
+    plt.subplot(2, 5, 2 * i + 1)
+    plt.imshow(samples[i], cmap='gray')
+    plt.subplot(2, 5, 2 * i + 2)
+    plt.imshow(samples[i + 1], cmap='gray')
 
 plt.show()
 

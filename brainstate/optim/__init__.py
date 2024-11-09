@@ -14,6 +14,8 @@
 # ==============================================================================
 
 
+from ._base import *
+from ._base import __all__ as base_all
 from ._lr_scheduler import *
 from ._lr_scheduler import __all__ as scheduler_all
 from ._optax_optimizer import *
@@ -22,11 +24,15 @@ from ._sgd_optimizer import *
 from ._sgd_optimizer import __all__ as optimizer_all
 
 __all__ = (
-    scheduler_all
+    base_all
+    + scheduler_all
     + optimizer_all
     + optax_all
 )
 
-del (optax_all,
-     scheduler_all,
-     optimizer_all)
+del (
+    base_all,
+    optax_all,
+    scheduler_all,
+    optimizer_all,
+)

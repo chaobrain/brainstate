@@ -15,6 +15,7 @@
 
 # -*- coding: utf-8 -*-
 from __future__ import annotations
+
 import unittest
 from pprint import pprint
 
@@ -27,586 +28,586 @@ from brainstate.augment._autograd import _jacfwd
 
 
 class TestPureFuncGrad(unittest.TestCase):
-  def test_grad_pure_func_1(self):
-    def call(a, b, c): return jnp.sum(a + b + c)
+    def test_grad_pure_func_1(self):
+        def call(a, b, c): return jnp.sum(a + b + c)
 
-    bst.random.seed(1)
-    a = jnp.ones(10)
-    b = bst.random.randn(10)
-    c = bst.random.uniform(size=10)
-    f_grad = bst.augment.grad(call, argnums=[0, 1, 2])
-    grads = f_grad(a, b, c)
+        bst.random.seed(1)
+        a = jnp.ones(10)
+        b = bst.random.randn(10)
+        c = bst.random.uniform(size=10)
+        f_grad = bst.augment.grad(call, argnums=[0, 1, 2])
+        grads = f_grad(a, b, c)
 
-    for g in grads: assert (g == 1.).all()
+        for g in grads: assert (g == 1.).all()
 
-  def test_grad_pure_func_2(self):
-    def call(a, b, c): return jnp.sum(a + b + c)
+    def test_grad_pure_func_2(self):
+        def call(a, b, c): return jnp.sum(a + b + c)
 
-    bst.random.seed(1)
-    a = jnp.ones(10)
-    b = bst.random.randn(10)
-    c = bst.random.uniform(size=10)
-    f_grad = bst.augment.grad(call)
-    assert (f_grad(a, b, c) == 1.).all()
+        bst.random.seed(1)
+        a = jnp.ones(10)
+        b = bst.random.randn(10)
+        c = bst.random.uniform(size=10)
+        f_grad = bst.augment.grad(call)
+        assert (f_grad(a, b, c) == 1.).all()
 
-  def test_grad_pure_func_aux1(self):
-    def call(a, b, c):
-      return jnp.sum(a + b + c), (jnp.sin(100), jnp.exp(0.1))
+    def test_grad_pure_func_aux1(self):
+        def call(a, b, c):
+            return jnp.sum(a + b + c), (jnp.sin(100), jnp.exp(0.1))
 
-    bst.random.seed(1)
-    f_grad = bst.augment.grad(call, argnums=[0, 1, 2])
-    with pytest.raises(TypeError):
-      f_grad(jnp.ones(10), bst.random.randn(10), bst.random.uniform(size=10))
+        bst.random.seed(1)
+        f_grad = bst.augment.grad(call, argnums=[0, 1, 2])
+        with pytest.raises(TypeError):
+            f_grad(jnp.ones(10), bst.random.randn(10), bst.random.uniform(size=10))
 
-  def test_grad_pure_func_aux2(self):
-    def call(a, b, c):
-      return jnp.sum(a + b + c), (jnp.sin(100), jnp.exp(0.1))
+    def test_grad_pure_func_aux2(self):
+        def call(a, b, c):
+            return jnp.sum(a + b + c), (jnp.sin(100), jnp.exp(0.1))
 
-    bst.random.seed(1)
-    f_grad = bst.augment.grad(call, argnums=[0, 1, 2], has_aux=True)
-    grads, aux = f_grad(jnp.ones(10), bst.random.randn(10), bst.random.uniform(size=10))
-    for g in grads: assert (g == 1.).all()
-    assert aux[0] == jnp.sin(100)
-    assert aux[1] == jnp.exp(0.1)
+        bst.random.seed(1)
+        f_grad = bst.augment.grad(call, argnums=[0, 1, 2], has_aux=True)
+        grads, aux = f_grad(jnp.ones(10), bst.random.randn(10), bst.random.uniform(size=10))
+        for g in grads: assert (g == 1.).all()
+        assert aux[0] == jnp.sin(100)
+        assert aux[1] == jnp.exp(0.1)
 
-  def test_grad_pure_func_return1(self):
-    def call(a, b, c): return jnp.sum(a + b + c)
+    def test_grad_pure_func_return1(self):
+        def call(a, b, c): return jnp.sum(a + b + c)
 
-    bst.random.seed(1)
-    a = jnp.ones(10)
-    b = bst.random.randn(10)
-    c = bst.random.uniform(size=10)
-    f_grad = bst.augment.grad(call, return_value=True)
-    grads, returns = f_grad(a, b, c)
-    assert (grads == 1.).all()
-    assert returns == jnp.sum(a + b + c)
+        bst.random.seed(1)
+        a = jnp.ones(10)
+        b = bst.random.randn(10)
+        c = bst.random.uniform(size=10)
+        f_grad = bst.augment.grad(call, return_value=True)
+        grads, returns = f_grad(a, b, c)
+        assert (grads == 1.).all()
+        assert returns == jnp.sum(a + b + c)
 
-  def test_grad_func_return_aux1(self):
-    def call(a, b, c):
-      return jnp.sum(a + b + c), (jnp.sin(100), jnp.exp(0.1))
+    def test_grad_func_return_aux1(self):
+        def call(a, b, c):
+            return jnp.sum(a + b + c), (jnp.sin(100), jnp.exp(0.1))
 
-    bst.random.seed(1)
-    a = jnp.ones(10)
-    b = bst.random.randn(10)
-    c = bst.random.uniform(size=10)
-    f_grad = bst.augment.grad(call, return_value=True, has_aux=True)
-    grads, returns, aux = f_grad(a, b, c)
-    assert (grads == 1.).all()
-    assert returns == jnp.sum(a + b + c)
-    assert aux[0] == jnp.sin(100)
-    assert aux[1] == jnp.exp(0.1)
+        bst.random.seed(1)
+        a = jnp.ones(10)
+        b = bst.random.randn(10)
+        c = bst.random.uniform(size=10)
+        f_grad = bst.augment.grad(call, return_value=True, has_aux=True)
+        grads, returns, aux = f_grad(a, b, c)
+        assert (grads == 1.).all()
+        assert returns == jnp.sum(a + b + c)
+        assert aux[0] == jnp.sin(100)
+        assert aux[1] == jnp.exp(0.1)
 
 
 class TestObjectFuncGrad(unittest.TestCase):
-  def test_grad_ob1(self):
-    class Test(bst.nn.Module):
-      def __init__(self):
-        super(Test, self).__init__()
+    def test_grad_ob1(self):
+        class Test(bst.nn.Module):
+            def __init__(self):
+                super(Test, self).__init__()
 
-        self.a = bst.ParamState(jnp.ones(10))
-        self.b = bst.ParamState(bst.random.randn(10))
-        self.c = bst.ParamState(bst.random.uniform(size=10))
+                self.a = bst.ParamState(jnp.ones(10))
+                self.b = bst.ParamState(bst.random.randn(10))
+                self.c = bst.ParamState(bst.random.uniform(size=10))
 
-      def __call__(self):
-        return jnp.sum(self.a.value + self.b.value + self.c.value)
+            def __call__(self):
+                return jnp.sum(self.a.value + self.b.value + self.c.value)
 
-    bst.random.seed(0)
+        bst.random.seed(0)
 
-    t = Test()
-    f_grad = bst.augment.grad(t, grad_states={'a': t.a, 'b': t.b, 'c': t.c})
-    grads = f_grad()
-    for g in grads.values():
-      assert (g == 1.).all()
+        t = Test()
+        f_grad = bst.augment.grad(t, grad_states={'a': t.a, 'b': t.b, 'c': t.c})
+        grads = f_grad()
+        for g in grads.values():
+            assert (g == 1.).all()
 
-    t = Test()
-    f_grad = bst.augment.grad(t, grad_states=[t.a, t.b])
-    grads = f_grad()
-    for g in grads: assert (g == 1.).all()
+        t = Test()
+        f_grad = bst.augment.grad(t, grad_states=[t.a, t.b])
+        grads = f_grad()
+        for g in grads: assert (g == 1.).all()
 
-    t = Test()
-    f_grad = bst.augment.grad(t, grad_states=t.a)
-    grads = f_grad()
-    assert (grads == 1.).all()
+        t = Test()
+        f_grad = bst.augment.grad(t, grad_states=t.a)
+        grads = f_grad()
+        assert (grads == 1.).all()
 
-    t = Test()
-    f_grad = bst.augment.grad(t, grad_states=t.states())
-    grads = f_grad()
-    for g in grads.values():
-      assert (g == 1.).all()
+        t = Test()
+        f_grad = bst.augment.grad(t, grad_states=t.states())
+        grads = f_grad()
+        for g in grads.values():
+            assert (g == 1.).all()
 
-  def test_grad_ob_aux(self):
-    class Test(bst.nn.Module):
-      def __init__(self):
-        super(Test, self).__init__()
-        self.a = bst.ParamState(jnp.ones(10))
-        self.b = bst.ParamState(bst.random.randn(10))
-        self.c = bst.ParamState(bst.random.uniform(size=10))
+    def test_grad_ob_aux(self):
+        class Test(bst.nn.Module):
+            def __init__(self):
+                super(Test, self).__init__()
+                self.a = bst.ParamState(jnp.ones(10))
+                self.b = bst.ParamState(bst.random.randn(10))
+                self.c = bst.ParamState(bst.random.uniform(size=10))
 
-      def __call__(self):
-        return jnp.sum(self.a.value + self.b.value + self.c.value), (jnp.sin(100), jnp.exp(0.1))
+            def __call__(self):
+                return jnp.sum(self.a.value + self.b.value + self.c.value), (jnp.sin(100), jnp.exp(0.1))
 
-    bst.random.seed(0)
-    t = Test()
-    f_grad = bst.augment.grad(t, grad_states=[t.a, t.b], has_aux=True)
-    grads, aux = f_grad()
-    for g in grads: assert (g == 1.).all()
-    assert aux[0] == jnp.sin(100)
-    assert aux[1] == jnp.exp(0.1)
+        bst.random.seed(0)
+        t = Test()
+        f_grad = bst.augment.grad(t, grad_states=[t.a, t.b], has_aux=True)
+        grads, aux = f_grad()
+        for g in grads: assert (g == 1.).all()
+        assert aux[0] == jnp.sin(100)
+        assert aux[1] == jnp.exp(0.1)
 
-    t = Test()
-    f_grad = bst.augment.grad(t, grad_states=t.a, has_aux=True)
-    grads, aux = f_grad()
-    assert (grads == 1.).all()
-    assert aux[0] == jnp.sin(100)
-    assert aux[1] == jnp.exp(0.1)
+        t = Test()
+        f_grad = bst.augment.grad(t, grad_states=t.a, has_aux=True)
+        grads, aux = f_grad()
+        assert (grads == 1.).all()
+        assert aux[0] == jnp.sin(100)
+        assert aux[1] == jnp.exp(0.1)
 
-    t = Test()
-    f_grad = bst.augment.grad(t, grad_states=t.states(), has_aux=True)
-    grads, aux = f_grad()
-    self.assertTrue(len(grads) == len(t.states()))
+        t = Test()
+        f_grad = bst.augment.grad(t, grad_states=t.states(), has_aux=True)
+        grads, aux = f_grad()
+        self.assertTrue(len(grads) == len(t.states()))
 
-  def test_grad_ob_return(self):
-    class Test(bst.nn.Module):
-      def __init__(self):
-        super(Test, self).__init__()
-        self.a = bst.ParamState(jnp.ones(10))
-        self.b = bst.ParamState(bst.random.randn(10))
-        self.c = bst.ParamState(bst.random.uniform(size=10))
+    def test_grad_ob_return(self):
+        class Test(bst.nn.Module):
+            def __init__(self):
+                super(Test, self).__init__()
+                self.a = bst.ParamState(jnp.ones(10))
+                self.b = bst.ParamState(bst.random.randn(10))
+                self.c = bst.ParamState(bst.random.uniform(size=10))
 
-      def __call__(self):
-        return jnp.sum(self.a.value + self.b.value + self.c.value)
+            def __call__(self):
+                return jnp.sum(self.a.value + self.b.value + self.c.value)
 
-    bst.random.seed(0)
-    t = Test()
-    f_grad = bst.augment.grad(t, grad_states=[t.a, t.b], return_value=True)
-    grads, returns = f_grad()
-    for g in grads: assert (g == 1.).all()
-    assert returns == t()
+        bst.random.seed(0)
+        t = Test()
+        f_grad = bst.augment.grad(t, grad_states=[t.a, t.b], return_value=True)
+        grads, returns = f_grad()
+        for g in grads: assert (g == 1.).all()
+        assert returns == t()
 
-    t = Test()
-    f_grad = bst.augment.grad(t, grad_states=t.a, return_value=True)
-    grads, returns = f_grad()
-    assert (grads == 1.).all()
-    assert returns == t()
+        t = Test()
+        f_grad = bst.augment.grad(t, grad_states=t.a, return_value=True)
+        grads, returns = f_grad()
+        assert (grads == 1.).all()
+        assert returns == t()
 
-  def test_grad_ob_aux_return(self):
-    class Test(bst.nn.Module):
-      def __init__(self):
-        super(Test, self).__init__()
-        self.a = bst.ParamState(jnp.ones(10))
-        self.b = bst.ParamState(bst.random.randn(10))
-        self.c = bst.ParamState(bst.random.uniform(size=10))
+    def test_grad_ob_aux_return(self):
+        class Test(bst.nn.Module):
+            def __init__(self):
+                super(Test, self).__init__()
+                self.a = bst.ParamState(jnp.ones(10))
+                self.b = bst.ParamState(bst.random.randn(10))
+                self.c = bst.ParamState(bst.random.uniform(size=10))
 
-      def __call__(self):
-        return jnp.sum(self.a.value + self.b.value + self.c.value), (jnp.sin(100), jnp.exp(0.1))
+            def __call__(self):
+                return jnp.sum(self.a.value + self.b.value + self.c.value), (jnp.sin(100), jnp.exp(0.1))
 
-    bst.random.seed(0)
-    t = Test()
-    f_grad = bst.augment.grad(t, grad_states=[t.a, t.b], has_aux=True, return_value=True)
-    grads, returns, aux = f_grad()
-    for g in grads: assert (g == 1.).all()
-    assert returns == jnp.sum(t.a.value + t.b.value + t.c.value)
-    assert aux[0] == jnp.sin(100)
-    assert aux[1] == jnp.exp(0.1)
+        bst.random.seed(0)
+        t = Test()
+        f_grad = bst.augment.grad(t, grad_states=[t.a, t.b], has_aux=True, return_value=True)
+        grads, returns, aux = f_grad()
+        for g in grads: assert (g == 1.).all()
+        assert returns == jnp.sum(t.a.value + t.b.value + t.c.value)
+        assert aux[0] == jnp.sin(100)
+        assert aux[1] == jnp.exp(0.1)
 
-    t = Test()
-    f_grad = bst.augment.grad(t, grad_states=t.a, has_aux=True, return_value=True)
-    grads, returns, aux = f_grad()
-    assert (grads == 1.).all()
-    assert returns == jnp.sum(t.a.value + t.b.value + t.c.value)
-    assert aux[0] == jnp.sin(100)
-    assert aux[1] == jnp.exp(0.1)
+        t = Test()
+        f_grad = bst.augment.grad(t, grad_states=t.a, has_aux=True, return_value=True)
+        grads, returns, aux = f_grad()
+        assert (grads == 1.).all()
+        assert returns == jnp.sum(t.a.value + t.b.value + t.c.value)
+        assert aux[0] == jnp.sin(100)
+        assert aux[1] == jnp.exp(0.1)
 
-  def test_grad_ob_argnums(self):
-    class Test(bst.nn.Module):
-      def __init__(self):
-        super(Test, self).__init__()
-        bst.random.seed()
-        self.a = bst.ParamState(jnp.ones(10))
-        self.b = bst.ParamState(bst.random.randn(10))
-        self.c = bst.ParamState(bst.random.uniform(size=10))
+    def test_grad_ob_argnums(self):
+        class Test(bst.nn.Module):
+            def __init__(self):
+                super(Test, self).__init__()
+                bst.random.seed()
+                self.a = bst.ParamState(jnp.ones(10))
+                self.b = bst.ParamState(bst.random.randn(10))
+                self.c = bst.ParamState(bst.random.uniform(size=10))
 
-      def __call__(self, d):
-        return jnp.sum(self.a.value + self.b.value + self.c.value + 2 * d)
+            def __call__(self, d):
+                return jnp.sum(self.a.value + self.b.value + self.c.value + 2 * d)
 
-    bst.random.seed(0)
+        bst.random.seed(0)
 
-    t = Test()
-    f_grad = bst.augment.grad(t, t.states(), argnums=0)
-    var_grads, arg_grads = f_grad(bst.random.random(10))
-    for g in var_grads.values(): assert (g == 1.).all()
-    assert (arg_grads == 2.).all()
+        t = Test()
+        f_grad = bst.augment.grad(t, t.states(), argnums=0)
+        var_grads, arg_grads = f_grad(bst.random.random(10))
+        for g in var_grads.values(): assert (g == 1.).all()
+        assert (arg_grads == 2.).all()
 
-    t = Test()
-    f_grad = bst.augment.grad(t, t.states(), argnums=[0])
-    var_grads, arg_grads = f_grad(bst.random.random(10))
-    for g in var_grads.values(): assert (g == 1.).all()
-    assert (arg_grads[0] == 2.).all()
+        t = Test()
+        f_grad = bst.augment.grad(t, t.states(), argnums=[0])
+        var_grads, arg_grads = f_grad(bst.random.random(10))
+        for g in var_grads.values(): assert (g == 1.).all()
+        assert (arg_grads[0] == 2.).all()
 
-    t = Test()
-    f_grad = bst.augment.grad(t, argnums=0)
-    arg_grads = f_grad(bst.random.random(10))
-    assert (arg_grads == 2.).all()
+        t = Test()
+        f_grad = bst.augment.grad(t, argnums=0)
+        arg_grads = f_grad(bst.random.random(10))
+        assert (arg_grads == 2.).all()
 
-    t = Test()
-    f_grad = bst.augment.grad(t, argnums=[0])
-    arg_grads = f_grad(bst.random.random(10))
-    assert (arg_grads[0] == 2.).all()
+        t = Test()
+        f_grad = bst.augment.grad(t, argnums=[0])
+        arg_grads = f_grad(bst.random.random(10))
+        assert (arg_grads[0] == 2.).all()
 
-  def test_grad_ob_argnums_aux(self):
-    class Test(bst.nn.Module):
-      def __init__(self):
-        super(Test, self).__init__()
-        self.a = bst.ParamState(jnp.ones(10))
-        self.b = bst.ParamState(bst.random.randn(10))
-        self.c = bst.ParamState(bst.random.uniform(size=10))
+    def test_grad_ob_argnums_aux(self):
+        class Test(bst.nn.Module):
+            def __init__(self):
+                super(Test, self).__init__()
+                self.a = bst.ParamState(jnp.ones(10))
+                self.b = bst.ParamState(bst.random.randn(10))
+                self.c = bst.ParamState(bst.random.uniform(size=10))
 
-      def __call__(self, d):
-        return jnp.sum(self.a.value + self.b.value + self.c.value + 2 * d), (jnp.sin(100), jnp.exp(0.1))
+            def __call__(self, d):
+                return jnp.sum(self.a.value + self.b.value + self.c.value + 2 * d), (jnp.sin(100), jnp.exp(0.1))
 
-    bst.random.seed(0)
+        bst.random.seed(0)
 
-    t = Test()
-    f_grad = bst.augment.grad(t, grad_states=t.states(), argnums=0, has_aux=True)
-    (var_grads, arg_grads), aux = f_grad(bst.random.random(10))
-    for g in var_grads.values(): assert (g == 1.).all()
-    assert (arg_grads == 2.).all()
-    assert aux[0] == jnp.sin(100)
-    assert aux[1] == jnp.exp(0.1)
+        t = Test()
+        f_grad = bst.augment.grad(t, grad_states=t.states(), argnums=0, has_aux=True)
+        (var_grads, arg_grads), aux = f_grad(bst.random.random(10))
+        for g in var_grads.values(): assert (g == 1.).all()
+        assert (arg_grads == 2.).all()
+        assert aux[0] == jnp.sin(100)
+        assert aux[1] == jnp.exp(0.1)
 
-    t = Test()
-    f_grad = bst.augment.grad(t, grad_states=t.states(), argnums=[0], has_aux=True)
-    (var_grads, arg_grads), aux = f_grad(bst.random.random(10))
-    for g in var_grads.values(): assert (g == 1.).all()
-    assert (arg_grads[0] == 2.).all()
-    assert aux[0] == jnp.sin(100)
-    assert aux[1] == jnp.exp(0.1)
+        t = Test()
+        f_grad = bst.augment.grad(t, grad_states=t.states(), argnums=[0], has_aux=True)
+        (var_grads, arg_grads), aux = f_grad(bst.random.random(10))
+        for g in var_grads.values(): assert (g == 1.).all()
+        assert (arg_grads[0] == 2.).all()
+        assert aux[0] == jnp.sin(100)
+        assert aux[1] == jnp.exp(0.1)
 
-    t = Test()
-    f_grad = bst.augment.grad(t, argnums=0, has_aux=True)
-    arg_grads, aux = f_grad(bst.random.random(10))
-    assert (arg_grads == 2.).all()
-    assert aux[0] == jnp.sin(100)
-    assert aux[1] == jnp.exp(0.1)
+        t = Test()
+        f_grad = bst.augment.grad(t, argnums=0, has_aux=True)
+        arg_grads, aux = f_grad(bst.random.random(10))
+        assert (arg_grads == 2.).all()
+        assert aux[0] == jnp.sin(100)
+        assert aux[1] == jnp.exp(0.1)
 
-    t = Test()
-    f_grad = bst.augment.grad(t, argnums=[0], has_aux=True)
-    arg_grads, aux = f_grad(bst.random.random(10))
-    assert (arg_grads[0] == 2.).all()
-    assert aux[0] == jnp.sin(100)
-    assert aux[1] == jnp.exp(0.1)
+        t = Test()
+        f_grad = bst.augment.grad(t, argnums=[0], has_aux=True)
+        arg_grads, aux = f_grad(bst.random.random(10))
+        assert (arg_grads[0] == 2.).all()
+        assert aux[0] == jnp.sin(100)
+        assert aux[1] == jnp.exp(0.1)
 
-  def test_grad_ob_argnums_return(self):
-    class Test(bst.nn.Module):
-      def __init__(self):
-        super(Test, self).__init__()
+    def test_grad_ob_argnums_return(self):
+        class Test(bst.nn.Module):
+            def __init__(self):
+                super(Test, self).__init__()
 
-        self.a = bst.ParamState(jnp.ones(10))
-        self.b = bst.ParamState(bst.random.randn(10))
-        self.c = bst.ParamState(bst.random.uniform(size=10))
+                self.a = bst.ParamState(jnp.ones(10))
+                self.b = bst.ParamState(bst.random.randn(10))
+                self.c = bst.ParamState(bst.random.uniform(size=10))
 
-      def __call__(self, d):
-        return jnp.sum(self.a.value + self.b.value + self.c.value + 2 * d)
+            def __call__(self, d):
+                return jnp.sum(self.a.value + self.b.value + self.c.value + 2 * d)
 
-    bst.random.seed(0)
+        bst.random.seed(0)
 
-    t = Test()
-    f_grad = bst.augment.grad(t, t.states(), argnums=0, return_value=True)
-    d = bst.random.random(10)
-    (var_grads, arg_grads), loss = f_grad(d)
-    for g in var_grads.values():
-      assert (g == 1.).all()
-    assert (arg_grads == 2.).all()
-    assert loss == t(d)
+        t = Test()
+        f_grad = bst.augment.grad(t, t.states(), argnums=0, return_value=True)
+        d = bst.random.random(10)
+        (var_grads, arg_grads), loss = f_grad(d)
+        for g in var_grads.values():
+            assert (g == 1.).all()
+        assert (arg_grads == 2.).all()
+        assert loss == t(d)
 
-    t = Test()
-    f_grad = bst.augment.grad(t, t.states(), argnums=[0], return_value=True)
-    d = bst.random.random(10)
-    (var_grads, arg_grads), loss = f_grad(d)
-    for g in var_grads.values():
-      assert (g == 1.).all()
-    assert (arg_grads[0] == 2.).all()
-    assert loss == t(d)
+        t = Test()
+        f_grad = bst.augment.grad(t, t.states(), argnums=[0], return_value=True)
+        d = bst.random.random(10)
+        (var_grads, arg_grads), loss = f_grad(d)
+        for g in var_grads.values():
+            assert (g == 1.).all()
+        assert (arg_grads[0] == 2.).all()
+        assert loss == t(d)
 
-    t = Test()
-    f_grad = bst.augment.grad(t, argnums=0, return_value=True)
-    d = bst.random.random(10)
-    arg_grads, loss = f_grad(d)
-    assert (arg_grads == 2.).all()
-    assert loss == t(d)
+        t = Test()
+        f_grad = bst.augment.grad(t, argnums=0, return_value=True)
+        d = bst.random.random(10)
+        arg_grads, loss = f_grad(d)
+        assert (arg_grads == 2.).all()
+        assert loss == t(d)
 
-    t = Test()
-    f_grad = bst.augment.grad(t, argnums=[0], return_value=True)
-    d = bst.random.random(10)
-    arg_grads, loss = f_grad(d)
-    assert (arg_grads[0] == 2.).all()
-    assert loss == t(d)
+        t = Test()
+        f_grad = bst.augment.grad(t, argnums=[0], return_value=True)
+        d = bst.random.random(10)
+        arg_grads, loss = f_grad(d)
+        assert (arg_grads[0] == 2.).all()
+        assert loss == t(d)
 
-  def test_grad_ob_argnums_aux_return(self):
-    class Test(bst.nn.Module):
-      def __init__(self):
-        super(Test, self).__init__()
-        self.a = bst.ParamState(jnp.ones(10))
-        self.b = bst.ParamState(bst.random.randn(10))
-        self.c = bst.ParamState(bst.random.uniform(size=10))
+    def test_grad_ob_argnums_aux_return(self):
+        class Test(bst.nn.Module):
+            def __init__(self):
+                super(Test, self).__init__()
+                self.a = bst.ParamState(jnp.ones(10))
+                self.b = bst.ParamState(bst.random.randn(10))
+                self.c = bst.ParamState(bst.random.uniform(size=10))
 
-      def __call__(self, d):
-        return jnp.sum(self.a.value + self.b.value + self.c.value + 2 * d), (jnp.sin(100), jnp.exp(0.1))
+            def __call__(self, d):
+                return jnp.sum(self.a.value + self.b.value + self.c.value + 2 * d), (jnp.sin(100), jnp.exp(0.1))
 
-    bst.random.seed(0)
+        bst.random.seed(0)
 
-    t = Test()
-    f_grad = bst.augment.grad(t, grad_states=t.states(), argnums=0, has_aux=True, return_value=True)
-    d = bst.random.random(10)
-    (var_grads, arg_grads), loss, aux = f_grad(d)
-    for g in var_grads.values(): assert (g == 1.).all()
-    assert (arg_grads == 2.).all()
-    assert aux[0] == jnp.sin(100)
-    assert aux[1] == jnp.exp(0.1)
-    assert loss == t(d)[0]
+        t = Test()
+        f_grad = bst.augment.grad(t, grad_states=t.states(), argnums=0, has_aux=True, return_value=True)
+        d = bst.random.random(10)
+        (var_grads, arg_grads), loss, aux = f_grad(d)
+        for g in var_grads.values(): assert (g == 1.).all()
+        assert (arg_grads == 2.).all()
+        assert aux[0] == jnp.sin(100)
+        assert aux[1] == jnp.exp(0.1)
+        assert loss == t(d)[0]
 
-    t = Test()
-    f_grad = bst.augment.grad(t, grad_states=t.states(), argnums=[0], has_aux=True, return_value=True)
-    d = bst.random.random(10)
-    (var_grads, arg_grads), loss, aux = f_grad(d)
-    for g in var_grads.values(): assert (g == 1.).all()
-    assert (arg_grads[0] == 2.).all()
-    assert aux[0] == jnp.sin(100)
-    assert aux[1] == jnp.exp(0.1)
-    assert loss == t(d)[0]
+        t = Test()
+        f_grad = bst.augment.grad(t, grad_states=t.states(), argnums=[0], has_aux=True, return_value=True)
+        d = bst.random.random(10)
+        (var_grads, arg_grads), loss, aux = f_grad(d)
+        for g in var_grads.values(): assert (g == 1.).all()
+        assert (arg_grads[0] == 2.).all()
+        assert aux[0] == jnp.sin(100)
+        assert aux[1] == jnp.exp(0.1)
+        assert loss == t(d)[0]
 
-    t = Test()
-    f_grad = bst.augment.grad(t, argnums=0, has_aux=True, return_value=True)
-    d = bst.random.random(10)
-    arg_grads, loss, aux = f_grad(d)
-    assert (arg_grads == 2.).all()
-    assert aux[0] == jnp.sin(100)
-    assert aux[1] == jnp.exp(0.1)
-    assert loss == t(d)[0]
+        t = Test()
+        f_grad = bst.augment.grad(t, argnums=0, has_aux=True, return_value=True)
+        d = bst.random.random(10)
+        arg_grads, loss, aux = f_grad(d)
+        assert (arg_grads == 2.).all()
+        assert aux[0] == jnp.sin(100)
+        assert aux[1] == jnp.exp(0.1)
+        assert loss == t(d)[0]
 
-    t = Test()
-    f_grad = bst.augment.grad(t, argnums=[0], has_aux=True, return_value=True)
-    d = bst.random.random(10)
-    arg_grads, loss, aux = f_grad(d)
-    assert (arg_grads[0] == 2.).all()
-    assert aux[0] == jnp.sin(100)
-    assert aux[1] == jnp.exp(0.1)
-    assert loss == t(d)[0]
+        t = Test()
+        f_grad = bst.augment.grad(t, argnums=[0], has_aux=True, return_value=True)
+        d = bst.random.random(10)
+        arg_grads, loss, aux = f_grad(d)
+        assert (arg_grads[0] == 2.).all()
+        assert aux[0] == jnp.sin(100)
+        assert aux[1] == jnp.exp(0.1)
+        assert loss == t(d)[0]
 
 
 class TestPureFuncJacobian(unittest.TestCase):
-  def test1(self):
-    jac, aux = _jacfwd(lambda x: (x ** 3, [x ** 2]), has_aux=True)(3.)
-    self.assertTrue(jax.numpy.allclose(jac, jax.jacfwd(lambda x: x ** 3)(3.)))
-    self.assertTrue(aux[0] == 9.)
+    def test1(self):
+        jac, aux = _jacfwd(lambda x: (x ** 3, [x ** 2]), has_aux=True)(3.)
+        self.assertTrue(jax.numpy.allclose(jac, jax.jacfwd(lambda x: x ** 3)(3.)))
+        self.assertTrue(aux[0] == 9.)
 
-  def test_jacfwd_and_aux_nested(self):
-    def f(x):
-      jac, aux = _jacfwd(lambda x: (x ** 3, [x ** 3]), has_aux=True)(x)
-      return aux[0]
+    def test_jacfwd_and_aux_nested(self):
+        def f(x):
+            jac, aux = _jacfwd(lambda x: (x ** 3, [x ** 3]), has_aux=True)(x)
+            return aux[0]
 
-    f2 = lambda x: x ** 3
+        f2 = lambda x: x ** 3
 
-    self.assertEqual(_jacfwd(f)(4.), _jacfwd(f2)(4.))
-    self.assertEqual(jax.jit(_jacfwd(f))(4.), _jacfwd(f2)(4.))
-    self.assertEqual(jax.jit(_jacfwd(jax.jit(f)))(4.), _jacfwd(f2)(4.))
+        self.assertEqual(_jacfwd(f)(4.), _jacfwd(f2)(4.))
+        self.assertEqual(jax.jit(_jacfwd(f))(4.), _jacfwd(f2)(4.))
+        self.assertEqual(jax.jit(_jacfwd(jax.jit(f)))(4.), _jacfwd(f2)(4.))
 
-    self.assertEqual(_jacfwd(f)(jnp.asarray(4.)), _jacfwd(f2)(jnp.asarray(4.)))
-    self.assertEqual(jax.jit(_jacfwd(f))(jnp.asarray(4.)), _jacfwd(f2)(jnp.asarray(4.)))
-    self.assertEqual(jax.jit(_jacfwd(jax.jit(f)))(jnp.asarray(4.)), _jacfwd(f2)(jnp.asarray(4.)))
+        self.assertEqual(_jacfwd(f)(jnp.asarray(4.)), _jacfwd(f2)(jnp.asarray(4.)))
+        self.assertEqual(jax.jit(_jacfwd(f))(jnp.asarray(4.)), _jacfwd(f2)(jnp.asarray(4.)))
+        self.assertEqual(jax.jit(_jacfwd(jax.jit(f)))(jnp.asarray(4.)), _jacfwd(f2)(jnp.asarray(4.)))
 
-    def f(x):
-      jac, aux = _jacfwd(lambda x: (x ** 3, [x ** 3]), has_aux=True)(x)
-      return aux[0] * jnp.sin(x)
+        def f(x):
+            jac, aux = _jacfwd(lambda x: (x ** 3, [x ** 3]), has_aux=True)(x)
+            return aux[0] * jnp.sin(x)
 
-    f2 = lambda x: x ** 3 * jnp.sin(x)
+        f2 = lambda x: x ** 3 * jnp.sin(x)
 
-    self.assertEqual(_jacfwd(f)(4.), _jacfwd(f2)(4.))
-    self.assertEqual(jax.jit(_jacfwd(f))(4.), _jacfwd(f2)(4.))
-    self.assertEqual(jax.jit(_jacfwd(jax.jit(f)))(4.), _jacfwd(f2)(4.))
+        self.assertEqual(_jacfwd(f)(4.), _jacfwd(f2)(4.))
+        self.assertEqual(jax.jit(_jacfwd(f))(4.), _jacfwd(f2)(4.))
+        self.assertEqual(jax.jit(_jacfwd(jax.jit(f)))(4.), _jacfwd(f2)(4.))
 
-    self.assertEqual(_jacfwd(f)(jnp.asarray(4.)), _jacfwd(f2)(jnp.asarray(4.)))
-    self.assertEqual(jax.jit(_jacfwd(f))(jnp.asarray(4.)), _jacfwd(f2)(jnp.asarray(4.)))
-    self.assertEqual(jax.jit(_jacfwd(jax.jit(f)))(jnp.asarray(4.)), _jacfwd(f2)(jnp.asarray(4.)))
+        self.assertEqual(_jacfwd(f)(jnp.asarray(4.)), _jacfwd(f2)(jnp.asarray(4.)))
+        self.assertEqual(jax.jit(_jacfwd(f))(jnp.asarray(4.)), _jacfwd(f2)(jnp.asarray(4.)))
+        self.assertEqual(jax.jit(_jacfwd(jax.jit(f)))(jnp.asarray(4.)), _jacfwd(f2)(jnp.asarray(4.)))
 
-  def test_jacrev1(self):
-    def f1(x, y):
-      r = jnp.asarray([x[0] * y[0], 5 * x[2] * y[1], 4 * x[1] ** 2 - 2 * x[2], x[2] * jnp.sin(x[0])])
-      return r
+    def test_jacrev1(self):
+        def f1(x, y):
+            r = jnp.asarray([x[0] * y[0], 5 * x[2] * y[1], 4 * x[1] ** 2 - 2 * x[2], x[2] * jnp.sin(x[0])])
+            return r
 
-    br = bst.augment.jacrev(f1)(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
-    jr = jax.jacrev(f1)(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
-    assert (br == jr).all()
+        br = bst.augment.jacrev(f1)(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
+        jr = jax.jacrev(f1)(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
+        assert (br == jr).all()
 
-    br = bst.augment.jacrev(f1, argnums=(0, 1))(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
-    jr = jax.jacrev(f1, argnums=(0, 1))(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
-    assert (br[0] == jr[0]).all()
-    assert (br[1] == jr[1]).all()
+        br = bst.augment.jacrev(f1, argnums=(0, 1))(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
+        jr = jax.jacrev(f1, argnums=(0, 1))(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
+        assert (br[0] == jr[0]).all()
+        assert (br[1] == jr[1]).all()
 
-  def test_jacrev2(self):
-    print()
+    def test_jacrev2(self):
+        print()
 
-    def f2(x, y):
-      r1 = jnp.asarray([x[0] * y[0], 5 * x[2] * y[1]])
-      r2 = jnp.asarray([4 * x[1] ** 2 - 2 * x[2], x[2] * jnp.sin(x[0])])
-      return r1, r2
+        def f2(x, y):
+            r1 = jnp.asarray([x[0] * y[0], 5 * x[2] * y[1]])
+            r2 = jnp.asarray([4 * x[1] ** 2 - 2 * x[2], x[2] * jnp.sin(x[0])])
+            return r1, r2
 
-    jr = jax.jacrev(f2)(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
-    pprint(jr)
+        jr = jax.jacrev(f2)(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
+        pprint(jr)
 
-    br = bst.augment.jacrev(f2)(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
-    pprint(br)
-    assert jnp.array_equal(br[0], jr[0])
-    assert jnp.array_equal(br[1], jr[1])
+        br = bst.augment.jacrev(f2)(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
+        pprint(br)
+        assert jnp.array_equal(br[0], jr[0])
+        assert jnp.array_equal(br[1], jr[1])
 
-    br = bst.augment.jacrev(f2)(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
-    pprint(br)
-    assert jnp.array_equal(br[0], jr[0])
-    assert jnp.array_equal(br[1], jr[1])
+        br = bst.augment.jacrev(f2)(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
+        pprint(br)
+        assert jnp.array_equal(br[0], jr[0])
+        assert jnp.array_equal(br[1], jr[1])
 
-    def f2(x, y):
-      r1 = jnp.asarray([x[0] * y[0], 5 * x[2] * y[1]])
-      r2 = jnp.asarray([4 * x[1] ** 2 - 2 * x[2], x[2] * jnp.sin(x[0])])
-      return r1, r2
+        def f2(x, y):
+            r1 = jnp.asarray([x[0] * y[0], 5 * x[2] * y[1]])
+            r2 = jnp.asarray([4 * x[1] ** 2 - 2 * x[2], x[2] * jnp.sin(x[0])])
+            return r1, r2
 
-    br = bst.augment.jacrev(f2)(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
-    pprint(br)
-    assert jnp.array_equal(br[0], jr[0])
-    assert jnp.array_equal(br[1], jr[1])
+        br = bst.augment.jacrev(f2)(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
+        pprint(br)
+        assert jnp.array_equal(br[0], jr[0])
+        assert jnp.array_equal(br[1], jr[1])
 
-    br = bst.augment.jacrev(f2)(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
-    pprint(br)
-    assert jnp.array_equal(br[0], jr[0])
-    assert jnp.array_equal(br[1], jr[1])
+        br = bst.augment.jacrev(f2)(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
+        pprint(br)
+        assert jnp.array_equal(br[0], jr[0])
+        assert jnp.array_equal(br[1], jr[1])
 
-  def test_jacrev3(self):
-    print()
+    def test_jacrev3(self):
+        print()
 
-    def f3(x, y):
-      r1 = jnp.asarray([x[0] * y[0], 5 * x[2] * y[1]])
-      r2 = jnp.asarray([4 * x[1] ** 2 - 2 * x[2], x[2] * jnp.sin(x[0])])
-      return r1, r2
+        def f3(x, y):
+            r1 = jnp.asarray([x[0] * y[0], 5 * x[2] * y[1]])
+            r2 = jnp.asarray([4 * x[1] ** 2 - 2 * x[2], x[2] * jnp.sin(x[0])])
+            return r1, r2
 
-    jr = jax.jacrev(f3, argnums=(0, 1))(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
-    pprint(jr)
+        jr = jax.jacrev(f3, argnums=(0, 1))(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
+        pprint(jr)
 
-    br = bst.augment.jacrev(f3, argnums=(0, 1))(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
-    pprint(br)
-    assert jnp.array_equal(br[0][0], jr[0][0])
-    assert jnp.array_equal(br[0][1], jr[0][1])
-    assert jnp.array_equal(br[1][0], jr[1][0])
-    assert jnp.array_equal(br[1][1], jr[1][1])
+        br = bst.augment.jacrev(f3, argnums=(0, 1))(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
+        pprint(br)
+        assert jnp.array_equal(br[0][0], jr[0][0])
+        assert jnp.array_equal(br[0][1], jr[0][1])
+        assert jnp.array_equal(br[1][0], jr[1][0])
+        assert jnp.array_equal(br[1][1], jr[1][1])
 
-    br = bst.augment.jacrev(f3, argnums=(0, 1))(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
-    pprint(br)
-    assert jnp.array_equal(br[0][0], jr[0][0])
-    assert jnp.array_equal(br[0][1], jr[0][1])
-    assert jnp.array_equal(br[1][0], jr[1][0])
-    assert jnp.array_equal(br[1][1], jr[1][1])
+        br = bst.augment.jacrev(f3, argnums=(0, 1))(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
+        pprint(br)
+        assert jnp.array_equal(br[0][0], jr[0][0])
+        assert jnp.array_equal(br[0][1], jr[0][1])
+        assert jnp.array_equal(br[1][0], jr[1][0])
+        assert jnp.array_equal(br[1][1], jr[1][1])
 
-    def f3(x, y):
-      r1 = jnp.asarray([x[0] * y[0], 5 * x[2] * y[1]])
-      r2 = jnp.asarray([4 * x[1] ** 2 - 2 * x[2], x[2] * jnp.sin(x[0])])
-      return r1, r2
+        def f3(x, y):
+            r1 = jnp.asarray([x[0] * y[0], 5 * x[2] * y[1]])
+            r2 = jnp.asarray([4 * x[1] ** 2 - 2 * x[2], x[2] * jnp.sin(x[0])])
+            return r1, r2
 
-    br = bst.augment.jacrev(f3, argnums=(0, 1))(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
-    pprint(br)
-    assert jnp.array_equal(br[0][0], jr[0][0])
-    assert jnp.array_equal(br[0][1], jr[0][1])
-    assert jnp.array_equal(br[1][0], jr[1][0])
-    assert jnp.array_equal(br[1][1], jr[1][1])
+        br = bst.augment.jacrev(f3, argnums=(0, 1))(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
+        pprint(br)
+        assert jnp.array_equal(br[0][0], jr[0][0])
+        assert jnp.array_equal(br[0][1], jr[0][1])
+        assert jnp.array_equal(br[1][0], jr[1][0])
+        assert jnp.array_equal(br[1][1], jr[1][1])
 
-    br = bst.augment.jacrev(f3, argnums=(0, 1))(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
-    pprint(br)
-    assert jnp.array_equal(br[0][0], jr[0][0])
-    assert jnp.array_equal(br[0][1], jr[0][1])
-    assert jnp.array_equal(br[1][0], jr[1][0])
-    assert jnp.array_equal(br[1][1], jr[1][1])
+        br = bst.augment.jacrev(f3, argnums=(0, 1))(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
+        pprint(br)
+        assert jnp.array_equal(br[0][0], jr[0][0])
+        assert jnp.array_equal(br[0][1], jr[0][1])
+        assert jnp.array_equal(br[1][0], jr[1][0])
+        assert jnp.array_equal(br[1][1], jr[1][1])
 
-  def test_jacrev_aux1(self):
-    x = jnp.array([1., 2., 3.])
-    y = jnp.array([10., 5.])
+    def test_jacrev_aux1(self):
+        x = jnp.array([1., 2., 3.])
+        y = jnp.array([10., 5.])
 
-    def f1(x, y):
-      a = 4 * x[1] ** 2 - 2 * x[2]
-      r = jnp.asarray([x[0] * y[0], 5 * x[2] * y[1], a, x[2] * jnp.sin(x[0])])
-      return r, a
+        def f1(x, y):
+            a = 4 * x[1] ** 2 - 2 * x[2]
+            r = jnp.asarray([x[0] * y[0], 5 * x[2] * y[1], a, x[2] * jnp.sin(x[0])])
+            return r, a
 
-    f2 = lambda *args: f1(*args)[0]
-    jr = jax.jacrev(f2)(x, y)  # jax jacobian
-    pprint(jr)
-    grads, aux = bst.augment.jacrev(f1, has_aux=True)(x, y)
-    assert (grads == jr).all()
-    assert aux == (4 * x[1] ** 2 - 2 * x[2])
+        f2 = lambda *args: f1(*args)[0]
+        jr = jax.jacrev(f2)(x, y)  # jax jacobian
+        pprint(jr)
+        grads, aux = bst.augment.jacrev(f1, has_aux=True)(x, y)
+        assert (grads == jr).all()
+        assert aux == (4 * x[1] ** 2 - 2 * x[2])
 
-    jr = jax.jacrev(f2, argnums=(0, 1))(x, y)  # jax jacobian
-    pprint(jr)
-    grads, aux = bst.augment.jacrev(f1, argnums=(0, 1), has_aux=True)(x, y)
-    assert (grads[0] == jr[0]).all()
-    assert (grads[1] == jr[1]).all()
-    assert aux == (4 * x[1] ** 2 - 2 * x[2])
+        jr = jax.jacrev(f2, argnums=(0, 1))(x, y)  # jax jacobian
+        pprint(jr)
+        grads, aux = bst.augment.jacrev(f1, argnums=(0, 1), has_aux=True)(x, y)
+        assert (grads[0] == jr[0]).all()
+        assert (grads[1] == jr[1]).all()
+        assert aux == (4 * x[1] ** 2 - 2 * x[2])
 
-  def test_jacrev_return_aux1(self):
-    with bst.environ.context(precision=64):
-      def f1(x, y):
-        a = 4 * x[1] ** 2 - 2 * x[2]
-        r = jnp.asarray([x[0] * y[0], 5 * x[2] * y[1], a, x[2] * jnp.sin(x[0])])
-        return r, a
+    def test_jacrev_return_aux1(self):
+        with bst.environ.context(precision=64):
+            def f1(x, y):
+                a = 4 * x[1] ** 2 - 2 * x[2]
+                r = jnp.asarray([x[0] * y[0], 5 * x[2] * y[1], a, x[2] * jnp.sin(x[0])])
+                return r, a
 
-      _x = jnp.array([1., 2., 3.])
-      _y = jnp.array([10., 5.])
-      _r, _a = f1(_x, _y)
-      f2 = lambda *args: f1(*args)[0]
-      _g1 = jax.jacrev(f2)(_x, _y)  # jax jacobian
-      pprint(_g1)
-      _g2 = jax.jacrev(f2, argnums=(0, 1))(_x, _y)  # jax jacobian
-      pprint(_g2)
+            _x = jnp.array([1., 2., 3.])
+            _y = jnp.array([10., 5.])
+            _r, _a = f1(_x, _y)
+            f2 = lambda *args: f1(*args)[0]
+            _g1 = jax.jacrev(f2)(_x, _y)  # jax jacobian
+            pprint(_g1)
+            _g2 = jax.jacrev(f2, argnums=(0, 1))(_x, _y)  # jax jacobian
+            pprint(_g2)
 
-      grads, vec, aux = bst.augment.jacrev(f1, return_value=True, has_aux=True)(_x, _y)
-      assert (grads == _g1).all()
-      assert aux == _a
-      assert (vec == _r).all()
+            grads, vec, aux = bst.augment.jacrev(f1, return_value=True, has_aux=True)(_x, _y)
+            assert (grads == _g1).all()
+            assert aux == _a
+            assert (vec == _r).all()
 
-      grads, vec, aux = bst.augment.jacrev(f1, return_value=True, argnums=(0, 1), has_aux=True)(_x, _y)
-      assert (grads[0] == _g2[0]).all()
-      assert (grads[1] == _g2[1]).all()
-      assert aux == _a
-      assert (vec == _r).all()
+            grads, vec, aux = bst.augment.jacrev(f1, return_value=True, argnums=(0, 1), has_aux=True)(_x, _y)
+            assert (grads[0] == _g2[0]).all()
+            assert (grads[1] == _g2[1]).all()
+            assert aux == _a
+            assert (vec == _r).all()
 
 
 class TestClassFuncJacobian(unittest.TestCase):
-  def test_jacrev1(self):
-    def f1(x, y):
-      r = jnp.asarray([x[0] * y[0], 5 * x[2] * y[1], 4 * x[1] ** 2 - 2 * x[2], x[2] * jnp.sin(x[0])])
-      return r
+    def test_jacrev1(self):
+        def f1(x, y):
+            r = jnp.asarray([x[0] * y[0], 5 * x[2] * y[1], 4 * x[1] ** 2 - 2 * x[2], x[2] * jnp.sin(x[0])])
+            return r
 
-    _x = jnp.array([1., 2., 3.])
-    _y = jnp.array([10., 5.])
+        _x = jnp.array([1., 2., 3.])
+        _y = jnp.array([10., 5.])
 
-    class Test(bst.nn.Module):
-      def __init__(self):
-        super(Test, self).__init__()
-        self.x = bst.State(jnp.array([1., 2., 3.]))
-        self.y = bst.State(jnp.array([10., 5.]))
+        class Test(bst.nn.Module):
+            def __init__(self):
+                super(Test, self).__init__()
+                self.x = bst.State(jnp.array([1., 2., 3.]))
+                self.y = bst.State(jnp.array([10., 5.]))
 
-      def __call__(self, ):
-        a = self.x.value[0] * self.y.value[0]
-        b = 5 * self.x.value[2] * self.y.value[1]
-        c = 4 * self.x.value[1] ** 2 - 2 * self.x.value[2]
-        d = self.x.value[2] * jnp.sin(self.x.value[0])
-        r = jnp.asarray([a, b, c, d])
-        return r
+            def __call__(self, ):
+                a = self.x.value[0] * self.y.value[0]
+                b = 5 * self.x.value[2] * self.y.value[1]
+                c = 4 * self.x.value[1] ** 2 - 2 * self.x.value[2]
+                d = self.x.value[2] * jnp.sin(self.x.value[0])
+                r = jnp.asarray([a, b, c, d])
+                return r
 
-    _jr = jax.jacrev(f1)(_x, _y)
-    t = Test()
-    br = bst.augment.jacrev(t, grad_states=t.x)()
-    self.assertTrue((br == _jr).all())
+        _jr = jax.jacrev(f1)(_x, _y)
+        t = Test()
+        br = bst.augment.jacrev(t, grad_states=t.x)()
+        self.assertTrue((br == _jr).all())
 
-    _jr = jax.jacrev(f1, argnums=(0, 1))(_x, _y)
-    t = Test()
-    br = bst.augment.jacrev(t, grad_states=[t.x, t.y])()
-    self.assertTrue((br[0] == _jr[0]).all())
-    self.assertTrue((br[1] == _jr[1]).all())
+        _jr = jax.jacrev(f1, argnums=(0, 1))(_x, _y)
+        t = Test()
+        br = bst.augment.jacrev(t, grad_states=[t.x, t.y])()
+        self.assertTrue((br[0] == _jr[0]).all())
+        self.assertTrue((br[1] == _jr[1]).all())
 #
 #   def test_jacfwd1(self):
 #     def f1(x, y):

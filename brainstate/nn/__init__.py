@@ -42,11 +42,11 @@ __all__ = (
 )
 
 del (
-  collective_ops_all,
-  dyn_impl_all,
-  dynamics_all,
-  elementwise_all,
-  module_all,
-  exp_euler_all,
-  interaction_all,
+    collective_ops_all,
+    dyn_impl_all,
+    dynamics_all,
+    elementwise_all,
+    module_all,
+    exp_euler_all,
+    interaction_all,
 )

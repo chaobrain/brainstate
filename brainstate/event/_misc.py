@@ -19,16 +19,16 @@ from typing import Union
 import numpy as np
 
 __all__ = [
-  'FloatScalar',
-  'IntScalar',
+    'FloatScalar',
+    'IntScalar',
 ]
 
 FloatScalar = Union[
-  np.number,  # NumPy scalar types
-  float,  # Python scalar types
+    np.number,  # NumPy scalar types
+    float,  # Python scalar types
 ]
 
 IntScalar = Union[
-  np.number,  # NumPy scalar types
-  int,  # Python scalar types
+    np.number,  # NumPy scalar types
+    int,  # Python scalar types
 ]

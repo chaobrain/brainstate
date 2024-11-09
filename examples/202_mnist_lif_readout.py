@@ -38,134 +38,134 @@ print(args)
 
 
 class SNN(bst.nn.DynamicsGroup):
-  def __init__(self, tau):
-    super().__init__()
-    self.l1 = bst.nn.Linear(28 * 28, 10, b_init=None, w_init=bst.init.LecunNormal(scale=10., unit=u.mA))
-    self.l2 = bst.nn.LIF(10, V_rest=0. * u.mV, V_reset=0. * u.mV, V_th=1. * u.mV, tau=tau * u.ms)
+    def __init__(self, tau):
+        super().__init__()
+        self.l1 = bst.nn.Linear(28 * 28, 10, b_init=None, w_init=bst.init.LecunNormal(scale=10., unit=u.mA))
+        self.l2 = bst.nn.LIF(10, V_rest=0. * u.mV, V_reset=0. * u.mV, V_th=1. * u.mV, tau=tau * u.ms)
 
-  def update(self, x):
-    return self.l2(self.l1(x))
+    def update(self, x):
+        return self.l2(self.l1(x))
 
-  def predict(self, x):
-    spikes = self.l2(self.l1(x))
-    return self.l2.V.value, spikes
+    def predict(self, x):
+        spikes = self.l2(self.l1(x))
+        return self.l2.V.value, spikes
 
 
 with bst.environ.context(dt=1.0 * u.ms):
-  net = SNN(args.tau)
+    net = SNN(args.tau)
 
-  dataset = load_dataset('mnist')
-  # images
-  X_train = np.array(np.stack(dataset['train']['image']), dtype=np.uint8)
-  X_test = np.array(np.stack(dataset['test']['image']), dtype=np.uint8)
-  X_train = (X_train / 255).reshape(-1, 28 * 28).astype(jnp.float32)
-  X_test = (X_test / 255).reshape(-1, 28 * 28).astype(jnp.float32)
-  # labels
-  Y_train = np.array(dataset['train']['label'], dtype=np.int32)
-  Y_test = np.array(dataset['test']['label'], dtype=np.int32)
-
-
-  @bst.compile.jit
-  def predict(xs):
-    bst.nn.init_all_states(net, xs.shape[0])
-    xs = (xs + 0.02)
-    xs = bst.random.rand(args.T, *xs.shape) < xs
-    vs, outs = bst.compile.for_loop(net.predict, xs)
-    return vs, outs
+    dataset = load_dataset('mnist')
+    # images
+    X_train = np.array(np.stack(dataset['train']['image']), dtype=np.uint8)
+    X_test = np.array(np.stack(dataset['test']['image']), dtype=np.uint8)
+    X_train = (X_train / 255).reshape(-1, 28 * 28).astype(jnp.float32)
+    X_test = (X_test / 255).reshape(-1, 28 * 28).astype(jnp.float32)
+    # labels
+    Y_train = np.array(dataset['train']['label'], dtype=np.int32)
+    Y_test = np.array(dataset['test']['label'], dtype=np.int32)
 
 
-  def visualize(xs):
-    vs, outs = predict(xs)
-    vs = np.asarray(vs.to_decimal(u.mV))
-    fig, gs = bts.visualize.get_figure(4, 2, 3., 6.)
-    for i in range(4):
-      ax = fig.add_subplot(gs[i, 0])
-      i_indice, n_indices = np.where(outs[:, i])
-      ax.plot(i_indice, n_indices, 'r.', markersize=1)
-      ax.set_xlim([0, args.T])
-      ax.set_ylim([0, net.l2.num])
-      ax = fig.add_subplot(gs[i, 1])
-      ax.plot(vs[:, i])
-      ax.set_xlim([0, args.T])
-    plt.show()
+    @bst.compile.jit
+    def predict(xs):
+        bst.nn.init_all_states(net, xs.shape[0])
+        xs = (xs + 0.02)
+        xs = bst.random.rand(args.T, *xs.shape) < xs
+        vs, outs = bst.compile.for_loop(net.predict, xs)
+        return vs, outs
 
 
-  # visualization of the spiking activity
-  visualize(X_test[:4])
+    def visualize(xs):
+        vs, outs = predict(xs)
+        vs = np.asarray(vs.to_decimal(u.mV))
+        fig, gs = bts.visualize.get_figure(4, 2, 3., 6.)
+        for i in range(4):
+            ax = fig.add_subplot(gs[i, 0])
+            i_indice, n_indices = np.where(outs[:, i])
+            ax.plot(i_indice, n_indices, 'r.', markersize=1)
+            ax.set_xlim([0, args.T])
+            ax.set_ylim([0, net.l2.varshape[0]])
+            ax = fig.add_subplot(gs[i, 1])
+            ax.plot(vs[:, i])
+            ax.set_xlim([0, args.T])
+        plt.show()
 
 
-  @bst.compile.jit
-  def loss_fun(xs, ys):
-    # initialize states
-    bst.nn.init_all_states(net, xs.shape[0])
-
-    # encoding inputs as spikes
-    xs = bst.random.rand(args.T, *xs.shape) < xs
-
-    # shared arguments for looping over time
-    outs = bst.compile.for_loop(net.update, xs)
-    out_fr = u.math.mean(outs, axis=0)  # [T, B, C] -> [B, C]
-    ys_onehot = bst.functional.one_hot(ys, 10, dtype=float)
-    l = bts.metric.squared_error(out_fr, ys_onehot).mean()
-    n = u.math.sum(out_fr.argmax(1) == ys)
-    return l, n
+    # visualization of the spiking activity
+    visualize(X_test[:4])
 
 
-  # gradient function
-  grad_fun = bst.augment.grad(loss_fun, net.states(bst.ParamState), has_aux=True, return_value=True)
+    @bst.compile.jit
+    def loss_fun(xs, ys):
+        # initialize states
+        bst.nn.init_all_states(net, xs.shape[0])
 
-  # optimizer
-  optimizer = bst.optim.Adam(lr=args.lr)
-  optimizer.register_trainable_weights(net.states(bst.ParamState))
+        # encoding inputs as spikes
+        xs = bst.random.rand(args.T, *xs.shape) < xs
+
+        # shared arguments for looping over time
+        outs = bst.compile.for_loop(net.update, xs)
+        out_fr = u.math.mean(outs, axis=0)  # [T, B, C] -> [B, C]
+        ys_onehot = bst.functional.one_hot(ys, 10, dtype=float)
+        l = bts.metric.squared_error(out_fr, ys_onehot).mean()
+        n = u.math.sum(out_fr.argmax(1) == ys)
+        return l, n
 
 
-  # train
-  @bst.compile.jit
-  def train(xs, ys):
-    grads, l, n = grad_fun(xs, ys)
-    optimizer.update(grads)
-    return l, n
+    # gradient function
+    grad_fun = bst.augment.grad(loss_fun, net.states(bst.ParamState), has_aux=True, return_value=True)
+
+    # optimizer
+    optimizer = bst.optim.Adam(lr=args.lr)
+    optimizer.register_trainable_weights(net.states(bst.ParamState))
 
 
-  # training loop
-  for epoch_i in range(args.epochs):
-    key = bst.random.split_key()
-    X_train = bst.random.shuffle(X_train, key=key)
-    Y_train = bst.random.shuffle(Y_train, key=key)
+    # train
+    @bst.compile.jit
+    def train(xs, ys):
+        grads, l, n = grad_fun(xs, ys)
+        optimizer.update(grads)
+        return l, n
 
-    # training phase
-    t0 = time.time()
-    loss, train_acc = [], 0.
-    for i in range(0, X_train.shape[0], args.batch):
-      X = X_train[i: i + args.batch]
-      Y = Y_train[i: i + args.batch]
-      l, correct_num = train(X, Y)
-      loss.append(l)
-      train_acc += correct_num
-    train_acc /= X_train.shape[0]
-    train_loss = jnp.mean(jnp.asarray(loss))
-    optimizer.lr.step_epoch()
 
-    # testing phase
-    loss, test_acc = [], 0.
-    for i in range(0, X_test.shape[0], args.batch):
-      X = X_test[i: i + args.batch]
-      Y = Y_test[i: i + args.batch]
-      l, correct_num = loss_fun(X, Y)
-      loss.append(l)
-      test_acc += correct_num
-    test_acc /= X_test.shape[0]
-    test_loss = jnp.mean(jnp.asarray(loss))
+    # training loop
+    for epoch_i in range(args.epochs):
+        key = bst.random.split_key()
+        X_train = bst.random.shuffle(X_train, key=key)
+        Y_train = bst.random.shuffle(Y_train, key=key)
 
-    t = (time.time() - t0) / 60
-    print(f'epoch {epoch_i}, used {t:.3f} min, '
-          f'train_loss = {train_loss:.4f}, train_acc = {train_acc:.4f}, '
-          f'test_loss = {test_loss:.4f}, test_acc = {test_acc:.4f}')
+        # training phase
+        t0 = time.time()
+        loss, train_acc = [], 0.
+        for i in range(0, X_train.shape[0], args.batch):
+            X = X_train[i: i + args.batch]
+            Y = Y_train[i: i + args.batch]
+            l, correct_num = train(X, Y)
+            loss.append(l)
+            train_acc += correct_num
+        train_acc /= X_train.shape[0]
+        train_loss = jnp.mean(jnp.asarray(loss))
+        optimizer.lr.step_epoch()
 
-  # inference
-  correct_num = 0.
-  for i in range(0, X_test.shape[0], 512):
-    X = X_test[i: i + 512]
-    Y = Y_test[i: i + 512]
-    correct_num += loss_fun(X, Y)[1]
-  print('Max test accuracy: ', correct_num / X_test.shape[0])
+        # testing phase
+        loss, test_acc = [], 0.
+        for i in range(0, X_test.shape[0], args.batch):
+            X = X_test[i: i + args.batch]
+            Y = Y_test[i: i + args.batch]
+            l, correct_num = loss_fun(X, Y)
+            loss.append(l)
+            test_acc += correct_num
+        test_acc /= X_test.shape[0]
+        test_loss = jnp.mean(jnp.asarray(loss))
+
+        t = (time.time() - t0) / 60
+        print(f'epoch {epoch_i}, used {t:.3f} min, '
+              f'train loss = {train_loss:.4f}, acc = {train_acc:.4f}, '
+              f'test loss = {test_loss:.4f}, acc = {test_acc:.4f}')
+
+    # inference
+    correct_num = 0.
+    for i in range(0, X_test.shape[0], 512):
+        X = X_test[i: i + 512]
+        Y = Y_test[i: i + 512]
+        correct_num += loss_fun(X, Y)[1]
+    print('Max test accuracy: ', correct_num / X_test.shape[0])

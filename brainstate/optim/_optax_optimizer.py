@@ -17,109 +17,119 @@
 from __future__ import annotations
 
 import importlib.util
-from typing import Hashable, Dict
+from typing import Hashable, Dict, Optional
 
-from brainstate._state import ShortTermState, ParamState, State
-from brainstate.graph import Node
+from brainstate._state import ShortTermState, State, StateDictManager
 from brainstate.typing import PyTree
-from brainstate.util import FlattedDict
+from ._base import Optimizer
 
 optax_installed = importlib.util.find_spec('optax') is not None
 
 __all__ = [
-  'OptaxOptimizer',
+    'OptaxOptimizer',
 ]
 
 
-class OptaxOptimizer(Node):
-  """Simple train state for the common case with a single Optax optimizer.
+class OptaxOptimizer(Optimizer):
+    """Simple train state for the common case with a single Optax optimizer.
 
-  Example usage::
+    Example usage::
 
-    >>> import jax
-    >>> import jax.numpy as jnp
-    >>> import brainstate as bst
-    >>> import optax
-    ...
-    >>> class Model(bst.nn.Module):
-    ...   def __init__(self):
-    ...     super().__init__()
-    ...     self.linear1 = bst.nn.Linear(2, 3)
-    ...     self.linear2 = bst.nn.Linear(3, 4)
-    ...   def __call__(self, x):
-    ...     return self.linear2(self.linear1(x))
-    ...
-    >>> x = bst.random.randn(1, 2)
-    >>> y = jnp.ones((1, 4))
-    ...
-    >>> model = Model()
-    >>> tx = optax.adam(1e-3)
-    >>> optimizer = bst.optim.OptaxOptimizer(model.states(bst.ParamState), tx)
-    ...
-    >>> loss_fn = lambda: ((model(x) - y) ** 2).mean()
-    >>> loss_fn()
-    Array(1.7055722, dtype=float32)
-    >>> grads = bst.augment.grad(loss_fn, model.states(bst.ParamState))()
-    >>> optimizer.update(grads)
-    >>> loss_fn()
-    Array(1.6925814, dtype=float32)
+      >>> import jax
+      >>> import jax.numpy as jnp
+      >>> import brainstate as bst
+      >>> import optax
+      ...
+      >>> class Model(bst.nn.Module):
+      ...   def __init__(self):
+      ...     super().__init__()
+      ...     self.linear1 = bst.nn.Linear(2, 3)
+      ...     self.linear2 = bst.nn.Linear(3, 4)
+      ...   def __call__(self, x):
+      ...     return self.linear2(self.linear1(x))
+      ...
+      >>> x = bst.random.randn(1, 2)
+      >>> y = jnp.ones((1, 4))
+      ...
+      >>> model = Model()
+      >>> tx = optax.adam(1e-3)
+      >>> optimizer = bst.optim.OptaxOptimizer(tx)
+      >>> optimizer.register_trainable_weights(model.states(bst.ParamState))
+      ...
+      >>> loss_fn = lambda: ((model(x) - y) ** 2).mean()
+      >>> loss_fn()
+      Array(1.7055722, dtype=float32)
+      >>> grads = bst.augment.grad(loss_fn, model.states(bst.ParamState))()
+      >>> optimizer.update(grads)
+      >>> loss_fn()
+      Array(1.6925814, dtype=float32)
 
-  For more exotic usecases (e.g. multiple optimizers) it's probably best to
-  fork the class and modify it.
+    For more exotic usecases (e.g. multiple optimizers) it's probably best to
+    fork the class and modify it.
 
-  Attributes:
-    states: The parameter states to update.
-    tx: An Optax gradient transformation.
-    opt_state: The Optax optimizer state.
-  """
-
-  def __init__(
-      self,
-      states: FlattedDict[Hashable, ParamState],
-      tx: 'optax.GradientTransformation',
-  ):
-    """
-    Instantiate the class and wrap the :class:`FlattedDict` and Optax gradient
-    transformation. Instantiate the optimizer state to keep track of
-    :class:`State`.
-
-    Args:
-      states: A module.
+    Attributes:
+      param_states: The parameter states to update.
       tx: An Optax gradient transformation.
     """
 
-    # tx must be an instance of optax.GradientTransformation
-    import optax  # type: ignore[import-not-found,import-untyped]
-    if not isinstance(tx, optax.GradientTransformation):
-      raise TypeError(f"tx must be an instance of optax.GradientTransformation, got {tx}")
-    self.tx = tx
+    param_states: StateDictManager
+    opt_state: Optional[ShortTermState]
 
-    # model
-    if not isinstance(states, dict):
-      raise TypeError(f"states must be a dict, got {states}")
-    for k, v in states.items():
-      if not isinstance(v, State):
-        raise TypeError(f"states values must be ParamState, got {v}")
-    self.states = states
+    def __init__(
+        self,
+        tx: 'optax.GradientTransformation',
+    ):
+        """
+        Instantiate the class and wrap the :class:`FlattedDict` and Optax gradient
+        transformation. Instantiate the optimizer state to keep track of
+        :class:`State`.
 
-    # wrt
-    self.opt_state = ShortTermState(tx.init({k: v.value for k, v in states.items()}))
+        Args:
+          tx: An Optax gradient transformation.
+        """
+        super().__init__()
 
-  def update(self, grads: Dict[Hashable, PyTree]):
-    """Update the model states with the gradients.
+        # tx must be an instance of optax.GradientTransformation
+        import optax  # type: ignore[import-not-found,import-untyped]
+        if not isinstance(tx, optax.GradientTransformation):
+            raise TypeError(f"tx must be an instance of optax.GradientTransformation, got {tx}")
+        self.tx = tx
 
-    Args:
-      grads: the gradients derived from ``brainstate.augment.grad``.
-    """
-    import optax  # type: ignore[import-not-found,import-untyped]
-    grads = {k: grads[k] for k in self.states.keys()}
-    states = {k: v.value for k, v in self.states.items()}
+        # optimizer state
+        self.opt_state = None
 
-    # compute updates
-    updates, new_opt_state = self.tx.update(grads, self.opt_state.value, states)
-    new_params = optax.apply_updates(states, updates)
+    def register_trainable_weights(self, param_states: Dict[Hashable, State]):
+        # model
+        if not isinstance(param_states, dict):
+            raise TypeError(f"states must be a dict, got {param_states}")
+        for k, v in param_states.items():
+            if not isinstance(v, State):
+                raise TypeError(f"states values must be ParamState, got {v}")
+        self.param_states.update(param_states)
+        self.param_states.unique_()
 
-    # update model states and optimizer states
-    for k, v in self.states.items():
-      v.value = new_params[k]
-    self.opt_state.value = new_opt_state
+        # wrt
+        self.opt_state = ShortTermState(self.tx.init({k: v.value for k, v in self.param_states.items()}))
+        return self
+
+    def update(self, grads: Dict[Hashable, PyTree]):
+        """Update the model states with the gradients.
+
+        Args:
+          grads: the gradients derived from ``brainstate.augment.grad``.
+        """
+        if self.opt_state is None:
+            raise ValueError("register_trainable_weights must be called before update.")
+
+        import optax  # type: ignore[import-not-found,import-untyped]
+        grads = {k: grads[k] for k in self.param_states.keys()}
+        states = {k: v.value for k, v in self.param_states.items()}
+
+        # compute updates
+        updates, new_opt_state = self.tx.update(grads, self.opt_state.value, states)
+        new_params = optax.apply_updates(states, updates)
+
+        # update model states and optimizer states
+        for k, v in self.param_states.items():
+            v.value = new_params[k]
+        self.opt_state.value = new_opt_state

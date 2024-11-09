@@ -14,6 +14,7 @@
 # ==============================================================================
 
 from __future__ import annotations
+
 import unittest
 
 import brainunit as u
@@ -24,34 +25,34 @@ import brainstate as bst
 
 
 class TestSynOutModels(unittest.TestCase):
-  def setUp(self):
-    self.conductance = jnp.array([0.5, 1.0, 1.5])
-    self.potential = jnp.array([-70.0, -65.0, -60.0])
-    self.E = jnp.array([-70.0])
-    self.alpha = jnp.array([0.062])
-    self.beta = jnp.array([3.57])
-    self.cc_Mg = jnp.array([1.2])
-    self.V_offset = jnp.array([0.0])
+    def setUp(self):
+        self.conductance = jnp.array([0.5, 1.0, 1.5])
+        self.potential = jnp.array([-70.0, -65.0, -60.0])
+        self.E = jnp.array([-70.0])
+        self.alpha = jnp.array([0.062])
+        self.beta = jnp.array([3.57])
+        self.cc_Mg = jnp.array([1.2])
+        self.V_offset = jnp.array([0.0])
 
-  def test_COBA(self):
-    model = bst.nn.COBA(E=self.E)
-    output = model.update(self.conductance, self.potential)
-    expected_output = self.conductance * (self.E - self.potential)
-    np.testing.assert_array_almost_equal(output, expected_output)
+    def test_COBA(self):
+        model = bst.nn.COBA(E=self.E)
+        output = model.update(self.conductance, self.potential)
+        expected_output = self.conductance * (self.E - self.potential)
+        np.testing.assert_array_almost_equal(output, expected_output)
 
-  def test_CUBA(self):
-    model = bst.nn.CUBA()
-    output = model.update(self.conductance)
-    expected_output = self.conductance * model.scale
-    self.assertTrue(u.math.allclose(output, expected_output))
+    def test_CUBA(self):
+        model = bst.nn.CUBA()
+        output = model.update(self.conductance)
+        expected_output = self.conductance * model.scale
+        self.assertTrue(u.math.allclose(output, expected_output))
 
-  def test_MgBlock(self):
-    model = bst.nn.MgBlock(E=self.E, cc_Mg=self.cc_Mg, alpha=self.alpha, beta=self.beta, V_offset=self.V_offset)
-    output = model.update(self.conductance, self.potential)
-    norm = (1 + self.cc_Mg / self.beta * jnp.exp(self.alpha * (self.V_offset - self.potential)))
-    expected_output = self.conductance * (self.E - self.potential) / norm
-    np.testing.assert_array_almost_equal(output, expected_output)
+    def test_MgBlock(self):
+        model = bst.nn.MgBlock(E=self.E, cc_Mg=self.cc_Mg, alpha=self.alpha, beta=self.beta, V_offset=self.V_offset)
+        output = model.update(self.conductance, self.potential)
+        norm = (1 + self.cc_Mg / self.beta * jnp.exp(self.alpha * (self.V_offset - self.potential)))
+        expected_output = self.conductance * (self.E - self.potential) / norm
+        np.testing.assert_array_almost_equal(output, expected_output)
 
 
 if __name__ == '__main__':
-  unittest.main()
+    unittest.main()
