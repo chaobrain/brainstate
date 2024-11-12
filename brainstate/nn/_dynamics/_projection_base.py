@@ -207,7 +207,7 @@ class AlignPostProj(Interaction):
 
 
 class DeltaProj(Interaction):
-    """Full-chain of the synaptic projection for the Delta synapse model.
+    r"""Full-chain of the synaptic projection for the Delta synapse model.
 
     The synaptic projection requires the input is the spiking data, otherwise
     the synapse is not the Delta synapse model.

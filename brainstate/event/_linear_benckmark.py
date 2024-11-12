@@ -24,7 +24,7 @@ import brainstate as bst
 
 
 def forward(n_pre, n_post, spk_prob, as_float: bool):
-    linear = bst.event.Linear(n_pre, n_post, weight=bst.init.KaimingUniform(), block_size=512)
+    linear = bst.event.Linear(n_pre, n_post, weight=bst.init.KaimingUniform(), block_size=256)
     spike = (bst.random.rand(n_pre) < spk_prob)
 
     if as_float:
@@ -71,6 +71,8 @@ def benchmark_forward():
     ]:
         forward(n_pre, n_post, 0.01, True)
         forward(n_pre, n_post, 0.1, True)
+        print()
+        print()
 
 
 if __name__ == '__main__':

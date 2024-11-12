@@ -286,7 +286,7 @@ class CosineAnnealingLR(LearningRateScheduler):
 
 
 class CosineAnnealingWarmRestarts(CallBasedLRScheduler):
-    """Set the learning rate of each parameter group using a cosine annealing
+    r"""Set the learning rate of each parameter group using a cosine annealing
     schedule, where :math:`\eta_{max}` is set to the initial lr, :math:`T_{cur}`
     is the number of epochs since the last restart and :math:`T_{i}` is the number
     of epochs between two warm restarts in SGDR:

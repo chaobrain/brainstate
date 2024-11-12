@@ -114,13 +114,11 @@ def event_linear(spk, weight, *, block_size, float_as_event) -> jax.Array | u.Qu
 
     def mv(spk_vector):
         assert spk_vector.ndim == 1, f"spk must be 1D. Got: {spk.ndim}"
-        return event_linear_p(
-            spk, weight,
-            outs=[jax.ShapeDtypeStruct([weight.shape[1]], weight.dtype)],
+        return event_liner_p_call(
+            spk,
+            weight,
             block_size=block_size,
             float_as_event=float_as_event,
-            spk_info=jax.ShapeDtypeStruct(spk.shape, spk.dtype),
-            weight_info=jax.ShapeDtypeStruct(weight.shape, weight.dtype),
         )
 
     assert spk.ndim >= 1, f"spk must be at least 1D. Got: {spk.ndim}"
@@ -182,12 +180,74 @@ def gpu_kernel_generator(
     weight_info: jax.ShapeDtypeStruct,
     **kwargs
 ) -> Kernel:
-    def _mv_kernel(sp_ref, w_ref, post_ref):
-        # 每个block处理一个[block_size,]的post
-        # 每个block处理一个[n_pre]的pre
-        # 每个block处理一个[n_pre, block_size]的w
+    # # 每个block处理一个[block_size,]的post
+    # # 每个block处理一个[n_pre]的pre
+    # # 每个block处理一个[n_pre, block_size]的w
+    # def _mv_kernel(sp_ref, w_ref, post_ref):
+    #
+    #     pid = pl.program_id(0)
+    #
+    #     def scan_fn(i, post_):
+    #         if sp_ref.dtype == jnp.bool_:
+    #             post_ = jax.lax.cond(
+    #                 sp_ref[i],
+    #                 lambda: post_ + w_ref[i, ...],
+    #                 lambda: post_
+    #             )
+    #         else:
+    #             if float_as_event:
+    #                 post_ = jax.lax.cond(
+    #                     sp_ref[i] != 0.,
+    #                     lambda: post_ + w_ref[i, ...],
+    #                     lambda: post_
+    #                 )
+    #             else:
+    #                 sp = sp_ref[i]
+    #                 post_ = jax.lax.cond(
+    #                     sp != 0.,
+    #                     lambda: post_ + w_ref[i, ...] * sp,
+    #                     lambda: post_
+    #                 )
+    #         return post_
+    #
+    #     post = jax.lax.fori_loop(0, n_pre, scan_fn, jnp.zeros(post_ref.shape, dtype=post_ref.dtype))
+    #     mask = jnp.arange(block_size) + pid * block_size < n_pre
+    #     pl.store(post_ref, pl.dslice(None, None), post, mask=mask)
+    #
+    # n_pre = weight_info.shape[0]
+    # n_post = weight_info.shape[1]
+    # kernel = pl.pallas_call(
+    #     _mv_kernel,
+    #     out_shape=[
+    #         jax.ShapeDtypeStruct([weight_info.shape[1]], weight_info.dtype),
+    #     ],
+    #     out_specs=[
+    #         pl.BlockSpec((block_size,), lambda i: i),
+    #     ],
+    #     in_specs=[
+    #         pl.BlockSpec((n_pre,), lambda i: 0),
+    #         pl.BlockSpec((n_pre, block_size), lambda i: (0, i)),
+    #     ],
+    #     grid=(
+    #         pl.cdiv(n_post, block_size),
+    #     ),
+    #     interpret=False,
+    # )
+    # return kernel
 
-        pid = pl.program_id(0)
+    # 每个block处理一个[block_size,]的post
+    # 每个block处理一个[block_size]的pre
+    # 每个block处理一个[block_size, block_size]的w
+    def _mv_kernel(
+        sp_ref,  # [block_size]
+        w_ref,  # [block_size, block_size]
+        post_ref,  # [block_size]
+    ):
+
+        r_pid = pl.program_id(0)
+        c_start = pl.program_id(1) * block_size
+        row_length = jnp.minimum(n_pre - r_pid * block_size, block_size)
+        mask = jnp.arange(block_size) + c_start < weight_info.shape[1]
 
         def scan_fn(i, post_):
             if sp_ref.dtype == jnp.bool_:
@@ -212,9 +272,8 @@ def gpu_kernel_generator(
                     )
             return post_
 
-        post = jax.lax.fori_loop(0, n_pre, scan_fn, jnp.zeros(post_ref.shape, dtype=post_ref.dtype))
-        mask = jnp.arange(block_size) + pid * block_size < n_pre
-        pl.store(post_ref, pl.dslice(None, None), post, mask=mask)
+        post = jax.lax.fori_loop(0, row_length, scan_fn, jnp.zeros(post_ref.shape, dtype=post_ref.dtype))
+        pl.atomic_add(post_ref, pl.dslice(None, None), post, mask=mask)
 
     n_pre = weight_info.shape[0]
     n_post = weight_info.shape[1]
@@ -224,13 +283,14 @@ def gpu_kernel_generator(
             jax.ShapeDtypeStruct([weight_info.shape[1]], weight_info.dtype),
         ],
         out_specs=[
-            pl.BlockSpec((block_size,), lambda i: i),
+            pl.BlockSpec((block_size,), lambda i, j: j),
         ],
         in_specs=[
-            pl.BlockSpec((n_pre,), lambda i: 0),
-            pl.BlockSpec((n_pre, block_size), lambda i: (0, i)),
+            pl.BlockSpec((block_size,), lambda i, j: i),
+            pl.BlockSpec((block_size, block_size), lambda i, j: (i, j)),
         ],
         grid=(
+            pl.cdiv(n_pre, block_size),
             pl.cdiv(n_post, block_size),
         ),
         interpret=False,
@@ -243,14 +303,11 @@ def jvp_spikes(spk_dot, spikes, weights, **kwargs):
 
 
 def jvp_weights(w_dot, spikes, weights, *, float_as_event, block_size, **kwargs):
-    return event_linear_p(
+    return event_liner_p_call(
         spikes,
         w_dot,
-        outs=[jax.ShapeDtypeStruct([w_dot.shape[1]], w_dot.dtype)],
         block_size=block_size,
         float_as_event=float_as_event,
-        spk_info=jax.ShapeDtypeStruct(spikes.shape, spikes.dtype),
-        weight_info=jax.ShapeDtypeStruct(w_dot.shape, w_dot.dtype),
     )
 
 
@@ -282,3 +339,21 @@ event_linear_p = XLACustomOp(
 )
 event_linear_p.defjvp(jvp_spikes, jvp_weights)
 event_linear_p.def_transpose_rule(transpose_rule)
+
+
+def event_liner_p_call(
+    spikes,
+    weights,
+    *,
+    block_size,
+    float_as_event,
+):
+    return event_linear_p(
+        spikes,
+        weights,
+        outs=[jax.ShapeDtypeStruct([weights.shape[1]], weights.dtype)],
+        block_size=block_size,
+        float_as_event=float_as_event,
+        spk_info=jax.ShapeDtypeStruct(spikes.shape, spikes.dtype),
+        weight_info=jax.ShapeDtypeStruct(weights.shape, weights.dtype),
+    )
