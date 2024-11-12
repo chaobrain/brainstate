@@ -31,6 +31,8 @@ def test1():
         def add_kernel_numba(x, y, out):
             out[...] = x + y
 
+        return add_kernel_numba
+
     def gpu_kernel(x_info):
         return pl.pallas_call(
             add_vectors_kernel,
