@@ -89,6 +89,9 @@ def _numba_mlir_cpu_translation_rule(
     *ins,
     **kwargs
 ):
+    if numba is None:
+        raise ImportError('Numba is required to compile the CPU kernel for the custom operator.')
+
     if not isinstance(kernel, Dispatcher):
         kernel = kernel(**kwargs)
     assert isinstance(kernel, Dispatcher), f'The kernel should be a Numba dispatcher. But we got {kernel}'
@@ -231,8 +234,6 @@ class XLACustomOp:
         """
         Define the CPU kernel using Numba.
         """
-        if numba is None:
-            raise ImportError('Numba is required to compile the CPU kernel for the custom operator.')
         register_numba_mlir_cpu_translation_rule(self.primitive, kernel_generator)
 
     def def_gpu_kernel(self, kernel_generator: Callable):
