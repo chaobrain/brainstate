@@ -32,7 +32,7 @@ class TestEventLinear(parameterized.TestCase):
         x = bst.random.rand(20) < 0.1
         if not bool_x:
             x = jnp.asarray(x, dtype=float)
-        m = Linear(20, 40, 1.5 if homo_w else bst.init.KaimingUniform())
+        m = Linear(20, 40, 1.5 if homo_w else bst.init.KaimingUniform(),  float_as_event=bool_x)
         y = m(x)
         print(y)
 
@@ -59,7 +59,7 @@ class TestEventLinear(parameterized.TestCase):
         else:
             x = bst.random.rand(n_in)
 
-        fn = Linear(n_in, n_out, 1.5 if homo_w else bst.init.KaimingUniform())
+        fn = Linear(n_in, n_out, 1.5 if homo_w else bst.init.KaimingUniform(), float_as_event=bool_x)
         w = fn.weight.value
 
         def f(x, w):
@@ -77,6 +77,10 @@ class TestEventLinear(parameterized.TestCase):
 
         r2 = jax.grad(f2, argnums=(0, 1))(x, w)
         self.assertTrue(jnp.allclose(r1[0], r2[0]))
+
+        if not jnp.allclose(r1[1], r2[1]):
+            print(r1[1] - r2[1])
+
         self.assertTrue(jnp.allclose(r1[1], r2[1]))
 
     @parameterized.product(
@@ -91,7 +95,9 @@ class TestEventLinear(parameterized.TestCase):
         else:
             x = bst.random.rand(n_in)
 
-        fn = Linear(n_in, n_out, 1.5 if homo_w else bst.init.KaimingUniform(), grad_mode='jvp')
+        fn = Linear(n_in, n_out, 1.5 if homo_w else bst.init.KaimingUniform(),
+                    grad_mode='jvp',
+                    float_as_event=bool_x)
         w = fn.weight.value
 
         def f(x, w):

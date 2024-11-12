@@ -1,4 +1,3 @@
-
 # Copyright 2024 BDP Ecosystem Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -88,7 +87,6 @@ class TestFixedProbCSR(parameterized.TestCase):
         r2 = jax.grad(f2, argnums=(0, 1))(x, w)
         self.assertTrue(jnp.allclose(r[0], r2[0]))
         self.assertTrue(jnp.allclose(r[1], r2[1]))
-        print(r[1])
 
     @parameterized.product(
         bool_x=[True, False],

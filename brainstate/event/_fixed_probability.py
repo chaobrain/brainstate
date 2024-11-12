@@ -81,7 +81,7 @@ class FixedProb(Module):
         seed: Optional[int] = None,
         grad_mode: str = 'vjp',
         float_as_event: bool = True,
-        block_size: int = 64,
+        block_size: Optional[int] = None,
         name: Optional[str] = None,
     ):
         super().__init__(name=name)
@@ -168,11 +168,27 @@ class Implementation:
         assert u.get_unit(indices).is_unitless, f"indices must be unitless. Got: {u.get_unit(indices)}"
         assert indices.ndim == 2, f"indices must be 2D. Got: {indices.ndim}"
 
-        self.block_size = block_size
         self.indices = indices
         self.n_pre = indices.shape[0]
         self.n_post = n_post
         self.n_conn = indices.shape[1]
+
+        if block_size is None:
+            if self.n_conn <= 16:
+                self.block_size = 16
+            elif self.n_conn <= 32:
+                self.block_size = 32
+            elif self.n_conn <= 64:
+                self.block_size = 64
+            elif self.n_conn <= 128:
+                self.block_size = 128
+            elif self.n_conn <= 256:
+                self.block_size = 256
+            else:
+                self.block_size = 128
+        else:
+            self.block_size = block_size
+
         self.float_as_event = float_as_event
         self.grad_mode = grad_mode
         self.interpret = False
@@ -307,6 +323,26 @@ class CPUImpl(Implementation):
 
         return jax.lax.scan(scan_fn, jnp.zeros((self.n_post,), dtype=weight.dtype), np.arange(len(spk)))[0]
 
+        # def body_fn(x):
+        #     i, post = x
+        #     w = weight if jnp.size(weight) == 1 else weight[i]
+        #     ids = self.indices[i]
+        #     sp = spk[i]
+        #     if spk.dtype == jnp.bool_:
+        #         post = jax.lax.cond(sp, lambda: post.at[ids].add(w), lambda: post)
+        #     else:
+        #         if self.float_as_event:
+        #             post = jax.lax.cond(sp == 0., lambda: post, lambda: post.at[ids].add(w))
+        #         else:
+        #             post = jax.lax.cond(sp == 0., lambda: post, lambda: post.at[ids].add(w * sp))
+        #     return i + 1, post
+        #
+        # return jax.lax.while_loop(
+        #     lambda x: x[0] < spk.shape[0],
+        #     body_fn,
+        #     (0, jnp.zeros((self.n_post,), dtype=weight.dtype))
+        # )[1]
+
     def mv_jvp_rule(self, primals, tangents):
         # forward pass
         weight, spk = primals
@@ -340,111 +376,113 @@ class CPUImpl(Implementation):
 class GPUImpl(Implementation):
     def _ell_mv_kernel_homo(
         self,
-        sp_ref,
-        ind_ref,
+        sp_ref,  # [block_size]
+        ind_ref,  # [block_size, block_size]
         _,
-        y_ref,
+        y_ref,  # [n_post]
     ):
-        pid = pl.program_id(0)
-        row_length = jnp.minimum(self.n_pre - pid * self.block_size, self.block_size)
+        r_pid = pl.program_id(0)
+        c_start = pl.program_id(1) * self.block_size
+        row_length = jnp.minimum(self.n_pre - r_pid * self.block_size, self.block_size)
+        mask = jnp.arange(self.block_size) + c_start < self.n_conn
 
-        def loop_fn(i_start, i_end):
-            def body_fn(j, _):
-                def true_fn():
-                    y_ref[ind_ref[j, i_start: i_end]] += 1.0
+        def body_fn(j, _):
+            def true_fn():
+                ind = pl.load(ind_ref, (j, pl.dslice(c_start, self.block_size)), mask=mask)
+                y_ref[ind] += 1.0
+                # ind = ind_ref[j, ...]
+                # pl.store(y_ref, ind, 1.0, mask=mask)
 
-                if sp_ref.dtype == jnp.bool_:
-                    jax.lax.cond(sp_ref[j], true_fn, lambda: None)
-                else:
-                    jax.lax.cond(sp_ref[j] != 0., true_fn, lambda: None)
+            if sp_ref.dtype == jnp.bool_:
+                jax.lax.cond(sp_ref[j], true_fn, lambda: None)
+            else:
+                jax.lax.cond(sp_ref[j] != 0., true_fn, lambda: None)
 
-            jax.lax.fori_loop(0, row_length, body_fn, None)
-
-        for i in range(0, ind_ref.shape[1], self.block_size):
-            loop_fn(i, i + self.block_size if (i + self.block_size < ind_ref.shape[1]) else ind_ref.shape[1])
+        jax.lax.fori_loop(0, row_length, body_fn, None)
 
     def _ell_mv_kernel_heter(
         self,
-        sp_ref,
-        ind_ref,
-        w_ref,
+        sp_ref,  # [block_size]
+        ind_ref,  # [block_size, block_size]
+        w_ref,  # [block_size, block_size]
         _,
-        y_ref,
+        y_ref,  # [n_post]
     ):
-        pid = pl.program_id(0)
-        row_length = jnp.minimum(self.n_pre - pid * self.block_size, self.block_size)
+        r_pid = pl.program_id(0)
+        c_start = pl.program_id(1) * self.block_size
+        row_length = jnp.minimum(self.n_pre - r_pid * self.block_size, self.block_size)
+        mask = jnp.arange(self.block_size) + c_start < self.n_conn
 
-        def loop_fn(i_start, i_end):
-            def body_fn(j, _):
-                if sp_ref.dtype == jnp.bool_:
-                    def true_fn():
-                        y_ref[ind_ref[j, i_start: i_end]] += w_ref[j, i_start: i_end]
+        def body_fn(j, _):
+            if sp_ref.dtype == jnp.bool_:
+                def true_fn():
+                    ind = ind_ref[j, ...]
+                    w = w_ref[j, ...]
+                    pl.store(y_ref, ind, w, mask=mask)
 
-                    jax.lax.cond(sp_ref[j], true_fn, lambda: None)
+                jax.lax.cond(sp_ref[j], true_fn, lambda: None)
+            else:
+                def true_fn(spk):
+                    ind = ind_ref[j, ...]
+                    if self.float_as_event:
+                        w = w_ref[j, ...]
+                    else:
+                        w = w_ref[j, ...] * spk
+                    pl.store(y_ref, ind, w, mask=mask)
 
-                else:
-                    def true_fn(spk):
-                        if self.float_as_event:
-                            y_ref[ind_ref[j, i_start: i_end]] += w_ref[j, i_start: i_end]
-                        else:
-                            y_ref[ind_ref[j, i_start: i_end]] += w_ref[j, i_start: i_end] * spk
+                sp_ = sp_ref[j]
+                jax.lax.cond(sp_ != 0., true_fn, lambda _: None, sp_)
 
-                    sp_ = sp_ref[j]
-                    jax.lax.cond(sp_ != 0., true_fn, lambda _: None, sp_)
-
-            jax.lax.fori_loop(0, row_length, body_fn, None)
-
-        for i in range(0, ind_ref.shape[1], self.block_size):
-            loop_fn(i, i + self.block_size if (i + self.block_size < ind_ref.shape[1]) else ind_ref.shape[1])
+        jax.lax.fori_loop(0, row_length, body_fn, None)
 
     @partial(jax.jit, static_argnums=0)
     def _event_ell_mv(self, weight, spikes):
         # 对于具有形状 [n_event] 的 spikes 向量，以及形状 [n_event, n_conn] 的 indices 和 weights 矩阵，
         # 这个算子的计算逻辑为：
         #
-        # - 每个block处理 block_size 个事件，每个事件对应一个 pre-synaptic neuron
-        # - 每个block处理 [block_size, n_conn] 个 indices 和 weights
-
-        n_event = spikes.shape[0]
-        dtype = weight.dtype
+        # - 每个block处理 [block_size] 个事件，每个事件对应一个 pre-synaptic neuron
+        # - 每个block处理 [block_size, block_size] 个 indices 和 weights
 
         if jnp.size(weight) == 1:
+
             # homogenous weights
             kernel = pl.pallas_call(
                 self._ell_mv_kernel_homo,
-                out_shape=jax.ShapeDtypeStruct((self.n_post,), dtype),
+                out_shape=jax.ShapeDtypeStruct((self.n_post,), weight.dtype),
                 in_specs=[
-                    pl.BlockSpec((self.block_size,), lambda i: i),
-                    pl.BlockSpec((self.block_size, self.indices.shape[1]), lambda i: (i, 0)),
-                    pl.BlockSpec((self.n_post,), lambda i: 0)
+                    pl.BlockSpec((self.block_size,), lambda i, j: i),
+                    pl.BlockSpec((self.block_size, self.block_size), lambda i, j: (i, j)),
+                    pl.BlockSpec((self.n_post,), lambda i, j: 0)
                 ],
                 grid=(
                     pl.cdiv(self.n_pre, self.block_size),
+                    pl.cdiv(self.n_conn, self.block_size),
                 ),
                 input_output_aliases={2: 0},
                 interpret=self.interpret
             )
-            return kernel(spikes, self.indices, jnp.zeros(self.n_post, dtype=dtype)) * weight
+            return kernel(spikes, self.indices, jnp.zeros(self.n_post, dtype=weight.dtype)) * weight
 
         else:
 
             # heterogeneous weights
             kernel = pl.pallas_call(
                 self._ell_mv_kernel_heter,
-                out_shape=jax.ShapeDtypeStruct((self.n_post,), dtype),
+                out_shape=jax.ShapeDtypeStruct((self.n_post,), weight.dtype),
                 in_specs=[
-                    pl.BlockSpec((self.block_size,), lambda i: i),
-                    pl.BlockSpec((self.block_size, self.indices.shape[1]), lambda i: (i, 0)),
-                    pl.BlockSpec((self.block_size, weight.shape[1]), lambda i: (i, 0)),
-                    pl.BlockSpec((self.n_post,), lambda i: 0)
+                    pl.BlockSpec((self.block_size,), lambda i, j: i),  # sp_ref
+                    pl.BlockSpec((self.block_size, self.block_size), lambda i, j: (i, j)),  # ind_ref
+                    pl.BlockSpec((self.block_size, self.block_size), lambda i, j: (i, j)),  # w_ref,
+                    pl.BlockSpec((self.n_post,), lambda i, j: 0)
                 ],
                 grid=(
-                    pl.cdiv(n_event, self.block_size),
+                    pl.cdiv(self.n_pre, self.block_size),
+                    pl.cdiv(self.n_conn, self.block_size),
                 ),
                 input_output_aliases={3: 0},
                 interpret=self.interpret
             )
-            return kernel(spikes, self.indices, weight, jnp.zeros(self.n_post, dtype=dtype))
+            return kernel(spikes, self.indices, weight, jnp.zeros(self.n_post, dtype=weight.dtype))
 
     def mv(self, weight, spikes):
         return self._event_ell_mv(weight, spikes)
@@ -465,13 +503,8 @@ class GPUImpl(Implementation):
         return y, dgmax + dspk
 
     @partial(jax.jit, static_argnums=0)
-    def _ell_mv(
-        self,
-        vector,
-        weight,
-    ):
+    def _ell_mv(self, vector, weight):
         n_conn = self.indices.shape[1]
-        dtype = weight.dtype
         homo = jnp.size(weight) == 1
 
         if homo:
@@ -479,43 +512,42 @@ class GPUImpl(Implementation):
                 vec_ref, ind_ref, _, out_ref,
             ):
                 # 每个block 处理 [block_size] 大小的vector
-                # 每个block 处理 [block_size, n_conn] 大小的indices 和 weights
+                # 每个block 处理 [block_size, block_size] 大小的indices 和 weights
 
                 # -------------------------------
                 # vec_ref: [block_size]
-                # ind_ref: [block_size, n_conn]
-                # w_ref: [block_size, n_conn]
+                # ind_ref: [block_size, block_size]
                 # out_ref: [n_post]
 
-                pid = pl.program_id(0)
-                row_length = jnp.minimum(self.n_pre - pid * self.block_size, self.block_size)
+                r_pid = pl.program_id(0)
+                c_start = pl.program_id(1) * self.block_size
+                mask = jnp.arange(self.block_size) + c_start
+                row_length = jnp.minimum(self.n_pre - r_pid * self.block_size, self.block_size)
 
-                def body_fn(col_start, col_end):
-                    def body_fn(j, _):
-                        y = vec_ref[j] * jnp.ones(col_end - col_start)
-                        out_ref[ind_ref[j, col_start: col_end]] += y
+                def body_fn(j, _):
+                    y = vec_ref[j] * jnp.ones(self.block_size)
+                    ind = ind_ref[j, ...]
+                    pl.atomic_add(out_ref, ind, y, mask=mask)
 
-                    jax.lax.fori_loop(0, row_length, body_fn, None)
-
-                for i in range(0, n_conn, self.block_size):
-                    body_fn(i, i + self.block_size if (i + self.block_size < n_conn) else n_conn)
+                jax.lax.fori_loop(0, row_length, body_fn, None)
 
             # heterogeneous weights
             kernel = pl.pallas_call(
                 _kernel,
-                out_shape=jax.ShapeDtypeStruct((self.n_post,), dtype),
+                out_shape=jax.ShapeDtypeStruct((self.n_post,), weight.dtype),
                 in_specs=[
-                    pl.BlockSpec((self.block_size,), lambda i: i),
-                    pl.BlockSpec((self.block_size, self.indices.shape[1]), lambda i: (i, 0)),
-                    pl.BlockSpec((self.n_post,), lambda i: 0)
+                    pl.BlockSpec((self.block_size,), lambda i, j: i),  # vec_ref
+                    pl.BlockSpec((self.block_size, self.block_size), lambda i, j: (i, j)),  # ind_ref
+                    pl.BlockSpec((self.n_post,), lambda i, j: 0)  # out_ref
                 ],
                 grid=(
                     pl.cdiv(self.n_pre, self.block_size),
+                    pl.cdiv(self.n_conn, self.block_size),
                 ),
                 input_output_aliases={2: 0},
                 interpret=self.interpret
             )
-            return kernel(vector, self.indices, jnp.zeros(self.n_post, dtype=dtype)) * weight
+            return kernel(vector, self.indices, jnp.zeros(self.n_post, dtype=weight.dtype)) * weight
 
         else:
             def _kernel(
@@ -526,40 +558,41 @@ class GPUImpl(Implementation):
 
                 # -------------------------------
                 # vec_ref: [block_size]
-                # ind_ref: [block_size, n_conn]
-                # w_ref: [block_size, n_conn]
+                # ind_ref: [block_size, block_size]
+                # w_ref: [block_size, block_size]
                 # out_ref: [n_post]
 
-                pid = pl.program_id(0)
-                row_length = jnp.minimum(self.n_pre - pid * self.block_size, self.block_size)
+                r_pid = pl.program_id(0)
+                c_start = pl.program_id(1) * self.block_size
+                mask = jnp.arange(self.block_size) + c_start
+                row_length = jnp.minimum(self.n_pre - r_pid * self.block_size, self.block_size)
 
-                def body_fn(col_start, col_end):
-                    def body_fn(j, _):
-                        y = w_ref[j, col_start: col_end] * vec_ref[j]
-                        out_ref[ind_ref[j, col_start: col_end]] += y
+                def body_fn(j, _):
+                    w = w_ref[j, ...]
+                    y = w * vec_ref[j]
+                    ind = ind_ref[j, ...]
+                    pl.atomic_add(out_ref, ind, y, mask=mask)
 
-                    jax.lax.fori_loop(0, row_length, body_fn, None)
-
-                for i in range(0, n_conn, self.block_size):
-                    body_fn(i, i + self.block_size if (i + self.block_size < n_conn) else n_conn)
+                jax.lax.fori_loop(0, row_length, body_fn, None)
 
             # heterogeneous weights
             kernel = pl.pallas_call(
                 _kernel,
-                out_shape=jax.ShapeDtypeStruct((self.n_post,), dtype),
+                out_shape=jax.ShapeDtypeStruct((self.n_post,), weight.dtype),
                 in_specs=[
-                    pl.BlockSpec((self.block_size,), lambda i: i),
-                    pl.BlockSpec((self.block_size, self.indices.shape[1]), lambda i: (i, 0)),
-                    pl.BlockSpec((self.block_size, weight.shape[1]), lambda i: (i, 0)),
-                    pl.BlockSpec((self.n_post,), lambda i: 0)
+                    pl.BlockSpec((self.block_size,), lambda i, j: i),  # vec_ref
+                    pl.BlockSpec((self.block_size, self.block_size), lambda i, j: (i, j)),  # ind_ref
+                    pl.BlockSpec((self.block_size, self.block_size), lambda i, j: (i, j)),  # w_ref
+                    pl.BlockSpec((self.n_post,), lambda i: 0)  # out_ref
                 ],
                 grid=(
                     pl.cdiv(self.n_pre, self.block_size),
+                    pl.cdiv(self.n_conn, self.block_size),
                 ),
                 input_output_aliases={3: 0},
                 interpret=self.interpret
             )
-            return kernel(vector, self.indices, weight, jnp.zeros(self.n_post, dtype=dtype))
+            return kernel(vector, self.indices, weight, jnp.zeros(self.n_post, dtype=weight.dtype))
 
     def _event_ell_weight(
         self,

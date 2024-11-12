@@ -92,8 +92,7 @@ with bst.environ.context(dt=0.1 * u.ms):
     spikes, vs = bst.compile.for_loop(net.update, times, pbar=bst.compile.ProgressBar(10))
 
 # visualization
-times = times.to_decimal(u.ms)
-plt.plot(times, vs.to_decimal(u.mV))
+plt.plot(times, vs)
 plt.show()
 
 t_indices, n_indices = u.math.where(spikes)

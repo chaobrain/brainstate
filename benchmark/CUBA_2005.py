@@ -38,6 +38,21 @@ import brainunit as u
 import brainstate as bst
 
 
+
+class FixedProb(bst.nn.Module):
+    def __init__(self, n_pre, n_post, prob, weight):
+        super().__init__()
+        self.prob = prob
+        self.weight = weight
+        self.n_pre = n_pre
+        self.n_post = n_post
+
+        self.mask = bst.random.rand(n_pre, n_post) < prob
+
+    def update(self, x):
+        return (x @ self.mask) * self.weight
+
+
 class EINet(bst.nn.DynamicsGroup):
     def __init__(self, scale=1.0):
         super().__init__()
@@ -51,12 +66,14 @@ class EINet(bst.nn.DynamicsGroup):
         )
         self.E = bst.nn.AlignPostProj(
             comm=bst.event.FixedProb(self.n_exc, self.num, prob=80 / self.num, weight=1.62 * u.mS),
+            # comm=FixedProb(self.n_exc, self.num, prob=80 / self.num, weight=1.62 * u.mS),
             syn=bst.nn.Expon.desc(self.num, tau=5. * u.ms),
             out=bst.nn.CUBA.desc(scale=u.volt),
             post=self.N
         )
         self.I = bst.nn.AlignPostProj(
             comm=bst.event.FixedProb(self.n_inh, self.num, prob=80 / self.num, weight=-9.0 * u.mS),
+            # comm=FixedProb(self.n_inh, self.num, prob=80 / self.num, weight=-9.0 * u.mS),
             syn=bst.nn.Expon.desc(self.num, tau=10. * u.ms),
             out=bst.nn.CUBA.desc(scale=u.volt),
             post=self.N
@@ -67,30 +84,30 @@ class EINet(bst.nn.DynamicsGroup):
 
     def update(self, t, inp):
         with bst.environ.context(t=t):
-            spk = self.N.get_spike() != 0.
+            spk = self.N.get_spike()
             self.E(spk[:self.n_exc])
             self.I(spk[self.n_exc:])
             self.N(inp)
             self.rate.value += self.N.get_spike()
 
 
-@bst.compile.jit(static_argnums=0)
+# @bst.compile.jit(static_argnums=0)
 def run(scale: float):
     # network
     net = EINet(scale)
     bst.nn.init_all_states(net)
 
-    duration = 1e4 * u.ms
+    duration = 1e3 * u.ms
     # simulation
     with bst.environ.context(dt=0.1 * u.ms):
         times = u.math.arange(0. * u.ms, duration, bst.environ.get_dt())
-        bst.compile.for_loop(lambda t: net.update(t, 20. * u.mA), times)
+        bst.compile.for_loop(lambda t: net.update(t, 20. * u.mA), times, pbar=bst.compile.ProgressBar(100))
 
     return net.num, net.rate.value.sum() / net.num / duration.to_decimal(u.second)
 
 
 for s in [1, 2, 4, 6, 8, 10, 20, 40, 60, 80, 100]:
-    run(s)
+    # run(s)
 
     t0 = time.time()
     n, rate = run(s)
