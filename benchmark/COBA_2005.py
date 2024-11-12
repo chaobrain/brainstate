@@ -30,6 +30,8 @@ sys.path.append('../')
 os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.99'
 os.environ['JAX_TRACEBACK_FILTERING'] = 'off'
 
+
+import jax
 import brainunit as u
 import time
 import brainstate as bst
@@ -85,10 +87,10 @@ def run(scale: float):
 
 
 for s in [1, 2, 4, 6, 8, 10, 20, 40, 60, 80, 100]:
-    run(s)
+    jax.block_until_ready(run(s))
 
     t0 = time.time()
-    n, rate = run(s)
+    n, rate = jax.block_until_ready(run(s))
     t1 = time.time()
     print(f'scale={s}, size={n}, time = {t1 - t0} s, firing rate = {rate} Hz')
 
@@ -107,3 +109,17 @@ for s in [1, 2, 4, 6, 8, 10, 20, 40, 60, 80, 100]:
 # scale=80, size=320000, time = 9.384576320648193 s, firing rate = 50.618499755859375 Hz
 # scale=100, size=400000, time = 11.69654369354248 s, firing rate = 50.61605453491211 Hz
 
+
+# AMD Ryzen 7 7840HS
+
+# scale=1, size=4000, time = 4.436027526855469 s, firing rate = 50.6119270324707 Hz
+# scale=2, size=8000, time = 8.349745273590088 s, firing rate = 50.612266540527344 Hz
+# scale=4, size=16000, time = 16.39163303375244 s, firing rate = 50.61349105834961 Hz
+# scale=6, size=24000, time = 15.725558042526245 s, firing rate = 50.6125602722168 Hz
+# scale=8, size=32000, time = 21.31995177268982 s, firing rate = 50.61244583129883 Hz
+# scale=10, size=40000, time = 27.811061143875122 s, firing rate = 50.61423873901367 Hz
+# scale=20, size=80000, time = 45.54235219955444 s, firing rate = 50.61320877075195 Hz
+# scale=40, size=160000, time = 82.22228026390076 s, firing rate = 50.61309814453125 Hz
+# scale=60, size=240000, time = 125.44037556648254 s, firing rate = 50.613094329833984 Hz
+# scale=80, size=320000, time = 171.20458459854126 s, firing rate = 50.613365173339844 Hz
+# scale=100, size=400000, time = 215.4547393321991 s, firing rate = 50.6129150390625 Hz

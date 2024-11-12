@@ -103,7 +103,6 @@ class TestFixedProbCSR(parameterized.TestCase):
         fn = bst.event.FixedProb(
             n_in, n_out, 0.1, 1.5 if homo_w else bst.init.KaimingUniform(),
             seed=123,
-            grad_mode='jvp',
             float_as_event=bool_x
         )
         w = fn.weight.value
@@ -127,5 +126,5 @@ class TestFixedProbCSR(parameterized.TestCase):
             return true_fn(x, w, fn.indices, n_out)
 
         o2, r2 = jax.jvp(f2, (x, w), (jnp.ones_like(x), jnp.ones_like(w)))
-        self.assertTrue(jnp.allclose(r1, r2))
         self.assertTrue(jnp.allclose(o1, o2))
+        self.assertTrue(jnp.allclose(r1, r2))

@@ -31,6 +31,8 @@ sys.path.append('../')
 os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.99'
 os.environ['JAX_TRACEBACK_FILTERING'] = 'off'
 
+
+import jax
 import time
 
 import brainunit as u
@@ -91,26 +93,28 @@ class EINet(bst.nn.DynamicsGroup):
             self.rate.value += self.N.get_spike()
 
 
-# @bst.compile.jit(static_argnums=0)
+@bst.compile.jit(static_argnums=0)
 def run(scale: float):
     # network
     net = EINet(scale)
     bst.nn.init_all_states(net)
 
-    duration = 1e3 * u.ms
+    duration = 1e4 * u.ms
     # simulation
     with bst.environ.context(dt=0.1 * u.ms):
         times = u.math.arange(0. * u.ms, duration, bst.environ.get_dt())
-        bst.compile.for_loop(lambda t: net.update(t, 20. * u.mA), times, pbar=bst.compile.ProgressBar(100))
+        bst.compile.for_loop(lambda t: net.update(t, 20. * u.mA), times,
+                             # pbar=bst.compile.ProgressBar(100)
+                             )
 
     return net.num, net.rate.value.sum() / net.num / duration.to_decimal(u.second)
 
 
 for s in [1, 2, 4, 6, 8, 10, 20, 40, 60, 80, 100]:
-    # run(s)
+    jax.block_until_ready(run(s))
 
     t0 = time.time()
-    n, rate = run(s)
+    n, rate = jax.block_until_ready(run(s))
     t1 = time.time()
     print(f'scale={s}, size={n}, time = {t1 - t0} s, firing rate = {rate} Hz')
 
@@ -130,3 +134,16 @@ for s in [1, 2, 4, 6, 8, 10, 20, 40, 60, 80, 100]:
 # scale=100, size=400000, time = 11.405697584152222 s, firing rate = 24.32524871826172 Hz
 
 
+# AMD Ryzen 7 7840HS
+
+# scale=1, size=4000, time = 1.1661601066589355 s, firing rate = 22.438201904296875 Hz
+# scale=2, size=8000, time = 3.3255884647369385 s, firing rate = 23.868364334106445 Hz
+# scale=4, size=16000, time = 6.950139999389648 s, firing rate = 24.21693229675293 Hz
+# scale=6, size=24000, time = 10.011993169784546 s, firing rate = 24.240270614624023 Hz
+# scale=8, size=32000, time = 13.027734518051147 s, firing rate = 24.753198623657227 Hz
+# scale=10, size=40000, time = 16.449942350387573 s, firing rate = 24.7176570892334 Hz
+# scale=20, size=80000, time = 30.754598140716553 s, firing rate = 24.119956970214844 Hz
+# scale=40, size=160000, time = 63.6387836933136 s, firing rate = 24.72784996032715 Hz
+# scale=60, size=240000, time = 78.58532166481018 s, firing rate = 24.402742385864258 Hz
+# scale=80, size=320000, time = 102.4250214099884 s, firing rate = 24.59092140197754 Hz
+# scale=100, size=400000, time = 145.35173273086548 s, firing rate = 24.33751106262207 Hz

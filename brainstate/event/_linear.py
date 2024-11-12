@@ -15,18 +15,20 @@
 
 from __future__ import annotations
 
-from functools import partial
 from typing import Union, Callable, Optional
 
 import brainunit as u
 import jax
 import jax.experimental.pallas as pl
 import jax.numpy as jnp
+import numpy as np
+from jax.interpreters import ad
 
 from brainstate._state import ParamState, State
 from brainstate.init import param
 from brainstate.nn._module import Module
 from brainstate.typing import ArrayLike, Size
+from ._xla_custom_op import XLACustomOp
 
 __all__ = [
     'Linear',
@@ -45,6 +47,10 @@ class Linear(Module):
         Number of post-synaptic neurons, i.e., output size.
     weight : float or callable or jax.Array or brainunit.Quantity
         Maximum synaptic conductance.
+    block_size : int, optional
+        Block size for parallel computation.
+    float_as_event : bool, optional
+        Whether to treat float as event.
     name : str, optional
         Name of the module.
     """
@@ -56,7 +62,6 @@ class Linear(Module):
         in_size: Size,
         out_size: Size,
         weight: Union[Callable, ArrayLike],
-        grad_mode: str = 'vjp',
         float_as_event: bool = True,
         block_size: int = 64,
         name: Optional[str] = None,
@@ -69,10 +74,6 @@ class Linear(Module):
         self.float_as_event = float_as_event
         self.block_size = block_size
 
-        # gradient mode
-        assert grad_mode in ['vjp', 'jvp'], f"Unsupported grad_mode: {grad_mode}"
-        self.grad_mode = grad_mode
-
         # maximum synaptic conductance
         weight = param(weight, (self.in_size[-1], self.out_size[-1]), allow_none=False)
         self.weight = ParamState(weight)
@@ -82,183 +83,106 @@ class Linear(Module):
         if u.math.size(weight) == 1:
             return u.math.ones(self.out_size) * (u.math.sum(spk) * weight)
 
-        device_kind = jax.devices()[0].platform  # spk.device.device_kind
-        if device_kind == 'cpu':
-            impl = CPUImpl(
-                block_size=self.block_size,
-                grad_mode=self.grad_mode,
-                float_as_event=self.float_as_event,
-            )
-
-        elif device_kind in ['gpu', 'tpu']:
-            impl = GPUImpl(
-                block_size=self.block_size,
-                grad_mode=self.grad_mode,
-                float_as_event=self.float_as_event,
-            )
-
-        else:
-            raise ValueError(f"Unsupported device: {device_kind}")
-
-        return impl(spk, weight)
+        return event_linear(spk, weight, block_size=self.block_size, float_as_event=self.float_as_event)
 
 
-class Implementation:
+def event_linear(spk, weight, *, block_size, float_as_event) -> jax.Array | u.Quantity:
     """
-    The FixedProb module implements a fixed probability connection with CSR sparse data structure.
+    The event-driven linear computation.
 
     Parameters
     ----------
-    grad_mode : str, optional
-        Gradient mode. Default is 'vjp'. Can be 'vjp' or 'jvp'.
-    float_as_event : bool, optional
-        Whether to treat float as event. Default is True.
-    block_size : int, optional
-        Block size for parallel computation. Default is 64. This is only used for GPU.
+    weight : brainunit.Quantity or jax.Array
+        Maximum synaptic conductance.
+    spk : jax.Array
+        Spike events.
+    block_size : int
+        Block size for parallel computation.
+    float_as_event : bool
+        Whether to treat float as event.
+
+    Returns
+    -------
+    post_data : brainunit.Quantity or jax.Array
+        Post synaptic data.
     """
+    with jax.ensure_compile_time_eval():
+        weight = u.math.asarray(weight)
+        unit = u.get_unit(weight)
+        weight = u.get_mantissa(weight)
+        spk = jnp.asarray(spk)
 
-    def __init__(
-        self,
-        block_size: int,
-        grad_mode: str = 'vjp',
-        float_as_event: bool = True,
-    ):
-        self.block_size = block_size
-        self.float_as_event = float_as_event
-        self.grad_mode = grad_mode
-        self.interpret = False
+    def mv(spk_vector):
+        assert spk_vector.ndim == 1, f"spk must be 1D. Got: {spk.ndim}"
+        return event_linear_p(
+            spk, weight,
+            outs=[jax.ShapeDtypeStruct([weight.shape[1]], weight.dtype)],
+            block_size=block_size,
+            float_as_event=float_as_event,
+            spk_info=jax.ShapeDtypeStruct(spk.shape, spk.dtype),
+            weight_info=jax.ShapeDtypeStruct(weight.shape, weight.dtype),
+        )
 
-        # vjp rule
-        self.mv_vjp = jax.custom_vjp(self.mv)
-        self.mv_vjp.defvjp(self.mv_fwd, self.mv_bwd)
+    assert spk.ndim >= 1, f"spk must be at least 1D. Got: {spk.ndim}"
+    assert weight.ndim in [2, 0], f"weight must be 2D or 0D. Got: {weight.ndim}"
 
-        # jvp rule
-        self.mv_jvp = jax.custom_jvp(self.mv)
-        self.mv_jvp.defjvp(self.mv_jvp_rule)
-
-    def __call__(self, spk, weight):
-        """
-        The FixedProb module implements a fixed probability connection with CSR sparse data structure.
-
-        Parameters
-        ----------
-        weight : brainunit.Quantity or jax.Array
-            Maximum synaptic conductance.
-        spk : jax.Array
-            Spike events.
-
-        Returns
-        -------
-        post_data : brainunit.Quantity or jax.Array
-            Post synaptic data.
-        """
-        with jax.ensure_compile_time_eval():
-            weight = u.math.asarray(weight)
-            unit = u.get_unit(weight)
-            weight = u.get_mantissa(weight)
-            spk = jnp.asarray(spk)
-
-        n_pre = weight.shape[0]
-        n_post = weight.shape[1]
-
-        def mv(spk_vector):
-            assert spk_vector.ndim == 1, f"spk must be 1D. Got: {spk.ndim}"
-            if jnp.size(weight) == 1:
-                assert isinstance(n_post, int), f"n_post must be an integer when weight is homogenous. Got: {n_post}"
-                return jnp.ones((n_post,), dtype=weight.dtype) * (jnp.sum(spk_vector) * weight)
-
-            if self.grad_mode == 'vjp':
-                post = self.mv_vjp(weight, spk_vector)
-            elif self.grad_mode == 'jvp':
-                post = self.mv_jvp(weight, spk_vector)
-            else:
-                raise ValueError(f"Unsupported grad_mode: {self.grad_mode}")
-            return post
-
-        assert spk.ndim >= 1, f"spk must be at least 1D. Got: {spk.ndim}"
-        assert weight.ndim in [2, 0], f"weight must be 2D or 0D. Got: {weight.ndim}"
-
-        if spk.ndim == 1:
-            post_data = mv(spk)
-        else:
-            shape = spk.shape[:-1]
-            post_data = jax.vmap(mv)(u.math.reshape(spk, (-1, spk.shape[-1])))
-            post_data = u.math.reshape(post_data, shape + post_data.shape[-1:])
-        return u.maybe_decimal(u.Quantity(post_data, unit=unit))
-
-    def mv(self, *args):
-        raise NotImplementedError
-
-    def mv_fwd(self, weight, spk):
-        fwd = self.mv(weight, spk)
-        return fwd, (weight, spk)
-
-    def mv_bwd(self, res, ct):
-        weight, spk = res
-
-        # ∂L/∂spk = ∂L/∂y * ∂y/∂spk
-        ct_spk = jnp.matmul(weight, ct)
-
-        # ∂L/∂w = ∂L/∂y * ∂y/∂w
-        def map_fn(sp):
-            if spk.dtype == jnp.bool_:
-                d_gmax = jax.lax.cond(sp, lambda: ct, lambda: jnp.zeros_like(ct))
-            else:
-                if self.float_as_event:
-                    d_gmax = jax.lax.cond(sp == 0., lambda: jnp.zeros_like(ct), lambda: ct)
-                else:
-                    d_gmax = jax.lax.cond(sp == 0., lambda: jnp.zeros_like(ct), lambda: ct * sp)
-            return d_gmax
-
-        ct_gmax = jax.vmap(map_fn)(spk)
-        return ct_gmax, ct_spk
-
-    def mv_jvp_rule(self, primals, tangents):
-        # forward pass
-        weight, spk = primals
-        y = self.mv(weight, spk)
-
-        # forward gradients
-        gmax_dot, spk_dot = tangents
-
-        # ∂y/∂gmax
-        dgmax = self.mv(gmax_dot, spk)
-
-        # ∂y/∂gspk
-        dspk = spk_dot @ weight
-        return y, dgmax + dspk
+    if spk.ndim == 1:
+        [post_data] = mv(spk)
+    else:
+        [post_data] = jax.vmap(mv)(u.math.reshape(spk, (-1, spk.shape[-1])))
+        post_data = u.math.reshape(post_data, spk.shape[:-1] + post_data.shape[-1:])
+    return u.maybe_decimal(u.Quantity(post_data, unit=unit))
 
 
-class CPUImpl(Implementation):
-    def mv(self, weight, spk) -> jax.Array:
-        def scan_fn(post, xs):
-            sp, w = xs
-            if spk.dtype == jnp.bool_:
-                post = jax.lax.cond(sp, lambda p: p + w, lambda p: p, post)
-            else:
-                if self.float_as_event:
-                    post = jax.lax.cond(sp == 0., lambda p: p, lambda p: p + w, post)
-                else:
-                    post = jax.lax.cond(sp == 0., lambda p: p, lambda p: p + w * sp, post)
-            return post, None
-
-        return jax.lax.scan(
-            scan_fn,
-            jnp.zeros(weight.shape[1], dtype=weight.dtype),
-            [spk, weight]
-        )[0]
+Kernel = Callable
 
 
-class GPUImpl(Implementation):
+def cpu_kernel_generator(
+    float_as_event: bool,
+    spk_info: jax.ShapeDtypeStruct,
+    **kwargs
+) -> Kernel:
+    import numba  # pylint: disable=import-outside-toplevel
 
-    def _mv_kernel(
-        self,
-        w_ref,
-        sp_ref,
-        post_ref,
-        *,
-        n_pre: int
-    ):
+    if spk_info.dtype == jnp.bool_:
+
+        @numba.njit
+        def _kernel(spikes, weights, posts):
+            r = np.zeros((weights.shape[1],), dtype=weights.dtype)
+            for i in range(spikes.shape[0]):
+                if spikes[i]:
+                    r = r + weights[i]
+            posts[:] = r
+
+    elif float_as_event:
+        @numba.njit
+        def _kernel(spikes, weights, posts):
+            r = np.zeros((weights.shape[1],), dtype=weights.dtype)
+            for i in range(spikes.shape[0]):
+                if spikes[i] != 0.:
+                    r = r + weights[i]
+            posts[:] = r
+
+    else:
+        @numba.njit
+        def _kernel(spikes, weights, posts):
+            r = np.zeros((weights.shape[1],), dtype=weights.dtype)
+            for i in range(spikes.shape[0]):
+                sp = spikes[i]
+                if sp != 0.:
+                    r = r + weights[i] * sp
+            posts[:] = r
+
+    return _kernel
+
+
+def gpu_kernel_generator(
+    block_size: int,
+    float_as_event: bool,
+    weight_info: jax.ShapeDtypeStruct,
+    **kwargs
+) -> Kernel:
+    def _mv_kernel(sp_ref, w_ref, post_ref):
         # 每个block处理一个[block_size,]的post
         # 每个block处理一个[n_pre]的pre
         # 每个block处理一个[n_pre, block_size]的w
@@ -273,7 +197,7 @@ class GPUImpl(Implementation):
                     lambda: post_
                 )
             else:
-                if self.float_as_event:
+                if float_as_event:
                     post_ = jax.lax.cond(
                         sp_ref[i] != 0.,
                         lambda: post_ + w_ref[i, ...],
@@ -289,25 +213,72 @@ class GPUImpl(Implementation):
             return post_
 
         post = jax.lax.fori_loop(0, n_pre, scan_fn, jnp.zeros(post_ref.shape, dtype=post_ref.dtype))
-        mask = jnp.arange(self.block_size) + pid * self.block_size < n_pre
+        mask = jnp.arange(block_size) + pid * block_size < n_pre
         pl.store(post_ref, pl.dslice(None, None), post, mask=mask)
 
-    @partial(jax.jit, static_argnums=(0,))
-    def mv(self, weight, spk) -> jax.Array:
-        n_pre = weight.shape[0]
-        n_post = weight.shape[1]
+    n_pre = weight_info.shape[0]
+    n_post = weight_info.shape[1]
+    kernel = pl.pallas_call(
+        _mv_kernel,
+        out_shape=[
+            jax.ShapeDtypeStruct([weight_info.shape[1]], weight_info.dtype),
+        ],
+        out_specs=[
+            pl.BlockSpec((block_size,), lambda i: i),
+        ],
+        in_specs=[
+            pl.BlockSpec((n_pre,), lambda i: 0),
+            pl.BlockSpec((n_pre, block_size), lambda i: (0, i)),
+        ],
+        grid=(
+            pl.cdiv(n_post, block_size),
+        ),
+        interpret=False,
+    )
+    return kernel
 
-        kernel = pl.pallas_call(
-            partial(self._mv_kernel, n_pre=n_pre),
-            out_shape=jax.ShapeDtypeStruct([weight.shape[1]], weight.dtype),
-            out_specs=pl.BlockSpec((self.block_size,), lambda i: i),
-            in_specs=[
-                pl.BlockSpec((n_pre, self.block_size), lambda i: (0, i)),
-                pl.BlockSpec((n_pre,), lambda i: 0),
-            ],
-            grid=(
-                pl.cdiv(n_post, self.block_size),
-            ),
-            interpret=self.interpret
-        )
-        return kernel(weight, spk)
+
+def jvp_spikes(spk_dot, spikes, weights, **kwargs):
+    return [spk_dot @ weights]
+
+
+def jvp_weights(w_dot, spikes, weights, *, float_as_event, block_size, **kwargs):
+    return event_linear_p(
+        spikes,
+        w_dot,
+        outs=[jax.ShapeDtypeStruct([w_dot.shape[1]], w_dot.dtype)],
+        block_size=block_size,
+        float_as_event=float_as_event,
+        spk_info=jax.ShapeDtypeStruct(spikes.shape, spikes.dtype),
+        weight_info=jax.ShapeDtypeStruct(w_dot.shape, w_dot.dtype),
+    )
+
+
+def transpose_rule(ct, spikes, weights, *, float_as_event, **kwargs):
+    if ad.is_undefined_primal(spikes):
+        ct_events = jnp.matmul(weights, ct[0])
+        return (ad.Zero(spikes) if type(ct[0]) is ad.Zero else ct_events), weights
+
+    else:
+        def map_fn(sp):
+            if spikes.dtype == jnp.bool_:
+                d_gmax = jnp.where(sp, ct[0], jnp.zeros_like(ct[0]))
+            else:
+                if float_as_event:
+                    d_gmax = jnp.where(sp == 0., jnp.zeros_like(ct[0]), ct[0])
+                else:
+                    d_gmax = jnp.where(sp == 0., jnp.zeros_like(ct[0]), ct[0] * sp)
+                    # d_gmax = jax.lax.cond(sp == 0., lambda: jnp.zeros_like(ct[0]), lambda: ct[0] * sp)
+            return d_gmax
+
+        ct_weights = jax.vmap(map_fn)(spikes)
+        return spikes, (ad.Zero(weights) if type(ct[0]) is ad.Zero else ct_weights)
+
+
+event_linear_p = XLACustomOp(
+    'event_linear',
+    cpu_kernel_generator=cpu_kernel_generator,
+    gpu_kernel_generator=gpu_kernel_generator,
+)
+event_linear_p.defjvp(jvp_spikes, jvp_weights)
+event_linear_p.def_transpose_rule(transpose_rule)

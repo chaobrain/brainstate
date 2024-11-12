@@ -96,7 +96,6 @@ class TestEventLinear(parameterized.TestCase):
             x = bst.random.rand(n_in)
 
         fn = Linear(n_in, n_out, 1.5 if homo_w else bst.init.KaimingUniform(),
-                    grad_mode='jvp',
                     float_as_event=bool_x)
         w = fn.weight.value
 

@@ -21,34 +21,10 @@ import jax
 
 import time
 import brainstate as bst
-import taichi as ti
-import braintaichi as bti
-
-
-@ti.kernel
-def kernel(
-    weights: ti.types.ndarray(ndim=2),
-    events: ti.types.ndarray(ndim=1),
-    out: ti.types.ndarray(ndim=1),
-):
-    for j in range(weights.shape[1]):
-        r = 0.
-        for i in range(weights.shape[0]):
-            if events[i] != 0.:
-                r += weights[i, j]  # * events[i]
-        out[j] = r
-
-
-def taichi_fixedprob(weights, events, *, n_post):
-    return bti.XLACustomOp(cpu_kernel=kernel)(
-        weights, events,
-        outs=[jax.ShapeDtypeStruct(shape=[n_post], dtype=weights.dtype)],
-    )
 
 
 def forward(n_pre, n_post, spk_prob, as_float: bool):
     linear = bst.event.Linear(n_pre, n_post, weight=bst.init.KaimingUniform(), block_size=512)
-    ti_linear = jax.jit(taichi_fixedprob, static_argnames=['n_post'])
     spike = (bst.random.rand(n_pre) < spk_prob)
 
     if as_float:
@@ -64,7 +40,7 @@ def forward(n_pre, n_post, spk_prob, as_float: bool):
 
     y1 = jax.block_until_ready(f1(spike))
     y2 = jax.block_until_ready(f2(spike))
-    y3 = jax.block_until_ready(ti_linear(linear.weight.value, spike, n_post=n_post))
+    print('max difference:', jax.numpy.abs(y1 - y2).max())
 
     n = 100
     t0 = time.time()
@@ -76,14 +52,9 @@ def forward(n_pre, n_post, spk_prob, as_float: bool):
     t0 = time.time()
     for _ in range(n):
         jax.block_until_ready(f2(spike))
-    r1 = time.time() - t0
-    print(f"n_pre: {n_pre}, n_post: {n_post}, spike probability: {spk_prob}, Matmul: {r1} s")
-
-    t0 = time.time()
-    for _ in range(n):
-        jax.block_until_ready(ti_linear(linear.weight.value, spike, n_post=n_post))
-    r1 = time.time() - t0
-    print(f"n_pre: {n_pre}, n_post: {n_post}, spike probability: {spk_prob}, Taichi: {r1} s")
+    r2 = time.time() - t0
+    print(f"n_pre: {n_pre}, n_post: {n_post}, spike probability: {spk_prob}, Matmul: {r2} s")
+    print('Acceleration ratio:', r2 / r1 - 1.)
 
     print()
 
@@ -94,9 +65,9 @@ def benchmark_forward():
         (1000, 10000),
         (10000, 10000),
         (10000, 1000),
-        # (10000, 100000),
         (20000, 10000),
-        (30000, 30000),
+        (20000, 20000),
+        # (10000, 100000),
     ]:
         forward(n_pre, n_post, 0.01, True)
         forward(n_pre, n_post, 0.1, True)
