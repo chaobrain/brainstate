@@ -69,7 +69,11 @@ def _standard_jvp(jvp_rules, primitive: Primitive, primals, tangents, **params):
     r = functools.reduce(
         _add_tangents,
         tangents_out,
-        tree_util.tree_map(lambda a: ad.Zero.from_primal_value(a), val_out)
+        tree_util.tree_map(
+            # compatible with JAX 0.4.34
+            lambda a: ad.Zero.from_primal_value(a) if jax.__version__ >= '0.4.34' else ad.Zero.from_value(a),
+            val_out
+        )
     )
     return val_out, r
 
