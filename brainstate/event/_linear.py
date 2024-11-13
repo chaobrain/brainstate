@@ -12,21 +12,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+
 from __future__ import annotations
 
 from typing import Union, Callable, Optional
 
 import brainunit as u
 import jax
+import jax.experimental.pallas as pl
 import jax.numpy as jnp
 import numpy as np
+from jax.interpreters import ad
 
 from brainstate._state import ParamState, State
-from brainstate._utils import set_module_as
 from brainstate.init import param
 from brainstate.nn._module import Module
-from brainstate.typing import ArrayLike
-from ._misc import IntScalar
+from brainstate.typing import ArrayLike, Size
+from ._xla_custom_op import XLACustomOp
 
 __all__ = [
     'Linear',
@@ -39,12 +41,16 @@ class Linear(Module):
 
     Parameters
     ----------
-    n_pre : int
-        Number of pre-synaptic neurons.
-    n_post : int
-        Number of post-synaptic neurons.
+    in_size : Size
+        Number of pre-synaptic neurons, i.e., input size.
+    out_size : Size
+        Number of post-synaptic neurons, i.e., output size.
     weight : float or callable or jax.Array or brainunit.Quantity
         Maximum synaptic conductance.
+    block_size : int, optional
+        Block size for parallel computation.
+    float_as_event : bool, optional
+        Whether to treat float as event.
     name : str, optional
         Name of the module.
     """
@@ -53,167 +59,301 @@ class Linear(Module):
 
     def __init__(
         self,
-        n_pre: IntScalar,
-        n_post: IntScalar,
+        in_size: Size,
+        out_size: Size,
         weight: Union[Callable, ArrayLike],
+        float_as_event: bool = True,
+        block_size: int = 64,
         name: Optional[str] = None,
-        grad_mode: str = 'vjp'
     ):
         super().__init__(name=name)
-        self.n_pre = n_pre
-        self.n_post = n_post
-        self.in_size = n_pre
-        self.out_size = n_post
 
-        assert grad_mode in ['vjp', 'jvp'], f"Unsupported grad_mode: {grad_mode}"
-        self.grad_mode = grad_mode
+        # network parameters
+        self.in_size = in_size
+        self.out_size = out_size
+        self.float_as_event = float_as_event
+        self.block_size = block_size
 
         # maximum synaptic conductance
-        weight = param(weight, (self.n_pre, self.n_post), allow_none=False)
+        weight = param(weight, (self.in_size[-1], self.out_size[-1]), allow_none=False)
         self.weight = ParamState(weight)
 
     def update(self, spk: jax.Array) -> Union[jax.Array, u.Quantity]:
         weight = self.weight.value if isinstance(self.weight, State) else self.weight
         if u.math.size(weight) == 1:
-            return u.math.ones(self.n_post) * (u.math.sum(spk) * weight)
+            return u.math.ones(self.out_size) * (u.math.sum(spk) * weight)
 
-        device_kind = jax.devices()[0].platform  # spk.device.device_kind
-        if device_kind == 'cpu':
-            return cpu_event_linear(u.math.asarray(weight),
-                                    u.math.asarray(spk),
-                                    n_post=self.n_post,
-                                    grad_mode=self.grad_mode)
-        elif device_kind in ['gpu', 'tpu']:
-            raise NotImplementedError()
-        else:
-            raise ValueError(f"Unsupported device: {device_kind}")
+        return event_linear(spk, weight, block_size=self.block_size, float_as_event=self.float_as_event)
 
 
-@set_module_as('brainstate.event')
-def cpu_event_linear(
-    g_max: Union[u.Quantity, jax.Array],
-    spk: jax.Array,
-    *,
-    n_post: int = None,
-    grad_mode: str = 'vjp'
-) -> Union[u.Quantity, jax.Array]:
+def event_linear(spk, weight, *, block_size, float_as_event) -> jax.Array | u.Quantity:
     """
-    The FixedProb module implements a fixed probability connection with CSR sparse data structure.
+    The event-driven linear computation.
 
     Parameters
     ----------
-    n_post : int
-        Number of post-synaptic neurons.
-    g_max : brainunit.Quantity or jax.Array
+    weight : brainunit.Quantity or jax.Array
         Maximum synaptic conductance.
     spk : jax.Array
         Spike events.
-    grad_mode : str, optional
-        Gradient mode. Default is 'vjp'. Can be 'vjp' or 'jvp'.
+    block_size : int
+        Block size for parallel computation.
+    float_as_event : bool
+        Whether to treat float as event.
 
     Returns
     -------
     post_data : brainunit.Quantity or jax.Array
         Post synaptic data.
     """
-    unit = u.get_unit(g_max)
-    g_max = u.get_mantissa(g_max)
-    spk = jnp.asarray(spk)
+    with jax.ensure_compile_time_eval():
+        weight = u.math.asarray(weight)
+        unit = u.get_unit(weight)
+        weight = u.get_mantissa(weight)
+        spk = jnp.asarray(spk)
 
     def mv(spk_vector):
         assert spk_vector.ndim == 1, f"spk must be 1D. Got: {spk.ndim}"
-        if jnp.size(g_max) == 1:
-            assert isinstance(n_post, int), f"n_post must be an integer when weight is homogenous. Got: {n_post}"
-            # return jnp.full((n_post,), fill_value=jnp.sum(spk_vector) * weight)
-            return jnp.ones((n_post,), dtype=g_max.dtype) * (jnp.sum(spk_vector) * g_max)
-
-        if grad_mode == 'vjp':
-            post = _cpu_event_linear_mv_vjp(g_max, spk_vector)
-        elif grad_mode == 'jvp':
-            post = _cpu_event_linear_mv_jvp(g_max, spk_vector)
-        else:
-            raise ValueError(f"Unsupported grad_mode: {grad_mode}")
-        return post
+        return event_liner_p_call(
+            spk,
+            weight,
+            block_size=block_size,
+            float_as_event=float_as_event,
+        )
 
     assert spk.ndim >= 1, f"spk must be at least 1D. Got: {spk.ndim}"
-    assert g_max.ndim in [2, 0], f"weight must be 2D or 0D. Got: {g_max.ndim}"
+    assert weight.ndim in [2, 0], f"weight must be 2D or 0D. Got: {weight.ndim}"
 
     if spk.ndim == 1:
-        post_data = mv(spk)
+        [post_data] = mv(spk)
     else:
-        shape = spk.shape[:-1]
-        post_data = jax.vmap(mv)(u.math.reshape(spk, (-1, spk.shape[-1])))
-        post_data = u.math.reshape(post_data, shape + post_data.shape[-1:])
+        [post_data] = jax.vmap(mv)(u.math.reshape(spk, (-1, spk.shape[-1])))
+        post_data = u.math.reshape(post_data, spk.shape[:-1] + post_data.shape[-1:])
     return u.maybe_decimal(u.Quantity(post_data, unit=unit))
 
 
-# --------------
-# Implementation
-# --------------
+Kernel = Callable
 
 
-def _cpu_event_linear_mv(g_max, spk) -> jax.Array:
-    def scan_fn(post, i):
-        sp = spk[i]
-        if spk.dtype == jnp.bool_:
-            post = jax.lax.cond(sp, lambda: post + g_max[i], lambda: post)
-        else:
-            post = jax.lax.cond(sp == 0., lambda: post, lambda: post + g_max[i] * sp)
-        return post, None
+def cpu_kernel_generator(
+    float_as_event: bool,
+    spk_info: jax.ShapeDtypeStruct,
+    **kwargs
+) -> Kernel:
+    import numba  # pylint: disable=import-outside-toplevel
 
-    return jax.lax.scan(scan_fn, jnp.zeros(g_max.shape[1], dtype=g_max.dtype), np.arange(len(spk)))[0]
+    if spk_info.dtype == jnp.bool_:
 
+        @numba.njit
+        def _kernel(spikes, weights, posts):
+            r = np.zeros((weights.shape[1],), dtype=weights.dtype)
+            for i in range(spikes.shape[0]):
+                if spikes[i]:
+                    r = r + weights[i]
+            posts[:] = r
 
-# --------------
-# VJP
-# --------------
+    elif float_as_event:
+        @numba.njit
+        def _kernel(spikes, weights, posts):
+            r = np.zeros((weights.shape[1],), dtype=weights.dtype)
+            for i in range(spikes.shape[0]):
+                if spikes[i] != 0.:
+                    r = r + weights[i]
+            posts[:] = r
 
-def _cpu_event_linear_mv_fwd(g_max, spk):
-    return _cpu_event_linear_mv(g_max, spk), (g_max, spk)
+    else:
+        @numba.njit
+        def _kernel(spikes, weights, posts):
+            r = np.zeros((weights.shape[1],), dtype=weights.dtype)
+            for i in range(spikes.shape[0]):
+                sp = spikes[i]
+                if sp != 0.:
+                    r = r + weights[i] * sp
+            posts[:] = r
 
-
-def _cpu_event_linear_mv_bwd(res, ct):
-    g_max, spk = res
-
-    # ∂L/∂spk = ∂L/∂y * ∂y/∂spk
-    ct_spk = jnp.matmul(g_max, ct)
-
-    # ∂L/∂w = ∂L/∂y * ∂y/∂w
-    def map_fn(sp):
-        if spk.dtype == jnp.bool_:
-            d_gmax = jax.lax.cond(sp, lambda: ct, lambda: jnp.zeros_like(ct))
-        else:
-            d_gmax = jax.lax.cond(sp == 0., lambda: jnp.zeros_like(ct), lambda: ct * sp)
-        return d_gmax
-
-    ct_gmax = jax.vmap(map_fn)(spk)
-    return ct_gmax, ct_spk
-
-
-_cpu_event_linear_mv_vjp = jax.custom_vjp(_cpu_event_linear_mv)
-_cpu_event_linear_mv_vjp.defvjp(_cpu_event_linear_mv_fwd, _cpu_event_linear_mv_bwd)
+    return _kernel
 
 
-# --------------
-# JVP
-# --------------
+def gpu_kernel_generator(
+    block_size: int,
+    float_as_event: bool,
+    weight_info: jax.ShapeDtypeStruct,
+    **kwargs
+) -> Kernel:
+    # # 每个block处理一个[block_size,]的post
+    # # 每个block处理一个[n_pre]的pre
+    # # 每个block处理一个[n_pre, block_size]的w
+    # def _mv_kernel(sp_ref, w_ref, post_ref):
+    #
+    #     pid = pl.program_id(0)
+    #
+    #     def scan_fn(i, post_):
+    #         if sp_ref.dtype == jnp.bool_:
+    #             post_ = jax.lax.cond(
+    #                 sp_ref[i],
+    #                 lambda: post_ + w_ref[i, ...],
+    #                 lambda: post_
+    #             )
+    #         else:
+    #             if float_as_event:
+    #                 post_ = jax.lax.cond(
+    #                     sp_ref[i] != 0.,
+    #                     lambda: post_ + w_ref[i, ...],
+    #                     lambda: post_
+    #                 )
+    #             else:
+    #                 sp = sp_ref[i]
+    #                 post_ = jax.lax.cond(
+    #                     sp != 0.,
+    #                     lambda: post_ + w_ref[i, ...] * sp,
+    #                     lambda: post_
+    #                 )
+    #         return post_
+    #
+    #     post = jax.lax.fori_loop(0, n_pre, scan_fn, jnp.zeros(post_ref.shape, dtype=post_ref.dtype))
+    #     mask = jnp.arange(block_size) + pid * block_size < n_pre
+    #     pl.store(post_ref, pl.dslice(None, None), post, mask=mask)
+    #
+    # n_pre = weight_info.shape[0]
+    # n_post = weight_info.shape[1]
+    # kernel = pl.pallas_call(
+    #     _mv_kernel,
+    #     out_shape=[
+    #         jax.ShapeDtypeStruct([weight_info.shape[1]], weight_info.dtype),
+    #     ],
+    #     out_specs=[
+    #         pl.BlockSpec((block_size,), lambda i: i),
+    #     ],
+    #     in_specs=[
+    #         pl.BlockSpec((n_pre,), lambda i: 0),
+    #         pl.BlockSpec((n_pre, block_size), lambda i: (0, i)),
+    #     ],
+    #     grid=(
+    #         pl.cdiv(n_post, block_size),
+    #     ),
+    #     interpret=False,
+    # )
+    # return kernel
+
+    # 每个block处理一个[block_size,]的post
+    # 每个block处理一个[block_size]的pre
+    # 每个block处理一个[block_size, block_size]的w
+    def _mv_kernel(
+        sp_ref,  # [block_size]
+        w_ref,  # [block_size, block_size]
+        post_ref,  # [block_size]
+    ):
+
+        r_pid = pl.program_id(0)
+        c_start = pl.program_id(1) * block_size
+        row_length = jnp.minimum(n_pre - r_pid * block_size, block_size)
+        mask = jnp.arange(block_size) + c_start < weight_info.shape[1]
+
+        def scan_fn(i, post_):
+            if sp_ref.dtype == jnp.bool_:
+                post_ = jax.lax.cond(
+                    sp_ref[i],
+                    lambda: post_ + w_ref[i, ...],
+                    lambda: post_
+                )
+            else:
+                if float_as_event:
+                    post_ = jax.lax.cond(
+                        sp_ref[i] != 0.,
+                        lambda: post_ + w_ref[i, ...],
+                        lambda: post_
+                    )
+                else:
+                    sp = sp_ref[i]
+                    post_ = jax.lax.cond(
+                        sp != 0.,
+                        lambda: post_ + w_ref[i, ...] * sp,
+                        lambda: post_
+                    )
+            return post_
+
+        post = jax.lax.fori_loop(0, row_length, scan_fn, jnp.zeros(post_ref.shape, dtype=post_ref.dtype))
+        pl.atomic_add(post_ref, pl.dslice(None, None), post, mask=mask)
+
+    n_pre = weight_info.shape[0]
+    n_post = weight_info.shape[1]
+    kernel = pl.pallas_call(
+        _mv_kernel,
+        out_shape=[
+            jax.ShapeDtypeStruct([weight_info.shape[1]], weight_info.dtype),
+        ],
+        out_specs=[
+            pl.BlockSpec((block_size,), lambda i, j: j),
+        ],
+        in_specs=[
+            pl.BlockSpec((block_size,), lambda i, j: i),
+            pl.BlockSpec((block_size, block_size), lambda i, j: (i, j)),
+        ],
+        grid=(
+            pl.cdiv(n_pre, block_size),
+            pl.cdiv(n_post, block_size),
+        ),
+        interpret=False,
+    )
+    return kernel
 
 
-def _cpu_event_linear_mv_jvp_rule(primals, tangents):
-    # forward pass
-    g_max, spk = primals
-    y = _cpu_event_linear_mv(g_max, spk)
-
-    # forward gradients
-    gmax_dot, spk_dot = tangents
-
-    # ∂y/∂gmax
-    dgmax = _cpu_event_linear_mv(gmax_dot, spk)
-
-    # ∂y/∂gspk
-    dspk = spk_dot @ g_max
-    return y, dgmax + dspk
+def jvp_spikes(spk_dot, spikes, weights, **kwargs):
+    return [spk_dot @ weights]
 
 
-_cpu_event_linear_mv_jvp = jax.custom_jvp(_cpu_event_linear_mv)
-_cpu_event_linear_mv_jvp.defjvp(_cpu_event_linear_mv_jvp_rule)
+def jvp_weights(w_dot, spikes, weights, *, float_as_event, block_size, **kwargs):
+    return event_liner_p_call(
+        spikes,
+        w_dot,
+        block_size=block_size,
+        float_as_event=float_as_event,
+    )
+
+
+def transpose_rule(ct, spikes, weights, *, float_as_event, **kwargs):
+    if ad.is_undefined_primal(spikes):
+        ct_events = jnp.matmul(weights, ct[0])
+        return (ad.Zero(spikes) if type(ct[0]) is ad.Zero else ct_events), weights
+
+    else:
+        def map_fn(sp):
+            if spikes.dtype == jnp.bool_:
+                d_gmax = jnp.where(sp, ct[0], jnp.zeros_like(ct[0]))
+            else:
+                if float_as_event:
+                    d_gmax = jnp.where(sp == 0., jnp.zeros_like(ct[0]), ct[0])
+                else:
+                    d_gmax = jnp.where(sp == 0., jnp.zeros_like(ct[0]), ct[0] * sp)
+                    # d_gmax = jax.lax.cond(sp == 0., lambda: jnp.zeros_like(ct[0]), lambda: ct[0] * sp)
+            return d_gmax
+
+        ct_weights = jax.vmap(map_fn)(spikes)
+        return spikes, (ad.Zero(weights) if type(ct[0]) is ad.Zero else ct_weights)
+
+
+event_linear_p = XLACustomOp(
+    'event_linear',
+    cpu_kernel_generator=cpu_kernel_generator,
+    gpu_kernel_generator=gpu_kernel_generator,
+)
+event_linear_p.defjvp(jvp_spikes, jvp_weights)
+event_linear_p.def_transpose_rule(transpose_rule)
+
+
+def event_liner_p_call(
+    spikes,
+    weights,
+    *,
+    block_size,
+    float_as_event,
+):
+    return event_linear_p(
+        spikes,
+        weights,
+        outs=[jax.ShapeDtypeStruct([weights.shape[1]], weights.dtype)],
+        block_size=block_size,
+        float_as_event=float_as_event,
+        spk_info=jax.ShapeDtypeStruct(spikes.shape, spikes.dtype),
+        weight_info=jax.ShapeDtypeStruct(weights.shape, weights.dtype),
+    )

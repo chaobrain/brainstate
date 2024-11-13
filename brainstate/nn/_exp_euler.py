@@ -32,7 +32,7 @@ __all__ = [
 def exp_euler_step(
     fn: Callable, *args, **kwargs
 ):
-    """
+    r"""
     One-step Exponential Euler method for solving ODEs.
 
     Examples

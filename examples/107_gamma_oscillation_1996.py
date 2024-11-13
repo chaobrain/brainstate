@@ -137,8 +137,6 @@ with bst.environ.context(dt=0.01 * u.ms):
     spikes, vs = bst.compile.for_loop(net.update, times, pbar=bst.compile.ProgressBar(10))
 
 # visualization
-times = times.to_decimal(u.ms)
-
 fig, gs = bts.visualize.get_figure(1, 2, 4, 4)
 fig.add_subplot(gs[0, 0])
 plt.plot(times, vs.to_decimal(u.mV))
