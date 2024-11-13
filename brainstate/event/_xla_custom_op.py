@@ -209,6 +209,7 @@ class XLACustomOp:
 
         # abstract evaluation
         self.primitive.def_impl(partial(xla.apply_primitive, self.primitive))
+        self.primitive.def_abstract_eval(self._abstract_eval)
 
         # cpu kernel
         if cpu_kernel_generator is not None:
@@ -228,11 +229,13 @@ class XLACustomOp:
         if transpose_translation is not None:
             ad.primitive_transposes[self.primitive] = transpose_translation
 
+    def _abstract_eval(self, *ins, outs: Sequence[ShapeDtype], **kwargs):
+        return outs
+
     def __call__(self, *ins, outs: Sequence[ShapeDtype], **kwargs):
         assert isinstance(outs, (tuple, list)), 'The `outs` should be a tuple or list of shape-dtype pairs.'
         outs = jax.tree.map(_transform_to_shapedarray, outs)
-        self.primitive.def_abstract_eval(functools.partial(_abstract_eval, outs))
-        return self.primitive.bind(*ins, **kwargs)
+        return self.primitive.bind(*ins, **kwargs, outs=outs)
 
     def def_cpu_kernel(self, kernel_generator: Callable):
         """
@@ -303,10 +306,6 @@ class XLACustomOp:
           fun: The lowering rule.
         """
         mlir.register_lowering(self.primitive, fun, platform)
-
-
-def _abstract_eval(outs, *args, **kwargs):
-    return [jax.core.ShapedArray(out.shape, out.dtype) for out in outs]
 
 
 def _transform_to_shapedarray(a):
