@@ -253,7 +253,6 @@ def gpu_kernel_generator(
     weight_info: jax.ShapeDtypeStruct,
     **kwargs
 ):
-
     # 对于具有形状 [n_event] 的 spikes 向量，以及形状 [n_event, n_conn] 的 indices 和 weights 矩阵，
     # 这个算子的计算逻辑为：
     #
@@ -280,6 +279,7 @@ def gpu_kernel_generator(
                         # y_ref[ind] += 1.0
                         # ind = ind_ref[j, ...]
                         # pl.store(y_ref, ind, 1.0, mask=mask)
+
                     jax.lax.cond(sp_ref[j], true_fn, lambda: None)
 
 

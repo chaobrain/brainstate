@@ -230,12 +230,12 @@ class XLACustomOp:
             ad.primitive_transposes[self.primitive] = transpose_translation
 
     def _abstract_eval(self, *ins, outs: Sequence[ShapeDtype], **kwargs):
-        return outs
+        return tuple(outs)
 
     def __call__(self, *ins, outs: Sequence[ShapeDtype], **kwargs):
         assert isinstance(outs, (tuple, list)), 'The `outs` should be a tuple or list of shape-dtype pairs.'
         outs = jax.tree.map(_transform_to_shapedarray, outs)
-        return self.primitive.bind(*ins, **kwargs, outs=outs)
+        return self.primitive.bind(*ins, **kwargs, outs=tuple(outs))
 
     def def_cpu_kernel(self, kernel_generator: Callable):
         """
