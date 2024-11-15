@@ -275,7 +275,7 @@ def gpu_kernel_generator(
                 if sp_ref.dtype == jnp.bool_:
                     def true_fn():
                         ind = pl.load(ind_ref, (j, pl.dslice(None)), mask=mask)
-                        pl.store(y_ref, ind, jnp.ones(block_size, dtype=weight_info.dtype), mask=mask)
+                        pl.atomic_add(y_ref, ind, jnp.ones(block_size, dtype=weight_info.dtype), mask=mask)
                         # y_ref[ind] += 1.0
                         # ind = ind_ref[j, ...]
                         # pl.store(y_ref, ind, 1.0, mask=mask)
@@ -287,9 +287,9 @@ def gpu_kernel_generator(
                     def true_fn(sp):
                         ind = pl.load(ind_ref, (j, pl.dslice(None)), mask=mask)
                         if float_as_event:
-                            pl.store(y_ref, ind, jnp.ones(block_size, dtype=weight_info.dtype), mask=mask)
+                            pl.atomic_add(y_ref, ind, jnp.ones(block_size, dtype=weight_info.dtype), mask=mask)
                         else:
-                            pl.store(y_ref, ind, jnp.ones(block_size, dtype=weight_info.dtype) * sp, mask=mask)
+                            pl.atomic_add(y_ref, ind, jnp.ones(block_size, dtype=weight_info.dtype) * sp, mask=mask)
 
                     sp_ = sp_ref[j]
                     jax.lax.cond(sp_ != 0., true_fn, lambda _: None, sp_)
@@ -335,7 +335,7 @@ def gpu_kernel_generator(
                     def true_fn():
                         ind = pl.load(ind_ref, (j, pl.dslice(None)), mask=mask)
                         w = pl.load(w_ref, (j, pl.dslice(None)), mask=mask)
-                        pl.store(y_ref, ind, w, mask=mask)
+                        pl.atomic_add(y_ref, ind, w, mask=mask)
 
                     jax.lax.cond(sp_ref[j], true_fn, lambda: None)
                 else:
@@ -344,7 +344,7 @@ def gpu_kernel_generator(
                         w = pl.load(w_ref, (j, pl.dslice(None)), mask=mask)
                         if not float_as_event:
                             w = w * spk
-                        pl.store(y_ref, ind, w, mask=mask)
+                        pl.atomic_add(y_ref, ind, w, mask=mask)
 
                     sp_ = sp_ref[j]
                     jax.lax.cond(sp_ != 0., true_fn, lambda _: None, sp_)
