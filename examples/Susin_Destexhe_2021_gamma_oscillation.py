@@ -227,7 +227,7 @@ def visualize_simulation_results(
     for key, (sp_matrix, sp_type) in spikes.items():
         iis, sps = np.where(sp_matrix)
         tts = times[iis]
-        plt.plot(tts, sps + i, '.', markersize=1, label=key)
+        plt.scatter(tts, sps + i, s=1, label=key)
         y_ticks[0].append(i + sp_matrix.shape[1] / 2)
         y_ticks[1].append(key)
         i += sp_matrix.shape[1]

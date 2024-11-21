@@ -96,7 +96,7 @@ plt.plot(times, vs)
 plt.show()
 
 t_indices, n_indices = u.math.where(spikes)
-plt.plot(times[t_indices], n_indices, 'k.', markersize=1)
+plt.scatter(times[t_indices], n_indices, s=1)
 plt.xlabel('Time (ms)')
 plt.ylabel('Neuron index')
 plt.show()

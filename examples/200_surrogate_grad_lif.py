@@ -42,10 +42,11 @@ class SNN(bst.nn.DynamicsGroup):
         self.num_out = num_out
 
         # synapse: i->r
+        scale = 7 * (1 - (u.math.exp(-bst.environ.get_dt() / (1 * u.ms))))
         self.i2r = bst.nn.Sequential(
             bst.nn.Linear(
                 num_in, num_rec,
-                w_init=bst.init.KaimingNormal(scale=7*(1-(u.math.exp(-bst.environ.get_dt()/(1*u.ms)))), unit=u.mA),
+                w_init=bst.init.KaimingNormal(scale=scale, unit=u.mA),
                 b_init=bst.init.ZeroInit(unit=u.mA)
             ),
             bst.nn.Expon(num_rec, tau=5. * u.ms, g_initializer=bst.init.Constant(0. * u.mA))

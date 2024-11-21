@@ -99,7 +99,7 @@ with bst.environ.context(dt=0.1 * u.ms):
 # visualization
 times = times.to_decimal(u.ms)
 t_indices, n_indices = u.math.where(spikes)
-plt.plot(times[t_indices], n_indices, 'k.', markersize=1)
+plt.scatter(times[t_indices], n_indices, s=1)
 plt.xlabel('Time (ms)')
 plt.ylabel('Neuron index')
 plt.xlim([0, duration.to_decimal(u.ms)])

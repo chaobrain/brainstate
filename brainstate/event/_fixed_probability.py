@@ -253,7 +253,6 @@ def gpu_kernel_generator(
     weight_info: jax.ShapeDtypeStruct,
     **kwargs
 ):
-
     # 对于具有形状 [n_event] 的 spikes 向量，以及形状 [n_event, n_conn] 的 indices 和 weights 矩阵，
     # 这个算子的计算逻辑为：
     #
@@ -273,16 +272,27 @@ def gpu_kernel_generator(
             mask = jnp.arange(block_size) + c_start < n_conn
 
             def body_fn(j, _):
-                def true_fn():
-                    ind = pl.load(ind_ref, (j, pl.dslice(c_start, block_size)), mask=mask)
-                    y_ref[ind] += 1.0
-                    # ind = ind_ref[j, ...]
-                    # pl.store(y_ref, ind, 1.0, mask=mask)
-
                 if sp_ref.dtype == jnp.bool_:
+                    def true_fn():
+                        ind = pl.load(ind_ref, (j, pl.dslice(None)), mask=mask)
+                        pl.atomic_add(y_ref, ind, jnp.ones(block_size, dtype=weight_info.dtype), mask=mask)
+                        # y_ref[ind] += 1.0
+                        # ind = ind_ref[j, ...]
+                        # pl.store(y_ref, ind, 1.0, mask=mask)
+
                     jax.lax.cond(sp_ref[j], true_fn, lambda: None)
+
+
                 else:
-                    jax.lax.cond(sp_ref[j] != 0., true_fn, lambda: None)
+                    def true_fn(sp):
+                        ind = pl.load(ind_ref, (j, pl.dslice(None)), mask=mask)
+                        if float_as_event:
+                            pl.atomic_add(y_ref, ind, jnp.ones(block_size, dtype=weight_info.dtype), mask=mask)
+                        else:
+                            pl.atomic_add(y_ref, ind, jnp.ones(block_size, dtype=weight_info.dtype) * sp, mask=mask)
+
+                    sp_ = sp_ref[j]
+                    jax.lax.cond(sp_ != 0., true_fn, lambda _: None, sp_)
 
             jax.lax.fori_loop(0, row_length, body_fn, None)
 
@@ -305,7 +315,7 @@ def gpu_kernel_generator(
             interpret=False
         )
         return (lambda spikes, weight, indices:
-                kernel(spikes, indices, jnp.zeros(n_post, dtype=weight.dtype)) * weight)
+                [kernel(spikes, indices, jnp.zeros(n_post, dtype=weight.dtype))[0] * weight])
 
     else:
         def _ell_mv_kernel_heter(
@@ -323,19 +333,18 @@ def gpu_kernel_generator(
             def body_fn(j, _):
                 if sp_ref.dtype == jnp.bool_:
                     def true_fn():
-                        ind = ind_ref[j, ...]
-                        w = w_ref[j, ...]
-                        pl.store(y_ref, ind, w, mask=mask)
+                        ind = pl.load(ind_ref, (j, pl.dslice(None)), mask=mask)
+                        w = pl.load(w_ref, (j, pl.dslice(None)), mask=mask)
+                        pl.atomic_add(y_ref, ind, w, mask=mask)
 
                     jax.lax.cond(sp_ref[j], true_fn, lambda: None)
                 else:
                     def true_fn(spk):
-                        ind = ind_ref[j, ...]
-                        if float_as_event:
-                            w = w_ref[j, ...]
-                        else:
-                            w = w_ref[j, ...] * spk
-                        pl.store(y_ref, ind, w, mask=mask)
+                        ind = pl.load(ind_ref, (j, pl.dslice(None)), mask=mask)
+                        w = pl.load(w_ref, (j, pl.dslice(None)), mask=mask)
+                        if not float_as_event:
+                            w = w * spk
+                        pl.atomic_add(y_ref, ind, w, mask=mask)
 
                     sp_ = sp_ref[j]
                     jax.lax.cond(sp_ != 0., true_fn, lambda _: None, sp_)
@@ -540,8 +549,8 @@ def ell_gpu_kernel_generator(
             row_length = jnp.minimum(n_pre - r_pid * block_size, block_size)
 
             def body_fn(j, _):
-                y = vec_ref[j] * jnp.ones(block_size)
-                ind = ind_ref[j, ...]
+                y = vec_ref[j] * jnp.ones(block_size, dtype=weight_info.dtype)
+                ind = pl.load(ind_ref, (j, pl.dslice(None)), mask=mask)
                 pl.atomic_add(out_ref, ind, y, mask=mask)
 
             jax.lax.fori_loop(0, row_length, body_fn, None)
@@ -585,9 +594,9 @@ def ell_gpu_kernel_generator(
             row_length = jnp.minimum(n_pre - r_pid * block_size, block_size)
 
             def body_fn(j, _):
-                w = w_ref[j, ...]
+                w = pl.load(w_ref, (j, pl.dslice(None)), mask=mask)
                 y = w * vec_ref[j]
-                ind = ind_ref[j, ...]
+                ind = pl.load(ind_ref, (j, pl.dslice(None)), mask=mask)
                 pl.atomic_add(out_ref, ind, y, mask=mask)
 
             jax.lax.fori_loop(0, row_length, body_fn, None)

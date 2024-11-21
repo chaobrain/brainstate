@@ -145,7 +145,7 @@ plt.ylabel('Membrane potential (mV)')
 
 fig.add_subplot(gs[0, 1])
 t_indices, n_indices = u.math.where(spikes)
-plt.plot(times[t_indices], n_indices, 'k.', markersize=1)
+plt.plot(times[t_indices], n_indices, 'k.')
 plt.xlabel('Time (ms)')
 plt.ylabel('Neuron index')
 plt.show()
