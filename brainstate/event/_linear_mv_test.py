@@ -20,7 +20,7 @@ import jax.numpy as jnp
 from absl.testing import parameterized
 
 import brainstate as bst
-from brainstate.event._linear import Linear
+from brainstate.event._linear_mv import Linear
 
 
 class TestEventLinear(parameterized.TestCase):
