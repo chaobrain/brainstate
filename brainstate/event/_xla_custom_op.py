@@ -17,14 +17,8 @@ from jaxlib.hlo_helpers import custom_call
 
 numba_installed = importlib.util.find_spec('numba') is not None
 
-if numba_installed:
-    import numba  # pylint: disable=import-error
-    from numba import types, carray, cfunc  # pylint: disable=import-error
-    from numba.core.dispatcher import Dispatcher  # pylint: disable=import-error
-else:
-    numba = None
-
 __all__ = [
+    'defjvp',
     'XLACustomOp',
 ]
 
@@ -93,8 +87,11 @@ def _numba_mlir_cpu_translation_rule(
     *ins,
     **kwargs
 ):
-    if numba is None:
+    if not numba_installed:
         raise ImportError('Numba is required to compile the CPU kernel for the custom operator.')
+
+    from numba import types, carray, cfunc  # pylint: disable=import-error
+    from numba.core.dispatcher import Dispatcher  # pylint: disable=import-error
 
     if not isinstance(kernel, Dispatcher):
         kernel = kernel(**kwargs)
