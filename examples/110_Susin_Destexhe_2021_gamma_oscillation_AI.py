@@ -24,7 +24,8 @@
 
 import os
 
-os.environ['XLA_FLAGS'] = '--xla_cpu_use_thunk_runtime=false'
+os.environ['JAX_TRACEBACK_FILTERING'] = 'off'
+
 
 import brainstate as bst
 import braintools as bts
@@ -93,8 +94,8 @@ class AINet(bst.nn.DynamicsGroup):
         FS_par_ = FS_par.copy()
         RS_par_.update(Vth=-50 * u.mV, V_sp_th=-40 * u.mV)
         FS_par_.update(Vth=-50 * u.mV, V_sp_th=-40 * u.mV)
-        self.rs_pop = AdEx(self.num_exc, tau_e=self.exc_syn_tau, tau_i=self.inh_syn_tau, **RS_par_)
         self.fs_pop = AdEx(self.num_inh, tau_e=self.exc_syn_tau, tau_i=self.inh_syn_tau, **FS_par_)
+        self.rs_pop = AdEx(self.num_exc, tau_e=self.exc_syn_tau, tau_i=self.inh_syn_tau, **RS_par_)
         self.ext_pop = bst.nn.PoissonEncoder(self.num_exc)
 
         # Poisson inputs
@@ -140,12 +141,12 @@ class AINet(bst.nn.DynamicsGroup):
             ext_spikes = self.ext_pop(freq)
             self.ext_to_FS(ext_spikes)
             self.ext_to_RS(ext_spikes)
-            self.RS_to_FS()
             self.RS_to_RS()
+            self.RS_to_FS()
             self.FS_to_FS()
             self.FS_to_RS()
-            self.fs_pop()
             self.rs_pop()
+            self.fs_pop()
             return {
                 'FS.V0': self.fs_pop.V.value[0],
                 'RS.V0': self.rs_pop.V.value[0],

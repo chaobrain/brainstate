@@ -12,30 +12,3 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-
-from ._conv import *
-from ._conv import __all__ as conv_all
-from ._embedding import *
-from ._embedding import __all__ as embed_all
-from ._linear import *
-from ._linear import __all__ as linear_all
-from ._normalizations import *
-from ._normalizations import __all__ as normalizations_all
-from ._poolings import *
-from ._poolings import __all__ as poolings_all
-
-__all__ = (
-    conv_all +
-    linear_all +
-    normalizations_all +
-    poolings_all +
-    embed_all
-)
-
-del (
-    conv_all,
-    linear_all,
-    normalizations_all,
-    poolings_all,
-    embed_all
-)

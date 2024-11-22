@@ -27,6 +27,7 @@ optax_installed = importlib.util.find_spec('optax') is not None
 
 __all__ = [
     'OptaxOptimizer',
+    'LBFGS',
 ]
 
 
@@ -133,3 +134,21 @@ class OptaxOptimizer(Optimizer):
         for k, v in self.param_states.items():
             v.value = new_params[k]
         self.opt_state.value = new_opt_state
+
+
+class LBFGS(OptaxOptimizer):
+    def __init__(
+        self,
+        lr: float,
+        memory_size: int = 10,
+        scale_init_precond: bool = True,
+    ):
+        import optax  # type: ignore[import-not-found,import-untyped]
+        super().__init__(
+            optax.lbfgs(
+                lr,
+                memory_size=memory_size,
+                scale_init_precond=scale_init_precond,
+                linesearch=None,
+            )
+        )

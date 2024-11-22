@@ -112,10 +112,8 @@ class STP(Synapse):
         self.u.value = init.param(init.Constant(self.U), self.varshape, batch_size)
 
     def update(self, pre_spike):
-        du = lambda u: self.U - u / self.tau_f
-        dx = lambda x: (1 - x) / self.tau_d
-        u = exp_euler_step(du, self.u.value)
-        x = exp_euler_step(dx, self.x.value)
+        u = exp_euler_step(lambda u: self.U - u / self.tau_f, self.u.value)
+        x = exp_euler_step(lambda x: (1 - x) / self.tau_d, self.x.value)
 
         # --- original code:
         #   if pre_spike.dtype == jax.numpy.bool_:
@@ -131,7 +129,7 @@ class STP(Synapse):
 
         self.u.value = u
         self.x.value = x
-        return u * x
+        return u * x * pre_spike
 
 
 class STD(Synapse):
@@ -167,8 +165,7 @@ class STD(Synapse):
         self.x.value = init.param(init.Constant(1.), self.varshape, batch_size)
 
     def update(self, pre_spike):
-        dx = lambda x: (1 - x) / self.tau
-        x = exp_euler_step(dx, self.x.value)
+        x = exp_euler_step(lambda x: (1 - x) / self.tau, self.x.value)
 
         # --- original code:
         # self.x.value = bm.where(pre_spike, x - self.U * self.x, x)
@@ -176,7 +173,7 @@ class STD(Synapse):
         # --- simplified code:
         self.x.value = x - pre_spike * self.U * self.x.value
 
-        return self.x.value
+        return self.x.value * pre_spike
 
 
 class AMPA(Synapse):
@@ -315,6 +312,4 @@ class GABAa(AMPA):
         T: ArrayLike = 1.0 * u.mM,
         T_dur: ArrayLike = 1.0 * u.ms,
     ):
-        super().__init__(alpha=alpha, beta=beta, T=T,
-                         T_dur=T_dur, name=name,
-                         in_size=in_size)
+        super().__init__(alpha=alpha, beta=beta, T=T, T_dur=T_dur, name=name, in_size=in_size)

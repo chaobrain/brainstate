@@ -150,7 +150,7 @@ def run_network(spike_num: int, ax):
     # visualization
     times = times.to_decimal(u.ms)
     t_indices, n_indices = u.math.where(spikes)
-    ax.plot(times[t_indices], n_indices, 'k.', markersize=1)
+    ax.scatter(times[t_indices], n_indices, s=1)
     ax.set_xlabel('Time (ms)')
     ax.set_ylabel('Neuron index')
 

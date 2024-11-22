@@ -14,12 +14,14 @@
 # ==============================================================================
 
 
-from ._csr import *
-from ._csr import __all__ as __all_csr
-from ._fixed_probability import *
-from ._fixed_probability import __all__ as __all_fixed_probability
-from ._linear import *
-from ._linear import __all__ as __all_linear
+from ._csr_mv import *
+from ._csr_mv import __all__ as __all_csr
+from ._fixedprob_mv import *
+from ._fixedprob_mv import __all__ as __all_fixed_probability
+from ._linear_mv import *
+from ._xla_custom_op import *
+from ._xla_custom_op import __all__ as __all_xla_custom_op
+from ._linear_mv import __all__ as __all_linear
 
-__all__ = __all_fixed_probability + __all_linear + __all_csr
-del __all_fixed_probability, __all_linear, __all_csr
+__all__ = __all_fixed_probability + __all_linear + __all_csr + __all_xla_custom_op
+del __all_fixed_probability, __all_linear, __all_csr, __all_xla_custom_op

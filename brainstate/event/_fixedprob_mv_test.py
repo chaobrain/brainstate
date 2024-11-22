@@ -15,37 +15,39 @@
 
 from __future__ import annotations
 
-import jax
+
+import jax.numpy
 import jax.numpy as jnp
 from absl.testing import parameterized
 
 import brainstate as bst
-from brainstate.event._linear import Linear
 
 
-class TestEventLinear(parameterized.TestCase):
+class TestFixedProbCSR(parameterized.TestCase):
     @parameterized.product(
-        homo_w=[True, False],
-        bool_x=[True, False],
+        allow_multi_conn=[True, False]
     )
-    def test1(self, homo_w, bool_x):
+    def test1(self, allow_multi_conn):
         x = bst.random.rand(20) < 0.1
-        if not bool_x:
-            x = jnp.asarray(x, dtype=float)
-        m = Linear(20, 40, 1.5 if homo_w else bst.init.KaimingUniform())
+        # x = bst.random.rand(20)
+        m = bst.event.FixedProb(20, 40, 0.1, 1.0, seed=123, allow_multi_conn=allow_multi_conn)
         y = m(x)
         print(y)
 
-        self.assertTrue(jnp.allclose(y, (x.sum() * m.weight.value) if homo_w else (x @ m.weight.value)))
+        m2 = bst.event.FixedProb(20, 40, 0.1, bst.init.KaimingUniform(), seed=123)
+        print(m2(x))
 
     def test_grad_bool(self):
         n_in = 20
         n_out = 30
         x = bst.random.rand(n_in) < 0.3
-        fn = Linear(n_in, n_out, bst.init.KaimingUniform())
+        fn = bst.event.FixedProb(n_in, n_out, 0.1, bst.init.KaimingUniform(), seed=123)
+
+        def f(x):
+            return fn(x).sum()
 
         with self.assertRaises(TypeError):
-            print(jax.grad(lambda x: fn(x).sum())(x))
+            print(jax.grad(f)(x))
 
     @parameterized.product(
         bool_x=[True, False],
@@ -59,25 +61,33 @@ class TestEventLinear(parameterized.TestCase):
         else:
             x = bst.random.rand(n_in)
 
-        fn = Linear(n_in, n_out, 1.5 if homo_w else bst.init.KaimingUniform())
+        if homo_w:
+            fn = bst.event.FixedProb(n_in, n_out, 0.1, 1.5, seed=123, float_as_event=bool_x)
+        else:
+            fn = bst.event.FixedProb(n_in, n_out, 0.1, bst.init.KaimingUniform(), seed=123, float_as_event=bool_x)
         w = fn.weight.value
 
         def f(x, w):
             fn.weight.value = w
             return fn(x).sum()
 
-        r1 = jax.grad(f, argnums=(0, 1))(x, w)
+        r = bst.augment.grad(f, argnums=(0, 1))(x, w)
 
         # -------------------
         # TRUE gradients
 
+        def true_fn(x, w, indices, n_post):
+            post = jnp.zeros((n_post,))
+            for i in range(n_in):
+                post = post.at[indices[i]].add(w * x[i] if homo_w else w[i] * x[i])
+            return post
+
         def f2(x, w):
-            y = (x @ (jnp.ones([n_in, n_out]) * w)) if homo_w else (x @ w)
-            return y.sum()
+            return true_fn(x, w, fn.indices, n_out).sum()
 
         r2 = jax.grad(f2, argnums=(0, 1))(x, w)
-        self.assertTrue(jnp.allclose(r1[0], r2[0]))
-        self.assertTrue(jnp.allclose(r1[1], r2[1]))
+        self.assertTrue(jnp.allclose(r[0], r2[0]))
+        self.assertTrue(jnp.allclose(r[1], r2[1]))
 
     @parameterized.product(
         bool_x=[True, False],
@@ -91,7 +101,11 @@ class TestEventLinear(parameterized.TestCase):
         else:
             x = bst.random.rand(n_in)
 
-        fn = Linear(n_in, n_out, 1.5 if homo_w else bst.init.KaimingUniform(), grad_mode='jvp')
+        fn = bst.event.FixedProb(
+            n_in, n_out, 0.1, 1.5 if homo_w else bst.init.KaimingUniform(),
+            seed=123,
+            float_as_event=bool_x
+        )
         w = fn.weight.value
 
         def f(x, w):
@@ -103,10 +117,15 @@ class TestEventLinear(parameterized.TestCase):
         # -------------------
         # TRUE gradients
 
-        def f2(x, w):
-            y = (x @ (jnp.ones([n_in, n_out]) * w)) if homo_w else (x @ w)
-            return y
+        def true_fn(x, w, indices, n_post):
+            post = jnp.zeros((n_post,))
+            for i in range(n_in):
+                post = post.at[indices[i]].add(w * x[i] if homo_w else w[i] * x[i])
+            return post
 
-        o2, r2 = jax.jvp(f, (x, w), (jnp.ones_like(x), jnp.ones_like(w)))
+        def f2(x, w):
+            return true_fn(x, w, fn.indices, n_out)
+
+        o2, r2 = jax.jvp(f2, (x, w), (jnp.ones_like(x), jnp.ones_like(w)))
         self.assertTrue(jnp.allclose(o1, o2))
         self.assertTrue(jnp.allclose(r1, r2))

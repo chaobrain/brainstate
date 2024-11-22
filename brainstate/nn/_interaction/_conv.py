@@ -18,10 +18,8 @@
 from __future__ import annotations
 
 import collections.abc
-import numbers
 from typing import Callable, Tuple, Union, Sequence, Optional, TypeVar
 
-import brainunit as u
 import jax
 import jax.numpy as jnp
 
@@ -33,10 +31,8 @@ from brainstate.typing import ArrayLike
 T = TypeVar('T')
 
 __all__ = [
-    'Linear', 'ScaledWSLinear', 'SignedWLinear', 'CSRLinear',
     'Conv1d', 'Conv2d', 'Conv3d',
     'ScaledWSConv1d', 'ScaledWSConv2d', 'ScaledWSConv3d',
-    'AllToAll',
 ]
 
 
@@ -77,168 +73,6 @@ def replicate(
     else:
         raise TypeError(f"{name} must be a scalar or sequence of length 1 or "
                         f"sequence of length {num_replicate}.")
-
-
-class Linear(Module):
-    """
-    Linear layer.
-    """
-    __module__ = 'brainstate.nn'
-
-    def __init__(
-        self,
-        in_size: Union[int, Sequence[int]],
-        out_size: Union[int, Sequence[int]],
-        w_init: Union[Callable, ArrayLike] = init.KaimingNormal(),
-        b_init: Optional[Union[Callable, ArrayLike]] = init.ZeroInit(),
-        w_mask: Optional[Union[ArrayLike, Callable]] = None,
-        name: Optional[str] = None,
-    ):
-        super().__init__(name=name)
-
-        # input and output shape
-        self.in_size = (in_size,) if isinstance(in_size, numbers.Integral) else tuple(in_size)
-        self.out_size = (out_size,) if isinstance(out_size, numbers.Integral) else tuple(out_size)
-
-        # w_mask
-        self.w_mask = init.param(w_mask, self.in_size + self.out_size)
-
-        # weights
-        params = dict(weight=init.param(w_init, (self.in_size[-1], self.out_size[-1]), allow_none=False))
-        if b_init is not None:
-            params['bias'] = init.param(b_init, self.out_size[-1], allow_none=False)
-
-        # weight + op
-        self.weight = ParamState(params)
-
-    def update(self, x):
-        params = self.weight.value
-        weight = params['weight']
-        if self.w_mask is not None:
-            weight = weight * self.w_mask
-        y = u.math.dot(x, weight)
-        if 'bias' in params:
-            y = y + params['bias']
-        return y
-
-
-class SignedWLinear(Module):
-    """
-    Linear layer with signed weights.
-    """
-    __module__ = 'brainstate.nn'
-
-    def __init__(
-        self,
-        in_size: Union[int, Sequence[int]],
-        out_size: Union[int, Sequence[int]],
-        w_init: Union[Callable, ArrayLike] = init.KaimingNormal(),
-        w_sign: Optional[ArrayLike] = None,
-        name: Optional[str] = None,
-
-    ):
-        super().__init__(name=name)
-
-        # input and output shape
-        self.in_size = (in_size,) if isinstance(in_size, numbers.Integral) else tuple(in_size)
-        self.out_size = (out_size,) if isinstance(out_size, numbers.Integral) else tuple(out_size)
-
-        # w_mask
-        self.w_sign = w_sign
-
-        # weights
-        weight = init.param(w_init, self.in_size + self.out_size, allow_none=False)
-        self.weight = ParamState(weight)
-
-    def _operation(self, x, w):
-        if self.w_sign is None:
-            return jnp.matmul(x, jnp.abs(w))
-        else:
-            return jnp.matmul(x, jnp.abs(w) * self.w_sign)
-
-    def update(self, x):
-        return self._operation(x, self.weight.value)
-
-
-class ScaledWSLinear(Module):
-    """
-    Linear Layer with Weight Standardization.
-
-    Applies weight standardization to the weights of the linear layer.
-
-    Parameters
-    ----------
-    in_size: int, sequence of int
-      The input size.
-    out_size: int, sequence of int
-      The output size.
-    w_init: Callable, ArrayLike
-      The initializer for the weights.
-    b_init: Callable, ArrayLike
-      The initializer for the bias.
-    w_mask: ArrayLike, Callable
-      The optional mask of the weights.
-    ws_gain: bool
-      Whether to use gain for the weights. The default is True.
-    eps: float
-      The epsilon value for the weight standardization.
-    name: str
-      The name of the object.
-
-    """
-    __module__ = 'brainstate.nn'
-
-    def __init__(
-        self,
-        in_size: Union[int, Sequence[int]],
-        out_size: Union[int, Sequence[int]],
-        w_init: Callable = init.KaimingNormal(),
-        b_init: Callable = init.ZeroInit(),
-        w_mask: Optional[Union[ArrayLike, Callable]] = None,
-        ws_gain: bool = True,
-        eps: float = 1e-4,
-        name: str = None,
-    ):
-        super().__init__(name=name)
-
-        # input and output shape
-        self.in_size = (in_size,) if isinstance(in_size, numbers.Integral) else tuple(in_size)
-        self.out_size = (out_size,) if isinstance(out_size, numbers.Integral) else tuple(out_size)
-
-        # w_mask
-        self.w_mask = init.param(w_mask, (self.in_size[0], 1))
-
-        # parameters
-        self.eps = eps
-
-        # weights
-        params = dict(weight=init.param(w_init, self.in_size + self.out_size, allow_none=False))
-        if b_init is not None:
-            params['bias'] = init.param(b_init, self.out_size, allow_none=False)
-        # gain
-        if ws_gain:
-            s = params['weight'].shape
-            params['gain'] = jnp.ones((1,) * (len(s) - 1) + (s[-1],), dtype=params['weight'].dtype)
-
-        # weight operation
-        self.weight = ParamState(params)
-
-    def update(self, x):
-        return self._operation(x, self.weight.value)
-
-    def _operation(self, x, params):
-        w = params['weight']
-        w = functional.weight_standardization(w, self.eps, params.get('gain', None))
-        if self.w_mask is not None:
-            w = w * self.w_mask
-        y = jnp.dot(x, w)
-        if 'bias' in params:
-            y = y + params['bias']
-        return y
-
-
-class CSRLinear(Module):
-    __module__ = 'brainstate.nn'
 
 
 class _BaseConv(Module):
@@ -663,64 +497,3 @@ _ws_conv_doc = '''
 ScaledWSConv1d.__doc__ = ScaledWSConv1d.__doc__ % _ws_conv_doc
 ScaledWSConv2d.__doc__ = ScaledWSConv2d.__doc__ % _ws_conv_doc
 ScaledWSConv3d.__doc__ = ScaledWSConv3d.__doc__ % _ws_conv_doc
-
-
-class AllToAll(Module):
-    """Synaptic matrix multiplication with All2All connections.
-
-    Args:
-      in_size: int. The number of neurons in the presynaptic neuron group.
-      out_size: int. The number of neurons in the postsynaptic neuron group.
-      w_init: The synaptic weights.
-      include_self: bool. Whether connect the neuron with at the same position.
-      name: str. The object name.
-    """
-
-    def __init__(
-        self,
-        in_size: Union[int, Sequence[int]],
-        out_size: Union[int, Sequence[int]],
-        w_init: Union[Callable, ArrayLike] = init.KaimingNormal(),
-        include_self: bool = True,
-        name: Optional[str] = None,
-    ):
-        super().__init__(name=name)
-
-        # input and output shape
-        self.in_size = (in_size,) if isinstance(in_size, numbers.Integral) else tuple(in_size)
-        self.out_size = (out_size,) if isinstance(out_size, numbers.Integral) else tuple(out_size)
-        assert self.in_size[:-1] == self.out_size[:-1], ('The first n-1 dimensions of "in_size" '
-                                                         'and "out_size" must be the same.')
-
-        # weights
-        self.weight = ParamState(init.param(w_init, (self.in_size[-1], self.out_size[-1]), allow_none=False))
-
-        # others
-        self.include_self = include_self
-
-    def update(self, pre_val):
-        if u.math.ndim(self.weight.value) == 0:  # weight is a scalar
-            if pre_val.ndim == 1:
-                post_val = u.math.sum(pre_val)
-            else:
-                post_val = u.math.sum(pre_val, keepdims=True, axis=-1)
-            if not self.include_self:
-                if self.in_size == self.out_size:
-                    post_val = post_val - pre_val
-                elif self.in_size[-1] > self.out_size[-1]:
-                    val = pre_val[..., :self.out_size[-1]]
-                    post_val = post_val - val
-                else:
-                    size = list(self.out_size)
-                    size[-1] = self.out_size[-1] - self.in_size[-1]
-                    val = u.math.concatenate([pre_val, u.math.zeros(size, dtype=pre_val.dtype)])
-                    post_val = post_val - val
-            post_val = self.weight.value * post_val
-
-        else:  # weight is a matrix
-            assert u.math.ndim(self.weight.value) == 2, '"weight" must be a 2D matrix.'
-            if not self.include_self:
-                post_val = pre_val @ u.math.fill_diagonal(self.weight.value, 0.)
-            else:
-                post_val = pre_val @ self.weight.value
-        return post_val

@@ -45,7 +45,7 @@ from brainstate.typing import PyTree, Missing
 from brainstate.util import PrettyType, PrettyAttr, PrettyRepr
 
 __all__ = [
-    'vector_grad', 'grad', 'jacrev', 'jacfwd', 'jacobian', 'hessian',
+    'GradientTransform', 'vector_grad', 'grad', 'jacrev', 'jacfwd', 'jacobian', 'hessian',
 ]
 
 A = TypeVar('A')
@@ -159,6 +159,9 @@ def _jacfwd(fun, argnums=0, holomorphic=False, has_aux=False, return_value=False
     return jacfun
 
 
+TransformFn = Callable
+
+
 class GradientTransform(PrettyRepr):
     """
     Automatic Differentiation Transformations for the ``State`` system.
@@ -168,11 +171,11 @@ class GradientTransform(PrettyRepr):
     def __init__(
         self,
         target: Callable,
-        transform: Callable,
-        grad_states: Any,
-        argnums: Optional[Union[int, Sequence[int]]],
-        return_value: bool,
-        has_aux: bool,
+        transform: TransformFn,
+        grad_states: Optional[Union[State, Sequence[State], Dict[str, State]]] = None,
+        argnums: Optional[Union[int, Sequence[int]]] = None,
+        return_value: bool = False,
+        has_aux: bool = False,
         transform_params: Optional[Dict[str, Any]] = None,
     ):
         # gradient variables

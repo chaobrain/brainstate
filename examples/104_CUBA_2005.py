@@ -74,9 +74,8 @@ with bst.environ.context(dt=0.1 * u.ms):
     spikes = bst.compile.for_loop(lambda t: net.update(t, 20. * u.mA), times, pbar=bst.compile.ProgressBar(10))
 
 # visualization
-times = times.to_decimal(u.ms)
 t_indices, n_indices = u.math.where(spikes)
-plt.plot(times[t_indices], n_indices, 'k.', markersze=1)
+plt.scatter(times[t_indices], n_indices, s=1)
 plt.xlabel('Time (ms)')
 plt.ylabel('Neuron index')
 plt.show()

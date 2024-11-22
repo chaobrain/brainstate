@@ -235,20 +235,5 @@ class TestConvTranspose3d(parameterized.TestCase):
         y = conv_transpose_module(x)
         print(y.shape)
 
-
-class TestDense(parameterized.TestCase):
-    @parameterized.product(
-        size=[(10,),
-              (20, 10),
-              (5, 8, 10)],
-        num_out=[20, ]
-    )
-    def test_Dense1(self, size, num_out):
-        f = bst.nn.Linear(10, num_out)
-        x = bst.random.random(size)
-        y = f(x)
-        self.assertTrue(y.shape == size[:-1] + (num_out,))
-
-
 if __name__ == '__main__':
     absltest.main()

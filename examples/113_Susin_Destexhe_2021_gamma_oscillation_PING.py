@@ -23,10 +23,6 @@
 # PING Network for Generating Gamma Oscillation
 
 
-import os
-
-os.environ['XLA_FLAGS'] = '--xla_cpu_use_thunk_runtime=false'
-
 import brainunit as u
 import brainstate as bst
 
