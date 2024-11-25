@@ -79,7 +79,7 @@ class Linear(Module):
         weight = params['weight']
         if self.w_mask is not None:
             weight = weight * self.w_mask
-        y = u.math.dot(x, weight)
+        y = u.linalg.dot(x, weight)
         if 'bias' in params:
             y = y + params['bias']
         return y
@@ -192,7 +192,7 @@ class ScaledWSLinear(Module):
         w = functional.weight_standardization(w, self.eps, params.get('gain', None))
         if self.w_mask is not None:
             w = w * self.w_mask
-        y = u.math.dot(x, w)
+        y = u.linalg.dot(x, w)
         if 'bias' in params:
             y = y + params['bias']
         return y
