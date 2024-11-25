@@ -19,6 +19,7 @@ from __future__ import annotations
 import unittest
 from pprint import pprint
 
+import brainunit as u
 import jax
 import jax.numpy as jnp
 import pytest
@@ -608,6 +609,8 @@ class TestClassFuncJacobian(unittest.TestCase):
         br = bst.augment.jacrev(t, grad_states=[t.x, t.y])()
         self.assertTrue((br[0] == _jr[0]).all())
         self.assertTrue((br[1] == _jr[1]).all())
+
+
 #
 #   def test_jacfwd1(self):
 #     def f1(x, y):
@@ -1191,3 +1194,97 @@ class TestClassFuncJacobian(unittest.TestCase):
 #       self.assertTrue(file.read().strip() == expect_res.strip())
 #
 #
+
+
+class TestUnitAwareGrad(unittest.TestCase):
+    def test_grad1(self):
+        def f(x):
+            return u.math.sum(x ** 2)
+
+        x = jnp.array([1., 2., 3.]) * u.ms
+        g = bst.augment.grad(f, unit_aware=True)(x)
+        self.assertTrue(u.math.allclose(g, 2 * x))
+
+    def test_vector_grad1(self):
+        def f(x):
+            return x ** 3
+
+        x = jnp.array([1., 2., 3.]) * u.ms
+        g = bst.augment.vector_grad(f, unit_aware=True)(x)
+        self.assertTrue(u.math.allclose(g, 3 * x ** 2))
+
+    def test_jacrev1(self):
+        def f(x, y):
+            return u.math.asarray([x[0] * y[0],
+                                   5 * x[2] * y[1],
+                                   4 * x[1] ** 2, ])
+
+        _x = jnp.array([1., 2., 3.]) * u.ms
+        _y = jnp.array([10., 5.]) * u.ms
+
+        g = bst.augment.jacrev(f, unit_aware=True, argnums=(0, 1))(_x, _y)
+        self.assertTrue(
+            u.math.allclose(
+                g[0],
+                u.math.asarray([
+                    [10., 0., 0.],
+                    [0., 0., 25.],
+                    [0., 16., 0.]
+                ]) * u.ms
+            )
+        )
+
+        self.assertTrue(
+            u.math.allclose(
+                g[1],
+                u.math.asarray([
+                    [1., 0.],
+                    [0., 15.],
+                    [0., 0.]
+                ]) * u.ms
+            )
+        )
+
+    def test_jacfwd1(self):
+        def f(x, y):
+            return u.math.asarray([x[0] * y[0],
+                                   5 * x[2] * y[1],
+                                   4 * x[1] ** 2, ])
+
+        _x = jnp.array([1., 2., 3.]) * u.ms
+        _y = jnp.array([10., 5.]) * u.ms
+
+        g = bst.augment.jacfwd(f, unit_aware=True, argnums=(0, 1))(_x, _y)
+        self.assertTrue(
+            u.math.allclose(
+                g[0],
+                u.math.asarray([
+                    [10., 0., 0.],
+                    [0., 0., 25.],
+                    [0., 16., 0.]
+                ]) * u.ms
+            )
+        )
+
+        self.assertTrue(
+            u.math.allclose(
+                g[1],
+                u.math.asarray([
+                    [1., 0.],
+                    [0., 15.],
+                    [0., 0.]
+                ]) * u.ms
+            )
+        )
+
+    def test_hessian(self):
+        unit = u.ms
+
+        def scalar_function(x):
+            return x ** 3 + 3 * x * unit * unit + 2 * unit * unit * unit
+
+        hess = bst.augment.hessian(scalar_function, unit_aware=True)
+        x = jnp.array(1.0) * unit
+        res = hess(x)
+        expected_hessian = jnp.array([[6.0]]) * unit
+        assert u.math.allclose(res, expected_hessian)

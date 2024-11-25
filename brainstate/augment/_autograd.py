@@ -29,15 +29,11 @@ The wrapped gradient transformations here are made possible by using the followi
 
 from __future__ import annotations
 
-import inspect
-from functools import partial, wraps
+from functools import wraps, partial
 from typing import Union, Callable, Dict, Sequence, Optional, Any, Tuple, TypeVar, Iterator
 
+import brainunit as u
 import jax
-from jax import numpy as jnp
-from jax._src.api import _vjp
-from jax.api_util import argnums_partial
-from jax.extend import linear_util
 
 from brainstate._state import State, StateTraceStack
 from brainstate._utils import set_module_as
@@ -54,54 +50,15 @@ LossValue = PyTree
 AuxData = PyTree
 
 
-def _isgeneratorfunction(fun):
-    # re-implemented here because of https://bugs.python.org/issue33261
-    while inspect.ismethod(fun):
-        fun = fun.__func__
-    while isinstance(fun, partial):
-        fun = fun.func
-    return inspect.isfunction(fun) and bool(fun.__code__.co_flags & inspect.CO_GENERATOR)
-
-
-def _check_callable(fun):
-    # In Python 3.10+, the only thing stopping us from supporting staticmethods
-    # is that we can't take weak references to them, which the C++ JIT requires.
-    if isinstance(fun, staticmethod):
-        raise TypeError(f"staticmethod arguments are not supported, got {fun}")
-    if not callable(fun):
-        raise TypeError(f"Expected a callable value, got {fun}")
-    if _isgeneratorfunction(fun):
-        raise TypeError(f"Expected a function, got a generator function: {fun}")
-
-
-def functional_vector_grad(func, argnums=0, return_value: bool = False, has_aux: bool = False):
-    """
-     Compute the gradient of a vector with respect to the input.
-     """
-    _check_callable(func)
-
-    @wraps(func)
-    def grad_fun(*args, **kwargs):
-        f = linear_util.wrap_init(func, kwargs)
-        f_partial, dyn_args = argnums_partial(f, argnums, args, require_static_args_hashable=False)
-        if has_aux:
-            y, vjp_fn, aux = _vjp(f_partial, *dyn_args, has_aux=True)
-        else:
-            y, vjp_fn = _vjp(f_partial, *dyn_args, has_aux=False)
-        leaves, tree = jax.tree.flatten(y)
-        tangents = jax.tree.unflatten(tree, [jnp.ones(l.shape, dtype=l.dtype) for l in leaves])
-        grads = vjp_fn(tangents)
-        if isinstance(argnums, int):
-            grads = grads[0]
-        if has_aux:
-            return (grads, y, aux) if return_value else (grads, aux)
-        else:
-            return (grads, y) if return_value else grads
-
-    return grad_fun
-
-
-def _jacrev(fun, argnums=0, holomorphic=False, allow_int=False, has_aux=False, return_value=False):
+def _jacrev(
+    fun,
+    argnums=0,
+    holomorphic=False,
+    allow_int=False,
+    has_aux=False,
+    return_value=False,
+    unit_aware=False,
+):
     @wraps(fun)
     def fun_wrapped(*args, **kwargs):
         if has_aux:
@@ -117,7 +74,18 @@ def _jacrev(fun, argnums=0, holomorphic=False, allow_int=False, has_aux=False, r
             else:
                 return y, None
 
-    transform = jax.jacrev(fun_wrapped, argnums=argnums, holomorphic=holomorphic, allow_int=allow_int, has_aux=True)
+    if unit_aware:
+        transform = u.autograd.jacrev(fun_wrapped,
+                                      argnums=argnums,
+                                      holomorphic=holomorphic,
+                                      allow_int=allow_int,
+                                      has_aux=True)
+    else:
+        transform = jax.jacrev(fun_wrapped,
+                               argnums=argnums,
+                               holomorphic=holomorphic,
+                               allow_int=allow_int,
+                               has_aux=True)
 
     @wraps(fun)
     def jacfun(*args, **kwargs):
@@ -130,7 +98,14 @@ def _jacrev(fun, argnums=0, holomorphic=False, allow_int=False, has_aux=False, r
     return jacfun
 
 
-def _jacfwd(fun, argnums=0, holomorphic=False, has_aux=False, return_value=False):
+def _jacfwd(
+    fun,
+    argnums=0,
+    holomorphic=False,
+    has_aux=False,
+    return_value=False,
+    unit_aware=False,
+):
     @wraps(fun)
     def fun_wrapped(*args, **kwargs):
         if has_aux:
@@ -146,7 +121,16 @@ def _jacfwd(fun, argnums=0, holomorphic=False, has_aux=False, return_value=False
             else:
                 return y, None
 
-    transform = jax.jacfwd(fun_wrapped, argnums=argnums, holomorphic=holomorphic, has_aux=True)
+    if unit_aware:
+        transform = u.autograd.jacfwd(fun_wrapped,
+                                      argnums=argnums,
+                                      holomorphic=holomorphic,
+                                      has_aux=True)
+    else:
+        transform = jax.jacfwd(fun_wrapped,
+                               argnums=argnums,
+                               holomorphic=holomorphic,
+                               has_aux=True)
 
     @wraps(fun)
     def jacfun(*args, **kwargs):
@@ -323,9 +307,9 @@ def grad(
     argnums: Optional[Union[int, Sequence[int]]] = None,
     holomorphic: Optional[bool] = False,
     allow_int: Optional[bool] = False,
-    reduce_axes: Optional[Sequence[str]] = (),
     has_aux: Optional[bool] = None,
     return_value: Optional[bool] = False,
+    unit_aware: bool = False,
 ) -> GradientTransform | Callable[[Callable], GradientTransform]:
     """
     Compute the gradient of a scalar-valued function with respect to its arguments.
@@ -333,27 +317,24 @@ def grad(
     %s
 
     Args:
-      fun: callable. the scalar-valued function to be differentiated.
-      reduce_axes: (Sequence[str]) optional. Specifies the axes to reduce over when
-        differentiating with respect to array-valued arguments. The default, (),
-        means to differentiate each element of the output with respect to each
-        element of the argument. If the argument is an array, this argument controls
-        how many axes the output of grad has.
-      allow_int: (bool) optional. Whether to allow differentiating with respect to
-        integer valued inputs. The gradient of an integer input will have a trivial
-        vector-space dtype (float0). Default False.
-      holomorphic: (bool) optional. Whether fun is promised to be holomorphic.
-        Default False.
-      grad_states: (State, Sequence[State], Dict[str, State]) optional. The variables
-        in fun to take their gradients.
-      fun: the scalar-valued function to be differentiated.
-      argnums: (int or tuple of ints) optional. Specifies which positional
-        argument(s) to differentiate with respect to.
-      has_aux: (bool) optional. Indicates whether fun returns a pair where the
-        first element is considered the output of the mathematical function to be
-        differentiated and the second element is auxiliary data. Default False.
-      return_value: (bool) optional. Indicates whether to return the value of the
-        function along with the gradient. Default False.
+        fun: callable. the scalar-valued function to be differentiated.
+        allow_int: (bool) optional. Whether to allow differentiating with respect to
+            integer valued inputs. The gradient of an integer input will have a trivial
+            vector-space dtype (float0). Default False.
+        holomorphic: (bool) optional. Whether fun is promised to be holomorphic.
+            Default False.
+        grad_states: (State, Sequence[State], Dict[str, State]) optional. The variables
+            in fun to take their gradients.
+        fun: the scalar-valued function to be differentiated.
+        argnums: (int or tuple of ints) optional. Specifies which positional
+            argument(s) to differentiate with respect to.
+        has_aux: (bool) optional. Indicates whether fun returns a pair where the
+            first element is considered the output of the mathematical function to be
+            differentiated and the second element is auxiliary data. Default False.
+        return_value: (bool) optional. Indicates whether to return the value of the
+            function along with the gradient. Default False.
+        unit_aware: (bool) optional. Whether to return the gradient in the unit-aware
+            mode. Default False.
 
     Returns:
       A function which computes the gradient of fun. The function takes the same
@@ -367,26 +348,24 @@ def grad(
     if isinstance(fun, Missing):
         def transform(fun) -> GradientTransform:
             return GradientTransform(target=fun,
-                                     transform=jax.grad,
+                                     transform=u.autograd.grad if unit_aware else jax.grad,
                                      grad_states=grad_states,
                                      argnums=argnums,
                                      return_value=return_value,
                                      has_aux=False if has_aux is None else has_aux,
                                      transform_params=dict(holomorphic=holomorphic,
-                                                           allow_int=allow_int,
-                                                           reduce_axes=reduce_axes))
+                                                           allow_int=allow_int))
 
         return transform
 
     return GradientTransform(target=fun,
-                             transform=jax.grad,
+                             transform=u.autograd.grad if unit_aware else jax.grad,
                              grad_states=grad_states,
                              argnums=argnums,
                              return_value=return_value,
                              has_aux=False if has_aux is None else has_aux,
                              transform_params=dict(holomorphic=holomorphic,
-                                                   allow_int=allow_int,
-                                                   reduce_axes=reduce_axes))
+                                                   allow_int=allow_int))
 
 
 grad.__doc__ = grad.__doc__ % _doc_of_return
@@ -399,6 +378,7 @@ def vector_grad(
     argnums: Optional[Union[int, Sequence[int]]] = None,
     return_value: bool = False,
     has_aux: Optional[bool] = None,
+    unit_aware: bool = False,
 ) -> GradientTransform | Callable[[Callable], GradientTransform]:
     """Take vector-valued gradients for function ``func``.
 
@@ -410,28 +390,30 @@ def vector_grad(
     Parameters
     ----------
     func: Callable
-      Function whose gradient is to be computed.
+        Function whose gradient is to be computed.
     grad_states : optional, ArrayType, sequence of ArrayType, dict
-      The variables in ``func`` to take their gradients.
+        The variables in ``func`` to take their gradients.
     has_aux: optional, bool
-      Indicates whether ``fun`` returns a pair where the
-      first element is considered the output of the mathematical function to be
-      differentiated and the second element is auxiliary data. Default False.
+        Indicates whether ``fun`` returns a pair where the
+        first element is considered the output of the mathematical function to be
+        differentiated and the second element is auxiliary data. Default False.
     return_value : bool
-      Whether return the loss value.
+        Whether return the loss value.
     argnums: Optional, integer or sequence of integers. Specifies which
-      positional argument(s) to differentiate with respect to (default ``0``).
+        positional argument(s) to differentiate with respect to (default ``0``).
+    unit_aware: (bool) optional. Whether to return the gradient in the unit-aware
+        mode. Default False.
 
     Returns
     -------
     func : GradientTransform
-      The vector gradient function.
+        The vector gradient function.
     """
 
     if isinstance(func, Missing):
         def transform(fun) -> GradientTransform:
             return GradientTransform(target=fun,
-                                     transform=functional_vector_grad,
+                                     transform=partial(u.autograd.vector_grad, unit_aware=unit_aware),
                                      grad_states=grad_states,
                                      argnums=argnums,
                                      return_value=return_value,
@@ -441,7 +423,7 @@ def vector_grad(
 
     else:
         return GradientTransform(target=func,
-                                 transform=functional_vector_grad,
+                                 transform=partial(u.autograd.vector_grad, unit_aware=unit_aware),
                                  grad_states=grad_states,
                                  argnums=argnums,
                                  return_value=return_value,
@@ -460,6 +442,7 @@ def jacrev(
     return_value: bool = False,
     holomorphic: bool = False,
     allow_int: bool = False,
+    unit_aware: bool = False,
 ) -> GradientTransform:
     """
     Extending automatic Jacobian (reverse-mode) of ``func`` to classes.
@@ -473,25 +456,28 @@ def jacrev(
 
     Parameters
     ----------
-    fun: Function whose Jacobian is to be computed.
+    fun: Callable
+        Function whose Jacobian is to be computed.
     grad_states : optional, ArrayType, sequence of ArrayType, dict
-      The variables in ``func`` to take their gradients.
+        The variables in ``func`` to take their gradients.
     has_aux: optional, bool
-      Indicates whether ``fun`` returns a pair where the
-      first element is considered the output of the mathematical function to be
-      differentiated and the second element is auxiliary data. Default False.
+        Indicates whether ``fun`` returns a pair where the
+        first element is considered the output of the mathematical function to be
+        differentiated and the second element is auxiliary data. Default False.
     return_value : bool
-      Whether return the loss value.
+        Whether return the loss value.
     argnums: Optional, integer or sequence of integers.
-      Specifies which
-      positional argument(s) to differentiate with respect to (default ``0``).
+        Specifies which
+        positional argument(s) to differentiate with respect to (default ``0``).
     holomorphic: Optional, bool.
-      Indicates whether ``fun`` is promised to be
-      holomorphic. Default False.
+        Indicates whether ``fun`` is promised to be
+        holomorphic. Default False.
     allow_int: Optional, bool.
-      Whether to allow differentiating with
-      respect to integer valued inputs. The gradient of an integer input will
-      have a trivial vector-space dtype (float0). Default False.
+        Whether to allow differentiating with
+        respect to integer valued inputs. The gradient of an integer input will
+        have a trivial vector-space dtype (float0). Default False.
+    unit_aware: (bool) optional. Whether to return the gradient in the unit-aware
+        mode. Default False.
 
     Returns
     -------
@@ -505,7 +491,8 @@ def jacrev(
                              return_value=return_value,
                              has_aux=False if has_aux is None else has_aux,
                              transform_params=dict(holomorphic=holomorphic,
-                                                   allow_int=allow_int))
+                                                   allow_int=allow_int,
+                                                   unit_aware=unit_aware, ))
 
 
 jacrev.__doc__ = jacrev.__doc__ % _doc_of_return
@@ -521,6 +508,7 @@ def jacfwd(
     has_aux: Optional[bool] = None,
     return_value: bool = False,
     holomorphic: bool = False,
+    unit_aware: bool = False,
 ) -> GradientTransform:
     """Extending automatic Jacobian (forward-mode) of ``func`` to classes.
 
@@ -542,9 +530,11 @@ def jacfwd(
     return_value : bool
       Whether return the loss value.
     argnums: Optional, integer or sequence of integers. Specifies which
-      positional argument(s) to differentiate with respect to (default ``0``).
+        positional argument(s) to differentiate with respect to (default ``0``).
     holomorphic: Optional, bool. Indicates whether ``fun`` is promised to be
-      holomorphic. Default False.
+        holomorphic. Default False.
+    unit_aware: (bool) optional. Whether to return the gradient in the unit-aware
+        mode. Default False.
 
     Returns
     -------
@@ -558,7 +548,8 @@ def jacfwd(
                              argnums=argnums,
                              return_value=return_value,
                              has_aux=False if has_aux is None else has_aux,
-                             transform_params=dict(holomorphic=holomorphic))
+                             transform_params=dict(holomorphic=holomorphic,
+                                                   unit_aware=unit_aware))
 
 
 jacfwd.__doc__ = jacfwd.__doc__ % _doc_of_return
@@ -569,9 +560,10 @@ def hessian(
     func: Callable,
     grad_states: Optional[Union[State, Sequence[State], Dict[str, State]]] = None,
     argnums: Optional[Union[int, Sequence[int]]] = None,
-    has_aux: bool = False,
     return_value: bool = False,
     holomorphic: bool = False,
+    has_aux: Optional[bool] = None,
+    unit_aware: bool = False,
 ) -> GradientTransform:
     """
     Hessian of ``func`` as a dense array.
@@ -593,6 +585,12 @@ def hessian(
       Indicates whether ``fun`` is promised to be holomorphic. Default False.
     return_value : bool
       Whether return the hessian values.
+    has_aux: Optional, bool
+        Indicates whether ``fun`` returns a pair where the first element is considered
+        the output of the mathematical function to be differentiated and the second
+        element is auxiliary data. Default False.
+    unit_aware: (bool) optional. Whether to return the gradient in the unit-aware
+        mode. Default False.
 
     Returns
     -------
@@ -600,7 +598,7 @@ def hessian(
       The transformed object.
     """
     return GradientTransform(target=func,
-                             transform=jax.hessian,
+                             transform=u.autograd.hessian if unit_aware else jax.hessian,
                              grad_states=grad_states,
                              argnums=argnums,
                              return_value=return_value,
