@@ -679,7 +679,7 @@ class StateTraceStack(Generic[A]):
         """
         for st, val in zip(self.states, self._original_state_values):
             # internal use
-            st._value = val
+            st.restore_value(val)
 
     def merge(self, *traces) -> 'StateTraceStack':
         """

@@ -1,4 +1,4 @@
 numpy
 jax
 jaxlib
-brainunit>=0.0.2
+brainunit>=0.0.3
