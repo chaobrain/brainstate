@@ -88,7 +88,7 @@ class _DropoutNd(ElementWiseBlock):
         name: Optional[str] = None
     ) -> None:
         super().__init__(name=name)
-        assert 0. <= prob < 1., f"Dropout probability must be in the range [0, 1). But got {prob}."
+        assert 0. <= prob <= 1., f"Dropout probability must be in the range [0, 1]. But got {prob}."
         self.prob = prob
         self.channel_axis = channel_axis
 
@@ -112,7 +112,7 @@ class _DropoutNd(ElementWiseBlock):
         fit_phase = environ.get('fit', desc='Whether this is a fitting process. Bool.')
 
         # generate mask
-        if fit_phase:
+        if fit_phase and self.prob < 1.:
             dtype = u.math.get_dtype(x)
             keep_mask = jnp.broadcast_to(random.bernoulli(self.prob, mask_shape), x.shape)
             return jnp.where(keep_mask,
@@ -396,7 +396,7 @@ class DropoutFixed(ElementWiseBlock):
         name: Optional[str] = None
     ) -> None:
         super().__init__(name=name)
-        assert 0. <= prob < 1., f"Dropout probability must be in the range [0, 1). But got {prob}."
+        assert 0. <= prob <= 1., f"Dropout probability must be in the range [0, 1]. But got {prob}."
         self.prob = prob
         self.in_size = in_size
         self.out_size = in_size
@@ -407,7 +407,7 @@ class DropoutFixed(ElementWiseBlock):
     def update(self, x):
         dtype = u.math.get_dtype(x)
         fit_phase = environ.get('fit', desc='Whether this is a fitting process. Bool.')
-        if fit_phase:
+        if fit_phase and self.prob < 1.:
             if self.mask.value.shape != x.shape:
                 raise ValueError(f"Input shape {x.shape} does not match the mask shape {self.mask.value.shape}. "
                                  f"Please call `init_state()` method first.")

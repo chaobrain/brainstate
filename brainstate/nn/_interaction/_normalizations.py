@@ -214,7 +214,7 @@ def _normalize(
         y = y * mul
         args = []
         if weights is not None:
-            y, args = _scale_operation(y, weights.value, feature_shape)
+            y, args = _scale_operation(y, weights.value)
         dtype = canonicalize_dtype(x, *args, dtype=dtype)
     else:
         assert var is None, 'mean and val must be both None or not None.'
@@ -223,13 +223,13 @@ def _normalize(
     return jnp.asarray(y, dtype)
 
 
-def _scale_operation(x: jax.Array, param: Dict, feature_shape: Axes):
+def _scale_operation(x: jax.Array, param: Dict):
     args = []
     if 'scale' in param:
-        x = x * param['scale'].reshape(feature_shape)
+        x = x * param['scale']
         args.append(param['scale'])
     if 'bias' in param:
-        x = x + param['bias'].reshape(feature_shape)
+        x = x + param['bias']
         args.append(param['bias'])
     return x, args
 
@@ -258,8 +258,8 @@ class _BatchNorm(Module):
         super().__init__(name=name)
 
         # parameters
-        self.in_size = tuple(in_size)
-        self.out_size = tuple(in_size)
+        self.in_size = in_size
+        self.out_size = in_size
         self.affine = affine
         self.bias_initializer = bias_initializer
         self.scale_initializer = scale_initializer
@@ -271,13 +271,13 @@ class _BatchNorm(Module):
 
         # parameters about axis
         feature_axis = (feature_axis,) if isinstance(feature_axis, int) else feature_axis
-        self.feature_axes = _canonicalize_axes(len(in_size), feature_axis)
+        self.feature_axes = _canonicalize_axes(len(self.in_size), feature_axis)
         self.axis_name = axis_name
         self.axis_index_groups = axis_index_groups
 
         # variables
         feature_shape = tuple([(ax if i in self.feature_axes else 1)
-                               for i, ax in enumerate(in_size)])
+                               for i, ax in enumerate(self.in_size)])
         if self.track_running_stats:
             self.running_mean = LongTermState(jnp.zeros(feature_shape, dtype=self.dtype))
             self.running_var = LongTermState(jnp.ones(feature_shape, dtype=self.dtype))
@@ -499,7 +499,9 @@ class LayerNorm(Module):
           by the next layer.
       bias_init: Initializer for bias, by default, zero.
       scale_init: Initializer for scale, by default, one.
-      reduction_axes: Axes for computing normalization statistics.
+      reduction_axes: Axes for computing normalization statistics. It is recommended
+            to use the negative integer, since when the batch dimension is used,
+            the reduction_axes may be wrong when using the positive integer.
       feature_axes: Feature axes for learned bias and scaling.
       axis_name: the axis name used to combine batch statistics from multiple
           devices. See ``jax.pmap`` for a description of axis names (default: None).
@@ -537,14 +539,14 @@ class LayerNorm(Module):
 
         # parameters about axis
         feature_axes = (feature_axes,) if isinstance(feature_axes, int) else feature_axes
-        self.feature_axes = _canonicalize_axes(len(in_size), feature_axes)
-        self.reduction_axes = reduction_axes
+        self.feature_axes = _canonicalize_axes(len(self.in_size), feature_axes)
+        self.reduction_axes = (reduction_axes,) if isinstance(reduction_axes, int) else reduction_axes
         self.axis_name = axis_name
         self.axis_index_groups = axis_index_groups
 
         # variables
         feature_shape = tuple([(ax if i in self.feature_axes else 1)
-                               for i, ax in enumerate(in_size)])
+                               for i, ax in enumerate(self.in_size)])
 
         weights = dict()
         if use_scale:
@@ -622,7 +624,9 @@ class RMSNorm(Module):
             (also e.g. nn.relu), this can be disabled since the scaling will be done
             by the next layer.
         scale_init: Initializer for scale, by default, one.
-        reduction_axes: Axes for computing normalization statistics.
+        reduction_axes: Axes for computing normalization statistics. It is recommended
+            to use the negative integer, since when the batch dimension is used,
+            the reduction_axes may be wrong when using the positive integer.
         feature_axes: Feature axes for learned bias and scaling.
         axis_name: the axis name used to combine batch statistics from multiple
             devices. See ``jax.pmap`` for a description of axis names (default: None).
@@ -654,19 +658,20 @@ class RMSNorm(Module):
         super().__init__()
 
         self.in_size = in_size
+        self.out_size = in_size
 
         # parameters about axis
         feature_axes = (feature_axes,) if isinstance(feature_axes, int) else feature_axes
-        self.feature_axes = _canonicalize_axes(len(in_size), feature_axes)
-        self.reduction_axes = reduction_axes
+        self.feature_axes = _canonicalize_axes(len(self.in_size), feature_axes)
+        self.reduction_axes = (reduction_axes, ) if isinstance(reduction_axes, int) else reduction_axes
         self.axis_name = axis_name
         self.axis_index_groups = axis_index_groups
 
         # variables
         feature_shape = tuple([(ax if i in self.feature_axes else 1)
-                               for i, ax in enumerate(in_size)])
+                               for i, ax in enumerate(self.in_size)])
         if use_scale:
-            self.scale = ParamState(init.param(scale_init, feature_shape))
+            self.scale = ParamState({'scale': init.param(scale_init, feature_shape)})
         else:
             self.scale = None
 
@@ -755,6 +760,8 @@ class GroupNorm(Module):
         feature axis. Furthermore, if the input used at call time has additional
         leading axes compared to the data used for initialisation, for example due
         to batching, then the reduction axes need to be defined explicitly.
+        It is recommended to use the negative integer, since when the batch dimension is used,
+        the reduction_axes may be wrong when using the positive integer.
       axis_name: the axis name used to combine batch statistics from multiple
         devices. See ``jax.pmap`` for a description of axis names (default: None).
         This is only needed if the model is subdivided across devices, i.e. the
@@ -796,7 +803,8 @@ class GroupNorm(Module):
 
         # parameters about axis
         feature_axis = (feature_axis,) if isinstance(feature_axis, int) else feature_axis
-        self.feature_axes = _canonicalize_axes(len(in_size), feature_axis)
+        self.feature_axes = _canonicalize_axes(len(self.in_size), feature_axis)
+        self.reduction_axes = (reduction_axes,) if isinstance(reduction_axes, int) else reduction_axes
         self.axis_name = axis_name
         self.axis_index_groups = axis_index_groups
 
@@ -811,7 +819,7 @@ class GroupNorm(Module):
             )
 
         feature_shape = tuple([(ax if i in self.feature_axes else 1)
-                               for i, ax in enumerate(in_size)])
+                               for i, ax in enumerate(self.in_size)])
         assert len(feature_shape) == 1, 'GroupNorm only supports 1D feature axis.'
         num_features = feature_shape[0]
         if group_size is not None:
@@ -851,7 +859,6 @@ class GroupNorm(Module):
         self.use_scale = use_scale
         self.bias_init = bias_init
         self.scale_init = scale_init
-        self.reduction_axes = reduction_axes
         self.use_fast_variance = use_fast_variance
 
     def update(self, x, *, mask: Optional[jax.Array] = None):
