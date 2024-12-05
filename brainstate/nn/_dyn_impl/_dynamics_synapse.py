@@ -112,7 +112,7 @@ class STP(Synapse):
         self.u.value = init.param(init.Constant(self.U), self.varshape, batch_size)
 
     def update(self, pre_spike):
-        u = exp_euler_step(lambda u: self.U - u / self.tau_f, self.u.value)
+        u = exp_euler_step(lambda u: - u / self.tau_f, self.u.value)
         x = exp_euler_step(lambda x: (1 - x) / self.tau_d, self.x.value)
 
         # --- original code:
