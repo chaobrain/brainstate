@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 from functools import partial
-from typing import Optional
+from typing import Optional, Sequence
 
 import brainunit as u
 import jax.numpy as jnp
@@ -29,7 +29,6 @@ from brainstate.typing import Size
 
 __all__ = [
     'DropoutFixed', 'Dropout', 'Dropout1d', 'Dropout2d', 'Dropout3d',
-    'AlphaDropout', 'FeatureAlphaDropout',
 ]
 
 
@@ -47,9 +46,9 @@ class Dropout(ElementWiseBlock):
            research 15.1 (2014): 1929-1958.
 
     Args:
-      prob: Probability to keep element of the tensor.
-      mode: Mode. The computation mode of the object.
-      name: str. The name of the dynamic system.
+        prob: Probability to keep element of the tensor.
+        broadcast_dims: dimensions that will share the same dropout mask.
+        name: str. The name of the dynamic system.
 
     """
     __module__ = 'brainstate.nn'
@@ -57,20 +56,28 @@ class Dropout(ElementWiseBlock):
     def __init__(
         self,
         prob: float = 0.5,
+        broadcast_dims: Sequence[int] = (),
         name: Optional[str] = None
     ) -> None:
         super().__init__(name=name)
         assert 0. <= prob <= 1., f"Dropout probability must be in the range [0, 1]. But got {prob}."
         self.prob = prob
+        self.broadcast_dims = broadcast_dims
 
     def __call__(self, x):
         dtype = u.math.get_dtype(x)
         fit_phase = environ.get('fit', desc='Whether this is a fitting process. Bool.')
         if fit_phase and self.prob < 1.:
-            keep_mask = random.bernoulli(self.prob, x.shape)
-            return jnp.where(keep_mask,
-                             jnp.asarray(x / self.prob, dtype=dtype),
-                             jnp.asarray(0., dtype=dtype))
+            broadcast_shape = list(x.shape)
+            for dim in self.broadcast_dims:
+                broadcast_shape[dim] = 1
+            keep_mask = random.bernoulli(self.prob, broadcast_shape)
+            keep_mask = jnp.broadcast_to(keep_mask, x.shape)
+            return jnp.where(
+                keep_mask,
+                jnp.asarray(x / self.prob, dtype=dtype),
+                jnp.asarray(0., dtype=dtype)
+            )
         else:
             return x
 
@@ -93,7 +100,6 @@ class _DropoutNd(ElementWiseBlock):
         self.channel_axis = channel_axis
 
     def __call__(self, x):
-
         # check input shape
         inp_dim = u.math.ndim(x)
         if inp_dim not in (self.minimal_dim, self.minimal_dim + 1):
@@ -114,10 +120,13 @@ class _DropoutNd(ElementWiseBlock):
         # generate mask
         if fit_phase and self.prob < 1.:
             dtype = u.math.get_dtype(x)
-            keep_mask = jnp.broadcast_to(random.bernoulli(self.prob, mask_shape), x.shape)
-            return jnp.where(keep_mask,
-                             jnp.asarray(x / self.prob, dtype=dtype),
-                             jnp.asarray(0., dtype=dtype))
+            keep_mask = random.bernoulli(self.prob, mask_shape)
+            keep_mask = jnp.broadcast_to(keep_mask, x.shape)
+            return jnp.where(
+                keep_mask,
+                jnp.asarray(x / self.prob, dtype=dtype),
+                jnp.asarray(0., dtype=dtype)
+            )
         else:
             return x
 
@@ -296,8 +305,8 @@ class AlphaDropout(_DropoutNd):
     """
     __module__ = 'brainstate.nn'
 
-    def forward(self, x):
-        return F.alpha_dropout(x, self.p, self.training)
+    def update(self, *args, **kwargs):
+        raise NotImplementedError("AlphaDropout is not supported in the current version.")
 
 
 class FeatureAlphaDropout(_DropoutNd):
@@ -344,8 +353,8 @@ class FeatureAlphaDropout(_DropoutNd):
     """
     __module__ = 'brainstate.nn'
 
-    def forward(self, x):
-        return F.feature_alpha_dropout(x, self.p, self.training)
+    def update(self, *args, **kwargs):
+        raise NotImplementedError("FeatureAlphaDropout is not supported in the current version.")
 
 
 class DropoutFixed(ElementWiseBlock):

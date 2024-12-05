@@ -204,7 +204,91 @@ class TestVmap(unittest.TestCase):
         self.assertTrue(jnp.allclose(foo.a.value, jnp.arange(4)))
         self.assertTrue(jnp.allclose(foo.b.value, jnp.arange(4) * jnp.arange(4)))
 
+        write_state_ids = [id(st) for st in trace.get_write_states()]
+        read_state_ids = [id(st) for st in trace.get_read_states()]
+
+        assert id(foo.a) in read_state_ids
+        assert id(foo.b) in write_state_ids
+
         print(trace.get_write_states())
         print(trace.get_read_states())
+
+
+
+    def test_vmap_jit(self):
+        class Foo(bst.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.a = bst.ParamState(jnp.arange(4))
+                self.b = bst.ShortTermState(jnp.arange(4))
+
+            def __call__(self):
+                self.b.value = self.a.value * self.b.value
+
+        @bst.augment.vmap
+        def mul(foo):
+            foo()
+
+        @bst.compile.jit
+        def mul_jit(inp):
+            mul(foo)
+            foo.a.value += inp
+
+        foo = Foo()
+        with bst.StateTraceStack() as trace:
+            mul_jit(1.)
+
+        print(foo.a.value)
+        print(foo.b.value)
+        self.assertTrue(jnp.allclose(foo.a.value, jnp.arange(4) + 1.))
+        self.assertTrue(jnp.allclose(foo.b.value, jnp.arange(4) * jnp.arange(4)))
+
+        write_state_ids = [id(st) for st in trace.get_write_states()]
+        read_state_ids = [id(st) for st in trace.get_read_states()]
+
+        assert id(foo.a) in write_state_ids
+        assert id(foo.b) in write_state_ids
+
+        print(trace.get_write_states())
+        print(trace.get_read_states())
+
+
+    def test_vmap_grad(self):
+        class Foo(bst.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.a = bst.ParamState(jnp.arange(4.))
+                self.b = bst.ShortTermState(jnp.arange(4.))
+
+            def __call__(self):
+                self.b.value = self.a.value * self.b.value
+
+        @bst.augment.vmap
+        def mul(foo):
+            foo()
+
+        def loss():
+            mul(foo)
+            return jnp.sum(foo.b.value)
+
+        foo = Foo()
+        with bst.StateTraceStack() as trace:
+            grads, loss = bst.augment.grad(loss, foo.states(bst.ParamState), return_value=True)()
+            print(grads)
+            print(loss)
+
+        # print(foo.a.value)
+        # print(foo.b.value)
+        # self.assertTrue(jnp.allclose(foo.a.value, jnp.arange(4) + 1.))
+        # self.assertTrue(jnp.allclose(foo.b.value, jnp.arange(4) * jnp.arange(4)))
+        #
+        # write_state_ids = [id(st) for st in trace.get_write_states()]
+        # read_state_ids = [id(st) for st in trace.get_read_states()]
+        #
+        # assert id(foo.a) in write_state_ids
+        # assert id(foo.b) in write_state_ids
+        #
+        # print(trace.get_write_states())
+        # print(trace.get_read_states())
 
 

@@ -20,8 +20,10 @@ from typing import Dict, Callable, TypeVar
 
 import jax
 
+from brainstate._state import catch_new_states
 from brainstate._utils import set_module_as
 from brainstate.graph import nodes
+from brainstate.util._filter import Filter
 from ._module import Module
 
 # the maximum order
@@ -74,34 +76,50 @@ def call_order(level: int = 0, check_order_boundary: bool = True):
 
 
 @set_module_as('brainstate.nn')
-def init_all_states(target: T, *args, exclude=None, **kwargs) -> T:
+def init_all_states(
+    target: T,
+    *args,
+    exclude: Filter = None,
+    tag: str = None,
+    **kwargs
+) -> T:
     """
     Collectively initialize states of all children nodes in the given target.
 
     Args:
       target: The target Module.
+      exclude: The filter to exclude some nodes.
+      tag: The tag for the new states.
+      args: The positional arguments for the initialization, which will be passed to the `init_state` method
+        of each node.
+      kwargs: The keyword arguments for the initialization, which will be passed to the `init_state` method
+        of each node.
 
     Returns:
       The target Module.
     """
-    nodes_with_order = []
 
-    nodes_ = nodes(target).filter(Module)
-    if exclude is not None:
-        nodes_ = nodes_ - nodes_.filter(exclude)
+    with catch_new_states(tag=tag):
 
-    # reset node whose `init_state` has no `call_order`
-    for node in list(nodes_.values()):
-        if hasattr(node.init_state, 'call_order'):
-            nodes_with_order.append(node)
-        else:
+        # node that has `call_order` decorated
+        nodes_with_order = []
+
+        nodes_ = nodes(target).filter(Module)
+        if exclude is not None:
+            nodes_ = nodes_ - nodes_.filter(exclude)
+
+        # reset node whose `init_state` has no `call_order`
+        for node in list(nodes_.values()):
+            if hasattr(node.init_state, 'call_order'):
+                nodes_with_order.append(node)
+            else:
+                node.init_state(*args, **kwargs)
+
+        # reset the node's states with `call_order`
+        for node in sorted(nodes_with_order, key=lambda x: x.init_state.call_order):
             node.init_state(*args, **kwargs)
 
-    # reset the node's states
-    for node in sorted(nodes_with_order, key=lambda x: x.init_state.call_order):
-        node.init_state(*args, **kwargs)
-
-    return target
+        return target
 
 
 @set_module_as('brainstate.nn')
@@ -115,6 +133,7 @@ def reset_all_states(target: Module, *args, **kwargs) -> Module:
     Returns:
       The target Module.
     """
+
     nodes_with_order = []
 
     # reset node whose `init_state` has no `call_order`

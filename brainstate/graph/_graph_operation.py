@@ -608,7 +608,10 @@ def _get_children(graph_def, state_mapping, index_ref, index_ref_cache):
                         if isinstance(value, TreefyState):
                             variable.update_from_ref(value)
                         elif isinstance(value, State):
-                            variable.restore_value(value.value)
+                             if value._been_writen:
+                                variable.write_value(value.value)
+                             else:
+                                variable.restore_value(value.value)
                         else:
                             raise ValueError(f'Expected a State type for {key!r}, but got {type(value)}.')
                     else:  # if it doesn't, create a new variable

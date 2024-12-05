@@ -99,6 +99,9 @@ def catch_new_states(tag: str = None) -> List:
 
 
 class Catcher:
+    """
+    The catcher to catch the new states.
+    """
     def __init__(self, tag: str):
         self.tag = tag
         self.state_ids = set()
@@ -231,6 +234,7 @@ class State(Generic[A], PrettyRepr):
         # avoid using self._setattr to avoid the check
         vars(self).update(metadata)
 
+        # record the state initialization
         record_state_init(self)
 
     if not TYPE_CHECKING:
@@ -290,7 +294,6 @@ class State(Generic[A], PrettyRepr):
           v: The value.
         """
         self.write_value(v)
-        self._been_writen = True
 
     def write_value(self, v) -> None:
         # value checking
@@ -301,6 +304,8 @@ class State(Generic[A], PrettyRepr):
         record_state_value_write(self)
         # set the value
         self._value = v
+        # set flag
+        self._been_writen = True
 
     def restore_value(self, v) -> None:
         """
@@ -509,6 +514,15 @@ class LongTermState(State):
     """
 
     __module__ = 'brainstate'
+
+
+class BatchState(LongTermState):
+    """
+    The batch state, which is used to store the batch data in the program.
+    """
+
+    __module__ = 'brainstate'
+
 
 
 class HiddenState(ShortTermState):

@@ -23,7 +23,7 @@ import jax
 import jax.numpy as jnp
 
 from brainstate import environ, init
-from brainstate._state import LongTermState, ParamState
+from brainstate._state import ParamState, BatchState
 from brainstate.nn._module import Module
 from brainstate.typing import DTypeLike, ArrayLike, Size, Axes
 
@@ -91,6 +91,18 @@ def _abs_sq(x):
         return jax.lax.square(x)
 
 
+class NormalizationParamState(ParamState):
+    # This is a dummy class to be used as a compatibility
+    # usage of `ETraceParam` for the layers in "brainetrace"
+    def execute(self, x):
+        param = self.value
+        if 'scale' in param:
+            x = x * param['scale']
+        if 'bias' in param:
+            x = x + param['bias']
+        return x
+
+
 def _compute_stats(
     x: ArrayLike,
     axes: Sequence[int],
@@ -150,12 +162,17 @@ def _compute_stats(
             # In the distributed case we stack multiple arrays to speed comms.
             if len(xs) > 1:
                 reduced_mus = jax.lax.pmean(
-                    jnp.stack(mus, axis=0), axis_name,
+                    jnp.stack(mus, axis=0),
+                    axis_name,
                     axis_index_groups=axis_index_groups,
                 )
                 return tuple(reduced_mus[i] for i in range(len(xs)))
             else:
-                return jax.lax.pmean(mus[0], axis_name, axis_index_groups=axis_index_groups)
+                return jax.lax.pmean(
+                    mus[0],
+                    axis_name,
+                    axis_index_groups=axis_index_groups
+                )
 
     if use_mean:
         if use_fast_variance:
@@ -176,7 +193,7 @@ def _normalize(
     x: ArrayLike,
     mean: Optional[ArrayLike],
     var: Optional[ArrayLike],
-    weights: Optional[ParamState],
+    weights: Optional[NormalizationParamState],
     reduction_axes: Axes,
     feature_axes: Axes,
     dtype: DTypeLike,
@@ -212,26 +229,14 @@ def _normalize(
         y = x - mean
         mul = jax.lax.rsqrt(var + epsilon)
         y = y * mul
-        args = []
         if weights is not None:
-            y, args = _scale_operation(y, weights.value)
-        dtype = canonicalize_dtype(x, *args, dtype=dtype)
+            y = weights.execute(y)
+        dtype = canonicalize_dtype(x, *jax.tree.leaves(weights.value), dtype=dtype)
     else:
         assert var is None, 'mean and val must be both None or not None.'
         assert weights is None, 'scale and bias are not supported without mean and val'
         y = x
     return jnp.asarray(y, dtype)
-
-
-def _scale_operation(x: jax.Array, param: Dict):
-    args = []
-    if 'scale' in param:
-        x = x * param['scale']
-        args.append(param['scale'])
-    if 'bias' in param:
-        x = x + param['bias']
-        args.append(param['bias'])
-    return x, args
 
 
 class _BatchNorm(Module):
@@ -254,6 +259,8 @@ class _BatchNorm(Module):
         use_fast_variance: bool = True,
         name: Optional[str] = None,
         dtype: Any = None,
+        param_type: type = NormalizationParamState,
+        mean_type: type = BatchState,
     ):
         super().__init__(name=name)
 
@@ -279,8 +286,8 @@ class _BatchNorm(Module):
         feature_shape = tuple([(ax if i in self.feature_axes else 1)
                                for i, ax in enumerate(self.in_size)])
         if self.track_running_stats:
-            self.running_mean = LongTermState(jnp.zeros(feature_shape, dtype=self.dtype))
-            self.running_var = LongTermState(jnp.ones(feature_shape, dtype=self.dtype))
+            self.running_mean = mean_type(jnp.zeros(feature_shape, dtype=self.dtype))
+            self.running_var = mean_type(jnp.ones(feature_shape, dtype=self.dtype))
         else:
             self.running_mean = None
             self.running_var = None
@@ -290,7 +297,7 @@ class _BatchNorm(Module):
             assert track_running_stats, "Affine parameters are not needed when track_running_stats is False."
             bias = init.param(self.bias_initializer, feature_shape)
             scale = init.param(self.scale_initializer, feature_shape)
-            self.weight = ParamState(dict(bias=bias, scale=scale))
+            self.weight = param_type(dict(bias=bias, scale=scale))
         else:
             self.weight = None
 
@@ -531,6 +538,7 @@ class LayerNorm(Module):
         axis_index_groups: Any = None,
         use_fast_variance: bool = True,
         dtype: Optional[jax.typing.DTypeLike] = None,
+        param_type: type = NormalizationParamState,
     ):
         super().__init__()
 
@@ -554,7 +562,7 @@ class LayerNorm(Module):
         if use_bias:
             weights['bias'] = init.param(bias_init, feature_shape)
         if len(weights):
-            self.weight = ParamState(weights)
+            self.weight = param_type(weights)
         else:
             self.weight = None
 
@@ -654,6 +662,7 @@ class RMSNorm(Module):
         axis_name: Optional[str] = None,
         axis_index_groups: Any = None,
         use_fast_variance: bool = True,
+        param_type: type = NormalizationParamState,
     ):
         super().__init__()
 
@@ -663,7 +672,7 @@ class RMSNorm(Module):
         # parameters about axis
         feature_axes = (feature_axes,) if isinstance(feature_axes, int) else feature_axes
         self.feature_axes = _canonicalize_axes(len(self.in_size), feature_axes)
-        self.reduction_axes = (reduction_axes, ) if isinstance(reduction_axes, int) else reduction_axes
+        self.reduction_axes = (reduction_axes,) if isinstance(reduction_axes, int) else reduction_axes
         self.axis_name = axis_name
         self.axis_index_groups = axis_index_groups
 
@@ -671,7 +680,7 @@ class RMSNorm(Module):
         feature_shape = tuple([(ax if i in self.feature_axes else 1)
                                for i, ax in enumerate(self.in_size)])
         if use_scale:
-            self.scale = ParamState({'scale': init.param(scale_init, feature_shape)})
+            self.scale = param_type({'scale': init.param(scale_init, feature_shape)})
         else:
             self.scale = None
 
@@ -795,6 +804,7 @@ class GroupNorm(Module):
         axis_name: Optional[str] = None,
         axis_index_groups: Any = None,
         use_fast_variance: bool = True,
+        param_type: type = NormalizationParamState,
     ):
         super().__init__()
 
@@ -848,7 +858,7 @@ class GroupNorm(Module):
         if use_bias:
             weights['bias'] = init.param(bias_init, feature_shape)
         if len(weights):
-            self.weight = ParamState(weights)
+            self.weight = param_type(weights)
         else:
             self.weight = None
 

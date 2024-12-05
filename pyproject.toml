@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 exclude = [
-    "docs*", "tests*", "examples*", "experiments*", "build*", "dist*",
+    "docs*", "tests*", "examples*", "experiments*", "benchmark*", "build*", "dist*",
     "brainstate.egg-info*", "brainstate/__pycache__*",
     "brainstate/__init__.py"
 ]

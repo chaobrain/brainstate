@@ -11,3 +11,13 @@ Examples including models fom deep learning, brain simulation, and brain-inspire
 Some of the examples below have a link "Interactive🕹" that lets you run them
 directly in Colab.
 
+
+
+Examples for deep learning
+--------------------------
+
+- `Linear Recurrent Unit (LRU) <https://arxiv.org/abs/2303.06349>`_ Implementation based on BrainState: https://github.com/chaobrain/linear-recurrent-unit-brainstate
+
+
+
+
