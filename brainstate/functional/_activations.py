@@ -588,8 +588,7 @@ def glu(x: ArrayLike, axis: int = -1) -> Union[jax.Array, u.Quantity]:
 
 def log_softmax(x: ArrayLike,
                 axis: int | tuple[int, ...] | None = -1,
-                where: ArrayLike | None = None,
-                initial: ArrayLike | None = None) -> Union[jax.Array, u.Quantity]:
+                where: ArrayLike | None = None) -> Union[jax.Array, u.Quantity]:
     r"""Log-Softmax function.
 
     Computes the logarithm of the :code:`softmax` function, which rescales
@@ -604,8 +603,6 @@ def log_softmax(x: ArrayLike,
       axis: the axis or axes along which the :code:`log_softmax` should be
         computed. Either an integer or a tuple of integers.
       where: Elements to include in the :code:`log_softmax`.
-      initial: The minimum value used to shift the input array. Must be present
-        when :code:`where` is not None.
 
     Returns:
       An array.
@@ -613,15 +610,12 @@ def log_softmax(x: ArrayLike,
     See also:
       :func:`softmax`
     """
-    if initial is not None:
-        initial = u.Quantity(initial).in_unit(u.get_unit(x)).mantissa
-    return _keep_unit(jax.nn.log_softmax, x, axis=axis, where=where, initial=initial)
+    return _keep_unit(jax.nn.log_softmax, x, axis=axis, where=where)
 
 
 def softmax(x: ArrayLike,
             axis: int | tuple[int, ...] | None = -1,
-            where: ArrayLike | None = None,
-            initial: ArrayLike | None = None) -> Union[jax.Array, u.Quantity]:
+            where: ArrayLike | None = None) -> Union[jax.Array, u.Quantity]:
     r"""Softmax function.
 
     Computes the function which rescales elements to the range :math:`[0, 1]`
@@ -645,9 +639,7 @@ def softmax(x: ArrayLike,
     See also:
       :func:`log_softmax`
     """
-    if initial is not None:
-        initial = u.Quantity(initial).in_unit(u.get_unit(x)).mantissa
-    return _keep_unit(jax.nn.softmax, x, axis=axis, where=where, initial=initial)
+    return _keep_unit(jax.nn.softmax, x, axis=axis, where=where)
 
 
 def standardize(x: ArrayLike,

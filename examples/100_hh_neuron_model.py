@@ -92,6 +92,7 @@ class HH(bst.nn.Dynamics):
         return spike
 
 
+
 hh = HH(10)
 bst.nn.init_all_states(hh)
 dt = 0.01 * u.ms
@@ -104,10 +105,12 @@ def run(t, inp):
 
 
 times = u.math.arange(0. * u.ms, 100. * u.ms, dt)
-vs = bst.compile.for_loop(run,
-                          # times, random inputs
-                          times, bst.random.uniform(1., 10., times.shape) * u.uA / u.cm ** 2,
-                          pbar=bst.compile.ProgressBar(count=100))
+vs = bst.compile.for_loop(
+    run,
+    # times, random inputs
+    times, bst.random.uniform(1., 10., times.shape) * u.uA / u.cm ** 2,
+    pbar=bst.compile.ProgressBar(count=100)
+)
 
 plt.plot(times.to_decimal(u.ms), vs.to_decimal(u.mV))
 plt.show()

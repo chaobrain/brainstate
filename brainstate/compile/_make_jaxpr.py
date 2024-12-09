@@ -72,7 +72,6 @@ from jax.util import wraps
 from brainstate._state import State, StateTraceStack
 from brainstate._utils import set_module_as
 from brainstate.typing import PyTree
-from brainstate.util._tracers import new_jax_trace
 
 AxisName = Hashable
 
@@ -112,28 +111,27 @@ def _new_arg_fn(frame, trace, aval):
     return tracer
 
 
-def _init_state_trace() -> StateTraceStack:
-    # Should be within the calling of ``jax.make_jaxpr()``
-    frame, trace = new_jax_trace()
+def _new_jax_trace():
+    main = jax.core.thread_local_state.trace_state.trace_stack.stack[-1]
+    frame = main.jaxpr_stack[-1]
+    trace = pe.DynamicJaxprTrace(main, jax.core.cur_sublevel())
+    return frame, trace
+
+
+def _init_state_trace_stack() -> StateTraceStack:
     state_trace: StateTraceStack = StateTraceStack()
-    # Set the function to transform the new argument to a tracer
-    state_trace.set_new_arg(functools.partial(_new_arg_fn, frame, trace))
-    return state_trace
 
+    if jax.__version_info__ < (0, 4, 36):
+        # Should be within the calling of ``jax.make_jaxpr()``
+        frame, trace = _new_jax_trace()
+        # Set the function to transform the new argument to a tracer
+        state_trace.set_new_arg(functools.partial(_new_arg_fn, frame, trace))
+        return state_trace
 
-# def wrapped_abstractify(x: Any) -> Any:
-#   """
-#   Abstractify the input.
-#
-#   Args:
-#     x: The input.
-#
-#   Returns:
-#     The abstractified input.
-#   """
-#   if isinstance(x, pe.DynamicJaxprTracer):
-#     return jax.core.ShapedArray(x.aval.shape, x.aval.dtype, weak_type=x.aval.weak_type)
-#   return shaped_abstractify(x)
+    else:
+        trace = jax.core.trace_ctx.trace
+        state_trace.set_new_arg(trace.new_arg)
+        return state_trace
 
 
 class StatefulFunction(object):
@@ -383,12 +381,15 @@ class StatefulFunction(object):
           A tuple of the states that are read and written by the function and the output of the function.
         """
         # state trace
-        state_trace = _init_state_trace()
+        state_trace = _init_state_trace_stack()
         self._cached_state_trace[cache_key] = state_trace
         with state_trace:
             out = self.fun(*args, **kwargs)
-            state_values = state_trace.get_write_state_values(
-                True) if return_only_write else state_trace.get_state_values()
+            state_values = (
+                state_trace.get_write_state_values(True)
+                if return_only_write else
+                state_trace.get_state_values()
+            )
         state_trace.recovery_original_values()
 
         # State instance as functional returns is not allowed.
@@ -419,17 +420,21 @@ class StatefulFunction(object):
             try:
                 # jaxpr
                 jaxpr, (out_shapes, state_shapes) = _make_jaxpr(
-                    functools.partial(self._wrapped_fun_to_eval, cache_key, return_only_write=return_only_write),
+                    functools.partial(
+                        self._wrapped_fun_to_eval,
+                        cache_key,
+                        return_only_write=return_only_write
+                    ),
                     static_argnums=self.static_argnums,
                     axis_env=self.axis_env,
                     return_shape=True,
                     abstracted_axes=self.abstracted_axes
                 )(*args, **kwargs)
-
                 # returns
                 self._cached_jaxpr_out_tree[cache_key] = jax.tree.structure((out_shapes, state_shapes))
                 self._cached_out_shapes[cache_key] = (out_shapes, state_shapes)
                 self._cached_jaxpr[cache_key] = jaxpr
+
             except Exception as e:
                 try:
                     self._cached_state_trace.pop(cache_key)

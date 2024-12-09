@@ -80,7 +80,6 @@ def init_all_states(
     target: T,
     *args,
     exclude: Filter = None,
-    tag: str = None,
     **kwargs
 ) -> T:
     """
@@ -99,27 +98,25 @@ def init_all_states(
       The target Module.
     """
 
-    with catch_new_states(tag=tag):
+    # node that has `call_order` decorated
+    nodes_with_order = []
 
-        # node that has `call_order` decorated
-        nodes_with_order = []
+    nodes_ = nodes(target).filter(Module)
+    if exclude is not None:
+        nodes_ = nodes_ - nodes_.filter(exclude)
 
-        nodes_ = nodes(target).filter(Module)
-        if exclude is not None:
-            nodes_ = nodes_ - nodes_.filter(exclude)
-
-        # reset node whose `init_state` has no `call_order`
-        for node in list(nodes_.values()):
-            if hasattr(node.init_state, 'call_order'):
-                nodes_with_order.append(node)
-            else:
-                node.init_state(*args, **kwargs)
-
-        # reset the node's states with `call_order`
-        for node in sorted(nodes_with_order, key=lambda x: x.init_state.call_order):
+    # reset node whose `init_state` has no `call_order`
+    for node in list(nodes_.values()):
+        if hasattr(node.init_state, 'call_order'):
+            nodes_with_order.append(node)
+        else:
             node.init_state(*args, **kwargs)
 
-        return target
+    # reset the node's states with `call_order`
+    for node in sorted(nodes_with_order, key=lambda x: x.init_state.call_order):
+        node.init_state(*args, **kwargs)
+
+    return target
 
 
 @set_module_as('brainstate.nn')
