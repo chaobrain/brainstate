@@ -21,7 +21,6 @@
 #
 
 import brainunit as u
-import dendritex as dx
 import matplotlib.pyplot as plt
 
 import brainstate as bst
@@ -157,7 +156,7 @@ class EINet(bst.nn.DynamicsGroup):
 
 # network
 net = EINet()
-bst.nn.init_all_states(net, exclude=dx.IonChannel)
+bst.nn.init_all_states(net)
 
 # simulation
 with bst.environ.context(dt=0.1 * u.ms):

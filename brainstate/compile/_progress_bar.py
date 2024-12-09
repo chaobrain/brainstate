@@ -93,19 +93,37 @@ class ProgressBarRunner(object):
             self.tqdm_bars[0].update(self.remainder)
         self.tqdm_bars[0].close()
 
+    def _tqdm(self, is_init, is_print, is_final):
+        if is_init:
+            self.tqdm_bars[0] = tqdm(range(self.n), **self.kwargs)
+            self.tqdm_bars[0].set_description(self.message, refresh=False)
+        if is_print:
+            self.tqdm_bars[0].update(self.print_freq)
+        if is_final:
+            if self.remainder > 0:
+                self.tqdm_bars[0].update(self.remainder)
+            self.tqdm_bars[0].close()
+
     def __call__(self, iter_num, *args, **kwargs):
-        _ = jax.lax.cond(
+        jax.debug.callback(
+            self._tqdm,
             iter_num == 0,
-            lambda: jax.debug.callback(self._define_tqdm),
-            lambda: None,
-        )
-        _ = jax.lax.cond(
             (iter_num + 1) % self.print_freq == 0,
-            lambda: jax.debug.callback(self._update_tqdm),
-            lambda: None,
+            iter_num == self.n - 1
         )
-        _ = jax.lax.cond(
-            iter_num == self.n - 1,
-            lambda: jax.debug.callback(self._close_tqdm),
-            lambda: None,
-        )
+
+        # _ = jax.lax.cond(
+        #     iter_num == 0,
+        #     lambda: jax.debug.callback(self._define_tqdm, ordered=True),
+        #     lambda: None,
+        # )
+        # _ = jax.lax.cond(
+        #     (iter_num + 1) % self.print_freq == 0,
+        #     lambda: jax.debug.callback(self._update_tqdm, ordered=True),
+        #     lambda: None,
+        # )
+        # _ = jax.lax.cond(
+        #     iter_num == self.n - 1,
+        #     lambda: jax.debug.callback(self._close_tqdm, ordered=True),
+        #     lambda: None,
+        # )

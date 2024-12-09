@@ -211,7 +211,11 @@ def scan(
 
     # scan
     init = (all_writen_state_vals, init)
-    (all_writen_state_vals, carry), ys = jax.lax.scan(wrapped_f, init, xs, length=length, reverse=reverse,
+    (all_writen_state_vals, carry), ys = jax.lax.scan(wrapped_f,
+                                                      init,
+                                                      xs,
+                                                      length=length,
+                                                      reverse=reverse,
                                                       unroll=unroll)
     # assign the written state values and restore the read state values
     write_back_state_values(state_trace, all_read_state_vals, all_writen_state_vals)

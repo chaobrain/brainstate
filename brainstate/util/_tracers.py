@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import jax
 import jax.core
-from jax.interpreters import partial_eval as pe
 
 from ._pretty_repr import PrettyRepr, PrettyType, PrettyAttr
 
@@ -24,12 +23,6 @@ __all__ = [
     'StateJaxTracer',
 ]
 
-
-def new_jax_trace():
-    main = jax.core.thread_local_state.trace_state.trace_stack.stack[-1]
-    frame = main.jaxpr_stack[-1]
-    trace = pe.DynamicJaxprTrace(main, jax.core.cur_sublevel())
-    return frame, trace
 
 
 def current_jax_trace():
