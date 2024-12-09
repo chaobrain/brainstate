@@ -103,11 +103,10 @@ def while_loop(
             pass
 
     # evaluate jaxpr
-    with jax.ensure_compile_time_eval():
-        stateful_cond = StatefulFunction(cond_fun).make_jaxpr(init_val)
-        stateful_body = StatefulFunction(body_fun).make_jaxpr(init_val)
-        if len(stateful_cond.get_write_states()) != 0:
-            raise ValueError("while_loop: cond_fun should not have any write states.")
+    stateful_cond = StatefulFunction(cond_fun).make_jaxpr(init_val)
+    stateful_body = StatefulFunction(body_fun).make_jaxpr(init_val)
+    if len(stateful_cond.get_write_states()) != 0:
+        raise ValueError("while_loop: cond_fun should not have any write states.")
 
     # state trace and state values
     state_trace = stateful_cond.get_state_trace() + stateful_body.get_state_trace()

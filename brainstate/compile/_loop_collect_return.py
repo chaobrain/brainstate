@@ -202,12 +202,11 @@ def scan(
     # ------------------------------ #
     xs_avals = [jax.core.raise_to_shaped(jax.core.get_aval(x)) for x in xs_flat]
     x_avals = [jax.core.mapped_aval(length, 0, aval) for aval in xs_avals]
-    with jax.ensure_compile_time_eval():
-        stateful_fun = StatefulFunction(f).make_jaxpr(init, xs_tree.unflatten(x_avals))
-        state_trace = stateful_fun.get_state_trace()
-        all_writen_state_vals = state_trace.get_write_state_values(True)
-        all_read_state_vals = state_trace.get_read_state_values(True)
-        wrapped_f = wrap_single_fun(stateful_fun, state_trace.been_writen, all_read_state_vals)
+    stateful_fun = StatefulFunction(f).make_jaxpr(init, xs_tree.unflatten(x_avals))
+    state_trace = stateful_fun.get_state_trace()
+    all_writen_state_vals = state_trace.get_write_state_values(True)
+    all_read_state_vals = state_trace.get_read_state_values(True)
+    wrapped_f = wrap_single_fun(stateful_fun, state_trace.been_writen, all_read_state_vals)
 
     # scan
     init = (all_writen_state_vals, init)

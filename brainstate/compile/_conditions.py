@@ -94,9 +94,8 @@ def cond(pred, true_fun: Callable, false_fun: Callable, *operands):
             return false_fun(*operands)
 
     # evaluate jaxpr
-    with jax.ensure_compile_time_eval():
-        stateful_true = StatefulFunction(true_fun).make_jaxpr(*operands)
-        stateful_false = StatefulFunction(false_fun).make_jaxpr(*operands)
+    stateful_true = StatefulFunction(true_fun).make_jaxpr(*operands)
+    stateful_false = StatefulFunction(false_fun).make_jaxpr(*operands)
 
     # state trace and state values
     state_trace = stateful_true.get_state_trace() + stateful_false.get_state_trace()
@@ -175,10 +174,9 @@ def switch(index, branches: Sequence[Callable], *operands):
         return branches[int(index)](*operands)
 
     # evaluate jaxpr
-    with jax.ensure_compile_time_eval():
-        wrapped_branches = [StatefulFunction(branch) for branch in branches]
-        for wrapped_branch in wrapped_branches:
-            wrapped_branch.make_jaxpr(*operands)
+    wrapped_branches = [StatefulFunction(branch) for branch in branches]
+    for wrapped_branch in wrapped_branches:
+        wrapped_branch.make_jaxpr(*operands)
 
     # wrap the functions
     state_trace = wrapped_branches[0].get_state_trace() + wrapped_branches[1].get_state_trace()
