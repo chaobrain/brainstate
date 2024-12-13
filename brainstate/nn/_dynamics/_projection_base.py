@@ -154,12 +154,21 @@ class AlignPostProj(Interaction):
         # checking synapse and output models
         if is_instance(syn, ParamDescriber[AlignPost]):
             if not is_instance(out, ParamDescriber[SynOut]):
+                if is_instance(out, ParamDescriber):
+                    raise TypeError(
+                        f'The output should be an instance of describer {ParamDescriber[SynOut]} when '
+                        f'the synapse is an instance of {AlignPost}, but got {out}.'
+                    )
                 raise TypeError(
                     f'The output should be an instance of describer {ParamDescriber[SynOut]} when '
                     f'the synapse is a describer, but we got {out}.'
                 )
             merging = True
         else:
+            if is_instance(syn, ParamDescriber):
+                raise TypeError(
+                    f'The synapse should be an instance of describer {ParamDescriber[AlignPost]}, but got {syn}.'
+                )
             if not is_instance(out, SynOut):
                 raise TypeError(
                     f'The output should be an instance of {SynOut} when the synapse is '

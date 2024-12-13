@@ -85,41 +85,45 @@ class FixedProb(Module):
         self.in_size = in_size
         self.out_size = out_size
         self.n_conn = int(self.out_size[-1] * prob)
-        if self.n_conn < 1:
-            raise ValueError(f"The number of connections must be at least 1. "
-                             f"Got: int({self.out_size[-1]} * {prob}) = {self.n_conn}")
         self.float_as_event = float_as_event
         self.block_size = block_size
 
-        # indices of post connected neurons
-        with jax.ensure_compile_time_eval():
-            if allow_multi_conn:
-                rng = np.random.RandomState(seed)
-                self.indices = rng.randint(0, self.out_size[-1], size=(self.in_size[-1], self.n_conn))
-            else:
-                rng = RandomState(seed)
+        if self.n_conn > 1:
+            # indices of post connected neurons
+            with jax.ensure_compile_time_eval():
+                if allow_multi_conn:
+                    rng = np.random.RandomState(seed)
+                    self.indices = rng.randint(0, self.out_size[-1], size=(self.in_size[-1], self.n_conn))
+                else:
+                    rng = RandomState(seed)
 
-                @vmap(rngs=rng)
-                def rand_indices(key):
-                    rng.set_key(key)
-                    return rng.choice(self.out_size[-1], size=(self.n_conn,), replace=False)
+                    @vmap(rngs=rng)
+                    def rand_indices(key):
+                        rng.set_key(key)
+                        return rng.choice(self.out_size[-1], size=(self.n_conn,), replace=False)
 
-                self.indices = rand_indices(rng.split_key(self.in_size[-1]))
-            self.indices = u.math.asarray(self.indices)
+                    self.indices = rand_indices(rng.split_key(self.in_size[-1]))
+                self.indices = u.math.asarray(self.indices)
 
         # maximum synaptic conductance
         weight = param(weight, (self.in_size[-1], self.n_conn), allow_none=False)
         self.weight = ParamState(weight)
 
     def update(self, spk: jax.Array) -> Union[jax.Array, u.Quantity]:
-        return event_fixed_prob(
-            spk,
-            self.weight.value,
-            self.indices,
-            n_post=self.out_size[-1],
-            block_size=self.block_size,
-            float_as_event=self.float_as_event
-        )
+        if self.n_conn > 1:
+            return event_fixed_prob(
+                spk,
+                self.weight.value,
+                self.indices,
+                n_post=self.out_size[-1],
+                block_size=self.block_size,
+                float_as_event=self.float_as_event
+            )
+        else:
+            weight = self.weight.value
+            unit = u.get_unit(weight)
+            r = jnp.zeros(spk.shape[:-1] + (self.out_size[-1],), dtype=weight.dtype)
+            return u.maybe_decimal(u.Quantity(r, unit=unit))
 
 
 def event_fixed_prob(spk, weight, indices, *, n_post, block_size, float_as_event):
