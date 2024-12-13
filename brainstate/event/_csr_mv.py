@@ -58,7 +58,6 @@ class CSRLinear(Module):
         indices: ArrayLike,
         weight: Union[Callable, ArrayLike],
         name: Optional[str] = None,
-        grad_mode: str = 'vjp'
     ):
         super().__init__(name=name)
 
@@ -68,17 +67,13 @@ class CSRLinear(Module):
         self.n_pre = self.in_size[-1]
         self.n_post = self.out_size[-1]
 
-        # gradient mode
-        assert grad_mode in ['vjp', 'jvp'], f"Unsupported grad_mode: {grad_mode}"
-        self.grad_mode = grad_mode
-
         # CSR data structure
-        indptr = jnp.asarray(indptr)
-        indices = jnp.asarray(indices)
-        assert indptr.ndim == 1, f"indptr must be 1D. Got: {indptr.ndim}"
-        assert indices.ndim == 1, f"indices must be 1D. Got: {indices.ndim}"
-        assert indptr.size == self.n_pre + 1, f"indptr must have size {self.n_pre + 1}. Got: {indptr.size}"
         with jax.ensure_compile_time_eval():
+            indptr = jnp.asarray(indptr)
+            indices = jnp.asarray(indices)
+            assert indptr.ndim == 1, f"indptr must be 1D. Got: {indptr.ndim}"
+            assert indices.ndim == 1, f"indices must be 1D. Got: {indices.ndim}"
+            assert indptr.size == self.n_pre + 1, f"indptr must have size {self.n_pre + 1}. Got: {indptr.size}"
             self.indptr = u.math.asarray(indptr)
             self.indices = u.math.asarray(indices)
 
@@ -101,21 +96,13 @@ class CSRLinear(Module):
         device_kind = jax.devices()[0].platform  # spk.device.device_kind
 
         # CPU implementation
-        if device_kind == 'cpu':
-            return cpu_event_csr(
-                u.math.asarray(spk),
-                self.indptr,
-                self.indices,
-                u.math.asarray(weight),
-                n_post=self.n_post, grad_mode=self.grad_mode
-            )
-
-        # GPU/TPU implementation
-        elif device_kind in ['gpu', 'tpu']:
-            raise NotImplementedError()
-
-        else:
-            raise ValueError(f"Unsupported device: {device_kind}")
+        return cpu_event_csr(
+            u.math.asarray(spk),
+            self.indptr,
+            self.indices,
+            u.math.asarray(weight),
+            n_post=self.n_post,
+        )
 
 
 @set_module_as('brainstate.event')
