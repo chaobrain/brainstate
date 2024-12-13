@@ -122,7 +122,11 @@ class FixedProb(Module):
         )
 
 
-def event_fixed_prob(spk, weight, indices, *, n_post, block_size, float_as_event):
+def event_fixed_prob(
+    spk, weight, indices,
+    *,
+    n_post, block_size, float_as_event
+):
     """
     The FixedProb module implements a fixed probability connection with CSR sparse data structure.
 
@@ -374,7 +378,11 @@ def gpu_kernel_generator(
                 kernel(spikes, indices, weight, jnp.zeros(n_post, dtype=weight_info.dtype)))
 
 
-def jvp_spikes(spk_dot, spikes, weights, indices, *, n_post, block_size, **kwargs):
+def jvp_spikes(
+    spk_dot, spikes, weights, indices,
+    *,
+    n_post, block_size, **kwargs
+):
     return ellmv_p_call(
         spk_dot,
         weights,
@@ -384,7 +392,11 @@ def jvp_spikes(spk_dot, spikes, weights, indices, *, n_post, block_size, **kwarg
     )
 
 
-def jvp_weights(w_dot, spikes, weights, indices, *, float_as_event, block_size, n_post, **kwargs):
+def jvp_weights(
+    w_dot, spikes, weights, indices,
+    *,
+    float_as_event, block_size, n_post, **kwargs
+):
     return event_ellmv_p_call(
         spikes,
         w_dot,
@@ -464,7 +476,11 @@ event_ellmv_p.defjvp(jvp_spikes, jvp_weights, None)
 event_ellmv_p.def_transpose_rule(transpose_rule)
 
 
-def event_ellmv_p_call(spikes, weights, indices, *, n_post, block_size, float_as_event):
+def event_ellmv_p_call(
+    spikes, weights, indices,
+    *,
+    n_post, block_size, float_as_event
+):
     n_conn = indices.shape[1]
     if block_size is None:
         if n_conn <= 16:
