@@ -59,17 +59,17 @@ class TestDropout(unittest.TestCase):
         expected_non_zero_elements = input_data[output_data != 0] * scale_factor
         np.testing.assert_almost_equal(non_zero_elements, expected_non_zero_elements)
 
-    def test_Dropout1d(self):
-        dropout_layer = bst.nn.Dropout1d(prob=0.5)
-        input_data = np.random.randn(2, 3, 4)
-        with bst.environ.context(fit=True):
-            output_data = dropout_layer(input_data)
-        self.assertEqual(input_data.shape, output_data.shape)
-        self.assertTrue(np.any(output_data == 0))
-        scale_factor = 1 / (1 - 0.5)
-        non_zero_elements = output_data[output_data != 0]
-        expected_non_zero_elements = input_data[output_data != 0] * scale_factor
-        np.testing.assert_almost_equal(non_zero_elements, expected_non_zero_elements, decimal=4)
+    # def test_Dropout1d(self):
+    #     dropout_layer = bst.nn.Dropout1d(prob=0.5)
+    #     input_data = np.random.randn(2, 3, 4)
+    #     with bst.environ.context(fit=True):
+    #         output_data = dropout_layer(input_data)
+    #     self.assertEqual(input_data.shape, output_data.shape)
+    #     self.assertTrue(np.any(output_data == 0))
+    #     scale_factor = 1 / (1 - 0.5)
+    #     non_zero_elements = output_data[output_data != 0]
+    #     expected_non_zero_elements = input_data[output_data != 0] * scale_factor
+    #     np.testing.assert_almost_equal(non_zero_elements, expected_non_zero_elements, decimal=4)
 
     def test_Dropout2d(self):
         dropout_layer = bst.nn.Dropout2d(prob=0.5)

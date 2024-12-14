@@ -85,44 +85,52 @@ class FixedProb(Module):
         self.in_size = in_size
         self.out_size = out_size
         self.n_conn = int(self.out_size[-1] * prob)
-        if self.n_conn < 1:
-            raise ValueError(f"The number of connections must be at least 1. "
-                             f"Got: int({self.out_size[-1]} * {prob}) = {self.n_conn}")
         self.float_as_event = float_as_event
         self.block_size = block_size
 
-        # indices of post connected neurons
-        with jax.ensure_compile_time_eval():
-            if allow_multi_conn:
-                rng = np.random.RandomState(seed)
-                self.indices = rng.randint(0, self.out_size[-1], size=(self.in_size[-1], self.n_conn))
-            else:
-                rng = RandomState(seed)
+        if self.n_conn > 1:
+            # indices of post connected neurons
+            with jax.ensure_compile_time_eval():
+                if allow_multi_conn:
+                    rng = np.random.RandomState(seed)
+                    self.indices = rng.randint(0, self.out_size[-1], size=(self.in_size[-1], self.n_conn))
+                else:
+                    rng = RandomState(seed)
 
-                @vmap(rngs=rng)
-                def rand_indices(key):
-                    rng.set_key(key)
-                    return rng.choice(self.out_size[-1], size=(self.n_conn,), replace=False)
+                    @vmap(rngs=rng)
+                    def rand_indices(key):
+                        rng.set_key(key)
+                        return rng.choice(self.out_size[-1], size=(self.n_conn,), replace=False)
 
-                self.indices = rand_indices(rng.split_key(self.in_size[-1]))
-            self.indices = u.math.asarray(self.indices)
+                    self.indices = rand_indices(rng.split_key(self.in_size[-1]))
+                self.indices = u.math.asarray(self.indices)
 
         # maximum synaptic conductance
         weight = param(weight, (self.in_size[-1], self.n_conn), allow_none=False)
         self.weight = ParamState(weight)
 
     def update(self, spk: jax.Array) -> Union[jax.Array, u.Quantity]:
-        return event_fixed_prob(
-            spk,
-            self.weight.value,
-            self.indices,
-            n_post=self.out_size[-1],
-            block_size=self.block_size,
-            float_as_event=self.float_as_event
-        )
+        if self.n_conn > 1:
+            return event_fixed_prob(
+                spk,
+                self.weight.value,
+                self.indices,
+                n_post=self.out_size[-1],
+                block_size=self.block_size,
+                float_as_event=self.float_as_event
+            )
+        else:
+            weight = self.weight.value
+            unit = u.get_unit(weight)
+            r = jnp.zeros(spk.shape[:-1] + (self.out_size[-1],), dtype=weight.dtype)
+            return u.maybe_decimal(u.Quantity(r, unit=unit))
 
 
-def event_fixed_prob(spk, weight, indices, *, n_post, block_size, float_as_event):
+def event_fixed_prob(
+    spk, weight, indices,
+    *,
+    n_post, block_size, float_as_event
+):
     """
     The FixedProb module implements a fixed probability connection with CSR sparse data structure.
 
@@ -374,7 +382,11 @@ def gpu_kernel_generator(
                 kernel(spikes, indices, weight, jnp.zeros(n_post, dtype=weight_info.dtype)))
 
 
-def jvp_spikes(spk_dot, spikes, weights, indices, *, n_post, block_size, **kwargs):
+def jvp_spikes(
+    spk_dot, spikes, weights, indices,
+    *,
+    n_post, block_size, **kwargs
+):
     return ellmv_p_call(
         spk_dot,
         weights,
@@ -384,7 +396,11 @@ def jvp_spikes(spk_dot, spikes, weights, indices, *, n_post, block_size, **kwarg
     )
 
 
-def jvp_weights(w_dot, spikes, weights, indices, *, float_as_event, block_size, n_post, **kwargs):
+def jvp_weights(
+    w_dot, spikes, weights, indices,
+    *,
+    float_as_event, block_size, n_post, **kwargs
+):
     return event_ellmv_p_call(
         spikes,
         w_dot,
@@ -464,7 +480,11 @@ event_ellmv_p.defjvp(jvp_spikes, jvp_weights, None)
 event_ellmv_p.def_transpose_rule(transpose_rule)
 
 
-def event_ellmv_p_call(spikes, weights, indices, *, n_post, block_size, float_as_event):
+def event_ellmv_p_call(
+    spikes, weights, indices,
+    *,
+    n_post, block_size, float_as_event
+):
     n_conn = indices.shape[1]
     if block_size is None:
         if n_conn <= 16:

@@ -16,15 +16,12 @@
 
 from __future__ import annotations
 
-import jax.numpy as jnp
-import pytest
-from absl.testing import absltest
+import unittest
+
+import brainunit as u
 from absl.testing import parameterized
 
 import brainstate as bst
-
-
-
 
 
 class TestDense(parameterized.TestCase):
@@ -40,3 +37,73 @@ class TestDense(parameterized.TestCase):
         y = f(x)
         self.assertTrue(y.shape == size[:-1] + (num_out,))
 
+
+class TestSparseMatrix(unittest.TestCase):
+    def test_csr(self):
+        data = bst.random.rand(10, 20)
+        data = data * (data > 0.9)
+        f = bst.nn.SparseLinear(u.sparse.CSR.fromdense(data))
+
+        x = bst.random.rand(10)
+        y = f(x)
+        self.assertTrue(
+            u.math.allclose(
+                y,
+                x @ data
+            )
+        )
+
+        x = bst.random.rand(5, 10)
+        y = f(x)
+        self.assertTrue(
+            u.math.allclose(
+                y,
+                x @ data
+            )
+        )
+
+    def test_csc(self):
+        data = bst.random.rand(10, 20)
+        data = data * (data > 0.9)
+        f = bst.nn.SparseLinear(u.sparse.CSC.fromdense(data))
+
+        x = bst.random.rand(10)
+        y = f(x)
+        self.assertTrue(
+            u.math.allclose(
+                y,
+                x @ data
+            )
+        )
+
+        x = bst.random.rand(5, 10)
+        y = f(x)
+        self.assertTrue(
+            u.math.allclose(
+                y,
+                x @ data
+            )
+        )
+
+    def test_coo(self):
+        data = bst.random.rand(10, 20)
+        data = data * (data > 0.9)
+        f = bst.nn.SparseLinear(u.sparse.COO.fromdense(data))
+
+        x = bst.random.rand(10)
+        y = f(x)
+        self.assertTrue(
+            u.math.allclose(
+                y,
+                x @ data
+            )
+        )
+
+        x = bst.random.rand(5, 10)
+        y = f(x)
+        self.assertTrue(
+            u.math.allclose(
+                y,
+                x @ data
+            )
+        )
