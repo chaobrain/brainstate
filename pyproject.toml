@@ -52,7 +52,7 @@ dependencies = [
     'jax',
     'jaxlib',
     'numpy',
-    'brainunit>=0.0.3',
+    'brainunit>=0.0.3.post20241214',
 ]
 
 dynamic = ['version']

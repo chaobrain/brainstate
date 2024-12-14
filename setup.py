@@ -58,7 +58,7 @@ setup(
     author_email='chao.brain@qq.com',
     packages=packages,
     python_requires='>=3.9',
-    install_requires=['numpy>=1.15', 'jax', 'tqdm', 'brainunit>=0.0.3'],
+    install_requires=['numpy>=1.15', 'jax', 'tqdm', 'brainunit>=0.0.3.post20241214'],
     url='https://github.com/chaobrain/brainstate',
     project_urls={
         "Bug Tracker": "https://github.com/chaobrain/brainstate/issues",

@@ -20,10 +20,7 @@ from __future__ import annotations
 from typing import Callable, Union, Optional
 
 import brainunit as u
-import jax
 import jax.numpy as jnp
-from jax.experimental.sparse.coo import coo_matvec_p, coo_matmat_p, COOInfo
-from jax.experimental.sparse.csr import csr_matvec_p, csr_matmat_p
 
 from brainstate import init, functional
 from brainstate._state import ParamState
@@ -34,9 +31,7 @@ __all__ = [
     'Linear',
     'ScaledWSLinear',
     'SignedWLinear',
-    'CSRLinear',
-    'CSCLinear',
-    'COOLinear',
+    'SparseLinear',
     'AllToAll',
     'OneToOne',
 ]
@@ -198,270 +193,47 @@ class ScaledWSLinear(Module):
         return y
 
 
-def csr_matmat(data, indices, indptr, B: jax.Array, *, shape, transpose: bool = False) -> jax.Array:
-    """Product of CSR sparse matrix and a dense matrix.
+class SparseLinear(Module):
+    """
+    Linear layer with Sparse Matrix (can be ``brainunit.sparse.CSR``,
+    ``brainunit.sparse.CSC``, ``brainunit.sparse.COO``, or any other sparse matrix).
 
     Args:
-      data : array of shape ``(nse,)``.
-      indices : array of shape ``(nse,)``
-      indptr : array of shape ``(shape[0] + 1,)`` and dtype ``indices.dtype``
-      B : array of shape ``(mat.shape[0] if transpose else mat.shape[1], cols)`` and
-        dtype ``mat.dtype``
-      transpose : boolean specifying whether to transpose the sparse matrix
-        before computing.
-
-    Returns:
-      C : array of shape ``(mat.shape[1] if transpose else mat.shape[0], cols)``
-        representing the matrix vector product.
-    """
-    return csr_matmat_p.bind(data, indices, indptr, B, shape=shape, transpose=transpose)
-
-
-def csr_matvec(data, indices, indptr, v, *, shape, transpose=False) -> jax.Array:
-    """Product of CSR sparse matrix and a dense vector.
-
-    Args:
-      data : array of shape ``(nse,)``.
-      indices : array of shape ``(nse,)``
-      indptr : array of shape ``(shape[0] + 1,)`` and dtype ``indices.dtype``
-      v : array of shape ``(shape[0] if transpose else shape[1],)``
-        and dtype ``data.dtype``
-      shape : length-2 tuple representing the matrix shape
-      transpose : boolean specifying whether to transpose the sparse matrix
-        before computing.
-
-    Returns:
-      y : array of shape ``(shape[1] if transpose else shape[0],)`` representing
-        the matrix vector product.
-    """
-    return csr_matvec_p.bind(data, indices, indptr, v, shape=shape, transpose=transpose)
-
-
-class CSRLinear(Module):
-    """
-    Linear layer with Compressed Sparse Row (CSR) matrix.
+        weight: SparseMatrix. The sparse weight matrix.
+        in_size: Size. The input size.
+        name: str. The object name.
     """
     __module__ = 'brainstate.nn'
 
     def __init__(
         self,
-        in_size: Size,
-        out_size: Size,
-        indptr: ArrayLike,
-        indices: ArrayLike,
-        weight: Union[Callable, ArrayLike],
+        weight: u.sparse.SparseMatrix,
         b_init: Optional[Union[Callable, ArrayLike]] = None,
+        in_size: Size = None,
         name: Optional[str] = None,
     ):
         super().__init__(name=name)
 
         # input and output shape
-        self.in_size = in_size
-        self.out_size = out_size
-        assert self.in_size[:-1] == self.out_size[:-1], ('The first n-1 dimensions of "in_size" '
-                                                         'and "out_size" must be the same.')
-
-        # CSR data structure
-        indptr = jnp.asarray(indptr)
-        indices = jnp.asarray(indices)
-        assert indptr.ndim == 1, f"indptr must be 1D. Got: {indptr.ndim}"
-        assert indices.ndim == 1, f"indices must be 1D. Got: {indices.ndim}"
-        assert indptr.size == self.in_size[-1] + 1, f"indptr must have size {self.in_size[-1] + 1}. Got: {indptr.size}"
-        with jax.ensure_compile_time_eval():
-            self.indptr = u.math.asarray(indptr)
-            self.indices = u.math.asarray(indices)
+        if in_size is not None:
+            self.in_size = in_size
+        self.out_size = weight.shape[-1]
+        if in_size is not None:
+            assert self.in_size[:-1] == self.out_size[:-1], (
+                'The first n-1 dimensions of "in_size" '
+                'and "out_size" must be the same.'
+            )
 
         # weights
-        weight = init.param(weight, (len(indices),), allow_none=False, allow_scalar=False)
+        assert isinstance(weight, u.sparse.SparseMatrix), '"weight" must be a SparseMatrix.'
         params = dict(weight=weight)
         if b_init is not None:
             params['bias'] = init.param(b_init, self.out_size[-1], allow_none=False)
         self.weight = ParamState(params)
 
     def update(self, x):
-        data = self.weight.value['weight']
-        data, w_unit = u.get_mantissa(data), u.get_unit(data)
-        x, x_unit = u.get_mantissa(x), u.get_unit(x)
-        shape = [self.in_size[-1], self.out_size[-1]]
-        if x.ndim == 1:
-            y = csr_matvec(data, self.indices, self.indptr, x, shape=shape)
-        elif x.ndim == 2:
-            y = csr_matmat(data, self.indices, self.indptr, x, shape=shape)
-        else:
-            raise NotImplementedError(f"matmul with object of shape {x.shape}")
-        y = u.maybe_decimal(u.Quantity(y, unit=w_unit * x_unit))
-        if 'bias' in self.weight.value:
-            y = y + self.weight.value['bias']
-        return y
-
-
-class CSCLinear(Module):
-    """
-    Linear layer with Compressed Sparse Column (CSC) matrix.
-    """
-    __module__ = 'brainstate.nn'
-
-    def __init__(
-        self,
-        in_size: Size,
-        out_size: Size,
-        indptr: ArrayLike,
-        indices: ArrayLike,
-        weight: Union[Callable, ArrayLike],
-        b_init: Optional[Union[Callable, ArrayLike]] = None,
-        name: Optional[str] = None,
-    ):
-        super().__init__(name=name)
-
-        # input and output shape
-        self.in_size = in_size
-        self.out_size = out_size
-        assert self.in_size[:-1] == self.out_size[:-1], ('The first n-1 dimensions of "in_size" '
-                                                         'and "out_size" must be the same.')
-
-        # CSR data structure
-        indptr = jnp.asarray(indptr)
-        indices = jnp.asarray(indices)
-        assert indptr.ndim == 1, f"indptr must be 1D. Got: {indptr.ndim}"
-        assert indices.ndim == 1, f"indices must be 1D. Got: {indices.ndim}"
-        assert indptr.size == self.in_size[-1] + 1, f"indptr must have size {self.in_size[-1] + 1}. Got: {indptr.size}"
-        with jax.ensure_compile_time_eval():
-            self.indptr = u.math.asarray(indptr)
-            self.indices = u.math.asarray(indices)
-
-        # weights
-        weight = init.param(weight, (len(indices),), allow_none=False, allow_scalar=False)
-        params = dict(weight=weight)
-        if b_init is not None:
-            params['bias'] = init.param(b_init, self.out_size[-1], allow_none=False)
-        self.weight = ParamState(params)
-
-    def update(self, x):
-        data = self.weight.value['weight']
-        data, w_unit = u.get_mantissa(data), u.get_unit(data)
-        x, x_unit = u.get_mantissa(x), u.get_unit(x)
-        shape = [self.out_size[-1], self.in_size[-1]]
-        if x.ndim == 1:
-            y = csr_matvec(data, self.indices, self.indptr, x, shape=shape, transpose=True)
-        elif x.ndim == 2:
-            y = csr_matmat(data, self.indices, self.indptr, x, shape=shape, transpose=True)
-        else:
-            raise NotImplementedError(f"matmul with object of shape {x.shape}")
-        y = u.maybe_decimal(u.Quantity(y, unit=w_unit * x_unit))
-        if 'bias' in self.weight.value:
-            y = y + self.weight.value['bias']
-        return y
-
-
-def coo_matvec(
-    data: jax.Array,
-    row: jax.Array,
-    col: jax.Array,
-    v: jax.Array, *,
-    spinfo: COOInfo,
-    transpose: bool = False
-) -> jax.Array:
-    """Product of COO sparse matrix and a dense vector.
-
-    Args:
-      data : array of shape ``(nse,)``.
-      row : array of shape ``(nse,)``
-      col : array of shape ``(nse,)`` and dtype ``row.dtype``
-      v : array of shape ``(shape[0] if transpose else shape[1],)`` and
-        dtype ``data.dtype``
-      spinfo : COOInfo object containing the shape of the matrix and the dtype
-      transpose : boolean specifying whether to transpose the sparse matrix
-        before computing.
-
-    Returns:
-      y : array of shape ``(shape[1] if transpose else shape[0],)`` representing
-        the matrix vector product.
-    """
-    return coo_matvec_p.bind(data, row, col, v, spinfo=spinfo, transpose=transpose)
-
-
-def coo_matmat(
-    data: jax.Array, row: jax.Array, col: jax.Array, B: jax.Array, *,
-    spinfo: COOInfo, transpose: bool = False
-) -> jax.Array:
-    """Product of COO sparse matrix and a dense matrix.
-
-    Args:
-      data : array of shape ``(nse,)``.
-      row : array of shape ``(nse,)``
-      col : array of shape ``(nse,)`` and dtype ``row.dtype``
-      B : array of shape ``(shape[0] if transpose else shape[1], cols)`` and
-        dtype ``data.dtype``
-      spinfo : COOInfo object containing the shape of the matrix and the dtype
-      transpose : boolean specifying whether to transpose the sparse matrix
-        before computing.
-
-    Returns:
-      C : array of shape ``(shape[1] if transpose else shape[0], cols)``
-        representing the matrix vector product.
-    """
-    return coo_matmat_p.bind(data, row, col, B, spinfo=spinfo, transpose=transpose)
-
-
-class COOLinear(Module):
-
-    def __init__(
-        self,
-        in_size: Size,
-        out_size: Size,
-        row: ArrayLike,
-        col: ArrayLike,
-        weight: Union[Callable, ArrayLike],
-        b_init: Optional[Union[Callable, ArrayLike]] = None,
-        rows_sorted: bool = False,
-        cols_sorted: bool = False,
-        name: Optional[str] = None,
-    ):
-        super().__init__(name=name)
-
-        # input and output shape
-        self.in_size = in_size
-        self.out_size = out_size
-        assert self.in_size[:-1] == self.out_size[:-1], ('The first n-1 dimensions of "in_size" '
-                                                         'and "out_size" must be the same.')
-
-        # COO data structure
-        row = jnp.asarray(row)
-        col = jnp.asarray(col)
-        assert row.ndim == 1, f"row must be 1D. Got: {row.ndim}"
-        assert col.ndim == 1, f"col must be 1D. Got: {col.ndim}"
-        assert row.size == col.size, f"row and col must have the same size. Got: {row.size} and {col.size}"
-        with jax.ensure_compile_time_eval():
-            self.row = u.math.asarray(row)
-            self.col = u.math.asarray(col)
-
-        # COO structure information
-        self.rows_sorted = rows_sorted
-        self.cols_sorted = cols_sorted
-
-        # weights
-        weight = init.param(weight, (len(row),), allow_none=False, allow_scalar=False)
-        params = dict(weight=weight)
-        if b_init is not None:
-            params['bias'] = init.param(b_init, self.out_size[-1], allow_none=False)
-        self.weight = ParamState(params)
-
-    def update(self, x):
-        data = self.weight.value['weight']
-        data, w_unit = u.get_mantissa(data), u.get_unit(data)
-        x, x_unit = u.get_mantissa(x), u.get_unit(x)
-        spinfo = COOInfo(
-            shape=(self.in_size[-1], self.out_size[-1]),
-            rows_sorted=self.rows_sorted,
-            cols_sorted=self.cols_sorted
-        )
-        if x.ndim == 1:
-            y = coo_matvec(data, self.row, self.col, x, spinfo=spinfo, transpose=False)
-        elif x.ndim == 2:
-            y = coo_matmat(data, self.row, self.col, x, spinfo=spinfo, transpose=False)
-        else:
-            raise NotImplementedError(f"matmul with object of shape {x.shape}")
-        y = u.maybe_decimal(u.Quantity(y, unit=w_unit * x_unit))
+        weight = self.weight.value['weight']
+        y = x @ weight
         if 'bias' in self.weight.value:
             y = y + self.weight.value['bias']
         return y
