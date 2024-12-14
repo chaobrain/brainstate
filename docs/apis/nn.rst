@@ -28,9 +28,7 @@ Synaptic Interaction Layers
    Linear
    ScaledWSLinear
    SignedWLinear
-   CSRLinear
-   CSCLinear
-   COOLinear
+   SparseLinear
    AllToAll
    OneToOne
 
