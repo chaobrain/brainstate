@@ -107,6 +107,8 @@ class Dynamics(Module):
 
     __module__ = 'brainstate.nn'
 
+    graph_invisible_attrs = ('_before_updates', '_after_updates', '_current_inputs', '_delta_inputs')
+
     # before updates
     _before_updates: Optional[Dict[Hashable, Callable]]
 

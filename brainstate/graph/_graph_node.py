@@ -61,6 +61,9 @@ class Node(PrettyRepr, metaclass=GraphNodeMeta):
     - Deepcopy the node.
 
     """
+
+    graph_invisible_attrs = ()
+
     if TYPE_CHECKING:
         _trace_state: StateJaxTracer
 
@@ -170,7 +173,12 @@ def _to_shape_dtype(value):
 def _node_flatten(
     node: Node
 ) -> Tuple[Tuple[Tuple[str, Any], ...], Tuple[Type]]:
-    nodes = sorted((key, value) for key, value in vars(node).items() if key != '_trace_state')
+    graph_invisible_attrs = getattr(node, 'graph_invisible_attrs', ())
+    graph_invisible_attrs = tuple(graph_invisible_attrs) + ('_trace_state',)
+    nodes = sorted(
+        (key, value) for key, value in vars(node).items()
+        if (key not in graph_invisible_attrs)
+    )
     return nodes, (type(node),)
 
 

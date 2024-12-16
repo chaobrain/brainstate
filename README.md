@@ -17,6 +17,7 @@
     </a>
     <a href="https://badge.fury.io/py/brainstate"><img alt="PyPI version" src="https://badge.fury.io/py/brainstate.svg"></a>
     <a href="https://github.com/chaobrain/brainstate/actions/workflows/CI.yml"><img alt="Continuous Integration" src="https://github.com/chaobrain/brainstate/actions/workflows/CI.yml/badge.svg"></a>
+    <a href="https://pepy.tech/projects/brainstate"><img src="https://static.pepy.tech/badge/brainstate" alt="PyPI Downloads"></a>
 </p>
 
 
