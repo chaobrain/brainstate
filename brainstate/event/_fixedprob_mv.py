@@ -473,8 +473,8 @@ def transpose_rule(
 
 event_ellmv_p = XLACustomOp(
     'event_ell_mv',
-    cpu_kernel_generator=cpu_kernel_generator,
-    gpu_kernel_generator=gpu_kernel_generator,
+    cpu_kernel_or_generator=cpu_kernel_generator,
+    gpu_kernel_or_generator=gpu_kernel_generator,
 )
 event_ellmv_p.defjvp(jvp_spikes, jvp_weights, None)
 event_ellmv_p.def_transpose_rule(transpose_rule)
@@ -693,8 +693,8 @@ def transpose_rule_no_spk(
 
 ellmv_p = XLACustomOp(
     'ell_mv',
-    cpu_kernel_generator=ell_cpu_kernel_generator,
-    gpu_kernel_generator=ell_gpu_kernel_generator,
+    cpu_kernel_or_generator=ell_cpu_kernel_generator,
+    gpu_kernel_or_generator=ell_gpu_kernel_generator,
 )
 ellmv_p.defjvp(jvp_spikes, jvp_weights_no_spk, None)
 ellmv_p.def_transpose_rule(transpose_rule_no_spk)
