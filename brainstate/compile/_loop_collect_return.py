@@ -63,7 +63,7 @@ def scan(
     length: int | None = None,
     reverse: bool = False,
     unroll: int | bool = 1,
-    pbar: ProgressBar | None = None,
+    pbar: ProgressBar | int | None = None,
 ) -> Tuple[Carry, Y]:
     """
     Scan a function over leading array axes while carrying along state.
@@ -177,7 +177,13 @@ def scan(
     has_pbar = False
     if pbar is not None:
         has_pbar = True
-        f = _wrap_fun_with_pbar(f, pbar.init(length))
+        if isinstance(pbar, ProgressBar):
+            pbar_runner = pbar.init(length)
+        elif isinstance(pbar, int):
+            pbar_runner = ProgressBar(freq=pbar).init(length)
+        else:
+            raise TypeError("pbar argument should be a ProgressBar instance or an integer.")
+        f = _wrap_fun_with_pbar(f, pbar_runner)
         init = (0, init) if pbar else init
 
     # not jit
@@ -230,7 +236,7 @@ def checkpointed_scan(
     xs: X,
     length: Optional[int] = None,
     base: int = 16,
-    pbar: Optional[ProgressBar] = None,
+    pbar: Optional[ProgressBar | int] = None,
 ) -> Tuple[Carry, Y]:
     """
     Scan a function over leading array axes while carrying along state.
@@ -288,8 +294,10 @@ def checkpointed_scan(
             length, = unique_lengths
 
     # function with progress bar
-    if pbar is not None:
+    if isinstance(pbar, ProgressBar):
         pbar_runner = pbar.init(length)
+    elif isinstance(pbar, int):
+        pbar_runner = ProgressBar(freq=pbar).init(length)
     else:
         pbar_runner = None
 
@@ -380,7 +388,7 @@ def for_loop(
     length: Optional[int] = None,
     reverse: bool = False,
     unroll: int | bool = 1,
-    pbar: Optional[ProgressBar] = None
+    pbar: Optional[ProgressBar | int] = None
 ) -> Y:
     """
     ``for-loop`` control flow with :py:class:`~.State`.
@@ -432,7 +440,7 @@ def checkpointed_for_loop(
     *xs: X,
     length: Optional[int] = None,
     base: int = 16,
-    pbar: Optional[ProgressBar] = None,
+    pbar: Optional[ProgressBar | int] = None,
 ) -> Y:
     """
     ``for-loop`` control flow with :py:class:`~.State` with a checkpointed version, similar to :py:func:`for_loop`.
