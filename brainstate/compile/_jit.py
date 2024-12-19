@@ -40,7 +40,7 @@ class JittedFunction(Callable):
     jitted_fun: jax.stages.Wrapped  # the jitted function
     clear_cache: Callable  # clear the cache of the jitted function
     eval_shape: Callable  # evaluate the shape of the jitted function
-    lower: Callable  # lower the jitted function
+    compile: Callable  # lower the jitted function
     trace: Callable  # trace the jitted
 
     def __call__(self, *args, **kwargs):
@@ -104,18 +104,6 @@ def _get_jitted_fun(
     def eval_shape():
         raise NotImplementedError
 
-    def lower():
-        """Lower this function explicitly for the given arguments.
-
-        A lowered function is staged out of Python and translated to a
-        compiler's input language, possibly in a backend-dependent
-        manner. It is ready for compilation but not yet compiled.
-
-        Returns:
-          A ``Lowered`` instance representing the lowering.
-        """
-        raise NotImplementedError
-
     def trace():
         """Trace this function explicitly for the given arguments.
 
@@ -126,6 +114,24 @@ def _get_jitted_fun(
           A ``Traced`` instance representing the tracing.
         """
         raise NotImplementedError
+
+    def compile(*args, **params):
+        """Lower this function explicitly for the given arguments.
+
+        A lowered function is staged out of Python and translated to a
+        compiler's input language, possibly in a backend-dependent
+        manner. It is ready for compilation but not yet compiled.
+
+        Returns:
+          A ``Lowered`` instance representing the lowering.
+        """
+        # compile the function and get the state trace
+        state_trace = fun.compile_function_and_get_state_trace(*args, **params, return_only_write=True)
+        read_state_vals = state_trace.get_read_state_values(True)
+
+        # call the jitted function
+        return jit_fun.lower(state_trace.get_state_values(), *args, **params).compile()
+
 
     jitted_fun: JittedFunction
 
@@ -144,8 +150,8 @@ def _get_jitted_fun(
     # evaluate the shape of the jitted function
     jitted_fun.eval_shape = eval_shape
 
-    # lower the jitted function
-    jitted_fun.lower = lower
+    # compile the jitted function
+    jitted_fun.compile = compile
 
     # trace the jitted
     jitted_fun.trace = trace
