@@ -107,6 +107,8 @@ class Dynamics(Module):
 
     __module__ = 'brainstate.nn'
 
+    graph_invisible_attrs = ('_before_updates', '_after_updates', '_current_inputs', '_delta_inputs')
+
     # before updates
     _before_updates: Optional[Dict[Hashable, Callable]]
 
@@ -442,6 +444,16 @@ class Prefetch(Node):
     def __call__(self, *args, **kwargs):
         item = _get_prefetch_item(self)
         return item.value if isinstance(item, State) else item
+
+    def get_item_value(self):
+        item = _get_prefetch_item(self)
+        return item.value if isinstance(item, State) else item
+
+    def get_item(self):
+        """
+        Get
+        """
+        return _get_prefetch_item(self)
 
 
 class PrefetchDelay(Node):

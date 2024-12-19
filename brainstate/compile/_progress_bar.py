@@ -35,6 +35,8 @@ class ProgressBar(object):
 
     def __init__(self, freq: Optional[int] = None, count: Optional[int] = None, **kwargs):
         self.print_freq = freq
+        if isinstance(freq, int):
+            assert freq > 0, "Print rate should be > 0."
         self.print_count = count
         if self.print_freq is not None and self.print_count is not None:
             raise ValueError("Cannot specify both count and freq.")

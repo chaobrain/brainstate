@@ -334,8 +334,8 @@ def transpose_rule(ct, spikes, weights, *, float_as_event, **kwargs):
 
 event_linear_p = XLACustomOp(
     'event_linear',
-    cpu_kernel_generator=cpu_kernel_generator,
-    gpu_kernel_generator=gpu_kernel_generator,
+    cpu_kernel_or_generator=cpu_kernel_generator,
+    gpu_kernel_or_generator=gpu_kernel_generator,
 )
 event_linear_p.defjvp(jvp_spikes, jvp_weights)
 event_linear_p.def_transpose_rule(transpose_rule)

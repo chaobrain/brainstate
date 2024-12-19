@@ -199,7 +199,7 @@ class SparseLinear(Module):
     ``brainunit.sparse.CSC``, ``brainunit.sparse.COO``, or any other sparse matrix).
 
     Args:
-        weight: SparseMatrix. The sparse weight matrix.
+        spar_mat: SparseMatrix. The sparse weight matrix.
         in_size: Size. The input size.
         name: str. The object name.
     """
@@ -207,7 +207,7 @@ class SparseLinear(Module):
 
     def __init__(
         self,
-        weight: u.sparse.SparseMatrix,
+        spar_mat: u.sparse.SparseMatrix,
         b_init: Optional[Union[Callable, ArrayLike]] = None,
         in_size: Size = None,
         name: Optional[str] = None,
@@ -217,7 +217,7 @@ class SparseLinear(Module):
         # input and output shape
         if in_size is not None:
             self.in_size = in_size
-        self.out_size = weight.shape[-1]
+        self.out_size = spar_mat.shape[-1]
         if in_size is not None:
             assert self.in_size[:-1] == self.out_size[:-1], (
                 'The first n-1 dimensions of "in_size" '
@@ -225,15 +225,16 @@ class SparseLinear(Module):
             )
 
         # weights
-        assert isinstance(weight, u.sparse.SparseMatrix), '"weight" must be a SparseMatrix.'
-        params = dict(weight=weight)
+        assert isinstance(spar_mat, u.sparse.SparseMatrix), '"weight" must be a SparseMatrix.'
+        self.spar_mat = spar_mat
+        params = dict(weight=spar_mat.data)
         if b_init is not None:
             params['bias'] = init.param(b_init, self.out_size[-1], allow_none=False)
         self.weight = ParamState(params)
 
     def update(self, x):
-        weight = self.weight.value['weight']
-        y = x @ weight
+        data = self.weight.value['weight']
+        y = x @ self.spar_mat.with_data(data)
         if 'bias' in self.weight.value:
             y = y + self.weight.value['bias']
         return y

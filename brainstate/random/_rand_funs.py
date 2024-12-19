@@ -959,9 +959,13 @@ def logistic(loc=None, scale=None, size: Optional[Size] = None,
     return DEFAULT.logistic(loc, scale, size, key=key, dtype=dtype)
 
 
-def normal(loc=None, scale=None, size: Optional[Size] = None,
-           key: Optional[SeedOrKey] = None,
-           dtype: DTypeLike = None):
+def normal(
+    loc=None,
+    scale=None,
+    size: Optional[Size] = None,
+    key: Optional[SeedOrKey] = None,
+    dtype: DTypeLike = None
+):
     r"""
     Draw random samples from a normal (Gaussian) distribution.
 

@@ -32,6 +32,7 @@ __all__ = [
     'Filter',
     'PyTree',
     'Size',
+    'Shape',
     'Axes',
     'SeedOrKey',
     'ArrayLike',
@@ -257,6 +258,8 @@ f. A structure can end with a `...`, to denote that the PyTree must be a prefix 
 Size = tp.Union[int, tp.Sequence[int]]
 Axes = tp.Union[int, tp.Sequence[int]]
 SeedOrKey = tp.Union[int, jax.Array, np.ndarray]
+Shape = tp.Sequence[int]
+
 
 # --- Array --- #
 

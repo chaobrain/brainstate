@@ -17,17 +17,23 @@ from __future__ import annotations
 from typing import Union, Optional, Sequence, Callable
 
 import brainunit as u
+import jax
+import numpy as np
 
 from brainstate import environ, init, random
 from brainstate._state import ShortTermState
-from brainstate.compile import while_loop
-from brainstate.nn._dynamics._dynamics_base import Dynamics
+from brainstate._state import State
+from brainstate.compile import while_loop, cond
+from brainstate.nn._dynamics._dynamics_base import Dynamics, Prefetch
+from brainstate.nn._module import Module
 from brainstate.typing import ArrayLike, Size, DTypeLike
 
 __all__ = [
     'SpikeTime',
     'PoissonSpike',
     'PoissonEncoder',
+    'PoissonInput',
+    'poisson_input',
 ]
 
 
@@ -152,3 +158,122 @@ class PoissonEncoder(Dynamics):
         spikes = random.rand(*self.varshape) <= (freqs * environ.get_dt())
         spikes = u.math.asarray(spikes, dtype=self.spk_type)
         return spikes
+
+
+class PoissonInput(Module):
+    """
+    Poisson Input to the given :py:class:`brainstate.State`.
+
+    Adds independent Poisson input to a target variable. For large
+    numbers of inputs, this is much more efficient than creating a
+    `PoissonGroup`. The synaptic events are generated randomly during the
+    simulation and are not preloaded and stored in memory. All the inputs must
+    target the same variable, have the same frequency and same synaptic weight.
+    All neurons in the target variable receive independent realizations of
+    Poisson spike trains.
+
+    Args:
+      target: The variable that is targeted by this input. Should be an instance of :py:class:`~.Variable`.
+      num_input: The number of inputs.
+      freq: The frequency of each of the inputs. Must be a scalar.
+      weight: The synaptic weight. Must be a scalar.
+      name: The target name.
+    """
+
+    def __init__(
+        self,
+        target: Prefetch,
+        indices: Union[np.ndarray, jax.Array],
+        num_input: int,
+        freq: Union[int, float],
+        weight: Union[int, float],
+        name: Optional[str] = None,
+    ):
+        super().__init__(name=name)
+
+        self.target = target
+        self.indices = indices
+        self.num_input = num_input
+        self.freq = freq
+        self.weight = weight
+
+    def update(self):
+        p = self.freq * environ.get_dt()
+        a = self.num_input * p
+        b = self.num_input * (1 - p)
+
+        target = self.target()
+        target_state = getattr(self.target.module, self.target.item)
+
+        # generate Poisson input
+        inp = cond(
+            u.math.logical_and(a > 5, b > 5),
+            lambda: random.normal(a, b * p, self.indices.shape),
+            lambda: random.binomial(self.num_input, p, self.indices.shape).astype(float)
+        )
+
+        # update target variable
+        target_state.value = target.at[self.indices].add(inp * self.weight)
+
+
+def poisson_input(
+    freq: ArrayLike,
+    num_input: int,
+    weight: ArrayLike,
+    target: State,
+    indices: Optional[Union[np.ndarray, jax.Array]] = None,
+):
+    """
+    Poisson Input to the given :py:class:`brainstate.State`.
+    """
+    assert isinstance(target, State), 'The target must be a State.'
+    p = freq * environ.get_dt()
+    a = num_input * p
+    b = num_input * (1 - p)
+    tar_val = target.value
+    if indices is None:
+        # generate Poisson input
+        inp = cond(
+            u.math.logical_and(a > 5, b > 5),
+            lambda: jax.tree.map(
+                lambda tar: random.normal(a, b * p, tar.shape),
+                tar_val,
+                is_leaf=u.math.is_quantity
+            ),
+            lambda: jax.tree.map(
+                lambda tar: random.binomial(num_input, p, tar.shape).astype(float),
+                tar_val,
+                is_leaf=u.math.is_quantity
+            )
+        )
+
+        # update target variable
+        target.value = jax.tree.map(
+            lambda x: x * weight,
+            inp,
+            is_leaf=u.math.is_quantity
+        )
+
+    else:
+        # generate Poisson input
+        inp = cond(
+            u.math.logical_and(a > 5, b > 5),
+            lambda: jax.tree.map(
+                lambda tar: random.normal(a, b * p, tar[indices].shape),
+                tar_val,
+                is_leaf=u.math.is_quantity
+            ),
+            lambda: jax.tree.map(
+                lambda tar: random.binomial(num_input, p, tar[indices].shape).astype(float),
+                tar_val,
+                is_leaf=u.math.is_quantity
+            )
+        )
+
+        # update target variable
+        target.value = jax.tree.map(
+            lambda x, tar: tar.at[indices].add(x * weight),
+            inp,
+            tar_val,
+            is_leaf=u.math.is_quantity
+        )

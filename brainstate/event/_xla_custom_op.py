@@ -180,8 +180,8 @@ class XLACustomOp:
     """Creating a XLA custom call operator.
 
     Args:
-      cpu_kernel_generator: Callable. The function defines the computation on CPU backend.
-      gpu_kernel_generator: Callable. The function defines the computation on GPU backend.
+      cpu_kernel_or_generator: Callable. The function defines the computation on CPU backend.
+      gpu_kernel_or_generator: Callable. The function defines the computation on GPU backend.
       batching_translation: Callable. The batching translation rule of JAX.
       jvp_translation: Callable. The JVP translation rule of JAX.
       transpose_translation: Callable. The transpose translation rule of JAX.
@@ -191,15 +191,12 @@ class XLACustomOp:
     def __init__(
         self,
         name: str,
-        cpu_kernel_generator: Callable,
-        gpu_kernel_generator: Callable = None,
+        cpu_kernel_or_generator: Callable,
+        gpu_kernel_or_generator: Callable = None,
         batching_translation: Callable = None,
         jvp_translation: Callable = None,
         transpose_translation: Callable = None,
     ):
-        # set cpu_kernel and gpu_kernel
-        self.cpu_kernel = cpu_kernel_generator
-
         # primitive
         self.primitive = jax.core.Primitive(name)
         self.primitive.multiple_results = True
@@ -209,10 +206,10 @@ class XLACustomOp:
         self.primitive.def_abstract_eval(self._abstract_eval)
 
         # cpu kernel
-        if cpu_kernel_generator is not None:
-            self.def_cpu_kernel(cpu_kernel_generator)
-        if gpu_kernel_generator is not None:
-            self.def_gpu_kernel(gpu_kernel_generator)
+        if cpu_kernel_or_generator is not None:
+            self.def_cpu_kernel(cpu_kernel_or_generator)
+        if gpu_kernel_or_generator is not None:
+            self.def_gpu_kernel(gpu_kernel_or_generator)
 
         # batching rule
         if batching_translation is not None:

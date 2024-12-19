@@ -14,7 +14,7 @@
 # ==============================================================================
 from __future__ import annotations
 
-from typing import Union, Callable
+from typing import Union, Callable, Optional
 
 from brainstate._state import State
 from brainstate.mixin import AlignPost, ParamDescriber, BindCondData, JointTypes
@@ -60,24 +60,28 @@ def is_instance(x, cls) -> bool:
     return isinstance(x, cls)
 
 
-def get_post_repr(syn, out):
-    return f'{syn.identifier} // {out.identifier}'
+def get_post_repr(label, syn, out):
+    if label is None:
+        return f'{syn.identifier} // {out.identifier}'
+    else:
+        return f'{label}{syn.identifier} // {out.identifier}'
 
 
 def align_post_add_bef_update(
     syn_desc: ParamDescriber[AlignPost],
     out_desc: ParamDescriber[BindCondData],
     post: Dynamics,
-    proj_name: str
+    proj_name: str,
+    label: str,
 ):
     # synapse and output initialization
-    _post_repr = get_post_repr(syn_desc, out_desc)
+    _post_repr = get_post_repr(label, syn_desc, out_desc)
     if not post._has_before_update(_post_repr):
         syn_cls = syn_desc()
         out_cls = out_desc()
 
         # synapse and output initialization
-        post.add_current_input(proj_name, out_cls)
+        post.add_current_input(proj_name, out_cls, label=label)
         post._add_before_update(_post_repr, _AlignPost(syn_cls, out_cls))
     syn = post._get_before_update(_post_repr).syn
     out = post._get_before_update(_post_repr).out
@@ -139,6 +143,7 @@ class AlignPostProj(Interaction):
         syn: Union[ParamDescriber[AlignPost], AlignPost],
         out: Union[ParamDescriber[SynOut], SynOut],
         post: Dynamics,
+        label: Optional[str] = None,
     ):
         super().__init__(name=get_unique_name(self.__class__.__name__))
 
@@ -185,7 +190,11 @@ class AlignPostProj(Interaction):
 
         if merging:
             # synapse and output initialization
-            syn, out = align_post_add_bef_update(syn_desc=syn, out_desc=out, post=post, proj_name=self.name)
+            syn, out = align_post_add_bef_update(syn_desc=syn,
+                                                 out_desc=out,
+                                                 post=post,
+                                                 proj_name=self.name,
+                                                 label=label)
         else:
             post.add_current_input(self.name, out)
 
