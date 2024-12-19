@@ -173,8 +173,9 @@ def _to_shape_dtype(value):
 def _node_flatten(
     node: Node
 ) -> Tuple[Tuple[Tuple[str, Any], ...], Tuple[Type]]:
-    graph_invisible_attrs = getattr(node, 'graph_invisible_attrs', ())
-    graph_invisible_attrs = tuple(graph_invisible_attrs) + ('_trace_state',)
+    # graph_invisible_attrs = getattr(node, 'graph_invisible_attrs', ())
+    # graph_invisible_attrs = tuple(graph_invisible_attrs) + ('_trace_state',)
+    graph_invisible_attrs = ('_trace_state',)
     nodes = sorted(
         (key, value) for key, value in vars(node).items()
         if (key not in graph_invisible_attrs)

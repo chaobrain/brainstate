@@ -13,13 +13,21 @@
 # limitations under the License.
 # ==============================================================================
 
+
+from __future__ import annotations
+
+import operator
 from typing import Callable
 
 import brainunit as u
 import jax
 import jax.numpy as jnp
-from brainunit.sparse.csr import _csr_matvec as csr_matvec, _csr_matmat as csr_matmat
-from brainunit.sparse.csr import _csr_to_coo as csr_to_coo
+import numpy as np
+from brainunit.sparse._csr import (
+    _csr_matvec as csr_matvec,
+    _csr_matmat as csr_matmat,
+    _csr_to_coo as csr_to_coo
+)
 from jax.experimental.sparse import JAXSparse
 from jax.interpreters import ad
 
@@ -32,10 +40,148 @@ __all__ = [
 ]
 
 
-class CSR(u.sparse.CSR):
+@jax.tree_util.register_pytree_node_class
+class CSR(u.sparse.SparseMatrix):
     """
-    Event-driven sparse matrix in CSR format.
+    Event-driven and Unit-aware CSR matrix.
     """
+    data: jax.Array | u.Quantity
+    indices: jax.Array
+    indptr: jax.Array
+    shape: tuple[int, int]
+    nse = property(lambda self: self.data.size)
+    dtype = property(lambda self: self.data.dtype)
+    _bufs = property(lambda self: (self.data, self.indices, self.indptr))
+
+    def __init__(self, args, *, shape):
+        self.data, self.indices, self.indptr = map(u.math.asarray, args)
+        super().__init__(args, shape=shape)
+
+    @classmethod
+    def fromdense(cls, mat, *, nse=None, index_dtype=np.int32):
+        if nse is None:
+            nse = (u.get_mantissa(mat) != 0).sum()
+        return u.sparse.csr_fromdense(mat, nse=nse, index_dtype=index_dtype)
+
+    def with_data(self, data: jax.Array | u.Quantity) -> CSR:
+        assert data.shape == self.data.shape
+        assert data.dtype == self.data.dtype
+        assert u.get_unit(data) == u.get_unit(self.data)
+        return CSR((data, self.indices, self.indptr), shape=self.shape)
+
+    def todense(self):
+        return u.sparse.csr_todense(self)
+
+    def transpose(self, axes=None):
+        assert axes is None
+        return CSC((self.data, self.indices, self.indptr), shape=self.shape[::-1])
+
+    def __abs__(self):
+        return CSR((abs(self.data), self.indices, self.indptr), shape=self.shape)
+
+    def __neg__(self):
+        return CSR((-self.data, self.indices, self.indptr), shape=self.shape)
+
+    def __pos__(self):
+        return CSR((self.data.__pos__(), self.indices, self.indptr), shape=self.shape)
+
+    def _binary_op(self, other, op):
+        if isinstance(other, CSR):
+            if id(other.indices) == id(self.indices) and id(other.indptr) == id(self.indptr):
+                return CSR(
+                    (op(self.data, other.data),
+                     self.indices,
+                     self.indptr),
+                    shape=self.shape
+                )
+        if isinstance(other, JAXSparse):
+            raise NotImplementedError(f"binary operation {op} between two sparse objects.")
+
+        other = u.math.asarray(other)
+        if other.size == 1:
+            return CSR(
+                (op(self.data, other), self.indices, self.indptr),
+                shape=self.shape
+            )
+        elif other.ndim == 2 and other.shape == self.shape:
+            rows, cols = csr_to_coo(self.indices, self.indptr)
+            other = other[rows, cols]
+            return CSR(
+                (op(self.data, other),
+                 self.indices,
+                 self.indptr),
+                shape=self.shape
+            )
+        else:
+            raise NotImplementedError(f"mul with object of shape {other.shape}")
+
+    def _binary_rop(self, other, op):
+        if isinstance(other, CSR):
+            if id(other.indices) == id(self.indices) and id(other.indptr) == id(self.indptr):
+                return CSR(
+                    (op(other.data, self.data),
+                     self.indices,
+                     self.indptr),
+                    shape=self.shape
+                )
+        if isinstance(other, JAXSparse):
+            raise NotImplementedError(f"binary operation {op} between two sparse objects.")
+
+        other = u.math.asarray(other)
+        if other.size == 1:
+            return CSR(
+                (op(other, self.data),
+                 self.indices,
+                 self.indptr),
+                shape=self.shape
+            )
+        elif other.ndim == 2 and other.shape == self.shape:
+            rows, cols = csr_to_coo(self.indices, self.indptr)
+            other = other[rows, cols]
+            return CSR(
+                (op(other, self.data),
+                 self.indices,
+                 self.indptr),
+                shape=self.shape
+            )
+        else:
+            raise NotImplementedError(f"mul with object of shape {other.shape}")
+
+    def __mul__(self, other: jax.Array | u.Quantity) -> CSR:
+        return self._binary_op(other, operator.mul)
+
+    def __rmul__(self, other: jax.Array | u.Quantity) -> CSR:
+        return self._binary_rop(other, operator.mul)
+
+    def __div__(self, other: jax.Array | u.Quantity) -> CSR:
+        return self._binary_op(other, operator.truediv)
+
+    def __rdiv__(self, other: jax.Array | u.Quantity) -> CSR:
+        return self._binary_rop(other, operator.truediv)
+
+    def __truediv__(self, other) -> CSR:
+        return self.__div__(other)
+
+    def __rtruediv__(self, other) -> CSR:
+        return self.__rdiv__(other)
+
+    def __add__(self, other) -> CSR:
+        return self._binary_op(other, operator.add)
+
+    def __radd__(self, other) -> CSR:
+        return self._binary_rop(other, operator.add)
+
+    def __sub__(self, other) -> CSR:
+        return self._binary_op(other, operator.sub)
+
+    def __rsub__(self, other) -> CSR:
+        return self._binary_rop(other, operator.sub)
+
+    def __mod__(self, other) -> CSR:
+        return self._binary_op(other, operator.mod)
+
+    def __rmod__(self, other) -> CSR:
+        return self._binary_rop(other, operator.mod)
 
     def __matmul__(self, other):
         if isinstance(other, JAXSparse):
@@ -89,11 +235,177 @@ class CSR(u.sparse.CSR):
         else:
             raise NotImplementedError(f"matmul with object of shape {other.shape}")
 
+    def tree_flatten(self):
+        return (self.data,), {"shape": self.shape, "indices": self.indices, "indptr": self.indptr}
 
-class CSC(u.sparse.CSC):
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        obj = object.__new__(cls)
+        obj.data, = children
+        if aux_data.keys() != {'shape', 'indices', 'indptr'}:
+            raise ValueError(f"CSR.tree_unflatten: invalid {aux_data=}")
+        obj.__dict__.update(**aux_data)
+        return obj
+
+
+@jax.tree_util.register_pytree_node_class
+class CSC(u.sparse.SparseMatrix):
     """
-    Event-driven sparse matrix in CSC format.
+    Event-driven and Unit-aware CSC matrix.
     """
+    data: jax.Array
+    indices: jax.Array
+    indptr: jax.Array
+    shape: tuple[int, int]
+    nse = property(lambda self: self.data.size)
+    dtype = property(lambda self: self.data.dtype)
+
+    def __init__(self, args, *, shape):
+        self.data, self.indices, self.indptr = map(u.math.asarray, args)
+        super().__init__(args, shape=shape)
+
+    @classmethod
+    def fromdense(cls, mat, *, nse=None, index_dtype=np.int32):
+        if nse is None:
+            nse = (u.get_mantissa(mat) != 0).sum()
+        return u.sparse.csr_fromdense(mat.T, nse=nse, index_dtype=index_dtype).T
+
+    @classmethod
+    def _empty(cls, shape, *, dtype=None, index_dtype='int32'):
+        """Create an empty CSC instance. Public method is sparse.empty()."""
+        shape = tuple(shape)
+        if len(shape) != 2:
+            raise ValueError(f"CSC must have ndim=2; got {shape=}")
+        data = jnp.empty(0, dtype)
+        indices = jnp.empty(0, index_dtype)
+        indptr = jnp.zeros(shape[1] + 1, index_dtype)
+        return cls((data, indices, indptr), shape=shape)
+
+    @classmethod
+    def _eye(cls, N, M, k, *, dtype=None, index_dtype='int32'):
+        return CSR._eye(M, N, -k, dtype=dtype, index_dtype=index_dtype).T
+
+    def with_data(self, data: jax.Array | u.Quantity) -> CSC:
+        assert data.shape == self.data.shape
+        assert data.dtype == self.data.dtype
+        assert u.get_unit(data) == u.get_unit(self.data)
+        return CSC((data, self.indices, self.indptr), shape=self.shape)
+
+    def todense(self):
+        return u.sparse.csr_todense(self.T).T
+
+    def transpose(self, axes=None):
+        assert axes is None
+        return CSR((self.data, self.indices, self.indptr), shape=self.shape[::-1])
+
+    def __abs__(self):
+        return CSC((abs(self.data), self.indices, self.indptr), shape=self.shape)
+
+    def __neg__(self):
+        return CSC((-self.data, self.indices, self.indptr), shape=self.shape)
+
+    def __pos__(self):
+        return CSC((self.data.__pos__(), self.indices, self.indptr), shape=self.shape)
+
+    def _binary_op(self, other, op):
+        if isinstance(other, CSC):
+            if id(other.indices) == id(self.indices) and id(other.indptr) == id(self.indptr):
+                return CSC(
+                    (op(self.data, other.data),
+                     self.indices,
+                     self.indptr),
+                    shape=self.shape
+                )
+        if isinstance(other, JAXSparse):
+            raise NotImplementedError(f"binary operation {op} between two sparse objects.")
+
+        other = u.math.asarray(other)
+        if other.size == 1:
+            return CSC(
+                (op(self.data, other),
+                 self.indices,
+                 self.indptr),
+                shape=self.shape
+            )
+        elif other.ndim == 2 and other.shape == self.shape:
+            cols, rows = csr_to_coo(self.indices, self.indptr)
+            other = other[rows, cols]
+            return CSC(
+                (op(self.data, other),
+                 self.indices,
+                 self.indptr),
+                shape=self.shape
+            )
+        else:
+            raise NotImplementedError(f"mul with object of shape {other.shape}")
+
+    def _binary_rop(self, other, op):
+        if isinstance(other, CSC):
+            if id(other.indices) == id(self.indices) and id(other.indptr) == id(self.indptr):
+                return CSC(
+                    (op(other.data, self.data),
+                     self.indices,
+                     self.indptr),
+                    shape=self.shape
+                )
+        if isinstance(other, JAXSparse):
+            raise NotImplementedError(f"binary operation {op} between two sparse objects.")
+
+        other = u.math.asarray(other)
+        if other.size == 1:
+            return CSC(
+                (op(other, self.data),
+                 self.indices,
+                 self.indptr),
+                shape=self.shape
+            )
+        elif other.ndim == 2 and other.shape == self.shape:
+            cols, rows = csr_to_coo(self.indices, self.indptr)
+            other = other[rows, cols]
+            return CSC(
+                (op(other, self.data),
+                 self.indices,
+                 self.indptr),
+                shape=self.shape
+            )
+        else:
+            raise NotImplementedError(f"mul with object of shape {other.shape}")
+
+    def __mul__(self, other: jax.Array | u.Quantity) -> 'CSC':
+        return self._binary_op(other, operator.mul)
+
+    def __rmul__(self, other: jax.Array | u.Quantity) -> 'CSC':
+        return self._binary_rop(other, operator.mul)
+
+    def __div__(self, other: jax.Array | u.Quantity) -> CSC:
+        return self._binary_op(other, operator.truediv)
+
+    def __rdiv__(self, other: jax.Array | u.Quantity) -> CSC:
+        return self._binary_rop(other, operator.truediv)
+
+    def __truediv__(self, other) -> CSC:
+        return self.__div__(other)
+
+    def __rtruediv__(self, other) -> CSC:
+        return self.__rdiv__(other)
+
+    def __add__(self, other) -> CSC:
+        return self._binary_op(other, operator.add)
+
+    def __radd__(self, other) -> CSC:
+        return self._binary_rop(other, operator.add)
+
+    def __sub__(self, other) -> CSC:
+        return self._binary_op(other, operator.sub)
+
+    def __rsub__(self, other) -> CSC:
+        return self._binary_rop(other, operator.sub)
+
+    def __mod__(self, other) -> CSC:
+        return self._binary_op(other, operator.mod)
+
+    def __rmod__(self, other) -> CSC:
+        return self._binary_rop(other, operator.mod)
 
     def __matmul__(self, other):
         if isinstance(other, JAXSparse):
@@ -148,6 +460,18 @@ class CSC(u.sparse.CSC):
         else:
             raise NotImplementedError(f"matmul with object of shape {other.shape}")
 
+    def tree_flatten(self):
+        return (self.data,), {"shape": self.shape, "indices": self.indices, "indptr": self.indptr}
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        obj = object.__new__(cls)
+        obj.data, = children
+        if aux_data.keys() != {'shape', 'indices', 'indptr'}:
+            raise ValueError(f"CSR.tree_unflatten: invalid {aux_data=}")
+        obj.__dict__.update(**aux_data)
+        return obj
+
 
 def _csr_matvec(
     data: jax.Array | u.Quantity,
@@ -177,7 +501,6 @@ def _csr_matvec(
     """
     data, unitd = u.split_mantissa_unit(data)
     v, unitv = u.split_mantissa_unit(v)
-    # res = csr_matvec_p.bind(data, indices, indptr, v, shape=shape, transpose=transpose)
     res = event_csrmv_p_call(
         data, indices, indptr, v,
         shape=shape,
@@ -194,7 +517,8 @@ def _csr_matmat(
     B: jax.Array | u.Quantity,
     *,
     shape: Shape,
-    transpose: bool = False
+    transpose: bool = False,
+    float_as_event: bool = True,
 ) -> jax.Array | u.Quantity:
     """
     Product of CSR sparse matrix and a dense matrix.
@@ -215,7 +539,15 @@ def _csr_matmat(
     """
     data, unitd = u.split_mantissa_unit(data)
     B, unitb = u.split_mantissa_unit(B)
-    res = csr_matmat_p.bind(data, indices, indptr, B, shape=shape, transpose=transpose)
+    res = event_csrmm_p_call(
+        data,
+        indices,
+        indptr,
+        B,
+        shape=shape,
+        transpose=transpose,
+        float_as_event=float_as_event,
+    )[0]
     return u.maybe_decimal(res * (unitd * unitb))
 
 
@@ -483,9 +815,9 @@ def event_csrmv_p_call(
     indptr,
     v,
     *,
-    shape,
-    transpose,
-    float_as_event,
+    shape: Shape,
+    transpose: bool,
+    float_as_event: bool,
 ):
     if jax.default_backend() == 'cpu':
         return event_csrmv_p(
@@ -541,9 +873,9 @@ def event_csrmm_p_call(
     indptr,
     B,
     *,
-    shape,
-    transpose,
-    float_as_event,
+    shape: Shape,
+    transpose: bool,
+    float_as_event: bool,
 ):
     if jax.default_backend() == 'cpu':
         return event_csrmm_p(

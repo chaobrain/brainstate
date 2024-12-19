@@ -608,9 +608,9 @@ def _get_children(graph_def, state_mapping, index_ref, index_ref_cache):
                         if isinstance(value, TreefyState):
                             variable.update_from_ref(value)
                         elif isinstance(value, State):
-                             if value._been_writen:
+                            if value._been_writen:
                                 variable.write_value(value.value)
-                             else:
+                            else:
                                 variable.restore_value(value.value)
                         else:
                             raise ValueError(f'Expected a State type for {key!r}, but got {type(value)}.')
@@ -1600,10 +1600,12 @@ def iter_leaf(
             visited_.add(id(node_))
             node_dict = _get_node_impl(node_).node_dict(node_)
             for key, value in node_dict.items():
-                yield from _iter_graph_leaf(value,
-                                            visited_,
-                                            (*path_parts_, key),
-                                            level_ + 1 if _is_graph_node(value) else level_)
+                yield from _iter_graph_leaf(
+                    value,
+                    visited_,
+                    (*path_parts_, key),
+                    level_ + 1 if _is_graph_node(value) else level_
+                )
         else:
             if level_ >= allowed_hierarchy[0]:
                 yield path_parts_, node_

@@ -445,6 +445,16 @@ class Prefetch(Node):
         item = _get_prefetch_item(self)
         return item.value if isinstance(item, State) else item
 
+    def get_item_value(self):
+        item = _get_prefetch_item(self)
+        return item.value if isinstance(item, State) else item
+
+    def get_item(self):
+        """
+        Get
+        """
+        return _get_prefetch_item(self)
+
 
 class PrefetchDelay(Node):
     def __init__(self, module: Dynamics, item: str):
