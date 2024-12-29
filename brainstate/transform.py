@@ -13,4 +13,8 @@
 # limitations under the License.
 # ==============================================================================
 
-# This module is going to be deleted in the future (near 2025-06).
+# alias for compilation and augmentation functions
+
+from .compile import *
+from .augment import *
+
