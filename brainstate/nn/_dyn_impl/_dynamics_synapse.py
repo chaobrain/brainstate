@@ -41,7 +41,8 @@ class Synapse(Dynamics):
 
 
 class Expon(Synapse, AlignPost):
-    r"""Exponential decay synapse model.
+    r"""
+    Exponential decay synapse model.
 
     Args:
       tau: float. The time constant of decay. [ms]
@@ -72,6 +73,89 @@ class Expon(Synapse, AlignPost):
         g = exp_euler_step(lambda g: self.sum_current_inputs(-g) / self.tau, self.g.value)
         self.g.value = self.sum_delta_inputs(g)
         if x is not None: self.g.value += x
+        return self.g.value
+
+
+class DualExpon(Synapse, AlignPost):
+    __module__ = 'brainstate.nn'
+
+    def __init__(
+        self,
+        in_size: Size,
+        name: Optional[str] = None,
+        tau_decay: ArrayLike = 10.0 * u.ms,
+        tau_rise: ArrayLike = 1.0 * u.ms,
+        A: Optional[ArrayLike] = None,
+        g_initializer: ArrayLike = init.ZeroInit(unit=u.mS),
+    ):
+        super().__init__(name=name, in_size=in_size)
+
+        # parameters
+        self.tau_decay = init.param(tau_decay, self.varshape)
+        self.tau_rise = init.param(tau_rise, self.varshape)
+        A = self._format_dual_exp_A(A)
+        self.a = (self.tau_decay - self.tau_rise) / self.tau_rise / self.tau_decay * A
+        self.g_initializer = g_initializer
+
+    def _format_dual_exp_A(self, A):
+        A = init.param(A, sizes=self.varshape, allow_none=True)
+        if A is None:
+            A = (
+                self.tau_decay / (self.tau_decay - self.tau_rise) *
+                u.math.float_power(self.tau_rise / self.tau_decay,
+                                   self.tau_rise / (self.tau_rise - self.tau_decay))
+            )
+        return A
+
+    def init_state(self, batch_size: int = None, **kwargs):
+        self.g_rise = HiddenState(init.param(self.g_initializer, self.varshape, batch_size))
+        self.g_decay = HiddenState(init.param(self.g_initializer, self.varshape, batch_size))
+
+    def reset_state(self, batch_size: int = None, **kwargs):
+        self.g_rise.value = init.param(self.g_initializer, self.varshape, batch_size)
+        self.g_decay.value = init.param(self.g_initializer, self.varshape, batch_size)
+
+    def update(self, x=None):
+        g_rise = exp_euler_step(lambda h: -h / self.tau_rise, self.g_rise.value)
+        g_decay = exp_euler_step(lambda g: -g / self.tau_decay, self.g_decay.value)
+        self.g_rise.value = self.sum_delta_inputs(g_rise)
+        self.g_decay.value = self.sum_delta_inputs(g_decay)
+        if x is not None:
+            self.g_rise.value += x
+            self.g_decay.value += x
+        return self.a * (self.g_decay.value - self.g_rise.value)
+
+
+class Alpha(Synapse):
+    __module__ = 'brainstate.nn'
+
+    def __init__(
+        self,
+        in_size: Size,
+        name: Optional[str] = None,
+        tau: ArrayLike = 8.0 * u.ms,
+        g_initializer: ArrayLike = init.ZeroInit(unit=u.mS),
+    ):
+        super().__init__(name=name, in_size=in_size)
+
+        # parameters
+        self.tau = init.param(tau, self.varshape)
+        self.g_initializer = g_initializer
+
+    def init_state(self, batch_size: int = None, **kwargs):
+        self.g = HiddenState(init.param(self.g_initializer, self.varshape, batch_size))
+        self.h = HiddenState(init.param(self.g_initializer, self.varshape, batch_size))
+
+    def reset_state(self, batch_size: int = None, **kwargs):
+        self.g.value = init.param(self.g_initializer, self.varshape, batch_size)
+        self.h.value = init.param(self.g_initializer, self.varshape, batch_size)
+
+    def update(self, x=None):
+        h = exp_euler_step(lambda h: -h / self.tau, self.h.value)
+        self.g.value = exp_euler_step(lambda g, h: -g / self.tau + h / self.tau, self.g.value, self.h.value)
+        self.h.value = self.sum_delta_inputs(h)
+        if x is not None:
+            self.h.value += x
         return self.g.value
 
 
