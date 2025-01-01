@@ -14,41 +14,29 @@ Features
 
 .. grid::
 
-   .. grid-item::
-      :columns: 12 12 12 6
-
-      .. card:: Pythonic
-         :class-card: sd-border-0
-         :shadow: none
-         :class-title: sd-fs-5
-
-         .. div:: sd-font-normal
-
-            ``BrainState`` provides a Pythonic interface to brain dynamics programming.
-
 
    .. grid-item::
-      :columns: 12 12 12 6
+      :columns: 12 12 12 4
 
       .. card:: Event-driven Computation
          :class-card: sd-border-0
          :shadow: none
-         :class-title: sd-fs-5
+         :class-title: sd-fs-6
 
          .. div:: sd-font-normal
 
-            ``BrainState`` enables `event-driven computation <./apis/event.html>`__ for spiking neural networks,
-            and thus obtains unprecedented performance on CPU and GPU devices.
+            ``BrainState`` enables `event-driven computation <./apis/event.html>`__ for spiking neural networks
+            on CPU and GPU devices.
 
 
 
    .. grid-item::
-      :columns: 12 12 12 6
+      :columns: 12 12 12 4
 
       .. card:: Program Compilation
          :class-card: sd-border-0
          :shadow: none
-         :class-title: sd-fs-5
+         :class-title: sd-fs-6
 
          .. div:: sd-font-normal
 
@@ -57,12 +45,12 @@ Features
 
 
    .. grid-item::
-      :columns: 12 12 12 6
+      :columns: 12 12 12 4
 
       .. card:: Program Augmentation
          :class-card: sd-border-0
          :shadow: none
-         :class-title: sd-fs-5
+         :class-title: sd-fs-6
 
          .. div:: sd-font-normal
 
