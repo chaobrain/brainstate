@@ -33,6 +33,10 @@ class TestEnviron(unittest.TestCase):
 
         with bst.environ.context(precision=16):
             a = bst.random.randn(1)
+            self.assertEqual(a.dtype, jnp.float16)
+
+        with bst.environ.context(precision='bf16'):
+            a = bst.random.randn(1)
             self.assertEqual(a.dtype, jnp.bfloat16)
 
     def test_platform(self):
