@@ -390,6 +390,8 @@ def _get_float(precision: int):
         return np.float16
     elif precision == 'bf16':
         return jnp.bfloat16
+    elif precision == 8:
+        return jnp.float8_e5m2
     else:
         raise ValueError(f'Unsupported precision: {precision}')
 
@@ -401,6 +403,8 @@ def _get_complex(precision: int):
     elif precision == 32:
         return np.complex64
     elif precision in [16, 'bf16']:
+        return np.complex64
+    elif precision == 8:
         return np.complex64
     else:
         raise ValueError(f'Unsupported precision: {precision}')

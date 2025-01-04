@@ -18,6 +18,7 @@ from __future__ import annotations
 import unittest
 
 import jax
+import jax.extend as je
 import jax.numpy as jnp
 import pytest
 
@@ -84,7 +85,7 @@ class TestMakeJaxpr(unittest.TestCase):
         print(jaxpr)
         jaxpr, _ = bst.compile.make_jaxpr(f3)(jnp.zeros(1))
         print(jaxpr)
-        self.assertTrue(jnp.allclose(jax.core.jaxpr_as_fun(jaxpr)(jnp.zeros(1), st1.value)[0],
+        self.assertTrue(jnp.allclose(je.core.jaxpr_as_fun(jaxpr)(jnp.zeros(1), st1.value)[0],
                                      f3(jnp.zeros(1))))
 
     def test_compar_jax_make_jaxpr2(self):

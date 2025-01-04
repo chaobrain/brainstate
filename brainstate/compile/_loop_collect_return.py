@@ -206,7 +206,7 @@ def scan(
 
     # evaluate jaxpr, get all states #
     # ------------------------------ #
-    xs_avals = [jax.core.raise_to_shaped(jax.core.get_aval(x)) for x in xs_flat]
+    xs_avals = [jax.core.get_aval(x) for x in xs_flat]
     x_avals = [jax.core.mapped_aval(length, 0, aval) for aval in xs_avals]
     stateful_fun = StatefulFunction(f).make_jaxpr(init, xs_tree.unflatten(x_avals))
     state_trace = stateful_fun.get_state_trace()
@@ -302,7 +302,7 @@ def checkpointed_scan(
         pbar_runner = None
 
     # evaluate jaxpr
-    xs_avals = [jax.core.raise_to_shaped(jax.core.get_aval(x)) for x in xs_flat]
+    xs_avals = [jax.core.get_aval(x) for x in xs_flat]
     x_avals = [jax.core.mapped_aval(length, 0, aval) for aval in xs_avals]
     stateful_fun = StatefulFunction(f).make_jaxpr(init, xs_tree.unflatten(x_avals))
     state_trace = stateful_fun.get_state_trace()
