@@ -32,6 +32,7 @@ class TestJitError(unittest.TestCase):
         def err_f(x):
             raise ValueError(f'error: {x}')
 
+        bst.compile.jit_error_if(False, err_f, 1.)
         with self.assertRaises(jaxlib.xla_extension.XlaRuntimeError):
             bst.compile.jit_error_if(True, err_f, 1.)
 

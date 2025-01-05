@@ -249,7 +249,13 @@ def get_precision() -> int:
       The default precision.
     """
     precision = get('precision')
-    return 16 if precision == 'bf16' else precision
+    if precision == 'bf16':
+        return 16
+    if isinstance(precision, int):
+        return precision
+    if isinstance(precision, str):
+        return int(precision)
+    raise ValueError(f'Unsupported precision: {precision}')
 
 
 def set(
@@ -345,8 +351,8 @@ def _set_jax_precision(precision: int | str):
     Args:
       precision: int. The default precision.
     """
-    assert precision in [64, 32, 16, 'bf16', 8], f'Precision must be in [64, 32, 16, "bf16", 8]. But got {precision}.'
-    if precision == 64:
+    # assert precision in [64, 32, 16, 'bf16', 8], f'Precision must be in [64, 32, 16, "bf16", 8]. But got {precision}.'
+    if precision in [64, '64']:
         config.update("jax_enable_x64", True)
     else:
         config.update("jax_enable_x64", False)
@@ -354,13 +360,13 @@ def _set_jax_precision(precision: int | str):
 
 @functools.lru_cache()
 def _get_uint(precision: int):
-    if precision == 64:
+    if precision in [64, '64']:
         return np.uint64
-    elif precision == 32:
+    elif precision in [32, '32']:
         return np.uint32
-    elif precision in [16, 'bf16']:
+    elif precision in [16, '16', 'bf16']:
         return np.uint16
-    elif precision == 8:
+    elif precision in [8, '8']:
         return np.uint8
     else:
         raise ValueError(f'Unsupported precision: {precision}')
@@ -368,13 +374,13 @@ def _get_uint(precision: int):
 
 @functools.lru_cache()
 def _get_int(precision: int):
-    if precision == 64:
+    if precision in [64, '64']:
         return np.int64
-    elif precision == 32:
+    elif precision in [32, '32']:
         return np.int32
-    elif precision in [16, 'bf16']:
+    elif precision in [16, '16', 'bf16']:
         return np.int16
-    elif precision == 8:
+    elif precision in [8, '8']:
         return np.int8
     else:
         raise ValueError(f'Unsupported precision: {precision}')
@@ -382,15 +388,15 @@ def _get_int(precision: int):
 
 @functools.lru_cache()
 def _get_float(precision: int):
-    if precision == 64:
+    if precision in [64, '64']:
         return np.float64
-    elif precision == 32:
+    elif precision in [32, '32']:
         return np.float32
-    elif precision == 16:
+    elif precision in [16, '16']:
         return np.float16
-    elif precision == 'bf16':
+    elif precision in ['bf16']:
         return jnp.bfloat16
-    elif precision == 8:
+    elif precision in [8, '8']:
         return jnp.float8_e5m2
     else:
         raise ValueError(f'Unsupported precision: {precision}')
@@ -398,13 +404,13 @@ def _get_float(precision: int):
 
 @functools.lru_cache()
 def _get_complex(precision: int):
-    if precision == 64:
+    if precision == [64, '64']:
         return np.complex128
-    elif precision == 32:
+    elif precision == [32, '32']:
         return np.complex64
-    elif precision in [16, 'bf16']:
+    elif precision in [16, '16', 'bf16']:
         return np.complex64
-    elif precision == 8:
+    elif precision == [8, '8']:
         return np.complex64
     else:
         raise ValueError(f'Unsupported precision: {precision}')

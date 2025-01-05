@@ -24,6 +24,7 @@ import jax.numpy as jnp
 import numpy as np
 from jax.interpreters import ad
 
+from brainstate import environ
 from brainstate._state import ParamState
 from brainstate.augment import vmap
 from brainstate.init import param
@@ -111,7 +112,7 @@ class FixedProb(Module):
 
     def update(self, spk: jax.Array) -> Union[jax.Array, u.Quantity]:
         if self.n_conn > 1:
-            return event_fixed_prob(
+            r = event_fixed_prob(
                 spk,
                 self.weight.value,
                 self.indices,
@@ -123,7 +124,8 @@ class FixedProb(Module):
             weight = self.weight.value
             unit = u.get_unit(weight)
             r = jnp.zeros(spk.shape[:-1] + (self.out_size[-1],), dtype=weight.dtype)
-            return u.maybe_decimal(u.Quantity(r, unit=unit))
+            r = u.maybe_decimal(u.Quantity(r, unit=unit))
+        return u.math.asarray(r, dtype=environ.dftype())
 
 
 def event_fixed_prob(
