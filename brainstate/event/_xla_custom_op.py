@@ -7,13 +7,17 @@ from functools import partial
 from typing import Callable, Sequence, Tuple, Protocol
 
 import jax
-import jax.extend as je
 import numpy as np
 from jax import tree_util
 from jax.core import Primitive
 from jax.interpreters import batching, ad
 from jax.interpreters import xla, mlir
 from jaxlib.hlo_helpers import custom_call
+
+if jax.__version_info__ < (0, 4, 35):
+    from jax.lib import xla_client
+else:
+    import jax.extend as je
 
 numba_installed = importlib.util.find_spec('numba') is not None
 
@@ -143,8 +147,10 @@ def numba_cpu_custom_call_target(output_ptrs, input_ptrs):
     xla_c_rule = cfunc(sig)(new_f)
     target_name = f'numba_custom_call_{str(xla_c_rule.address)}'
     capsule = ctypes.pythonapi.PyCapsule_New(xla_c_rule.address, b"xla._CUSTOM_CALL_TARGET", None)
-    je.ffi.register_ffi_target(target_name, capsule, "cpu", api_version=0)
-    # xla_client.register_custom_call_target(target_name, capsule, "cpu")
+    if jax.__version_info__ < (0, 4, 35):
+        xla_client.register_custom_call_target(target_name, capsule, "cpu")
+    else:
+        je.ffi.register_ffi_target(target_name, capsule, "cpu", api_version=0)
 
     # call
     return custom_call(
