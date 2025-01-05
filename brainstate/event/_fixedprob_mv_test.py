@@ -128,4 +128,5 @@ class TestFixedProbCSR(parameterized.TestCase):
 
         o2, r2 = jax.jvp(f2, (x, w), (jnp.ones_like(x), jnp.ones_like(w)))
         self.assertTrue(jnp.allclose(o1, o2))
+        assert jnp.allclose(r1, r2), f'r1={r1}, r2={r2}'
         self.assertTrue(jnp.allclose(r1, r2))
