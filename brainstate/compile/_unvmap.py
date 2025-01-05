@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import jax
 import jax.core
+import jax.extend as je
 import jax.interpreters.batching as batching
 import jax.interpreters.mlir as mlir
 import jax.numpy as jnp
@@ -43,7 +44,7 @@ def unvmap(x, op: str = 'any'):
 
 # unvmap_all
 
-unvmap_all_p = jax.core.Primitive("unvmap_all")
+unvmap_all_p = je.core.Primitive("unvmap_all")
 
 
 def unvmap_all(x):

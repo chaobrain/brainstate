@@ -22,8 +22,11 @@
 
 import brainunit as u
 import matplotlib.pyplot as plt
+import numpy as np
 
 import brainstate as bst
+
+bst.environ.set(precision='bf16')
 
 num_exc = 3200
 num_inh = 800
@@ -68,9 +71,9 @@ class HH(bst.nn.Dynamics):
     def init_state(self, *args, **kwargs):
         # variables
         self.V = bst.HiddenState(El + (bst.random.randn(*self.varshape) * 5 - 5) * u.mV)
-        self.m = bst.HiddenState(u.math.zeros(self.varshape))
-        self.n = bst.HiddenState(u.math.zeros(self.varshape))
-        self.h = bst.HiddenState(u.math.zeros(self.varshape))
+        self.m = bst.HiddenState(u.math.zeros(self.varshape, dtype=bst.environ.dftype()))
+        self.n = bst.HiddenState(u.math.zeros(self.varshape, dtype=bst.environ.dftype()))
+        self.h = bst.HiddenState(u.math.zeros(self.varshape, dtype=bst.environ.dftype()))
         self.spike = bst.HiddenState(u.math.zeros(self.varshape, dtype=bool))
 
     def reset_state(self, *args, **kwargs):
@@ -80,21 +83,21 @@ class HH(bst.nn.Dynamics):
         self.h.value = u.math.zeros(self.varshape)
         self.spike.value = u.math.zeros(self.varshape, dtype=bool)
 
-    def dV(self, V, t, m, h, n, Isyn):
+    def dV(self, V, m, h, n, Isyn):
         gna = g_Na * (m * m * m) * h
         gkd = g_Kd * (n * n * n * n)
         dVdt = (-gl * (V - El) - gna * (V - ENa) - gkd * (V - EK) + self.sum_current_inputs(Isyn, V)) / Cm
         return dVdt
 
-    def dm(self, m, t, V, ):
+    def dm(self, m, V, ):
         a = (- V + VT) / u.mV + 13
         b = (V - VT) / u.mV - 40
-        m_alpha = 0.32 * a / (u.math.exp(a / 4) - 1.)
-        m_beta = 0.28 * b / (u.math.exp(b / 5) - 1)
+        m_alpha = 0.32 * 4 / u.math.exprel(a / 4)
+        m_beta = 0.28 * 5 / u.math.exprel(b / 5)
         dmdt = (m_alpha * (1 - m) - m_beta * m) / u.ms
         return dmdt
 
-    def dh(self, h, t, V):
+    def dh(self, h, V):
         c = (- V + VT) / u.mV + 17
         d = (V - VT) / u.mV - 40
         h_alpha = 0.128 * u.math.exp(c / 18)
@@ -102,21 +105,20 @@ class HH(bst.nn.Dynamics):
         dhdt = (h_alpha * (1 - h) - h_beta * h) / u.ms
         return dhdt
 
-    def dn(self, n, t, V):
+    def dn(self, n, V):
         c = (- V + VT) / u.mV + 15
         d = (- V + VT) / u.mV + 10
-        n_alpha = 0.032 * c / (u.math.exp(c / 5) - 1.)
+        n_alpha = 0.032 * 5 / u.math.exprel(c / 5)
         n_beta = .5 * u.math.exp(d / 40)
         dndt = (n_alpha * (1 - n) - n_beta * n) / u.ms
         return dndt
 
     def update(self, x=0. * u.mA):
-        t = bst.environ.get('t')
         last_V = self.V.value
-        V = bst.nn.exp_euler_step(self.dV, last_V, t, self.m.value, self.h.value, self.n.value, x)
-        m = bst.nn.exp_euler_step(self.dm, self.m.value, t, last_V)
-        h = bst.nn.exp_euler_step(self.dh, self.h.value, t, last_V)
-        n = bst.nn.exp_euler_step(self.dn, self.n.value, t, last_V)
+        V = bst.nn.exp_euler_step(self.dV, last_V, self.m.value, self.h.value, self.n.value, x)
+        m = bst.nn.exp_euler_step(self.dm, self.m.value, last_V)
+        h = bst.nn.exp_euler_step(self.dh, self.h.value, last_V)
+        n = bst.nn.exp_euler_step(self.dn, self.n.value, last_V)
         self.spike.value = u.math.logical_and(last_V < V_th, V >= V_th)
         self.m.value = m
         self.h.value = h
@@ -151,7 +153,8 @@ class EINet(bst.nn.DynamicsGroup):
             spk = self.N.spike.value
             self.E(spk[:self.n_exc])
             self.I(spk[self.n_exc:])
-            return self.N()
+            r = self.N()
+            return r
 
 
 # network
@@ -159,13 +162,14 @@ net = EINet()
 bst.nn.init_all_states(net)
 
 # simulation
-with bst.environ.context(dt=0.1 * u.ms):
-    times = u.math.arange(0. * u.ms, 1000. * u.ms, bst.environ.get_dt())
-    spikes = bst.compile.for_loop(net.update, times, pbar=bst.compile.ProgressBar(10))
+with bst.environ.context(dt=0.04 * u.ms):
+    times = u.math.arange(0. * u.ms, 300. * u.ms, bst.environ.get_dt())
+    times = u.math.asarray(times, dtype=bst.environ.dftype())
+    spikes = bst.compile.for_loop(net.update, times, pbar=bst.compile.ProgressBar(100))
 
 # visualization
 t_indices, n_indices = u.math.where(spikes)
-plt.scatter(times[t_indices], n_indices, s=1)
+plt.scatter(u.math.asarray(times[t_indices] / u.ms, dtype=np.float32), n_indices, s=1)
 plt.xlabel('Time (ms)')
 plt.ylabel('Neuron index')
 plt.show()
