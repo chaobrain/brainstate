@@ -1848,7 +1848,14 @@ def lognormal(mean=None, sigma=None, size: Optional[Size] = None,
     return DEFAULT.lognormal(mean, sigma, size, key=key, dtype=dtype)
 
 
-def binomial(n, p, size: Optional[Size] = None, key: Optional[SeedOrKey] = None, dtype: DTypeLike = None):
+def binomial(
+    n,
+    p,
+    size: Optional[Size] = None,
+    key: Optional[SeedOrKey] = None,
+    dtype: DTypeLike = None,
+    check_valid: bool = True,
+):
     r"""
     Draw samples from a binomial distribution.
 
@@ -1933,7 +1940,7 @@ def binomial(n, p, size: Optional[Size] = None, key: Optional[SeedOrKey] = None,
     >>> sum(brainstate.random.binomial(9, 0.1, 20000) == 0)/20000.
     # answer = 0.38885, or 38%.
     """
-    return DEFAULT.binomial(n, p, size, key=key, dtype=dtype)
+    return DEFAULT.binomial(n, p, size, key=key, dtype=dtype, check_valid=check_valid)
 
 
 def chisquare(df, size: Optional[Size] = None, key: Optional[SeedOrKey] = None, dtype: DTypeLike = None):

@@ -21,7 +21,7 @@ import jax
 import numpy as np
 
 from brainstate.typing import SeedOrKey
-from ._rand_state import RandomState, DEFAULT
+from ._rand_state import RandomState, DEFAULT, use_prng_key
 
 __all__ = [
     'seed', 'set_key', 'get_key', 'default_rng', 'split_key', 'split_keys', 'seed_context', 'restore_key',
@@ -123,7 +123,17 @@ def set_key(seed_or_key: SeedOrKey):
     seed_or_key: int
       The random key.
     """
-    DEFAULT.set_key(jax.random.PRNGKey(seed_or_key) if jax.numpy.shape(seed_or_key) == () else seed_or_key)
+    if isinstance(seed_or_key, int):
+        # key = jax.random.key(seed_or_key)
+        key = jax.random.PRNGKey(seed_or_key) if use_prng_key else jrjax.random.key(seed_or_key)
+    elif isinstance(seed_or_key, (jax.numpy.ndarray, np.ndarray)):
+        if jax.numpy.issubdtype(seed_or_key.dtype, jax.dtypes.prng_key):
+            key = seed_or_key
+        elif seed_or_key.size == 2 and seed_or_key.dtype == jax.numpy.uint32:
+            key = seed_or_key
+        else:
+            raise ValueError(f"seed_or_key should be an integer or a tuple of two integers.")
+    DEFAULT.set_key(key)
 
 
 def get_key():
