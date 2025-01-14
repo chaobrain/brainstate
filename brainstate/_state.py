@@ -29,7 +29,6 @@ from jax.extend import source_info_util
 
 from brainstate.typing import ArrayLike, PyTree, Missing
 from brainstate.util import DictManager, PrettyRepr, PrettyType, PrettyAttr, TraceContextError
-from brainstate.util._tracers import StateJaxTracer
 
 __all__ = [
     'State', 'ShortTermState', 'LongTermState', 'HiddenState', 'ParamState', 'TreefyState',
@@ -197,7 +196,6 @@ class State(Generic[A], PrettyRepr):
       value: PyTree. It can be anything as a pyTree.
     """
     __module__ = 'brainstate'
-    _trace_state: StateJaxTracer
     _level: int
     _source_info: source_info_util.SourceInfo
     _name: Optional[str]
@@ -212,9 +210,6 @@ class State(Generic[A], PrettyRepr):
         **metadata: Any
     ):
         tag = metadata.pop('tag', None)
-
-        # avoid using self._setattr to avoid the check
-        vars(self)['_trace_state'] = StateJaxTracer()
 
         # set the value and metadata
         if isinstance(value, StateMetadata):
@@ -415,7 +410,6 @@ class State(Generic[A], PrettyRepr):
         obj = object.__new__(type(self))
         attributes = vars(self).copy()
         # keep its own trace state and stack level
-        attributes['_trace_state'] = StateJaxTracer()
         attributes['_level'] = _get_trace_stack_level()
         attributes['_source_info'] = source_info_util.current()
         attributes.pop('_been_writen', None)
@@ -835,7 +829,7 @@ class TreefyState(Generic[A], PrettyRepr):
         # __init__ logic which should not be called twice
         metadata = self.get_metadata()
         state = object.__new__(self.type)
-        vars(state).update(metadata, _value=self.value, _trace_state=StateJaxTracer(), _level=_get_trace_stack_level())
+        vars(state).update(metadata, _value=self.value, _level=_get_trace_stack_level())
         return state
 
     def copy(self: TreefyState[A]) -> TreefyState[A]:
