@@ -533,15 +533,26 @@ def _batch_and_remainder(x, batch_size: int):
     scan_leaves = []
     remainder_leaves = []
 
+    length = None
     for leaf in leaves:
-        num_batches, _ = divmod(leaf.shape[0], batch_size)
+        if length is None:
+            length = leaf.shape[0]
+        if length != leaf.shape[0]:
+            raise ValueError(f"All inputs must have the same length. Got {length} and {num_batches}.")
+
+    num_batches, num_remainder = divmod(length, batch_size)
+    for leaf in leaves:
         total_batch_elems = num_batches * batch_size
         scan_leaves.append(leaf[:total_batch_elems].reshape(num_batches, batch_size, *leaf.shape[1:]))
-        remainder_leaves.append(leaf[total_batch_elems:])
+        if num_remainder:
+            remainder_leaves.append(leaf[total_batch_elems:])
 
     scan_tree = treedef.unflatten(scan_leaves)
-    remainder_tree = treedef.unflatten(remainder_leaves)
-    return scan_tree, remainder_tree
+    if num_remainder:
+        remainder_tree = treedef.unflatten(remainder_leaves)
+        return scan_tree, remainder_tree
+    else:
+        return scan_tree, None
 
 
 def map(
@@ -602,14 +613,20 @@ def map(
         scan_xs, remainder_xs = _batch_and_remainder(xs, batch_size)
         g = lambda _, x: ((), vmap(f)(*x))
         _, scan_ys = scan(g, (), scan_xs)
-        remainder_ys = vmap(f)(*remainder_xs)
-        flatten = lambda x: x.reshape(-1, *x.shape[2:])
-        ys = jax.tree.map(
-            lambda x, y: jax.lax.concatenate([flatten(x), y], dimension=0),
-            scan_ys,
-            remainder_ys,
-        )
+        if remainder_xs is None:
+            ys = jax.tree.map(lambda x: flatten_(x), scan_ys)
+        else:
+            remainder_ys = vmap(f)(*remainder_xs)
+            ys = jax.tree.map(
+                lambda x, y: jax.lax.concatenate([flatten_(x), y], dimension=0),
+                scan_ys,
+                remainder_ys,
+            )
     else:
         g = lambda _, x: ((), f(*x))
         _, ys = scan(g, (), xs)
     return ys
+
+
+def flatten_(x):
+    return x.reshape(-1, *x.shape[2:])

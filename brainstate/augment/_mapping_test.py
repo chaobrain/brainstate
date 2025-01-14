@@ -213,8 +213,6 @@ class TestVmap(unittest.TestCase):
         print(trace.get_write_states())
         print(trace.get_read_states())
 
-
-
     def test_vmap_jit(self):
         class Foo(bst.nn.Module):
             def __init__(self):
@@ -251,7 +249,6 @@ class TestVmap(unittest.TestCase):
 
         print(trace.get_write_states())
         print(trace.get_read_states())
-
 
     def test_vmap_grad(self):
         class Foo(bst.nn.Module):
@@ -292,3 +289,17 @@ class TestVmap(unittest.TestCase):
         # print(trace.get_read_states())
 
 
+class TestMap(unittest.TestCase):
+    def test_map(self):
+        for dim in [(10,), (10, 10), (10, 10, 10)]:
+            x = bst.random.rand(*dim)
+            r1 = bst.augment.map(lambda a: a + 1, x, batch_size=None)
+            r2 = bst.augment.map(lambda a: a + 1, x, batch_size=2)
+            r3 = bst.augment.map(lambda a: a + 1, x, batch_size=4)
+            r4 = bst.augment.map(lambda a: a + 1, x, batch_size=5)
+            true_r = x + 1
+
+            self.assertTrue(jnp.allclose(r1, true_r))
+            self.assertTrue(jnp.allclose(r2, true_r))
+            self.assertTrue(jnp.allclose(r3, true_r))
+            self.assertTrue(jnp.allclose(r4, true_r))
