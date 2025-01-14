@@ -9,7 +9,6 @@ from typing import Callable, Sequence, Tuple, Protocol
 import jax
 import numpy as np
 from jax import tree_util
-from jax.core import Primitive
 from jax.interpreters import batching, ad
 from jax.interpreters import xla, mlir
 from jaxlib.hlo_helpers import custom_call
@@ -18,6 +17,11 @@ if jax.__version_info__ < (0, 4, 35):
     from jax.lib import xla_client
 else:
     import jax.extend as je
+
+if jax.__version_info__ < (0, 4, 38):
+    from jax.core import Primitive
+else:
+    from jax.extend.core import Primitive
 
 numba_installed = importlib.util.find_spec('numba') is not None
 
@@ -164,7 +168,7 @@ def numba_cpu_custom_call_target(output_ptrs, input_ptrs):
 
 
 def register_numba_mlir_cpu_translation_rule(
-    primitive: jax.core.Primitive,
+    primitive: Primitive,
     cpu_kernel: Callable,
     debug: bool = False
 ):
@@ -205,7 +209,7 @@ class XLACustomOp:
         transpose_translation: Callable = None,
     ):
         # primitive
-        self.primitive = jax.core.Primitive(name)
+        self.primitive = Primitive(name)
         self.primitive.multiple_results = True
 
         # abstract evaluation

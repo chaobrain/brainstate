@@ -19,8 +19,12 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 import jax.scipy as sci
-from jax.core import Primitive
 from jax.interpreters import batching, ad, mlir
+
+if jax.__version_info__ < (0, 4, 38):
+    from jax.core import Primitive
+else:
+    from jax.extend.core import Primitive
 
 __all__ = [
     'Surrogate',
