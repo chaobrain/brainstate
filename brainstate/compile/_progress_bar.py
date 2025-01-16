@@ -16,34 +16,59 @@
 from __future__ import annotations
 
 import copy
-from typing import Optional
+import importlib.util
+from typing import Optional, Callable, Any, Tuple, Dict
 
 import jax
 
-try:
-    from tqdm.auto import tqdm
-except (ImportError, ModuleNotFoundError):
-    tqdm = None
+tqdm_installed = importlib.util.find_spec('tqdm') is not None
 
 __all__ = [
     'ProgressBar',
 ]
 
+Index = int
+Carray = Any
+Output = Any
+
 
 class ProgressBar(object):
+    """
+    A progress bar for tracking the progress of a jitted for-loop computation.
+    """
     __module__ = "brainstate.compile"
 
-    def __init__(self, freq: Optional[int] = None, count: Optional[int] = None, **kwargs):
+    def __init__(
+        self,
+        freq: Optional[int] = None,
+        count: Optional[int] = None,
+        desc: Optional[Tuple[str, Callable[[Dict], Dict]]] = None,
+        **kwargs
+    ):
+        # print rate
         self.print_freq = freq
         if isinstance(freq, int):
             assert freq > 0, "Print rate should be > 0."
+
+        # print count
         self.print_count = count
         if self.print_freq is not None and self.print_count is not None:
             raise ValueError("Cannot specify both count and freq.")
+
+        # other parameters
         for kwarg in ("total", "mininterval", "maxinterval", "miniters"):
             kwargs.pop(kwarg, None)
         self.kwargs = kwargs
-        if tqdm is None:
+
+        # description
+        if desc is not None:
+            assert isinstance(desc, (tuple, list)), 'Description should be a tuple or list.'
+            assert isinstance(desc[0], str), 'Description should be a string.'
+            assert callable(desc[1]), 'Description should be a callable.'
+        self.desc = desc
+
+        # check if tqdm is installed
+        if not tqdm_installed:
             raise ImportError("tqdm is not installed.")
 
     def init(self, n: int):
@@ -67,15 +92,22 @@ class ProgressBar(object):
                 raise ValueError("Print rate should be less than the "
                                  f"number of steps {n}, got {freq}")
             remainder = n % freq
-        desc = kwargs.pop("desc", f"Running for {n:,} iterations")
-        message = kwargs.pop("message", desc)
-        return ProgressBarRunner(n, message, freq, remainder, **kwargs)
+
+        message = f"Running for {n:,} iterations" if self.desc is None else self.desc
+        return ProgressBarRunner(n, freq, remainder, message, **kwargs)
 
 
 class ProgressBarRunner(object):
     __module__ = "brainstate.compile"
 
-    def __init__(self, n: int, message, print_freq: int, remainder: int, **kwargs):
+    def __init__(
+        self,
+        n: int,
+        print_freq: int,
+        remainder: int,
+        message: str | Tuple[str, Callable[[Dict], Dict]],
+        **kwargs
+    ):
         self.tqdm_bars = {}
         self.kwargs = kwargs
         self.n = n
@@ -83,50 +115,46 @@ class ProgressBarRunner(object):
         self.remainder = remainder
         self.message = message
 
-    def _define_tqdm(self):
+    def _define_tqdm(self, x: dict):
+        from tqdm.auto import tqdm
         self.tqdm_bars[0] = tqdm(range(self.n), **self.kwargs)
-        self.tqdm_bars[0].set_description(self.message, refresh=False)
+        if isinstance(self.message, str):
+            self.tqdm_bars[0].set_description(self.message, refresh=False)
+        else:
+            self.tqdm_bars[0].set_description(self.message[0].format(**x), refresh=True)
 
-    def _update_tqdm(self):
+    def _update_tqdm(self, x: dict):
         self.tqdm_bars[0].update(self.print_freq)
+        if not isinstance(self.message, str):
+            self.tqdm_bars[0].set_description(self.message[0].format(**x), refresh=True)
 
-    def _close_tqdm(self):
+    def _close_tqdm(self, x: dict):
         if self.remainder > 0:
             self.tqdm_bars[0].update(self.remainder)
+            if not isinstance(self.message, str):
+                self.tqdm_bars[0].set_description(self.message[0].format(**x), refresh=True)
         self.tqdm_bars[0].close()
 
-    def _tqdm(self, is_init, is_print, is_final):
-        if is_init:
-            self.tqdm_bars[0] = tqdm(range(self.n), **self.kwargs)
-            self.tqdm_bars[0].set_description(self.message, refresh=False)
-        if is_print:
-            self.tqdm_bars[0].update(self.print_freq)
-        if is_final:
-            if self.remainder > 0:
-                self.tqdm_bars[0].update(self.remainder)
-            self.tqdm_bars[0].close()
-
-    def __call__(self, iter_num, *args, **kwargs):
-        # jax.debug.callback(
-        #     self._tqdm,
-        #     iter_num == 0,
-        #     (iter_num + 1) % self.print_freq == 0,
-        #     iter_num == self.n - 1
-        # )
+    def __call__(self, iter_num, **kwargs):
+        data = dict(i=iter_num, **kwargs)
+        data = dict() if isinstance(self.message, str) else self.message[1](data)
+        assert isinstance(data, dict), 'Description function should return a dictionary.'
 
         _ = jax.lax.cond(
             iter_num == 0,
-            lambda: jax.debug.callback(self._define_tqdm, ordered=True),
-            lambda: None,
+            lambda x: jax.debug.callback(self._define_tqdm, x, ordered=True),
+            lambda x: None,
+            data
         )
         _ = jax.lax.cond(
             iter_num % self.print_freq == (self.print_freq - 1),
-            lambda: jax.debug.callback(self._update_tqdm, ordered=True),
-            lambda: None,
+            lambda x: jax.debug.callback(self._update_tqdm, x, ordered=True),
+            lambda x: None,
+            data
         )
         _ = jax.lax.cond(
             iter_num == self.n - 1,
-            lambda: jax.debug.callback(self._close_tqdm, ordered=True),
-            lambda: None,
+            lambda x: jax.debug.callback(self._close_tqdm, x, ordered=True),
+            lambda x: None,
+            data
         )
-

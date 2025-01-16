@@ -48,9 +48,9 @@ def _wrap_fun_with_pbar(
     @wraps(fun)
     def new_fun(new_carry, inputs):
         i, old_carry = new_carry
-        old_carry, old_outputs = fun(old_carry, inputs)
-        pbar_runner(unvmap(i, op='none'))
-        return (i + 1, old_carry), old_outputs
+        new_carry, new_outputs = fun(old_carry, inputs)
+        pbar_runner(unvmap(i, op='none'), carry=new_carry, y=new_outputs)
+        return (i + 1, new_carry), new_outputs
 
     return new_fun
 
