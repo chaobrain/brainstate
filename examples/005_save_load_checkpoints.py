@@ -55,7 +55,7 @@ def create_and_save(seed: int, path: str):
 
 def load_model(path: str) -> MLP:
   # create that model with abstract shapes
-  model = bst.augment.eval_shape(lambda: create_model(0))
+  model = bst.augment.abstract_init(lambda: create_model(0))
   state_tree = bst.graph.treefy_states(model)
   # Load the parameters
   checkpointer = orbax.PyTreeCheckpointer()

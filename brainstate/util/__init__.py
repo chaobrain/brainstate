@@ -27,8 +27,6 @@ from ._scaling import *
 from ._scaling import __all__ as _mem_scale_all
 from ._struct import *
 from ._struct import __all__ as _struct_all
-from ._visualization import *
-from ._visualization import __all__ as _visualization_all
 
 __all__ = (
     _others_all
@@ -38,7 +36,6 @@ __all__ = (
     + _struct_all
     + _error_all
     + _mapping_all
-    + _visualization_all
 )
 del (
     _others_all,
@@ -48,5 +45,4 @@ del (
     _struct_all,
     _error_all,
     _mapping_all,
-    _visualization_all,
 )

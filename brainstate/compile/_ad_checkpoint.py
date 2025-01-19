@@ -182,10 +182,12 @@ def checkpoint(
 
     static_argnums = _ensure_index_tuple(tuple() if static_argnums is None else static_argnums)
     fun = StatefulFunction(fun, static_argnums=static_argnums)
-    checkpointed_fun = jax.checkpoint(fun.jaxpr_call,
-                                      prevent_cse=prevent_cse,
-                                      policy=policy,
-                                      static_argnums=tuple(i + 1 for i in static_argnums))
+    checkpointed_fun = jax.checkpoint(
+        fun.jaxpr_call,
+        prevent_cse=prevent_cse,
+        policy=policy,
+        static_argnums=tuple(i + 1 for i in static_argnums)
+    )
 
     @functools.wraps(fun.fun)
     def remat_fun(*args, **params):

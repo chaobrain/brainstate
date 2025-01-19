@@ -31,6 +31,7 @@ from ._util import write_back_state_values, wrap_single_fun
 __all__ = [
     # "scan" syntax, which is similar to jax.lax.scan
     'scan', 'checkpointed_scan',
+
     # "for_loop" syntax
     'for_loop', 'checkpointed_for_loop',
 ]
@@ -475,6 +476,8 @@ def checkpointed_for_loop(
     )
     return ys
 
+
+# This function is adapted from ``while_loop`` in `equinox <https://github.com/patrick-kidger/equinox/blob/main/equinox/internal/_loop/loop.py>`_.
 
 # There's several tricks happening here to work around various limitations of JAX.
 # (Also see https://github.com/google/jax/issues/2139#issuecomment-1039293633)

@@ -396,7 +396,7 @@ class StatefulFunction(object):
         # Checking whether the states are returned.
         for leaf in jax.tree.leaves(out):
             if isinstance(leaf, State):
-                leaf._raise_error_with_source_info(ValueError(f"State object is not allowed to be returned: {leaf}"))
+                leaf.raise_error_with_source_info(ValueError(f"State object is not allowed to be returned: {leaf}"))
         return out, state_values
 
     def make_jaxpr(self, *args, return_only_write: bool = False, **kwargs):

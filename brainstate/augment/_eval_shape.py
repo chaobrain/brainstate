@@ -20,18 +20,18 @@ from typing import Any, TypeVar, Callable, Sequence, Union
 
 import jax
 
-from brainstate.graph import graph_to_tree, tree_to_graph
+from brainstate.graph import Node, flatten, unflatten
 from brainstate.random import DEFAULT, RandomState
 from ._random import restore_rngs
 
 __all__ = [
-    'eval_shape',
+    'abstract_init',
 ]
 
 A = TypeVar('A')
 
 
-def eval_shape(
+def abstract_init(
     fn: Callable[..., A],
     *args: Any,
     rngs: Union[RandomState, Sequence[RandomState]] = DEFAULT,
@@ -48,7 +48,7 @@ def eval_shape(
         ...         self.dense1 = bst.nn.Linear(n_in, n_mid)
         ...         self.dense2 = bst.nn.Linear(n_mid, n_out)
 
-        >>> r = bst.augment.eval_shape(lambda: MLP(1, 2, 3))
+        >>> r = bst.augment.abstract_init(lambda: MLP(1, 2, 3))
         >>> r
         MLP(
           dense1=Linear(
@@ -87,16 +87,15 @@ def eval_shape(
     Returns:
         out: a nested PyTree containing :class:`jax.ShapeDtypeStruct` objects as leaves.
 
-
     """
 
     @functools.wraps(fn)
     @restore_rngs(rngs=rngs)
     def _eval_shape_fn(*args_, **kwargs_):
-        args_, kwargs_ = tree_to_graph((args_, kwargs_))
         out = fn(*args_, **kwargs_)
-        return graph_to_tree(out)
+        assert isinstance(out, Node), 'The output of the function must be Node'
+        graph_def, treefy_states = flatten(out)
+        return graph_def, treefy_states
 
-    args, kwargs = graph_to_tree((args, kwargs))
-    out = jax.eval_shape(_eval_shape_fn, *args, **kwargs)
-    return tree_to_graph(out)
+    graph_def_, treefy_states_ = jax.eval_shape(_eval_shape_fn, *args, **kwargs)
+    return unflatten(graph_def_, treefy_states_)

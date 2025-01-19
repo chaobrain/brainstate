@@ -1,7 +1,7 @@
 # The file is adapted from the Flax library (https://github.com/google/flax).
 # The credit should go to the Flax authors.
 #
-# Copyright 2024 The Flax Authors & 2024 BDP Ecosystem.
+# Copyright 2024 The Flax Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.

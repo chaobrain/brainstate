@@ -134,6 +134,8 @@ def bounded_while_loop(
     """
     While loop with a bound on the maximum number of steps.
 
+    This function is adapted from ``while_loop`` in `equinox <https://github.com/patrick-kidger/equinox/blob/main/equinox/internal/_loop/loop.py>`_.
+
     This function is useful when you want to ensure that a while loop terminates
     even if the condition function is never false. The function is implemented
     using a scan operation, so it is reverse-mode differentiable.
