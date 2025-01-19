@@ -22,7 +22,7 @@ import numpy as np
 
 from brainstate import environ, init, random
 from brainstate._state import ShortTermState
-from brainstate._state import State
+from brainstate._state import State, maybe_state
 from brainstate.compile import while_loop
 from brainstate.nn._dynamics._dynamics_base import Dynamics, Prefetch
 from brainstate.nn._module import Module
@@ -211,80 +211,83 @@ class PoissonInput(Module):
 
 
 def poisson_input(
-    freq: ArrayLike,
+    freq: u.Quantity[u.Hz],
     num_input: int,
-    weight: ArrayLike,
+    weight: u.Quantity,
     target: State,
     indices: Optional[Union[np.ndarray, jax.Array]] = None,
 ):
     """
     Poisson Input to the given :py:class:`brainstate.State`.
     """
+    freq = maybe_state(freq)
+    weight = maybe_state(weight)
+
     assert isinstance(target, State), 'The target must be a State.'
-    p = freq * environ.get_dt()
+    p = (freq * environ.get_dt()).to_decimal()
     a = num_input * p
     b = num_input * (1 - p)
     tar_val = target.value
     cond = u.math.logical_and(a > 5, b > 5)
 
     if indices is None:
-        # # generate Poisson input
-        # branch1 = jax.tree.map(
-        #     lambda tar: random.normal(
-        #         a,
-        #         b * p,
-        #         tar.shape,
-        #         dtype=tar.dtype
-        #     ),
-        #     tar_val,
-        #     is_leaf=u.math.is_quantity
-        # )
-        # branch2 = jax.tree.map(
-        #     lambda tar: random.binomial(
-        #         num_input,
-        #         p,
-        #         tar.shape,
-        #         check_valid=False,
-        #         dtype=tar.dtype
-        #     ),
-        #     tar_val,
-        #     is_leaf=u.math.is_quantity,
-        # )
-        #
-        # inp = jax.tree.map(
-        #     lambda b1, b2: u.math.where(cond, b1, b2),
-        #     branch1,
-        #     branch2,
-        #     is_leaf=u.math.is_quantity,
-        # )
-
-        inp = jax.lax.cond(
-            cond,
-            lambda rand_key: jax.tree.map(
-                lambda tar: random.normal(
-                    a,
-                    b * p,
-                    tar.shape,
-                    key=rand_key,
-                    dtype=tar.dtype
-                ),
-                tar_val,
-                is_leaf=u.math.is_quantity
+        # generate Poisson input
+        branch1 = jax.tree.map(
+            lambda tar: random.normal(
+                a,
+                b * p,
+                tar.shape,
+                dtype=tar.dtype
             ),
-            lambda rand_key: jax.tree.map(
-                lambda tar: random.binomial(
-                    num_input,
-                    p,
-                    tar.shape,
-                    key=rand_key,
-                    check_valid=False,
-                    dtype=tar.dtype
-                ),
-                tar_val,
-                is_leaf=u.math.is_quantity,
-            ),
-            random.split_key()
+            tar_val,
+            is_leaf=u.math.is_quantity
         )
+        branch2 = jax.tree.map(
+            lambda tar: random.binomial(
+                num_input,
+                p,
+                tar.shape,
+                check_valid=False,
+                dtype=tar.dtype
+            ),
+            tar_val,
+            is_leaf=u.math.is_quantity,
+        )
+
+        inp = jax.tree.map(
+            lambda b1, b2: u.math.where(cond, b1, b2),
+            branch1,
+            branch2,
+            is_leaf=u.math.is_quantity,
+        )
+
+        # inp = jax.lax.cond(
+        #     cond,
+        #     lambda rand_key: jax.tree.map(
+        #         lambda tar: random.normal(
+        #             a,
+        #             b * p,
+        #             tar.shape,
+        #             key=rand_key,
+        #             dtype=tar.dtype
+        #         ),
+        #         tar_val,
+        #         is_leaf=u.math.is_quantity
+        #     ),
+        #     lambda rand_key: jax.tree.map(
+        #         lambda tar: random.binomial(
+        #             num_input,
+        #             p,
+        #             tar.shape,
+        #             key=rand_key,
+        #             check_valid=False,
+        #             dtype=tar.dtype
+        #         ),
+        #         tar_val,
+        #         is_leaf=u.math.is_quantity,
+        #     ),
+        #     random.split_key()
+        # )
 
         # update target variable
         target.value = jax.tree.map(
@@ -294,63 +297,63 @@ def poisson_input(
         )
 
     else:
-        # # generate Poisson input
-        # branch1 = jax.tree.map(
-        #     lambda tar: random.normal(
-        #         a,
-        #         b * p,
-        #         tar[indices].shape,
-        #         dtype=tar.dtype
-        #     ),
-        #     tar_val,
-        #     is_leaf=u.math.is_quantity
-        # )
-        # branch2 = jax.tree.map(
-        #     lambda tar: random.binomial(
-        #         num_input,
-        #         p,
-        #         tar[indices].shape,
-        #         # check_valid=False,
-        #         dtype=tar.dtype
-        #     ),
-        #     tar_val,
-        #     is_leaf=u.math.is_quantity
-        # )
-        #
-        # inp = jax.tree.map(
-        #     lambda b1, b2: u.math.where(cond, b1, b2),
-        #     branch1,
-        #     branch2,
-        #     is_leaf=u.math.is_quantity,
-        # )
-
-        inp = jax.lax.cond(
-            cond,
-            lambda rand_key: jax.tree.map(
-                lambda tar: random.normal(
-                    a,
-                    b * p,
-                    tar[indices].shape,
-                    key=rand_key,
-                    dtype=tar.dtype
-                ),
-                tar_val,
-                is_leaf=u.math.is_quantity
+        # generate Poisson input
+        branch1 = jax.tree.map(
+            lambda tar: random.normal(
+                a,
+                b * p,
+                tar[indices].shape,
+                dtype=tar.dtype
             ),
-            lambda rand_key: jax.tree.map(
-                lambda tar: random.binomial(
-                    num_input,
-                    p,
-                    tar[indices].shape,
-                    key=rand_key,
-                    check_valid=False,
-                    dtype=tar.dtype
-                ),
-                tar_val,
-                is_leaf=u.math.is_quantity
-            ),
-            random.split_key()
+            tar_val,
+            is_leaf=u.math.is_quantity
         )
+        branch2 = jax.tree.map(
+            lambda tar: random.binomial(
+                num_input,
+                p,
+                tar[indices].shape,
+                # check_valid=False,
+                dtype=tar.dtype
+            ),
+            tar_val,
+            is_leaf=u.math.is_quantity
+        )
+
+        inp = jax.tree.map(
+            lambda b1, b2: u.math.where(cond, b1, b2),
+            branch1,
+            branch2,
+            is_leaf=u.math.is_quantity,
+        )
+
+        # inp = jax.lax.cond(
+        #     cond,
+        #     lambda rand_key: jax.tree.map(
+        #         lambda tar: random.normal(
+        #             a,
+        #             b * p,
+        #             tar[indices].shape,
+        #             key=rand_key,
+        #             dtype=tar.dtype
+        #         ),
+        #         tar_val,
+        #         is_leaf=u.math.is_quantity
+        #     ),
+        #     lambda rand_key: jax.tree.map(
+        #         lambda tar: random.binomial(
+        #             num_input,
+        #             p,
+        #             tar[indices].shape,
+        #             key=rand_key,
+        #             check_valid=False,
+        #             dtype=tar.dtype
+        #         ),
+        #         tar_val,
+        #         is_leaf=u.math.is_quantity
+        #     ),
+        #     random.split_key()
+        # )
 
         # update target variable
         target.value = jax.tree.map(
