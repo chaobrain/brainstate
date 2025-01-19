@@ -34,6 +34,7 @@ __all__ = [
     'SparseLinear',
     'AllToAll',
     'OneToOne',
+    'LoRA',
 ]
 
 
@@ -51,6 +52,7 @@ class Linear(Module):
         b_init: Optional[Union[Callable, ArrayLike]] = init.ZeroInit(),
         w_mask: Optional[Union[ArrayLike, Callable]] = None,
         name: Optional[str] = None,
+        param_type: type = ParamState,
     ):
         super().__init__(name=name)
 
@@ -67,7 +69,7 @@ class Linear(Module):
         params = dict(weight=init.param(w_init, (self.in_size[-1], self.out_size[-1]), allow_none=False))
         if b_init is not None:
             params['bias'] = init.param(b_init, self.out_size[-1], allow_none=False)
-        self.weight = ParamState(params)
+        self.weight = param_type(params)
 
     def update(self, x):
         params = self.weight.value
@@ -93,7 +95,7 @@ class SignedWLinear(Module):
         w_init: Union[Callable, ArrayLike] = init.KaimingNormal(),
         w_sign: Optional[ArrayLike] = None,
         name: Optional[str] = None,
-
+        param_type: type = ParamState,
     ):
         super().__init__(name=name)
 
@@ -108,7 +110,7 @@ class SignedWLinear(Module):
 
         # weights
         weight = init.param(w_init, self.in_size + self.out_size, allow_none=False)
-        self.weight = ParamState(weight)
+        self.weight = param_type(weight)
 
     def update(self, x):
         w = self.weight.value
@@ -156,6 +158,7 @@ class ScaledWSLinear(Module):
         ws_gain: bool = True,
         eps: float = 1e-4,
         name: str = None,
+        param_type: type = ParamState,
     ):
         super().__init__(name=name)
 
@@ -179,7 +182,7 @@ class ScaledWSLinear(Module):
         if ws_gain:
             s = params['weight'].shape
             params['gain'] = jnp.ones((1,) * (len(s) - 1) + (s[-1],), dtype=params['weight'].dtype)
-        self.weight = ParamState(params)
+        self.weight = param_type(params)
 
     def update(self, x):
         params = self.weight.value
@@ -211,6 +214,7 @@ class SparseLinear(Module):
         b_init: Optional[Union[Callable, ArrayLike]] = None,
         in_size: Size = None,
         name: Optional[str] = None,
+        param_type: type = ParamState,
     ):
         super().__init__(name=name)
 
@@ -230,7 +234,7 @@ class SparseLinear(Module):
         params = dict(weight=spar_mat.data)
         if b_init is not None:
             params['bias'] = init.param(b_init, self.out_size[-1], allow_none=False)
-        self.weight = ParamState(params)
+        self.weight = param_type(params)
 
     def update(self, x):
         data = self.weight.value['weight']
@@ -260,6 +264,7 @@ class AllToAll(Module):
         b_init: Optional[Union[Callable, ArrayLike]] = None,
         include_self: bool = True,
         name: Optional[str] = None,
+        param_type: type = ParamState,
     ):
         super().__init__(name=name)
 
@@ -277,7 +282,7 @@ class AllToAll(Module):
         params = dict(weight=weight)
         if b_init is not None:
             params['bias'] = init.param(b_init, self.out_size[-1], allow_none=False)
-        self.weight = ParamState(params)
+        self.weight = param_type(params)
 
     def update(self, pre_val):
         params = self.weight.value
@@ -332,6 +337,7 @@ class OneToOne(Module):
         w_init: Union[Callable, ArrayLike] = init.Normal(),
         b_init: Optional[Union[Callable, ArrayLike]] = None,
         name: Optional[str] = None,
+        param_type: type = ParamState,
     ):
         super().__init__(name=name)
 
@@ -343,13 +349,81 @@ class OneToOne(Module):
         param = dict(weight=init.param(w_init, self.in_size, allow_none=False))
         if b_init is not None:
             param['bias'] = init.param(b_init, self.out_size, allow_none=False)
-        self.weight = param
+        self.weight = param_type(param)
 
     def update(self, pre_val):
         pre_val, pre_unit = u.get_mantissa(pre_val), u.get_unit(pre_val)
-        w_val, w_unit = u.get_mantissa(self.weight['weight']), u.get_unit(self.weight['weight'])
+        w_val, w_unit = u.get_mantissa(self.weight.value['weight']), u.get_unit(self.weight.value['weight'])
         post_val = pre_val * w_val
         post_val = u.maybe_decimal(u.Quantity(post_val, unit=w_unit * pre_unit))
-        if 'bias' in self.weight:
-            post_val = post_val + self.weight['bias']
+        if 'bias' in self.weight.value:
+            post_val = post_val + self.weight.value['bias']
         return post_val
+
+
+class LoRA(Module):
+    """A standalone LoRA layer.
+
+    Example usage::
+
+        >>> import brainstate as bst
+        >>> import jax, jax.numpy as jnp
+        >>> layer = bst.nn.LoRA(3, 2, 4)
+        >>> layer.weight.value
+    {'lora_a': Array([[ 0.25141352, -0.09826107],
+            [ 0.2328382 ,  0.38869813],
+            [ 0.27069277,  0.7678282 ]], dtype=float32),
+     'lora_b': Array([[-0.8372317 ,  0.21012013, -0.52999765, -0.31939325],
+            [ 0.64234126, -0.42980042,  1.2549229 , -0.47134295]],      dtype=float32)}
+        >>> # Wrap around existing layer
+        >>> linear = bst.nn.Linear(3, 4)
+        >>> wrapper = bst.nn.LoRA(3, 2, 4, base_module=linear)
+        >>> assert wrapper.base_module == linear
+        >>> y = layer(jnp.ones((16, 3)))
+        >>> y.shape
+        (16, 4)
+
+    Args:
+        in_features: the number of input features.
+        lora_rank: the rank of the LoRA dimension.
+        out_features: the number of output features.
+        base_module: a base module to call and substitute, if possible.
+        kernel_init: initializer function for the weight matrices.
+        param_type: the type of the LoRA params.
+    """
+
+    def __init__(
+        self,
+        in_features: int,
+        lora_rank: int,
+        out_features: int,
+        *,
+        base_module: Optional[Module] = None,
+        kernel_init: Union[Callable, ArrayLike] = init.LecunNormal(),
+        param_type: type = ParamState,
+    ):
+        super().__init__()
+
+        # input and output shape
+        self.in_size = in_features
+        self.out_size = out_features
+        self.in_features = in_features
+        self.out_features = out_features
+
+        # others
+        self.base_module = base_module
+
+        # weights
+        param = dict(
+            lora_a=kernel_init((in_features, lora_rank)),
+            lora_b=kernel_init((lora_rank, out_features))
+        )
+        self.weight = param_type(param)
+
+    def __call__(self, x: ArrayLike):
+        out = x @ self.weight.value['lora_a'] @ self.weight.value['lora_b']
+        if self.base_module is not None:
+            if not callable(self.base_module):
+                raise ValueError('`self.base_module` must be callable.')
+            out += self.base_module(x)
+        return out
