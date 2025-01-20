@@ -1,6 +1,10 @@
 ``brainstate.graph`` for pygraph processing
 ===========================================
 
+Most of these APIs are adapted from Flax (https://github.com/google/flax/blob/main/flax/nnx/graph.py).
+It enables the structure-preserving ``State`` retrieval and manipulatio in the ``brainstate``.
+
+
 .. currentmodule:: brainstate.graph 
 .. automodule:: brainstate.graph 
 
@@ -13,9 +17,6 @@ Graph Node
    :template: classtemplate.rst
 
    Node
-   Dict
-   List
-   Sequential
 
 
 Graph Operation
@@ -40,34 +41,4 @@ Graph Operation
    clone
    graphdef
    call
-   RefMap
-   GraphDef
-   NodeRef
-   NodeDef
-
-
-Graph and Tree Conversion
--------------------------
-
-.. autosummary::
-   :toctree: generated/
-   :nosignatures:
-   :template: classtemplate.rst
-
-   graph_to_tree
-   tree_to_graph
-   NodeStates
-
-
-Graph Processing Context Management
------------------------------------
-
-.. autosummary::
-   :toctree: generated/
-   :nosignatures:
-   :template: classtemplate.rst
-
-   split_context
-   merge_context
-
 

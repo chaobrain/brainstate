@@ -275,6 +275,26 @@ class State(Generic[A], PrettyRepr):
         """
         self.write_value(v)
 
+    @property
+    def stack_level(self):
+        """
+        The stack level of the state.
+
+        Returns:
+            The stack level.
+        """
+        return self._level
+
+    @stack_level.setter
+    def stack_level(self, level: int):
+        """
+        Set the stack level of the state.
+
+        Args:
+            level: The stack level.
+        """
+        self._level = level
+
     def write_value(self, v) -> None:
         # value checking
         if isinstance(v, State):
@@ -465,13 +485,13 @@ def record_state_init(st: State[A]):
 
 def record_state_value_read(st: State[A]):
     trace: StateTraceStack
-    for trace in TRACE_CONTEXT.state_stack[st._level:]:
+    for trace in TRACE_CONTEXT.state_stack[st.stack_level:]:
         trace.read_its_value(st)
 
 
 def record_state_value_write(st: State[A]):
     trace: StateTraceStack
-    for trace in TRACE_CONTEXT.state_stack[st._level:]:
+    for trace in TRACE_CONTEXT.state_stack[st.stack_level:]:
         trace.write_its_value(st)
 
 
