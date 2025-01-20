@@ -16,12 +16,15 @@ from __future__ import annotations
 
 import jax
 import jax.core
-import jax.extend as je
 import jax.interpreters.batching as batching
 import jax.interpreters.mlir as mlir
 import jax.numpy as jnp
-
 from brainstate._utils import set_module_as
+
+if jax.__version_info__ < (0, 4, 38):
+    from jax.core import Primitive
+else:
+    from jax.extend.core import Primitive
 
 __all__ = [
     "unvmap",
@@ -44,7 +47,7 @@ def unvmap(x, op: str = 'any'):
 
 # unvmap_all
 
-unvmap_all_p = je.core.Primitive("unvmap_all")
+unvmap_all_p = Primitive("unvmap_all")
 
 
 def unvmap_all(x):

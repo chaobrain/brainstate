@@ -28,13 +28,14 @@ from jax.api_util import shaped_abstractify
 from jax.extend import source_info_util
 
 from brainstate.typing import ArrayLike, PyTree, Missing
-from brainstate.util import DictManager, PrettyRepr, PrettyType, PrettyAttr, TraceContextError
-from brainstate.util._tracers import StateJaxTracer
+from brainstate.util import DictManager, PrettyRepr, PrettyType, PrettyAttr
 
 __all__ = [
     'State', 'ShortTermState', 'LongTermState', 'HiddenState', 'ParamState', 'TreefyState',
+    'FakedState',
 
     'StateDictManager', 'StateTraceStack', 'check_state_value_tree', 'check_state_jax_tracer', 'catch_new_states',
+    'maybe_state',
 ]
 
 A = TypeVar('A')
@@ -102,6 +103,7 @@ class Catcher:
     """
     The catcher to catch the new states.
     """
+
     def __init__(self, tag: str):
         self.tag = tag
         self.state_ids = set()
@@ -112,6 +114,13 @@ class Catcher:
             self.state_ids.add(id(state))
             self.states.append(state)
             state.tag = self.tag
+
+
+def maybe_state(val: Any):
+    if isinstance(val, State):
+        return val.value
+    else:
+        return val
 
 
 @contextlib.contextmanager
@@ -197,7 +206,6 @@ class State(Generic[A], PrettyRepr):
       value: PyTree. It can be anything as a pyTree.
     """
     __module__ = 'brainstate'
-    _trace_state: StateJaxTracer
     _level: int
     _source_info: source_info_util.SourceInfo
     _name: Optional[str]
@@ -212,9 +220,6 @@ class State(Generic[A], PrettyRepr):
         **metadata: Any
     ):
         tag = metadata.pop('tag', None)
-
-        # avoid using self._setattr to avoid the check
-        vars(self)['_trace_state'] = StateJaxTracer()
 
         # set the value and metadata
         if isinstance(value, StateMetadata):
@@ -237,31 +242,6 @@ class State(Generic[A], PrettyRepr):
         # record the state initialization
         record_state_init(self)
 
-    if not TYPE_CHECKING:
-        def __setattr__(self, name: str, value: Any) -> None:
-            return self._setattr(name, value)
-
-    def _setattr(self, name: str, value: Any):
-        """
-        Check if the state is valid to mutate.
-        """
-        if TRACE_CONTEXT.jax_tracer_check[-1]:
-            self.check_valid_trace(lambda: f'Cannot mutate {type(self).__name__} from a different trace level')
-        object.__setattr__(self, name, value)
-
-    def _setattr_no_check(self, name: str, value: Any):
-        """
-        Set the attribute without checking the trace level.
-        """
-        vars(self)[name] = value
-
-    def check_valid_trace(self, error_msg: Callable[[], str]):
-        """
-        Check if the state is valid to trace.
-        """
-        if not self._trace_state.is_valid():
-            raise TraceContextError(error_msg())
-
     @property
     def name(self) -> Optional[str]:
         """
@@ -274,7 +254,7 @@ class State(Generic[A], PrettyRepr):
         """
         Set the name of the state.
         """
-        self._setattr_no_check('_name', name)
+        self._name = name
 
     @property
     def value(self) -> PyTree[ArrayLike]:
@@ -294,6 +274,26 @@ class State(Generic[A], PrettyRepr):
           v: The value.
         """
         self.write_value(v)
+
+    @property
+    def stack_level(self):
+        """
+        The stack level of the state.
+
+        Returns:
+            The stack level.
+        """
+        return self._level
+
+    @stack_level.setter
+    def stack_level(self, level: int):
+        """
+        Set the stack level of the state.
+
+        Args:
+            level: The stack level.
+        """
+        self._level = level
 
     def write_value(self, v) -> None:
         # value checking
@@ -338,11 +338,11 @@ class State(Generic[A], PrettyRepr):
             in_tree = jax.tree.structure(v)
             self_tree = jax.tree.structure(self._value)
             if in_tree != self_tree:
-                self._raise_error_with_source_info(
+                self.raise_error_with_source_info(
                     ValueError(f'The given value {in_tree} does not match with the origin tree structure {self_tree}.')
                 )
 
-    def _raise_error_with_source_info(self, error: Exception):
+    def raise_error_with_source_info(self, error: Exception):
         """
         Raise an error with the source information for easy debugging.
         """
@@ -415,7 +415,6 @@ class State(Generic[A], PrettyRepr):
         obj = object.__new__(type(self))
         attributes = vars(self).copy()
         # keep its own trace state and stack level
-        attributes['_trace_state'] = StateJaxTracer()
         attributes['_level'] = _get_trace_stack_level()
         attributes['_source_info'] = source_info_util.current()
         attributes.pop('_been_writen', None)
@@ -426,8 +425,6 @@ class State(Generic[A], PrettyRepr):
     def to_state_ref(self: State[A]) -> TreefyState[A]:
         metadata = vars(self).copy()
         del metadata['_value']
-        del metadata['_trace_state']
-        del metadata['_level']
         return TreefyState(type(self), self._value, **metadata)
 
     def __pretty_repr__(self):
@@ -442,7 +439,7 @@ class State(Generic[A], PrettyRepr):
                     name = 'name'
             if name == 'tag' and value is None:
                 continue
-            if name in ['_trace_state', '_level', '_source_info', '_been_writen']:
+            if name in ['_level', '_source_info', '_been_writen']:
                 continue
             yield PrettyAttr(name, repr(value))
 
@@ -458,7 +455,7 @@ class State(Generic[A], PrettyRepr):
                     name = 'name'
             if name == 'tag' and value is None:
                 continue
-            if name in ['_trace_state', '_level', '_source_info', '_been_writen']:
+            if name in ['_level', '_source_info', '_been_writen']:
                 continue
             children[name] = value
 
@@ -473,6 +470,12 @@ class State(Generic[A], PrettyRepr):
     def __eq__(self, other: object) -> bool:
         return type(self) is type(other) and vars(other) == vars(self)
 
+    def __hash__(self):
+        """
+        Make the state hashable.
+        """
+        return hash(id(self))
+
 
 def record_state_init(st: State[A]):
     trace: Catcher
@@ -482,13 +485,13 @@ def record_state_init(st: State[A]):
 
 def record_state_value_read(st: State[A]):
     trace: StateTraceStack
-    for trace in TRACE_CONTEXT.state_stack[st._level:]:
+    for trace in TRACE_CONTEXT.state_stack[st.stack_level:]:
         trace.read_its_value(st)
 
 
 def record_state_value_write(st: State[A]):
     trace: StateTraceStack
-    for trace in TRACE_CONTEXT.state_stack[st._level:]:
+    for trace in TRACE_CONTEXT.state_stack[st.stack_level:]:
         trace.write_its_value(st)
 
 
@@ -524,7 +527,6 @@ class BatchState(LongTermState):
     __module__ = 'brainstate'
 
 
-
 class HiddenState(ShortTermState):
     """
     The hidden state, which is used to store the hidden data in a dynamic model.
@@ -539,6 +541,37 @@ class ParamState(LongTermState):
     """
 
     __module__ = 'brainstate'
+
+
+class FakedState:
+    """
+    The faked state, which is used to store the faked data in the program.
+    """
+
+    __module__ = 'brainstate'
+
+    def __init__(self, value: Any, name: Optional[str] = None):
+        self._value = value
+        self._name = name
+
+    @property
+    def value(self) -> Any:
+        return self._value
+
+    @value.setter
+    def value(self, v) -> None:
+        self._value = v
+
+    def __repr__(self) -> str:
+        return f'FakedState(value={self._value})'
+
+    @property
+    def name(self) -> Optional[str]:
+        return self._name
+
+    @name.setter
+    def name(self, name: str) -> None:
+        self._name = name
 
 
 class StateDictManager(DictManager):
@@ -802,7 +835,7 @@ class TreefyState(Generic[A], PrettyRepr):
                     continue
                 else:
                     name = 'name'
-            if name in ['_trace_state', '_level', '_source_info', 'type']:
+            if name in ['_level', '_source_info', 'type']:
                 continue
             yield PrettyAttr(name, repr(value))
 
@@ -835,7 +868,7 @@ class TreefyState(Generic[A], PrettyRepr):
         # __init__ logic which should not be called twice
         metadata = self.get_metadata()
         state = object.__new__(self.type)
-        vars(state).update(metadata, _value=self.value, _trace_state=StateJaxTracer(), _level=_get_trace_stack_level())
+        vars(state).update(metadata, _value=self.value, _level=_get_trace_stack_level())
         return state
 
     def copy(self: TreefyState[A]) -> TreefyState[A]:

@@ -1,7 +1,7 @@
 # The file is adapted from the Flax library (https://github.com/google/flax).
 # The credit should go to the Flax authors.
 #
-# Copyright 2024 The Flax Authors & 2024 BDP Ecosystem.
+# Copyright 2024 The Flax Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -27,9 +27,7 @@ import numpy as np
 
 from brainstate._state import State, TreefyState
 from brainstate.typing import Key
-from brainstate.util._error import TraceContextError
 from brainstate.util._pretty_repr import PrettyRepr, pretty_repr_avoid_duplicate, PrettyType, PrettyAttr
-from brainstate.util._tracers import StateJaxTracer
 from ._graph_operation import register_graph_node_type
 
 __all__ = [
@@ -44,7 +42,6 @@ class GraphNodeMeta(ABCMeta):
     if not TYPE_CHECKING:
         def __call__(cls, *args: Any, **kwargs: Any) -> Any:
             node = cls.__new__(cls, *args, **kwargs)
-            vars(node)['_trace_state'] = StateJaxTracer()
             node.__init__(*args, **kwargs)
             return node
 
@@ -64,9 +61,6 @@ class Node(PrettyRepr, metaclass=GraphNodeMeta):
 
     graph_invisible_attrs = ()
 
-    if TYPE_CHECKING:
-        _trace_state: StateJaxTracer
-
     def __init_subclass__(cls) -> None:
         super().__init_subclass__()
 
@@ -78,21 +72,6 @@ class Node(PrettyRepr, metaclass=GraphNodeMeta):
             create_empty=_node_create_empty,
             clear=_node_clear,
         )
-
-    # if not TYPE_CHECKING:
-    #   def __setattr__(self, name: str, value: Any) -> None:
-    #     self._setattr(name, value)
-
-    # def _setattr(self, name: str, value: Any) -> None:
-    #   self.check_valid_context(lambda: f"Cannot mutate '{type(self).__name__}' from different trace level")
-    #   object.__setattr__(self, name, value)
-
-    def check_valid_context(self, error_msg: Callable[[], str]) -> None:
-        """
-        Check if the current context is valid for the object to be mutated.
-        """
-        if not self._trace_state.is_valid():
-            raise TraceContextError(error_msg())
 
     def __deepcopy__(self: G, memo=None) -> G:
         """
@@ -214,7 +193,6 @@ def _node_create_empty(
 ) -> G:
     node_type, = static
     node = object.__new__(node_type)
-    vars(node).update(_trace_state=StateJaxTracer())
     return node
 
 

@@ -7,6 +7,7 @@
 .. autosummary::
    :toctree: generated/
 
+   CSR
+   CSC
    FixedProb
    Linear
-   CSRLinear

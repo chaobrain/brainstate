@@ -15,13 +15,11 @@
 
 
 from ._csr import *
-from ._csr_mv import *
 from ._fixedprob_mv import *
 from ._linear_mv import *
 from ._xla_custom_op import *
 
 __all__ = [
-    'CSRLinear',
     'FixedProb',
     'XLACustomOp',
     'CSR',

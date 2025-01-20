@@ -16,7 +16,6 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-from collections import namedtuple
 from functools import partial
 from operator import index
 from typing import Optional
@@ -37,6 +36,8 @@ from ._random_for_unit import uniform_for_unit, permutation_for_unit
 
 __all__ = ['RandomState', 'DEFAULT', ]
 
+use_prng_key = True
+
 
 class RandomState(State):
     """RandomState that track the random generator state. """
@@ -56,12 +57,15 @@ class RandomState(State):
             if seed_or_key is None:
                 seed_or_key = np.random.randint(0, 100000, 2, dtype=np.uint32)
         if isinstance(seed_or_key, int):
-            key = jr.PRNGKey(seed_or_key)
+            key = jr.PRNGKey(seed_or_key) if use_prng_key else jr.key(seed_or_key)
         else:
-            if len(seed_or_key) != 2 and seed_or_key.dtype != np.uint32:
-                raise ValueError('key must be an array with dtype uint32. '
-                                 f'But we got {seed_or_key}')
-            key = seed_or_key
+            if jnp.issubdtype(seed_or_key.dtype, jax.dtypes.prng_key):
+                key = seed_or_key
+            else:
+                if len(seed_or_key) != 2 and seed_or_key.dtype != np.uint32:
+                    raise ValueError('key must be an array with dtype uint32. '
+                                     f'But we got {seed_or_key}')
+                key = seed_or_key
         super().__init__(key)
 
         self._backup = None
@@ -70,6 +74,9 @@ class RandomState(State):
         return f'{self.__class__.__name__}({self.value})'
 
     def check_if_deleted(self):
+        if not use_prng_key and isinstance(self._value, np.ndarray):
+            self._value = jr.key(np.random.randint(0, 10000))
+
         if (
             isinstance(self._value, jax.Array) and
             not isinstance(self._value, jax.core.Tracer) and
@@ -111,12 +118,19 @@ class RandomState(State):
             if seed_or_key is None:
                 seed_or_key = np.random.randint(0, 100000, 2, dtype=np.uint32)
         if np.size(seed_or_key) == 1:
-            key = jr.PRNGKey(seed_or_key)
+            if isinstance(seed_or_key, int):
+                key = jr.PRNGKey(seed_or_key) if use_prng_key else jr.key(seed_or_key)
+            elif jnp.issubdtype(seed_or_key.dtype, jax.dtypes.prng_key):
+                key = seed_or_key
+            elif isinstance(seed_or_key, (jnp.ndarray, np.ndarray)) and jnp.issubdtype(seed_or_key.dtype, jnp.integer):
+                key = jr.PRNGKey(seed_or_key) if use_prng_key else jr.key(seed_or_key)
+            else:
+                raise ValueError(f'Invalid seed_or_key: {seed_or_key}')
         else:
-            if len(seed_or_key) != 2 and seed_or_key.dtype != np.uint32:
-                raise ValueError('key must be an array with dtype uint32. '
-                                 f'But we got {seed_or_key}')
-            key = seed_or_key
+            if len(seed_or_key) == 2 and seed_or_key.dtype == np.uint32:
+                key = seed_or_key
+            else:
+                raise ValueError(f'Invalid seed_or_key: {seed_or_key}')
         self.value = key
 
     def split_key(self, n: Optional[int] = None, backup: bool = False) -> SeedOrKey:
@@ -560,15 +574,15 @@ class RandomState(State):
         )
         return out if unit.is_unitless else u.Quantity(out, unit=unit)
 
-    def _check_p(self, p):
-        raise ValueError(f'Parameter p should be within [0, 1], but we got {p}')
+    def _check_p(self, *args, **kwargs):
+        raise ValueError('Parameter p should be within [0, 1], but we got {p}')
 
     def bernoulli(self,
                   p,
                   size: Optional[Size] = None,
                   key: Optional[SeedOrKey] = None):
         p = _check_py_seq(p)
-        jit_error_if(jnp.any(jnp.logical_and(p < 0, p > 1)), self._check_p, p)
+        jit_error_if(jnp.any(jnp.logical_or(p < 0, p > 1)), self._check_p, p=p)
         if size is None:
             size = jnp.shape(p)
         key = self.split_key() if key is None else _formalize_key(key)
@@ -603,19 +617,27 @@ class RandomState(State):
         samples = jnp.exp(samples)
         return samples if unit.is_unitless else u.Quantity(samples, unit=unit)
 
-    def binomial(self,
-                 n,
-                 p,
-                 size: Optional[Size] = None,
-                 key: Optional[SeedOrKey] = None,
-                 dtype: DTypeLike = None):
+    def binomial(
+        self,
+        n,
+        p,
+        size: Optional[Size] = None,
+        key: Optional[SeedOrKey] = None,
+        dtype: DTypeLike = None,
+        check_valid: bool = True,
+    ):
         n = _check_py_seq(n)
         p = _check_py_seq(p)
-        jit_error_if(jnp.any(jnp.logical_and(p < 0, p > 1)), self._check_p, p)
+        if check_valid:
+            jit_error_if(
+                jnp.any(jnp.logical_or(p < 0, p > 1)),
+                'Parameter p should be within [0, 1], but we got {p}',
+                p=p
+            )
         if size is None:
             size = jnp.broadcast_shapes(jnp.shape(n), jnp.shape(p))
         key = self.split_key() if key is None else _formalize_key(key)
-        r = _binomial(key, p, n, shape=_size2shape(size))
+        r = jr.binomial(key, n, p, shape=_size2shape(size))
         dtype = dtype or environ.ditype()
         return jnp.asarray(r, dtype=dtype)
 
@@ -1142,8 +1164,13 @@ DEFAULT = RandomState(np.random.randint(0, 10000, size=2, dtype=np.uint32))
 
 def _formalize_key(key):
     if isinstance(key, int):
-        return jr.PRNGKey(key)
+        return jr.PRNGKey(key) if use_prng_key else jr.key(key)
     elif isinstance(key, (jax.Array, np.ndarray)):
+        if jnp.issubdtype(key.dtype, jax.dtypes.prng_key):
+            return key
+        if key.size == 1 and jnp.issubdtype(key.dtype, jnp.integer):
+            return jr.PRNGKey(key) if use_prng_key else jr.key(key)
+
         if key.dtype != jnp.uint32:
             raise TypeError('key must be a int or an array with two uint32.')
         if key.size != 2:
@@ -1214,162 +1241,6 @@ def _const(example, val):
     else:
         dtype = dtypes.canonicalize_dtype(example.dtype)
     return np.array(val, dtype)
-
-
-_tr_params = namedtuple(
-    "tr_params", ["c", "b", "a", "alpha", "u_r", "v_r", "m", "log_p", "log1_p", "log_h"]
-)
-
-
-def _get_tr_params(n, p):
-    # See Table 1. Additionally, we pre-compute log(p), log1(-p) and the
-    # constant terms, that depend only on (n, p, m) in log(f(k)) (bottom of page 5).
-    mu = n * p
-    spq = jnp.sqrt(mu * (1 - p))
-    c = mu + 0.5
-    b = 1.15 + 2.53 * spq
-    a = -0.0873 + 0.0248 * b + 0.01 * p
-    alpha = (2.83 + 5.1 / b) * spq
-    u_r = 0.43
-    v_r = 0.92 - 4.2 / b
-    m = jnp.floor((n + 1) * p).astype(n.dtype)
-    log_p = jnp.log(p)
-    log1_p = jnp.log1p(-p)
-    log_h = ((m + 0.5) * (jnp.log((m + 1.0) / (n - m + 1.0)) + log1_p - log_p) +
-             _stirling_approx_tail(m) + _stirling_approx_tail(n - m))
-    return _tr_params(c, b, a, alpha, u_r, v_r, m, log_p, log1_p, log_h)
-
-
-def _stirling_approx_tail(k):
-    precomputed = jnp.array([0.08106146679532726,
-                             0.04134069595540929,
-                             0.02767792568499834,
-                             0.02079067210376509,
-                             0.01664469118982119,
-                             0.01387612882307075,
-                             0.01189670994589177,
-                             0.01041126526197209,
-                             0.009255462182712733,
-                             0.008330563433362871],
-                            dtype=environ.dftype())
-    kp1 = k + 1
-    kp1sq = (k + 1) ** 2
-    return jnp.where(k < 10,
-                     precomputed[k],
-                     (1.0 / 12 - (1.0 / 360 - (1.0 / 1260) / kp1sq) / kp1sq) / kp1)
-
-
-def _binomial_btrs(key, p, n):
-    """
-    Based on the transformed rejection sampling algorithm (BTRS) from the
-    following reference:
-
-    Hormann, "The Generation of Binonmial Random Variates"
-    (https://core.ac.uk/download/pdf/11007254.pdf)
-    """
-
-    def _btrs_body_fn(val):
-        _, key, _, _ = val
-        key, key_u, key_v = jr.split(key, 3)
-        u = jr.uniform(key_u)
-        v = jr.uniform(key_v)
-        u = u - 0.5
-        k = jnp.floor(
-            (2 * tr_params.a / (0.5 - jnp.abs(u)) + tr_params.b) * u + tr_params.c
-        ).astype(n.dtype)
-        return k, key, u, v
-
-    def _btrs_cond_fn(val):
-        def accept_fn(k, u, v):
-            # See acceptance condition in Step 3. (Page 3) of TRS algorithm
-            # v <= f(k) * g_grad(u) / alpha
-
-            m = tr_params.m
-            log_p = tr_params.log_p
-            log1_p = tr_params.log1_p
-            # See: formula for log(f(k)) at bottom of Page 5.
-            log_f = (
-                (n + 1.0) * jnp.log((n - m + 1.0) / (n - k + 1.0))
-                + (k + 0.5) * (jnp.log((n - k + 1.0) / (k + 1.0)) + log_p - log1_p)
-                + (_stirling_approx_tail(k) - _stirling_approx_tail(n - k))
-                + tr_params.log_h
-            )
-            g = (tr_params.a / (0.5 - jnp.abs(u)) ** 2) + tr_params.b
-            return jnp.log((v * tr_params.alpha) / g) <= log_f
-
-        k, key, u, v = val
-        early_accept = (jnp.abs(u) <= tr_params.u_r) & (v <= tr_params.v_r)
-        early_reject = (k < 0) | (k > n)
-        return lax.cond(
-            early_accept | early_reject,
-            (),
-            lambda _: ~early_accept,
-            (k, u, v),
-            lambda x: ~accept_fn(*x),
-        )
-
-    tr_params = _get_tr_params(n, p)
-    ret = lax.while_loop(
-        _btrs_cond_fn, _btrs_body_fn, (-1, key, 1.0, 1.0)
-    )  # use k=-1 initially so that cond_fn returns True
-    return ret[0]
-
-
-def _binomial_inversion(key, p, n):
-    def _binom_inv_body_fn(val):
-        i, key, geom_acc = val
-        key, key_u = jr.split(key)
-        u = jr.uniform(key_u)
-        geom = jnp.floor(jnp.log1p(-u) / log1_p) + 1
-        geom_acc = geom_acc + geom
-        return i + 1, key, geom_acc
-
-    def _binom_inv_cond_fn(val):
-        i, _, geom_acc = val
-        return geom_acc <= n
-
-    log1_p = jnp.log1p(-p)
-    ret = lax.while_loop(_binom_inv_cond_fn, _binom_inv_body_fn, (-1, key, 0.0))
-    return ret[0]
-
-
-def _binomial_dispatch(key, p, n):
-    def dispatch(key, p, n):
-        is_le_mid = p <= 0.5
-        pq = jnp.where(is_le_mid, p, 1 - p)
-        mu = n * pq
-        k = lax.cond(
-            mu < 10,
-            (key, pq, n),
-            lambda x: _binomial_inversion(*x),
-            (key, pq, n),
-            lambda x: _binomial_btrs(*x),
-        )
-        return jnp.where(is_le_mid, k, n - k)
-
-    # Return 0 for nan `p` or negative `n`, since nan values are not allowed for integer types
-    cond0 = jnp.isfinite(p) & (n > 0) & (p > 0)
-    return lax.cond(
-        cond0 & (p < 1),
-        (key, p, n),
-        lambda x: dispatch(*x),
-        (),
-        lambda _: jnp.where(cond0, n, 0),
-    )
-
-
-@partial(jit, static_argnums=(3,))
-def _binomial(key, p, n, shape):
-    shape = shape or lax.broadcast_shapes(jnp.shape(p), jnp.shape(n))
-    # reshape to map over axis 0
-    p = jnp.reshape(jnp.broadcast_to(p, shape), -1)
-    n = jnp.reshape(jnp.broadcast_to(n, shape), -1)
-    key = jr.split(key, jnp.size(p))
-    if jax.default_backend() == "cpu":
-        ret = lax.map(lambda x: _binomial_dispatch(*x), (key, p, n))
-    else:
-        ret = vmap(lambda *x: _binomial_dispatch(*x))(key, p, n)
-    return jnp.reshape(ret, shape)
 
 
 @partial(jit, static_argnums=(2,))

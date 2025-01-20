@@ -62,7 +62,6 @@ def _get_jitted_fun(
     **kwargs
 ) -> JittedFunction:
     static_argnums = _ensure_index_tuple(tuple() if static_argnums is None else static_argnums)
-    # TODO: add to cache stack for clear_cache
     fun = StatefulFunction(fun, static_argnums=static_argnums, abstracted_axes=abstracted_axes, cache_type='jit')
     jit_fun = jax.jit(fun.jaxpr_call,
                       static_argnums=tuple(i + 1 for i in static_argnums),
@@ -83,10 +82,12 @@ def _get_jitted_fun(
             return fun.fun(*args, **params)
 
         # compile the function and get the state trace
+        # print('Compiling ...')
         state_trace = fun.compile_function_and_get_state_trace(*args, **params, return_only_write=True)
         read_state_vals = state_trace.get_read_state_values(True)
 
         # call the jitted function
+        # print('Running ...')
         write_state_vals, outs = jit_fun(state_trace.get_state_values(), *args, **params)
         # write the state values back to the states
         write_back_state_values(state_trace, read_state_vals, write_state_vals)
@@ -127,11 +128,15 @@ def _get_jitted_fun(
         """
         # compile the function and get the state trace
         state_trace = fun.compile_function_and_get_state_trace(*args, **params, return_only_write=True)
-        read_state_vals = state_trace.get_read_state_values(True)
+        read_state_vals = state_trace.get_read_state_values(replace_writen=True)
+        write_state_vals = state_trace.get_write_state_values(replace_read=True)
 
-        # call the jitted function
-        return jit_fun.lower(state_trace.get_state_values(), *args, **params).compile()
+        # compile the model
+        ret = jit_fun.lower(state_trace.get_state_values(), *args, **params).compile()
 
+        # write the state values back to the states
+        write_back_state_values(state_trace, read_state_vals, write_state_vals)
+        return ret
 
     jitted_fun: JittedFunction
 
@@ -290,31 +295,35 @@ def jit(
 
     if isinstance(fun, Missing):
         def wrapper(fun_again: Callable) -> JittedFunction:
-            return _get_jitted_fun(fun_again,
-                                   in_shardings=in_shardings,
-                                   out_shardings=out_shardings,
-                                   static_argnums=static_argnums,
-                                   donate_argnums=donate_argnums,
-                                   donate_argnames=donate_argnames,
-                                   keep_unused=keep_unused,
-                                   device=device,
-                                   backend=backend,
-                                   inline=inline,
-                                   abstracted_axes=abstracted_axes,
-                                   **kwargs)
+            return _get_jitted_fun(
+                fun_again,
+                in_shardings=in_shardings,
+                out_shardings=out_shardings,
+                static_argnums=static_argnums,
+                donate_argnums=donate_argnums,
+                donate_argnames=donate_argnames,
+                keep_unused=keep_unused,
+                device=device,
+                backend=backend,
+                inline=inline,
+                abstracted_axes=abstracted_axes,
+                **kwargs
+            )
 
         return wrapper
 
     else:
-        return _get_jitted_fun(fun,
-                               in_shardings,
-                               out_shardings,
-                               static_argnums,
-                               donate_argnums,
-                               donate_argnames,
-                               keep_unused,
-                               device,
-                               backend,
-                               inline,
-                               abstracted_axes,
-                               **kwargs)
+        return _get_jitted_fun(
+            fun,
+            in_shardings,
+            out_shardings,
+            static_argnums,
+            donate_argnums,
+            donate_argnames,
+            keep_unused,
+            device,
+            backend,
+            inline,
+            abstracted_axes,
+            **kwargs
+        )

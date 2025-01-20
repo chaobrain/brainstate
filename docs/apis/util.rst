@@ -58,17 +58,6 @@ Struct Operation
    FrozenDict
 
 
-Visualization Operation
------------------------
-
-.. autosummary::
-   :toctree: generated/
-   :nosignatures:
-   :template: classtemplate.rst
-
-   display
-
-
 Other Operations
 ----------------
 

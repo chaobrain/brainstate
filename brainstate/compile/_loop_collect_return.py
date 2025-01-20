@@ -31,6 +31,7 @@ from ._util import write_back_state_values, wrap_single_fun
 __all__ = [
     # "scan" syntax, which is similar to jax.lax.scan
     'scan', 'checkpointed_scan',
+
     # "for_loop" syntax
     'for_loop', 'checkpointed_for_loop',
 ]
@@ -48,9 +49,9 @@ def _wrap_fun_with_pbar(
     @wraps(fun)
     def new_fun(new_carry, inputs):
         i, old_carry = new_carry
-        old_carry, old_outputs = fun(old_carry, inputs)
-        pbar_runner(unvmap(i, op='none'))
-        return (i + 1, old_carry), old_outputs
+        new_carry, new_outputs = fun(old_carry, inputs)
+        pbar_runner(unvmap(i, op='none'), carry=new_carry, y=new_outputs)
+        return (i + 1, new_carry), new_outputs
 
     return new_fun
 
@@ -475,6 +476,8 @@ def checkpointed_for_loop(
     )
     return ys
 
+
+# This function is adapted from ``while_loop`` in `equinox <https://github.com/patrick-kidger/equinox/blob/main/equinox/internal/_loop/loop.py>`_.
 
 # There's several tricks happening here to work around various limitations of JAX.
 # (Also see https://github.com/google/jax/issues/2139#issuecomment-1039293633)

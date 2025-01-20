@@ -191,6 +191,7 @@ class _Conv(_BaseConv):
         b_init: Optional[Union[Callable, ArrayLike]] = None,
         w_mask: Optional[Union[ArrayLike, Callable]] = None,
         name: str = None,
+        param_type: type = ParamState,
     ):
         super().__init__(in_size=in_size,
                          out_channels=out_channels,
@@ -215,7 +216,7 @@ class _Conv(_BaseConv):
             params['bias'] = bias
 
         # The weight operation
-        self.weight = ParamState(params)
+        self.weight = param_type(params)
 
         # Evaluate the output shape
         abstract_y = jax.eval_shape(
@@ -346,6 +347,7 @@ class _ScaledWSConv(_BaseConv):
         b_init: Optional[Union[Callable, ArrayLike]] = None,
         w_mask: Optional[Union[ArrayLike, Callable]] = None,
         name: str = None,
+        param_type: type = ParamState,
     ):
         super().__init__(in_size=in_size,
                          out_channels=out_channels,
@@ -379,7 +381,7 @@ class _ScaledWSConv(_BaseConv):
         self.eps = eps
 
         # The weight operation
-        self.weight = ParamState(params)
+        self.weight = param_type(params)
 
         # Evaluate the output shape
         abstract_y = jax.eval_shape(

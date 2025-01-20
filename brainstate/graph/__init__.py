@@ -14,20 +14,16 @@
 # ==============================================================================
 
 
-from ._graph_context import *
-from ._graph_context import __all__ as _graph_context__all__
-from ._graph_convert import *
-from ._graph_convert import __all__ as _graph_convert__all__
 from ._graph_node import *
 from ._graph_node import __all__ as _graph_node__all__
 from ._graph_operation import *
 from ._graph_operation import __all__ as _graph_operation__all__
 
-__all__ = (_graph_context__all__ +
-           _graph_convert__all__ +
-           _graph_node__all__ +
-           _graph_operation__all__)
-del (_graph_context__all__,
-     _graph_convert__all__,
-     _graph_node__all__,
-     _graph_operation__all__)
+__all__ = (
+    _graph_node__all__ +
+    _graph_operation__all__
+)
+del (
+    _graph_node__all__,
+    _graph_operation__all__
+)

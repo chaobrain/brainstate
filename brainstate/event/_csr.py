@@ -73,7 +73,7 @@ class CSR(u.sparse.SparseMatrix):
         return u.sparse.csr_todense(self)
 
     def transpose(self, axes=None):
-        assert axes is None
+        assert axes is None, "transpose does not support axes argument."
         return CSC((self.data, self.indices, self.indptr), shape=self.shape[::-1])
 
     def __abs__(self):
@@ -103,6 +103,7 @@ class CSR(u.sparse.SparseMatrix):
                 (op(self.data, other), self.indices, self.indptr),
                 shape=self.shape
             )
+
         elif other.ndim == 2 and other.shape == self.shape:
             rows, cols = csr_to_coo(self.indices, self.indptr)
             other = other[rows, cols]
@@ -112,6 +113,7 @@ class CSR(u.sparse.SparseMatrix):
                  self.indptr),
                 shape=self.shape
             )
+
         else:
             raise NotImplementedError(f"mul with object of shape {other.shape}")
 
@@ -184,10 +186,12 @@ class CSR(u.sparse.SparseMatrix):
         return self._binary_rop(other, operator.mod)
 
     def __matmul__(self, other):
+        # csr @ other
         if isinstance(other, JAXSparse):
             raise NotImplementedError("matmul between two sparse objects.")
         other = u.math.asarray(other)
-        data, other = u.math.promote_dtypes(self.data, other)
+        data = self.data
+        # data, other = u.math.promote_dtypes(self.data, other)
         if other.ndim == 1:
             return _csr_matvec(
                 data,
@@ -208,10 +212,12 @@ class CSR(u.sparse.SparseMatrix):
             raise NotImplementedError(f"matmul with object of shape {other.shape}")
 
     def __rmatmul__(self, other):
+        # other @ csr
         if isinstance(other, JAXSparse):
             raise NotImplementedError("matmul between two sparse objects.")
         other = u.math.asarray(other)
-        data, other = u.math.promote_dtypes(self.data, other)
+        data = self.data
+        # data, other = u.math.promote_dtypes(self.data, other)
         if other.ndim == 1:
             return _csr_matvec(
                 data,
@@ -566,7 +572,7 @@ def event_csrmv_cpu_kernel_generator(
     if weight_info.size == 1:
         if transpose:
             if spike_info.dtype == jnp.bool_:
-                @numba.njit
+                @numba.njit(fastmath=True)
                 def mv(weights, indices, indptr, v, posts):
                     posts[:] = 0.
                     w = weights[()]
@@ -576,7 +582,7 @@ def event_csrmv_cpu_kernel_generator(
                                 posts[indices[j]] += w
 
             elif float_as_event:
-                @numba.njit
+                @numba.njit(fastmath=True)
                 def mv(weights, indices, indptr, v, posts):
                     posts[:] = 0.
                     w = weights[()]
@@ -586,7 +592,7 @@ def event_csrmv_cpu_kernel_generator(
                                 posts[indices[j]] += w
 
             else:
-                @numba.njit
+                @numba.njit(fastmath=True)
                 def mv(weights, indices, indptr, v, posts):
                     posts[:] = 0.
                     w = weights[()]
@@ -599,7 +605,7 @@ def event_csrmv_cpu_kernel_generator(
 
         else:
             if spike_info.dtype == jnp.bool_:
-                @numba.njit
+                @numba.njit(fastmath=True)
                 def mv(weights, indices, indptr, v, posts):
                     w = weights[()]
                     for i in range(indptr.shape[0] - 1):
@@ -610,7 +616,7 @@ def event_csrmv_cpu_kernel_generator(
                         posts[i] = r
 
             elif float_as_event:
-                @numba.njit
+                @numba.njit(fastmath=True)
                 def mv(weights, indices, indptr, v, posts):
                     w = weights[()]
                     for i in range(indptr.shape[0] - 1):
@@ -621,7 +627,7 @@ def event_csrmv_cpu_kernel_generator(
                         posts[i] = r
 
             else:
-                @numba.njit
+                @numba.njit(fastmath=True)
                 def mv(weights, indices, indptr, v, posts):
                     w = weights[()]
                     for i in range(indptr.shape[0] - 1):
@@ -635,7 +641,7 @@ def event_csrmv_cpu_kernel_generator(
     else:
         if transpose:
             if spike_info.dtype == jnp.bool_:
-                @numba.njit
+                @numba.njit(fastmath=True)
                 def mv(weights, indices, indptr, v, posts):
                     posts[:] = 0.
                     for i in range(v.shape[0]):
@@ -644,7 +650,7 @@ def event_csrmv_cpu_kernel_generator(
                                 posts[indices[j]] += weights[j]
 
             elif float_as_event:
-                @numba.njit
+                @numba.njit(fastmath=True)
                 def mv(weights, indices, indptr, v, posts):
                     posts[:] = 0.
                     for i in range(v.shape[0]):
@@ -653,7 +659,7 @@ def event_csrmv_cpu_kernel_generator(
                                 posts[indices[j]] += weights[j]
 
             else:
-                @numba.njit
+                @numba.njit(fastmath=True)
                 def mv(weights, indices, indptr, v, posts):
                     posts[:] = 0.
                     for i in range(v.shape[0]):
@@ -664,7 +670,7 @@ def event_csrmv_cpu_kernel_generator(
 
         else:
             if spike_info.dtype == jnp.bool_:
-                @numba.njit
+                @numba.njit(fastmath=True)
                 def mv(weights, indices, indptr, v, posts):
                     for i in range(indptr.shape[0] - 1):
                         r = 0.
@@ -674,7 +680,7 @@ def event_csrmv_cpu_kernel_generator(
                         posts[i] = r
 
             elif float_as_event:
-                @numba.njit
+                @numba.njit(fastmath=True)
                 def mv(weights, indices, indptr, v, posts):
                     for i in range(indptr.shape[0] - 1):
                         r = 0.
@@ -684,7 +690,7 @@ def event_csrmv_cpu_kernel_generator(
                         posts[i] = r
 
             else:
-                @numba.njit
+                @numba.njit(fastmath=True)
                 def mv(weights, indices, indptr, v, posts):
                     for i in range(indptr.shape[0] - 1):
                         r = 0.
@@ -795,7 +801,31 @@ def event_csrmv_transpose_rule(
 
 def event_csrmv_batching(args, axes, **kwargs):
     if tuple(axes) == (None, None, None, 0):
-        return 0, event_csrmm_p_call(*args, **kwargs)
+        assert args[3].ndim == 2, 'Batching axis 0 requires 2D input.'
+        r = event_csrmm_p_call(
+            args[0],
+            args[1],
+            args[2],
+            args[3].T,
+            shape=kwargs['shape'],
+            transpose=kwargs['transpose'],
+            float_as_event=kwargs['float_as_event']
+        )
+        return r, [1]
+
+    elif tuple(axes) == (None, None, None, 1):
+        assert args[3].ndim == 2, 'Batching axis 0 requires 2D input.'
+        r = event_csrmm_p_call(
+            args[0],
+            args[1],
+            args[2],
+            args[3],
+            shape=kwargs['shape'],
+            transpose=kwargs['transpose'],
+            float_as_event=kwargs['float_as_event']
+        )
+        return r, [1]
+
     else:
         raise NotImplementedError(f"Batching axes {axes} not implemented for event-driven CSR matrix-vector product.")
 
@@ -852,17 +882,228 @@ def event_csrmv_p_call(
 
 def event_csrmm_batching(args, axes, **kwargs):
     if tuple(axes) == (None, None, None, 0):
-        batch_shape = args[3].shape[:-1]
-        B = jnp.reshape(args[3], (-1, args[3].shape[-1:]))
-        r = event_csrmm_p_call(args[0], args[1], args[2], B, **kwargs)
-        return 0, [jnp.reshape(r[0], batch_shape + r.shape[-1:])]
+        assert args[3].ndim == 3, 'Batching axis 0 requires 3D input.'
+        batch_size, m, n = args[3].shape
+        B = jnp.transpose(args[3], (1, 0, 2)).reshape(m, batch_size * n)
+        r = event_csrmm_p_call(
+            args[0],
+            args[1],
+            args[2],
+            B,
+            shape=kwargs['shape'],
+            transpose=kwargs['transpose'],
+            float_as_event=kwargs['float_as_event']
+        )
+        r = jnp.reshape(r[0], [r[0].shape[0], batch_size, n])
+        return [r], [1]
+
+    elif tuple(axes) == (None, None, None, 1):
+        assert args[3].ndim == 3, 'Batching axis 0 requires 3D input.'
+        m, batch_size, n = args[3].shape
+        B = args[3].reshape(m, batch_size * n)
+        r = event_csrmm_p_call(
+            args[0],
+            args[1],
+            args[2],
+            B,
+            shape=kwargs['shape'],
+            transpose=kwargs['transpose'],
+            float_as_event=kwargs['float_as_event']
+        )
+        r = jnp.reshape(r[0], [r[0].shape[0], batch_size, n])
+        return [r], [1]
+
+    elif tuple(axes) == (None, None, None, 2):
+        assert args[3].ndim == 3, 'Batching axis 0 requires 3D input.'
+        m, n, batch_size = args[3].shape
+        B = args[3].reshape(m, batch_size * n)
+        r = event_csrmm_p_call(
+            args[0],
+            args[1],
+            args[2],
+            B,
+            shape=kwargs['shape'],
+            transpose=kwargs['transpose'],
+            float_as_event=kwargs['float_as_event']
+        )
+        r = jnp.reshape(r[0], [r[0].shape[0], n, batch_size])
+        return [r], [2]
+
     else:
         raise NotImplementedError(f"Batching axes {axes} not implemented for event-driven CSR matrix-vector product.")
 
 
+def event_csrmm_cpu_kernel_generator(
+    float_as_event: bool,
+    weight_info: jax.ShapeDtypeStruct,
+    spike_info: jax.ShapeDtypeStruct,
+    transpose: bool,
+    **kwargs
+) -> Kernel:
+    import numba  # pylint: disable=import-outside-toplevel
+
+    if weight_info.size == 1:
+        if transpose:
+            # csr.T @ B
+
+            if spike_info.dtype == jnp.bool_:
+                @numba.njit(fastmath=True, parallel=False)
+                def mv(weights, indices, indptr, B, posts):
+                    posts[:] = 0.
+                    w = weights[()]
+                    for k in numba.prange(B.shape[1]):
+                        for i in range(B.shape[0]):
+                            if B[i, k]:
+                                for j in range(indptr[i], indptr[i + 1]):
+                                    posts[indices[j], k] += w
+
+            elif float_as_event:
+                @numba.njit(fastmath=True, parallel=False)
+                def mv(weights, indices, indptr, B, posts):
+                    posts[:] = 0.
+                    B = B != 0.
+                    w = weights[()]
+                    for k in numba.prange(B.shape[1]):
+                        for i in range(B.shape[0]):
+                            if B[i, k]:
+                                for j in range(indptr[i], indptr[i + 1]):
+                                    posts[indices[j], k] += w
+
+            else:
+                @numba.njit(fastmath=True, parallel=False)
+                def mv(weights, indices, indptr, B, posts):
+                    posts[:] = 0.
+                    w = weights[()]
+                    for k in numba.prange(B.shape[1]):
+                        for i in range(B.shape[0]):
+                            sp = B[i, k]
+                            if sp != 0.:
+                                wsp = w * sp
+                                for j in range(indptr[i], indptr[i + 1]):
+                                    posts[indices[j], k] += wsp
+
+        else:
+            # csr @ B
+            if spike_info.dtype == jnp.bool_:
+                @numba.njit(fastmath=True)
+                def mv(weights, indices, indptr, B, posts):
+                    w = weights[()]
+                    for i in range(indptr.shape[0] - 1):
+                        r = np.zeros(B.shape[1], dtype=weights.dtype)
+                        for j in range(indptr[i], indptr[i + 1]):
+                            index = indices[j]
+                            for k in range(B.shape[1]):
+                                if B[index, k]:
+                                    r[k] += w
+                        posts[i] = r
+
+            elif float_as_event:
+                @numba.njit(fastmath=True)
+                def mv(weights, indices, indptr, B, posts):
+                    w = weights[()]
+                    B = B != 0.
+                    for i in range(indptr.shape[0] - 1):
+                        r = np.zeros(B.shape[1], dtype=weights.dtype)
+                        for j in range(indptr[i], indptr[i + 1]):
+                            index = indices[j]
+                            for k in range(B.shape[1]):
+                                if B[index, k]:
+                                    r[k] += w
+                        posts[i] = r
+
+            else:
+                @numba.njit(fastmath=True)
+                def mv(weights, indices, indptr, B, posts):
+                    w = weights[()]
+                    for i in range(indptr.shape[0] - 1):
+                        for k in range(B.shape[1]):
+                            r = 0.
+                            for j in range(indptr[i], indptr[i + 1]):
+                                c = B[indices[j], k]
+                                if c != 0.:
+                                    r += w * c
+                            posts[i, k] = r
+
+    else:
+        if transpose:
+            # csr.T @ B
+
+            if spike_info.dtype == jnp.bool_:
+                @numba.njit(fastmath=True, parallel=False)
+                def mv(weights, indices, indptr, B, posts):
+                    posts[:] = 0.
+                    for k in numba.prange(B.shape[1]):
+                        for i in range(B.shape[0]):
+                            if B[i, k]:
+                                for j in range(indptr[i], indptr[i + 1]):
+                                    posts[indices[j], k] += weights[j]
+
+            elif float_as_event:
+                @numba.njit(fastmath=True, parallel=False)
+                def mv(weights, indices, indptr, B, posts):
+                    posts[:] = 0.
+                    B = B != 0.
+                    for k in numba.prange(B.shape[1]):
+                        for i in range(B.shape[0]):
+                            if B[i, k]:
+                                for j in range(indptr[i], indptr[i + 1]):
+                                    posts[indices[j], k] += weights[j]
+
+            else:
+                @numba.njit(fastmath=True, parallel=False)
+                def mv(weights, indices, indptr, B, posts):
+                    posts[:] = 0.
+                    for k in numba.prange(B.shape[1]):
+                        for i in range(B.shape[0]):
+                            sp = B[i, k]
+                            if sp != 0.:
+                                for j in range(indptr[i], indptr[i + 1]):
+                                    posts[indices[j], k] += weights[j] * sp
+
+        else:
+            # csr @ B
+
+            if spike_info.dtype == jnp.bool_:
+                @numba.njit(fastmath=True)
+                def mv(weights, indices, indptr, B, posts):
+                    for i in range(indptr.shape[0] - 1):
+                        for k in range(B.shape[1]):
+                            r = 0.
+                            for j in range(indptr[i], indptr[i + 1]):
+                                if B[indices[j], k]:
+                                    r += weights[j]
+                            posts[i, k] = r
+
+            elif float_as_event:
+                @numba.njit(fastmath=True)
+                def mv(weights, indices, indptr, B, posts):
+                    B = B != 0.
+                    for i in range(indptr.shape[0] - 1):
+                        for k in range(B.shape[1]):
+                            r = 0.
+                            for j in range(indptr[i], indptr[i + 1]):
+                                if B[indices[j], k]:
+                                    r += weights[j]
+                            posts[i, k] = r
+
+            else:
+                @numba.njit(fastmath=True)
+                def mv(weights, indices, indptr, B, posts):
+                    for i in range(indptr.shape[0] - 1):
+                        for k in range(B.shape[1]):
+                            r = 0.
+                            for j in range(indptr[i], indptr[i + 1]):
+                                c = B[indices[j], k]
+                                if c != 0.:
+                                    r += weights[j] * c
+                            posts[i, k] = r
+
+    return mv
+
+
 event_csrmm_p = XLACustomOp(
     'event_csrmm',
-    cpu_kernel_or_generator=event_csrmv_cpu_kernel_generator,
+    cpu_kernel_or_generator=event_csrmm_cpu_kernel_generator,
 )
 event_csrmm_p.def_batching_rule(event_csrmm_batching)
 
@@ -884,11 +1125,13 @@ def event_csrmm_p_call(
             indptr,
             B,
             outs=[
-                jax.ShapeDtypeStruct([shape[0], B.shape[1]], weights.dtype)
+                jax.ShapeDtypeStruct([shape[1], B.shape[1]], weights.dtype)
                 if transpose else
-                jax.ShapeDtypeStruct([shape[1], B.shape[1]], weights.dtype),
+                jax.ShapeDtypeStruct([shape[0], B.shape[1]], weights.dtype),
             ],
             # block_size=block_size,
+            shape=shape,
+            transpose=transpose,
             float_as_event=float_as_event,
             weight_info=jax.ShapeDtypeStruct(weights.shape, weights.dtype),
             spike_info=jax.ShapeDtypeStruct(B.shape, B.dtype),

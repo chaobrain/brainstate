@@ -35,6 +35,6 @@ class TestEvalShape(unittest.TestCase):
                 x = self.dense2(x)
                 return x
 
-        r = bst.augment.eval_shape(lambda: MLP(1, 2, 3))
+        r = bst.augment.abstract_init(lambda: MLP(1, 2, 3))
         print(r)
         print(bst.random.DEFAULT)
