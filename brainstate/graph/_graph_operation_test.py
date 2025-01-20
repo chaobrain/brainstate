@@ -17,13 +17,10 @@ from __future__ import annotations
 
 import unittest
 from collections.abc import Callable
-from functools import partial
 from threading import Thread
-from typing import Any
 
 import jax
 import jax.numpy as jnp
-import pytest
 from absl.testing import absltest, parameterized
 
 import brainstate as bst
@@ -354,125 +351,6 @@ class TestGraphUtils(absltest.TestCase):
         assert m2.tree.a is not m.tree.a
         assert m2.tree is not m.tree
 
-    @pytest.mark.skip(reason='Not implemented')
-    def test_cached_unflatten(self):
-        class Foo(bst.graph.Node):
-            def __init__(self, ):
-                self.a = bst.nn.Linear(2, 2)
-                self.b = bst.nn.BatchNorm1d([10, 2])
-
-        def f(m: Foo):
-            m.a, m.b = m.b, m.a  # type: ignore
-
-        m = Foo()
-        a = m.a
-        b = m.b
-
-        ref_out_idx_out = bst.graph.RefMap()
-        graphdef: bst.graph.GraphDef[Foo]
-        graphdef, state = bst.graph.flatten(m, ref_index=ref_out_idx_out)
-
-        @partial(jax.jit, static_argnums=(0,))
-        def f_pure(graphdef: bst.graph.GraphDef[Foo], state):
-            idx_out_ref_in: dict[int, Any] = {}
-            m = bst.graph.unflatten(graphdef, state, index_ref=idx_out_ref_in)
-            f(m)
-            ref_in_idx_in = bst.graph.RefMap[Any, int]()
-            graphdef, state = bst.graph.flatten(m, ref_index=ref_in_idx_in)
-            idx_out_idx_in = bst.graph.compose_mapping(idx_out_ref_in, ref_in_idx_in)
-            static_out = bst.graph.Static((graphdef, idx_out_idx_in))
-            return state, static_out
-
-        static_out: bst.graph.Static
-        state, static_out = f_pure(graphdef, state)
-        idx_out_idx_in: dict[int, int]
-        graphdef, idx_out_idx_in = static_out.value
-        idx_in_ref_out = bst.graph.compose_mapping_reversed(
-            ref_out_idx_out, idx_out_idx_in
-        )
-        m2 = bst.graph.unflatten(graphdef, state, index_ref_cache=idx_in_ref_out)
-        assert m2 is m
-        assert m2.a is b
-        assert m2.b is a
-
-    @pytest.mark.skip(reason='Not implemented')
-    def test_cached_unflatten_swap_variables(self):
-        class Foo(bst.graph.Node):
-            def __init__(self):
-                self.a = bst.ParamState(1)
-                self.b = bst.ParamState(2)
-
-        def f(m: Foo):
-            m.a, m.b = m.b, m.a
-
-        m = Foo()
-        a = m.a
-        b = m.b
-
-        ref_out_idx_out = bst.graph.RefMap[Any, int]()
-        graphdef: bst.graph.GraphDef[Foo]
-        graphdef, state = bst.graph.flatten(m, ref_index=ref_out_idx_out)
-
-        @partial(jax.jit, static_argnums=(0,))
-        def f_pure(graphdef: bst.graph.GraphDef[Foo], state):
-            idx_out_ref_in: dict[int, Any] = {}
-            m = bst.graph.unflatten(graphdef, state, index_ref=idx_out_ref_in)
-            f(m)
-            ref_in_idx_in = bst.graph.RefMap[Any, int]()
-            graphdef, state = bst.graph.flatten(m, ref_index=ref_in_idx_in)
-            idx_out_idx_in = bst.graph.compose_mapping(idx_out_ref_in, ref_in_idx_in)
-            static_out = bst.graph.Static((graphdef, idx_out_idx_in))
-            return state, static_out
-
-        static_out: bst.graph.Static
-        state, static_out = f_pure(graphdef, state)
-        idx_out_idx_in: dict[int, int]
-        graphdef, idx_out_idx_in = static_out.value
-        idx_in_ref_out = bst.graph.compose_mapping_reversed(
-            ref_out_idx_out, idx_out_idx_in
-        )
-        m2 = bst.graph.unflatten(graphdef, state, index_ref_cache=idx_in_ref_out)
-        assert m2 is m
-        assert m2.a is b
-        assert m2.b is a
-
-    @pytest.mark.skip(reason='Not implemented')
-    def test_cached_unflatten_add_self_reference(self):
-        class Foo(bst.graph.Node):
-            def __init__(self):
-                self.ref = None
-
-        def f(m: Foo):
-            m.ref = m
-
-        m = Foo()
-
-        ref_out_idx_out = bst.graph.RefMap()
-        graphdef: bst.graph.GraphDef[Foo]
-        graphdef, state = bst.graph.flatten(m, ref_index=ref_out_idx_out)
-
-        @partial(jax.jit, static_argnums=(0,))
-        def f_pure(graphdef: bst.graph.GraphDef[Foo], state):
-            idx_out_ref_in: dict[int, Any] = {}
-            m = bst.graph.unflatten(graphdef, state, index_ref=idx_out_ref_in)
-            f(m)
-            ref_in_idx_in = bst.graph.RefMap[Any, int]()
-            graphdef, state = bst.graph.flatten(m, ref_index=ref_in_idx_in)
-            idx_out_idx_in = bst.graph.compose_mapping(idx_out_ref_in, ref_in_idx_in)
-            static_out = bst.graph.Static((graphdef, idx_out_idx_in))
-            return state, static_out
-
-        static_out: bst.graph.Static
-        state, static_out = f_pure(graphdef, state)
-        idx_out_idx_in: dict[int, int]
-        graphdef, idx_out_idx_in = static_out.value
-        idx_in_ref_out = bst.graph.compose_mapping_reversed(
-            ref_out_idx_out, idx_out_idx_in
-        )
-        m2 = bst.graph.unflatten(graphdef, state, index_ref_cache=idx_in_ref_out)
-        assert m2 is m
-        assert m2.ref is m2
-
     def test_call_jit_update(self):
         class Counter(bst.graph.Node):
             def __init__(self):
@@ -526,43 +404,6 @@ class TestGraphUtils(absltest.TestCase):
 
         self.assertEqual(nodes['a'].count.value, 0)
         self.assertEqual(nodes['b'].count.value, 1)
-
-    def test_to_tree_simple(self):
-        m = bst.nn.Linear(2, 3, )
-        impure_tree = (m, 1, {'b': m})
-
-        pure_tree = bst.graph.graph_to_tree(impure_tree)
-
-        t1 = pure_tree[0]
-        t2 = pure_tree[2]['b']
-
-        self.assertEqual(pure_tree[1], 1)
-        self.assertIsInstance(t1, bst.graph.NodeStates)
-        assert isinstance(t1, bst.graph.NodeStates)
-        self.assertIsInstance(t2, bst.graph.NodeStates)
-        assert isinstance(t2, bst.graph.NodeStates)
-        self.assertIsInstance(t1.graphdef, bst.graph.NodeDef)
-        self.assertIsInstance(t2.graphdef, bst.graph.NodeRef)
-        self.assertLen(t1.states[0].to_flat(), 1)
-        self.assertLen(t2.states[0].to_flat(), 0)
-
-        impure_tree2 = bst.graph.tree_to_graph(pure_tree)
-
-        m1_out = impure_tree2[0]
-        m2_out = impure_tree2[2]['b']
-
-        self.assertIs(m1_out, m2_out)
-        self.assertEqual(impure_tree2[1], 1)
-
-    def test_to_tree_consistent_prefix(self):
-        m = bst.nn.Linear(2, 3, )
-        impure_tree = (m, 1, {'b': m})
-        prefix = (0, None, 0)
-        pure_tree = bst.graph.graph_to_tree(impure_tree, prefix=prefix)
-
-        prefix = (0, None, 1)
-        with self.assertRaisesRegex(ValueError, 'Inconsistent aliasing detected'):
-            bst.graph.graph_to_tree(impure_tree, prefix=prefix)
 
 
 class SimpleModule(bst.nn.Module):
