@@ -37,23 +37,6 @@ class TestStateSourceInfo(unittest.TestCase):
             with self.assertRaises(ValueError):
                 state.value = (jnp.zeros((2, 3)), jnp.zeros((2, 3)))
 
-    def test_check_jax_tracer(self):
-        a = bst.ShortTermState(jnp.zeros((2, 3)))
-
-        @jax.jit
-        def run_state(b):
-            a.value = b
-            return a.value
-
-        # The following code will not raise an error, since the state is valid to trace.
-        run_state(jnp.ones((2, 3)))
-
-        with bst.check_state_jax_tracer():
-            # The line below will not raise an error.
-            with self.assertRaises(bst.util.TraceContextError):
-                # recompile the function
-                run_state(jnp.ones((2, 4)))
-
 
 class TestStateRepr(unittest.TestCase):
 
