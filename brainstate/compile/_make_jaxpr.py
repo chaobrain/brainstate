@@ -741,11 +741,15 @@ def _make_jaxpr(
         in_type = tuple(jax.util.safe_zip(in_avals, keep_inputs))
         f, out_tree = _flatten_fun(f, in_tree)
         f = annotate(f, in_type)
-        debug_info = pe.debug_info(fun, in_tree, out_tree, True, 'make_jaxpr')
+        if jax.__version_info__ < (0, 5, 0):
+            debug_info = pe.debug_info(fun, in_tree, out_tree, True, 'make_jaxpr')
         with ExitStack() as stack:
             for axis_name, size in axis_env or []:
                 stack.enter_context(jax.core.extend_axis_env(axis_name, size, None))
-            jaxpr, out_type, consts = pe.trace_to_jaxpr_dynamic2(f, debug_info=debug_info)
+            if jax.__version_info__ < (0, 5, 0):
+                jaxpr, out_type, consts = pe.trace_to_jaxpr_dynamic2(f, debug_info=debug_info)
+            else:
+                jaxpr, out_type, consts = pe.trace_to_jaxpr_dynamic2(f)
         closed_jaxpr = jax.core.ClosedJaxpr(jaxpr, consts)
         if return_shape:
             out_avals, _ = jax.util.unzip2(out_type)
