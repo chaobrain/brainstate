@@ -22,6 +22,7 @@ from typing import Callable
 import brainunit as u
 import jax
 import jax.numpy as jnp
+import jax.experimental.pallas as pl
 import numpy as np
 from brainunit.sparse._csr import (
     _csr_matvec as csr_matvec,
@@ -703,6 +704,99 @@ def event_csrmv_cpu_kernel_generator(
     return mv
 
 
+def event_csrmv_gpu_kernel_generator(
+    block_size: int,
+    shape: Shape,
+    float_as_event: bool,
+    weight_info: jax.ShapeDtypeStruct,
+    spike_info: jax.ShapeDtypeStruct,
+    transpose: bool,
+    **kwargs
+) -> Kernel:
+    # TODO: Implement GPU kernel generator for event-driven CSR matrix-vector product.
+    if transpose:
+        # v @ csr   (shape[0], ) @ (shape[0], shape[1]) -> (shape[1], )
+        n_pre = shape[0]
+        n_post = shape[1]
+        if weight_info.size == 1:
+            def _kernel(
+                weights_ref,    # [1]
+                indices_ref,    # [num_nonzeros]
+                indptr_ref,     # [n_rows + 1]
+                v_ref,          # [n_rows]
+                posts_ref       # [n_cols]
+            ):
+                ...
+        else:
+            def _kernel(
+                weights_ref,    # [1]
+                indices_ref,    # [num_nonzeros]
+                indptr_ref,     # [n_rows + 1]
+                v_ref,          # [n_rows]
+                posts_ref       # [n_cols]
+            ):
+                r_pid = pl.program_id(0)
+                c_start = pl.program_id(1) * block_size
+                row_length = jnp.minimum(n_pre - r_pid * block_size, block_size)
+                mask = jnp.arange(block_size) + c_start < n_post
+                
+                def scan_fn(i, post_):
+                    
+                    if spike_info.dtype == jnp.bool_:
+                        post_ = jax.lax.cond(
+                            v_ref[i],
+                            lambda: post_ + weights_ref[i, ...],
+                            lambda: post_
+                        )
+                    elif float_as_event:
+                        post_ = jax.lax.cond(
+                            v_ref[i] != 0.,
+                            lambda: post_ + weights_ref[i, ...],
+                            lambda: post_
+                    else:
+                        v = v_ref[i]
+                        post_ = jax.lax.cond(
+                            v != 0.,
+                            lambda: post_ + weights_ref[i, ...] * v,
+                            lambda: post_
+                        )
+                post = jax.lax.fori_loop(0, row_length, scan_fn, jnp.zeros(block_size, dtype=post_ref.dtype))
+                pl.atomic_add(posts_ref, pl.dslice(None, None), post, mask=mask)
+            
+        
+    else:
+        raise NotImplemented("GPU kernel for event-driven CSR matrix-vector product is not implemented.")
+        # csr @ v   (shape[0], shape[1]) @ (shape[1], ) -> (shape[0], )
+        if weight_info.size == 1:
+            if spike_info.dtype == jnp.bool_:
+                def mv(weights_ref, indices_ref, indptr_ref, v_ref, posts_ref):
+                    ...
+            elif float_as_event:
+                def mv(weights_ref, indices_ref, indptr_ref, v_ref, posts_ref):
+                    ...
+            else:
+                def mv(weights_ref, indices_ref, indptr_ref, v_ref, posts_ref):
+                    ...
+        else:
+            if spike_info.dtype == jnp.bool_:
+                def mv(weights_ref, indices_ref, indptr_ref, v_ref, posts_ref):
+                    ...
+            elif float_as_event:
+                def mv(weights_ref, indices_ref, indptr_ref, v_ref, posts_ref):
+                    ...
+            else:
+                def mv(
+                    weights_ref,    # [num_nonzeros]
+                    indices_ref,    # [num_nonzeros]
+                    indptr_ref,     # [n_rows + 1]
+                    v_ref,          # [n_cols]
+                    posts_ref       # [n_rows]
+                ):
+                    ...
+    
+    return kernel
+    
+
 def event_csrmv_jvp_v(
     v_dot,
     data,
@@ -833,6 +927,7 @@ def event_csrmv_batching(args, axes, **kwargs):
 event_csrmv_p = XLACustomOp(
     'event_csrmv',
     cpu_kernel_or_generator=event_csrmv_cpu_kernel_generator,
+    gpu_kernel_or_generator=event_csrmv_gpu_kernel_generator,
 )
 event_csrmv_p.defjvp(event_csrmv_jvp_weights, None, None, event_csrmv_jvp_v)
 event_csrmv_p.def_transpose_rule(event_csrmv_transpose_rule)
@@ -1101,9 +1196,67 @@ def event_csrmm_cpu_kernel_generator(
     return mv
 
 
+def event_csrmm_gpu_kernel_generator(
+    float_as_event: bool,
+    weight_info: jax.ShapeDtypeStruct,
+    spike_info: jax.ShapeDtypeStruct,
+    transpose: bool,
+    **kwargs
+) -> Kernel:
+    # TODO: Implement GPU kernel generator for event-driven CSR matrix-matrix product.
+    if weight_info.size == 1:
+        if transpose:
+            # csr.T @ B
+            if spike_info.dtype == jnp.bool_:
+                def mv(weights_ref, indices_ref, indptr_ref, B_ref, posts_ref):
+                    ...
+            elif float_as_event:
+                def mv(weights_ref, indices_ref, indptr_ref, B_ref, posts_ref):
+                    ...
+            else:
+                def mv(weights_ref, indices_ref, indptr_ref, B_ref, posts_ref):
+                    ...
+        else:
+            # csr @ B
+            if spike_info.dtype == jnp.bool_:
+                def mv(weights_ref, indices_ref, indptr_ref, B_ref, posts_ref):
+                    ...
+            elif float_as_event:
+                def mv(weights_ref, indices_ref, indptr_ref, B_ref, posts_ref):
+                    ...
+            else:
+                def mv(weights_ref, indices_ref, indptr_ref, B_ref, posts_ref):
+                    ...
+    else:
+        if transpose:
+            # csr.T @ B
+            if spike_info.dtype == jnp.bool_:
+                def mv(weights_ref, indices_ref, indptr_ref, B_ref, posts_ref):
+                    ...
+            elif float_as_event:
+                def mv(weights_ref, indices_ref, indptr_ref, B_ref, posts_ref):
+                    ...
+            else:
+                def mv(weights_ref, indices_ref, indptr_ref, B_ref, posts_ref):
+                    ...
+        else:
+            # csr @ B
+            if spike_info.dtype == jnp.bool_:
+                def mv(weights_ref, indices_ref, indptr_ref, B_ref, posts_ref):
+                    ...
+            elif float_as_event:
+                def mv(weights_ref, indices_ref, indptr_ref, B_ref, posts_ref):
+                    ...
+            else:
+                def mv(weights_ref, indices_ref, indptr_ref, B_ref, posts_ref):
+                    ...
+    return mv
+
+
 event_csrmm_p = XLACustomOp(
     'event_csrmm',
     cpu_kernel_or_generator=event_csrmm_cpu_kernel_generator,
+    gpu_kernel_or_generator=event_csrmm_gpu_kernel_generator,
 )
 event_csrmm_p.def_batching_rule(event_csrmm_batching)
 
