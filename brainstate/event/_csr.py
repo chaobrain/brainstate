@@ -905,6 +905,7 @@ def event_csrmv_gpu_kernel_generator(
             )
         
     else:
+        # TODO: Need test
         # csr @ v   (shape[0], shape[1]) @ (shape[1], ) -> (shape[0], )
         if weight_info.size == 1:
             # 每个block处理一个[block_size,]的indptr
