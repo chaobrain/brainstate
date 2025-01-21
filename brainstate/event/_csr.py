@@ -893,7 +893,7 @@ def event_csrmv_gpu_kernel_generator(
                 ],
                 in_specs=[
                     pl.BlockSpec((weight_info.size,), lambda i, j: j),
-                    pl.BlockSpec((weight_info.size,), lambda i, j: j),
+                    pl.BlockSpec((indices_info.size,), lambda i, j: j),
                     pl.BlockSpec((block_size,), lambda i, j: j),
                     pl.BlockSpec((shape[0],), lambda i, j: j)
                 ],
@@ -905,34 +905,149 @@ def event_csrmv_gpu_kernel_generator(
             )
         
     else:
-        raise NotImplemented("GPU kernel for event-driven CSR matrix-vector product is not implemented.")
         # csr @ v   (shape[0], shape[1]) @ (shape[1], ) -> (shape[0], )
         if weight_info.size == 1:
-            if spike_info.dtype == jnp.bool_:
-                def mv(weights_ref, indices_ref, indptr_ref, v_ref, posts_ref):
-                    ...
-            elif float_as_event:
-                def mv(weights_ref, indices_ref, indptr_ref, v_ref, posts_ref):
-                    ...
-            else:
-                def mv(weights_ref, indices_ref, indptr_ref, v_ref, posts_ref):
-                    ...
+            # 每个block处理一个[block_size,]的indptr
+            def _kernel(
+                weights_ref,    # [1] (scalar weight for homogeneous matrix)
+                indices_ref,    # [num_nonzeros] (column indices of non-zero values)
+                indptr_ref,     # [n_rows + 1] (row pointers)
+                v_ref,          # [n_cols] (input vector)
+                posts_ref       # [n_rows] (output vector)
+            ):
+                weight_0 = weights_ref[0]
+
+                def process_row(row_i):
+                    # Initialize the result for this row
+                    r = 0.0
+
+                    # Define a function to process a single non-zero element in the row
+                    def process_element(j, r_):
+                        col_idx = indices_ref[j]
+                        if spike_info.dtype == jnp.bool_:
+                            r_ = jax.lax.cond(
+                                v_ref[col_idx],
+                                lambda: r_ + weight_0,
+                                lambda: r_
+                            )
+                        elif float_as_event:
+                            r_ = jax.lax.cond(
+                                v_ref[col_idx] != 0.,
+                                lambda: r_ + weight_0,
+                                lambda: r_
+                            )
+                        else:
+                            r_ = jax.lax.cond(
+                                v_ref[col_idx] != 0.,
+                                lambda: r_ + weight_0 * v_ref[col_idx],
+                                lambda: r_
+                            )
+                        return r_
+
+                    # Iterate over the non-zero elements in the row
+                    r = jax.lax.fori_loop(indptr_ref[row_i], indptr_ref[row_i + 1], process_element, r)
+
+                    # Store the result in the output vector
+                    posts_ref[row_i] = r
+
+                # Iterate over the rows in the block
+                jax.lax.fori_loop(
+                    0,
+                    indptr_ref.shape[0] - 1,
+                    lambda i, _: process_row(i),
+                    None
+                )
+
+            kernel = pl.pallas_call(
+                _kernel,
+                out_shape=[
+                    jax.ShapeDtypeStruct([shape[0]], weight_info.dtype),
+                ],
+                out_specs=[
+                    pl.BlockSpec((shape[0],), lambda i, j: i),
+                ],
+                in_specs=[
+                    pl.BlockSpec((weight_info.size,), lambda i, j: j),
+                    pl.BlockSpec((indices_info.size,), lambda i, j: j),
+                    pl.BlockSpec((block_size,), lambda i, j: i),
+                    pl.BlockSpec((shape[1],), lambda i, j: j),
+                ],
+                grid=(
+                    pl.cdiv(shape[0], block_size),
+                    1,
+                ),
+                interpret=False,
+            )
         else:
-            if spike_info.dtype == jnp.bool_:
-                def mv(weights_ref, indices_ref, indptr_ref, v_ref, posts_ref):
-                    ...
-            elif float_as_event:
-                def mv(weights_ref, indices_ref, indptr_ref, v_ref, posts_ref):
-                    ...
-            else:
-                def mv(
-                    weights_ref,    # [num_nonzeros]
-                    indices_ref,    # [num_nonzeros]
-                    indptr_ref,     # [n_rows + 1]
-                    v_ref,          # [n_cols]
-                    posts_ref       # [n_rows]
-                ):
-                    ...
+            # 每个block处理一个[block_size,]的indptr
+            def _kernel(
+                weights_ref,    # [num_nonzeros] (non-zero values)
+                indices_ref,    # [num_nonzeros] (column indices of non-zero values)
+                indptr_ref,     # [n_rows + 1] (row pointers)
+                v_ref,          # [n_cols] (input vector)
+                posts_ref       # [n_rows] (output vector)
+            ):
+                def process_row(row_i):
+                    # Initialize the result for this row
+                    r = 0.0
+
+                    # Define a function to process a single non-zero element in the row
+                    def process_element(j, r_):
+                        col_idx = indices_ref[j]
+                        if spike_info.dtype == jnp.bool_:
+                            r_ = jax.lax.cond(
+                                v_ref[col_idx],
+                                lambda: r_ + weights_ref[j],
+                                lambda: r_
+                            )
+                        elif float_as_event:
+                            r_ = jax.lax.cond(
+                                v_ref[col_idx] != 0.,
+                                lambda: r_ + weights_ref[j],
+                                lambda: r_
+                            )
+                        else:
+                            r_ = jax.lax.cond(
+                                v_ref[col_idx] != 0.,
+                                lambda: r_ + weights_ref[j] * v_ref[col_idx],
+                                lambda: r_
+                            )
+                        return r_
+
+                    # Iterate over the non-zero elements in the row
+                    r = jax.lax.fori_loop(indptr_ref[row_i], indptr_ref[row_i + 1], process_element, r)
+
+                    # Store the result in the output vector
+                    posts_ref[row_i] = r
+
+                # Iterate over the rows in the block
+                jax.lax.fori_loop(
+                    0,
+                    indptr_ref.shape[0] - 1,
+                    lambda i, _: process_row(i),
+                    None
+                )
+
+            kernel = pl.pallas_call(
+                _kernel,
+                out_shape=[
+                    jax.ShapeDtypeStruct([shape[0]], weight_info.dtype),
+                ],
+                out_specs=[
+                    pl.BlockSpec((shape[0],), lambda i, j: i),
+                ],
+                in_specs=[
+                    pl.BlockSpec((weight_info.size,), lambda i, j: j),
+                    pl.BlockSpec((indices_info.size,), lambda i, j: j),
+                    pl.BlockSpec((block_size,), lambda i, j: i),
+                    pl.BlockSpec((shape[1],), lambda i, j: j),
+                ],
+                grid=(
+                    pl.cdiv(shape[0], block_size),
+                    1,
+                ),
+                interpret=False,
+            )
     
     return kernel
     
