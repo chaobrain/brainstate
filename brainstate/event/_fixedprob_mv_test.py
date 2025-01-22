@@ -15,7 +15,6 @@
 
 from __future__ import annotations
 
-
 import jax.numpy
 import jax.numpy as jnp
 from absl.testing import parameterized

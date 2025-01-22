@@ -24,4 +24,5 @@ __all__ = [
     'XLACustomOp',
     'CSR',
     'CSC',
+    'enable_numba_parallel_if_possible',
 ]

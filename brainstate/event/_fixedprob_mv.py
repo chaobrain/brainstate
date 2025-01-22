@@ -31,7 +31,7 @@ from brainstate.init import param
 from brainstate.nn._module import Module
 from brainstate.random import RandomState
 from brainstate.typing import ArrayLike, Size
-from ._misc import FloatScalar
+from ._misc import FloatScalar, environ
 from ._xla_custom_op import XLACustomOp
 
 __all__ = [
@@ -191,7 +191,7 @@ def cpu_kernel_generator(
 
     if weight_info.size == 1:
         if spike_info.dtype == jnp.bool_:
-            @numba.njit
+            @numba.njit(**environ.numba_setting)
             def ell_mv(spikes, weights, indices, posts):
                 posts[:] = 0.
                 w = weights[()]
@@ -201,7 +201,7 @@ def cpu_kernel_generator(
                             posts[indices[i, j]] += w
 
         elif float_as_event:
-            @numba.njit
+            @numba.njit(**environ.numba_setting)
             def ell_mv(spikes, weights, indices, posts):
                 posts[:] = 0.
                 w = weights[()]
@@ -211,7 +211,7 @@ def cpu_kernel_generator(
                             posts[indices[i, j]] += w
 
         else:
-            @numba.njit
+            @numba.njit(**environ.numba_setting)
             def ell_mv(spikes, weights, indices, posts):
                 posts[:] = 0.
                 w = weights[()]
@@ -224,7 +224,7 @@ def cpu_kernel_generator(
 
     else:
         if spike_info.dtype == jnp.bool_:
-            @numba.njit
+            @numba.njit(**environ.numba_setting)
             def ell_mv(spikes, weights, indices, posts):
                 posts[:] = 0.
                 for i in range(spikes.shape[0]):
@@ -233,7 +233,7 @@ def cpu_kernel_generator(
                             posts[indices[i, j]] += weights[i, j]
 
         elif float_as_event:
-            @numba.njit
+            @numba.njit(**environ.numba_setting)
             def ell_mv(spikes, weights, indices, posts):
                 posts[:] = 0.
                 for i in range(spikes.shape[0]):
@@ -242,7 +242,7 @@ def cpu_kernel_generator(
                             posts[indices[i, j]] += weights[i, j]
 
         else:
-            @numba.njit
+            @numba.njit(**environ.numba_setting)
             def ell_mv(spikes, weights, indices, posts):
                 posts[:] = 0.
                 for i in range(spikes.shape[0]):
@@ -523,7 +523,7 @@ def ell_cpu_kernel_generator(
     import numba  # pylint: disable=import-outside-toplevel
 
     if jnp.size(weight_info) == 1:
-        @numba.njit
+        @numba.njit(**environ.numba_setting)
         def ell_mv(vector, weights, indices, posts):
             posts[:] = 0.
             w = weights[()]
@@ -533,7 +533,7 @@ def ell_cpu_kernel_generator(
                     posts[indices[i, j]] += wv
 
     else:
-        @numba.njit
+        @numba.njit(**environ.numba_setting)
         def ell_mv(vector, weights, indices, posts):
             posts[:] = 0.
             for i in range(vector.shape[0]):

@@ -32,6 +32,7 @@ from jax.experimental.sparse import JAXSparse
 from jax.interpreters import ad
 
 from brainstate.typing import Shape
+from ._misc import environ
 from ._xla_custom_op import XLACustomOp
 
 __all__ = [
@@ -572,7 +573,7 @@ def event_csrmv_cpu_kernel_generator(
     if weight_info.size == 1:
         if transpose:
             if spike_info.dtype == jnp.bool_:
-                @numba.njit(fastmath=True)
+                @numba.njit(**environ.numba_setting)
                 def mv(weights, indices, indptr, v, posts):
                     posts[:] = 0.
                     w = weights[()]
@@ -582,7 +583,7 @@ def event_csrmv_cpu_kernel_generator(
                                 posts[indices[j]] += w
 
             elif float_as_event:
-                @numba.njit(fastmath=True)
+                @numba.njit(**environ.numba_setting)
                 def mv(weights, indices, indptr, v, posts):
                     posts[:] = 0.
                     w = weights[()]
@@ -592,7 +593,7 @@ def event_csrmv_cpu_kernel_generator(
                                 posts[indices[j]] += w
 
             else:
-                @numba.njit(fastmath=True)
+                @numba.njit(**environ.numba_setting)
                 def mv(weights, indices, indptr, v, posts):
                     posts[:] = 0.
                     w = weights[()]
@@ -605,7 +606,7 @@ def event_csrmv_cpu_kernel_generator(
 
         else:
             if spike_info.dtype == jnp.bool_:
-                @numba.njit(fastmath=True)
+                @numba.njit(**environ.numba_setting)
                 def mv(weights, indices, indptr, v, posts):
                     w = weights[()]
                     for i in range(indptr.shape[0] - 1):
@@ -616,7 +617,7 @@ def event_csrmv_cpu_kernel_generator(
                         posts[i] = r
 
             elif float_as_event:
-                @numba.njit(fastmath=True)
+                @numba.njit(**environ.numba_setting)
                 def mv(weights, indices, indptr, v, posts):
                     w = weights[()]
                     for i in range(indptr.shape[0] - 1):
@@ -627,7 +628,7 @@ def event_csrmv_cpu_kernel_generator(
                         posts[i] = r
 
             else:
-                @numba.njit(fastmath=True)
+                @numba.njit(**environ.numba_setting)
                 def mv(weights, indices, indptr, v, posts):
                     w = weights[()]
                     for i in range(indptr.shape[0] - 1):
@@ -641,7 +642,7 @@ def event_csrmv_cpu_kernel_generator(
     else:
         if transpose:
             if spike_info.dtype == jnp.bool_:
-                @numba.njit(fastmath=True)
+                @numba.njit(**environ.numba_setting)
                 def mv(weights, indices, indptr, v, posts):
                     posts[:] = 0.
                     for i in range(v.shape[0]):
@@ -650,7 +651,7 @@ def event_csrmv_cpu_kernel_generator(
                                 posts[indices[j]] += weights[j]
 
             elif float_as_event:
-                @numba.njit(fastmath=True)
+                @numba.njit(**environ.numba_setting)
                 def mv(weights, indices, indptr, v, posts):
                     posts[:] = 0.
                     for i in range(v.shape[0]):
@@ -659,7 +660,7 @@ def event_csrmv_cpu_kernel_generator(
                                 posts[indices[j]] += weights[j]
 
             else:
-                @numba.njit(fastmath=True)
+                @numba.njit(**environ.numba_setting)
                 def mv(weights, indices, indptr, v, posts):
                     posts[:] = 0.
                     for i in range(v.shape[0]):
@@ -670,7 +671,7 @@ def event_csrmv_cpu_kernel_generator(
 
         else:
             if spike_info.dtype == jnp.bool_:
-                @numba.njit(fastmath=True)
+                @numba.njit(**environ.numba_setting)
                 def mv(weights, indices, indptr, v, posts):
                     for i in range(indptr.shape[0] - 1):
                         r = 0.
@@ -680,7 +681,7 @@ def event_csrmv_cpu_kernel_generator(
                         posts[i] = r
 
             elif float_as_event:
-                @numba.njit(fastmath=True)
+                @numba.njit(**environ.numba_setting)
                 def mv(weights, indices, indptr, v, posts):
                     for i in range(indptr.shape[0] - 1):
                         r = 0.
@@ -690,7 +691,7 @@ def event_csrmv_cpu_kernel_generator(
                         posts[i] = r
 
             else:
-                @numba.njit(fastmath=True)
+                @numba.njit(**environ.numba_setting)
                 def mv(weights, indices, indptr, v, posts):
                     for i in range(indptr.shape[0] - 1):
                         r = 0.
@@ -947,7 +948,7 @@ def event_csrmm_cpu_kernel_generator(
             # csr.T @ B
 
             if spike_info.dtype == jnp.bool_:
-                @numba.njit(fastmath=True, parallel=False)
+                @numba.njit(**environ.numba_setting, parallel=environ.numba_parallel)
                 def mv(weights, indices, indptr, B, posts):
                     posts[:] = 0.
                     w = weights[()]
@@ -958,7 +959,7 @@ def event_csrmm_cpu_kernel_generator(
                                     posts[indices[j], k] += w
 
             elif float_as_event:
-                @numba.njit(fastmath=True, parallel=False)
+                @numba.njit(**environ.numba_setting, parallel=environ.numba_parallel)
                 def mv(weights, indices, indptr, B, posts):
                     posts[:] = 0.
                     B = B != 0.
@@ -970,7 +971,7 @@ def event_csrmm_cpu_kernel_generator(
                                     posts[indices[j], k] += w
 
             else:
-                @numba.njit(fastmath=True, parallel=False)
+                @numba.njit(**environ.numba_setting, parallel=environ.numba_parallel)
                 def mv(weights, indices, indptr, B, posts):
                     posts[:] = 0.
                     w = weights[()]
@@ -985,7 +986,7 @@ def event_csrmm_cpu_kernel_generator(
         else:
             # csr @ B
             if spike_info.dtype == jnp.bool_:
-                @numba.njit(fastmath=True)
+                @numba.njit(**environ.numba_setting)
                 def mv(weights, indices, indptr, B, posts):
                     w = weights[()]
                     for i in range(indptr.shape[0] - 1):
@@ -998,7 +999,7 @@ def event_csrmm_cpu_kernel_generator(
                         posts[i] = r
 
             elif float_as_event:
-                @numba.njit(fastmath=True)
+                @numba.njit(**environ.numba_setting)
                 def mv(weights, indices, indptr, B, posts):
                     w = weights[()]
                     B = B != 0.
@@ -1012,7 +1013,7 @@ def event_csrmm_cpu_kernel_generator(
                         posts[i] = r
 
             else:
-                @numba.njit(fastmath=True)
+                @numba.njit(**environ.numba_setting)
                 def mv(weights, indices, indptr, B, posts):
                     w = weights[()]
                     for i in range(indptr.shape[0] - 1):
@@ -1029,7 +1030,7 @@ def event_csrmm_cpu_kernel_generator(
             # csr.T @ B
 
             if spike_info.dtype == jnp.bool_:
-                @numba.njit(fastmath=True, parallel=False)
+                @numba.njit(**environ.numba_setting, parallel=environ.numba_parallel)
                 def mv(weights, indices, indptr, B, posts):
                     posts[:] = 0.
                     for k in numba.prange(B.shape[1]):
@@ -1039,7 +1040,7 @@ def event_csrmm_cpu_kernel_generator(
                                     posts[indices[j], k] += weights[j]
 
             elif float_as_event:
-                @numba.njit(fastmath=True, parallel=False)
+                @numba.njit(**environ.numba_setting, parallel=environ.numba_parallel)
                 def mv(weights, indices, indptr, B, posts):
                     posts[:] = 0.
                     B = B != 0.
@@ -1050,7 +1051,7 @@ def event_csrmm_cpu_kernel_generator(
                                     posts[indices[j], k] += weights[j]
 
             else:
-                @numba.njit(fastmath=True, parallel=False)
+                @numba.njit(**environ.numba_setting, parallel=environ.numba_parallel)
                 def mv(weights, indices, indptr, B, posts):
                     posts[:] = 0.
                     for k in numba.prange(B.shape[1]):
@@ -1064,7 +1065,7 @@ def event_csrmm_cpu_kernel_generator(
             # csr @ B
 
             if spike_info.dtype == jnp.bool_:
-                @numba.njit(fastmath=True)
+                @numba.njit(**environ.numba_setting)
                 def mv(weights, indices, indptr, B, posts):
                     for i in range(indptr.shape[0] - 1):
                         for k in range(B.shape[1]):
@@ -1075,7 +1076,7 @@ def event_csrmm_cpu_kernel_generator(
                             posts[i, k] = r
 
             elif float_as_event:
-                @numba.njit(fastmath=True)
+                @numba.njit(**environ.numba_setting)
                 def mv(weights, indices, indptr, B, posts):
                     B = B != 0.
                     for i in range(indptr.shape[0] - 1):
@@ -1087,7 +1088,7 @@ def event_csrmm_cpu_kernel_generator(
                             posts[i, k] = r
 
             else:
-                @numba.njit(fastmath=True)
+                @numba.njit(**environ.numba_setting)
                 def mv(weights, indices, indptr, B, posts):
                     for i in range(indptr.shape[0] - 1):
                         for k in range(B.shape[1]):
