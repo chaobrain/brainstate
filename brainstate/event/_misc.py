@@ -44,7 +44,7 @@ class EnvironContext(threading.local):
         self.numba_setting: dict = dict(nogil=True, fastmath=True)
 
 
-environ = EnvironContext()
+op_environ = EnvironContext()
 
 
 @contextmanager
@@ -55,21 +55,21 @@ def set_numba_environ(
     """
     Enable Numba parallel execution if possible.
     """
-    old_parallel = environ.numba_parallel
-    old_setting = environ.numba_setting.copy()
+    old_parallel = op_environ.numba_parallel
+    old_setting = op_environ.numba_setting.copy()
 
     try:
-        environ.numba_setting.update(kwargs)
+        op_environ.numba_setting.update(kwargs)
         if parallel_if_possible is not None:
             if isinstance(parallel_if_possible, bool):
-                environ.numba_parallel = parallel_if_possible
+                op_environ.numba_parallel = parallel_if_possible
             elif isinstance(parallel_if_possible, int):
-                environ.numba_parallel = True
+                op_environ.numba_parallel = True
                 assert parallel_if_possible > 0, 'The number of threads must be a positive integer.'
                 import numba  # pylint: disable=import-outside-toplevel
                 numba.set_num_threads(parallel_if_possible)
             else:
                 raise ValueError('The argument `parallel_if_possible` must be a boolean or an integer.')
     finally:
-        environ.numba_parallel = old_parallel
-        environ.numba_setting = old_setting
+        op_environ.numba_parallel = old_parallel
+        op_environ.numba_setting = old_setting

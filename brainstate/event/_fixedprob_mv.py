@@ -31,8 +31,8 @@ from brainstate.init import param
 from brainstate.nn._module import Module
 from brainstate.random import RandomState
 from brainstate.typing import ArrayLike, Size
-from ._misc import FloatScalar, environ
-from ._xla_custom_op import XLACustomOp
+from ._misc import FloatScalar, op_environ
+from ._xla_custom_op import XLACustomOp, NumbaOpGenerator, PallasOpGenerator
 
 __all__ = [
     'FixedProb',
@@ -189,69 +189,111 @@ def cpu_kernel_generator(
 ):
     import numba  # pylint: disable=import-outside-toplevel
 
-    if weight_info.size == 1:
-        if spike_info.dtype == jnp.bool_:
-            @numba.njit(**environ.numba_setting)
-            def ell_mv(spikes, weights, indices, posts):
-                posts[:] = 0.
-                w = weights[()]
-                for i in range(spikes.shape[0]):
-                    if spikes[i]:
-                        for j in range(indices.shape[1]):
-                            posts[indices[i, j]] += w
+    def version1():
+        # Intel i9-12900H
+        #
+        # n_pre: 1000, n_post: 1000, conn_prob: 0.01, spk_prob: 0.01, Linear: 0.004149198532104492 s
+        # n_pre: 1000, n_post: 1000, conn_prob: 0.01, spk_prob: 0.01, Matmul: 0.08957552909851074 s
+        # Acceleration ratio: 20.58863414353847
+        #
+        # n_pre: 1000, n_post: 10000, conn_prob: 0.01, spk_prob: 0.01, Linear: 0.006804466247558594 s
+        # n_pre: 1000, n_post: 10000, conn_prob: 0.01, spk_prob: 0.01, Matmul: 1.2348318099975586 s
+        # Acceleration ratio: 180.47372109320253
+        #
+        # n_pre: 10000, n_post: 10000, conn_prob: 0.01, spk_prob: 0.01, Linear: 0.03094005584716797 s
+        # n_pre: 10000, n_post: 10000, conn_prob: 0.01, spk_prob: 0.01, Matmul: 11.536803245544434 s
+        # Acceleration ratio: 371.8759670807262
+        #
+        # n_pre: 10000, n_post: 1000, conn_prob: 0.01, spk_prob: 0.01, Linear: 0.010653495788574219 s
+        # n_pre: 10000, n_post: 1000, conn_prob: 0.01, spk_prob: 0.01, Matmul: 1.2019984722137451 s
+        # Acceleration ratio: 111.82667173932504
+        #
+        # n_pre: 10000, n_post: 20000, conn_prob: 0.01, spk_prob: 0.01, Linear: 0.05920886993408203 s
+        # n_pre: 10000, n_post: 20000, conn_prob: 0.01, spk_prob: 0.01, Matmul: 23.162949562072754 s
+        # Acceleration ratio: 390.20742530401867
+        #
+        # n_pre: 20000, n_post: 10000, conn_prob: 0.01, spk_prob: 0.01, Linear: 0.06537938117980957 s
+        # n_pre: 20000, n_post: 10000, conn_prob: 0.01, spk_prob: 0.01, Matmul: 21.971742630004883 s
+        # Acceleration ratio: 335.0653195780046
+        #
+        # n_pre: 20000, n_post: 20000, conn_prob: 0.01, spk_prob: 0.01, Linear: 0.11733055114746094 s
+        # n_pre: 20000, n_post: 20000, conn_prob: 0.01, spk_prob: 0.01, Matmul: 45.15763020515442 s
+        # Acceleration ratio: 383.87529261155817
+        #
+        # n_pre: 20000, n_post: 30000, conn_prob: 0.01, spk_prob: 0.01, Linear: 0.16046690940856934 s
+        # n_pre: 20000, n_post: 30000, conn_prob: 0.01, spk_prob: 0.01, Matmul: 68.04417014122009 s
+        # Acceleration ratio: 423.0386406892832
+        #
+        # n_pre: 30000, n_post: 20000, conn_prob: 0.01, spk_prob: 0.01, Linear: 0.17695116996765137 s
+        # n_pre: 30000, n_post: 20000, conn_prob: 0.01, spk_prob: 0.01, Matmul: 73.59888315200806 s
+        # Acceleration ratio: 414.92764357230726
+        #
+        #
+        if weight_info.size == 1:
+            if spike_info.dtype == jnp.bool_:
+                @numba.njit(**op_environ.numba_setting)
+                def ell_mv(spikes, weights, indices, posts):
+                    posts[:] = 0.
+                    w = weights[()]
+                    for i in range(spikes.shape[0]):
+                        if spikes[i]:
+                            for j in range(indices.shape[1]):
+                                posts[indices[i, j]] += w
 
-        elif float_as_event:
-            @numba.njit(**environ.numba_setting)
-            def ell_mv(spikes, weights, indices, posts):
-                posts[:] = 0.
-                w = weights[()]
-                for i in range(spikes.shape[0]):
-                    if spikes[i] != 0.:
-                        for j in range(indices.shape[1]):
-                            posts[indices[i, j]] += w
+            elif float_as_event:
+                @numba.njit(**op_environ.numba_setting)
+                def ell_mv(spikes, weights, indices, posts):
+                    posts[:] = 0.
+                    w = weights[()]
+                    for i in range(spikes.shape[0]):
+                        if spikes[i] != 0.:
+                            for j in range(indices.shape[1]):
+                                posts[indices[i, j]] += w
+
+            else:
+                @numba.njit(**op_environ.numba_setting)
+                def ell_mv(spikes, weights, indices, posts):
+                    posts[:] = 0.
+                    w = weights[()]
+                    for i in range(spikes.shape[0]):
+                        sp = spikes[i]
+                        if sp != 0.:
+                            wsp = w * sp
+                            for j in range(indices.shape[1]):
+                                posts[indices[i, j]] += wsp
 
         else:
-            @numba.njit(**environ.numba_setting)
-            def ell_mv(spikes, weights, indices, posts):
-                posts[:] = 0.
-                w = weights[()]
-                for i in range(spikes.shape[0]):
-                    sp = spikes[i]
-                    if sp != 0.:
-                        wsp = w * sp
-                        for j in range(indices.shape[1]):
-                            posts[indices[i, j]] += wsp
+            if spike_info.dtype == jnp.bool_:
+                @numba.njit(**op_environ.numba_setting)
+                def ell_mv(spikes, weights, indices, posts):
+                    posts[:] = 0.
+                    for i in range(spikes.shape[0]):
+                        if spikes[i]:
+                            for j in range(indices.shape[1]):
+                                posts[indices[i, j]] += weights[i, j]
 
-    else:
-        if spike_info.dtype == jnp.bool_:
-            @numba.njit(**environ.numba_setting)
-            def ell_mv(spikes, weights, indices, posts):
-                posts[:] = 0.
-                for i in range(spikes.shape[0]):
-                    if spikes[i]:
-                        for j in range(indices.shape[1]):
-                            posts[indices[i, j]] += weights[i, j]
+            elif float_as_event:
+                @numba.njit(**op_environ.numba_setting)
+                def ell_mv(spikes, weights, indices, posts):
+                    posts[:] = 0.
+                    for i in range(spikes.shape[0]):
+                        if spikes[i] != 0.:
+                            for j in range(indices.shape[1]):
+                                posts[indices[i, j]] += weights[i, j]
 
-        elif float_as_event:
-            @numba.njit(**environ.numba_setting)
-            def ell_mv(spikes, weights, indices, posts):
-                posts[:] = 0.
-                for i in range(spikes.shape[0]):
-                    if spikes[i] != 0.:
-                        for j in range(indices.shape[1]):
-                            posts[indices[i, j]] += weights[i, j]
+            else:
+                @numba.njit(**op_environ.numba_setting)
+                def ell_mv(spikes, weights, indices, posts):
+                    posts[:] = 0.
+                    for i in range(spikes.shape[0]):
+                        sp = spikes[i]
+                        if sp != 0.:
+                            for j in range(indices.shape[1]):
+                                posts[indices[i, j]] += weights[i, j] * sp
 
-        else:
-            @numba.njit(**environ.numba_setting)
-            def ell_mv(spikes, weights, indices, posts):
-                posts[:] = 0.
-                for i in range(spikes.shape[0]):
-                    sp = spikes[i]
-                    if sp != 0.:
-                        for j in range(indices.shape[1]):
-                            posts[indices[i, j]] += weights[i, j] * sp
+        return ell_mv
 
-    return ell_mv
+    return version1()
 
 
 def gpu_kernel_generator(
@@ -263,125 +305,337 @@ def gpu_kernel_generator(
     weight_info: jax.ShapeDtypeStruct,
     **kwargs
 ):
-    # 对于具有形状 [n_event] 的 spikes 向量，以及形状 [n_event, n_conn] 的 indices 和 weights 矩阵，
-    # 这个算子的计算逻辑为：
-    #
-    # - 每个block处理 [block_size] 个事件，每个事件对应一个 pre-synaptic neuron
-    # - 每个block处理 [block_size, block_size] 个 indices 和 weights
+    def version1():
+        # [NVIDIA GeForce RTX 3080 Ti Laptop GPU]
+        #
+        # n_pre: 1000, n_post: 1000, conn_prob: 0.01, spk_prob: 0.01, Linear: 0.09133028984069824 s
+        # n_pre: 1000, n_post: 1000, conn_prob: 0.01, spk_prob: 0.01, Matmul: 0.09012126922607422 s
+        # Acceleration ratio: -0.01323789311008261
+        #
+        # n_pre: 1000, n_post: 10000, conn_prob: 0.01, spk_prob: 0.01, Linear: 0.12473106384277344 s
+        # n_pre: 1000, n_post: 10000, conn_prob: 0.01, spk_prob: 0.01, Matmul: 1.2428414821624756 s
+        # Acceleration ratio: 8.96416966128909
+        #
+        # n_pre: 10000, n_post: 10000, conn_prob: 0.01, spk_prob: 0.01, Linear: 0.13015508651733398 s
+        # n_pre: 10000, n_post: 10000, conn_prob: 0.01, spk_prob: 0.01, Matmul: 1.5407586097717285 s
+        # Acceleration ratio: 10.837867047681852
+        #
+        # n_pre: 10000, n_post: 1000, conn_prob: 0.01, spk_prob: 0.01, Linear: 0.14979290962219238 s
+        # n_pre: 10000, n_post: 1000, conn_prob: 0.01, spk_prob: 0.01, Matmul: 1.2113032341003418 s
+        # Acceleration ratio: 7.086519162725995
+        #
+        # n_pre: 10000, n_post: 20000, conn_prob: 0.01, spk_prob: 0.01, Linear: 1.2156291007995605 s
+        # n_pre: 10000, n_post: 20000, conn_prob: 0.01, spk_prob: 0.01, Matmul: 2.826601982116699 s
+        # Acceleration ratio: 1.3252174370106369
+        #
+        # n_pre: 20000, n_post: 10000, conn_prob: 0.01, spk_prob: 0.01, Linear: 0.6445927619934082 s
+        # n_pre: 20000, n_post: 10000, conn_prob: 0.01, spk_prob: 0.01, Matmul: 3.1173269748687744 s
+        # Acceleration ratio: 3.8361184901121383
+        #
+        # n_pre: 20000, n_post: 20000, conn_prob: 0.01, spk_prob: 0.01, Linear: 0.31626296043395996 s
+        # n_pre: 20000, n_post: 20000, conn_prob: 0.01, spk_prob: 0.01, Matmul: 5.701655149459839 s
+        # Acceleration ratio: 17.028210264130575
+        #
+        # n_pre: 20000, n_post: 30000, conn_prob: 0.01, spk_prob: 0.01, Linear: 0.12007498741149902 s
+        # n_pre: 20000, n_post: 30000, conn_prob: 0.01, spk_prob: 0.01, Matmul: 6.82172417640686 s
+        # Acceleration ratio: 55.81219980501597
+        #
+        # n_pre: 30000, n_post: 20000, conn_prob: 0.01, spk_prob: 0.01, Linear: 0.16502714157104492 s
+        # n_pre: 30000, n_post: 20000, conn_prob: 0.01, spk_prob: 0.01, Matmul: 6.689691066741943 s
+        # Acceleration ratio: 39.53691412852837
+        #
 
-    if weight_info.size == 1:
-        def _ell_mv_kernel_homo(
-            sp_ref,  # [block_size]
-            ind_ref,  # [block_size, block_size]
-            _,
-            y_ref,  # [n_post]
-        ):
-            r_pid = pl.program_id(0)
-            c_start = pl.program_id(1) * block_size
-            row_length = jnp.minimum(n_pre - r_pid * block_size, block_size)
-            mask = jnp.arange(block_size) + c_start < n_conn
+        # 对于具有形状 [n_event] 的 spikes 向量，以及形状 [n_event, n_conn] 的 indices 和 weights 矩阵，
+        # 这个算子的计算逻辑为：
+        #
+        # - 每个block处理 [block_size] 个事件，每个事件对应一个 pre-synaptic neuron
+        # - 每个block处理 [block_size, block_size] 个 indices 和 weights
 
-            def body_fn(j, _):
-                if sp_ref.dtype == jnp.bool_:
-                    def true_fn():
-                        ind = pl.load(ind_ref, (j, pl.dslice(None)), mask=mask)
-                        pl.atomic_add(y_ref, ind, jnp.ones(block_size, dtype=weight_info.dtype), mask=mask)
-                        # y_ref[ind] += 1.0
-                        # ind = ind_ref[j, ...]
-                        # pl.store(y_ref, ind, 1.0, mask=mask)
+        if weight_info.size == 1:
+            def _ell_mv_kernel_homo(
+                sp_ref,  # [block_size]
+                ind_ref,  # [block_size, block_size]
+                _,
+                y_ref,  # [n_post]
+            ):
+                r_pid = pl.program_id(0)
+                c_start = pl.program_id(1) * block_size
+                row_length = jnp.minimum(n_pre - r_pid * block_size, block_size)
+                mask = jnp.arange(block_size) + c_start < n_conn
 
-                    jax.lax.cond(sp_ref[j], true_fn, lambda: None)
-
-
-                else:
-                    def true_fn(sp):
-                        ind = pl.load(ind_ref, (j, pl.dslice(None)), mask=mask)
-                        if float_as_event:
+                def body_fn(j, _):
+                    if sp_ref.dtype == jnp.bool_:
+                        def true_fn():
+                            ind = pl.load(ind_ref, (j, pl.dslice(None)), mask=mask)
                             pl.atomic_add(y_ref, ind, jnp.ones(block_size, dtype=weight_info.dtype), mask=mask)
-                        else:
-                            pl.atomic_add(y_ref, ind, jnp.ones(block_size, dtype=weight_info.dtype) * sp, mask=mask)
 
-                    sp_ = sp_ref[j]
-                    jax.lax.cond(sp_ != 0., true_fn, lambda _: None, sp_)
+                        jax.lax.cond(sp_ref[j], true_fn, lambda: None)
 
-            jax.lax.fori_loop(0, row_length, body_fn, None)
 
-        # homogenous weights
-        kernel = pl.pallas_call(
-            _ell_mv_kernel_homo,
-            out_shape=[
-                jax.ShapeDtypeStruct((n_post,), weight_info.dtype),
-            ],
-            in_specs=[
-                pl.BlockSpec((block_size,), lambda i, j: i),
-                pl.BlockSpec((block_size, block_size), lambda i, j: (i, j)),
-                pl.BlockSpec((n_post,), lambda i, j: 0)
-            ],
-            grid=(
-                pl.cdiv(n_pre, block_size),
-                pl.cdiv(n_conn, block_size),
-            ),
-            input_output_aliases={2: 0},
-            interpret=False
-        )
-        return (lambda spikes, weight, indices:
-                [kernel(spikes, indices, jnp.zeros(n_post, dtype=weight.dtype))[0] * weight])
+                    else:
+                        def true_fn(sp):
+                            ind = pl.load(ind_ref, (j, pl.dslice(None)), mask=mask)
+                            if float_as_event:
+                                pl.atomic_add(y_ref, ind, jnp.ones(block_size, dtype=weight_info.dtype), mask=mask)
+                            else:
+                                pl.atomic_add(y_ref, ind, jnp.ones(block_size, dtype=weight_info.dtype) * sp, mask=mask)
 
-    else:
-        def _ell_mv_kernel_heter(
-            sp_ref,  # [block_size]
-            ind_ref,  # [block_size, block_size]
-            w_ref,  # [block_size, block_size]
-            _,
-            y_ref,  # [n_post]
-        ):
-            r_pid = pl.program_id(0)
-            c_start = pl.program_id(1) * block_size
-            row_length = jnp.minimum(n_pre - r_pid * block_size, block_size)
-            mask = jnp.arange(block_size) + c_start < n_conn
+                        sp_ = sp_ref[j]
+                        jax.lax.cond(sp_ != 0., true_fn, lambda _: None, sp_)
 
-            def body_fn(j, _):
-                if sp_ref.dtype == jnp.bool_:
-                    def true_fn():
-                        ind = pl.load(ind_ref, (j, pl.dslice(None)), mask=mask)
-                        w = pl.load(w_ref, (j, pl.dslice(None)), mask=mask)
-                        pl.atomic_add(y_ref, ind, w, mask=mask)
+                jax.lax.fori_loop(0, row_length, body_fn, None)
 
-                    jax.lax.cond(sp_ref[j], true_fn, lambda: None)
-                else:
-                    def true_fn(spk):
-                        ind = pl.load(ind_ref, (j, pl.dslice(None)), mask=mask)
-                        w = pl.load(w_ref, (j, pl.dslice(None)), mask=mask)
-                        if not float_as_event:
-                            w = w * spk
-                        pl.atomic_add(y_ref, ind, w, mask=mask)
+            # homogenous weights
+            kernel = pl.pallas_call(
+                _ell_mv_kernel_homo,
+                out_shape=[
+                    jax.ShapeDtypeStruct((n_post,), weight_info.dtype),
+                ],
+                in_specs=[
+                    pl.BlockSpec((block_size,), lambda i, j: i),
+                    pl.BlockSpec((block_size, block_size), lambda i, j: (i, j)),
+                    pl.BlockSpec((n_post,), lambda i, j: 0)
+                ],
+                grid=(
+                    pl.cdiv(n_pre, block_size),
+                    pl.cdiv(n_conn, block_size),
+                ),
+                input_output_aliases={2: 0},
+                interpret=False
+            )
+            return (
+                lambda spikes, weight, indices:
+                [kernel(spikes, indices, jnp.zeros(n_post, dtype=weight.dtype))[0] * weight]
+            )
 
-                    sp_ = sp_ref[j]
-                    jax.lax.cond(sp_ != 0., true_fn, lambda _: None, sp_)
+        else:
+            def _ell_mv_kernel_heter(
+                sp_ref,  # [block_size]
+                ind_ref,  # [block_size, block_size]
+                w_ref,  # [block_size, block_size]
+                _,
+                y_ref,  # [n_post]
+            ):
+                r_pid = pl.program_id(0)
+                c_start = pl.program_id(1) * block_size
+                row_length = jnp.minimum(n_pre - r_pid * block_size, block_size)
+                mask = jnp.arange(block_size) + c_start < n_conn
 
-            jax.lax.fori_loop(0, row_length, body_fn, None)
+                def body_fn(j, _):
+                    if sp_ref.dtype == jnp.bool_:
+                        def true_fn():
+                            ind = pl.load(ind_ref, (j, pl.dslice(None)), mask=mask)
+                            w = pl.load(w_ref, (j, pl.dslice(None)), mask=mask)
+                            pl.atomic_add(y_ref, ind, w, mask=mask)
 
-        # heterogeneous weights
-        kernel = pl.pallas_call(
-            _ell_mv_kernel_heter,
-            out_shape=[
-                jax.ShapeDtypeStruct((n_post,), weight_info.dtype),
-            ],
-            in_specs=[
-                pl.BlockSpec((block_size,), lambda i, j: i),  # sp_ref
-                pl.BlockSpec((block_size, block_size), lambda i, j: (i, j)),  # ind_ref
-                pl.BlockSpec((block_size, block_size), lambda i, j: (i, j)),  # w_ref,
-                pl.BlockSpec((n_post,), lambda i, j: 0)
-            ],
-            grid=(
-                pl.cdiv(n_pre, block_size),
-                pl.cdiv(n_conn, block_size),
-            ),
-            input_output_aliases={3: 0},
-            interpret=False
-        )
-        return (lambda spikes, weight, indices:
-                kernel(spikes, indices, weight, jnp.zeros(n_post, dtype=weight_info.dtype)))
+                        jax.lax.cond(sp_ref[j], true_fn, lambda: None)
+                    else:
+                        def true_fn(spk):
+                            ind = pl.load(ind_ref, (j, pl.dslice(None)), mask=mask)
+                            w = pl.load(w_ref, (j, pl.dslice(None)), mask=mask)
+                            if not float_as_event:
+                                w = w * spk
+                            pl.atomic_add(y_ref, ind, w, mask=mask)
+
+                        sp_ = sp_ref[j]
+                        jax.lax.cond(sp_ != 0., true_fn, lambda _: None, sp_)
+
+                jax.lax.fori_loop(0, row_length, body_fn, None)
+
+            # heterogeneous weights
+            kernel = pl.pallas_call(
+                _ell_mv_kernel_heter,
+                out_shape=[
+                    jax.ShapeDtypeStruct((n_post,), weight_info.dtype),
+                ],
+                in_specs=[
+                    pl.BlockSpec((block_size,), lambda i, j: i),  # sp_ref
+                    pl.BlockSpec((block_size, block_size), lambda i, j: (i, j)),  # ind_ref
+                    pl.BlockSpec((block_size, block_size), lambda i, j: (i, j)),  # w_ref,
+                    pl.BlockSpec((n_post,), lambda i, j: 0)
+                ],
+                grid=(
+                    pl.cdiv(n_pre, block_size),
+                    pl.cdiv(n_conn, block_size),
+                ),
+                input_output_aliases={3: 0},
+                interpret=False
+            )
+            return (
+                lambda spikes, weight, indices:
+                kernel(spikes, indices, weight, jnp.zeros(n_post, dtype=weight_info.dtype))
+            )
+
+    def version2():
+        # [NVIDIA GeForce RTX 3080 Ti Laptop GPU]
+        #
+        # n_pre: 1000, n_post: 1000, conn_prob: 0.01, spk_prob: 0.01, Linear: 0.09133028984069824 s
+        # n_pre: 1000, n_post: 1000, conn_prob: 0.01, spk_prob: 0.01, Matmul: 0.09012126922607422 s
+        # Acceleration ratio: -0.01323789311008261
+        #
+        # n_pre: 1000, n_post: 10000, conn_prob: 0.01, spk_prob: 0.01, Linear: 0.12473106384277344 s
+        # n_pre: 1000, n_post: 10000, conn_prob: 0.01, spk_prob: 0.01, Matmul: 1.2428414821624756 s
+        # Acceleration ratio: 8.96416966128909
+        #
+        # n_pre: 10000, n_post: 10000, conn_prob: 0.01, spk_prob: 0.01, Linear: 0.13015508651733398 s
+        # n_pre: 10000, n_post: 10000, conn_prob: 0.01, spk_prob: 0.01, Matmul: 1.5407586097717285 s
+        # Acceleration ratio: 10.837867047681852
+        #
+        # n_pre: 10000, n_post: 1000, conn_prob: 0.01, spk_prob: 0.01, Linear: 0.14979290962219238 s
+        # n_pre: 10000, n_post: 1000, conn_prob: 0.01, spk_prob: 0.01, Matmul: 1.2113032341003418 s
+        # Acceleration ratio: 7.086519162725995
+        #
+        # n_pre: 10000, n_post: 20000, conn_prob: 0.01, spk_prob: 0.01, Linear: 1.2156291007995605 s
+        # n_pre: 10000, n_post: 20000, conn_prob: 0.01, spk_prob: 0.01, Matmul: 2.826601982116699 s
+        # Acceleration ratio: 1.3252174370106369
+        #
+        # n_pre: 20000, n_post: 10000, conn_prob: 0.01, spk_prob: 0.01, Linear: 0.6445927619934082 s
+        # n_pre: 20000, n_post: 10000, conn_prob: 0.01, spk_prob: 0.01, Matmul: 3.1173269748687744 s
+        # Acceleration ratio: 3.8361184901121383
+        #
+        # n_pre: 20000, n_post: 20000, conn_prob: 0.01, spk_prob: 0.01, Linear: 0.31626296043395996 s
+        # n_pre: 20000, n_post: 20000, conn_prob: 0.01, spk_prob: 0.01, Matmul: 5.701655149459839 s
+        # Acceleration ratio: 17.028210264130575
+        #
+        # n_pre: 20000, n_post: 30000, conn_prob: 0.01, spk_prob: 0.01, Linear: 0.12007498741149902 s
+        # n_pre: 20000, n_post: 30000, conn_prob: 0.01, spk_prob: 0.01, Matmul: 6.82172417640686 s
+        # Acceleration ratio: 55.81219980501597
+        #
+        # n_pre: 30000, n_post: 20000, conn_prob: 0.01, spk_prob: 0.01, Linear: 0.16502714157104492 s
+        # n_pre: 30000, n_post: 20000, conn_prob: 0.01, spk_prob: 0.01, Matmul: 6.689691066741943 s
+        # Acceleration ratio: 39.53691412852837
+        #
+
+        # 对于具有形状 [n_event] 的 spikes 向量，以及形状 [n_event, n_conn] 的 indices 和 weights 矩阵，
+        # 这个算子的计算逻辑为：
+        #
+        # - 每个block处理 [block_size] 个事件，每个事件对应一个 pre-synaptic neuron
+        # - 每个block处理 [block_size, block_size] 个 indices 和 weights
+
+        if weight_info.size == 1:
+            def _ell_mv_kernel_homo(
+                sp_ref,  # [n_pre]
+                ind_ref,  # [block_size, block_size]
+                _,
+                y_ref,  # [n_post]
+            ):
+                r_start = pl.program_id(0) * block_size
+                row_mask = (jnp.arange(block_size) + r_start) < n_pre
+
+                c_start = pl.program_id(1) * block_size
+                col_mask = (jnp.arange(block_size) + c_start) < n_conn
+
+                def body_fn(j, event):
+                    if event.dtype == jnp.bool_:
+                        def true_fn():
+                            ind = pl.load(ind_ref, (j, pl.dslice(None)), mask=col_mask)
+                            pl.atomic_add(y_ref, ind, jnp.ones(block_size, dtype=weight_info.dtype), mask=col_mask)
+
+                        jax.lax.cond(event, true_fn, lambda: None)
+
+                    else:
+                        def true_fn():
+                            ind = pl.load(ind_ref, (j, pl.dslice(None)), mask=col_mask)
+                            if float_as_event:
+                                pl.atomic_add(y_ref, ind, jnp.ones(block_size, dtype=weight_info.dtype), mask=col_mask)
+                            else:
+                                pl.atomic_add(y_ref, ind, jnp.ones(block_size, dtype=weight_info.dtype) * event,
+                                              mask=col_mask)
+
+                        jax.lax.cond(event != 0., true_fn, lambda _: None, )
+
+                events = pl.load(sp_ref, pl.dslice(c_start, block_size), mask=row_mask)
+                if float_as_event and sp_ref.dtype != jnp.bool_:
+                    events = events != 0.
+
+                jax.lax.fori_loop(0, block_size, body_fn, events)
+
+            # homogenous weights
+            kernel = pl.pallas_call(
+                _ell_mv_kernel_homo,
+                out_shape=[
+                    jax.ShapeDtypeStruct((n_post,), weight_info.dtype),
+                ],
+                in_specs=[
+                    pl.BlockSpec((n_pre,), lambda i, j: 0),
+                    pl.BlockSpec((block_size, block_size), lambda i, j: (i, j)),
+                    pl.BlockSpec((n_post,), lambda i, j: 0)
+                ],
+                grid=(
+                    pl.cdiv(n_pre, block_size),
+                    pl.cdiv(n_conn, block_size),
+                ),
+                input_output_aliases={2: 0},
+                interpret=False
+            )
+            return (
+                lambda spikes, weight, indices:
+                [kernel(spikes, indices, jnp.zeros(n_post, dtype=weight.dtype))[0] * weight]
+            )
+
+        else:
+            def _ell_mv_kernel_heter(
+                sp_ref,  # [n_pre]
+                ind_ref,  # [block_size, block_size]
+                w_ref,  # [block_size, block_size]
+                _,
+                y_ref,  # [n_post]
+            ):
+                r_start = pl.program_id(0) * block_size
+                row_mask = (jnp.arange(block_size) + r_start) < n_pre
+                row_length = jnp.minimum(n_pre - r_start, block_size)
+
+                c_start = pl.program_id(1) * block_size
+                col_mask = (jnp.arange(block_size) + c_start) < n_conn
+
+                def body_fn(j, event):
+                    if sp_ref.dtype == jnp.bool_:
+                        def true_fn():
+                            ind = pl.load(ind_ref, (j, pl.dslice(None)), mask=col_mask)
+                            w = pl.load(w_ref, (j, pl.dslice(None)), mask=col_mask)
+                            pl.atomic_add(y_ref, ind, w, mask=col_mask)
+
+                        jax.lax.cond(event, true_fn, lambda: None)
+                    else:
+                        def true_fn():
+                            ind = pl.load(ind_ref, (j, pl.dslice(None)), mask=col_mask)
+                            w = pl.load(w_ref, (j, pl.dslice(None)), mask=col_mask)
+                            if not float_as_event:
+                                w = w * event
+                            pl.atomic_add(y_ref, ind, w, mask=col_mask)
+
+                        jax.lax.cond(event != 0., true_fn, lambda _: None)
+
+                events = pl.load(sp_ref, pl.dslice(c_start, block_size), mask=row_mask)
+                if float_as_event and sp_ref.dtype != jnp.bool_:
+                    events = events != 0.
+                jax.lax.fori_loop(0, row_length, body_fn, events)
+
+            # heterogeneous weights
+            kernel = pl.pallas_call(
+                _ell_mv_kernel_heter,
+                out_shape=[
+                    jax.ShapeDtypeStruct((n_post,), weight_info.dtype),
+                ],
+                in_specs=[
+                    pl.BlockSpec((n_pre,), lambda i, j: 0),  # sp_ref
+                    pl.BlockSpec((block_size, block_size), lambda i, j: (i, j)),  # ind_ref
+                    pl.BlockSpec((block_size, block_size), lambda i, j: (i, j)),  # w_ref,
+                    pl.BlockSpec((n_post,), lambda i, j: 0)
+                ],
+                grid=(
+                    pl.cdiv(n_pre, block_size),
+                    pl.cdiv(n_conn, block_size),
+                ),
+                input_output_aliases={3: 0},
+                interpret=False
+            )
+            return (
+                lambda spikes, weight, indices:
+                kernel(spikes, indices, weight, jnp.zeros(n_post, dtype=weight_info.dtype))
+            )
+
+    return version1()
 
 
 def jvp_spikes(
@@ -475,8 +729,8 @@ def transpose_rule(
 
 event_ellmv_p = XLACustomOp(
     'event_ell_mv',
-    cpu_kernel_or_generator=cpu_kernel_generator,
-    gpu_kernel_or_generator=gpu_kernel_generator,
+    cpu_kernel=NumbaOpGenerator(cpu_kernel_generator),
+    gpu_kernel=PallasOpGenerator(gpu_kernel_generator),
 )
 event_ellmv_p.defjvp(jvp_spikes, jvp_weights, None)
 event_ellmv_p.def_transpose_rule(transpose_rule)
@@ -523,7 +777,7 @@ def ell_cpu_kernel_generator(
     import numba  # pylint: disable=import-outside-toplevel
 
     if jnp.size(weight_info) == 1:
-        @numba.njit(**environ.numba_setting)
+        @numba.njit(**op_environ.numba_setting)
         def ell_mv(vector, weights, indices, posts):
             posts[:] = 0.
             w = weights[()]
@@ -533,7 +787,7 @@ def ell_cpu_kernel_generator(
                     posts[indices[i, j]] += wv
 
     else:
-        @numba.njit(**environ.numba_setting)
+        @numba.njit(**op_environ.numba_setting)
         def ell_mv(vector, weights, indices, posts):
             posts[:] = 0.
             for i in range(vector.shape[0]):
@@ -695,8 +949,8 @@ def transpose_rule_no_spk(
 
 ellmv_p = XLACustomOp(
     'ell_mv',
-    cpu_kernel_or_generator=ell_cpu_kernel_generator,
-    gpu_kernel_or_generator=ell_gpu_kernel_generator,
+    cpu_kernel=NumbaOpGenerator(ell_cpu_kernel_generator),
+    gpu_kernel=PallasOpGenerator(ell_gpu_kernel_generator),
 )
 ellmv_p.defjvp(jvp_spikes, jvp_weights_no_spk, None)
 ellmv_p.def_transpose_rule(transpose_rule_no_spk)

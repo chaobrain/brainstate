@@ -28,8 +28,8 @@ from brainstate._state import ParamState, State
 from brainstate.init import param
 from brainstate.nn._module import Module
 from brainstate.typing import ArrayLike, Size
-from ._misc import environ
-from ._xla_custom_op import XLACustomOp
+from ._misc import op_environ
+from ._xla_custom_op import XLACustomOp, NumbaOpGenerator, PallasOpGenerator
 
 __all__ = [
     'Linear',
@@ -217,7 +217,7 @@ def cpu_kernel_generator(
 
     if spk_info.dtype == jnp.bool_:
 
-        @numba.njit(**environ.numba_setting)
+        @numba.njit(**op_environ.numba_setting)
         def _kernel(spikes, weights, posts):
             r = np.zeros((weights.shape[1],), dtype=weights.dtype)
             for i in range(spikes.shape[0]):
@@ -226,7 +226,7 @@ def cpu_kernel_generator(
             posts[:] = r
 
     elif float_as_event:
-        @numba.njit(**environ.numba_setting)
+        @numba.njit(**op_environ.numba_setting)
         def _kernel(spikes, weights, posts):
             r = np.zeros((weights.shape[1],), dtype=weights.dtype)
             for i in range(spikes.shape[0]):
@@ -235,7 +235,7 @@ def cpu_kernel_generator(
             posts[:] = r
 
     else:
-        @numba.njit(**environ.numba_setting)
+        @numba.njit(**op_environ.numba_setting)
         def _kernel(spikes, weights, posts):
             r = np.zeros((weights.shape[1],), dtype=weights.dtype)
             for i in range(spikes.shape[0]):
@@ -489,8 +489,8 @@ def transpose_rule(ct, spikes, weights, *, float_as_event, **kwargs):
 
 event_linear_p = XLACustomOp(
     'event_linear',
-    cpu_kernel_or_generator=cpu_kernel_generator,
-    gpu_kernel_or_generator=gpu_kernel_generator,
+    cpu_kernel=NumbaOpGenerator(cpu_kernel_generator),
+    gpu_kernel=PallasOpGenerator(gpu_kernel_generator),
 )
 event_linear_p.defjvp(jvp_spikes, jvp_weights)
 event_linear_p.def_transpose_rule(transpose_rule)
