@@ -22,6 +22,7 @@ from typing import Callable
 import brainunit as u
 import jax
 import jax.numpy as jnp
+import jax.experimental.pallas as pl
 import numpy as np
 from brainunit.sparse._csr import (
     _csr_matvec as csr_matvec,
@@ -703,6 +704,355 @@ def event_csrmv_cpu_kernel_generator(
     return mv
 
 
+def event_csrmv_gpu_kernel_generator(
+    block_size: int,
+    shape: Shape,
+    float_as_event: bool,
+    weight_info: jax.ShapeDtypeStruct,
+    indices_info: jax.ShapeDtypeStruct,
+    spike_info: jax.ShapeDtypeStruct,
+    transpose: bool,
+    **kwargs
+) -> Kernel:
+    if transpose:
+        # v @ csr   (shape[0], ) @ (shape[0], shape[1]) -> (shape[1], )
+        if weight_info.size == 1:
+            # 每个block处理一个[block_size,]的indptr
+            def _kernel(
+                weights_ref,    # [num_nonzeros]
+                indices_ref,    # [num_nonzeros]
+                indptr_ref,     # [n_rows + 1], here is [block_size]
+                v_ref,          # [n_rows]
+                posts_ref       # [n_cols]
+            ):
+                def process_row(row_i):
+                    weight_0 = weights_ref[0]
+                    if spike_info.dtype == jnp.bool_:
+                        # Check if the input vector has a non-zero value at this row
+                        def true_fn(_):
+                            # Define a function to process a single non-zero element in the row
+                            def process_element(j, _):
+                                col_idx = indices_ref[j]
+                                # Atomic add to the output vector
+                                pl.atomic_add(posts_ref, col_idx, weight_0)
+                            
+                            # Iterate over the non-zero elements in the row
+                            jax.lax.fori_loop(indptr_ref[row_i], indptr_ref[row_i + 1], process_element, None)
+                            return None
+                        
+                        jax.lax.cond(
+                            v_ref[row_i],
+                            true_fn,
+                            lambda _: None,
+                            None
+                        )
+                    elif float_as_event:
+                        # Check if the input vector has a non-zero value at this row
+                        def true_fn(_):
+                            # Define a function to process a single non-zero element in the row
+                            def process_element(j, _):
+                                col_idx = indices_ref[j]
+                                # Atomic add to the output vector
+                                pl.atomic_add(posts_ref, col_idx, weight_0)
+                            
+                            # Iterate over the non-zero elements in the row
+                            jax.lax.fori_loop(indptr_ref[row_i], indptr_ref[row_i + 1], process_element, None)
+                            return None
+                        jax.lax.cond(
+                            v_ref[row_i] != 0.,
+                            true_fn,
+                            lambda _: None,
+                            None
+                        )
+                    else:
+                        # Check if the input vector has a non-zero value at this row
+                        def true_fn(_):
+                            # Define a function to process a single non-zero element in the row
+                            def process_element(j, _):
+                                col_idx = indices_ref[j]
+                                # Atomic add to the output vector
+                                pl.atomic_add(posts_ref, col_idx, weight_0 * v_ref[row_i])
+                            
+                            # Iterate over the non-zero elements in the row
+                            jax.lax.fori_loop(indptr_ref[row_i], indptr_ref[row_i + 1], process_element, None)
+                            return None
+                        jax.lax.cond(
+                            v_ref[row_i] != 0.,
+                            true_fn,
+                            lambda _: None,
+                            None
+                        )
+                # Iterate over the rows in the block
+                jax.lax.fori_loop(
+                    0,
+                    indptr_ref.shape[0] - 1,
+                    lambda i, _: process_row(i),
+                    None
+                )
+            
+            kernel = pl.pallas_call(
+                _kernel,
+                out_shape=[
+                    jax.ShapeDtypeStruct([shape[1]], weight_info.dtype),
+                ],
+                out_specs=[
+                    pl.BlockSpec((shape[1],), lambda i, j: j),
+                ],
+                in_specs=[
+                    pl.BlockSpec((weight_info.size,), lambda i, j: j),
+                    pl.BlockSpec((indices_info.size,), lambda i, j: j),
+                    pl.BlockSpec((block_size,), lambda i, j: j),
+                    pl.BlockSpec((shape[0],), lambda i, j: j)
+                ],
+                grid=(
+                    pl.cdiv(shape[0], block_size),
+                    1,
+                ),
+                interpret=False,
+            )
+        else:
+            # 每个block处理一个[block_size,]的indptr
+            def _kernel(
+                weights_ref,    # [num_nonzeros]
+                indices_ref,    # [num_nonzeros]
+                indptr_ref,     # [n_rows + 1], here is [block_size]
+                v_ref,          # [n_rows]
+                posts_ref       # [n_cols]
+            ):
+                def process_row(row_i):
+                    if spike_info.dtype == jnp.bool_:
+                        # Check if the input vector has a non-zero value at this row
+                        def true_fn(_):
+                            # Define a function to process a single non-zero element in the row
+                            def process_element(j, _):
+                                col_idx = indices_ref[j]
+                                # Atomic add to the output vector
+                                pl.atomic_add(posts_ref, col_idx, weights_ref[j])
+                            
+                            # Iterate over the non-zero elements in the row
+                            jax.lax.fori_loop(indptr_ref[row_i], indptr_ref[row_i + 1], process_element, None)
+                            return None
+                        
+                        jax.lax.cond(
+                            v_ref[row_i],
+                            true_fn,
+                            lambda _: None,
+                            None
+                        )
+                    elif float_as_event:
+                        # Check if the input vector has a non-zero value at this row
+                        def true_fn(_):
+                            # Define a function to process a single non-zero element in the row
+                            def process_element(j, _):
+                                col_idx = indices_ref[j]
+                                # Atomic add to the output vector
+                                pl.atomic_add(posts_ref, col_idx, weights_ref[j])
+                            
+                            # Iterate over the non-zero elements in the row
+                            jax.lax.fori_loop(indptr_ref[row_i], indptr_ref[row_i + 1], process_element, None)
+                            return None
+                        jax.lax.cond(
+                            v_ref[row_i] != 0.,
+                            true_fn,
+                            lambda _: None,
+                            None
+                        )
+                    else:
+                        # Check if the input vector has a non-zero value at this row
+                        def true_fn(_):
+                            # Define a function to process a single non-zero element in the row
+                            def process_element(j, _):
+                                col_idx = indices_ref[j]
+                                # Atomic add to the output vector
+                                pl.atomic_add(posts_ref, col_idx, weights_ref[j] * v_ref[row_i])
+                            
+                            # Iterate over the non-zero elements in the row
+                            jax.lax.fori_loop(indptr_ref[row_i], indptr_ref[row_i + 1], process_element, None)
+                            return None
+                        jax.lax.cond(
+                            v_ref[row_i] != 0.,
+                            true_fn,
+                            lambda _: None,
+                            None
+                        )
+                # Iterate over the rows in the block
+                jax.lax.fori_loop(
+                    0,
+                    indptr_ref.shape[0] - 1,
+                    lambda i, _: process_row(i),
+                    None
+                )
+            
+            kernel = pl.pallas_call(
+                _kernel,
+                out_shape=[
+                    jax.ShapeDtypeStruct([shape[1]], weight_info.dtype),
+                ],
+                out_specs=[
+                    pl.BlockSpec((shape[1],), lambda i, j: j)
+                ],
+                in_specs=[
+                    pl.BlockSpec((weight_info.size,), lambda i, j: j),
+                    pl.BlockSpec((indices_info.size,), lambda i, j: j),
+                    pl.BlockSpec((block_size,), lambda i, j: j),
+                    pl.BlockSpec((shape[0],), lambda i, j: j)
+                ],
+                grid=(
+                    pl.cdiv(shape[0], block_size),
+                    1,
+                ),
+                interpret=False,
+            )
+        
+    else:
+        # TODO: Need test
+        # csr @ v   (shape[0], shape[1]) @ (shape[1], ) -> (shape[0], )
+        if weight_info.size == 1:
+            # 每个block处理一个[block_size,]的indptr
+            def _kernel(
+                weights_ref,    # [1] (scalar weight for homogeneous matrix)
+                indices_ref,    # [num_nonzeros] (column indices of non-zero values)
+                indptr_ref,     # [n_rows + 1] (row pointers)
+                v_ref,          # [n_cols] (input vector)
+                posts_ref       # [n_rows] (output vector)
+            ):
+                weight_0 = weights_ref[0]
+
+                def process_row(row_i):
+                    # Initialize the result for this row
+                    r = 0.0
+
+                    # Define a function to process a single non-zero element in the row
+                    def process_element(j, r_):
+                        col_idx = indices_ref[j]
+                        if spike_info.dtype == jnp.bool_:
+                            r_ = jax.lax.cond(
+                                v_ref[col_idx],
+                                lambda: r_ + 1,
+                                lambda: r_
+                            )
+                        elif float_as_event:
+                            r_ = jax.lax.cond(
+                                v_ref[col_idx] != 0.,
+                                lambda: r_ + 1,
+                                lambda: r_
+                            )
+                        else:
+                            r_ = jax.lax.cond(
+                                v_ref[col_idx] != 0.,
+                                lambda: r_ + v_ref[col_idx],
+                                lambda: r_
+                            )
+                        return r_
+
+                    # Iterate over the non-zero elements in the row
+                    r = jax.lax.fori_loop(indptr_ref[row_i], indptr_ref[row_i + 1], process_element, r) * weight_0
+
+                    # Store the result in the output vector
+                    posts_ref[row_i] = r
+
+                # Iterate over the rows in the block
+                jax.lax.fori_loop(
+                    0,
+                    indptr_ref.shape[0] - 1,
+                    lambda i, _: process_row(i),
+                    None
+                )
+
+            kernel = pl.pallas_call(
+                _kernel,
+                out_shape=[
+                    jax.ShapeDtypeStruct([shape[0]], weight_info.dtype),
+                ],
+                out_specs=[
+                    pl.BlockSpec((shape[0],), lambda i, j: i),
+                ],
+                in_specs=[
+                    pl.BlockSpec((weight_info.size,), lambda i, j: j),
+                    pl.BlockSpec((indices_info.size,), lambda i, j: j),
+                    pl.BlockSpec((block_size,), lambda i, j: i),
+                    pl.BlockSpec((shape[1],), lambda i, j: j),
+                ],
+                grid=(
+                    pl.cdiv(shape[0], block_size),
+                    1,
+                ),
+                interpret=False,
+            )
+        else:
+            # 每个block处理一个[block_size,]的indptr
+            def _kernel(
+                weights_ref,    # [num_nonzeros] (non-zero values)
+                indices_ref,    # [num_nonzeros] (column indices of non-zero values)
+                indptr_ref,     # [n_rows + 1] (row pointers)
+                v_ref,          # [n_cols] (input vector)
+                posts_ref       # [n_rows] (output vector)
+            ):
+                def process_row(row_i):
+                    # Initialize the result for this row
+                    r = 0.0
+
+                    # Define a function to process a single non-zero element in the row
+                    def process_element(j, r_):
+                        col_idx = indices_ref[j]
+                        if spike_info.dtype == jnp.bool_:
+                            r_ = jax.lax.cond(
+                                v_ref[col_idx],
+                                lambda: r_ + weights_ref[j],
+                                lambda: r_
+                            )
+                        elif float_as_event:
+                            r_ = jax.lax.cond(
+                                v_ref[col_idx] != 0.,
+                                lambda: r_ + weights_ref[j],
+                                lambda: r_
+                            )
+                        else:
+                            r_ = jax.lax.cond(
+                                v_ref[col_idx] != 0.,
+                                lambda: r_ + weights_ref[j] * v_ref[col_idx],
+                                lambda: r_
+                            )
+                        return r_
+
+                    # Iterate over the non-zero elements in the row
+                    r = jax.lax.fori_loop(indptr_ref[row_i], indptr_ref[row_i + 1], process_element, r)
+
+                    # Store the result in the output vector
+                    posts_ref[row_i] = r
+
+                # Iterate over the rows in the block
+                jax.lax.fori_loop(
+                    0,
+                    indptr_ref.shape[0] - 1,
+                    lambda i, _: process_row(i),
+                    None
+                )
+
+            kernel = pl.pallas_call(
+                _kernel,
+                out_shape=[
+                    jax.ShapeDtypeStruct([shape[0]], weight_info.dtype),
+                ],
+                out_specs=[
+                    pl.BlockSpec((shape[0],), lambda i, j: i),
+                ],
+                in_specs=[
+                    pl.BlockSpec((weight_info.size,), lambda i, j: j),
+                    pl.BlockSpec((indices_info.size,), lambda i, j: j),
+                    pl.BlockSpec((block_size,), lambda i, j: i),
+                    pl.BlockSpec((shape[1],), lambda i, j: j),
+                ],
+                grid=(
+                    pl.cdiv(shape[0], block_size),
+                    1,
+                ),
+                interpret=False,
+            )
+    
+    return kernel
+    
+
 def event_csrmv_jvp_v(
     v_dot,
     data,
@@ -833,6 +1183,7 @@ def event_csrmv_batching(args, axes, **kwargs):
 event_csrmv_p = XLACustomOp(
     'event_csrmv',
     cpu_kernel_or_generator=event_csrmv_cpu_kernel_generator,
+    gpu_kernel_or_generator=event_csrmv_gpu_kernel_generator,
 )
 event_csrmv_p.defjvp(event_csrmv_jvp_weights, None, None, event_csrmv_jvp_v)
 event_csrmv_p.def_transpose_rule(event_csrmv_transpose_rule)
@@ -848,36 +1199,40 @@ def event_csrmv_p_call(
     shape: Shape,
     transpose: bool,
     float_as_event: bool,
+    block_size: int = 64
 ):
-    if jax.default_backend() == 'cpu':
-        return event_csrmv_p(
-            weights,
-            indices,
-            indptr,
-            v,
-            outs=[
-                jax.ShapeDtypeStruct([shape[1]], weights.dtype)
-                if transpose else
-                jax.ShapeDtypeStruct([shape[0]], weights.dtype),
-            ],
-            # block_size=block_size,
-            float_as_event=float_as_event,
-            shape=shape,
-            transpose=transpose,
-            weight_info=jax.ShapeDtypeStruct(weights.shape, weights.dtype),
-            spike_info=jax.ShapeDtypeStruct(v.shape, v.dtype),
-        )
-    else:
-        return [
-            csr_matvec(
-                weights,
-                indices,
-                indptr,
-                v,
-                shape=shape,
-                transpose=transpose
-            )
-        ]
+    if jax.default_backend() != 'cpu':
+        weights = jnp.atleast_1d(weights)
+    return event_csrmv_p(
+        weights,
+        indices,
+        indptr,
+        v,
+        outs=[
+            jax.ShapeDtypeStruct([shape[1]], weights.dtype)
+            if transpose else
+            jax.ShapeDtypeStruct([shape[0]], weights.dtype),
+        ],
+        # block_size=block_size,
+        float_as_event=float_as_event,
+        shape=shape,
+        transpose=transpose,
+        weight_info=jax.ShapeDtypeStruct(weights.shape, weights.dtype),
+        spike_info=jax.ShapeDtypeStruct(v.shape, v.dtype),
+        indices_info=jax.ShapeDtypeStruct(indices.shape, indices.dtype),
+        block_size=block_size,
+    )
+    # else:
+    #     return [
+    #         csr_matvec(
+    #             weights,
+    #             indices,
+    #             indptr,
+    #             v,
+    #             shape=shape,
+    #             transpose=transpose
+    #         )
+    #     ]
 
 
 def event_csrmm_batching(args, axes, **kwargs):
@@ -1101,9 +1456,378 @@ def event_csrmm_cpu_kernel_generator(
     return mv
 
 
+def event_csrmm_gpu_kernel_generator(
+    block_size: int,
+    shape: Shape,
+    float_as_event: bool,
+    weight_info: jax.ShapeDtypeStruct,
+    indices_info: jax.ShapeDtypeStruct,
+    spike_info: jax.ShapeDtypeStruct,
+    transpose: bool,
+    **kwargs
+) -> Kernel:
+    # TODO: Fix csrmm gpu kernel
+    if transpose:
+        # B @ csr   (B.shape[1], shape[0]) @ (shape[0], shape[1]) -> (B.shape[1], shape[1])
+        if weight_info.size == 1:
+            # 每个block处理一个[block_size, block_size]的output
+            def _kernel(
+                weights_ref,    # [num_nonzeros]
+                indices_ref,    # [num_nonzeros]
+                indptr_ref,     # [n_rows + 1], here is [block_size]
+                B_ref,          # [B.shape[0], n_rows]
+                posts_ref       # [B.shape[0], n_cols]
+            ):
+                weight_0 = weights_ref[0]
+                
+                # Get the row index in the output matrix
+                row_k = pl.program_id(0)    # Row index in the output matrix
+                col_i = pl.program_id(1)    # Col index in the output matrix
+                
+                def process_row(row_j, _):
+                    # Check if the dense matrix element is non-zero
+                    if spike_info.dtype == jnp.bool_:
+                        def true_fn(_):
+                            # Define a function to process a single non-zero element in the CSR row
+                            def process_element(j, _):
+                                def true_fn_element(_):
+                                    pl.atomic_add(posts_ref, (row_k, col_i), weight_0)
+                                    
+                                    return None
+                                jax.lax.cond(
+                                    indices_ref[j] == row_k,
+                                    true_fn_element,
+                                    lambda _: None,
+                                    None
+                                )
+                                return None
+                            
+                            # Iterate over the non-zero elements in the CSR row
+                            jax.lax.fori_loop(indptr_ref[row_j], indptr_ref[row_j + 1], process_element, None)
+                        
+                        jax.lax.cond(
+                            B_ref[row_j, col_i],
+                            true_fn,
+                            lambda _: None,
+                            None
+                        )
+                    elif float_as_event:
+                        def true_fn(_):
+                            # Define a function to process a single non-zero element in the CSR row
+                            def process_element(j, _):
+                                def true_fn_element(_):
+                                    pl.atomic_add(posts_ref, (row_k, col_i), weight_0)
+                                    
+                                    return None
+                                jax.lax.cond(
+                                    indices_ref[j] == row_k,
+                                    true_fn_element,
+                                    lambda _: None,
+                                    None
+                                )
+                                return None
+                            
+                            # Iterate over the non-zero elements in the CSR row
+                            jax.lax.fori_loop(indptr_ref[row_j], indptr_ref[row_j + 1], process_element, None)
+                        
+                        jax.lax.cond(
+                            B_ref[row_j, col_i] != 0.,
+                            true_fn,
+                            lambda _: None,
+                            None
+                        )
+                    else:
+                        def true_fn(_):
+                            # Define a function to process a single non-zero element in the CSR row
+                            def process_element(j, _):
+                                def true_fn_element(_):
+                                    pl.atomic_add(posts_ref, (row_k, col_i), weight_0 * B_ref[row_j, col_i])
+                                    
+                                    return None
+                                jax.lax.cond(
+                                    indices_ref[j] == row_k,
+                                    true_fn_element,
+                                    lambda _: None,
+                                    None
+                                )
+                                return None
+                            
+                            # Iterate over the non-zero elements in the CSR row
+                            jax.lax.fori_loop(indptr_ref[row_j], indptr_ref[row_j + 1], process_element, None)
+                        
+                        jax.lax.cond(
+                            B_ref[row_j, col_i] != 0.,
+                            true_fn,
+                            lambda _: None,
+                            None
+                        )
+                            
+                # Iterate over the rows of the dense matrix
+                jax.lax.fori_loop(0, spike_info.shape[0], process_row, None)
+            
+            kernel = pl.pallas_call(
+                _kernel,
+                out_shape=[
+                    jax.ShapeDtypeStruct([shape[1], spike_info.shape[1]], weight_info.dtype),
+                ],
+                out_specs=[
+                    pl.BlockSpec((block_size, block_size), lambda i, j: (i, j)),
+                ],
+                in_specs=[
+                    pl.BlockSpec((weight_info.size,), lambda i, j: j),
+                    pl.BlockSpec((indices_info.size,), lambda i, j: j),
+                    pl.BlockSpec((shape[0] + 1,), lambda i, j: j),
+                    pl.BlockSpec((spike_info.shape[0], spike_info.shape[1]), lambda i, j: (i, j))
+                ],
+                grid=(
+                    pl.cdiv(shape[1], block_size),
+                    pl.cdiv(spike_info.shape[1], block_size),
+                ),
+                interpret=False,
+            )
+        else:
+            # 每个block处理一个[block_size, block_size]的output
+            def _kernel(
+                weights_ref,    # [num_nonzeros]
+                indices_ref,    # [num_nonzeros]
+                indptr_ref,     # [n_rows + 1], here is [block_size]
+                B_ref,          # [B.shape[0], n_rows]
+                posts_ref       # [B.shape[0], n_cols]
+            ):
+                
+                # Get the row index in the output matrix
+                row_k = pl.program_id(0)    # Row index in the output matrix
+                col_i = pl.program_id(1)    # Col index in the output matrix
+                
+                def process_row(row_j, _):
+                    # Check if the dense matrix element is non-zero
+                    if spike_info.dtype == jnp.bool_:
+                        def true_fn(_):
+                            # Define a function to process a single non-zero element in the CSR row
+                            def process_element(j, _):
+                                def true_fn_element(_):
+                                    pl.atomic_add(posts_ref, (row_k, col_i), weights_ref[j])
+                                    
+                                    return None
+                                jax.lax.cond(
+                                    indices_ref[j] == row_k,
+                                    true_fn_element,
+                                    lambda _: None,
+                                    None
+                                )
+                                return None
+                            
+                            # Iterate over the non-zero elements in the CSR row
+                            jax.lax.fori_loop(indptr_ref[row_j], indptr_ref[row_j + 1], process_element, None)
+                        
+                        jax.lax.cond(
+                            B_ref[row_j, col_i],
+                            true_fn,
+                            lambda _: None,
+                            None
+                        )
+                    elif float_as_event:
+                        def true_fn(_):
+                            # Define a function to process a single non-zero element in the CSR row
+                            def process_element(j, _):
+                                def true_fn_element(_):
+                                    pl.atomic_add(posts_ref, (row_k, col_i), weights_ref[j])
+                                    
+                                    return None
+                                jax.lax.cond(
+                                    indices_ref[j] == row_k,
+                                    true_fn_element,
+                                    lambda _: None,
+                                    None
+                                )
+                                return None
+                            
+                            # Iterate over the non-zero elements in the CSR row
+                            jax.lax.fori_loop(indptr_ref[row_j], indptr_ref[row_j + 1], process_element, None)
+                        
+                        jax.lax.cond(
+                            B_ref[row_j, col_i] != 0.,
+                            true_fn,
+                            lambda _: None,
+                            None
+                        )
+                    else:
+                        def true_fn(_):
+                            # Define a function to process a single non-zero element in the CSR row
+                            def process_element(j, _):
+                                def true_fn_element(_):
+                                    pl.atomic_add(posts_ref, (row_k, col_i), weights_ref[j] * B_ref[row_j, col_i])
+                                    
+                                    return None
+                                jax.lax.cond(
+                                    indices_ref[j] == row_k,
+                                    true_fn_element,
+                                    lambda _: None,
+                                    None
+                                )
+                                return None
+                            
+                            # Iterate over the non-zero elements in the CSR row
+                            jax.lax.fori_loop(indptr_ref[row_j], indptr_ref[row_j + 1], process_element, None)
+                        
+                        jax.lax.cond(
+                            B_ref[row_j, col_i] != 0.,
+                            true_fn,
+                            lambda _: None,
+                            None
+                        )
+                            
+                # Iterate over the rows of the dense matrix
+                jax.lax.fori_loop(0, spike_info.shape[0], process_row, None)
+            
+            kernel = pl.pallas_call(
+                _kernel,
+                out_shape=[
+                    jax.ShapeDtypeStruct([shape[1], spike_info.shape[1]], weight_info.dtype),
+                ],
+                out_specs=[
+                    pl.BlockSpec((block_size, block_size), lambda i, j: (i, j)),
+                ],
+                in_specs=[
+                    pl.BlockSpec((weight_info.size,), lambda i, j: j),
+                    pl.BlockSpec((indices_info.size,), lambda i, j: j),
+                    pl.BlockSpec((shape[0] + 1,), lambda i, j: j),
+                    pl.BlockSpec((spike_info.shape[0], spike_info.shape[1]), lambda i, j: (i, j))
+                ],
+                grid=(
+                    pl.cdiv(shape[1], block_size),
+                    pl.cdiv(spike_info.shape[1], block_size),
+                ),
+                interpret=False,
+            )
+        
+    else:
+        if weight_info.size == 1:
+            def _kernel(
+                weights_ref,    # [1] (scalar weight for homogeneous matrix)
+                indices_ref,    # [num_nonzeros] (column indices of non-zero values)
+                indptr_ref,     # [n_rows + 1] (row pointers)
+                B_ref,          # [n_rows, n_cols] (input matrix)
+                posts_ref       # [n_rows, n_cols] (output matrix)
+            ):
+                weight_0 = weights_ref[0]
+                
+                row_i = pl.program_id(0)
+                col_k = pl.program_id(1)
+                
+                # Initialize the result for this row
+                r = 0.0
+                
+                def true_fn(row_j, r_):
+                    if spike_info.dtype == jnp.bool_:
+                        r_ = jax.lax.cond(
+                            B_ref[indices_ref[row_j], col_k],
+                            lambda: r_ + 1.,
+                            lambda: r_
+                        )
+                    elif float_as_event:
+                        r_ = jax.lax.cond(
+                            B_ref[indices_ref[row_j], col_k] != 0.,
+                            lambda: r_ + 1.,
+                            lambda: r_
+                        )
+                    else:
+                        r_ = jax.lax.cond(
+                            B_ref[indices_ref[row_j], col_k] != 0.,
+                            lambda: r_ + B_ref[indices_ref[row_j], col_k],
+                            lambda: r_,
+                        )
+                    return r_
+                
+                r = jax.lax.fori_loop(indptr_ref[row_i], indptr_ref[row_i + 1], true_fn, r) * weight_0
+                posts_ref[row_i, col_k] = r
+            
+            kernel = pl.pallas_call(
+                _kernel,
+                out_shape=[
+                    jax.ShapeDtypeStruct([shape[0], spike_info.shape[1]], weight_info.dtype),
+                ],
+                out_specs=[
+                    pl.BlockSpec([block_size, block_size], lambda i, j: (i, j)),
+                ],
+                in_specs=[
+                    pl.BlockSpec((weight_info.size,), lambda i, j: j),
+                    pl.BlockSpec((indices_info.size,), lambda i, j: j),
+                    pl.BlockSpec((shape[0] + 1,), lambda i, j: j),
+                    pl.BlockSpec(spike_info.shape, lambda i, j: (i, j))
+                ],
+                grid=(
+                    pl.cdiv(shape[0], block_size),
+                    pl.cdiv(spike_info.shape[1], block_size),
+                ),
+                interpret=False,
+            )
+        else:
+            def _kernel(
+                weights_ref,    # [num_nonzeros] (non-zero values)
+                indices_ref,    # [num_nonzeros] (column indices of non-zero values)
+                indptr_ref,     # [n_rows + 1] (row pointers)
+                B_ref,          # [n_rows, n_cols] (input matrix)
+                posts_ref       # [n_rows, n_cols] (output matrix)
+            ):
+                row_i = pl.program_id(0)
+                col_k = pl.program_id(1)
+                
+                # Initialize the result for this row
+                r = 0.0
+                
+                def true_fn(row_j, r_):
+                    if spike_info.dtype == jnp.bool_:
+                        r_ = jax.lax.cond(
+                            B_ref[indices_ref[row_j], col_k],
+                            lambda: r_ + weights_ref[row_j],
+                            lambda: r_
+                        )
+                    elif float_as_event:
+                        r_ = jax.lax.cond(
+                            B_ref[indices_ref[row_j], col_k] != 0.,
+                            lambda: r_ + weights_ref[row_j],
+                            lambda: r_
+                        )
+                    else:
+                        r_ = jax.lax.cond(
+                            B_ref[indices_ref[row_j], col_k] != 0.,
+                            lambda: r_ + weights_ref[row_j] * B_ref[indices_ref[row_j], col_k],
+                            lambda: r_
+                        )
+                    return r_
+                
+                r = jax.lax.fori_loop(indptr_ref[row_i], indptr_ref[row_i + 1], true_fn, r)
+                posts_ref[row_i, col_k] = r
+                
+            kernel = pl.pallas_call(
+                _kernel,
+                out_shape=[
+                    jax.ShapeDtypeStruct([shape[0], spike_info.shape[1]], weight_info.dtype),
+                ],
+                out_specs=[
+                    pl.BlockSpec([block_size, block_size], lambda i, j: (i, j)),
+                ],
+                in_specs=[
+                    pl.BlockSpec((weight_info.size,), lambda i, j: j),
+                    pl.BlockSpec((indices_info.size,), lambda i, j: j),
+                    pl.BlockSpec((shape[0] + 1,), lambda i, j: j),
+                    pl.BlockSpec((spike_info.shape[0], spike_info.shape[1]), lambda i, j: (i, j))
+                ],
+                grid=(
+                    pl.cdiv(shape[0], block_size),
+                    pl.cdiv(spike_info.shape[1], block_size),
+                ),
+                interpret=False,
+            )
+    
+    return kernel
+
+
 event_csrmm_p = XLACustomOp(
     'event_csrmm',
     cpu_kernel_or_generator=event_csrmm_cpu_kernel_generator,
+    gpu_kernel_or_generator=event_csrmm_gpu_kernel_generator,
 )
 event_csrmm_p.def_batching_rule(event_csrmm_batching)
 
@@ -1117,33 +1841,36 @@ def event_csrmm_p_call(
     shape: Shape,
     transpose: bool,
     float_as_event: bool,
+    block_size: int = 64
 ):
-    if jax.default_backend() == 'cpu':
-        return event_csrmm_p(
-            weights,
-            indices,
-            indptr,
-            B,
-            outs=[
-                jax.ShapeDtypeStruct([shape[1], B.shape[1]], weights.dtype)
-                if transpose else
-                jax.ShapeDtypeStruct([shape[0], B.shape[1]], weights.dtype),
-            ],
-            # block_size=block_size,
-            shape=shape,
-            transpose=transpose,
-            float_as_event=float_as_event,
-            weight_info=jax.ShapeDtypeStruct(weights.shape, weights.dtype),
-            spike_info=jax.ShapeDtypeStruct(B.shape, B.dtype),
-        )
-    else:
-        return [
-            csr_matmat(
-                weights,
-                indices,
-                indptr,
-                B,
-                shape=shape,
-                transpose=transpose
-            )
-        ]
+    if jax.default_backend() != 'cpu':
+        weights = jnp.atleast_1d(weights)
+    return event_csrmm_p(
+        weights,
+        indices,
+        indptr,
+        B,
+        outs=[
+            jax.ShapeDtypeStruct([shape[1], B.shape[1]], weights.dtype)
+            if transpose else
+            jax.ShapeDtypeStruct([shape[0], B.shape[1]], weights.dtype),
+        ],
+        shape=shape,
+        transpose=transpose,
+        float_as_event=float_as_event,
+        weight_info=jax.ShapeDtypeStruct(weights.shape, weights.dtype),
+        spike_info=jax.ShapeDtypeStruct(B.shape, B.dtype),
+        indices_info=jax.ShapeDtypeStruct(indices.shape, indices.dtype),
+        block_size=block_size,
+    )
+    # else:
+    #     return [
+    #         csr_matmat(
+    #             weights,
+    #             indices,
+    #             indptr,
+    #             B,
+    #             shape=shape,
+    #             transpose=transpose
+    #         )
+    #     ]
