@@ -27,6 +27,7 @@ from jax import tree_util
 from jax.interpreters import xla, mlir, batching, ad
 from jax.interpreters.mlir import ir
 from jaxlib.hlo_helpers import custom_call
+
 from brainstate.typing import PyTree
 
 if jax.__version_info__ < (0, 4, 35):
@@ -44,6 +45,7 @@ __all__ = [
     'NumbaKernelGenerator',
     'WarpKernelGenerator',
     'PallasKernelGenerator',
+    'dtype_to_warp_type',
 ]
 
 numba_installed = importlib.util.find_spec('numba') is not None
@@ -280,6 +282,51 @@ def register_numba_mlir_cpu_translation_rule(
     mlir.register_lowering(primitive, rule, platform='cpu')
 
 
+def dtype_to_warp_type(dtype):
+    """
+    Convert the JAX dtype to the Warp type.
+
+    Args:
+        dtype: np.dtype. The JAX dtype.
+
+    Returns:
+        ``Warp`` type.
+    """
+    # float
+    if dtype == np.float16:
+        return warp.float16
+    elif dtype == np.float32:
+        return warp.float32
+    elif dtype == np.float64:
+        return warp.float64
+
+    # integer
+    elif dtype == np.int8:
+        return warp.int8
+    elif dtype == np.int16:
+        return warp.int16
+    elif dtype == np.int32:
+        return warp.int32
+    elif dtype == np.int64:
+        return warp.int64
+
+    # unsigned integer
+    elif dtype == np.uint8:
+        return warp.uint8
+    elif dtype == np.uint16:
+        return warp.uint16
+    elif dtype == np.uint32:
+        return warp.uint32
+    elif dtype == np.uint64:
+        return warp.uint64
+
+    # boolean
+    elif dtype == np.bool_:
+        return warp.bool
+    else:
+        raise ValueError(f"Unsupported dtype: {dtype}")
+
+
 def _warp_gpu_custom_callback(stream, buffers, opaque, opaque_len):
     # The descriptor is the form
     # <kernel-id>|<launch-dims>|<arg-dims-list>|<block-dim>
@@ -294,7 +341,6 @@ def _warp_gpu_custom_callback(stream, buffers, opaque, opaque_len):
     dims = [int(d) for d in dim_str.split(",")]
     bounds = warp.types.launch_bounds_t(dims)
     block_dim = int(block_dim_str)
-    print(block_dim)
 
     # Parse arguments.
     arg_strings = args_str.split(";")
@@ -350,40 +396,39 @@ warp_gpu_CCALL_FUNC = ctypes.CFUNCTYPE(
 warp_gpu_cc_callback = warp_gpu_CCALL_FUNC(_warp_gpu_custom_callback)
 warp_gpu_ccall_address = ctypes.cast(warp_gpu_cc_callback, ctypes.c_void_p)
 
-
-def _warp_cpu_single_out_call(output_ptrs, input_ptrs):
-    kernel_id = int(kernel_id_str)
-    kernel = _registered_warp_gpu_kernels[kernel_id]
-
-    num_args = len(kernel.adj.args)
-
-    # First param is the launch bounds.
-    kernel_params = (ctypes.c_void_p * num_args)()
-
-    # Parse array descriptors.
-    args = []
-    for i in range(num_args):
-        dtype = kernel.adj.args[i].type.dtype
-        shape = [int(d) for d in arg_strings[i].split(",")]
-        strides = warp.types.strides_from_shape(shape, dtype)
-
-        arr = warp.types.array_t(input_ptrs[i], 0, len(shape), shape, strides)
-        args.append(arr)  # keep a reference
-        arg_ptr = ctypes.addressof(arr)
-        kernel_params[i] = arg_ptr
-
-    # compile the kernel #
-    # ------------------ #
-
-    # Get current device.
-    device = warp.device_from_jax(_get_jax_device())
-    # Get kernel hooks.
-    # Note: module was loaded during jit lowering.
-    hooks = kernel.module.get_kernel_hooks(kernel, device)
-    assert hooks.forward, "Failed to find kernel entry point"
-
-    # Launch the kernel.
-    hooks.forward(*kernel_params)
+# def _warp_cpu_single_out_call(output_ptrs, input_ptrs):
+#     kernel_id = int(kernel_id_str)
+#     kernel = _registered_warp_gpu_kernels[kernel_id]
+#
+#     num_args = len(kernel.adj.args)
+#
+#     # First param is the launch bounds.
+#     kernel_params = (ctypes.c_void_p * num_args)()
+#
+#     # Parse array descriptors.
+#     args = []
+#     for i in range(num_args):
+#         dtype = kernel.adj.args[i].type.dtype
+#         shape = [int(d) for d in arg_strings[i].split(",")]
+#         strides = warp.types.strides_from_shape(shape, dtype)
+#
+#         arr = warp.types.array_t(input_ptrs[i], 0, len(shape), shape, strides)
+#         args.append(arr)  # keep a reference
+#         arg_ptr = ctypes.addressof(arr)
+#         kernel_params[i] = arg_ptr
+#
+#     # compile the kernel #
+#     # ------------------ #
+#
+#     # Get current device.
+#     device = warp.device_from_jax(_get_jax_device())
+#     # Get kernel hooks.
+#     # Note: module was loaded during jit lowering.
+#     hooks = kernel.module.get_kernel_hooks(kernel, device)
+#     assert hooks.forward, "Failed to find kernel entry point"
+#
+#     # Launch the kernel.
+#     hooks.forward(*kernel_params)
 
 
 warp_cpu_CCALL_FUNC_single_out = ctypes.CFUNCTYPE(
@@ -391,65 +436,65 @@ warp_cpu_CCALL_FUNC_single_out = ctypes.CFUNCTYPE(
     ctypes.c_void_p,
     ctypes.POINTER(ctypes.c_void_p),
 )
-warp_cpu_callback_single_out = warp_cpu_CCALL_FUNC_single_out(_warp_cpu_single_out_call)
-warp_cpu_ccall_address_single_out = ctypes.cast(warp_cpu_callback_single_out, ctypes.c_void_p)
+# warp_cpu_callback_single_out = warp_cpu_CCALL_FUNC_single_out(_warp_cpu_single_out_call)
+# warp_cpu_ccall_address_single_out = ctypes.cast(warp_cpu_callback_single_out, ctypes.c_void_p)
 
 
-def _warp_cpu_multiple_outs_call(output_ptrs, input_ptrs):
-    # The descriptor is the form
-    # <kernel-id>|<launch-dims>|<arg-dims-list>
-    # Example:  42|16,32|16,32;100;16,32
-    kernel_id_str, dim_str, args_str = opaque.decode().split("|")
-
-    # Get the kernel from the registry.
-    kernel_id = int(kernel_id_str)
-    kernel = _registered_warp_gpu_kernels[kernel_id]
-
-    # Parse launch dimensions.
-    dims = [int(d) for d in dim_str.split(",")]
-    bounds = warp.types.launch_bounds_t(dims)
-
-    # Parse arguments.
-    arg_strings = args_str.split(";")
-    num_args = len(arg_strings)
-    assert num_args == len(kernel.adj.args), "Incorrect number of arguments"
-
-    # First param is the launch bounds.
-    kernel_params = (ctypes.c_void_p * (1 + num_args))()
-    kernel_params[0] = ctypes.addressof(bounds)
-
-    # Parse array descriptors.
-    args = []
-    for i in range(num_args):
-        dtype = kernel.adj.args[i].type.dtype
-        shape = [int(d) for d in arg_strings[i].split(",")]
-        strides = warp.types.strides_from_shape(shape, dtype)
-
-        arr = warp.types.array_t(buffers[i], 0, len(shape), shape, strides)
-        args.append(arr)  # keep a reference
-        arg_ptr = ctypes.addressof(arr)
-
-        kernel_params[i + 1] = arg_ptr
-
-    # Get current device.
-    device = warp.device_from_jax(_get_jax_device())
-
-    # Get kernel hooks.
-    # Note: module was loaded during jit lowering.
-    hooks = kernel.module.get_kernel_hooks(kernel, device)
-    assert hooks.forward, "Failed to find kernel entry point"
-
-    # Launch the kernel.
-    warp.context.runtime.core.cuda_launch_kernel(
-        device.context,
-        hooks.forward,
-        bounds.size,
-        0,  # max_blocks
-        256,  # threads_per_block
-        hooks.forward_smem_bytes,
-        kernel_params,
-        stream
-    )
+# def _warp_cpu_multiple_outs_call(output_ptrs, input_ptrs):
+#     # The descriptor is the form
+#     # <kernel-id>|<launch-dims>|<arg-dims-list>
+#     # Example:  42|16,32|16,32;100;16,32
+#     kernel_id_str, dim_str, args_str = opaque.decode().split("|")
+#
+#     # Get the kernel from the registry.
+#     kernel_id = int(kernel_id_str)
+#     kernel = _registered_warp_gpu_kernels[kernel_id]
+#
+#     # Parse launch dimensions.
+#     dims = [int(d) for d in dim_str.split(",")]
+#     bounds = warp.types.launch_bounds_t(dims)
+#
+#     # Parse arguments.
+#     arg_strings = args_str.split(";")
+#     num_args = len(arg_strings)
+#     assert num_args == len(kernel.adj.args), "Incorrect number of arguments"
+#
+#     # First param is the launch bounds.
+#     kernel_params = (ctypes.c_void_p * (1 + num_args))()
+#     kernel_params[0] = ctypes.addressof(bounds)
+#
+#     # Parse array descriptors.
+#     args = []
+#     for i in range(num_args):
+#         dtype = kernel.adj.args[i].type.dtype
+#         shape = [int(d) for d in arg_strings[i].split(",")]
+#         strides = warp.types.strides_from_shape(shape, dtype)
+#
+#         arr = warp.types.array_t(buffers[i], 0, len(shape), shape, strides)
+#         args.append(arr)  # keep a reference
+#         arg_ptr = ctypes.addressof(arr)
+#
+#         kernel_params[i + 1] = arg_ptr
+#
+#     # Get current device.
+#     device = warp.device_from_jax(_get_jax_device())
+#
+#     # Get kernel hooks.
+#     # Note: module was loaded during jit lowering.
+#     hooks = kernel.module.get_kernel_hooks(kernel, device)
+#     assert hooks.forward, "Failed to find kernel entry point"
+#
+#     # Launch the kernel.
+#     warp.context.runtime.core.cuda_launch_kernel(
+#         device.context,
+#         hooks.forward,
+#         bounds.size,
+#         0,  # max_blocks
+#         256,  # threads_per_block
+#         hooks.forward_smem_bytes,
+#         kernel_params,
+#         stream
+#     )
 
 
 warp_cpu_CCALL_FUNC_multi_outs = ctypes.CFUNCTYPE(
@@ -457,8 +502,10 @@ warp_cpu_CCALL_FUNC_multi_outs = ctypes.CFUNCTYPE(
     ctypes.POINTER(ctypes.c_void_p),
     ctypes.POINTER(ctypes.c_void_p),
 )
-warp_cpu_callback_multi_out = warp_cpu_CCALL_FUNC_multi_outs(_warp_cpu_multiple_outs_call)
-warp_cpu_ccall_address_multi_out = ctypes.cast(warp_cpu_callback_multi_out, ctypes.c_void_p)
+
+
+# warp_cpu_callback_multi_out = warp_cpu_CCALL_FUNC_multi_outs(_warp_cpu_multiple_outs_call)
+# warp_cpu_ccall_address_multi_out = ctypes.cast(warp_cpu_callback_multi_out, ctypes.c_void_p)
 
 
 def _warp_gpu_register_capsule():
@@ -576,12 +623,16 @@ def _warp_gpu_lowering(
     _warp_gpu_register_capsule()
 
     wp_kernel: warp.context.Kernel = kernel_generator(**kwargs)
+    assert isinstance(wp_kernel, warp.context.Kernel), f'The kernel should be a Warp kernel. But we got {wp_kernel}'
+
     kernel_id = _register_warp_kernel(wp_kernel)
 
     # ------------------
     # launch dimensions
     # ------------------
     warp_dims = kernel_generator.dim
+    if callable(warp_dims):
+        warp_dims = warp_dims(**kwargs)
     if isinstance(warp_dims, int):
         warp_dims = (warp_dims,)
     assert isinstance(warp_dims, (tuple, list)), (
@@ -605,15 +656,12 @@ def _warp_gpu_lowering(
             f"int, got {block_dim}"
         )
 
-
-
     # TODO: This may not be necessary, but it is perhaps better not to be
     #       mucking with kernel loading while already running the workload.
     module = wp_kernel.module
     device = warp.device_from_jax(_get_jax_device())
     if not module.load(device, block_dim):
         raise Exception("Could not load kernel on device")
-
 
     # ------
     # inputs

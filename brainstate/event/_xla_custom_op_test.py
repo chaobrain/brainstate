@@ -91,6 +91,37 @@ class TestWarpGPU(unittest.TestCase):
 
         self.assertTrue(jnp.allclose(r, data * data))
 
+    def test_warp_change_with_dtype(self):
+        def generate(**kwargs):
+            outs = kwargs["outs"][0]
+            dtype = bst.event.dtype_to_warp_type(outs.dtype)
+
+            # generic kernel definition using Any as a placeholder for concrete types
+            @wp.kernel
+            def scale(x: wp.array(dtype=dtype), y: wp.array(dtype=dtype)):
+                i = wp.tid()
+                y[i] = x[i] * x[i]
+
+            return scale
+
+        op = bst.event.XLACustomKernel(
+            name="scale",
+            gpu_kernel=bst.event.WarpKernelGenerator(
+                generate,
+                dim=lambda **kwargs: kwargs["outs"][0].shape,
+            ),
+        )
+
+        @jax.jit
+        def f(x):
+            return op.call(x, outs=jax.ShapeDtypeStruct(x.shape, x.dtype))
+
+        with bst.environ.context(precision=64):
+            print(f(jnp.asarray([1, 2, 3, 4, 5, 6, 7, 8, 9], dtype=jnp.float32)))
+            print(f(bst.random.rand(20, dtype=jnp.float32)))
+            print(f(bst.random.rand(20, dtype=jnp.float16)))
+            print(f(bst.random.rand(20, dtype=jnp.float64)))
+
     def test_warp_scalar(self):
         # generic kernel definition using Any as a placeholder for concrete types
         @wp.kernel
