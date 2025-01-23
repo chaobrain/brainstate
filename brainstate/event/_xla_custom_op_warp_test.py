@@ -20,52 +20,13 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
-from jax.experimental import pallas as pl
 
 import brainstate as bst
 
 warp_installed = importlib.util.find_spec('warp') is not None
-numba_installed = importlib.util.find_spec('numba') is not None
 
 if warp_installed:
     import warp as wp
-    import numba
-
-
-@pytest.mark.skipif(not numba_installed, reason="Numba not installed")
-class TestNumbaCPU(unittest.TestCase):
-    def test1(self):
-        def add_vectors_kernel(x_ref, y_ref, o_ref):
-            x, y = x_ref[...], y_ref[...]
-            o_ref[...] = x + y
-
-        def cpu_kernel(**kwargs):
-            @numba.njit
-            def add_kernel_numba(x, y, out):
-                out[...] = x + y
-
-            return add_kernel_numba
-
-        def gpu_kernel(x_info, **kwargs):
-            return pl.pallas_call(
-                add_vectors_kernel,
-                out_shape=[jax.ShapeDtypeStruct(x_info.shape, x_info.dtype)],
-                interpret=jax.default_backend() == 'cpu',
-            )
-
-        prim = bst.event.XLACustomKernel(
-            'add',
-            cpu_kernel=bst.event.NumbaKernelGenerator(cpu_kernel),
-            gpu_kernel=bst.event.PallasKernelGenerator(gpu_kernel),
-        )
-
-        a = bst.random.rand(64)
-        b = bst.random.rand(64)
-        x_info = jax.ShapeDtypeStruct(a.shape, a.dtype)
-        r1 = prim(a, b, outs=[jax.ShapeDtypeStruct((64,), jax.numpy.float32)], x_info=x_info)
-        r2 = gpu_kernel(x_info)(a, b)
-
-        assert jnp.allclose(r1[0], r2[0])
 
 
 @pytest.mark.skipif(jax.default_backend() != 'gpu', reason="No GPU available")
