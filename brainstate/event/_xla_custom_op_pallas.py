@@ -45,8 +45,8 @@ class PallasKernelGenerator:
 
     generator: Callable[..., Callable]
 
-    def __call__(self, *args, **kwargs):
-        return self.generator(*args, **kwargs)
+    def generate_kernel(self, **kwargs):
+        return self.generator(**kwargs)
 
 
 def register_pallas_mlir_gpu_translation_rule(
@@ -62,7 +62,7 @@ def register_pallas_mlir_gpu_translation_rule(
             It can be a function to generate the JAX Pallas kernel.
     """
     lower = mlir.lower_fun(
-        lambda *args, **kwargs: kernel_generator(**kwargs)(*args),
+        lambda *args, **kwargs: kernel_generator.generate_kernel(**kwargs)(*args),
         multiple_results=True
     )
     mlir.register_lowering(primitive, lower, platform='cuda')

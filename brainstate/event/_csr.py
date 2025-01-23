@@ -23,19 +23,16 @@ import jax.numpy as jnp
 import numpy as np
 from brainunit.sparse._csr import (
     _csr_matvec as csr_matvec,
-    _csr_to_coo as csr_to_coo
+    _csr_to_coo as csr_to_coo,
+    _csr_todense
 )
 from jax.experimental.sparse import JAXSparse
 from jax.interpreters import ad
 
 from brainstate.typing import Shape
-from ._misc import op_environ
-from ._xla_custom_op import (
-    XLACustomKernel,
-    NumbaKernelGenerator,
-    WarpKernelGenerator,
-    dtype_to_warp_type,
-)
+from ._xla_custom_op import XLACustomKernel
+from ._xla_custom_op_numba import NumbaKernelGenerator, numba_environ
+from ._xla_custom_op_warp import dtype_to_warp_type, WarpKernelGenerator
 
 __all__ = [
     'CSR',
@@ -61,10 +58,11 @@ class CSR(u.sparse.SparseMatrix):
         super().__init__(args, shape=shape)
 
     @classmethod
-    def fromdense(cls, mat, *, nse=None, index_dtype=np.int32):
+    def fromdense(cls, mat, *, nse=None, index_dtype=np.int32) -> 'CSR':
         if nse is None:
             nse = (u.get_mantissa(mat) != 0).sum()
-        return u.sparse.csr_fromdense(mat, nse=nse, index_dtype=index_dtype)
+        csr = u.sparse.csr_fromdense(mat, nse=nse, index_dtype=index_dtype)
+        return CSR((csr.data, csr.indices, csr.indptr), shape=csr.shape)
 
     def with_data(self, data: Union[jax.Array, u.Quantity]) -> 'CSR':
         assert data.shape == self.data.shape
@@ -73,7 +71,7 @@ class CSR(u.sparse.SparseMatrix):
         return CSR((data, self.indices, self.indptr), shape=self.shape)
 
     def todense(self):
-        return u.sparse.csr_todense(self)
+        return _csr_todense(self.data, self.indices, self.indptr, shape=self.shape)
 
     def transpose(self, axes=None):
         assert axes is None, "transpose does not support axes argument."
@@ -196,7 +194,7 @@ class CSR(u.sparse.SparseMatrix):
         data = self.data
         # data, other = u.math.promote_dtypes(self.data, other)
         if other.ndim == 1:
-            return _csr_matvec(
+            return _event_csr_matvec(
                 data,
                 self.indices,
                 self.indptr,
@@ -204,7 +202,7 @@ class CSR(u.sparse.SparseMatrix):
                 shape=self.shape
             )
         elif other.ndim == 2:
-            return _csr_matmat(
+            return _event_csr_matmat(
                 data,
                 self.indices,
                 self.indptr,
@@ -222,7 +220,7 @@ class CSR(u.sparse.SparseMatrix):
         data = self.data
         # data, other = u.math.promote_dtypes(self.data, other)
         if other.ndim == 1:
-            return _csr_matvec(
+            return _event_csr_matvec(
                 data,
                 self.indices,
                 self.indptr,
@@ -232,7 +230,7 @@ class CSR(u.sparse.SparseMatrix):
             )
         elif other.ndim == 2:
             other = other.T
-            r = _csr_matmat(
+            r = _event_csr_matmat(
                 data,
                 self.indices,
                 self.indptr,
@@ -274,10 +272,11 @@ class CSC(u.sparse.SparseMatrix):
         super().__init__(args, shape=shape)
 
     @classmethod
-    def fromdense(cls, mat, *, nse=None, index_dtype=np.int32):
+    def fromdense(cls, mat, *, nse=None, index_dtype=np.int32) -> 'CSC':
         if nse is None:
             nse = (u.get_mantissa(mat) != 0).sum()
-        return u.sparse.csr_fromdense(mat.T, nse=nse, index_dtype=index_dtype).T
+        csc = u.sparse.csr_fromdense(mat.T, nse=nse, index_dtype=index_dtype).T
+        return CSC((csc.data, csc.indices, csc.indptr), shape=csc.shape)
 
     @classmethod
     def _empty(cls, shape, *, dtype=None, index_dtype='int32'):
@@ -301,7 +300,7 @@ class CSC(u.sparse.SparseMatrix):
         return CSC((data, self.indices, self.indptr), shape=self.shape)
 
     def todense(self):
-        return u.sparse.csr_todense(self.T).T
+        return self.T.todense().T
 
     def transpose(self, axes=None):
         assert axes is None
@@ -422,7 +421,7 @@ class CSC(u.sparse.SparseMatrix):
         other = u.math.asarray(other)
         data, other = u.math.promote_dtypes(self.data, other)
         if other.ndim == 1:
-            return _csr_matvec(
+            return _event_csr_matvec(
                 data,
                 self.indices,
                 self.indptr,
@@ -431,7 +430,7 @@ class CSC(u.sparse.SparseMatrix):
                 transpose=True
             )
         elif other.ndim == 2:
-            return _csr_matmat(
+            return _event_csr_matmat(
                 data,
                 self.indices,
                 self.indptr,
@@ -448,7 +447,7 @@ class CSC(u.sparse.SparseMatrix):
         other = u.math.asarray(other)
         data, other = u.math.promote_dtypes(self.data, other)
         if other.ndim == 1:
-            return _csr_matvec(
+            return _event_csr_matvec(
                 data,
                 self.indices,
                 self.indptr,
@@ -458,7 +457,7 @@ class CSC(u.sparse.SparseMatrix):
             )
         elif other.ndim == 2:
             other = other.T
-            r = _csr_matmat(
+            r = _event_csr_matmat(
                 data,
                 self.indices,
                 self.indptr, other,
@@ -482,7 +481,7 @@ class CSC(u.sparse.SparseMatrix):
         return obj
 
 
-def _csr_matvec(
+def _event_csr_matvec(
     data: Union[jax.Array, u.Quantity],
     indices: jax.Array,
     indptr: jax.Array,
@@ -519,7 +518,7 @@ def _csr_matvec(
     return u.maybe_decimal(res * (unitd * unitv))
 
 
-def _csr_matmat(
+def _event_csr_matmat(
     data: Union[jax.Array, u.Quantity],
     indices: jax.Array,
     indptr: jax.Array,
@@ -575,7 +574,7 @@ def event_csrmv_cpu_kernel_generator(
     if weight_info.size == 1:
         if transpose:
             if spike_info.dtype == jnp.bool_:
-                @numba.njit(**op_environ.numba_setting)
+                @numba.njit(**numba_environ.numba_setting)
                 def mv(weights, indices, indptr, v, _, posts):
                     w = weights[0]
                     for i in range(v.shape[0]):
@@ -584,7 +583,7 @@ def event_csrmv_cpu_kernel_generator(
                                 posts[indices[j]] += w
 
             elif float_as_event:
-                @numba.njit(**op_environ.numba_setting)
+                @numba.njit(**numba_environ.numba_setting)
                 def mv(weights, indices, indptr, v, _, posts):
                     w = weights[0]
                     for i in range(v.shape[0]):
@@ -593,7 +592,7 @@ def event_csrmv_cpu_kernel_generator(
                                 posts[indices[j]] += w
 
             else:
-                @numba.njit(**op_environ.numba_setting)
+                @numba.njit(**numba_environ.numba_setting)
                 def mv(weights, indices, indptr, v, _, posts):
                     w = weights[0]
                     for i in range(v.shape[0]):
@@ -605,7 +604,7 @@ def event_csrmv_cpu_kernel_generator(
 
         else:
             if spike_info.dtype == jnp.bool_:
-                @numba.njit(**op_environ.numba_setting)
+                @numba.njit(**numba_environ.numba_setting)
                 def mv(weights, indices, indptr, v, _, posts):
                     w = weights[0]
                     for i in range(indptr.shape[0] - 1):
@@ -616,7 +615,7 @@ def event_csrmv_cpu_kernel_generator(
                         posts[i] = r
 
             elif float_as_event:
-                @numba.njit(**op_environ.numba_setting)
+                @numba.njit(**numba_environ.numba_setting)
                 def mv(weights, indices, indptr, v, _, posts):
                     w = weights[0]
                     for i in range(indptr.shape[0] - 1):
@@ -627,7 +626,7 @@ def event_csrmv_cpu_kernel_generator(
                         posts[i] = r
 
             else:
-                @numba.njit(**op_environ.numba_setting)
+                @numba.njit(**numba_environ.numba_setting)
                 def mv(weights, indices, indptr, v, _, posts):
                     w = weights[0]
                     for i in range(indptr.shape[0] - 1):
@@ -641,7 +640,7 @@ def event_csrmv_cpu_kernel_generator(
     else:
         if transpose:
             if spike_info.dtype == jnp.bool_:
-                @numba.njit(**op_environ.numba_setting)
+                @numba.njit(**numba_environ.numba_setting)
                 def mv(weights, indices, indptr, v, _, posts):
                     for i in range(v.shape[0]):
                         if v[i]:
@@ -649,7 +648,7 @@ def event_csrmv_cpu_kernel_generator(
                                 posts[indices[j]] += weights[j]
 
             elif float_as_event:
-                @numba.njit(**op_environ.numba_setting)
+                @numba.njit(**numba_environ.numba_setting)
                 def mv(weights, indices, indptr, v, _, posts):
                     for i in range(v.shape[0]):
                         if v[i] != 0.:
@@ -657,7 +656,7 @@ def event_csrmv_cpu_kernel_generator(
                                 posts[indices[j]] += weights[j]
 
             else:
-                @numba.njit(**op_environ.numba_setting)
+                @numba.njit(**numba_environ.numba_setting)
                 def mv(weights, indices, indptr, v, _, posts):
                     for i in range(v.shape[0]):
                         sp = v[i]
@@ -667,7 +666,7 @@ def event_csrmv_cpu_kernel_generator(
 
         else:
             if spike_info.dtype == jnp.bool_:
-                @numba.njit(**op_environ.numba_setting)
+                @numba.njit(**numba_environ.numba_setting)
                 def mv(weights, indices, indptr, v, _, posts):
                     for i in range(indptr.shape[0] - 1):
                         r = 0.
@@ -677,7 +676,7 @@ def event_csrmv_cpu_kernel_generator(
                         posts[i] = r
 
             elif float_as_event:
-                @numba.njit(**op_environ.numba_setting)
+                @numba.njit(**numba_environ.numba_setting)
                 def mv(weights, indices, indptr, v, _, posts):
                     for i in range(indptr.shape[0] - 1):
                         r = 0.
@@ -687,7 +686,7 @@ def event_csrmv_cpu_kernel_generator(
                         posts[i] = r
 
             else:
-                @numba.njit(**op_environ.numba_setting)
+                @numba.njit(**numba_environ.numba_setting)
                 def mv(weights, indices, indptr, v, _, posts):
                     for i in range(indptr.shape[0] - 1):
                         r = 0.
@@ -1172,7 +1171,7 @@ def event_csrmm_cpu_kernel_generator(
             # csr.T @ B
 
             if spike_info.dtype == jnp.bool_:
-                @numba.njit(**op_environ.numba_setting, parallel=op_environ.numba_parallel)
+                @numba.njit(**numba_environ.numba_setting, parallel=numba_environ.numba_parallel)
                 def mv(weights, indices, indptr, B, _, posts):
                     w = weights[0]
                     for k in numba.prange(B.shape[1]):
@@ -1182,7 +1181,7 @@ def event_csrmm_cpu_kernel_generator(
                                     posts[indices[j], k] += w
 
             elif float_as_event:
-                @numba.njit(**op_environ.numba_setting, parallel=op_environ.numba_parallel)
+                @numba.njit(**numba_environ.numba_setting, parallel=numba_environ.numba_parallel)
                 def mv(weights, indices, indptr, B, _, posts):
                     B = B != 0.
                     w = weights[0]
@@ -1193,7 +1192,7 @@ def event_csrmm_cpu_kernel_generator(
                                     posts[indices[j], k] += w
 
             else:
-                @numba.njit(**op_environ.numba_setting, parallel=op_environ.numba_parallel)
+                @numba.njit(**numba_environ.numba_setting, parallel=numba_environ.numba_parallel)
                 def mv(weights, indices, indptr, B, _, posts):
                     w = weights[0]
                     for k in numba.prange(B.shape[1]):
@@ -1207,7 +1206,7 @@ def event_csrmm_cpu_kernel_generator(
         else:
             # csr @ B
             if spike_info.dtype == jnp.bool_:
-                @numba.njit(**op_environ.numba_setting)
+                @numba.njit(**numba_environ.numba_setting)
                 def mv(weights, indices, indptr, B, _, posts):
                     w = weights[0]
                     for i in range(indptr.shape[0] - 1):
@@ -1220,7 +1219,7 @@ def event_csrmm_cpu_kernel_generator(
                         posts[i] = r
 
             elif float_as_event:
-                @numba.njit(**op_environ.numba_setting)
+                @numba.njit(**numba_environ.numba_setting)
                 def mv(weights, indices, indptr, B, _, posts):
                     w = weights[0]
                     B = B != 0.
@@ -1234,7 +1233,7 @@ def event_csrmm_cpu_kernel_generator(
                         posts[i] = r
 
             else:
-                @numba.njit(**op_environ.numba_setting)
+                @numba.njit(**numba_environ.numba_setting)
                 def mv(weights, indices, indptr, B, _, posts):
                     w = weights[0]
                     for i in range(indptr.shape[0] - 1):
@@ -1251,7 +1250,7 @@ def event_csrmm_cpu_kernel_generator(
             # csr.T @ B
 
             if spike_info.dtype == jnp.bool_:
-                @numba.njit(**op_environ.numba_setting, parallel=op_environ.numba_parallel)
+                @numba.njit(**numba_environ.numba_setting, parallel=numba_environ.numba_parallel)
                 def mv(weights, indices, indptr, B, _, posts):
                     for k in numba.prange(B.shape[1]):
                         for i in range(B.shape[0]):
@@ -1260,7 +1259,7 @@ def event_csrmm_cpu_kernel_generator(
                                     posts[indices[j], k] += weights[j]
 
             elif float_as_event:
-                @numba.njit(**op_environ.numba_setting, parallel=op_environ.numba_parallel)
+                @numba.njit(**numba_environ.numba_setting, parallel=numba_environ.numba_parallel)
                 def mv(weights, indices, indptr, B, _, posts):
                     B = B != 0.
                     for k in numba.prange(B.shape[1]):
@@ -1270,7 +1269,7 @@ def event_csrmm_cpu_kernel_generator(
                                     posts[indices[j], k] += weights[j]
 
             else:
-                @numba.njit(**op_environ.numba_setting, parallel=op_environ.numba_parallel)
+                @numba.njit(**numba_environ.numba_setting, parallel=numba_environ.numba_parallel)
                 def mv(weights, indices, indptr, B, _, posts):
                     for k in numba.prange(B.shape[1]):
                         for i in range(B.shape[0]):
@@ -1283,7 +1282,7 @@ def event_csrmm_cpu_kernel_generator(
             # csr @ B
 
             if spike_info.dtype == jnp.bool_:
-                @numba.njit(**op_environ.numba_setting)
+                @numba.njit(**numba_environ.numba_setting)
                 def mv(weights, indices, indptr, B, _, posts):
                     for i in range(indptr.shape[0] - 1):
                         for k in range(B.shape[1]):
@@ -1294,7 +1293,7 @@ def event_csrmm_cpu_kernel_generator(
                             posts[i, k] = r
 
             elif float_as_event:
-                @numba.njit(**op_environ.numba_setting)
+                @numba.njit(**numba_environ.numba_setting)
                 def mv(weights, indices, indptr, B, _, posts):
                     B = B != 0.
                     for i in range(indptr.shape[0] - 1):
@@ -1306,7 +1305,7 @@ def event_csrmm_cpu_kernel_generator(
                             posts[i, k] = r
 
             else:
-                @numba.njit(**op_environ.numba_setting)
+                @numba.njit(**numba_environ.numba_setting)
                 def mv(weights, indices, indptr, B, _, posts):
                     for i in range(indptr.shape[0] - 1):
                         for k in range(B.shape[1]):

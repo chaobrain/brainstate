@@ -76,8 +76,8 @@ class WarpKernelGenerator:
     input_output_aliases: Dict[int, int] | Callable[..., Dict[int, int]] | None = None
     block_dim: int | Callable[..., int] | None = None
 
-    def __call__(self, *args, **kwargs):
-        return self.generator(*args, **kwargs)
+    def generate_kernel(self, **kwargs):
+        return self.generator(**kwargs)
 
 
 def dtype_to_warp_type(dtype):
@@ -420,7 +420,7 @@ def _warp_gpu_lowering(
         raise ImportError('Warp is required to compile the GPU kernel for the custom operator.')
     _warp_gpu_register_capsule()
 
-    wp_kernel: warp.context.Kernel = kernel_generator(**kwargs)
+    wp_kernel: warp.context.Kernel = kernel_generator.generate_kernel(**kwargs)
     assert isinstance(wp_kernel, warp.context.Kernel), f'The kernel should be a Warp kernel. But we got {wp_kernel}'
 
     kernel_id = _register_warp_kernel(wp_kernel)

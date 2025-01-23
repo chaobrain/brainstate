@@ -28,8 +28,8 @@ from brainstate._state import ParamState, State
 from brainstate.init import param
 from brainstate.nn._module import Module
 from brainstate.typing import ArrayLike, Size
-from ._misc import op_environ
-from ._xla_custom_op import XLACustomKernel, NumbaKernelGenerator, PallasKernelGenerator
+from ._xla_custom_op import XLACustomKernel, PallasKernelGenerator
+from ._xla_custom_op_numba import numba_environ, NumbaKernelGenerator
 
 __all__ = [
     'Linear',
@@ -217,7 +217,7 @@ def cpu_kernel_generator(
 
     if spk_info.dtype == jnp.bool_:
 
-        @numba.njit(**op_environ.numba_setting)
+        @numba.njit(**numba_environ.numba_setting)
         def _kernel(spikes, weights, posts):
             r = np.zeros((weights.shape[1],), dtype=weights.dtype)
             for i in range(spikes.shape[0]):
@@ -226,7 +226,7 @@ def cpu_kernel_generator(
             posts[:] = r
 
     elif float_as_event:
-        @numba.njit(**op_environ.numba_setting)
+        @numba.njit(**numba_environ.numba_setting)
         def _kernel(spikes, weights, posts):
             r = np.zeros((weights.shape[1],), dtype=weights.dtype)
             for i in range(spikes.shape[0]):
@@ -235,7 +235,7 @@ def cpu_kernel_generator(
             posts[:] = r
 
     else:
-        @numba.njit(**op_environ.numba_setting)
+        @numba.njit(**numba_environ.numba_setting)
         def _kernel(spikes, weights, posts):
             r = np.zeros((weights.shape[1],), dtype=weights.dtype)
             for i in range(spikes.shape[0]):

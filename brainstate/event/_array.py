@@ -26,6 +26,10 @@ class EventData:
         pass
 
 
+class Scalar(EventData):
+    pass
+
+
 class Array(EventData):
     pass
 

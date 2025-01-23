@@ -31,28 +31,12 @@ sys.path.append('../')
 os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.99'
 os.environ['JAX_TRACEBACK_FILTERING'] = 'off'
 
-
 import jax
 import time
 
 import brainunit as u
 
 import brainstate as bst
-
-
-
-class FixedProb(bst.nn.Module):
-    def __init__(self, n_pre, n_post, prob, weight):
-        super().__init__()
-        self.prob = prob
-        self.weight = weight
-        self.n_pre = n_pre
-        self.n_post = n_post
-
-        self.mask = bst.random.rand(n_pre, n_post) < prob
-
-    def update(self, x):
-        return (x @ self.mask) * self.weight
 
 
 class EINet(bst.nn.DynamicsGroup):
@@ -68,14 +52,12 @@ class EINet(bst.nn.DynamicsGroup):
         )
         self.E = bst.nn.AlignPostProj(
             comm=bst.event.FixedProb(self.n_exc, self.num, prob=80 / self.num, weight=1.62 * u.mS),
-            # comm=FixedProb(self.n_exc, self.num, prob=80 / self.num, weight=1.62 * u.mS),
             syn=bst.nn.Expon.desc(self.num, tau=5. * u.ms),
             out=bst.nn.CUBA.desc(scale=u.volt),
             post=self.N
         )
         self.I = bst.nn.AlignPostProj(
             comm=bst.event.FixedProb(self.n_inh, self.num, prob=80 / self.num, weight=-9.0 * u.mS),
-            # comm=FixedProb(self.n_inh, self.num, prob=80 / self.num, weight=-9.0 * u.mS),
             syn=bst.nn.Expon.desc(self.num, tau=10. * u.ms),
             out=bst.nn.CUBA.desc(scale=u.volt),
             post=self.N
@@ -117,7 +99,6 @@ for s in [1, 2, 4, 6, 8, 10, 20, 40, 60, 80, 100]:
     n, rate = jax.block_until_ready(run(s))
     t1 = time.time()
     print(f'scale={s}, size={n}, time = {t1 - t0} s, firing rate = {rate} Hz')
-
 
 # A6000 NVIDIA GPU
 

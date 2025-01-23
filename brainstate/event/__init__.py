@@ -14,13 +14,12 @@
 # ==============================================================================
 
 
+from ._array import Array, Vector, Matrix
 from ._csr import CSR, CSC
-from ._event_data import Array, Vector, Matrix
 from ._fixedprob_mv import FixedProb
 from ._linear_mv import Linear
-from ._misc import set_numba_environ
 from ._xla_custom_op import XLACustomKernel
-from ._xla_custom_op_numba import NumbaKernelGenerator
+from ._xla_custom_op_numba import NumbaKernelGenerator, set_numba_environ
 from ._xla_custom_op_pallas import PallasKernelGenerator
 from ._xla_custom_op_warp import WarpKernelGenerator, dtype_to_warp_type
 
@@ -38,11 +37,8 @@ __all__ = [
 
     # kernels
     'XLACustomKernel',
-    'NumbaKernelGenerator',
+    'NumbaKernelGenerator', 'set_numba_environ',
     'WarpKernelGenerator',
     'PallasKernelGenerator',
     'dtype_to_warp_type',
-
-    # environments
-    'set_numba_environ',
 ]

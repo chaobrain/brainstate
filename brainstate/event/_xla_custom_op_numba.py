@@ -19,6 +19,8 @@ import ctypes
 import dataclasses
 import functools
 import importlib.util
+import threading
+from contextlib import contextmanager
 from typing import Callable, Dict
 
 import jax
@@ -37,9 +39,48 @@ else:
 
 __all__ = [
     'NumbaKernelGenerator',
+    'set_numba_environ',
 ]
 
 numba_installed = importlib.util.find_spec('numba') is not None
+
+
+class EnvironContext(threading.local):
+    def __init__(self):
+        # default environment settings
+        self.numba_parallel: bool = False
+        self.numba_setting: dict = dict(nogil=True, fastmath=True)
+
+
+numba_environ = EnvironContext()
+
+
+@contextmanager
+def set_numba_environ(
+    parallel_if_possible: int | bool = None,
+    **kwargs
+) -> None:
+    """
+    Enable Numba parallel execution if possible.
+    """
+    old_parallel = numba_environ.numba_parallel
+    old_setting = numba_environ.numba_setting.copy()
+
+    try:
+        numba_environ.numba_setting.update(kwargs)
+        if parallel_if_possible is not None:
+            if isinstance(parallel_if_possible, bool):
+                numba_environ.numba_parallel = parallel_if_possible
+            elif isinstance(parallel_if_possible, int):
+                numba_environ.numba_parallel = True
+                assert parallel_if_possible > 0, 'The number of threads must be a positive integer.'
+                import numba  # pylint: disable=import-outside-toplevel
+                numba.set_num_threads(parallel_if_possible)
+            else:
+                raise ValueError('The argument `parallel_if_possible` must be a boolean or an integer.')
+    finally:
+        numba_environ.numba_parallel = old_parallel
+        numba_environ.numba_setting = old_setting
 
 
 @dataclasses.dataclass(frozen=True)
@@ -56,8 +97,8 @@ class NumbaKernelGenerator:
     generator: Callable[..., Callable]
     input_output_aliases: Dict[int, int] = None
 
-    def __call__(self, *args, **kwargs):
-        return self.generator(*args, **kwargs)
+    def generate_kernel(self, **kwargs):
+        return self.generator(**kwargs)
 
 
 #                                         [void* pointer,
@@ -84,7 +125,7 @@ def _numba_mlir_cpu_translation_rule(
     from numba import types, carray, cfunc  # pylint: disable=import-error
     from numba.core.dispatcher import Dispatcher  # pylint: disable=import-error
 
-    kernel = kernel_generator(**kwargs)
+    kernel = kernel_generator.generate_kernel(**kwargs)
     assert isinstance(kernel, Dispatcher), f'The kernel should be a Numba dispatcher. But we got {kernel}'
 
     # output information
