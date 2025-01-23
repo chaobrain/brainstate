@@ -29,7 +29,7 @@ from brainstate.init import param
 from brainstate.nn._module import Module
 from brainstate.typing import ArrayLike, Size
 from ._misc import op_environ
-from ._xla_custom_op import XLACustomOp, NumbaOpGenerator, PallasOpGenerator
+from ._xla_custom_op import XLACustomKernel, NumbaKernelGenerator, PallasKernelGenerator
 
 __all__ = [
     'Linear',
@@ -487,10 +487,10 @@ def transpose_rule(ct, spikes, weights, *, float_as_event, **kwargs):
         return spikes, (ad.Zero(weights) if type(ct[0]) is ad.Zero else ct_weights)
 
 
-event_linear_p = XLACustomOp(
+event_linear_p = XLACustomKernel(
     'event_linear',
-    cpu_kernel=NumbaOpGenerator(cpu_kernel_generator),
-    gpu_kernel=PallasOpGenerator(gpu_kernel_generator),
+    cpu_kernel=NumbaKernelGenerator(cpu_kernel_generator),
+    gpu_kernel=PallasKernelGenerator(gpu_kernel_generator),
 )
 event_linear_p.defjvp(jvp_spikes, jvp_weights)
 event_linear_p.def_transpose_rule(transpose_rule)

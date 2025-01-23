@@ -25,6 +25,8 @@ import numpy as np
 import brainstate as bst
 
 
+# bst.environ.set(platform='cpu')
+
 class TestCSR(unittest.TestCase):
     def test_event_homo_bool(self):
         for dat in [1., 2., 3.]:

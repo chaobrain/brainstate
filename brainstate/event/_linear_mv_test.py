@@ -32,7 +32,7 @@ class TestEventLinear(parameterized.TestCase):
         x = bst.random.rand(20) < 0.1
         if not bool_x:
             x = jnp.asarray(x, dtype=float)
-        m = Linear(20, 40, 1.5 if homo_w else bst.init.KaimingUniform(),  float_as_event=bool_x)
+        m = Linear(20, 40, 1.5 if homo_w else bst.init.KaimingUniform(), float_as_event=bool_x)
         y = m(x)
         print(y)
 

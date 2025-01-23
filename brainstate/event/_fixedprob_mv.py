@@ -32,7 +32,7 @@ from brainstate.nn._module import Module
 from brainstate.random import RandomState
 from brainstate.typing import ArrayLike, Size
 from ._misc import FloatScalar, op_environ
-from ._xla_custom_op import XLACustomOp, NumbaOpGenerator, PallasOpGenerator
+from ._xla_custom_op import XLACustomKernel, NumbaKernelGenerator, PallasKernelGenerator
 
 __all__ = [
     'FixedProb',
@@ -727,10 +727,10 @@ def transpose_rule(
         return spikes, (ad.Zero(weights) if type(ct) is ad.Zero else ct_gmax), indices
 
 
-event_ellmv_p = XLACustomOp(
+event_ellmv_p = XLACustomKernel(
     'event_ell_mv',
-    cpu_kernel=NumbaOpGenerator(cpu_kernel_generator),
-    gpu_kernel=PallasOpGenerator(gpu_kernel_generator),
+    cpu_kernel=NumbaKernelGenerator(cpu_kernel_generator),
+    gpu_kernel=PallasKernelGenerator(gpu_kernel_generator),
 )
 event_ellmv_p.defjvp(jvp_spikes, jvp_weights, None)
 event_ellmv_p.def_transpose_rule(transpose_rule)
@@ -947,10 +947,10 @@ def transpose_rule_no_spk(
         return vector, (ad.Zero(weights) if type(ct) is ad.Zero else ct_gmax), indices
 
 
-ellmv_p = XLACustomOp(
+ellmv_p = XLACustomKernel(
     'ell_mv',
-    cpu_kernel=NumbaOpGenerator(ell_cpu_kernel_generator),
-    gpu_kernel=PallasOpGenerator(ell_gpu_kernel_generator),
+    cpu_kernel=NumbaKernelGenerator(ell_cpu_kernel_generator),
+    gpu_kernel=PallasKernelGenerator(ell_gpu_kernel_generator),
 )
 ellmv_p.defjvp(jvp_spikes, jvp_weights_no_spk, None)
 ellmv_p.def_transpose_rule(transpose_rule_no_spk)
