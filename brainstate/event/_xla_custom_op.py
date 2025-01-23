@@ -294,6 +294,7 @@ def _warp_gpu_custom_callback(stream, buffers, opaque, opaque_len):
     dims = [int(d) for d in dim_str.split(",")]
     bounds = warp.types.launch_bounds_t(dims)
     block_dim = int(block_dim_str)
+    print(block_dim)
 
     # Parse arguments.
     arg_strings = args_str.split(";")
@@ -577,13 +578,6 @@ def _warp_gpu_lowering(
     wp_kernel: warp.context.Kernel = kernel_generator(**kwargs)
     kernel_id = _register_warp_kernel(wp_kernel)
 
-    # TODO: This may not be necessary, but it is perhaps better not to be
-    #       mucking with kernel loading while already running the workload.
-    module = wp_kernel.module
-    device = warp.device_from_jax(_get_jax_device())
-    if not module.load(device):
-        raise Exception("Could not load kernel on device")
-
     # ------------------
     # launch dimensions
     # ------------------
@@ -610,6 +604,16 @@ def _warp_gpu_lowering(
             f"Invalid block dimensions, expected "
             f"int, got {block_dim}"
         )
+
+
+
+    # TODO: This may not be necessary, but it is perhaps better not to be
+    #       mucking with kernel loading while already running the workload.
+    module = wp_kernel.module
+    device = warp.device_from_jax(_get_jax_device())
+    if not module.load(device, block_dim):
+        raise Exception("Could not load kernel on device")
+
 
     # ------
     # inputs

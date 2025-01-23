@@ -12,57 +12,65 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+
+import importlib.util
 import unittest
 
 import jax
 import jax.numpy as jnp
+import numpy as np
+import pytest
 from jax.experimental import pallas as pl
 
-import pytest
 import brainstate as bst
-from typing import Any
 
+warp_installed = importlib.util.find_spec('warp') is not None
+numba_installed = importlib.util.find_spec('numba') is not None
 
-def test1():
+if warp_installed:
+    import warp as wp
     import numba
-    def add_vectors_kernel(x_ref, y_ref, o_ref):
-        x, y = x_ref[...], y_ref[...]
-        o_ref[...] = x + y
 
-    def cpu_kernel(**kwargs):
-        @numba.njit
-        def add_kernel_numba(x, y, out):
-            out[...] = x + y
 
-        return add_kernel_numba
+@pytest.mark.skipif(not numba_installed, reason="Numba not installed")
+class TestNumbaCPU(unittest.TestCase):
+    def test1(self):
+        def add_vectors_kernel(x_ref, y_ref, o_ref):
+            x, y = x_ref[...], y_ref[...]
+            o_ref[...] = x + y
 
-    def gpu_kernel(x_info, **kwargs):
-        return pl.pallas_call(
-            add_vectors_kernel,
-            out_shape=[jax.ShapeDtypeStruct(x_info.shape, x_info.dtype)],
-            interpret=jax.default_backend() == 'cpu',
+        def cpu_kernel(**kwargs):
+            @numba.njit
+            def add_kernel_numba(x, y, out):
+                out[...] = x + y
+
+            return add_kernel_numba
+
+        def gpu_kernel(x_info, **kwargs):
+            return pl.pallas_call(
+                add_vectors_kernel,
+                out_shape=[jax.ShapeDtypeStruct(x_info.shape, x_info.dtype)],
+                interpret=jax.default_backend() == 'cpu',
+            )
+
+        prim = bst.event.XLACustomKernel(
+            'add',
+            cpu_kernel=bst.event.NumbaKernelGenerator(cpu_kernel),
+            gpu_kernel=bst.event.PallasKernelGenerator(gpu_kernel),
         )
 
-    prim = bst.event.XLACustomKernel(
-        'add',
-        cpu_kernel=bst.event.NumbaKernelGenerator(cpu_kernel),
-        gpu_kernel=bst.event.PallasKernelGenerator(gpu_kernel),
-    )
+        a = bst.random.rand(64)
+        b = bst.random.rand(64)
+        x_info = jax.ShapeDtypeStruct(a.shape, a.dtype)
+        r1 = prim(a, b, outs=[jax.ShapeDtypeStruct((64,), jax.numpy.float32)], x_info=x_info)
+        r2 = gpu_kernel(x_info)(a, b)
 
-    a = bst.random.rand(64)
-    b = bst.random.rand(64)
-    x_info = jax.ShapeDtypeStruct(a.shape, a.dtype)
-    r1 = prim(a, b, outs=[jax.ShapeDtypeStruct((64,), jax.numpy.float32)], x_info=x_info)
-    r2 = gpu_kernel(x_info)(a, b)
-
-    assert jnp.allclose(r1[0], r2[0])
+        assert jnp.allclose(r1[0], r2[0])
 
 
 @pytest.mark.skipif(jax.default_backend() != 'gpu', reason="No GPU available")
 class TestWarpGPU(unittest.TestCase):
     def test_warp1(self):
-        import warp as wp
-
         # generic kernel definition using Any as a placeholder for concrete types
         @wp.kernel
         def scale(x: wp.array(dtype=float), y: wp.array(dtype=float), ):
@@ -84,8 +92,6 @@ class TestWarpGPU(unittest.TestCase):
         self.assertTrue(jnp.allclose(r, data * data))
 
     def test_warp_scalar(self):
-        import warp as wp
-
         # generic kernel definition using Any as a placeholder for concrete types
         @wp.kernel
         def scale2(
@@ -110,8 +116,6 @@ class TestWarpGPU(unittest.TestCase):
         self.assertTrue(jnp.allclose(r, 1.5 * data))
 
     def test_warp_two_vectors(self):
-        import warp as wp
-
         # generic kernel definition using Any as a placeholder for concrete types
         @wp.kernel
         def scale2(
@@ -136,3 +140,98 @@ class TestWarpGPU(unittest.TestCase):
         print(r)
 
         self.assertTrue(jnp.allclose(r, xs * ys))
+
+    def test_tile1(self):
+        TILE_SIZE = wp.constant(256)
+        TILE_THREADS = 64
+
+        @wp.kernel
+        def compute(
+            a: wp.array2d(dtype=float),
+            b: wp.array2d(dtype=float),
+        ):
+            # obtain our block index
+            i = wp.tid()
+
+            # load a row from global memory
+            t = wp.tile_load(a[i], 0, TILE_SIZE)
+
+            # cooperatively compute the sum of the tile elements; s is a 1x1 tile
+            s = wp.tile_sum(t)
+
+            # store s in global memory
+            wp.tile_store(b[0], i, s)
+
+        N = 10
+        a_np = np.arange(N).reshape(-1, 1) * np.ones((1, 256), dtype=float)
+
+        op = bst.event.XLACustomKernel(
+            name="mm",
+            gpu_kernel=bst.event.WarpKernelGenerator(
+                lambda **kwargs: compute,
+                dim=(a_np.shape[0], TILE_THREADS),
+                block_dim=TILE_THREADS,
+            ),
+        )
+        r = op.call(
+            jax.numpy.asarray(a_np, dtype=jax.numpy.float32),
+            outs=jax.core.ShapedArray([1, N], dtype=jax.numpy.float32)
+        )
+        r_true = a_np.sum(axis=1)
+        print(r)
+        print(r_true)
+        self.assertTrue(jnp.allclose(r[0], r_true))
+
+    def test_tile_matrix_multiplication(self):
+        TILE_M = wp.constant(8)
+        TILE_N = wp.constant(4)
+        TILE_K = wp.constant(8)
+        TILE_THREADS = 64
+
+        @wp.kernel
+        def tile_gemm(
+            A: wp.array2d(dtype=float),
+            B: wp.array2d(dtype=float),
+            C: wp.array2d(dtype=float),
+        ):
+            # output tile index
+            i, j = wp.tid()
+
+            sum = wp.tile_zeros(m=TILE_M, n=TILE_N, dtype=wp.float32)
+
+            M = A.shape[0]
+            N = B.shape[1]
+            K = A.shape[1]
+
+            count = int(K / TILE_K)
+
+            for k in range(0, count):
+                a = wp.tile_load(A, i, k, m=TILE_M, n=TILE_K)
+                b = wp.tile_load(B, k, j, m=TILE_K, n=TILE_N)
+
+                # sum += a*b
+                wp.tile_matmul(a, b, sum)
+
+            wp.tile_store(C, i, j, sum)
+
+        # generate some tile aligned matrix dimensions
+        M = TILE_M * 7
+        K = TILE_K * 6
+        N = TILE_N * 5
+
+        bst.random.seed(42)
+        A = bst.random.random((M, K), dtype=np.float32)
+        B = bst.random.random((K, N), dtype=np.float32)
+        C_true = A @ B
+
+        op = bst.event.XLACustomKernel(
+            name="mm",
+            gpu_kernel=bst.event.WarpKernelGenerator(
+                lambda **kwargs: tile_gemm,
+                dim=(int(M / TILE_M), int(N / TILE_N), TILE_THREADS),
+                block_dim=TILE_THREADS,
+            ),
+        )
+        r = op.call(A, B, outs=jax.core.ShapedArray([M, N], dtype=jax.numpy.float32))
+
+        self.assertTrue(jnp.allclose(r, C_true, atol=1e-3))
