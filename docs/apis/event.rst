@@ -37,9 +37,10 @@ Event-driven Operation Customization
 .. autosummary::
    :toctree: generated/
 
-    XLACustomOp
-    NumbaOpGenerator
-    WarpOpGenerator
-    PallasOpGenerator
+    XLACustomKernel
+    NumbaKernelGenerator
+    WarpKernelGenerator
+    PallasKernelGenerator
+    defjvp
 
 

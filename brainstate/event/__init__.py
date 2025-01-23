@@ -18,11 +18,27 @@ from ._csr import *
 from ._fixedprob_mv import *
 from ._linear_mv import *
 from ._xla_custom_op import *
+from ._event_data import *
+from ._misc import set_numba_environ
 
 __all__ = [
+    # modules
     'FixedProb',
-    'XLACustomOp',
+    'Linear',
+
+    # data structures
     'CSR',
     'CSC',
-    'enable_numba_parallel_if_possible',
+    'Array',
+    'Vector',
+    'Matrix',
+
+    # kernels
+    'NumbaKernelGenerator',
+    'WarpKernelGenerator',
+    'PallasKernelGenerator',
+    'XLACustomKernel',
+
+    # environments
+    'set_numba_environ',
 ]
