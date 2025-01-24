@@ -8,7 +8,6 @@ API Documentation
    apis/augment.rst
    apis/compile.rst
    apis/graph.rst
-   apis/event.rst
    apis/nn.rst
    apis/functional.rst
    apis/init.rst

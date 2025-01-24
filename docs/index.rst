@@ -15,20 +15,6 @@ Features
 .. grid::
 
 
-   .. grid-item::
-      :columns: 12 12 12 4
-
-      .. card:: Event-driven Computation
-         :class-card: sd-border-0
-         :shadow: none
-         :class-title: sd-fs-6
-
-         .. div:: sd-font-normal
-
-            ``BrainState`` enables `event-driven computation <./apis/event.html>`__ for spiking neural networks
-            on CPU and GPU devices.
-
-
 
    .. grid-item::
       :columns: 12 12 12 4
