@@ -28,7 +28,7 @@ class TestDropout(unittest.TestCase):
         dropout_layer = bst.nn.Dropout(0.5)
 
         # Input data
-        input_data = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+        input_data = np.arange(20)
 
         with bst.environ.context(fit=True):
             # Apply dropout
