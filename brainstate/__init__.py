@@ -22,7 +22,6 @@ __version__ = "0.1.0"
 from . import augment
 from . import compile
 from . import environ
-from . import event
 from . import functional
 from . import graph
 from . import init
@@ -39,7 +38,7 @@ from ._state import __all__ as _state_all
 
 __all__ = (
     [
-        'augment', 'compile', 'environ', 'event', 'functional',
+        'augment', 'compile', 'environ', 'functional',
         'graph', 'init', 'mixin', 'nn', 'optim', 'random',
         'surrogate', 'typing', 'util',
         # deprecated

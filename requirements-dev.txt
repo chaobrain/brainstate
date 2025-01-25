@@ -1,7 +1,6 @@
 -r requirements.txt
 optax
 tqdm
-numba
 
 # test requirements
 pytest

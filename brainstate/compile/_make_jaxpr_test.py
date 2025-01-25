@@ -18,11 +18,15 @@ from __future__ import annotations
 import unittest
 
 import jax
-import jax.extend as je
 import jax.numpy as jnp
 import pytest
 
 import brainstate as bst
+
+if jax.__version_info__ < (0, 4, 38):
+    from jax.core import jaxpr_as_fun
+else:
+    from jax.extend.core import jaxpr_as_fun
 
 
 class TestMakeJaxpr(unittest.TestCase):
@@ -85,7 +89,7 @@ class TestMakeJaxpr(unittest.TestCase):
         print(jaxpr)
         jaxpr, _ = bst.compile.make_jaxpr(f3)(jnp.zeros(1))
         print(jaxpr)
-        self.assertTrue(jnp.allclose(je.core.jaxpr_as_fun(jaxpr)(jnp.zeros(1), st1.value)[0],
+        self.assertTrue(jnp.allclose(jaxpr_as_fun(jaxpr)(jnp.zeros(1), st1.value)[0],
                                      f3(jnp.zeros(1))))
 
     def test_compar_jax_make_jaxpr2(self):
@@ -103,10 +107,10 @@ class TestMakeJaxpr(unittest.TestCase):
         print()
         print(jaxpr)
         print(states)
-        print(jax.core.jaxpr_as_fun(jaxpr)(jnp.zeros(1), st1.value))
+        print(jaxpr_as_fun(jaxpr)(jnp.zeros(1), st1.value))
         jaxpr = jax.make_jaxpr(ffa)(jnp.zeros(1))
         print(jaxpr)
-        print(jax.core.jaxpr_as_fun(jaxpr)(jnp.zeros(1)))
+        print(jaxpr_as_fun(jaxpr)(jnp.zeros(1)))
 
     def test_compar_jax_make_jaxpr3(self):
         def fa(x):
@@ -116,10 +120,10 @@ class TestMakeJaxpr(unittest.TestCase):
         print()
         print(jaxpr)
         print(states)
-        # print(jax.core.jaxpr_as_fun(jaxpr)(jnp.zeros(1)))
+        # print(jaxpr_as_fun(jaxpr)(jnp.zeros(1)))
         jaxpr = jax.make_jaxpr(fa)(jnp.zeros(1))
         print(jaxpr)
-        # print(jax.core.jaxpr_as_fun(jaxpr)(jnp.zeros(1)))
+        # print(jaxpr_as_fun(jaxpr)(jnp.zeros(1)))
 
 
 def test_return_states():

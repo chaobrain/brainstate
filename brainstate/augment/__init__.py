@@ -17,24 +17,14 @@
 This module includes transformations for augmenting the functionalities of JAX code.
 """
 
-from ._autograd import *
-from ._autograd import __all__ as _autograd_all
-from ._eval_shape import *
-from ._eval_shape import __all__ as _eval_shape_all
-from ._mapping import *
-from ._mapping import __all__ as _mapping_all
-from ._random import *
-from ._random import __all__ as _random_all
+from ._autograd import GradientTransform, grad, vector_grad, hessian, jacobian, jacrev, jacfwd
+from ._eval_shape import abstract_init
+from ._mapping import vmap, pmap, map
+from ._random import restore_rngs
 
-__all__ = (
-    _eval_shape_all
-    + _autograd_all
-    + _mapping_all
-    + _random_all
-)
-del (
-    _eval_shape_all,
-    _autograd_all,
-    _mapping_all,
-    _random_all
-)
+__all__ = [
+    'GradientTransform', 'grad', 'vector_grad', 'hessian', 'jacobian', 'jacrev', 'jacfwd',
+    'abstract_init',
+    'vmap', 'pmap', 'map',
+    'restore_rngs',
+]
