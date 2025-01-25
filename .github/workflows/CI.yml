@@ -25,6 +25,10 @@ concurrency:
 jobs:
   test_linux:
     runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.ref }}
+      cancel-in-progress: true  # Automatically cancel previous jobs if a new one is triggered for the same branch
+
     strategy:
       fail-fast: false
       matrix:
@@ -55,6 +59,10 @@ jobs:
 
   test_macos:
     runs-on: macos-latest
+    concurrency:
+      group: ${{ github.ref }}
+      cancel-in-progress: true  # Automatically cancel previous jobs if a new one is triggered for the same branch
+
     strategy:
       fail-fast: false
       matrix:
@@ -85,6 +93,10 @@ jobs:
 
   test_windows:
     runs-on: windows-latest
+    concurrency:
+      group: ${{ github.ref }}
+      cancel-in-progress: true  # Automatically cancel previous jobs if a new one is triggered for the same branch
+
     strategy:
       fail-fast: false
       matrix:
