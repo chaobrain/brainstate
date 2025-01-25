@@ -78,7 +78,7 @@ mlir.register_lowering(
 
 # unvmap_any
 
-unvmap_any_p = jax.core.Primitive("unvmap_any")
+unvmap_any_p = Primitive("unvmap_any")
 
 
 def unvmap_any(x):
@@ -109,7 +109,7 @@ mlir.register_lowering(
 
 # unvmap_max
 
-unvmap_max_p = jax.core.Primitive("unvmap_max")
+unvmap_max_p = Primitive("unvmap_max")
 
 
 def unvmap_max(x):
@@ -156,7 +156,7 @@ def _without_vmap_batch(x, batch_axes):
     return _without_vmap(x), batching.not_mapped
 
 
-_no_vmap_prim = jax.core.Primitive('no_vmap')
+_no_vmap_prim = Primitive('no_vmap')
 _no_vmap_prim.def_impl(_without_vmap_imp)
 _no_vmap_prim.def_abstract_eval(_without_vmap_abs)
 batching.primitive_batchers[_no_vmap_prim] = _without_vmap_batch

@@ -73,6 +73,13 @@ from brainstate._state import State, StateTraceStack
 from brainstate._utils import set_module_as
 from brainstate.typing import PyTree
 
+
+if jax.__version_info__ < (0, 4, 38):
+    from jax.core import ClosedJaxpr
+else:
+    from jax.extend.core import ClosedJaxpr
+
+
 AxisName = Hashable
 
 __all__ = [
@@ -660,7 +667,7 @@ def _make_jaxpr(
     axis_env: Sequence[tuple[AxisName, int]] | None = None,
     return_shape: bool = False,
     abstracted_axes: Any | None = None,
-) -> Callable[..., (jax.core.ClosedJaxpr | tuple[jax.core.ClosedJaxpr, Any])]:
+) -> Callable[..., (ClosedJaxpr | tuple[ClosedJaxpr, Any])]:
     """Creates a function that produces its jaxpr given example args.
 
     Args:
