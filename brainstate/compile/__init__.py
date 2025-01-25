@@ -17,7 +17,7 @@
 This module contains the functions for the compilation of JAX code.
 """
 
-from ._ad_checkpoint import checkpoint
+from ._ad_checkpoint import checkpoint, remat
 from ._conditions import cond, switch, ifelse
 from ._error_if import jit_error_if
 from ._jit import jit
@@ -27,7 +27,7 @@ from ._make_jaxpr import StatefulFunction, make_jaxpr
 from ._progress_bar import ProgressBar
 
 __all__ = [
-    'checkpoint',
+    'checkpoint', 'remat',
     'cond', 'switch', 'ifelse',
     'jit_error_if',
     'jit',

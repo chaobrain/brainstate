@@ -17,7 +17,7 @@ Features
 
 
    .. grid-item::
-      :columns: 12 12 12 4
+      :columns: 12 12 12 6
 
       .. card:: Program Compilation
          :class-card: sd-border-0
@@ -31,7 +31,7 @@ Features
 
 
    .. grid-item::
-      :columns: 12 12 12 4
+      :columns: 12 12 12 6
 
       .. card:: Program Augmentation
          :class-card: sd-border-0
