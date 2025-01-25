@@ -114,8 +114,6 @@ We are building the `Brain Dynamics Programming ecosystem <https://ecosystem-for
    tutorials/program_compilation-zh.ipynb
    tutorials/program_augmentation-en.ipynb
    tutorials/program_augmentation-zh.ipynb
-   tutorials/event_driven_computation-en.ipynb
-   tutorials/event_driven_computation-zh.ipynb
    tutorials/optimizers-en.ipynb
    tutorials/optimizers-zh.ipynb
    tutorials/gspmd-en.ipynb
