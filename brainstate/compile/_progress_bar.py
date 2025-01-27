@@ -35,6 +35,47 @@ Output = Any
 class ProgressBar(object):
     """
     A progress bar for tracking the progress of a jitted for-loop computation.
+
+    It can be used in :py:func:`for_loop`, :py:func:`checkpointed_for_loop`, :py:func:`scan`,
+    and :py:func:`checkpointed_scan` functions. Or any other jitted function that uses
+    a for-loop.
+
+    The message displayed in the progress bar can be customized by the following two methods:
+
+    1. By passing a string to the `desc` argument. For example:
+
+    .. code-block:: python
+
+            ProgressBar(desc="Running 1000 iterations")
+
+    2. By passing a tuple with a string and a callable function to the `desc` argument. The callable
+       function should take a dictionary as input and return a dictionary. The returned dictionary
+       will be used to format the string. For example:
+
+    .. code-block:: python
+
+                a = bst.State(1.)
+                def loop_fn(x):
+                    a.value = x.value + 1.
+                    return jnp.sum(x ** 2)
+
+                pbar = ProgressBar(desc=("Running {i} iterations, loss = {loss}",
+                                         lambda i_carray_y: {"i": i_carray_y["i"], "loss": i_carray_y["y"]}))
+
+                bst.compile.for_loop(loop_fn, xs, pbar=pbar)
+
+    In this example, ``"i"`` denotes the iteration number and ``"loss"`` is computed from the output,
+    the ``"carry"`` is the dynamic state in the loop, for example ``a.value`` in this case.
+
+
+    Args:
+        freq: The frequency at which to print the progress bar. If not specified, the progress
+            bar will be printed every 5% of the total iterations.
+        count: The number of times to print the progress bar. If not specified, the progress
+            bar will be printed every 5% of the total iterations.
+        desc: A description of the progress bar. If not specified, a default message will be
+            displayed.
+        kwargs: Additional keyword arguments to pass to the progress bar.
     """
     __module__ = "brainstate.compile"
 
@@ -42,7 +83,7 @@ class ProgressBar(object):
         self,
         freq: Optional[int] = None,
         count: Optional[int] = None,
-        desc: Optional[Tuple[str, Callable[[Dict], Dict]]] = None,
+        desc: Optional[Tuple[str, Callable[[Dict], Dict]] | str] = None,
         **kwargs
     ):
         # print rate
@@ -62,9 +103,12 @@ class ProgressBar(object):
 
         # description
         if desc is not None:
-            assert isinstance(desc, (tuple, list)), 'Description should be a tuple or list.'
-            assert isinstance(desc[0], str), 'Description should be a string.'
-            assert callable(desc[1]), 'Description should be a callable.'
+            if isinstance(desc, str):
+                pass
+            else:
+                assert isinstance(desc, (tuple, list)), 'Description should be a tuple or list.'
+                assert isinstance(desc[0], str), 'Description should be a string.'
+                assert callable(desc[1]), 'Description should be a callable.'
         self.desc = desc
 
         # check if tqdm is installed
@@ -136,8 +180,7 @@ class ProgressBarRunner(object):
         self.tqdm_bars[0].close()
 
     def __call__(self, iter_num, **kwargs):
-        data = dict(i=iter_num, **kwargs)
-        data = dict() if isinstance(self.message, str) else self.message[1](data)
+        data = dict() if isinstance(self.message, str) else self.message[1](dict(i=iter_num, **kwargs))
         assert isinstance(data, dict), 'Description function should return a dictionary.'
 
         _ = jax.lax.cond(

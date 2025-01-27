@@ -730,7 +730,7 @@ def _make_jaxpr(
     def _abstractify(args, kwargs):
         flat_args, in_tree = jax.tree.flatten((args, kwargs))
         if abstracted_axes is None:
-            return map(jax.api_util.shaped_abstractify, flat_args), in_tree, [True] * len(flat_args)
+            return map(shaped_abstractify, flat_args), in_tree, [True] * len(flat_args)
         else:
             axes_specs = _flat_axes_specs(abstracted_axes, *args, **kwargs)
             in_type = pe.infer_lambda_input_type(axes_specs, flat_args)

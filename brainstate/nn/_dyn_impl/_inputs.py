@@ -224,7 +224,8 @@ def poisson_input(
     weight = maybe_state(weight)
 
     assert isinstance(target, State), 'The target must be a State.'
-    p = (freq * environ.get_dt()).to_decimal()
+    p = freq * environ.get_dt()
+    p = p.to_decimal() if isinstance(p, u.Quantity) else p
     a = num_input * p
     b = num_input * (1 - p)
     tar_val = target.value
@@ -291,7 +292,8 @@ def poisson_input(
 
         # update target variable
         target.value = jax.tree.map(
-            lambda x: x * weight,
+            lambda tar, x: tar + x * weight,
+            target.value,
             inp,
             is_leaf=u.math.is_quantity
         )
