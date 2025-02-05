@@ -609,7 +609,7 @@ def _get_children(graph_def, state_mapping, index_ref, index_ref_cache):
                             variable.update_from_ref(value)
                         elif isinstance(value, State):
                             if value._been_writen:
-                                variable.write_value(value.value)
+                                variable.value = value.value
                             else:
                                 variable.restore_value(value.value)
                         else:

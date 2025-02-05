@@ -31,7 +31,7 @@ def write_back_state_values(
     assert len(state_trace.states) == len(state_trace.been_writen) == len(read_state_vals) == len(write_state_vals)
     for st, write, val_r, val_w in zip(state_trace.states, state_trace.been_writen, read_state_vals, write_state_vals):
         if write:
-            st.write_value(val_w)
+            st.value = val_w
         else:
             st.restore_value(val_r)
 
