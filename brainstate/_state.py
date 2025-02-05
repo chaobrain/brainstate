@@ -272,12 +272,14 @@ class State(Generic[A], PrettyRepr):
         Args:
           v: The value.
         """
+        # NOTE: the following order is important
+
         if isinstance(v, State):  # value checking
             raise ValueError('Cannot set value to a State, ' 'use `copy_from` method instead')
         self._check_value_tree(v)  # check the tree structure
-        self._write_value(v)  # write the value
-        self._been_writen = True  # set the flag
         record_state_value_write(self)  # record the value by the stack (>= level)
+        self._been_writen = True  # set the flag
+        self._write_value(v)  # write the value
 
     @property
     def stack_level(self):

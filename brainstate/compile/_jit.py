@@ -82,7 +82,6 @@ def _get_jitted_fun(
             return fun.fun(*args, **params)
 
         # compile the function and get the state trace
-        # print('Compiling ...')
         state_trace = fun.compile_function_and_get_state_trace(*args, **params, return_only_write=True)
         read_state_vals = state_trace.get_read_state_values(True)
 
