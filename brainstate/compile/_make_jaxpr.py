@@ -499,7 +499,7 @@ class StatefulFunction(object):
         state_vals, out = self.jaxpr_call([st.value for st in state_trace.states], *args, **kwargs)
         for st, written, val in zip(state_trace.states, state_trace.been_writen, state_vals):
             if written:
-                st.write_value(val)
+                st.value = val
             else:
                 st.restore_value(val)
         return out

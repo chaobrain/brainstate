@@ -261,9 +261,8 @@ class State(Generic[A], PrettyRepr):
         """
         The data and its value.
         """
-        self.check_if_deleted()
         record_state_value_read(self)
-        return self._value
+        return self._read_value()
 
     @value.setter
     def value(self, v) -> None:
@@ -273,7 +272,9 @@ class State(Generic[A], PrettyRepr):
         Args:
           v: The value.
         """
-        self.write_value(v)
+        self._write_value(v)
+        self._been_writen = True
+        record_state_value_write(self)
 
     @property
     def stack_level(self):
@@ -295,17 +296,23 @@ class State(Generic[A], PrettyRepr):
         """
         self._level = level
 
-    def write_value(self, v) -> None:
+    def _read_value(self) -> PyTree[ArrayLike]:
+        """
+        The interface to customize the value reading.
+        """
+        self.check_if_deleted()
+        return self._value
+
+    def _write_value(self, v) -> None:
+        """
+        The interface to customize the value writing.
+        """
         # value checking
         if isinstance(v, State):
             raise ValueError('Cannot set value to a State, ' 'use `copy_from` method instead')
         self._check_value_tree(v)
-        # write the value by the stack (>= level)
-        record_state_value_write(self)
         # set the value
         self._value = v
-        # set flag
-        self._been_writen = True
 
     def restore_value(self, v) -> None:
         """
