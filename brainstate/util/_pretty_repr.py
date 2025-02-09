@@ -21,9 +21,11 @@ import dataclasses
 import threading
 from abc import ABC, abstractmethod
 from functools import partial
-from typing import Any, Iterator, Mapping, TypeVar, Union, Callable, Optional
+from typing import Any, Iterator, Mapping, TypeVar, Union, Callable, Optional, Sequence
 
 __all__ = [
+    'yield_unique_pretty_repr_items',
+    'pretty_repr',
     'PrettyType',
     'PrettyAttr',
     'PrettyRepr',
@@ -80,7 +82,7 @@ class PrettyRepr(ABC):
 
     def __repr__(self) -> str:
         # repr the individual object with the pretty representation
-        return get_repr(self)
+        return pretty_repr(self)
 
 
 def _repr_elem(obj: PrettyType, elem: Any) -> str:
@@ -93,7 +95,7 @@ def _repr_elem(obj: PrettyType, elem: Any) -> str:
     return f'{obj.elem_indent}{elem.start}{elem.key}{obj.value_sep}{value}{elem.end}'
 
 
-def get_repr(obj: PrettyRepr) -> str:
+def pretty_repr(obj: PrettyRepr) -> str:
     """
     Get the pretty representation of an object.
     """
@@ -140,9 +142,10 @@ class PrettyMapping(PrettyRepr):
     Pretty representation of a mapping.
     """
     mapping: Mapping
+    type_name: str = ''
 
     def __pretty_repr__(self):
-        yield PrettyType(type='', value_sep=': ', start='{', end='}')
+        yield PrettyType(type=self.type_name, value_sep=': ', start='{', end='}')
 
         for key, value in self.mapping.items():
             yield PrettyAttr(repr(key), value)
@@ -168,7 +171,7 @@ def _default_repr_attr(node):
         yield PrettyAttr(name, repr(value))
 
 
-def pretty_repr_avoid_duplicate(
+def yield_unique_pretty_repr_items(
     node,
     repr_object: Optional[Callable] = None,
     repr_attr: Optional[Callable] = None
@@ -206,3 +209,4 @@ def pretty_repr_avoid_duplicate(
     finally:
         if clear_seen:
             CONTEXT.seen_modules_repr = None
+
