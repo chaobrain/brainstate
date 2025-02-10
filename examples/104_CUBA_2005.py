@@ -29,6 +29,7 @@ import brainunit as u
 import matplotlib.pyplot as plt
 
 import brainstate as bst
+import brainevent.nn
 
 
 class EINet(bst.nn.DynamicsGroup):
@@ -43,13 +44,13 @@ class EINet(bst.nn.DynamicsGroup):
             V_initializer=bst.init.Normal(-55., 2., unit=u.mV)
         )
         self.E = bst.nn.AlignPostProj(
-            comm=bst.event.FixedProb(self.n_exc, self.num, prob=0.02, weight=1.62 * u.mS),
+            comm=brainevent.nn.FixedProb(self.n_exc, self.num, prob=0.02, weight=1.62 * u.mS),
             syn=bst.nn.Expon.desc(self.num, tau=5. * u.ms),
             out=bst.nn.CUBA.desc(scale=u.volt),
             post=self.N
         )
         self.I = bst.nn.AlignPostProj(
-            comm=bst.event.FixedProb(self.n_inh, self.num, prob=0.02, weight=-9.0 * u.mS),
+            comm=brainevent.nn.FixedProb(self.n_inh, self.num, prob=0.02, weight=-9.0 * u.mS),
             syn=bst.nn.Expon.desc(self.num, tau=10. * u.ms),
             out=bst.nn.CUBA.desc(scale=u.volt),
             post=self.N

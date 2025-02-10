@@ -26,6 +26,7 @@ import jax
 import matplotlib.pyplot as plt
 
 import brainstate as bst
+import brainevent.nn
 
 Vr = 10. * u.mV
 theta = 20. * u.mV
@@ -75,7 +76,7 @@ class Net(bst.nn.DynamicsGroup):
         self.group = LIF(num)
         self.delay = bst.nn.Delay(jax.ShapeDtypeStruct((num,), bool), delta)
         self.syn = bst.nn.DeltaProj(
-            comm=bst.event.FixedProb(num, num, sparseness, weight=-J),
+            comm=brainevent.nn.FixedProb(num, num, sparseness, weight=-J),
             post=self.group
         )
 
