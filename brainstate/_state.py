@@ -813,11 +813,7 @@ class TreefyState(Generic[A], PrettyReprTree):
             return 'value', v
 
         if k == '_name':
-            if self.name is None:
-                return None, None
-            else:
-                return 'name', v
-
+            return (None, None) if self.name is None else ('name', v)
         return k, v
 
     def replace(self, value: B) -> TreefyState[B]:
