@@ -25,8 +25,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 import brainstate as bst
+import brainevent.nn
 
-bst.environ.set(precision='bf16')
+# bst.environ.set(precision='bf16')
 
 num_exc = 3200
 num_inh = 800
@@ -136,13 +137,13 @@ class EINet(bst.nn.DynamicsGroup):
         self.N = HH(self.varshape)
 
         self.E = bst.nn.AlignPostProj(
-            comm=bst.event.FixedProb(self.n_exc, self.varshape, prob=0.02, weight=we),
+            comm=brainevent.nn.FixedProb(self.n_exc, self.varshape, prob=0.02, weight=we),
             syn=bst.nn.Expon(self.varshape, tau=taue),
             out=bst.nn.COBA(E=Ee),
             post=self.N
         )
         self.I = bst.nn.AlignPostProj(
-            comm=bst.event.FixedProb(self.n_inh, self.varshape, prob=0.02, weight=wi),
+            comm=brainevent.nn.FixedProb(self.n_inh, self.varshape, prob=0.02, weight=wi),
             syn=bst.nn.Expon(self.varshape, tau=taui),
             out=bst.nn.COBA(E=Ei),
             post=self.N

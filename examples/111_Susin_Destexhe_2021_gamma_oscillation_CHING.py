@@ -24,6 +24,7 @@
 
 import brainunit as u
 import brainstate as bst
+import brainevent.nn
 
 from Susin_Destexhe_2021_gamma_oscillation import (
     get_inputs, visualize_simulation_results, RS_par, FS_par, Ch_par, AdEx
@@ -60,17 +61,17 @@ class CHINGNet(bst.nn.DynamicsGroup):
 
         # Poisson inputs
         self.ext_to_FS = bst.nn.DeltaProj(
-            comm=bst.event.FixedProb(self.num_rs, self.num_fs, 0.02, self.ext_weight2),
+            comm=brainevent.nn.FixedProb(self.num_rs, self.num_fs, 0.02, self.ext_weight2),
             post=self.fs_pop,
             label='ge',
         )
         self.ext_to_RS = bst.nn.DeltaProj(
-            comm=bst.event.FixedProb(self.num_rs, self.num_rs, 0.02, self.ext_weight1),
+            comm=brainevent.nn.FixedProb(self.num_rs, self.num_rs, 0.02, self.ext_weight1),
             post=self.rs_pop,
             label='ge',
         )
         self.ext_to_CH = bst.nn.DeltaProj(
-            comm=bst.event.FixedProb(self.num_rs, self.num_ch, 0.02, self.ext_weight1),
+            comm=brainevent.nn.FixedProb(self.num_rs, self.num_ch, 0.02, self.ext_weight1),
             post=self.ch_pop,
             label='ge',
         )
@@ -78,19 +79,19 @@ class CHINGNet(bst.nn.DynamicsGroup):
         # synaptic projections
         self.RS_to_FS = bst.nn.DeltaProj(
             self.rs_pop.prefetch('spike').delay.at(self.delay),
-            comm=bst.event.FixedProb(self.num_rs, self.num_fs, 0.02, self.exc_syn_weight),
+            comm=brainevent.nn.FixedProb(self.num_rs, self.num_fs, 0.02, self.exc_syn_weight),
             post=self.fs_pop,
             label='ge',
         )
         self.RS_to_RS = bst.nn.DeltaProj(
             self.rs_pop.prefetch('spike').delay.at(self.delay),
-            comm=bst.event.FixedProb(self.num_rs, self.num_rs, 0.02, self.exc_syn_weight),
+            comm=brainevent.nn.FixedProb(self.num_rs, self.num_rs, 0.02, self.exc_syn_weight),
             post=self.rs_pop,
             label='ge',
         )
         self.RS_to_Ch = bst.nn.DeltaProj(
             self.rs_pop.prefetch('spike').delay.at(self.delay),
-            comm=bst.event.FixedProb(self.num_rs, self.num_ch, 0.02, self.exc_syn_weight),
+            comm=brainevent.nn.FixedProb(self.num_rs, self.num_ch, 0.02, self.exc_syn_weight),
             post=self.ch_pop,
             label='ge',
         )
@@ -98,19 +99,19 @@ class CHINGNet(bst.nn.DynamicsGroup):
         # inhibitory projections
         self.FS_to_RS = bst.nn.DeltaProj(
             self.fs_pop.prefetch('spike').delay.at(self.delay),
-            comm=bst.event.FixedProb(self.num_fs, self.num_rs, 0.02, self.inh_syn_weight1),
+            comm=brainevent.nn.FixedProb(self.num_fs, self.num_rs, 0.02, self.inh_syn_weight1),
             post=self.rs_pop,
             label='gi',
         )
         self.FS_to_FS = bst.nn.DeltaProj(
             self.fs_pop.prefetch('spike').delay.at(self.delay),
-            comm=bst.event.FixedProb(self.num_fs, self.num_fs, 0.02, self.inh_syn_weight2),
+            comm=brainevent.nn.FixedProb(self.num_fs, self.num_fs, 0.02, self.inh_syn_weight2),
             post=self.fs_pop,
             label='gi',
         )
         self.FS_to_Ch = bst.nn.DeltaProj(
             self.fs_pop.prefetch('spike').delay.at(self.delay),
-            comm=bst.event.FixedProb(self.num_fs, self.num_ch, 0.02, self.inh_syn_weight1),
+            comm=brainevent.nn.FixedProb(self.num_fs, self.num_ch, 0.02, self.inh_syn_weight1),
             post=self.ch_pop,
             label='gi',
         )
@@ -118,19 +119,19 @@ class CHINGNet(bst.nn.DynamicsGroup):
         # chatter cell projections
         self.Ch_to_RS = bst.nn.DeltaProj(
             self.ch_pop.prefetch('spike').delay.at(self.delay),
-            comm=bst.event.FixedProb(self.num_ch, self.num_rs, 0.02, self.exc_syn_weight),
+            comm=brainevent.nn.FixedProb(self.num_ch, self.num_rs, 0.02, self.exc_syn_weight),
             post=self.rs_pop,
             label='ge',
         )
         self.Ch_to_FS = bst.nn.DeltaProj(
             self.ch_pop.prefetch('spike').delay.at(self.delay),
-            comm=bst.event.FixedProb(self.num_ch, self.num_fs, 0.02, self.exc_syn_weight),
+            comm=brainevent.nn.FixedProb(self.num_ch, self.num_fs, 0.02, self.exc_syn_weight),
             post=self.fs_pop,
             label='ge',
         )
         self.Ch_to_Ch = bst.nn.DeltaProj(
             self.ch_pop.prefetch('spike').delay.at(self.delay),
-            comm=bst.event.FixedProb(self.num_ch, self.num_ch, 0.02, self.exc_syn_weight),
+            comm=brainevent.nn.FixedProb(self.num_ch, self.num_ch, 0.02, self.exc_syn_weight),
             post=self.ch_pop,
             label='ge',
         )

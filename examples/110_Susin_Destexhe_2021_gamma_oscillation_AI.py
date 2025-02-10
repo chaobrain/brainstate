@@ -29,6 +29,7 @@ os.environ['JAX_TRACEBACK_FILTERING'] = 'off'
 
 import brainstate as bst
 import braintools as bts
+import brainevent.nn
 import brainunit as u
 import matplotlib.pyplot as plt
 
@@ -100,12 +101,12 @@ class AINet(bst.nn.DynamicsGroup):
 
         # Poisson inputs
         self.ext_to_FS = bst.nn.DeltaProj(
-            comm=bst.event.FixedProb(self.num_exc, self.num_inh, 0.02, self.ext_weight),
+            comm=brainevent.nn.FixedProb(self.num_exc, self.num_inh, 0.02, self.ext_weight),
             post=self.fs_pop,
             label='ge'
         )
         self.ext_to_RS = bst.nn.DeltaProj(
-            comm=bst.event.FixedProb(self.num_exc, self.num_exc, 0.02, self.ext_weight),
+            comm=brainevent.nn.FixedProb(self.num_exc, self.num_exc, 0.02, self.ext_weight),
             post=self.rs_pop,
             label='ge'
         )
@@ -113,25 +114,25 @@ class AINet(bst.nn.DynamicsGroup):
         # synaptic projections
         self.RS_to_FS = bst.nn.DeltaProj(
             self.rs_pop.prefetch('spike').delay.at(self.delay),
-            comm=bst.event.FixedProb(self.num_exc, self.num_inh, 0.02, self.exc_syn_weight),
+            comm=brainevent.nn.FixedProb(self.num_exc, self.num_inh, 0.02, self.exc_syn_weight),
             post=self.fs_pop,
             label='ge'
         )
         self.RS_to_RS = bst.nn.DeltaProj(
             self.rs_pop.prefetch('spike').delay.at(self.delay),
-            comm=bst.event.FixedProb(self.num_exc, self.num_exc, 0.02, self.exc_syn_weight),
+            comm=brainevent.nn.FixedProb(self.num_exc, self.num_exc, 0.02, self.exc_syn_weight),
             post=self.rs_pop,
             label='ge'
         )
         self.FS_to_FS = bst.nn.DeltaProj(
             self.fs_pop.prefetch('spike').delay.at(self.delay),
-            comm=bst.event.FixedProb(self.num_inh, self.num_inh, 0.02, self.inh_syn_weight),
+            comm=brainevent.nn.FixedProb(self.num_inh, self.num_inh, 0.02, self.inh_syn_weight),
             post=self.fs_pop,
             label='gi'
         )
         self.FS_to_RS = bst.nn.DeltaProj(
             self.fs_pop.prefetch('spike').delay.at(self.delay),
-            comm=bst.event.FixedProb(self.num_inh, self.num_exc, 0.02, self.inh_syn_weight),
+            comm=brainevent.nn.FixedProb(self.num_inh, self.num_exc, 0.02, self.inh_syn_weight),
             post=self.rs_pop,
             label='gi'
         )

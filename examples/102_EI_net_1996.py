@@ -40,6 +40,7 @@ import brainunit as u
 import matplotlib.pyplot as plt
 
 import brainstate as bst
+import brainevent.nn
 
 
 class EINet(bst.nn.DynamicsGroup):
@@ -55,13 +56,13 @@ class EINet(bst.nn.DynamicsGroup):
 
         # synapses
         self.E = bst.nn.AlignPostProj(
-            comm=bst.event.FixedProb(n_exc, self.num, prob, JE),
+            comm=brainevent.nn.FixedProb(n_exc, self.num, prob, JE),
             syn=bst.nn.Expon.desc(self.num, tau=2. * u.ms),
             out=bst.nn.CUBA.desc(),
             post=self.N,
         )
         self.I = bst.nn.AlignPostProj(
-            comm=bst.event.FixedProb(n_inh, self.num, prob, JI),
+            comm=brainevent.nn.FixedProb(n_inh, self.num, prob, JI),
             syn=bst.nn.Expon.desc(self.num, tau=2. * u.ms),
             out=bst.nn.CUBA.desc(),
             post=self.N,
