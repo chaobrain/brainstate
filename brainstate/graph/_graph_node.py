@@ -27,7 +27,7 @@ import numpy as np
 
 from brainstate._state import State, TreefyState
 from brainstate.typing import Key
-from brainstate.util._pretty_repr import PrettyRepr, pretty_repr_avoid_duplicate, PrettyType, PrettyAttr
+from brainstate.util._pretty_repr import PrettyRepr, yield_unique_pretty_repr_items, PrettyType, PrettyAttr
 from ._graph_operation import register_graph_node_type
 
 __all__ = [
@@ -88,7 +88,7 @@ class Node(PrettyRepr, metaclass=GraphNodeMeta):
         """
         Pretty repr for the object.
         """
-        yield from pretty_repr_avoid_duplicate(self, _default_repr_object, _default_repr_attr)
+        yield from yield_unique_pretty_repr_items(self, _default_repr_object, _default_repr_attr)
 
     def __treescope_repr__(self, path, subtree_renderer):
         """

@@ -19,8 +19,10 @@ import contextlib
 import dataclasses
 import threading
 from functools import wraps, partial
-from typing import (Any, Union, Callable, Generic, Mapping,
-                    TypeVar, Optional, TYPE_CHECKING, Tuple, Dict, List, Sequence)
+from typing import (
+    Any, Union, Callable, Generic, Mapping,
+    TypeVar, Optional, TYPE_CHECKING, Tuple, Dict, List, Sequence
+)
 
 import jax
 import numpy as np
@@ -28,7 +30,7 @@ from jax.api_util import shaped_abstractify
 from jax.extend import source_info_util
 
 from brainstate.typing import ArrayLike, PyTree, Missing
-from brainstate.util import DictManager, PrettyRepr, PrettyType, PrettyAttr
+from brainstate.util import DictManager, PrettyReprTree
 
 __all__ = [
     'State', 'ShortTermState', 'LongTermState', 'HiddenState', 'ParamState', 'TreefyState',
@@ -184,7 +186,7 @@ def _get_trace_stack_level() -> int:
     return len(TRACE_CONTEXT.state_stack)
 
 
-class State(Generic[A], PrettyRepr):
+class State(Generic[A], PrettyReprTree):
     """
     The pointer to specify the dynamical data.
 
@@ -434,45 +436,25 @@ class State(Generic[A], PrettyRepr):
         del metadata['_value']
         return TreefyState(type(self), self._value, **metadata)
 
-    def __pretty_repr__(self):
-        yield PrettyType(type=type(self))
-        for name, value in vars(self).items():
-            if name == '_value':
-                name = 'value'
-            if name == '_name':
-                if value is None:
-                    continue
-                else:
-                    name = 'name'
-            if name == 'tag' and value is None:
-                continue
-            if name in ['_level', '_source_info', '_been_writen']:
-                continue
-            yield PrettyAttr(name, repr(value))
+    def __pretty_repr_item__(self, k, v):
+        if k in ['_level', '_source_info', '_been_writen']:
+            return None, None
+        if k == '_value':
+            return 'value', v
 
-    def __treescope_repr__(self, path, subtree_renderer):
-        children = {}
-        for name, value in vars(self).items():
-            if name == '_value':
-                name = 'value'
-            if name == '_name':
-                if value is None:
-                    continue
-                else:
-                    name = 'name'
-            if name == 'tag' and value is None:
-                continue
-            if name in ['_level', '_source_info', '_been_writen']:
-                continue
-            children[name] = value
+        if k == '_name':
+            if self.name is None:
+                return None, None
+            else:
+                return 'name', v
 
-        import treescope  # type: ignore[import-not-found,import-untyped]
-        return treescope.repr_lib.render_object_constructor(
-            object_type=type(self),
-            attributes=children,
-            path=path,
-            subtree_renderer=subtree_renderer,
-        )
+        if k == 'tag':
+            if self.tag is None:
+                return None, None
+            else:
+                return 'tag', v
+
+        return k, v
 
     def __eq__(self, other: object) -> bool:
         return type(self) is type(other) and vars(other) == vars(self)
@@ -809,7 +791,7 @@ class StateTraceStack(Generic[A]):
         return StateTraceStack().merge(self, other)
 
 
-class TreefyState(Generic[A], PrettyRepr):
+class TreefyState(Generic[A], PrettyReprTree):
     """
     The state as a pytree.
     """
@@ -831,35 +813,15 @@ class TreefyState(Generic[A], PrettyRepr):
 
         def __delattr__(self, name: str) -> None: ...
 
-    def __pretty_repr__(self):
-        yield PrettyType(type=type(self))
-        yield PrettyAttr('type', self.type.__name__)
-        for name, value in vars(self).items():
-            if name == '_value':
-                name = 'value'
-            if name == '_name':
-                if value is None:
-                    continue
-                else:
-                    name = 'name'
-            if name in ['_level', '_source_info', 'type']:
-                continue
-            yield PrettyAttr(name, repr(value))
+    def __pretty_repr_item__(self, k, v):
+        if k in ['_level', '_source_info', '_been_writen']:
+            return None, None
+        if k == '_value':
+            return 'value', v
 
-    def __treescope_repr__(self, path, subtree_renderer):
-        children = {'type': self.type}
-        for name, value in vars(self).items():
-            if name == 'type':
-                continue
-            children[name] = value
-
-        import treescope  # type: ignore[import-not-found,import-untyped]
-        return treescope.repr_lib.render_object_constructor(
-            object_type=type(self),
-            attributes=children,
-            path=path,
-            subtree_renderer=subtree_renderer,
-        )
+        if k == '_name':
+            return (None, None) if v is None else ('name', v)
+        return k, v
 
     def replace(self, value: B) -> TreefyState[B]:
         """

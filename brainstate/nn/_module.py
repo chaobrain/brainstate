@@ -294,7 +294,8 @@ class Sequential(Module):
         # the input and output shape
         if first.in_size is not None:
             self.in_size = first.in_size
-        self.out_size = tuple(in_size)
+        if in_size is not None:
+            self.out_size = tuple(in_size)
 
     def update(self, x):
         """Update function of a sequential model.

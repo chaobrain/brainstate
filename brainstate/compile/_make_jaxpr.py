@@ -206,7 +206,7 @@ class StatefulFunction(object):
         self._cached_state_trace: Dict[Any, StateTraceStack] = dict()
 
     def __repr__(self) -> str:
-        return (f"{self.__class__.__name__}({self.fun}, "
+        return (f"{self.__class__.__name__}("
                 f"static_argnums={self.static_argnums}, "
                 f"axis_env={self.axis_env}, "
                 f"abstracted_axes={self.abstracted_axes}, "

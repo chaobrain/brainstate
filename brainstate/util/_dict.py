@@ -24,11 +24,12 @@ import jax
 
 from brainstate.typing import Filter, PathParts
 from ._filter import to_predicate
-from ._pretty_repr import PrettyRepr, PrettyType, PrettyAttr, pretty_repr_avoid_duplicate, get_repr
+from ._pretty_repr import PrettyRepr, PrettyType, PrettyAttr, yield_unique_pretty_repr_items, pretty_repr
 from ._struct import dataclass
 
 __all__ = [
-    'NestedDict', 'FlattedDict', 'flat_mapping', 'nest_mapping',
+    'PrettyDict', 'NestedDict', 'FlattedDict', 'flat_mapping', 'nest_mapping',
+    'PrettyList', 'PrettyReprTree',
 ]
 
 A = TypeVar('A')
@@ -38,6 +39,44 @@ V = TypeVar('V')
 FlattedStateMapping = dict[PathParts, V]
 ExtractValueFn = abc.Callable[[Any], Any]
 SetValueFn = abc.Callable[[V, Any], V]
+
+
+
+
+class PrettyReprTree(PrettyRepr):
+    """
+    Pretty representation of a tree.
+    """
+
+    def __pretty_repr__(self):
+        return yield_unique_pretty_repr_items(
+            self,
+            repr_object=self._repr_object,
+            repr_attr=self._repr_attr,
+        )
+
+    def __pretty_repr_item__(self, k, v):
+        return k, v
+
+    def _repr_object(self, node: PrettyDict):
+        yield PrettyType(type(node), value_sep=': ', start='({', end='})')
+
+    def _repr_attr(self, node):
+        for k, v in vars(node).items():
+            k, v = self.__pretty_repr_item__(k, v)
+            if k is None:
+                continue
+
+            if isinstance(v, list):
+                v = PrettyList(v)
+
+            if isinstance(v, dict):
+                v = PrettyDict(v)
+
+            if isinstance(v, PrettyDict):
+                v = NestedStateRepr(v)
+
+            yield PrettyAttr(repr(k), v)
 
 
 # the empty node is a struct.dataclass to be compatible with JAX.
@@ -213,10 +252,10 @@ class PrettyDict(dict, PrettyRepr):
 
     def __repr__(self) -> str:
         # repr the individual object with the pretty representation
-        return get_repr(self)
+        return pretty_repr(self)
 
     def __pretty_repr__(self):
-        yield from pretty_repr_avoid_duplicate(self, _default_repr_object, _default_repr_attr)
+        yield from yield_unique_pretty_repr_items(self, _default_repr_object, _default_repr_attr)
 
     def split(self, *filters) -> Union[PrettyDict[K, V], Tuple[PrettyDict[K, V], ...]]:
         raise NotImplementedError
@@ -237,15 +276,20 @@ class PrettyDict(dict, PrettyRepr):
 
 
 def _default_repr_object(node: PrettyDict):
-    yield PrettyType(type(node), value_sep=': ', start='({', end='})')
+    yield PrettyType('', value_sep=': ', start='{', end='}')
 
 
-def _default_repr_attr(node: PrettyDict):
+def _default_repr_attr(node):
     for k, v in node.items():
+        if isinstance(v, list):
+            v = PrettyList(v)
+
         if isinstance(v, dict):
             v = PrettyDict(v)
+
         if isinstance(v, PrettyDict):
             v = NestedStateRepr(v)
+
         yield PrettyAttr(repr(k), v)
 
 
@@ -735,3 +779,37 @@ def _flat_unflatten(
 jax.tree_util.register_pytree_with_keys(FlattedDict,
                                         _nest_flatten_with_keys,
                                         _flat_unflatten)  # type: ignore[arg-type]
+
+
+@jax.tree_util.register_pytree_node_class
+class PrettyList(list, PrettyRepr):
+    __module__ = 'brainstate.util'
+
+    def __pretty_repr__(self):
+        yield from yield_unique_pretty_repr_items(self, _list_repr_object, _list_repr_attr)
+
+    def __repr__(self):
+        return pretty_repr(self)
+
+    def tree_flatten(self):
+        return list(self), ()
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        return cls(children)
+
+
+def _list_repr_attr(node: PrettyList):
+    for v in node:
+        if isinstance(v, list):
+            v = PrettyList(v)
+        if isinstance(v, dict):
+            v = PrettyDict(v)
+        if isinstance(v, PrettyDict):
+            v = NestedStateRepr(v)
+        yield PrettyAttr('', v)
+
+
+def _list_repr_object(node: PrettyDict):
+    yield PrettyType('', value_sep='', start='[', end=']')
+
