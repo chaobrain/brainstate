@@ -216,9 +216,37 @@ def poisson_input(
     weight: u.Quantity,
     target: State,
     indices: Optional[Union[np.ndarray, jax.Array]] = None,
+    refractory: Optional[Union[jax.Array]] = None,
 ):
     """
-    Poisson Input to the given :py:class:`brainstate.State`.
+    Generates Poisson-distributed input spikes to a target state variable.
+
+    This function simulates Poisson input to a given state, updating the target
+    variable with generated spikes based on the specified frequency, number of inputs,
+    and synaptic weight. The input can be applied to specific indices of the target
+    or to the entire target if indices are not provided.
+
+    Parameters
+    ----------
+    freq : u.Quantity[u.Hz]
+        The frequency of the Poisson input in Hertz.
+    num_input : int
+        The number of input channels or neurons generating the Poisson spikes.
+    weight : u.Quantity
+        The synaptic weight applied to each spike.
+    target : State
+        The target state variable to which the Poisson input is applied.
+    indices : Optional[Union[np.ndarray, jax.Array]], optional
+        Specific indices of the target to apply the input. If None, the input is applied
+        to the entire target.
+    refractory : Optional[Union[jax.Array]], optional
+        A boolean array indicating which parts of the target are in a refractory state
+        and should not be updated. Should be the same length as the target.
+
+    Returns
+    -------
+    None
+        The function updates the target state in place with the generated Poisson input.
     """
     freq = maybe_state(freq)
     weight = maybe_state(weight)
@@ -291,7 +319,7 @@ def poisson_input(
         # )
 
         # update target variable
-        target.value = jax.tree.map(
+        data = jax.tree.map(
             lambda tar, x: tar + x * weight,
             target.value,
             inp,
@@ -358,9 +386,19 @@ def poisson_input(
         # )
 
         # update target variable
-        target.value = jax.tree.map(
+        data = jax.tree.map(
             lambda x, tar: tar.at[indices].add(x * weight),
             inp,
             tar_val,
             is_leaf=u.math.is_quantity
         )
+
+    if refractory is not None:
+        target.value = jax.tree.map(
+            lambda x, tar: u.math.where(refractory, tar, x),
+            data,
+            tar_val,
+            is_leaf=u.math.is_quantity
+        )
+    else:
+        target.value = data
