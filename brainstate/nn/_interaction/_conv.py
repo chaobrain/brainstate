@@ -193,16 +193,18 @@ class _Conv(_BaseConv):
         name: str = None,
         param_type: type = ParamState,
     ):
-        super().__init__(in_size=in_size,
-                         out_channels=out_channels,
-                         kernel_size=kernel_size,
-                         stride=stride,
-                         padding=padding,
-                         lhs_dilation=lhs_dilation,
-                         rhs_dilation=rhs_dilation,
-                         groups=groups,
-                         w_mask=w_mask,
-                         name=name)
+        super().__init__(
+            in_size=in_size,
+            out_channels=out_channels,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+            lhs_dilation=lhs_dilation,
+            rhs_dilation=rhs_dilation,
+            groups=groups,
+            w_mask=w_mask,
+            name=name
+        )
 
         self.w_initializer = w_init
         self.b_initializer = b_init
