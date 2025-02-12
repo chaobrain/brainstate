@@ -30,7 +30,7 @@ from jax.api_util import shaped_abstractify
 from jax.extend import source_info_util
 
 from brainstate.typing import ArrayLike, PyTree, Missing
-from brainstate.util import DictManager, PrettyReprTree
+from brainstate.util import DictManager, PrettyObject
 
 __all__ = [
     'State', 'ShortTermState', 'LongTermState', 'HiddenState', 'ParamState', 'TreefyState',
@@ -186,7 +186,7 @@ def _get_trace_stack_level() -> int:
     return len(TRACE_CONTEXT.state_stack)
 
 
-class State(Generic[A], PrettyReprTree):
+class State(Generic[A], PrettyObject):
     """
     The pointer to specify the dynamical data.
 
@@ -464,6 +464,25 @@ class State(Generic[A], PrettyReprTree):
         Make the state hashable.
         """
         return hash(id(self))
+
+    def numel(self) -> int:
+        """
+        Calculate the total number of elements in the state value.
+
+        This method traverses the state's value, which may be a nested structure (PyTree),
+        and computes the sum of sizes of all leaf nodes.
+
+        Returns:
+            int: The total number of elements across all arrays in the state value.
+                For scalar values, this will be 1. For arrays or nested structures,
+                it will be the sum of the sizes of all contained arrays.
+
+        Note:
+            This method uses jax.tree.leaves to flatten any nested structure in the state value,
+            and jax.numpy.size to compute the size of each leaf node.
+        """
+        sizes = [jax.numpy.size(val) for val in jax.tree.leaves(self._value)]
+        return sum(sizes)
 
 
 def record_state_init(st: State[A]):
@@ -791,7 +810,7 @@ class StateTraceStack(Generic[A]):
         return StateTraceStack().merge(self, other)
 
 
-class TreefyState(Generic[A], PrettyReprTree):
+class TreefyState(Generic[A], PrettyObject):
     """
     The state as a pytree.
     """

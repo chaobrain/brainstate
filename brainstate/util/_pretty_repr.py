@@ -25,7 +25,6 @@ from typing import Any, Iterator, Mapping, TypeVar, Union, Callable, Optional, S
 
 __all__ = [
     'yield_unique_pretty_repr_items',
-    'pretty_repr',
     'PrettyType',
     'PrettyAttr',
     'PrettyRepr',
@@ -82,10 +81,37 @@ class PrettyRepr(ABC):
 
     def __repr__(self) -> str:
         # repr the individual object with the pretty representation
-        return pretty_repr(self)
+        return pretty_repr_object(self)
 
 
-def _repr_elem(obj: PrettyType, elem: Any) -> str:
+def pretty_repr_elem(obj: PrettyType, elem: Any) -> str:
+    """
+    Constructs a string representation of a single element within a pretty representation.
+
+    This function takes a `PrettyType` object and an element, which must be an instance
+    of `PrettyAttr`, and generates a formatted string that represents the element. The
+    formatting is based on the configuration provided by the `PrettyType` object.
+
+    Parameters
+    ----------
+    obj : PrettyType
+        The configuration object that defines how the element should be formatted.
+        It includes details such as indentation, separators, and surrounding characters.
+    elem : Any
+        The element to be represented. It must be an instance of `PrettyAttr`, which
+        contains the key and value to be formatted.
+
+    Returns
+    -------
+    str
+        A string that represents the element in a formatted manner, adhering to the
+        configuration specified by the `PrettyType` object.
+
+    Raises
+    ------
+    TypeError
+        If the provided element is not an instance of `PrettyAttr`.
+    """
     if not isinstance(elem, PrettyAttr):
         raise TypeError(f'Item must be Elem, got {type(elem).__name__}')
 
@@ -95,9 +121,32 @@ def _repr_elem(obj: PrettyType, elem: Any) -> str:
     return f'{obj.elem_indent}{elem.start}{elem.key}{obj.value_sep}{value}{elem.end}'
 
 
-def pretty_repr(obj: PrettyRepr) -> str:
+def pretty_repr_object(obj: PrettyRepr) -> str:
     """
-    Get the pretty representation of an object.
+    Generates a pretty string representation of an object that implements the PrettyRepr interface.
+
+    This function utilizes the __pretty_repr__ method of the PrettyRepr interface to obtain
+    a structured representation of the object, which includes both the type and attributes
+    of the object in a human-readable format.
+
+    Parameters
+    ----------
+    obj : PrettyRepr
+        The object for which the pretty representation is to be generated. The object must
+        implement the PrettyRepr interface.
+
+    Returns
+    -------
+    str
+        A string that represents the object in a pretty format, including its type and attributes.
+        The format is determined by the PrettyType and PrettyAttr instances yielded by the
+        __pretty_repr__ method of the object.
+
+    Raises
+    ------
+    TypeError
+        If the provided object does not implement the PrettyRepr interface or if the first item
+        yielded by the __pretty_repr__ method is not an instance of PrettyType.
     """
     if not isinstance(obj, PrettyRepr):
         raise TypeError(f'Object {obj!r} is not representable')
@@ -110,7 +159,7 @@ def pretty_repr(obj: PrettyRepr) -> str:
         raise TypeError(f'First item must be PrettyType, got {type(obj_repr).__name__}')
 
     # repr attributes
-    elem_reprs = tuple(map(partial(_repr_elem, obj_repr), iterator))
+    elem_reprs = tuple(map(partial(pretty_repr_elem, obj_repr), iterator))
     elems = ',\n'.join(elem_reprs)
     if elems:
         elems = '\n' + elems + '\n'
@@ -153,7 +202,20 @@ class PrettyMapping(PrettyRepr):
 
 @dataclasses.dataclass
 class PrettyReprContext(threading.local):
-    # seen_modules_repr: set[int] | None = None
+    """
+    A thread-local context for managing the state of pretty representation.
+
+    This class is used to keep track of objects that have been seen during
+    the generation of pretty representations, preventing infinite recursion
+    in cases of circular references.
+
+    Attributes
+    ----------
+    seen_modules_repr : dict[int, Any] | None
+        A dictionary mapping object IDs to objects that have been seen
+        during the pretty representation process. This is used to avoid
+        representing the same object multiple times.
+    """
     seen_modules_repr: dict[int, Any] | None = None
 
 
@@ -161,10 +223,47 @@ CONTEXT = PrettyReprContext()
 
 
 def _default_repr_object(node):
+    """
+    Generates a default pretty representation for an object.
+
+    This function yields a `PrettyType` instance that represents the type
+    of the given object. It is used as a default method for representing
+    objects when no custom representation function is provided.
+
+    Parameters
+    ----------
+    node : Any
+        The object for which the pretty representation is to be generated.
+
+    Yields
+    ------
+    PrettyType
+        An instance of `PrettyType` that contains the type information of
+        the object.
+    """
     yield PrettyType(type=type(node))
 
 
 def _default_repr_attr(node):
+    """
+    Generates a default pretty representation for the attributes of an object.
+
+    This function iterates over the attributes of the given object and yields
+    a `PrettyAttr` instance for each attribute that does not start with an
+    underscore. The `PrettyAttr` instances contain the attribute name and its
+    string representation.
+
+    Parameters
+    ----------
+    node : Any
+        The object whose attributes are to be represented.
+
+    Yields
+    ------
+    PrettyAttr
+        An instance of `PrettyAttr` for each non-private attribute of the object,
+        containing the attribute name and its string representation.
+    """
     for name, value in vars(node).items():
         if name.startswith('_'):
             continue
@@ -177,7 +276,27 @@ def yield_unique_pretty_repr_items(
     repr_attr: Optional[Callable] = None
 ):
     """
-    Pretty representation of an object avoiding duplicate representations.
+    Generates a pretty representation of an object while avoiding duplicate representations.
+
+    This function is designed to yield a structured representation of an object, 
+    using custom or default methods for representing the object itself and its attributes. 
+    It ensures that each object is only represented once to prevent infinite recursion 
+    in cases of circular references.
+
+    Parameters:
+    node : Any
+        The object to be represented.
+    repr_object : Optional[Callable], optional
+        A callable that yields the representation of the object itself. 
+        If not provided, a default representation function is used.
+    repr_attr : Optional[Callable], optional
+        A callable that yields the representation of the object's attributes. 
+        If not provided, a default attribute representation function is used.
+
+    Yields:
+    Union[PrettyType, PrettyAttr]
+        The pretty representation of the object and its attributes, 
+        avoiding duplicates by tracking seen objects.
     """
     if repr_object is None:
         repr_object = _default_repr_object
