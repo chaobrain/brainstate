@@ -21,7 +21,7 @@ import jax.numpy as jnp
 import jax.scipy as sci
 from jax.interpreters import batching, ad, mlir
 
-from brainstate.util._dict import PrettyObject
+from brainstate.util._pretty_pytree import PrettyObject
 
 if jax.__version_info__ < (0, 4, 38):
     from jax.core import Primitive

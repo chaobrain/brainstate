@@ -29,7 +29,7 @@ from brainstate._state import State, TreefyState
 from brainstate._utils import set_module_as
 from brainstate.typing import PathParts, Filter, Predicate, Key
 from brainstate.util._caller import ApplyCaller, CallableProxy, DelayedAccessor
-from brainstate.util._dict import NestedDict, FlattedDict, PrettyDict
+from brainstate.util._pretty_pytree import NestedDict, FlattedDict, PrettyDict
 from brainstate.util.filter import to_predicate
 from brainstate.util._pretty_repr import PrettyRepr, PrettyType, PrettyAttr, PrettyMapping, MappingReprMixin
 from brainstate.util._struct import FrozenDict
@@ -346,21 +346,6 @@ class NodeDef(GraphDef[Node], PrettyRepr):
         yield PrettyAttr('leaves', PrettyMapping(self.leaves))
         yield PrettyAttr('metadata', self.metadata)
         yield PrettyAttr('index_mapping', PrettyMapping(self.index_mapping) if self.index_mapping is not None else None)
-
-    def __treescope_repr__(self, path, subtree_renderer):
-        import treescope  # type: ignore[import-not-found,import-untyped]
-        return treescope.repr_lib.render_object_constructor(
-            object_type=type(self),
-            attributes={'type': self.type,
-                        'index': self.index,
-                        'attributes': self.attributes,
-                        'subgraphs': dict(self.subgraphs),
-                        'static_fields': dict(self.static_fields),
-                        'leaves': dict(self.leaves),
-                        'metadata': self.metadata, },
-            path=path,
-            subtree_renderer=subtree_renderer,
-        )
 
     def apply(
         self,

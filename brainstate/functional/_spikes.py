@@ -27,53 +27,169 @@ __all__ = [
 
 
 def spike_bitwise_or(x, y):
-    """Bitwise OR operation for spike tensors."""
+    """
+    Perform a bitwise OR operation on spike tensors.
+
+    This function computes the OR operation between two spike tensors.
+    The OR operation is implemented using the formula: x + y - x * y,
+    which is equivalent to the OR operation for binary values.
+
+    Args:
+        x (Tensor): The first input spike tensor.
+        y (Tensor): The second input spike tensor.
+
+    Returns:
+        Tensor: The result of the bitwise OR operation applied to the input tensors.
+               The output tensor has the same shape as the input tensors.
+
+    Note:
+        This operation assumes that the input tensors contain binary (0 or 1) values.
+        For non-binary inputs, the behavior may not correspond to a true bitwise OR.
+    """
     return x + y - x * y
 
 
 def spike_bitwise_and(x, y):
-    """Bitwise AND operation for spike tensors."""
+    """
+    Perform a bitwise AND operation on spike tensors.
+
+    This function computes the AND operation between two spike tensors.
+    The AND operation is equivalent to element-wise multiplication for binary values.
+
+    Args:
+        x (Tensor): The first input spike tensor.
+        y (Tensor): The second input spike tensor.
+
+    Returns:
+        Tensor: The result of the bitwise AND operation applied to the input tensors.
+               The output tensor has the same shape as the input tensors.
+
+    Note:
+        This operation is implemented using element-wise multiplication (x * y),
+        which is equivalent to the AND operation for binary values.
+    """
     return x * y
 
 
 def spike_bitwise_iand(x, y):
-    """Bitwise IAND operation for spike tensors."""
+    """
+    Perform a bitwise IAND (Inverse AND) operation on spike tensors.
+
+    This function computes the Inverse AND (IAND) operation between two spike tensors.
+    IAND is defined as (NOT x) AND y.
+
+    Args:
+        x (Tensor): The first input spike tensor.
+        y (Tensor): The second input spike tensor.
+
+    Returns:
+        Tensor: The result of the bitwise IAND operation applied to the input tensors.
+               The output tensor has the same shape as the input tensors.
+
+    Note:
+        This operation is implemented using the formula: (1 - x) * y,
+        which is equivalent to the IAND operation for binary values.
+    """
     return (1 - x) * y
 
 
 def spike_bitwise_not(x):
-    """Bitwise NOT operation for spike tensors."""
+    """
+    Perform a bitwise NOT operation on spike tensors.
+
+    This function computes the NOT operation on a spike tensor.
+    The NOT operation inverts the binary values in the tensor.
+
+    Args:
+        x (Tensor): The input spike tensor.
+
+    Returns:
+        Tensor: The result of the bitwise NOT operation applied to the input tensor.
+               The output tensor has the same shape as the input tensor.
+
+    Note:
+        This operation is implemented using the formula: 1 - x,
+        which is equivalent to the NOT operation for binary values.
+    """
     return 1 - x
 
 
 def spike_bitwise_xor(x, y):
-    """Bitwise XOR operation for spike tensors."""
+    """
+    Perform a bitwise XOR operation on spike tensors.
+
+    This function computes the XOR operation between two spike tensors.
+    XOR is defined as (x OR y) AND NOT (x AND y).
+
+    Args:
+        x (Tensor): The first input spike tensor.
+        y (Tensor): The second input spike tensor.
+
+    Returns:
+        Tensor: The result of the bitwise XOR operation applied to the input tensors.
+               The output tensor has the same shape as the input tensors.
+
+    Note:
+        This operation is implemented using the formula: x + y - 2 * x * y,
+        which is equivalent to the XOR operation for binary values.
+    """
     return x + y - 2 * x * y
 
 
 def spike_bitwise_ixor(x, y):
-    """Bitwise IXOR operation for spike tensors."""
+    """
+    Perform a bitwise IXOR (Inverse XOR) operation on spike tensors.
+
+    This function computes the Inverse XOR (IXOR) operation between two spike tensors.
+    IXOR is defined as (x AND NOT y) OR (NOT x AND y).
+
+    Args:
+        x (Tensor): The first input spike tensor.
+        y (Tensor): The second input spike tensor.
+
+    Returns:
+        Tensor: The result of the bitwise IXOR operation applied to the input tensors.
+               The output tensor has the same shape as the input tensors.
+
+    Note:
+        This operation is implemented using the formula: x * (1 - y) + (1 - x) * y,
+        which is equivalent to the IXOR operation for binary values.
+    """
     return x * (1 - y) + (1 - x) * y
 
 
 def spike_bitwise(x, y, op: str):
-    r"""Bitwise operation for spike tensors.
+    """
+    Perform bitwise operations on spike tensors.
 
-    .. math::
-
-       \begin{array}{ccc}
-        \hline \text { Mode } & \text { Expression for } \mathrm{g}(\mathrm{x}, \mathrm{y}) & \text { Code for } \mathrm{g}(\mathrm{x}, \mathrm{y}) \\
-        \hline \text { ADD } & x+y & x+y \\
-        \text { AND } & x \cap y & x \cdot y \\
-        \text { IAND } & (\neg x) \cap y & (1-x) \cdot y \\
-        \text { OR } & x \cup y & (x+y)-(x \cdot y) \\
-        \hline
-        \end{array}
+    This function applies various bitwise operations on spike tensors based on the specified operation.
+    It supports 'or', 'and', 'iand', 'xor', and 'ixor' operations.
 
     Args:
-      x: A spike tensor.
-      y: A spike tensor.
-      op: A string indicating the bitwise operation to perform.
+        x (Tensor): The first input spike tensor.
+        y (Tensor): The second input spike tensor.
+        op (str): A string indicating the bitwise operation to perform.
+            Supported operations are 'or', 'and', 'iand', 'xor', and 'ixor'.
+
+    Returns:
+        Tensor: The result of the bitwise operation applied to the input tensors.
+
+    Raises:
+        NotImplementedError: If an unsupported bitwise operation is specified.
+
+    Note:
+        The function uses the following mathematical expressions for different operations:
+        
+        .. math::
+
+           \begin{array}{ccc}
+            \hline \text { Mode } & \text { Expression for } \mathrm{g}(\mathrm{x}, \mathrm{y}) & \text { Code for } \mathrm{g}(\mathrm{x}, \mathrm{y}) \\
+            \hline \text { ADD } & x+y & x+y \\
+            \text { AND } & x \cap y & x \cdot y \\
+            \text { IAND } & (\neg x) \cap y & (1-x) \cdot y \\
+            \text { OR } & x \cup y & (x+y)-(x \cdot y) \\
+            \hline
+            \end{array}
     """
     if op == 'or':
         return spike_bitwise_or(x, y)

@@ -304,17 +304,6 @@ class DictManager(dict):
         else:
             raise ValueError(f'Unsupported method: {by}')
 
-    def union_by_value_ids(self, other: dict):
-        """
-        Union the stack by the value ids.
-
-        Args:
-          other:
-
-        Returns:
-
-        """
-
     def __add__(self, other: dict):
         """
         Compose other instance of dict.

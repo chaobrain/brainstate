@@ -591,6 +591,11 @@ def vmap_new_states(
     during the function's execution. It allows for more
     flexible vectorization in the context of stateful computations.
 
+
+
+
+
+
     Args:
         fun (Callable, optional): The function to be vectorized. Defaults to Missing().
         in_axes (int | None | Sequence[Any], optional): Specification of input axes for vectorization. Defaults to 0.
