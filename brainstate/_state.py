@@ -152,6 +152,8 @@ class Catcher(PrettyObject):
             tag (str): The tag to be assigned to caught states.
             state_to_exclude (Filter, optional): A filter to exclude states from being caught.
         """
+        if state_to_exclude is None:
+            state_to_exclude = Nothing()
         self.state_to_exclude = state_to_exclude
         self.tag = tag
         self.state_ids = set()
@@ -266,7 +268,10 @@ class Catcher(PrettyObject):
 
 
 @contextlib.contextmanager
-def catch_new_states(tag: str = None) -> Generator[Catcher, None, None]:
+def catch_new_states(
+    tag: str = None,
+    state_to_exclude: Filter = Nothing()
+) -> Generator[Catcher, None, None]:
     """
     A context manager that catches and tracks new states created within its scope.
 
@@ -290,7 +295,7 @@ def catch_new_states(tag: str = None) -> Generator[Catcher, None, None]:
         # Access caught states through catcher object
     """
     try:
-        catcher = Catcher(tag)
+        catcher = Catcher(tag=tag, state_to_exclude=state_to_exclude)
         TRACE_CONTEXT.new_state_catcher.append(catcher)
         yield catcher
     finally:
