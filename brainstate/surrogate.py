@@ -79,7 +79,10 @@ def _heaviside_imp(x, dx):
 
 
 def _heaviside_batching(args, axes):
-    return heaviside_p.bind(*args), tuple(axes)
+    x, dx = args
+    if axes[0] != axes[1]:
+        dx = batching.moveaxis(dx, axes[1], axes[0])
+    return heaviside_p.bind(x, dx), tuple([axes[0]])
 
 
 def _heaviside_jvp(primals, tangents):
