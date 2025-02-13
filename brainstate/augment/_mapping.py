@@ -21,10 +21,10 @@ from typing import Any, TypeVar, Callable, Hashable, Sequence, Iterable, Tuple, 
 import jax
 from jax.interpreters.batching import BatchTracer
 
-from brainstate._state import State, StateTraceStack
+from brainstate._state import State, StateTraceStack, catch_new_states
 from brainstate.compile._loop_collect_return import scan
 from brainstate.random import DEFAULT, RandomState
-from brainstate.typing import Missing
+from brainstate.typing import Missing, Filter
 from brainstate.util import NestedDict, BrainStateError
 from ._random import restore_rngs
 
@@ -32,6 +32,7 @@ __all__ = [
     'vmap',
     'pmap',
     'map',
+    'vmap_new_states',
 ]
 
 AxisName = Hashable
@@ -132,6 +133,7 @@ def _vmap_transform(
         ]
         return out_states_, outs
 
+    @functools.wraps(f)
     def vmapped_fn(*args):
         # vmapping
         in_state_vals = [
@@ -511,3 +513,120 @@ def map(
 
 def flatten_(x):
     return x.reshape(-1, *x.shape[2:])
+
+
+def _vmap_new_states_transform(
+    fun: Callable[..., Any],
+    *,
+    # -- normal jax.vmap arguments -- #
+    in_axes: int | None | Sequence[Any] = 0,
+    out_axes: Any = 0,
+    axis_name: AxisName | None = None,
+    axis_size: int | None = None,
+    spmd_axis_name: AxisName | tuple[AxisName, ...] | None = None,
+    # -- brainstate specific arguments -- #
+    tag: str | None = None,
+    state_to_exclude: Filter | None = None,
+    rngs: Union[RandomState, Sequence[RandomState]] = DEFAULT,
+):
+    if isinstance(rngs, RandomState):
+        rngs = (rngs,)
+    assert axis_size is not None, "axis_size must be provided for vmap_new_states."
+
+    @vmap(
+        in_axes=(0, in_axes),
+        out_axes=(out_axes, 0),
+        axis_name=axis_name,
+        axis_size=axis_size,
+        spmd_axis_name=spmd_axis_name,
+        rngs=rngs
+    )
+    def new_fun(keys, args):
+        # set random keys
+        assert len(keys) == axis_size, "The length of keys must be equal to axis_size."
+        for key, rng in zip(keys, rngs):
+            rng.set_key(key)
+
+        # call the function
+        with catch_new_states(tag=tag, states_to_exclude=state_to_exclude) as catcher:
+            out = fun(*args)
+
+        # get vmap state values
+        vmap_state_vals = catcher.get_state_values()
+        return out, vmap_state_vals
+
+    @functools.wraps(fun)
+    def vmapped_fn(*args):
+        # vmapping
+        with catch_new_states(states_to_exclude=state_to_exclude) as catcher:
+            outs, vmap_state_vals = new_fun([rng.split_key(axis_size) for rng in rngs], args)
+            vmap_states = catcher.get_states()
+
+        # restore vmapped state values
+        for st_val, st in zip(vmap_state_vals, vmap_states):
+            st.restore_value(st_val)
+        return outs
+
+    return vmapped_fn
+
+
+def vmap_new_states(
+    fun: Callable = Missing(),
+    *,
+    # -- normal jax.vmap arguments -- #
+    in_axes: int | None | Sequence[Any] = 0,
+    out_axes: Any = 0,
+    axis_name: AxisName | None = None,
+    axis_size: int | None = None,
+    spmd_axis_name: AxisName | tuple[AxisName, ...] | None = None,
+    # -- brainstate specific arguments -- #
+    tag: str | None = None,
+    states_to_exclude: Sequence[int] = (),
+    rngs: Union[RandomState, Sequence[RandomState]] = DEFAULT,
+):
+    """
+    Vectorize a function over new states created within it.
+
+    This function applies JAX's vmap transformation to newly created states
+    during the function's execution. It allows for more
+    flexible vectorization in the context of stateful computations.
+
+    Args:
+        fun (Callable, optional): The function to be vectorized. Defaults to Missing().
+        in_axes (int | None | Sequence[Any], optional): Specification of input axes for vectorization. Defaults to 0.
+        out_axes (Any, optional): Specification of output axes after vectorization. Defaults to 0.
+        axis_name (AxisName, optional): Name of the axis being vectorized over. Defaults to None.
+        axis_size (int, optional): Size of the axis being vectorized over. Defaults to None.
+        spmd_axis_name (AxisName | tuple[AxisName, ...], optional): Name(s) of SPMD axis/axes. Defaults to None.
+        tag (str, optional): A tag to identify specific states. Defaults to None.
+        states_to_exclude (Sequence[int], optional): Indices of states to exclude from vectorization. Defaults to ().
+        rngs (Union[RandomState, Sequence[RandomState]], optional): Random number generator(s) to use.
+            Defaults to :class:`DEFAULT`.
+
+    Returns:
+        Callable: A vectorized version of the input function that handles new state creation.
+    """
+    if isinstance(fun, Missing):
+        return functools.partial(
+            _vmap_new_states_transform,
+            in_axes=in_axes,
+            out_axes=out_axes,
+            axis_name=axis_name,
+            axis_size=axis_size,
+            spmd_axis_name=spmd_axis_name,
+            tag=tag,
+            states_to_exclude=states_to_exclude,
+            rngs=rngs,
+        )
+    else:
+        return _vmap_new_states_transform(
+            fun,
+            in_axes=in_axes,
+            out_axes=out_axes,
+            axis_name=axis_name,
+            axis_size=axis_size,
+            spmd_axis_name=spmd_axis_name,
+            tag=tag,
+            state_to_exclude=states_to_exclude,
+            rngs=rngs,
+        )
