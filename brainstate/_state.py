@@ -20,8 +20,19 @@ import dataclasses
 import threading
 from functools import wraps, partial
 from typing import (
-    Any, Union, Callable, Generic, Mapping,
-    TypeVar, Optional, TYPE_CHECKING, Tuple, Dict, List, Sequence
+    Any,
+    Union,
+    Callable,
+    Generic,
+    Mapping,
+    TypeVar,
+    Optional,
+    TYPE_CHECKING,
+    Tuple,
+    Dict,
+    List,
+    Sequence,
+    Generator,
 )
 
 import jax
@@ -29,14 +40,19 @@ import numpy as np
 from jax.api_util import shaped_abstractify
 from jax.extend import source_info_util
 
-from brainstate.typing import ArrayLike, PyTree, Missing
+from brainstate.typing import ArrayLike, PyTree, Missing, Filter
 from brainstate.util import DictManager, PrettyObject
+from brainstate.util.filter import Nothing
 
 __all__ = [
     'State', 'ShortTermState', 'LongTermState', 'HiddenState', 'ParamState', 'TreefyState',
     'FakedState',
 
-    'StateDictManager', 'StateTraceStack', 'check_state_value_tree', 'check_state_jax_tracer', 'catch_new_states',
+    'StateDictManager',
+    'StateTraceStack',
+    'check_state_value_tree',
+    'check_state_jax_tracer',
+    'catch_new_states',
     'maybe_state',
 ]
 
@@ -51,7 +67,27 @@ max_int = np.iinfo(np.int32)
 # This allows concurrent tracing in separate threads; passing traced objects
 # between threads is forbidden.
 class ThreadLocalStack(threading.local):
+    """
+    A thread-local storage class for managing state-related information.
+
+    This class provides thread-local storage for various state management components,
+    ensuring that each thread has its own isolated set of state-related data structures.
+
+    Attributes:
+        state_stack (List[StateTraceStack]): A list to store StateTraceStack objects for the current thread.
+        tree_check (List[bool]): A list of boolean flags for tree structure checking, initialized with [False].
+        jax_tracer_check (List[bool]): A list of boolean flags for JAX tracer checking, initialized with [False].
+        new_state_catcher (List[Catcher]): A list to store Catcher objects for capturing new states in the current thread.
+    """
+
     def __init__(self):
+        """
+        Initialize the ThreadLocalStack with empty data structures.
+
+        This constructor sets up the initial state for each thread-local instance,
+        creating empty lists for state stack, tree checking, JAX tracer checking,
+        and new state catching.
+        """
         self.state_stack: List[StateTraceStack] = []
         self.tree_check: List[bool] = [False]
         self.jax_tracer_check: List[bool] = [False]
@@ -62,7 +98,7 @@ TRACE_CONTEXT = ThreadLocalStack()
 
 
 @contextlib.contextmanager
-def check_state_value_tree(val: bool = True) -> None:
+def check_state_value_tree(val: bool = True) -> Generator[None, None, None]:
     """
     The contex manager to check weather the tree structure of the state value keeps consistently.
 
@@ -91,8 +127,168 @@ def check_state_value_tree(val: bool = True) -> None:
         TRACE_CONTEXT.tree_check.pop()
 
 
+class Catcher(PrettyObject):
+    """
+    The catcher to catch and manage new states.
+
+    This class provides functionality to collect and tag new State objects.
+    It ensures that each state is only added once and assigns a tag to each state.
+
+    Attributes:
+        tag (str): A string identifier used to tag the caught states.
+        state_ids (set): A set of state IDs to ensure uniqueness.
+        states (list): A list to store the caught State objects.
+    """
+
+    def __init__(
+        self,
+        tag: str,
+        state_to_exclude: Filter = Nothing()
+    ):
+        """
+        Initialize a new Catcher instance.
+
+        Args:
+            tag (str): The tag to be assigned to caught states.
+            state_to_exclude (Filter, optional): A filter to exclude states from being caught.
+        """
+        self.state_to_exclude = state_to_exclude
+        self.tag = tag
+        self.state_ids = set()
+        self.states = []
+
+    def get_state_values(self) -> List[PyTree]:
+        """
+        Get the values of the caught states.
+
+        Returns:
+            list: A list of values of the caught states.
+        """
+        return [state.value for state in self.states]
+
+    def get_states(self) -> List[State]:
+        """
+        Get the caught states.
+
+        Returns:
+            list: A list of the caught states.
+        """
+        return self.states
+
+    def append(self, state: State):
+        """
+        Add a new state to the catcher if it hasn't been added before.
+
+        This method adds the state to the internal list, records its ID,
+        and assigns the catcher's tag to the state.
+
+        Args:
+            state (State): The State object to be added.
+        """
+        if self.state_to_exclude((), state):
+            return
+        if id(state) not in self.state_ids:
+            self.state_ids.add(id(state))
+            self.states.append(state)
+            state.tag = self.tag
+
+    def __iter__(self):
+        """
+        Allow iteration over the caught states.
+
+        Returns:
+            iterator: An iterator over the list of caught states.
+        """
+        return iter(self.states)
+
+    def __len__(self):
+        """
+        Return the number of caught states.
+
+        Returns:
+            int: The number of caught states.
+        """
+        return len(self.states)
+
+    def __getitem__(self, index):
+        """
+        Get a state by index.
+
+        Args:
+            index (int): The index of the state to retrieve.
+
+        Returns:
+            State: The state at the specified index.
+        """
+        return self.states[index]
+
+    def clear(self):
+        """
+        Clear all caught states.
+        """
+        self.state_ids.clear()
+        self.states.clear()
+
+    def get_by_tag(self, tag: str):
+        """
+        Get all states with a specific tag.
+
+        Args:
+            tag (str): The tag to filter by.
+
+        Returns:
+            list: A list of states with the specified tag.
+        """
+        return [state for state in self.states if state.tag == tag]
+
+    def remove(self, state: State):
+        """
+        Remove a specific state from the catcher.
+
+        Args:
+            state (State): The state to remove.
+        """
+        if id(state) in self.state_ids:
+            self.state_ids.remove(id(state))
+            self.states.remove(state)
+
+    def __contains__(self, state: State):
+        """
+        Check if a state is in the catcher.
+
+        Args:
+            state (State): The state to check for.
+
+        Returns:
+            bool: True if the state is in the catcher, False otherwise.
+        """
+        return id(state) in self.state_ids
+
+
 @contextlib.contextmanager
-def catch_new_states(tag: str = None) -> List:
+def catch_new_states(tag: str = None) -> Generator[Catcher, None, None]:
+    """
+    A context manager that catches and tracks new states created within its scope.
+
+    This function creates a new Catcher object and adds it to the TRACE_CONTEXT's
+    new_state_catcher list. It allows for tracking and managing new states created
+    within the context.
+
+    Args:
+        tag (str, optional): A string tag to associate with the caught states.
+            Defaults to None.
+
+    Yields:
+        Catcher: A Catcher object that can be used to access and manage the
+            newly created states within the context.
+
+    Example::
+    
+        with catch_new_states("my_tag") as catcher:
+            # Create new states here
+            # They will be caught and tagged with "my_tag"
+        # Access caught states through catcher object
+    """
     try:
         catcher = Catcher(tag)
         TRACE_CONTEXT.new_state_catcher.append(catcher)
@@ -101,24 +297,21 @@ def catch_new_states(tag: str = None) -> List:
         TRACE_CONTEXT.new_state_catcher.pop()
 
 
-class Catcher:
+def maybe_state(val: Any) -> Any:
     """
-    The catcher to catch the new states.
+    Extracts the value from a State object if given, otherwise returns the input value.
+
+    This function is useful for handling both State objects and raw values uniformly.
+    If the input is a State object, it returns the value stored in that State.
+    If the input is not a State object, it returns the input as is.
+
+    Args:
+        val (Any): The input value, which can be either a State object or any other type.
+
+    Returns:
+        Any: The value stored in the State if the input is a State object,
+             otherwise the input value itself.
     """
-
-    def __init__(self, tag: str):
-        self.tag = tag
-        self.state_ids = set()
-        self.states = []
-
-    def append(self, state: State):
-        if id(state) not in self.state_ids:
-            self.state_ids.add(id(state))
-            self.states.append(state)
-            state.tag = self.tag
-
-
-def maybe_state(val: Any):
     if isinstance(val, State):
         return val.value
     else:
@@ -126,7 +319,7 @@ def maybe_state(val: Any):
 
 
 @contextlib.contextmanager
-def check_state_jax_tracer(val: bool = True) -> None:
+def check_state_jax_tracer(val: bool = True) -> Generator[None, None, None]:
     """
     The context manager to check whether the state is valid to trace.
 
