@@ -17,6 +17,8 @@
 from . import metrics
 from ._collective_ops import *
 from ._collective_ops import __all__ as collective_ops_all
+from ._common import *
+from ._common import __all__ as common_all
 from ._dyn_impl import *
 from ._dyn_impl import __all__ as dyn_impl_all
 from ._dynamics import *
@@ -33,6 +35,7 @@ from ._module import __all__ as module_all
 __all__ = (
     ['metrics']
     + collective_ops_all
+    + common_all
     + dyn_impl_all
     + dynamics_all
     + elementwise_all
@@ -43,6 +46,7 @@ __all__ = (
 
 del (
     collective_ops_all,
+    common_all,
     dyn_impl_all,
     dynamics_all,
     elementwise_all,

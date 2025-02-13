@@ -29,6 +29,7 @@ from jax.lib import xla_bridge
 from brainstate._utils import set_module_as
 
 __all__ = [
+    'split_total',
     'clear_buffer_memory',
     'not_instance_eval',
     'is_instance_eval',
@@ -36,6 +37,60 @@ __all__ = [
     'DotDict',
 ]
 
+
+def split_total(
+    total: int,
+    fraction: Union[int, float],
+) -> int:
+    """
+   Calculate the number of epochs for simulation based on a total and a fraction.
+
+   This function determines the number of epochs to simulate given a total number
+   of epochs and either a fraction or a specific number of epochs to run.
+
+   Parameters:
+   -----------
+   total : int
+       The total number of epochs. Must be a positive integer.
+   fraction : Union[int, float]
+       If ``float``: A value between 0 and 1 representing the fraction of total epochs to run.
+       If ``int``: The specific number of epochs to run, must not exceed the total.
+
+   Returns:
+   --------
+   int
+       The calculated number of epochs to simulate.
+
+   Raises:
+   -------
+   ValueError
+       If total is not positive, fraction is negative, or if fraction as float is > 1
+       or as int is > total.
+   AssertionError
+       If total is not an integer.
+   """
+    assert isinstance(total, int), "Length must be an integer."
+    if total <= 0:
+        raise ValueError("'total' must be a positive integer.")
+    if fraction < 0:
+        raise ValueError("'fraction' value cannot be negative.")
+
+    if isinstance(fraction, float):
+        if fraction < 0:
+            raise ValueError("'fraction' value cannot be negative.")
+        if fraction > 1:
+            raise ValueError("'fraction' value cannot be greater than 1.")
+        return int(total * fraction)
+
+    elif isinstance(fraction, int):
+        if fraction < 0:
+            raise ValueError("'fraction' value cannot be negative.")
+        if fraction > total:
+            raise ValueError("'fraction' value cannot be greater than total.")
+        return fraction
+
+    else:
+        raise ValueError("'fraction' must be an integer or float.")
 
 class NameContext(threading.local):
     def __init__(self):

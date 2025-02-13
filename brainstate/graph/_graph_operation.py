@@ -30,7 +30,7 @@ from brainstate._utils import set_module_as
 from brainstate.typing import PathParts, Filter, Predicate, Key
 from brainstate.util._caller import ApplyCaller, CallableProxy, DelayedAccessor
 from brainstate.util._dict import NestedDict, FlattedDict, PrettyDict
-from brainstate.util._filter import to_predicate
+from brainstate.util.filter import to_predicate
 from brainstate.util._pretty_repr import PrettyRepr, PrettyType, PrettyAttr, PrettyMapping, MappingReprMixin
 from brainstate.util._struct import FrozenDict
 

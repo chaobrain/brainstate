@@ -28,7 +28,7 @@ The basic classes include:
 from __future__ import annotations
 
 import warnings
-from typing import Sequence, Optional, Tuple, Union, TYPE_CHECKING
+from typing import Sequence, Optional, Tuple, Union, TYPE_CHECKING, Callable
 
 import numpy as np
 
@@ -36,7 +36,7 @@ from brainstate._state import State
 from brainstate.graph import Node, states, nodes, flatten
 from brainstate.mixin import ParamDescriber, ParamDesc
 from brainstate.typing import PathParts
-from brainstate.util import FlattedDict, NestedDict
+from brainstate.util import FlattedDict, NestedDict, BrainStateError
 
 # maximum integer
 max_int = np.iinfo(np.int32).max
@@ -288,7 +288,7 @@ class Sequential(Module):
         in_size = first.out_size
         self.layers.append(first)
         for module in layers:
-            module, in_size = _format_module(module, in_size)
+            module, in_size = self._format_module(module, in_size)
             self.layers.append(module)
 
         # the input and output shape
@@ -301,7 +301,14 @@ class Sequential(Module):
         """Update function of a sequential model.
         """
         for m in self.layers:
-            x = m(x)
+            try:
+                x = m(x)
+            except Exception as e:
+                raise BrainStateError(
+                    f'The module \n'
+                    f'{m}\n'
+                    f'failed to update with input {x}.\n'
+                ) from e
         return x
 
     def __getitem__(self, key: Union[int, slice]):
@@ -314,16 +321,55 @@ class Sequential(Module):
         else:
             raise KeyError(f'Unknown type of key: {type(key)}')
 
+    def append(self, layer: Callable):
+        """
+        Append a layer to the sequential model.
 
-def _format_module(module, in_size):
-    if isinstance(module, ParamDescriber):
-        module = module(in_size=in_size)
-        assert isinstance(module, Module), 'The module should be an instance of Module.'
-        out_size = module.out_size
-    elif isinstance(module, ElementWiseBlock):
-        out_size = in_size
-    elif isinstance(module, Module):
-        out_size = module.out_size
-    else:
-        raise TypeError(f"Unsupported type {type(module)}. ")
-    return module, out_size
+        This method adds a new layer to the end of the sequential model. The layer can be
+        either a Module instance, an ElementWiseBlock instance, or a callable function. If the
+        layer is a callable function, it will be wrapped in an ElementWiseBlock instance.
+
+        Parameters:
+        ----------
+        layer : Callable
+            The layer to be appended to the sequential model. It can be a Module instance,
+            an ElementWiseBlock instance, or a callable function.
+
+        Raises:
+        -------
+        ValueError
+            If the sequential model is empty and the first layer is a callable function.
+
+        Returns:
+        --------
+        None
+            The method does not return any value. It modifies the sequential model by adding
+            the new layer to the end.
+        """
+        if len(self.layers) == 0:
+            raise ValueError('The first layer should be a module, not a function.')
+        module, in_size = self._format_module(layer, self.out_size)
+        self.layers.append(module)
+        self.out_size = in_size
+
+
+    def _format_module(self, module, in_size):
+        if isinstance(module, ParamDescriber):
+            if in_size is None:
+                raise ValueError(
+                    'The input size should be specified. '
+                    f'Please set the in_size attribute of the previous module: \n'
+                    f'{self.layers[-1]}'
+                )
+            module = module(in_size=in_size)
+            assert isinstance(module, Module), 'The module should be an instance of Module.'
+            out_size = module.out_size
+        elif isinstance(module, ElementWiseBlock):
+            out_size = in_size
+        elif isinstance(module, Module):
+            out_size = module.out_size
+        elif callable(module):
+            out_size = in_size
+        else:
+            raise TypeError(f"Unsupported type {type(module)}. ")
+        return module, out_size

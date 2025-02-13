@@ -13,12 +13,11 @@
 # limitations under the License.
 # ==============================================================================
 
+from . import filter
 from ._dict import *
 from ._dict import __all__ as _mapping_all
 from ._error import *
 from ._error import __all__ as _error_all
-from ._filter import *
-from ._filter import __all__ as _filter_all
 from ._others import *
 from ._others import __all__ as _others_all
 from ._pretty_repr import *
@@ -27,22 +26,25 @@ from ._scaling import *
 from ._scaling import __all__ as _mem_scale_all
 from ._struct import *
 from ._struct import __all__ as _struct_all
+from ._table import *
+from ._table import __all__ as _table_all
 
 __all__ = (
-    _others_all
+    ['filter']
+    + _others_all
     + _mem_scale_all
-    + _filter_all
     + _pretty_repr_all
     + _struct_all
     + _error_all
     + _mapping_all
+    + _table_all
 )
 del (
     _others_all,
     _mem_scale_all,
-    _filter_all,
     _pretty_repr_all,
     _struct_all,
     _error_all,
     _mapping_all,
+    _table_all,
 )

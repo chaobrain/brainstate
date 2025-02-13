@@ -19,12 +19,12 @@ This module includes transformations for augmenting the functionalities of JAX c
 
 from ._autograd import GradientTransform, grad, vector_grad, hessian, jacobian, jacrev, jacfwd
 from ._eval_shape import abstract_init
-from ._mapping import vmap, pmap, map
+from ._mapping import vmap, pmap, map, vmap_new_states
 from ._random import restore_rngs
 
 __all__ = [
     'GradientTransform', 'grad', 'vector_grad', 'hessian', 'jacobian', 'jacrev', 'jacfwd',
     'abstract_init',
-    'vmap', 'pmap', 'map',
+    'vmap', 'pmap', 'map', 'vmap_new_states',
     'restore_rngs',
 ]
