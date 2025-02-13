@@ -45,9 +45,11 @@ class RngRestore:
         """
         Restore the random key of the RandomState instances.
         """
+        if len(self.rng_keys) == 0:
+            raise ValueError('The random state has not been backed up.')
         for rng, key in zip(self.rngs, self.rng_keys):
             rng.restore_value(key)
-        self.rng_keys = []
+        self.rng_keys.clear()
 
 
 def _rng_backup(

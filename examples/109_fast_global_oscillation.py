@@ -76,13 +76,13 @@ class Net(bst.nn.DynamicsGroup):
         self.group = LIF(num)
         self.delay = bst.nn.Delay(jax.ShapeDtypeStruct((num,), bool), delta)
         self.syn = bst.nn.DeltaProj(
-            comm=brainevent.nn.FixedProb(num, num, sparseness, weight=-J),
+            comm=brainevent.nn.FixedProb(num, num, sparseness, -J),
             post=self.group
         )
 
     def update(self, t, i):
         with bst.environ.context(t=t, i=i):
-            self.syn(self.delay.retrieve_at_step((delta / bst.environ.get_dt()).astype(int)))
+            self.syn(self.delay.retrieve_at_step(jax.numpy.asarray(delta / bst.environ.get_dt(), dtype=int)))
             spike = self.group()
             self.delay(spike)
             return spike

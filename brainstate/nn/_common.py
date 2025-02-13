@@ -157,6 +157,7 @@ class Vmap(Module):
         self.out_axes = out_axes
         self.axis_name = axis_name
         self.axis_size = axis_size
+        assert isinstance(module, Module), 'The module must be an instance of Module.'
         self.module = module
         vmap_states = _filter_states(module, vmap_states)
         vmap_out_states = _filter_states(module, vmap_out_states)

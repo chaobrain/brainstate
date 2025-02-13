@@ -307,7 +307,7 @@ class Sequential(Module):
                 raise BrainStateError(
                     f'The module \n'
                     f'{m}\n'
-                    f'failed to update with input {x}.\n'
+                    f'failed to update with input {x}\n'
                 ) from e
         return x
 

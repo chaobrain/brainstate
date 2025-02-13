@@ -118,7 +118,7 @@ def _vmap_transform(
         # analyze
         for state in stack.get_write_states():
             leaves = jax.tree.leaves(state.value)
-            if isinstance(leaves[0], BatchTracer) and state not in out_state_to_axis:
+            if any([isinstance(leaf, BatchTracer) for leaf in leaves]) and state not in out_state_to_axis:
                 if isinstance(state, RandomState) and id(state) in rng_ids:
                     continue
                 state.raise_error_with_source_info(
@@ -127,6 +127,7 @@ def _vmap_transform(
                     )
                 )
 
+        # out state values for vmapping
         out_states_ = [
             [state.value for state in states]
             for axis, states in axis_to_out_states.items()
@@ -543,12 +544,15 @@ def _vmap_new_states_transform(
     )
     def new_fun(keys, args):
         # set random keys
-        assert len(keys) == axis_size, "The length of keys must be equal to axis_size."
+        assert len(keys) == len(rngs), (
+            f"The length of keys and rngs should be "
+            f"the same, got {len(keys)} and {len(rngs)}."
+        )
         for key, rng in zip(keys, rngs):
             rng.set_key(key)
 
         # call the function
-        with catch_new_states(tag=tag, states_to_exclude=state_to_exclude) as catcher:
+        with catch_new_states(tag=tag, state_to_exclude=state_to_exclude) as catcher:
             out = fun(*args)
 
         # get vmap state values
@@ -558,7 +562,7 @@ def _vmap_new_states_transform(
     @functools.wraps(fun)
     def vmapped_fn(*args):
         # vmapping
-        with catch_new_states(states_to_exclude=state_to_exclude) as catcher:
+        with catch_new_states(state_to_exclude=state_to_exclude) as catcher:
             outs, vmap_state_vals = new_fun([rng.split_key(axis_size) for rng in rngs], args)
             vmap_states = catcher.get_states()
 
@@ -581,7 +585,7 @@ def vmap_new_states(
     spmd_axis_name: AxisName | tuple[AxisName, ...] | None = None,
     # -- brainstate specific arguments -- #
     tag: str | None = None,
-    states_to_exclude: Sequence[int] = (),
+    state_to_exclude: Filter = None,
     rngs: Union[RandomState, Sequence[RandomState]] = DEFAULT,
 ):
     """
@@ -591,11 +595,6 @@ def vmap_new_states(
     during the function's execution. It allows for more
     flexible vectorization in the context of stateful computations.
 
-
-
-
-
-
     Args:
         fun (Callable, optional): The function to be vectorized. Defaults to Missing().
         in_axes (int | None | Sequence[Any], optional): Specification of input axes for vectorization. Defaults to 0.
@@ -604,7 +603,7 @@ def vmap_new_states(
         axis_size (int, optional): Size of the axis being vectorized over. Defaults to None.
         spmd_axis_name (AxisName | tuple[AxisName, ...], optional): Name(s) of SPMD axis/axes. Defaults to None.
         tag (str, optional): A tag to identify specific states. Defaults to None.
-        states_to_exclude (Sequence[int], optional): Indices of states to exclude from vectorization. Defaults to ().
+        state_to_exclude (Sequence[int], optional): Indices of states to exclude from vectorization. Defaults to ().
         rngs (Union[RandomState, Sequence[RandomState]], optional): Random number generator(s) to use.
             Defaults to :class:`DEFAULT`.
 
@@ -620,7 +619,7 @@ def vmap_new_states(
             axis_size=axis_size,
             spmd_axis_name=spmd_axis_name,
             tag=tag,
-            states_to_exclude=states_to_exclude,
+            state_to_exclude=state_to_exclude,
             rngs=rngs,
         )
     else:
@@ -632,6 +631,6 @@ def vmap_new_states(
             axis_size=axis_size,
             spmd_axis_name=spmd_axis_name,
             tag=tag,
-            state_to_exclude=states_to_exclude,
+            state_to_exclude=state_to_exclude,
             rngs=rngs,
         )
