@@ -24,7 +24,7 @@ import jax
 
 from brainstate._state import catch_new_states
 from brainstate._utils import set_module_as
-from brainstate.augment import vmap
+from brainstate.augment import vmap, vmap_new_states
 from brainstate.graph import nodes
 from brainstate.random import set_key, split_key
 from brainstate.typing import Filter
@@ -142,7 +142,7 @@ def call_all_functions(
     assert isinstance(kwargs, dict), f'kwargs must be a dict, but got {kwargs}.'
 
     all_nodes = nodes(target).filter(Module)
-    if node_to_exclude:
+    if node_to_exclude is not None:
         all_nodes -= all_nodes.filter(node_to_exclude)
 
     nodes_with_order = []
@@ -295,6 +295,7 @@ def vmap_init_all_states(
     init_kwargs: Dict[str, Any] | None = None,
     axis_size: int = None,
     node_to_exclude: Filter = None,
+    state_to_exclude: Filter = None,
     tag: str | None = None,
 ) -> T:
     """
@@ -338,6 +339,18 @@ def vmap_init_all_states(
         node_to_exclude=node_to_exclude,
         tag=tag,
     )
+
+    #     def init_fn():
+    #         init_all_states(
+    #             target,
+    #             init_args=init_args,
+    #             init_kwargs=init_kwargs,
+    #             node_to_exclude=node_to_exclude,
+    #         )
+    #         return
+    #
+    #     vmap_new_states(init_fn, tag=tag, axis_size=axis_size, state_to_exclude=state_to_exclude)()
+    #     return target
 
 
 @set_module_as('brainstate.nn')
