@@ -17,8 +17,12 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
+import jax
+import numpy as np
 import threading
 from functools import wraps, partial
+from jax.api_util import shaped_abstractify
+from jax.extend import source_info_util
 from typing import (
     Any,
     Union,
@@ -35,18 +39,13 @@ from typing import (
     Generator,
 )
 
-import jax
-import numpy as np
-from jax.api_util import shaped_abstractify
-from jax.extend import source_info_util
-
 from brainstate.typing import ArrayLike, PyTree, Missing, Filter
 from brainstate.util import DictManager, PrettyObject
 from brainstate.util.filter import Nothing
 
 __all__ = [
     'State', 'ShortTermState', 'LongTermState', 'HiddenState', 'ParamState', 'TreefyState',
-    'FakedState',
+    'FakeState',
 
     'StateDictManager',
     'StateTraceStack',
@@ -58,6 +57,7 @@ __all__ = [
 
 A = TypeVar('A')
 B = TypeVar('B')
+T = TypeVar('T')
 F = TypeVar('F', bound=Callable[..., Any])
 
 max_int = np.iinfo(np.int32)
@@ -358,11 +358,16 @@ def check_state_jax_tracer(val: bool = True) -> Generator[None, None, None]:
 @dataclasses.dataclass
 class StateMetadata(Generic[A]):
     """
-    The state metadata.
+    A dataclass representing metadata for a state object.
 
-    Args:
-      raw_value: The raw value.
-      metadata: The metadata.
+    This class encapsulates the raw value of a state along with associated metadata.
+    It is generic over the type of the raw value.
+
+    Attributes:
+        raw_value (A): The raw value of the state. The type A is a generic type parameter.
+        metadata (Mapping[str, Any]): A mapping of string keys to arbitrary values,
+                                      representing additional metadata for the state.
+                                      Defaults to an empty dictionary.
     """
     raw_value: A
     metadata: Mapping[str, Any] = dataclasses.field(default_factory=dict)
@@ -370,7 +375,30 @@ class StateMetadata(Generic[A]):
 
 def with_metadata(initializer: F, **metadata: Any) -> F:
     """
-    A decorator to add metadata to the state.
+    A decorator that adds metadata to a state initialization function.
+
+    This decorator wraps the given initializer function, allowing additional
+    metadata to be associated with the state it creates. The metadata is
+    incorporated into a StateMetadata object along with the state's value.
+
+    Args:
+        initializer (F): The original state initialization function to be wrapped.
+        **metadata (Any): Arbitrary keyword arguments representing metadata
+                          to be associated with the state.
+
+    Returns:
+        F: A wrapped version of the initializer function that returns a
+           StateMetadata object containing both the original state value
+           and the provided metadata.
+
+    Example::
+        @with_metadata(tag='model_param')
+        def init_weights(shape):
+            return np.zeros(shape)
+
+        state = init_weights((100, 100))
+        # state is now a StateMetadata object with the initialized weights
+        # and the 'tag' metadata
     """
 
     @wraps(initializer)
@@ -386,24 +414,52 @@ def _get_trace_stack_level() -> int:
 
 class State(Generic[A], PrettyObject):
     """
-    The pointer to specify the dynamical data.
+    A generic class representing a dynamic data pointer in the BrainState framework.
 
-    To implement a new subclass of :py:class:`~.State`, you only need to inherent this class:
+    The State class serves as a base for various types of state objects used to
+    manage and track dynamic data within a program. It provides mechanisms for
+    value storage, metadata management, and integration with the BrainState
+    tracing system.
 
-    Example::
+    Type Parameters:
+        A: The type of the value stored in the state.
 
-      >>> class MyState(State):
-      >>>   pass
-
-    The typical examples of :py:class:`~.State` subclass are:
-
-    - :py:class:`~.ShortTermState`: The short-term state, which is used to store the short-term data in the program.
-    - :py:class:`~.LongTermState`: The long-term state, which is used to store the long-term data in the program.
-    - :py:class:`~.ParamState`: The parameter state, which is used to store the parameters in the program.
-    - :py:class:`~.RandomState`: The random generator state, which is used to store the random key in the program.
+    Attributes:
+        name (Optional[str]): An optional name for the state.
+        value (PyTree): The actual value stored in the state.
+        tag (Optional[str]): An optional tag for categorizing or grouping states.
 
     Args:
-      value: PyTree. It can be anything as a pyTree.
+        value (Union[PyTree[ArrayLike], StateMetadata[PyTree[ArrayLike]]]): 
+            The initial value for the state. Can be a PyTree of array-like objects
+            or a StateMetadata object.
+        name (Optional[str]): An optional name for the state.
+        **metadata: Additional metadata to be stored with the state.
+
+    Example:
+        >>> class MyState(State):
+        ...     pass
+        >>> state = MyState(jnp.zeros((3, 3)), name="my_matrix")
+        >>> print(state.value)
+        [[0. 0. 0.]
+         [0. 0. 0.]
+         [0. 0. 0.]]
+
+    Note:
+        - Subclasses of :class:`State` (e.g., ShortTermState, LongTermState, ParamState, 
+          RandomState) are typically used for specific purposes in a program.
+        - The class integrates with BrainState's tracing system to track state 
+          creation and modifications.
+
+        The typical examples of :py:class:`~.State` subclass are:
+    
+        - :py:class:`ShortTermState`: The short-term state, which is used to store the short-term data in the program.
+        - :py:class:`LongTermState`: The long-term state, which is used to store the long-term data in the program.
+        - :py:class:`ParamState`: The parameter state, which is used to store the parameters in the program.
+        - :py:class:`RandomState`: The random generator state, which is used to store the random key in the program.
+
+    Args:
+        value: PyTree. It can be anything as a pyTree.
     """
     __module__ = 'brainstate'
     _level: int
@@ -636,19 +692,19 @@ class State(Generic[A], PrettyObject):
 
     def __pretty_repr_item__(self, k, v):
         if k in ['_level', '_source_info', '_been_writen']:
-            return None, None
+            return None
         if k == '_value':
             return 'value', v
 
         if k == '_name':
             if self.name is None:
-                return None, None
+                return None
             else:
                 return 'name', v
 
         if k == 'tag':
             if self.tag is None:
-                return None, None
+                return None
             else:
                 return 'tag', v
 
@@ -707,9 +763,28 @@ def record_state_value_restore(st: State[A]):
 
 class ShortTermState(State):
     """
-    The short-term state, which is used to store the short-term data in the program.
+    A class representing short-term state in a program.
 
-    For example, in a training process, the gradients of the model are short-term states.
+    :class:`ShortTermState` is used to store temporary or transient data that is only relevant
+    for a short duration within the program's execution. This class extends the base
+    State class, inheriting its properties and methods while specifically denoting
+    the short-term nature of the stored data.
+
+    For example, in a machine learning training process, the gradients of the model
+    would typically be represented as :class:`ShortTermState`, as they are computed and used
+    within each iteration but not necessarily preserved across iterations.
+
+    Attributes:
+        Inherits all attributes from the base State class.
+
+    Note:
+        This class does not introduce new methods or attributes beyond those
+        inherited from the State class. Its primary purpose is to semantically
+        distinguish short-term states from other types of states in the program.
+
+    Example:
+        >>> gradient = ShortTermState(np.zeros(100), name="model_gradient")
+        >>> intermediate_result = ShortTermState({}, name="layer_activations")
     """
 
     __module__ = 'brainstate'
@@ -719,7 +794,25 @@ class LongTermState(State):
     """
     The long-term state, which is used to store the long-term data in the program.
 
-    For example, in a training process, the weights of the model are long-term states.
+    This class extends the base :class:`State` class and is specifically designed to represent
+    and manage long-term data within a program. Long-term states are typically used
+    for data that persists across multiple iterations or epochs of a process.
+
+    For example, in a training process, the weights of the model are considered
+    long-term states as they are updated and maintained throughout the entire
+    training procedure.
+
+    Attributes:
+        Inherits all attributes from the base :class:`State` class.
+
+    Note:
+        This class does not introduce new methods or attributes beyond those
+        inherited from the :class:`State` class. Its primary purpose is to semantically
+        distinguish long-term states from other types of states in the program.
+
+    Example:
+        >>> model_weights = LongTermState(np.random.randn(100, 100), name="model_weights")
+        >>> optimizer_state = LongTermState({}, name="optimizer_state")
     """
 
     __module__ = 'brainstate'
@@ -728,6 +821,24 @@ class LongTermState(State):
 class BatchState(LongTermState):
     """
     The batch state, which is used to store the batch data in the program.
+
+    This class extends :class:`LongTermState` and is specifically designed to represent
+    and manage batch data within a program. It provides a way to encapsulate
+    batch-related information and associated metadata, facilitating operations
+    like batch processing in machine learning or data analysis tasks.
+
+    Attributes:
+        Inherits all attributes from :class:`LongTermState`.
+
+    Note:
+        This class does not introduce new methods or attributes beyond those
+        inherited from :class:`LongTermState`. Its primary purpose is to semantically
+        distinguish batch states from other types of long-term states
+        in the program.
+
+    Example:
+        >>> batch_data = BatchState(np.array([1, 2, 3, 4, 5]), name="current_batch")
+        >>> batch_labels = BatchState(np.array([0, 1, 0, 1, 1]), name="batch_labels")
     """
 
     __module__ = 'brainstate'
@@ -736,6 +847,24 @@ class BatchState(LongTermState):
 class HiddenState(ShortTermState):
     """
     The hidden state, which is used to store the hidden data in a dynamic model.
+
+    This class extends :class:`ShortTermState` and is specifically designed to represent
+    and manage hidden states within dynamic models, such as recurrent neural networks.
+    It provides a way to encapsulate hidden state values and associated metadata,
+    facilitating operations like state updates during model execution.
+
+    Attributes:
+        Inherits all attributes from :class:`ShortTermState`.
+
+    Note:
+        This class does not introduce new methods or attributes beyond those
+        inherited from :class:`ShortTermState`. Its primary purpose is to semantically
+        distinguish hidden states from other types of short-term states
+        in dynamic models.
+
+    Example:
+        >>> lstm_hidden = HiddenState(np.zeros(128), name="lstm_hidden_state")
+        >>> gru_hidden = HiddenState(np.zeros(64), name="gru_hidden_state")
     """
 
     __module__ = 'brainstate'
@@ -744,12 +873,30 @@ class HiddenState(ShortTermState):
 class ParamState(LongTermState):
     """
     The parameter state, which is used to store the trainable parameters in the model.
+
+    This class extends :class:`LongTermState` and is specifically designed to represent
+    and manage trainable parameters within a neural network or machine learning model.
+    It provides a way to encapsulate parameter values and associated metadata,
+    facilitating operations like parameter updates during training.
+
+    Attributes:
+        Inherits all attributes from :class:`LongTermState`.
+
+    Note:
+        This class does not introduce new methods or attributes beyond those
+        inherited from :class:`LongTermState`. Its primary purpose is to semantically
+        distinguish parameter states from other types of long-term states
+        in the model.
+
+    Example:
+        >>> weight = ParamState(np.random.randn(10, 10), name="layer1_weights")
+        >>> bias = ParamState(np.zeros(10), name="layer1_bias")
     """
 
     __module__ = 'brainstate'
 
 
-class FakedState:
+class FakeState:
     """
     The faked state, which is used to store the faked data in the program.
     """
@@ -757,26 +904,63 @@ class FakedState:
     __module__ = 'brainstate'
 
     def __init__(self, value: Any, name: Optional[str] = None):
+        """
+        Initialize a FakeState instance.
+
+        Args:
+            value (Any): The value to be stored in the fake state.
+            name (Optional[str], optional): The name of the fake state. Defaults to None.
+        """
         self._value = value
         self._name = name
 
     @property
     def value(self) -> Any:
+        """
+        Get the value stored in the fake state.
+
+        Returns:
+            Any: The value stored in the fake state.
+        """
         return self._value
 
     @value.setter
     def value(self, v) -> None:
+        """
+        Set the value of the fake state.
+
+        Args:
+            v (Any): The new value to be stored in the fake state.
+        """
         self._value = v
 
     def __repr__(self) -> str:
+        """
+        Return a string representation of the FakeState instance.
+
+        Returns:
+            str: A string representation of the FakeState instance.
+        """
         return f'FakedState(value={self._value})'
 
     @property
     def name(self) -> Optional[str]:
+        """
+        Get the name of the fake state.
+
+        Returns:
+            Optional[str]: The name of the fake state, or None if not set.
+        """
         return self._name
 
     @name.setter
     def name(self, name: str) -> None:
+        """
+        Set the name of the fake state.
+
+        Args:
+            name (str): The new name for the fake state.
+        """
         self._name = name
 
 
@@ -839,7 +1023,38 @@ class StateDictManager(DictManager):
 
 class StateTraceStack(Generic[A]):
     """
-    The state trace stack, which is used to trace the states automatically.
+    A stack for tracing and managing states during program execution.
+
+    ``StateTraceStack`` is used to automatically trace and manage State objects,
+    keeping track of which states are read from or written to during the
+    execution of a function or block of code. It provides methods for
+    recording state accesses, retrieving state values, and managing the
+    lifecycle of states within a tracing context.
+
+    The class is generic over type A, allowing for type-safe usage with
+    different types of State objects.
+
+    Attributes:
+        states (List[State]): A list of all State objects encountered during tracing.
+        been_writen (List[bool]): A parallel list to states, indicating whether each state has been written to.
+        _state_id_index (dict): A dictionary mapping state ids to their index in the states list.
+        _original_state_values (List): A list of the original values of all states when first encountered.
+        _jax_trace_new_arg (Callable): A function used to transform state values during tracing.
+
+    Methods:
+        __enter__: Enters a new tracing context.
+        __exit__: Exits the current tracing context.
+        read_its_value: Records a read operation on a state.
+        write_its_value: Records a write operation on a state.
+        get_state_values: Retrieves the current values of all traced states.
+        recovery_original_values: Restores all states to their original values.
+        merge: Merges multiple ``StateTraceStack`` instances.
+        get_read_states: Retrieves states that were read during tracing.
+        get_read_state_values: Retrieves values of states that were read during tracing.
+
+    The ``StateTraceStack`` is a crucial component in implementing state-based
+    computations and is particularly useful in scenarios involving automatic
+    differentiation or other forms of program transformation.
     """
 
     def __init__(self, new_arg: Callable = None):
@@ -852,7 +1067,17 @@ class StateTraceStack(Generic[A]):
     @property
     def original_state_values(self) -> Tuple[PyTree, ...]:
         """
-        The original values of the states.
+        Get the original values of all states in the StateTraceStack.
+
+        This property provides access to the initial values of all states
+        that were captured when they were first added to the stack. It's
+        useful for comparing current state values with their original values
+        or for reverting states to their initial condition.
+
+        Returns:
+            Tuple[PyTree, ...]: A tuple containing the original values of all
+            states in the order they were added to the stack. Each element
+            is a PyTree representing the structure and values of a state.
         """
         return tuple(self._original_state_values)
 
@@ -860,6 +1085,23 @@ class StateTraceStack(Generic[A]):
         self._jax_trace_new_arg = new_arg
 
     def new_arg(self, state: State) -> None:
+        """
+        Apply a transformation to the value of a given state using a predefined function.
+    
+        This method is used internally to transform the value of a state during tracing.
+        If a transformation function (``_jax_trace_new_arg``) is defined, it applies this
+        function to each element of the state's value using JAX's tree mapping.
+    
+        Args:
+            state (State): The State object whose value needs to be transformed.
+    
+        Returns:
+            None: This function modifies the state in-place and doesn't return anything.
+    
+        Note:
+            This method is intended for internal use and relies on the presence of
+            a ``_jax_trace_new_arg`` function, which should be set separately.
+        """
         if self._jax_trace_new_arg is not None:
             # internal use
             state._value = jax.tree.map(lambda x: self._jax_trace_new_arg(shaped_abstractify(x)), state._value)
@@ -873,10 +1115,22 @@ class StateTraceStack(Generic[A]):
 
     def read_its_value(self, state: State) -> None:
         """
-        Read the value of the state.
-
+        Record that a state's value has been read during tracing.
+    
+        This method marks the given state as having been read in the current
+        tracing context. If the state hasn't been encountered before, it adds
+        it to the internal tracking structures and applies any necessary
+        transformations via the new_arg method.
+    
         Args:
-          state: The state.
+            state (State): The State object whose value is being read.
+    
+        Returns:
+            None
+    
+        Note:
+            This method updates the internal tracking of state accesses.
+            It doesn't actually read or return the state's value.
         """
         id_ = id(state)
         if id_ not in self._state_id_index:
@@ -888,10 +1142,21 @@ class StateTraceStack(Generic[A]):
 
     def write_its_value(self, state: State) -> None:
         """
-        Write the value of the state.
+        Record that a state's value has been written to during tracing.
+
+        This method marks the given state as having been written to in the current
+        tracing context. If the state hasn't been encountered before, it first
+        records it as being read before marking it as written.
 
         Args:
-          state: The state.
+            state (State): The State object whose value is being written to.
+
+        Returns:
+            None
+
+        Note:
+            This method updates the internal tracking of state modifications.
+            It doesn't actually modify the state's value.
         """
         id_ = id(state)
         if id_ not in self._state_id_index:
@@ -899,10 +1164,37 @@ class StateTraceStack(Generic[A]):
         index = self._state_id_index[id_]
         self.been_writen[index] = True
 
-    def get_state_values(self, separate: bool = False, replace: bool = False
-                         ) -> Sequence[PyTree] | Tuple[Sequence[PyTree], Sequence[PyTree]]:
+    def get_state_values(
+        self,
+        separate: bool = False,
+        replace: bool = False
+    ) -> Sequence[PyTree] | Tuple[Sequence[PyTree], Sequence[PyTree]]:
         """
-        Get the values of the states.
+        Retrieve the values of all states in the StateTraceStack.
+    
+        This method returns the values of all states, optionally separating them
+        into written and read states, and optionally replacing values with None
+        for states that weren't accessed in a particular way.
+    
+        Args:
+            separate (bool, optional): If True, separate the values into written
+                and read states. If False, return all values in a single sequence.
+                Defaults to False.
+            replace (bool, optional): If True and separate is True, replace values
+                with None for states that weren't written/read. If False, only
+                include values for states that were written/read. Defaults to False.
+    
+        Returns:
+            Sequence[PyTree] | Tuple[Sequence[PyTree], Sequence[PyTree]]:
+                If separate is False:
+                    A sequence of all state values.
+                If separate is True:
+                    A tuple containing two sequences:
+                    - The first sequence contains values of written states.
+                    - The second sequence contains values of read states.
+                    If replace is True, these sequences will have None for
+                    states that weren't written/read respectively.
+    
         """
         if separate:
             if replace:
@@ -928,7 +1220,18 @@ class StateTraceStack(Generic[A]):
 
     def recovery_original_values(self) -> None:
         """
-        Recovery the original values.
+        Restore the original values of all states in the StateTraceStack.
+
+        This method iterates through all states in the stack and restores
+        their values to the original ones that were captured when the states
+        were first added to the stack. This is useful for reverting changes
+        made during tracing or for resetting the states to their initial condition.
+
+        Note:
+            This method modifies the states in-place.
+
+        Returns:
+            None
         """
         for st, val in zip(self.states, self._original_state_values):
             # internal use
@@ -936,7 +1239,22 @@ class StateTraceStack(Generic[A]):
 
     def merge(self, *traces) -> 'StateTraceStack':
         """
-        Merge other state traces.
+        Merge other state traces into the current ``StateTraceStack``.
+    
+        This method combines the states, their write status, and original values from
+        other ``StateTraceStack`` instances into the current one. If a state from another
+        trace is not present in the current trace, it is added. If a state is already
+        present, its write status is updated if necessary.
+    
+        Args:
+            *traces: Variable number of ``StateTraceStack`` instances to be merged into
+                     the current instance.
+    
+        Returns:
+            StateTraceStack: The current ``StateTraceStack`` instance with merged traces.
+    
+        Note:
+            This method modifies the current ``StateTraceStack`` in-place and also returns it.
         """
         trace: StateTraceStack
         for trace in traces:
@@ -952,10 +1270,22 @@ class StateTraceStack(Generic[A]):
 
     def get_read_states(self, replace_writen: bool = False) -> Tuple[State, ...]:
         """
-        Read the states that are read by the function.
-
+        Retrieve the states that were read during the function execution.
+    
+        This method returns the states that were accessed (read from) during
+        the traced function's execution. It can optionally replace written
+        states with None.
+    
+        Args:
+            replace_writen (bool, optional): If True, replace written states with None
+                in the returned tuple. If False, exclude written states entirely from
+                the result. Defaults to False.
+    
         Returns:
-          The states that are read by the function.
+            Tuple[State, ...]: A tuple containing the read states.
+                If replace_writen is True, the tuple will have the same length as the
+                total number of states, with None for written states.
+                If replace_writen is False, the tuple will only contain read-only states.
         """
         if replace_writen:
             return tuple([st if not been_writen else None
@@ -965,23 +1295,49 @@ class StateTraceStack(Generic[A]):
 
     def get_read_state_values(self, replace_writen: bool = False) -> Tuple[PyTree, ...]:
         """
-        Read the states that are read by the function.
-
+        Retrieve the values of states that were read during the function execution.
+    
+        This method returns the values of states that were accessed (read from) during
+        the traced function's execution. It can optionally replace written states with None.
+    
+        Args:
+            replace_writen (bool, optional): If True, replace the values of written
+                states with None in the returned tuple. If False, exclude written
+                states entirely from the result. Defaults to False.
+    
         Returns:
-          The states that are read by the function.
+            Tuple[PyTree, ...]: A tuple containing the values of read states.
+                If replace_writen is True, the tuple will have the same length as the
+                total number of states, with None for written states.
+                If replace_writen is False, the tuple will only contain values of
+                read-only states.
         """
         if replace_writen:
             return tuple(
-                [st.value if not been_writen else None for st, been_writen in zip(self.states, self.been_writen)])
+                [st.value if not been_writen else None
+                 for st, been_writen in zip(self.states, self.been_writen)]
+            )
         else:
             return tuple([st.value for st, been_writen in zip(self.states, self.been_writen) if not been_writen])
 
     def get_write_states(self, replace_read: bool = False) -> Tuple[State, ...]:
         """
-        Read the states that are written by the function.
-
+        Retrieve the states that were written during the function execution.
+    
+        This method returns the states that were modified (written to) during
+        the traced function's execution. It can optionally replace unwritten (read-only)
+        states with None.
+    
+        Args:
+            replace_read (bool, optional): If True, replace read-only states with None
+                in the returned tuple. If False, exclude read-only states entirely from
+                the result. Defaults to False.
+    
         Returns:
-          The states that are written by the function.
+            Tuple[State, ...]: A tuple containing the written states.
+                If replace_read is True, the tuple will have the same length as the
+                total number of states, with None for read-only states.
+                If replace_read is False, the tuple will only contain written states.
         """
         if replace_read:
             return tuple([st if been_writen else None
@@ -991,10 +1347,24 @@ class StateTraceStack(Generic[A]):
 
     def get_write_state_values(self, replace_read: bool = False) -> Tuple[PyTree, ...]:
         """
-        Read the states that are written by the function.
-
+        Retrieve the values of states that were written during the function execution.
+    
+        This method returns the values of states that were modified (written to) during
+        the traced function's execution. It can optionally replace unwritten (read-only)
+        states with None.
+    
+        Args:
+            replace_read (bool, optional): If True, replace the values of read-only
+                states with None in the returned tuple. If False, exclude read-only
+                states entirely from the result. Defaults to False.
+    
         Returns:
-          The states that are written by the function.
+            Tuple[PyTree, ...]: A tuple containing the values of written states.
+                If replace_read is True, the tuple will have the same length as the
+                total number of states, with None for read-only states.
+                If replace_read is False, the tuple will only contain values of
+                written states.
+    
         """
         if replace_read:
             return tuple([st.value if been_writen else None for st, been_writen in zip(self.states, self.been_writen)])
@@ -1006,6 +1376,62 @@ class StateTraceStack(Generic[A]):
         Support the syntax of `+` to merge the state traces.
         """
         return StateTraceStack().merge(self, other)
+
+    def assign_state_vals(self, state_vals: Sequence[PyTree]) -> None:
+        """
+        Assign new values to the states tracked by this ``StateTraceStack``.
+
+        This method updates the values of the states based on whether they were
+        written to or only read during the tracing process. For states that were
+        written to, it directly assigns the new value. For states that were only
+        read, it restores the value using the state's restore_value method.
+
+        Args:
+            state_vals (Sequence[PyTree]): A sequence of new state values to be
+                assigned. Each element in this sequence corresponds to a state
+                in the ``StateTraceStack``'s states list.
+
+        Raises:
+            ValueError: If the length of state_vals doesn't match the number of
+                states in the ``StateTraceStack``.
+
+        Returns:
+            None
+
+        Note:
+            The order of state_vals should match the order of states in the
+            ``StateTraceStack``'s states list.
+        """
+        if len(state_vals) != len(self.states):
+            raise ValueError('The length of the state values must be equal to the states. '
+                             f'Bug got {len(state_vals)} and {len(self.states)}')
+        for st, written, val in zip(self.states, self.been_writen, state_vals):
+            if written:
+                st.value = val
+            else:
+                st.restore_value(val)
+
+    def state_subset(self, state_type: type) -> List:
+        """
+        Get a subset of states of a specific type from the ``StateTraceStack``.
+
+        This method filters the states in the ``StateTraceStack`` and returns only
+        those that match the specified state type.
+
+        Args:
+            state_type (type): The type of state to filter by. This should be
+                a subclass of State or State itself.
+
+        Returns:
+            List[State]: A list containing all states in the ``StateTraceStack``
+            that are instances of the specified state_type.
+
+        Example:
+            >>> stack = StateTraceStack()
+            >>> # Assume stack has been populated with various state types
+            >>> short_term_states = stack.state_subset(ShortTermState)
+        """
+        return [st for st in self.states if isinstance(st, state_type)]
 
 
 class TreefyState(Generic[A], PrettyObject):
