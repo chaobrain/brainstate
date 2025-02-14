@@ -16,13 +16,12 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-import unittest
-from pprint import pprint
-
 import brainunit as u
 import jax
 import jax.numpy as jnp
 import pytest
+import unittest
+from pprint import pprint
 
 import brainstate as bst
 from brainstate.augment._autograd import _jacfwd

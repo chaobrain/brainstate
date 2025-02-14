@@ -20,13 +20,14 @@ from typing import Callable, Sequence, Union
 
 from brainstate.random import DEFAULT, RandomState
 from brainstate.typing import Missing
+from brainstate.util import PrettyObject
 
 __all__ = [
     'restore_rngs'
 ]
 
 
-class RngRestore:
+class RngRestore(PrettyObject):
     """
     Backup and restore the random state of a sequence of RandomState instances.
     """
@@ -45,8 +46,8 @@ class RngRestore:
         """
         Restore the random key of the RandomState instances.
         """
-        if len(self.rng_keys) == 0:
-            raise ValueError('The random state has not been backed up.')
+        if len(self.rng_keys) != len(self.rngs):
+            raise ValueError('The number of random keys does not match the number of random states.')
         for rng, key in zip(self.rngs, self.rng_keys):
             rng.restore_value(key)
         self.rng_keys.clear()
