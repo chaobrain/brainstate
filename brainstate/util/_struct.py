@@ -21,11 +21,10 @@ from __future__ import annotations
 
 import collections
 import dataclasses
+import jax
 from collections.abc import Hashable, Mapping
 from types import MappingProxyType
 from typing import Any, TypeVar
-
-import jax
 from typing_extensions import dataclass_transform  # pytype: disable=not-supported-yet
 
 __all__ = [

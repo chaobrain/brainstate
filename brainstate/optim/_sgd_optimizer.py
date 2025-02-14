@@ -16,12 +16,11 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-import functools
-from typing import Union, Dict, Optional, Tuple, Any, TypeVar
-
 import brainunit as u
+import functools
 import jax
 import jax.numpy as jnp
+from typing import Union, Dict, Optional, Tuple, Any, TypeVar
 
 from brainstate import environ
 from brainstate._state import State, LongTermState, StateDictManager

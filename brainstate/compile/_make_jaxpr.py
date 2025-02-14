@@ -55,12 +55,10 @@ from __future__ import annotations
 
 import functools
 import inspect
+import jax
 import operator
 from collections.abc import Hashable, Iterable, Sequence
 from contextlib import ExitStack
-from typing import Any, Callable, Tuple, Union, Dict, Optional
-
-import jax
 from jax._src import source_info_util
 from jax._src.linear_util import annotate
 from jax._src.traceback_util import api_boundary
@@ -68,17 +66,17 @@ from jax.api_util import shaped_abstractify
 from jax.extend.linear_util import transformation_with_aux, wrap_init
 from jax.interpreters import partial_eval as pe
 from jax.util import wraps
+from typing import Any, Callable, Tuple, Union, Dict, Optional
 
 from brainstate._state import State, StateTraceStack
 from brainstate._utils import set_module_as
 from brainstate.typing import PyTree
-
+from brainstate.util import PrettyObject
 
 if jax.__version_info__ < (0, 4, 38):
     from jax.core import ClosedJaxpr
 else:
     from jax.extend.core import ClosedJaxpr
-
 
 AxisName = Hashable
 
@@ -125,8 +123,8 @@ def _new_jax_trace():
     return frame, trace
 
 
-def _init_state_trace_stack() -> StateTraceStack:
-    state_trace: StateTraceStack = StateTraceStack()
+def _init_state_trace_stack(name) -> StateTraceStack:
+    state_trace: StateTraceStack = StateTraceStack(name=name)
 
     if jax.__version_info__ < (0, 4, 36):
         # Should be within the calling of ``jax.make_jaxpr()``
@@ -141,7 +139,7 @@ def _init_state_trace_stack() -> StateTraceStack:
         return state_trace
 
 
-class StatefulFunction(object):
+class StatefulFunction(PrettyObject):
     """
     A wrapper class for a function that collects the states that are read and written by the function. The states are
     collected by the function and returned as a StateDictManager instance. The StateDictManager instance can be used to
@@ -189,6 +187,7 @@ class StatefulFunction(object):
         abstracted_axes: Optional[Any] = None,
         state_returns: Union[str, Tuple[str, ...]] = ('read', 'write'),
         cache_type: Optional[str] = None,
+        name: Optional[str] = None,
     ):
         # explicit parameters
         self.fun = fun
@@ -197,6 +196,7 @@ class StatefulFunction(object):
         self.abstracted_axes = abstracted_axes
         self.state_returns = tuple(state_returns) if isinstance(state_returns, (tuple, list)) else (state_returns,)
         assert cache_type in [None, 'jit']
+        self.name = name
 
         # implicit parameters
         self.cache_type = cache_type
@@ -205,12 +205,10 @@ class StatefulFunction(object):
         self._cached_jaxpr_out_tree: Dict[Any, PyTree] = dict()
         self._cached_state_trace: Dict[Any, StateTraceStack] = dict()
 
-    def __repr__(self) -> str:
-        return (f"{self.__class__.__name__}("
-                f"static_argnums={self.static_argnums}, "
-                f"axis_env={self.axis_env}, "
-                f"abstracted_axes={self.abstracted_axes}, "
-                f"state_returns={self.state_returns})")
+    def __pretty_repr_item__(self, k, v):
+        if k.startswith('_'):
+            return None
+        return k, v
 
     def get_jaxpr(self, cache_key: Hashable = ()) -> jax.core.ClosedJaxpr:
         """
@@ -388,7 +386,7 @@ class StatefulFunction(object):
           A tuple of the states that are read and written by the function and the output of the function.
         """
         # state trace
-        state_trace = _init_state_trace_stack()
+        state_trace = _init_state_trace_stack(self.name)
         self._cached_state_trace[cache_key] = state_trace
         with state_trace:
             out = self.fun(*args, **kwargs)
@@ -497,11 +495,7 @@ class StatefulFunction(object):
         """
         state_trace = self.get_state_trace(self.get_arg_cache_key(*args, **kwargs))
         state_vals, out = self.jaxpr_call([st.value for st in state_trace.states], *args, **kwargs)
-        for st, written, val in zip(state_trace.states, state_trace.been_writen, state_vals):
-            if written:
-                st.value = val
-            else:
-                st.restore_value(val)
+        state_trace.assign_state_vals(state_vals)
         return out
 
 
@@ -592,7 +586,15 @@ def make_jaxpr(
       in (g,) }
     """
 
-    stateful_fun = StatefulFunction(fun, static_argnums, axis_env, abstracted_axes, state_returns)
+    stateful_fun = StatefulFunction(
+        fun,
+        static_argnums=static_argnums,
+        axis_env=axis_env,
+        abstracted_axes=abstracted_axes,
+        state_returns=state_returns,
+        name='make_jaxpr'
+
+    )
 
     @wraps(fun)
     def make_jaxpr_f(*args, **kwargs):

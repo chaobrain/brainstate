@@ -17,13 +17,12 @@
 
 from __future__ import annotations
 
-from abc import ABCMeta
-from copy import deepcopy
-from typing import Any, Callable, Type, TypeVar, Tuple, TYPE_CHECKING, Mapping, Iterator, Sequence
-
 import brainunit as u
 import jax
 import numpy as np
+from abc import ABCMeta
+from copy import deepcopy
+from typing import Any, Callable, Type, TypeVar, Tuple, TYPE_CHECKING, Mapping, Iterator, Sequence
 
 from brainstate._state import State, TreefyState
 from brainstate.typing import Key

@@ -16,14 +16,14 @@
 from __future__ import annotations
 
 import math
-import numbers
-from functools import partial
-from typing import Optional, Dict, Callable, Union, Sequence
 
 import brainunit as u
 import jax
 import jax.numpy as jnp
+import numbers
 import numpy as np
+from functools import partial
+from typing import Optional, Dict, Callable, Union, Sequence
 
 from brainstate import environ
 from brainstate._state import ShortTermState, State

@@ -15,9 +15,8 @@
 
 from __future__ import annotations
 
-import unittest
-
 import jax.numpy as jnp
+import unittest
 
 import brainstate as bst
 

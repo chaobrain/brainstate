@@ -27,10 +27,9 @@ The basic classes include:
 """
 from __future__ import annotations
 
+import numpy as np
 import warnings
 from typing import Sequence, Optional, Tuple, Union, TYPE_CHECKING, Callable
-
-import numpy as np
 
 from brainstate._state import State
 from brainstate.graph import Node, states, nodes, flatten
@@ -351,7 +350,6 @@ class Sequential(Module):
         module, in_size = self._format_module(layer, self.out_size)
         self.layers.append(module)
         self.out_size = in_size
-
 
     def _format_module(self, module, in_size):
         if isinstance(module, ParamDescriber):

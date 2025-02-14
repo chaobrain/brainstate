@@ -1,4 +1,4 @@
-# Copyright 2024 BDP Ecosystem Limited. All Rights Reserved.
+# Copyright 2025 BDP Ecosystem Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,5 +13,24 @@
 # limitations under the License.
 # ==============================================================================
 
-# alias for compilation and augmentation functions
+# -*- coding: utf-8 -*-
 
+
+import brainstate as bst
+
+
+class Test_vmap_init_all_states:
+
+    def test_vmap_init_all_states(self):
+        gru = bst.nn.GRUCell(1, 2)
+        bst.nn.vmap_init_all_states(gru, axis_size=10)
+        print(gru)
+
+    def test_vmap_init_all_states_v2(self):
+        @bst.compile.jit
+        def init():
+            gru = bst.nn.GRUCell(1, 2)
+            bst.nn.vmap_init_all_states(gru, axis_size=10)
+            print(gru)
+
+        init()

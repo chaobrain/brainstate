@@ -15,9 +15,8 @@
 
 from __future__ import annotations
 
-import unittest
-
 import jax
+import unittest
 from absl.testing import absltest
 
 import brainstate as bst

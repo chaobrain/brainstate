@@ -19,6 +19,7 @@ import jax.core
 import jax.interpreters.batching as batching
 import jax.interpreters.mlir as mlir
 import jax.numpy as jnp
+
 from brainstate._utils import set_module_as
 
 if jax.__version_info__ < (0, 4, 38):

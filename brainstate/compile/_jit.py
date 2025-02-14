@@ -16,12 +16,11 @@
 from __future__ import annotations
 
 import functools
-from collections.abc import Iterable, Sequence
-from typing import (Any, Callable, Union)
-
 import jax
+from collections.abc import Iterable, Sequence
 from jax._src import sharding_impls
 from jax.lib import xla_client as xc
+from typing import (Any, Callable, Union)
 
 from brainstate._utils import set_module_as
 from brainstate.typing import Missing
@@ -62,19 +61,27 @@ def _get_jitted_fun(
     **kwargs
 ) -> JittedFunction:
     static_argnums = _ensure_index_tuple(tuple() if static_argnums is None else static_argnums)
-    fun = StatefulFunction(fun, static_argnums=static_argnums, abstracted_axes=abstracted_axes, cache_type='jit')
-    jit_fun = jax.jit(fun.jaxpr_call,
-                      static_argnums=tuple(i + 1 for i in static_argnums),
-                      donate_argnums=donate_argnums,
-                      donate_argnames=donate_argnames,
-                      keep_unused=keep_unused,
-                      device=device,
-                      backend=backend,
-                      inline=inline,
-                      in_shardings=in_shardings,
-                      out_shardings=out_shardings,
-                      abstracted_axes=abstracted_axes,
-                      **kwargs)
+    fun = StatefulFunction(
+        fun,
+        static_argnums=static_argnums,
+        abstracted_axes=abstracted_axes,
+        cache_type='jit',
+        name='jit'
+    )
+    jit_fun = jax.jit(
+        fun.jaxpr_call,
+        static_argnums=tuple(i + 1 for i in static_argnums),
+        donate_argnums=donate_argnums,
+        donate_argnames=donate_argnames,
+        keep_unused=keep_unused,
+        device=device,
+        backend=backend,
+        inline=inline,
+        in_shardings=in_shardings,
+        out_shardings=out_shardings,
+        abstracted_axes=abstracted_axes,
+        **kwargs
+    )
 
     @functools.wraps(fun.fun)
     def jitted_fun(*args, **params):

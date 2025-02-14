@@ -16,11 +16,11 @@
 from __future__ import annotations
 
 from collections import namedtuple
+
+import jax
 from typing import (
     Callable, TypeVar, Tuple, Any, Dict
 )
-
-import jax
 
 from brainstate._state import catch_new_states
 from brainstate._utils import set_module_as
@@ -330,27 +330,28 @@ def vmap_init_all_states(
         If axis_size is not specified or is not greater than 0.
         If init_kwargs is not a dictionary.
     """
-    return vmap_call_all_functions(
-        target,
-        'init_state',
-        args=init_args,
-        kwargs=init_kwargs,
-        axis_size=axis_size,
-        node_to_exclude=node_to_exclude,
-        tag=tag,
-    )
 
-    #     def init_fn():
-    #         init_all_states(
-    #             target,
-    #             init_args=init_args,
-    #             init_kwargs=init_kwargs,
-    #             node_to_exclude=node_to_exclude,
-    #         )
-    #         return
-    #
-    #     vmap_new_states(init_fn, tag=tag, axis_size=axis_size, state_to_exclude=state_to_exclude)()
-    #     return target
+    # return vmap_call_all_functions(
+    #     target,
+    #     'init_state',
+    #     args=init_args,
+    #     kwargs=init_kwargs,
+    #     axis_size=axis_size,
+    #     node_to_exclude=node_to_exclude,
+    #     tag=tag,
+    # )
+
+    def init_fn():
+        init_all_states(
+            target,
+            init_args=init_args,
+            init_kwargs=init_kwargs,
+            node_to_exclude=node_to_exclude,
+        )
+        return
+
+    vmap_new_states(init_fn, tag=tag, axis_size=axis_size, state_to_exclude=state_to_exclude)()
+    return target
 
 
 @set_module_as('brainstate.nn')

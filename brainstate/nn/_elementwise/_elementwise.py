@@ -17,11 +17,10 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 import brainunit as u
 import jax.numpy as jnp
 import jax.typing
+from typing import Optional
 
 from brainstate import random, functional as F
 from brainstate._state import ParamState

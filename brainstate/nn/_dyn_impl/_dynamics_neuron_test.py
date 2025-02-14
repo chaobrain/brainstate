@@ -17,11 +17,10 @@
 
 from __future__ import annotations
 
-import unittest
-
 import brainunit as u
 import jax
 import jax.numpy as jnp
+import unittest
 
 import brainstate as bst
 from brainstate.nn import IF, LIF, ALIF

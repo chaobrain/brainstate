@@ -14,11 +14,10 @@
 # ==============================================================================
 from __future__ import annotations
 
-from typing import Union, Optional, Sequence, Callable
-
 import brainunit as u
 import jax
 import numpy as np
+from typing import Union, Optional, Sequence, Callable
 
 from brainstate import environ, init, random
 from brainstate._state import ShortTermState

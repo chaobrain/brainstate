@@ -14,9 +14,8 @@
 # ==============================================================================
 
 
-import unittest
-
 import numpy as np
+import unittest
 
 import brainstate as bst
 

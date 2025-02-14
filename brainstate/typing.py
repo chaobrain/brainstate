@@ -16,17 +16,17 @@
 from __future__ import annotations
 
 import builtins
+
+import brainunit as u
 import functools as ft
 import importlib
 import inspect
+import jax
+import numpy as np
 from typing import (
     Any, Callable, Hashable, List, Protocol, Tuple, TypeVar, Union,
     runtime_checkable, TYPE_CHECKING, Generic, Sequence
 )
-
-import brainunit as u
-import jax
-import numpy as np
 
 tp = importlib.import_module("typing")
 

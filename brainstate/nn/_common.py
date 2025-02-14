@@ -16,6 +16,7 @@
 # -*- coding: utf-8 -*-
 
 from collections import defaultdict
+
 from typing import Any, Sequence, Hashable, Dict
 
 from brainstate import environ

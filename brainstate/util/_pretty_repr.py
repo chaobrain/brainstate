@@ -21,7 +21,7 @@ import dataclasses
 import threading
 from abc import ABC, abstractmethod
 from functools import partial
-from typing import Any, Iterator, Mapping, TypeVar, Union, Callable, Optional, Sequence
+from typing import Any, Iterator, Mapping, TypeVar, Union, Callable, Optional
 
 __all__ = [
     'yield_unique_pretty_repr_items',
@@ -328,4 +328,3 @@ def yield_unique_pretty_repr_items(
     finally:
         if clear_seen:
             CONTEXT.seen_modules_repr = None
-

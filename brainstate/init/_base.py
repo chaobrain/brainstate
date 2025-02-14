@@ -15,9 +15,8 @@
 
 from __future__ import annotations
 
-from typing import Optional, Tuple
-
 import numpy as np
+from typing import Optional, Tuple
 
 from brainstate.util import PrettyRepr, PrettyType, PrettyAttr
 

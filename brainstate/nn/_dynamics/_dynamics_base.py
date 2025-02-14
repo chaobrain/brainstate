@@ -34,10 +34,9 @@ For handling the delays:
 """
 from __future__ import annotations
 
-from typing import Any, Dict, Callable, Hashable, Optional, Union, TypeVar, TYPE_CHECKING
-
 import brainunit as u
 import numpy as np
+from typing import Any, Dict, Callable, Hashable, Optional, Union, TypeVar, TYPE_CHECKING
 
 from brainstate import environ
 from brainstate._state import State

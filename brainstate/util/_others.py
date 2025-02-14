@@ -15,16 +15,16 @@
 
 from __future__ import annotations
 
+import gc
+
 import copy
 import functools
-import gc
+import jax
 import threading
 import types
 from collections.abc import Iterable
-from typing import Any, Callable, Tuple, Union, Dict
-
-import jax
 from jax.lib import xla_bridge
+from typing import Any, Callable, Tuple, Union, Dict
 
 from brainstate._utils import set_module_as
 
@@ -91,6 +91,7 @@ def split_total(
 
     else:
         raise ValueError("'fraction' must be an integer or float.")
+
 
 class NameContext(threading.local):
     def __init__(self):
