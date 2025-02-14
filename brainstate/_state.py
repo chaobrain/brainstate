@@ -460,6 +460,8 @@ class State(Generic[A], PrettyObject):
 
     Args:
         value: PyTree. It can be anything as a pyTree.
+        name: Optional[str]. The name of the state.
+        tag: Optional[str]. The tag of the state.
     """
     __module__ = 'brainstate'
     _level: int
@@ -475,6 +477,25 @@ class State(Generic[A], PrettyObject):
         name: Optional[str] = None,
         **metadata: Any
     ):
+        """
+        Initialize a new HiddenState instance.
+
+        This constructor sets up the initial state for a hidden state in a dynamic model,
+        handling various input types and metadata.
+
+        Args:
+            value (Union[PyTree[ArrayLike], StateMetadata[PyTree[ArrayLike]]]): 
+                The initial value for the hidden state. Can be a PyTree of array-like objects
+                or a StateMetadata object containing both value and metadata.
+            name (Optional[str], optional): A name for the hidden state. Defaults to None.
+            **metadata: Additional metadata to be stored with the hidden state, including:
+                - tag (Optional[str]): A tag for categorizing or grouping states.
+                - Any other custom metadata fields.
+
+        Note:
+            This method initializes the hidden state, processes the input value and metadata,
+            sets up internal attributes, and records the state initialization.
+        """
         tag = metadata.pop('tag', None)
 
         # set the value and metadata
@@ -485,18 +506,40 @@ class State(Generic[A], PrettyObject):
             value = value.value
 
         # update metadata
-        metadata.update(_value=value,
-                        _level=_get_trace_stack_level(),
-                        _source_info=source_info_util.current(),
-                        _name=name,
-                        tag=tag,
-                        _been_writen=False)
+        metadata.update(
+            _value=value,
+            _level=_get_trace_stack_level(),
+            _source_info=source_info_util.current(),
+            _name=name,
+            _been_writen=False,
+            tag=tag,
+        )
 
         # avoid using self._setattr to avoid the check
         vars(self).update(metadata)
 
         # record the state initialization
         record_state_init(self)
+
+    def decrease_stack_level(self):
+        """
+        Decrease the stack level of the state by one, ensuring it doesn't go below zero.
+
+        This method is used to adjust the stack level of the state, typically when
+        exiting a nested context or scope. It ensures that the level never becomes
+        negative.
+        """
+        self._level = max(self._level - 1, 0)
+
+    def increase_stack_level(self):
+        """
+        Increase the stack level of the state by one.
+
+        This method is used to adjust the stack level of the state, typically when
+        entering a nested context or scope. It increments the internal level counter
+        by one.
+        """
+        self._level = self._level + 1
 
     @property
     def name(self) -> Optional[str]:
@@ -694,7 +737,7 @@ class State(Generic[A], PrettyObject):
         if k in ['_level', '_source_info', '_been_writen']:
             return None
         if k == '_value':
-            return 'value', v
+            return 'value', jax.tree.map(shaped_abstractify, v)
 
         if k == '_name':
             if self.name is None:
@@ -740,24 +783,89 @@ class State(Generic[A], PrettyObject):
 
 
 def record_state_init(st: State[A]):
+    """
+    Record the initialization of a new :class:`State` object.
+
+    This function iterates through all registered state catchers in the current
+    trace context and appends the newly initialized state to each catcher.
+
+    Args:
+        st (State[A]): The newly initialized :class:`State` object to be recorded.
+
+    Note:
+        This function is typically called internally when a new :class:`State` object
+        is created to ensure proper tracking and management of states within
+        the current execution context.
+    """
     trace: Catcher
     for trace in TRACE_CONTEXT.new_state_catcher:
         trace.append(st)
 
 
 def record_state_value_read(st: State[A]):
+    """
+    Record that a state's value has been read in all relevant trace stacks.
+
+    This function iterates through all state trace stacks at or above the
+    state's stack level in the current trace context, and records that
+    the given state's value has been read.
+
+    Args:
+        st (State[A]): The state object whose value read is being recorded.
+                       'A' is a generic type parameter representing the
+                       type of the state's value.
+
+    Note:
+        This function modifies the state trace stacks in the current
+        trace context but does not return any value.
+    """
     trace: StateTraceStack
     for trace in TRACE_CONTEXT.state_stack[st.stack_level:]:
         trace.read_its_value(st)
 
 
 def record_state_value_write(st: State[A]):
+    """
+    Record that a state's value has been written in all relevant trace stacks.
+
+    This function iterates through all state trace stacks at or above the
+    state's stack level in the current trace context, and records that
+    the given state's value has been written.
+
+    Args:
+        st (State[A]): The state object whose value write is being recorded.
+                       'A' is a generic type parameter representing the
+                       type of the state's value.
+
+    Note:
+        This function modifies the state trace stacks in the current
+        trace context but does not return any value.
+    """
     trace: StateTraceStack
     for trace in TRACE_CONTEXT.state_stack[st.stack_level:]:
         trace.write_its_value(st)
 
 
 def record_state_value_restore(st: State[A]):
+    """
+    Record that a state's value has been restored.
+
+    This function is used to indicate that a state's value has been restored
+    to a previous value. It internally calls the record_state_value_read
+    function to mark the state as having been accessed.
+
+    Args:
+        st (State[A]): The state object whose value restoration is being recorded.
+                       'A' is a generic type parameter representing the
+                       type of the state's value.
+
+    See Also:
+        record_state_value_read: Record that a state's value has been read.
+
+    Note:
+        This function does not actually restore the state's value; it only
+        records that a restoration has occurred.
+    """
     record_state_value_read(st)
 
 
@@ -1057,12 +1165,24 @@ class StateTraceStack(Generic[A]):
     differentiation or other forms of program transformation.
     """
 
-    def __init__(self, new_arg: Callable = None):
+    def __init__(
+        self,
+        new_arg: Callable = None,
+        name: Optional[str] = None,
+    ):
+        self.name = name
         self.states: List[State] = []
         self.been_writen: List[bool] = []  # False: read, True: write
         self._state_id_index = dict()
         self._original_state_values = []
         self._jax_trace_new_arg: Callable = new_arg
+        self._stack_level = None
+
+    def __str__(self) -> str:
+        _stack_level = self.name if self._stack_level is None else self._stack_level
+        if _stack_level is None:
+            _stack_level = ''
+        return f"{self.__class__.__name__}({_stack_level})"
 
     @property
     def original_state_values(self) -> Tuple[PyTree, ...]:
@@ -1108,6 +1228,7 @@ class StateTraceStack(Generic[A]):
 
     def __enter__(self) -> 'StateTraceStack':
         TRACE_CONTEXT.state_stack.append(self)
+        self._stack_level = ' / '.join([st.name for st in TRACE_CONTEXT.state_stack if st.name is not None])
         return self
 
     def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
