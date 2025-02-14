@@ -137,7 +137,7 @@ def _remove_axis(x, axis: int):
         axis += x.ndim
     if axis < 0 or axis >= x.ndim:
         raise IndexError(f"Axis {axis} is out of bounds for array of shape {x.shape}")
-    return x[*(slice(None, None, None) if i != axis else 0 for i in range(x.ndim))]
+    return x[tuple(slice(None, None, None) if i != axis else 0 for i in range(x.ndim))]
 
 
 def _compile_stateful_function(
