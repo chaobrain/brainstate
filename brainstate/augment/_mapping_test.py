@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 import unittest
@@ -252,6 +253,16 @@ class TestVmap(unittest.TestCase):
 
         print(trace.get_write_states())
         print(trace.get_read_states())
+
+    def test_auto_rand_key_split(self):
+        def f():
+            return bst.random.rand(1)
+
+        res = bst.augment.vmap(f, axis_size=10)()
+        self.assertTrue(jnp.all(~(res[0] == res[1:])))
+
+        res2 = jax.vmap(f, axis_size=10)()
+        self.assertTrue(jnp.all((res2[0] == res2[1:])))
 
 
 class TestMap(unittest.TestCase):

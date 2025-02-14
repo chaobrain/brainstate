@@ -15,6 +15,8 @@
 
 # -*- coding: utf-8 -*-
 
+from __future__ import annotations
+
 from collections import defaultdict
 
 from typing import Any, Sequence, Hashable, Dict
