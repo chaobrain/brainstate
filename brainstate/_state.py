@@ -1579,13 +1579,27 @@ class TreefyState(Generic[A], PrettyObject):
 
     def __pretty_repr_item__(self, k, v):
         if k in ['_level', '_source_info', '_been_writen']:
-            return None, None
+            return None
         if k == '_value':
             return 'value', v
 
         if k == '_name':
-            return (None, None) if v is None else ('name', v)
+            return None if v is None else ('name', v)
         return k, v
+
+    @property
+    def name(self) -> Optional[str]:
+        """
+        The name of the state.
+        """
+        return self._name
+
+    @name.setter
+    def name(self, name: str) -> None:
+        """
+        Set the name of the state.
+        """
+        self._name = name
 
     def replace(self, value: B) -> TreefyState[B]:
         """
@@ -1601,7 +1615,9 @@ class TreefyState(Generic[A], PrettyObject):
         # __init__ logic which should not be called twice
         metadata = self.get_metadata()
         state = object.__new__(self.type)
-        vars(state).update(metadata, _value=self.value, _level=_get_trace_stack_level())
+        metadata.pop('_value', None)
+        metadata.pop('_level', None)
+        vars(state).update(**metadata, _value=self.value, _level=_get_trace_stack_level())
         return state
 
     def copy(self: TreefyState[A]) -> TreefyState[A]:
