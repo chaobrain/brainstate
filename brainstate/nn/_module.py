@@ -225,7 +225,7 @@ class Module(Node, ParamDesc):
         """
         pass
 
-    def __leaf_fn__(self, name, value):
+    def __pretty_repr_item__(self, name, value):
         if name in ['_in_size', '_out_size', '_name']:
             return (name, value) if value is None else (name[1:], value)  # skip the first `_`
         return name, value

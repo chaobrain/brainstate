@@ -77,7 +77,7 @@ class ThreadLocalStack(threading.local):
         state_stack (List[StateTraceStack]): A list to store StateTraceStack objects for the current thread.
         tree_check (List[bool]): A list of boolean flags for tree structure checking, initialized with [False].
         jax_tracer_check (List[bool]): A list of boolean flags for JAX tracer checking, initialized with [False].
-        new_state_catcher (List[Catcher]): A list to store Catcher objects for capturing new states in the current thread.
+        new_state_catcher (List[StateCatcher]): A list to store Catcher objects for capturing new states in the current thread.
     """
 
     def __init__(self):
@@ -91,7 +91,7 @@ class ThreadLocalStack(threading.local):
         self.state_stack: List[StateTraceStack] = []
         self.tree_check: List[bool] = [False]
         self.jax_tracer_check: List[bool] = [False]
-        self.new_state_catcher: List[Catcher] = []
+        self.new_state_catcher: List[StateCatcher] = []
 
 
 TRACE_CONTEXT = ThreadLocalStack()
@@ -127,7 +127,7 @@ def check_state_value_tree(val: bool = True) -> Generator[None, None, None]:
         TRACE_CONTEXT.tree_check.pop()
 
 
-class Catcher(PrettyObject):
+class StateCatcher(PrettyObject):
     """
     The catcher to catch and manage new states.
 
@@ -135,27 +135,27 @@ class Catcher(PrettyObject):
     It ensures that each state is only added once and assigns a tag to each state.
 
     Attributes:
-        tag (str): A string identifier used to tag the caught states.
+        state_tag (str): A string identifier used to tag the caught states.
         state_ids (set): A set of state IDs to ensure uniqueness.
         states (list): A list to store the caught State objects.
     """
 
     def __init__(
         self,
-        tag: str,
+        state_tag: str,
         state_to_exclude: Filter = Nothing()
     ):
         """
         Initialize a new Catcher instance.
 
         Args:
-            tag (str): The tag to be assigned to caught states.
+            state_tag (str): The tag to be assigned to caught states.
             state_to_exclude (Filter, optional): A filter to exclude states from being caught.
         """
         if state_to_exclude is None:
             state_to_exclude = Nothing()
         self.state_to_exclude = state_to_exclude
-        self.tag = tag
+        self.state_tag = state_tag
         self.state_ids = set()
         self.states = []
 
@@ -192,7 +192,7 @@ class Catcher(PrettyObject):
         if id(state) not in self.state_ids:
             self.state_ids.add(id(state))
             self.states.append(state)
-            state.tag = self.tag
+            state.tag = self.state_tag
 
     def __iter__(self):
         """
@@ -269,9 +269,9 @@ class Catcher(PrettyObject):
 
 @contextlib.contextmanager
 def catch_new_states(
-    tag: str = None,
+    state_tag: str = None,
     state_to_exclude: Filter = Nothing()
-) -> Generator[Catcher, None, None]:
+) -> Generator[StateCatcher, None, None]:
     """
     A context manager that catches and tracks new states created within its scope.
 
@@ -280,8 +280,10 @@ def catch_new_states(
     within the context.
 
     Args:
-        tag (str, optional): A string tag to associate with the caught states.
+        state_tag (str, optional): A string tag to associate with the caught states.
             Defaults to None.
+        state_to_exclude (Filter, optional): A filter object to specify which states
+            should be excluded from catching. Defaults to Nothing(), which excludes no states.
 
     Yields:
         Catcher: A Catcher object that can be used to access and manage the
@@ -295,7 +297,7 @@ def catch_new_states(
         # Access caught states through catcher object
     """
     try:
-        catcher = Catcher(tag=tag, state_to_exclude=state_to_exclude)
+        catcher = StateCatcher(state_tag=state_tag, state_to_exclude=state_to_exclude)
         TRACE_CONTEXT.new_state_catcher.append(catcher)
         yield catcher
     finally:
@@ -797,7 +799,7 @@ def record_state_init(st: State[A]):
         is created to ensure proper tracking and management of states within
         the current execution context.
     """
-    trace: Catcher
+    trace: StateCatcher
     for trace in TRACE_CONTEXT.new_state_catcher:
         trace.append(st)
 

@@ -419,7 +419,7 @@ class Dynamics(Module):
         else:
             raise TypeError(f'The input {dyn} should be an instance of {Dynamics} or a delayed initializer.')
 
-    def __leaf_fn__(self, name, value):
+    def __pretty_repr_item__(self, name, value):
         if name in ['_in_size', '_out_size', '_name', '_mode',
                     '_before_updates', '_after_updates', '_current_inputs', '_delta_inputs']:
             return (name, value) if value is None else (name[1:], value)  # skip the first `_`

@@ -332,6 +332,9 @@ def _vmap_transform(
         Callable: A new function that applies vectorized mapping to the input
         function while managing states.
     """
+
+    # TODO: support jax.disable_jit()
+
     # format state axes
     (
         axis_to_in_states,
@@ -930,9 +933,13 @@ def _vmap_new_states_transform(
     axis_size: int | None = None,
     spmd_axis_name: AxisName | tuple[AxisName, ...] | None = None,
     # -- brainstate specific arguments -- #
-    tag: str | None = None,
+    state_tag: str | None = None,
     state_to_exclude: Filter | None = None,
 ):
+
+    # TODO: How about nested call ``vmap_new_states``?
+
+
     @vmap(
         in_axes=in_axes,
         out_axes=out_axes,
@@ -942,7 +949,7 @@ def _vmap_new_states_transform(
     )
     def new_fun(args):
         # call the function
-        with catch_new_states(tag=tag, state_to_exclude=state_to_exclude) as catcher:
+        with catch_new_states(state_tag=state_tag, state_to_exclude=state_to_exclude) as catcher:
             out = fun(*args)
 
         # get vmap state values
@@ -979,7 +986,7 @@ def vmap_new_states(
     axis_size: int | None = None,
     spmd_axis_name: AxisName | tuple[AxisName, ...] | None = None,
     # -- brainstate specific arguments -- #
-    tag: str | None = None,
+    state_tag: str | None = None,
     state_to_exclude: Filter = None,
 ):
     """
@@ -996,7 +1003,7 @@ def vmap_new_states(
         axis_name (AxisName, optional): Name of the axis being vectorized over. Defaults to None.
         axis_size (int, optional): Size of the axis being vectorized over. Defaults to None.
         spmd_axis_name (AxisName | tuple[AxisName, ...], optional): Name(s) of SPMD axis/axes. Defaults to None.
-        tag (str, optional): A tag to identify specific states. Defaults to None.
+        state_tag (str, optional): A tag to identify specific states. Defaults to None.
         state_to_exclude (Sequence[int], optional): Indices of states to exclude from vectorization. Defaults to ().
 
     Returns:
@@ -1010,7 +1017,7 @@ def vmap_new_states(
             axis_name=axis_name,
             axis_size=axis_size,
             spmd_axis_name=spmd_axis_name,
-            tag=tag,
+            state_tag=state_tag,
             state_to_exclude=state_to_exclude,
         )
     else:
@@ -1021,6 +1028,6 @@ def vmap_new_states(
             axis_name=axis_name,
             axis_size=axis_size,
             spmd_axis_name=spmd_axis_name,
-            tag=tag,
+            state_tag=state_tag,
             state_to_exclude=state_to_exclude,
         )

@@ -395,10 +395,18 @@ class GradientTransform(PrettyRepr):
         Returns:
             Union[Gradient, Tuple]: The computed gradients, potentially including function value and/or auxiliary data.
         """
+
+        # TODO: support jax.disable_jit()
+
+        # compute the model
         self.stateful_target.make_jaxpr(*args, **kwargs)
         cache = self.stateful_target.get_arg_cache_key(*args, **kwargs)
+
+        # apply the gradient transformation
         state_trace = self.stateful_target.get_state_trace(cache)
         rets = self._transform(*self._split_state_vals(state_trace), *args, **kwargs)
+
+        # analyze and return the results
         return self._return(rets, state_trace)
 
 

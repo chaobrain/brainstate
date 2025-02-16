@@ -296,7 +296,7 @@ def vmap_init_all_states(
     axis_size: int = None,
     node_to_exclude: Filter = None,
     state_to_exclude: Filter = None,
-    tag: str | None = None,
+    state_tag: str | None = None,
 ) -> T:
     """
     Initialize all vmap states for the given target module.
@@ -316,7 +316,7 @@ def vmap_init_all_states(
         The size of the batch axis for vmap. This must be specified and should be greater than 0.
     node_to_exclude : Filter, optional
         A filter to exclude certain nodes from initialization.
-    tag : str | None, optional
+    state_tag : str | None, optional
         A tag to be used for catching new states.
 
     Returns:
@@ -350,7 +350,7 @@ def vmap_init_all_states(
         )
         return
 
-    vmap_new_states(init_fn, tag=tag, axis_size=axis_size, state_to_exclude=state_to_exclude)()
+    vmap_new_states(init_fn, state_tag=state_tag, axis_size=axis_size, state_to_exclude=state_to_exclude)()
     return target
 
 

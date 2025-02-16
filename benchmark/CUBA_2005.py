@@ -35,39 +35,39 @@ import jax
 import time
 
 import brainunit as u
+import brainevent
+import brainstate
 
-import brainstate as bst
 
-
-class EINet(bst.nn.DynamicsGroup):
+class EINet(brainstate.nn.DynamicsGroup):
     def __init__(self, scale=1.0):
         super().__init__()
         self.n_exc = int(3200 * scale)
         self.n_inh = int(800 * scale)
         self.num = self.n_exc + self.n_inh
-        self.N = bst.nn.LIFRef(
+        self.N = brainstate.nn.LIFRef(
             self.num, V_rest=-49. * u.mV, V_th=-50. * u.mV, V_reset=-60. * u.mV,
             tau=20. * u.ms, tau_ref=5. * u.ms,
-            V_initializer=bst.init.Normal(-55., 2., unit=u.mV)
+            V_initializer=brainstate.init.Normal(-55., 2., unit=u.mV)
         )
-        self.E = bst.nn.AlignPostProj(
-            comm=bst.event.FixedProb(self.n_exc, self.num, prob=80 / self.num, weight=1.62 * u.mS),
-            syn=bst.nn.Expon.desc(self.num, tau=5. * u.ms),
-            out=bst.nn.CUBA.desc(scale=u.volt),
+        self.E = brainstate.nn.AlignPostProj(
+            comm=brainevent.nn.FixedProb(self.n_exc, self.num, prob=80 / self.num, weight=1.62 * u.mS),
+            syn=brainstate.nn.Expon.desc(self.num, tau=5. * u.ms),
+            out=brainstate.nn.CUBA.desc(scale=u.volt),
             post=self.N
         )
-        self.I = bst.nn.AlignPostProj(
-            comm=bst.event.FixedProb(self.n_inh, self.num, prob=80 / self.num, weight=-9.0 * u.mS),
-            syn=bst.nn.Expon.desc(self.num, tau=10. * u.ms),
-            out=bst.nn.CUBA.desc(scale=u.volt),
+        self.I = brainstate.nn.AlignPostProj(
+            comm=brainevent.nn.FixedProb(self.n_inh, self.num, prob=80 / self.num, weight=-9.0 * u.mS),
+            syn=brainstate.nn.Expon.desc(self.num, tau=10. * u.ms),
+            out=brainstate.nn.CUBA.desc(scale=u.volt),
             post=self.N
         )
 
     def init_state(self, *args, **kwargs):
-        self.rate = bst.ShortTermState(u.math.zeros(self.num))
+        self.rate = brainstate.ShortTermState(u.math.zeros(self.num))
 
     def update(self, t, inp):
-        with bst.environ.context(t=t):
+        with brainstate.environ.context(t=t):
             spk = self.N.get_spike()
             self.E(spk[:self.n_exc])
             self.I(spk[self.n_exc:])
@@ -75,19 +75,19 @@ class EINet(bst.nn.DynamicsGroup):
             self.rate.value += self.N.get_spike()
 
 
-@bst.compile.jit(static_argnums=0)
+@brainstate.compile.jit(static_argnums=0)
 def run(scale: float):
     # network
     net = EINet(scale)
-    bst.nn.init_all_states(net)
+    brainstate.nn.init_all_states(net)
 
     duration = 1e4 * u.ms
     # simulation
-    with bst.environ.context(dt=0.1 * u.ms):
-        times = u.math.arange(0. * u.ms, duration, bst.environ.get_dt())
-        bst.compile.for_loop(lambda t: net.update(t, 20. * u.mA), times,
-                             # pbar=bst.compile.ProgressBar(100)
-                             )
+    with brainstate.environ.context(dt=0.1 * u.ms):
+        times = u.math.arange(0. * u.ms, duration, brainstate.environ.get_dt())
+        brainstate.compile.for_loop(lambda t: net.update(t, 20. * u.mA), times,
+                                    # pbar=bst.compile.ProgressBar(100)
+                                    )
 
     return net.num, net.rate.value.sum() / net.num / duration.to_decimal(u.second)
 

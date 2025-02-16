@@ -17,16 +17,17 @@
 
 from __future__ import annotations
 
-import brainunit as u
-import jax
-import numpy as np
 from abc import ABCMeta
 from copy import deepcopy
 from typing import Any, Callable, Type, TypeVar, Tuple, TYPE_CHECKING, Mapping, Iterator, Sequence
 
+import brainunit as u
+import jax
+import numpy as np
+
 from brainstate._state import State, TreefyState
 from brainstate.typing import Key
-from brainstate.util._pretty_repr import PrettyRepr, yield_unique_pretty_repr_items, PrettyType, PrettyAttr
+from brainstate.util._pretty_pytree import PrettyObject
 from ._graph_operation import register_graph_node_type
 
 __all__ = [
@@ -45,7 +46,7 @@ class GraphNodeMeta(ABCMeta):
             return node
 
 
-class Node(PrettyRepr, metaclass=GraphNodeMeta):
+class Node(PrettyObject, metaclass=GraphNodeMeta):
     """
     Base class for all graph nodes.
 
@@ -82,47 +83,6 @@ class Node(PrettyRepr, metaclass=GraphNodeMeta):
         graphdef = deepcopy(graphdef)
         state = deepcopy(state)
         return treefy_merge(graphdef, state)
-
-    def __pretty_repr__(self):
-        """
-        Pretty repr for the object.
-        """
-        yield from yield_unique_pretty_repr_items(self, _default_repr_object, _default_repr_attr)
-
-    def __treescope_repr__(self, path, subtree_renderer):
-        """
-        Treescope repr for the object.
-        """
-        children = {}
-        for name, value in vars(self).items():
-            name, value = self.__leaf_fn__(name, value)
-            if name.startswith('_'):
-                continue
-            children[name] = value
-        import treescope  # type: ignore[import-not-found,import-untyped]
-        return treescope.repr_lib.render_object_constructor(
-            object_type=type(self),
-            attributes=children,
-            path=path,
-            subtree_renderer=subtree_renderer,
-            color=treescope.formatting_util.color_from_string(type(self).__qualname__)
-        )
-
-    def __leaf_fn__(self, leaf, value):
-        return leaf, value
-
-
-def _default_repr_object(node: Node):
-    yield PrettyType(type=type(node))
-
-
-def _default_repr_attr(node: Node):
-    for name, value in vars(node).items():
-        name, value = node.__leaf_fn__(name, value)
-        if name.startswith('_'):
-            continue
-        # value = jax.tree.map(_to_shape_dtype, value, is_leaf=lambda x: isinstance(x, u.Quantity))
-        yield PrettyAttr(name, repr(value))
 
 
 class String:
