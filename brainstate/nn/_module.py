@@ -27,9 +27,10 @@ The basic classes include:
 """
 from __future__ import annotations
 
-import numpy as np
 import warnings
 from typing import Sequence, Optional, Tuple, Union, TYPE_CHECKING, Callable
+
+import numpy as np
 
 from brainstate._state import State
 from brainstate.graph import Node, states, nodes, flatten
@@ -112,7 +113,11 @@ class Module(Node, ParamDesc):
         """
         The function to specify the updating rule.
         """
-        raise NotImplementedError(f'Subclass of {self.__class__.__name__} must implement "update" function.')
+        raise NotImplementedError(
+            f'Subclass of {self.__class__.__name__} must implement "update" function. \n'
+            f'This instance is: \n'
+            f'{self}'
+        )
 
     def __call__(self, *args, **kwargs):
         return self.update(*args, **kwargs)
@@ -227,7 +232,7 @@ class Module(Node, ParamDesc):
 
     def __pretty_repr_item__(self, name, value):
         if name in ['_in_size', '_out_size', '_name']:
-            return (name, value) if value is None else (name[1:], value)  # skip the first `_`
+            return None if value is None else (name[1:], value)  # skip the first `_`
         return name, value
 
 

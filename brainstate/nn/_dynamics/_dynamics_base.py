@@ -34,9 +34,10 @@ For handling the delays:
 """
 from __future__ import annotations
 
+from typing import Any, Dict, Callable, Hashable, Optional, Union, TypeVar, TYPE_CHECKING
+
 import brainunit as u
 import numpy as np
-from typing import Any, Dict, Callable, Hashable, Optional, Union, TypeVar, TYPE_CHECKING
 
 from brainstate import environ
 from brainstate._state import State
@@ -155,6 +156,11 @@ class Dynamics(Module):
 
         # in-/out- size of neuron population
         self.out_size = self.in_size
+
+    def __pretty_repr_item__(self, name, value):
+        if name in ['_before_updates', '_after_updates', '_current_inputs', '_delta_inputs']:
+            return None if value is None else (name[1:], value)  # skip the first `_`
+        return super().__pretty_repr_item__(name, value)
 
     @property
     def varshape(self):

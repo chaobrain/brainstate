@@ -132,9 +132,6 @@ class Surrogate(PrettyObject):
         dx = self.surrogate_grad(x)
         return heaviside_p.bind(x, dx)[0]
 
-    def __repr__(self):
-        return f'{self.__class__.__name__}()'
-
     def surrogate_fun(self, x) -> jax.Array:
         """The surrogate function."""
         raise NotImplementedError
