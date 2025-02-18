@@ -44,7 +44,12 @@ from brainstate.util import DictManager, PrettyObject
 from brainstate.util.filter import Nothing
 
 __all__ = [
-    'State', 'ShortTermState', 'LongTermState', 'HiddenState', 'ParamState', 'TreefyState',
+    'State',
+    'ShortTermState',
+    'LongTermState',
+    'HiddenState',
+    'ParamState',
+    'TreefyState',
     'FakeState',
 
     'StateDictManager',
@@ -956,21 +961,18 @@ class BatchState(LongTermState):
 
 class HiddenState(ShortTermState):
     """
-    The hidden state, which is used to store the hidden data in a dynamic model.
+     Represents hidden state variables in neurons or synapses.
 
     This class extends :class:`ShortTermState` and is specifically designed to represent
     and manage hidden states within dynamic models, such as recurrent neural networks.
     It provides a way to encapsulate hidden state values and associated metadata,
     facilitating operations like state updates during model execution.
 
-    Attributes:
-        Inherits all attributes from :class:`ShortTermState`.
-
     Note:
-        This class does not introduce new methods or attributes beyond those
-        inherited from :class:`ShortTermState`. Its primary purpose is to semantically
-        distinguish hidden states from other types of short-term states
-        in dynamic models.
+        :class:`HiddenState` and :class:`ParamState` are two most important state types
+        in brainstate. The former is used to store the hidden states in neurons, synapses,
+        or networks. The latter is used to store the trainable parameters in the model,
+        such as synaptic weights.
 
     Example:
         >>> lstm_hidden = HiddenState(np.zeros(128), name="lstm_hidden_state")
@@ -989,14 +991,11 @@ class ParamState(LongTermState):
     It provides a way to encapsulate parameter values and associated metadata,
     facilitating operations like parameter updates during training.
 
-    Attributes:
-        Inherits all attributes from :class:`LongTermState`.
-
     Note:
-        This class does not introduce new methods or attributes beyond those
-        inherited from :class:`LongTermState`. Its primary purpose is to semantically
-        distinguish parameter states from other types of long-term states
-        in the model.
+        :class:`HiddenState` and :class:`ParamState` are two most important state types
+        in brainstate. The former is used to store the hidden states in neurons, synapses,
+        or networks. The latter is used to store the trainable parameters in the model,
+        such as synaptic weights.
 
     Example:
         >>> weight = ParamState(np.random.randn(10, 10), name="layer1_weights")
