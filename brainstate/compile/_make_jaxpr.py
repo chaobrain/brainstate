@@ -753,8 +753,8 @@ def _make_jaxpr(
         if jax.__version_info__ < (0, 5, 0):
             debug_info = pe.debug_info(fun, in_tree, out_tree, True, 'make_jaxpr')
         with ExitStack() as stack:
-            for axis_name, size in axis_env or []:
-                stack.enter_context(jax.core.extend_axis_env(axis_name, size, None))
+            if axis_env is not None:
+                stack.enter_context(jax.core.extend_axis_env_nd(axis_env))
             if jax.__version_info__ < (0, 5, 0):
                 jaxpr, out_type, consts = pe.trace_to_jaxpr_dynamic2(f, debug_info=debug_info)
             else:

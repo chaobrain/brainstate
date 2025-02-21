@@ -21,6 +21,7 @@ import numpy as np
 import unittest
 
 import brainstate as bst
+import brainstate.augment
 from brainstate.augment._mapping import BatchAxisError
 from brainstate.augment._mapping import _remove_axis
 
@@ -263,6 +264,17 @@ class TestVmap(unittest.TestCase):
 
         res2 = jax.vmap(f, axis_size=10)()
         self.assertTrue(jnp.all((res2[0] == res2[1:])))
+
+    def test_axis(self):
+        def f(x):
+            return x - jax.lax.pmean(x, 'i')
+        r = jax.vmap(f, axis_name='i')(jnp.arange(10))
+        print(r)
+
+        r2 = brainstate.augment.vmap(f, axis_name='i')(jnp.arange(10))
+        print(r2)
+        self.assertTrue(jnp.allclose(r, r2))
+
 
 
 class TestMap(unittest.TestCase):

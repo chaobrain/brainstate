@@ -159,7 +159,7 @@ def spike_bitwise_ixor(x, y):
 
 
 def spike_bitwise(x, y, op: str):
-    """
+    r"""
     Perform bitwise operations on spike tensors.
 
     This function applies various bitwise operations on spike tensors based on the specified operation.

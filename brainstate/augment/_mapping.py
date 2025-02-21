@@ -16,8 +16,6 @@
 from __future__ import annotations
 
 import functools
-import jax
-from jax.interpreters.batching import BatchTracer
 from typing import (
     Any,
     TypeVar,
@@ -31,6 +29,9 @@ from typing import (
     Dict,
     List
 )
+
+import jax
+from jax.interpreters.batching import BatchTracer
 
 from brainstate._state import State, catch_new_states
 from brainstate.compile import scan, StatefulFunction
@@ -378,8 +379,15 @@ def _vmap_transform(
         # call the function
         return f(*args)
 
+    def _set_axis_env(batch_size):
+        axis_env = None if axis_name is None else [(axis_name, batch_size)]
+        stateful_fn.axis_env = axis_env
+
     # stateful function
-    stateful_fn = StatefulFunction(_vmap_fn_for_compilation, name='vmap')
+    stateful_fn = StatefulFunction(
+        _vmap_fn_for_compilation,
+        name='vmap',
+    )
 
     @functools.wraps(f)
     def new_fn_for_vmap(
@@ -506,6 +514,10 @@ def _vmap_transform(
             st_in_axes = 0
 
         # compile stateful function
+        batch_size = None
+        if axis_name is not None:
+            batch_size = _get_batch_size(args, in_axes, axis_to_in_states, axis_size)
+            _set_axis_env(batch_size)
         cache_key = _compile_stateful_function(
             stateful_fn,
             (st_in_axes, in_axes),
@@ -518,7 +530,8 @@ def _vmap_transform(
         rng_sets = set(rngs)
         if len(rngs):
             # batch size
-            batch_size = _get_batch_size(args, in_axes, axis_to_in_states, axis_size)
+            if batch_size is None:
+                batch_size = _get_batch_size(args, in_axes, axis_to_in_states, axis_size)
             rng_keys = tuple(rng.split_key(batch_size) for rng in rngs)
             rng_backup = tuple(rng.split_key() for rng in rngs)
         else:
@@ -936,9 +949,7 @@ def _vmap_new_states_transform(
     state_tag: str | None = None,
     state_to_exclude: Filter | None = None,
 ):
-
     # TODO: How about nested call ``vmap_new_states``?
-
 
     @vmap(
         in_axes=in_axes,

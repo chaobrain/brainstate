@@ -29,10 +29,11 @@ The wrapped gradient transformations here are made possible by using the followi
 
 from __future__ import annotations
 
-import brainunit as u
-import jax
 from functools import wraps, partial
 from typing import Union, Callable, Dict, Sequence, Optional, Any, Tuple, TypeVar, Iterator
+
+import brainunit as u
+import jax
 
 from brainstate._state import State
 from brainstate._utils import set_module_as
@@ -195,6 +196,7 @@ class GradientTransform(PrettyRepr):
             grad_states = {k: v for k, v in grad_states.items()}
         self._grad_states, self._grad_tree = jax.tree.flatten(grad_states)
         self._grad_state_ids = [id(v) for v in self._grad_states]
+        self._grad_id_to_state = {id(v): v for v in self._grad_states}
         if any(not isinstance(v, State) for v in self._grad_states):
             raise TypeError("All grad_states must be State instances.")
 
@@ -250,12 +252,20 @@ class GradientTransform(PrettyRepr):
         """
         grad_vals = dict()
         other_vals = dict()
+        all_ids = set(self._grad_state_ids)
         for st in state_trace.states:
             id_ = id(st)
-            if id_ in self._grad_state_ids:
+            if id_ in all_ids:
                 grad_vals[id_] = st.value
+                all_ids.remove(id_)
             else:
                 other_vals[id_] = st.value
+        if len(all_ids):
+            err = f"Some states are not found in the state trace when performing gradient transformations.\n "
+            for i, id_ in enumerate(all_ids):
+                st = self._grad_id_to_state[id_]
+                st.raise_error_with_source_info(ValueError(err + str(st)))
+
         return grad_vals, other_vals
 
     def _merge_state_vals(self, grad_vals: Dict, other_vals: Dict, state_trace):

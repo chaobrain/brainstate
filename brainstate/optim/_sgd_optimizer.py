@@ -201,9 +201,11 @@ class SGD(_WeightDecayOptimizer):
     def update(self, grads: dict):
         lr = self.lr()
         weight_values, grad_values = to_same_dict_tree(self.param_states, grads)
-        updates = jax.tree.map(functools.partial(_sgd, lr=lr, weight_decay=self.weight_decay),
-                               weight_values,
-                               grad_values)
+        updates = jax.tree.map(
+            functools.partial(_sgd, lr=lr, weight_decay=self.weight_decay),
+            weight_values,
+            grad_values
+        )
         self.param_states.assign_values(updates)
         self.lr.step_call()
 
@@ -324,12 +326,16 @@ class MomentumNesterov(_WeightDecayOptimizer):
     def update(self, grads: dict):
         lr = self.lr()
         states_values, grad_values, momentum_values = to_same_dict_tree(self.param_states, grads, self.momentum_states)
-        momentum_values = jax.tree.map(lambda mv, gv: self.momentum * mv - lr * gv,
-                                       momentum_values,
-                                       grad_values)
-        weight_values = jax.tree.map(functools.partial(_sgd, lr=lr, weight_decay=self.weight_decay),
-                                     states_values,
-                                     momentum_values)
+        momentum_values = jax.tree.map(
+            lambda mv, gv: self.momentum * mv - lr * gv,
+            momentum_values,
+            grad_values
+        )
+        weight_values = jax.tree.map(
+            functools.partial(_sgd, lr=lr, weight_decay=self.weight_decay),
+            states_values,
+            momentum_values
+        )
         self.param_states.assign_values(weight_values)
         self.momentum_states.assign_values(momentum_values)
         self.lr.step_call()
@@ -388,11 +394,21 @@ class Adagrad(_WeightDecayOptimizer):
     def update(self, grads: dict):
         lr = self.lr()
         cache_values, grad_values, weight_values = to_same_dict_tree(self.cache_states, grads, self.param_states)
-        cache_values = jax.tree.map(lambda cv, gv: cv + gv ** 2, cache_values, grad_values)
-        updates = jax.tree.map(lambda cv, gv: lr * gv / jnp.sqrt(cv + self.epsilon), cache_values, grad_values)
-        weight_values = jax.tree.map(functools.partial(_sgd, weight_decay=self.weight_decay),
-                                     weight_values,
-                                     updates)
+        cache_values = jax.tree.map(
+            lambda cv, gv: cv + gv ** 2,
+            cache_values,
+            grad_values
+        )
+        updates = jax.tree.map(
+            lambda cv, gv: lr * gv / jnp.sqrt(cv + self.epsilon),
+            cache_values,
+            grad_values
+        )
+        weight_values = jax.tree.map(
+            functools.partial(_sgd, weight_decay=self.weight_decay),
+            weight_values,
+            updates
+        )
         self.cache_states.assign_values(cache_values)
         self.param_states.assign_values(weight_values)
         self.lr.step_call()
@@ -605,13 +621,28 @@ class Adam(_WeightDecayOptimizer):
         lr = lr / (1 - self.beta1 ** (self.lr.last_epoch.value + 2))
         lr = lr * jnp.sqrt(1 - self.beta2 ** (self.lr.last_epoch.value + 2))
         weight_values, grad_values, m1_values, m2_values = to_same_dict_tree(
-            self.param_states, grads, self.m1_states, self.m2_states)
-        m1_values = jax.tree.map(lambda m1, gv: self.beta1 * m1 + (1 - self.beta1) * gv, m1_values, grad_values)
-        m2_values = jax.tree.map(lambda m2, gv: self.beta2 * m2 + (1 - self.beta2) * gv ** 2, m2_values, grad_values)
-        update = jax.tree.map(lambda m1, m2: lr * m1 / (jnp.sqrt(m2) + self.eps), m1_values, m2_values)
-        weight_values = jax.tree.map(functools.partial(_sgd, weight_decay=self.weight_decay),
-                                     weight_values,
-                                     update)
+            self.param_states, grads, self.m1_states, self.m2_states
+        )
+        m1_values = jax.tree.map(
+            lambda m1, gv: self.beta1 * m1 + (1 - self.beta1) * gv,
+            m1_values,
+            grad_values
+        )
+        m2_values = jax.tree.map(
+            lambda m2, gv: self.beta2 * m2 + (1 - self.beta2) * gv ** 2,
+            m2_values,
+            grad_values
+        )
+        update = jax.tree.map(
+            lambda m1, m2: lr * m1 / (jnp.sqrt(m2) + self.eps),
+            m1_values,
+            m2_values
+        )
+        weight_values = jax.tree.map(
+            functools.partial(_sgd, weight_decay=self.weight_decay),
+            weight_values,
+            update
+        )
         self.param_states.assign_values(weight_values)
         self.m1_states.assign_values(m1_values)
         self.m2_states.assign_values(m2_values)
