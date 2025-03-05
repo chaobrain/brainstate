@@ -16,13 +16,12 @@
 
 from __future__ import annotations
 
-import typing as tp
-from dataclasses import dataclass
-from functools import partial
-
 import jax
 import jax.numpy as jnp
 import numpy as np
+import typing as tp
+from dataclasses import dataclass
+from functools import partial
 
 from brainstate._state import State
 

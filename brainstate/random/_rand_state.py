@@ -16,17 +16,16 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-from functools import partial
-from operator import index
-from typing import Optional
-
 import brainunit as u
 import jax
 import jax.numpy as jnp
 import jax.random as jr
 import numpy as np
+from functools import partial
 from jax import jit, vmap
 from jax import lax, core, dtypes
+from operator import index
+from typing import Optional
 
 from brainstate import environ
 from brainstate._state import State

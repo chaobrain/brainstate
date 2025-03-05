@@ -16,11 +16,11 @@
 from __future__ import annotations
 
 import math
-from functools import wraps
-from typing import Callable, Optional, TypeVar, Tuple, Any
 
 import jax
 import jax.numpy as jnp
+from functools import wraps
+from typing import Callable, Optional, TypeVar, Tuple, Any
 
 from brainstate._utils import set_module_as
 from ._make_jaxpr import StatefulFunction
@@ -209,7 +209,7 @@ def scan(
     # ------------------------------ #
     xs_avals = [jax.core.get_aval(x) for x in xs_flat]
     x_avals = [jax.core.mapped_aval(length, 0, aval) for aval in xs_avals]
-    stateful_fun = StatefulFunction(f).make_jaxpr(init, xs_tree.unflatten(x_avals))
+    stateful_fun = StatefulFunction(f, name='scan').make_jaxpr(init, xs_tree.unflatten(x_avals))
     state_trace = stateful_fun.get_state_trace()
     all_writen_state_vals = state_trace.get_write_state_values(True)
     all_read_state_vals = state_trace.get_read_state_values(True)
@@ -217,12 +217,20 @@ def scan(
 
     # scan
     init = (all_writen_state_vals, init)
-    (all_writen_state_vals, carry), ys = jax.lax.scan(wrapped_f,
-                                                      init,
-                                                      xs,
-                                                      length=length,
-                                                      reverse=reverse,
-                                                      unroll=unroll)
+    (
+        (
+            all_writen_state_vals,
+            carry
+        ),
+        ys
+    ) = jax.lax.scan(
+        wrapped_f,
+        init,
+        xs,
+        length=length,
+        reverse=reverse,
+        unroll=unroll
+    )
     # assign the written state values and restore the read state values
     write_back_state_values(state_trace, all_read_state_vals, all_writen_state_vals)
     # carry
@@ -305,7 +313,7 @@ def checkpointed_scan(
     # evaluate jaxpr
     xs_avals = [jax.core.get_aval(x) for x in xs_flat]
     x_avals = [jax.core.mapped_aval(length, 0, aval) for aval in xs_avals]
-    stateful_fun = StatefulFunction(f).make_jaxpr(init, xs_tree.unflatten(x_avals))
+    stateful_fun = StatefulFunction(f, name='checkpoint_scan').make_jaxpr(init, xs_tree.unflatten(x_avals))
     state_trace = stateful_fun.get_state_trace()
     # get all states
     been_written = state_trace.been_writen

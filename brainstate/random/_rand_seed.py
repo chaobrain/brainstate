@@ -14,11 +14,10 @@
 # ==============================================================================
 from __future__ import annotations
 
-from contextlib import contextmanager
-from typing import Optional
-
 import jax
 import numpy as np
+from contextlib import contextmanager
+from typing import Optional
 
 from brainstate.typing import SeedOrKey
 from ._rand_state import RandomState, DEFAULT, use_prng_key

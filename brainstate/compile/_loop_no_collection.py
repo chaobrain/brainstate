@@ -16,9 +16,9 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Callable, TypeVar
 
 import jax
+from typing import Any, Callable, TypeVar
 
 from brainstate._utils import set_module_as
 from ._loop_collect_return import _bounded_while_loop
@@ -103,8 +103,8 @@ def while_loop(
             pass
 
     # evaluate jaxpr
-    stateful_cond = StatefulFunction(cond_fun).make_jaxpr(init_val)
-    stateful_body = StatefulFunction(body_fun).make_jaxpr(init_val)
+    stateful_cond = StatefulFunction(cond_fun, name='while:cond').make_jaxpr(init_val)
+    stateful_body = StatefulFunction(body_fun, name='while:body').make_jaxpr(init_val)
     if len(stateful_cond.get_write_states()) != 0:
         raise ValueError("while_loop: cond_fun should not have any write states.")
 
@@ -162,8 +162,8 @@ def bounded_while_loop(
         return init_val
 
     # evaluate jaxpr
-    stateful_cond = StatefulFunction(cond_fun).make_jaxpr(init_val)
-    stateful_body = StatefulFunction(body_fun).make_jaxpr(init_val)
+    stateful_cond = StatefulFunction(cond_fun, name='bounded_while:cond').make_jaxpr(init_val)
+    stateful_body = StatefulFunction(body_fun, name='bounded_while:body').make_jaxpr(init_val)
     if len(stateful_cond.get_write_states()) != 0:
         raise ValueError("while_loop: cond_fun should not have any write states.")
 

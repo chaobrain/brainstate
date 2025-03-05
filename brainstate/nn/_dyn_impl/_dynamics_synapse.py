@@ -17,9 +17,8 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 import brainunit as u
+from typing import Optional
 
 from brainstate import init, environ
 from brainstate._state import ShortTermState, HiddenState

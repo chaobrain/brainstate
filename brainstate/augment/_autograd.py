@@ -35,8 +35,9 @@ from typing import Union, Callable, Dict, Sequence, Optional, Any, Tuple, TypeVa
 import brainunit as u
 import jax
 
-from brainstate._state import State, StateTraceStack
+from brainstate._state import State
 from brainstate._utils import set_module_as
+from brainstate.compile._make_jaxpr import StatefulFunction
 from brainstate.typing import PyTree, Missing
 from brainstate.util import PrettyType, PrettyAttr, PrettyRepr
 
@@ -149,7 +150,20 @@ TransformFn = Callable
 class GradientTransform(PrettyRepr):
     """
     Automatic Differentiation Transformations for the ``State`` system.
+
+    This class implements gradient transformations for functions that operate on State objects.
+    It allows for flexible configuration of gradient computation with respect to specified states
+    and function arguments.
+
+    Attributes:
+        target (Callable): The function to be transformed.
+        stateful_target (StatefulFunction): A wrapper around the target function for state management.
+        raw_argnums (Optional[Union[int, Sequence[int]]]): The original argnums specified by the user.
+        true_argnums (Union[int, Tuple[int, ...]]): The adjusted argnums used internally.
+        return_value (bool): Whether to return the function's value along with gradients.
+        has_aux (bool): Whether the function returns auxiliary data.
     """
+
     __module__ = "brainstate.augment"
 
     def __init__(
@@ -162,10 +176,27 @@ class GradientTransform(PrettyRepr):
         has_aux: bool = False,
         transform_params: Optional[Dict[str, Any]] = None,
     ):
+        """
+        Initialize a ``GradientTransform`` instance.
+
+        Args:
+            target (Callable): The function to be transformed.
+            transform (TransformFn): The transformation function to apply.
+            grad_states (Optional[Union[State, Sequence[State], Dict[str, State]]]): States to compute gradients for.
+            argnums (Optional[Union[int, Sequence[int]]]): Indices of arguments to differentiate with respect to.
+            return_value (bool): Whether to return the function's value along with gradients.
+            has_aux (bool): Whether the function returns auxiliary data.
+            transform_params (Optional[Dict[str, Any]]): Additional parameters for the transformation function.
+
+        Raises:
+            TypeError: If any grad_states are not State instances.
+        """
         # gradient variables
         if isinstance(grad_states, dict):
             grad_states = {k: v for k, v in grad_states.items()}
         self._grad_states, self._grad_tree = jax.tree.flatten(grad_states)
+        self._grad_state_ids = [id(v) for v in self._grad_states]
+        self._grad_id_to_state = {id(v): v for v in self._grad_states}
         if any(not isinstance(v, State) for v in self._grad_states):
             raise TypeError("All grad_states must be State instances.")
 
@@ -176,107 +207,217 @@ class GradientTransform(PrettyRepr):
             assert len(self._grad_states) > 0
             _argnums = 0
         elif isinstance(argnums, int):
-            _argnums = (0, argnums + 1) if len(self._grad_states) > 0 else (argnums + 1)
+            _argnums = (0, argnums + 2) if len(self._grad_states) > 0 else (argnums + 2)
         else:
             assert isinstance(argnums, (tuple, list))
-            _argnums = tuple(a + 1 for a in argnums)
+            _argnums = tuple(a + 2 for a in argnums)
             if len(self._grad_states) > 0:
                 _argnums = (0,) + _argnums
-        self._nonvar_argnums = argnums
-        self._argnums = _argnums
-        self._return_value = return_value
-        self._has_aux = has_aux
+        self.raw_argnums = argnums
+        self.true_argnums = _argnums
+        self.return_value = return_value
+        self.has_aux = has_aux
 
         # target
+        assert callable(target), "The target should be a callable object."
         self.target = target
+        self.stateful_target = StatefulFunction(target, name='gradient')
 
         # transform
-        self._states_to_be_written: Tuple[State, ...] = None
-        _grad_setting = dict() if transform_params is None else transform_params
-        if self._has_aux:
-            self._transform = transform(self._fun_with_aux, argnums=self._argnums, has_aux=True, **_grad_setting)
+        grad_setting = dict() if transform_params is None else transform_params
+        if self.has_aux:
+            self._transform = transform(self._fun_with_aux, argnums=self.true_argnums, has_aux=True, **grad_setting)
         else:
-            self._transform = transform(self._fun_without_aux, argnums=self._argnums, has_aux=True, **_grad_setting)
+            self._transform = transform(self._fun_without_aux, argnums=self.true_argnums, has_aux=True, **grad_setting)
 
     def __pretty_repr__(self) -> Iterator[Union[PrettyType, PrettyAttr]]:
         yield PrettyType(self.__class__.__name__)
         yield PrettyAttr("target", self.target)
         yield PrettyAttr("grad_states", self._grad_states)
         yield PrettyAttr("grad_tree", self._grad_tree)
-        yield PrettyAttr("argnums", self._nonvar_argnums)
-        yield PrettyAttr("return_value", self._return_value)
-        yield PrettyAttr("has_aux", self._has_aux)
+        yield PrettyAttr("argnums", self.raw_argnums)
+        yield PrettyAttr("return_value", self.return_value)
+        yield PrettyAttr("has_aux", self.has_aux)
         yield PrettyAttr("transform", self._transform)
 
-    def _call_target(self, *args, **kwargs):
-        if self._states_to_be_written is None:
-            with StateTraceStack() as stack:
-                output = self.target(*args, **kwargs)
-                # grad_ids = set([id(v) for v in self._grad_states])
-                # self._states_to_be_written = [st for st in stack.get_write_states() if id(st) not in grad_ids]
-                self._states_to_be_written = [st for st in stack.get_write_states()]
-        else:
-            output = self.target(*args, **kwargs)
-        return output
+    def _split_state_vals(self, state_trace):
+        """
+        Split state values into gradient and non-gradient states.
 
-    def _fun_with_aux(self, grad_values: tuple, *args, **kwargs):
-        for v, d in zip(self._grad_states, grad_values):
-            v.restore_value(d)
+        Args:
+            state_trace: The state trace containing all states.
+
+        Returns:
+            Tuple[Dict, Dict]: A tuple of dictionaries containing gradient and non-gradient state values.
+        """
+        grad_vals = dict()
+        other_vals = dict()
+        all_ids = set(self._grad_state_ids)
+        for st in state_trace.states:
+            id_ = id(st)
+            if id_ in all_ids:
+                grad_vals[id_] = st.value
+                all_ids.remove(id_)
+            else:
+                other_vals[id_] = st.value
+        if len(all_ids):
+            err = f"Some states are not found in the state trace when performing gradient transformations.\n "
+            for i, id_ in enumerate(all_ids):
+                st = self._grad_id_to_state[id_]
+                st.raise_error_with_source_info(ValueError(err + str(st)))
+
+        return grad_vals, other_vals
+
+    def _merge_state_vals(self, grad_vals: Dict, other_vals: Dict, state_trace):
+        """
+        Merge gradient and non-gradient state values back into a single list.
+
+        Args:
+            grad_vals (Dict): Dictionary of gradient state values.
+            other_vals (Dict): Dictionary of non-gradient state values.
+            state_trace: The state trace containing all states.
+
+        Returns:
+            List: A list of merged state values.
+        """
+        res = []
+        for st in state_trace.states:
+            id_ = id(st)
+            if id_ in self._grad_state_ids:
+                res.append(grad_vals[id_])
+            else:
+                res.append(other_vals[id_])
+        return res
+
+    def _call_target(self, grad_vals: Dict, other_vals: Dict, *args, **kwargs):
+        """
+        Call the target function with the given state values and arguments.
+
+        Args:
+            grad_vals (Dict): Dictionary of gradient state values.
+            other_vals (Dict): Dictionary of non-gradient state values.
+            *args: Positional arguments to pass to the target function.
+            **kwargs: Keyword arguments to pass to the target function.
+
+        Returns:
+            Tuple: A tuple containing updated state values and the function output.
+        """
+        cache = self.stateful_target.get_arg_cache_key(*args, **kwargs)
+        state_trace = self.stateful_target.get_state_trace(cache)
+        state_vals = self._merge_state_vals(grad_vals, other_vals, state_trace)
+        state_vals, out = self.stateful_target.jaxpr_call(state_vals, *args, **kwargs)
+        return state_vals, out
+
+    def _fun_with_aux(self, grad_vals: Dict, other_vals: Dict, *args, **kwargs):
+        """
+        Wrapper function for target functions that return auxiliary data.
+
+        Args:
+            grad_vals (Dict): Dictionary of gradient state values.
+            other_vals (Dict): Dictionary of non-gradient state values.
+            *args: Positional arguments to pass to the target function.
+            **kwargs: Keyword arguments to pass to the target function.
+
+        Returns:
+            Tuple: A tuple containing the primary output and a tuple of (all outputs, updated state values).
+        """
         # Users should return the auxiliary data like::
         # >>> # 1. example of return one data
         # >>> return scalar_loss, data
         # >>> # 2. example of return multiple data
         # >>> return scalar_loss, (data1, data2, ...)
-        outs = self._call_target(*args, **kwargs)
-        # outputs: [0] is the value for gradient,
-        #          [1] is other values for return
-        assert self._states_to_be_written is not None, "The states to be written should be collected."
-        return outs[0], (outs, [v.value for v in self._grad_states], [v.value for v in self._states_to_be_written])
+        state_vals, outs = self._call_target(grad_vals, other_vals, *args, **kwargs)
+        return outs[0], (outs, state_vals)
 
-    def _fun_without_aux(self, grad_values: tuple, *args, **kwargs):
-        for v, d in zip(self._grad_states, grad_values):
-            v.restore_value(d)
-        # Users should return the scalar value like this::
-        # >>> return scalar_loss
-        out = self._call_target(*args, **kwargs)
-        assert self._states_to_be_written is not None, "The states to be written should be collected."
-        return out, (out, [v.value for v in self._grad_states], [v.value for v in self._states_to_be_written])
+    def _fun_without_aux(self, grad_vals: Dict, other_vals: Dict, *args, **kwargs):
+        """
+        Wrapper function for target functions that do not return auxiliary data.
 
-    def _return(self, rets):
-        grads, (outputs, new_grad_vals, new_dyn_vals) = rets
-        for i, val in enumerate(new_grad_vals):
-            self._grad_states[i].restore_value(val)
-        for i, val in enumerate(new_dyn_vals):
-            self._states_to_be_written[i].value = val
+        Args:
+            grad_vals (Dict): Dictionary of gradient state values.
+            other_vals (Dict): Dictionary of non-gradient state values.
+            *args: Positional arguments to pass to the target function.
+            **kwargs: Keyword arguments to pass to the target function.
+
+        Returns:
+            Tuple: A tuple containing the output and a tuple of (output, updated state values).
+        """
+        state_vals, out = self._call_target(grad_vals, other_vals, *args, **kwargs)
+        return out, (out, state_vals)
+
+    def _return(self, rets, state_trace):
+        """
+        Process and format the return values from the gradient computation.
+
+        Args:
+            rets: The raw results from the gradient computation.
+            state_trace: The state trace containing all states.
+
+        Returns:
+            Union[Gradient, Tuple]: The processed gradient results, potentially including function value and/or auxiliary data.
+        """
+        # unpack the return values
+        grads, (outputs, new_state_vals) = rets
+
+        # assign new values to the states
+        state_trace.assign_state_vals(new_state_vals)
 
         # check returned grads
         if len(self._grad_states) > 0:
-            if self._nonvar_argnums is None:
-                grads = self._grad_tree.unflatten(grads)
+            grads_of_states = grads if self.raw_argnums is None else grads[0]
+            grads_of_states = [grads_of_states[st_id] for st_id in self._grad_state_ids]
+            if self.raw_argnums is None:
+                grads = self._grad_tree.unflatten(grads_of_states)
             else:
-                var_grads = self._grad_tree.unflatten(grads[0])
-                arg_grads = grads[1] if isinstance(self._nonvar_argnums, int) else grads[1:]
+                var_grads = self._grad_tree.unflatten(grads_of_states)
+                arg_grads = grads[1] if isinstance(self.raw_argnums, int) else grads[1:]
                 grads = (var_grads, arg_grads)
 
         # check returned value
-        if self._return_value:
+        if self.return_value:
             # check aux
-            if self._has_aux:
+            if self.has_aux:
                 return grads, outputs[0], outputs[1]
             else:
                 return grads, outputs
         else:
             # check aux
-            if self._has_aux:
+            if self.has_aux:
                 return grads, outputs[1]
             else:
                 return grads
 
     def __call__(
         self, *args, **kwargs
-    ) -> Gradient | Tuple[Gradient, LossValue] | Tuple[Gradient, AuxData] | Tuple[Gradient, LossValue, AuxData]:
-        rets = self._transform([v.value for v in self._grad_states], *args, **kwargs)
-        return self._return(rets)
+    ) -> (
+        Gradient |
+        Tuple[Gradient, LossValue] |
+        Tuple[Gradient, AuxData] |
+        Tuple[Gradient, LossValue, AuxData]
+    ):
+        """
+        Compute gradients by calling the transformed function.
+
+        Args:
+            *args: Positional arguments to pass to the target function.
+            **kwargs: Keyword arguments to pass to the target function.
+
+        Returns:
+            Union[Gradient, Tuple]: The computed gradients, potentially including function value and/or auxiliary data.
+        """
+
+        # TODO: support jax.disable_jit()
+
+        # compute the model
+        self.stateful_target.make_jaxpr(*args, **kwargs)
+        cache = self.stateful_target.get_arg_cache_key(*args, **kwargs)
+
+        # apply the gradient transformation
+        state_trace = self.stateful_target.get_state_trace(cache)
+        rets = self._transform(*self._split_state_vals(state_trace), *args, **kwargs)
+
+        # analyze and return the results
+        return self._return(rets, state_trace)
 
 
 _doc_of_return = '''
@@ -347,25 +488,27 @@ def grad(
     """
     if isinstance(fun, Missing):
         def transform(fun) -> GradientTransform:
-            return GradientTransform(target=fun,
-                                     transform=u.autograd.grad if unit_aware else jax.grad,
-                                     grad_states=grad_states,
-                                     argnums=argnums,
-                                     return_value=return_value,
-                                     has_aux=False if has_aux is None else has_aux,
-                                     transform_params=dict(holomorphic=holomorphic,
-                                                           allow_int=allow_int))
+            return GradientTransform(
+                target=fun,
+                transform=u.autograd.grad if unit_aware else jax.grad,
+                grad_states=grad_states,
+                argnums=argnums,
+                return_value=return_value,
+                has_aux=False if has_aux is None else has_aux,
+                transform_params=dict(holomorphic=holomorphic, allow_int=allow_int)
+            )
 
         return transform
 
-    return GradientTransform(target=fun,
-                             transform=u.autograd.grad if unit_aware else jax.grad,
-                             grad_states=grad_states,
-                             argnums=argnums,
-                             return_value=return_value,
-                             has_aux=False if has_aux is None else has_aux,
-                             transform_params=dict(holomorphic=holomorphic,
-                                                   allow_int=allow_int))
+    return GradientTransform(
+        target=fun,
+        transform=u.autograd.grad if unit_aware else jax.grad,
+        grad_states=grad_states,
+        argnums=argnums,
+        return_value=return_value,
+        has_aux=False if has_aux is None else has_aux,
+        transform_params=dict(holomorphic=holomorphic, allow_int=allow_int)
+    )
 
 
 grad.__doc__ = grad.__doc__ % _doc_of_return
@@ -412,22 +555,26 @@ def vector_grad(
 
     if isinstance(func, Missing):
         def transform(fun) -> GradientTransform:
-            return GradientTransform(target=fun,
-                                     transform=partial(u.autograd.vector_grad, unit_aware=unit_aware),
-                                     grad_states=grad_states,
-                                     argnums=argnums,
-                                     return_value=return_value,
-                                     has_aux=False if has_aux is None else has_aux)
+            return GradientTransform(
+                target=fun,
+                transform=partial(u.autograd.vector_grad, unit_aware=unit_aware),
+                grad_states=grad_states,
+                argnums=argnums,
+                return_value=return_value,
+                has_aux=False if has_aux is None else has_aux
+            )
 
         return transform
 
     else:
-        return GradientTransform(target=func,
-                                 transform=partial(u.autograd.vector_grad, unit_aware=unit_aware),
-                                 grad_states=grad_states,
-                                 argnums=argnums,
-                                 return_value=return_value,
-                                 has_aux=False if has_aux is None else has_aux)
+        return GradientTransform(
+            target=func,
+            transform=partial(u.autograd.vector_grad, unit_aware=unit_aware),
+            grad_states=grad_states,
+            argnums=argnums,
+            return_value=return_value,
+            has_aux=False if has_aux is None else has_aux
+        )
 
 
 vector_grad.__doc__ = vector_grad.__doc__ % _doc_of_return
@@ -484,15 +631,17 @@ def jacrev(
     fun: GradientTransform
       The transformed object.
     """
-    return GradientTransform(target=fun,
-                             transform=_jacrev,
-                             grad_states=grad_states,
-                             argnums=argnums,
-                             return_value=return_value,
-                             has_aux=False if has_aux is None else has_aux,
-                             transform_params=dict(holomorphic=holomorphic,
-                                                   allow_int=allow_int,
-                                                   unit_aware=unit_aware, ))
+    return GradientTransform(
+        target=fun,
+        transform=_jacrev,
+        grad_states=grad_states,
+        argnums=argnums,
+        return_value=return_value,
+        has_aux=False if has_aux is None else has_aux,
+        transform_params=dict(holomorphic=holomorphic,
+                              allow_int=allow_int,
+                              unit_aware=unit_aware, )
+    )
 
 
 jacrev.__doc__ = jacrev.__doc__ % _doc_of_return
@@ -542,14 +691,15 @@ def jacfwd(
       The transformed object.
     """
 
-    return GradientTransform(target=func,
-                             transform=_jacfwd,
-                             grad_states=grad_states,
-                             argnums=argnums,
-                             return_value=return_value,
-                             has_aux=False if has_aux is None else has_aux,
-                             transform_params=dict(holomorphic=holomorphic,
-                                                   unit_aware=unit_aware))
+    return GradientTransform(
+        target=func,
+        transform=_jacfwd,
+        grad_states=grad_states,
+        argnums=argnums,
+        return_value=return_value,
+        has_aux=False if has_aux is None else has_aux,
+        transform_params=dict(holomorphic=holomorphic, unit_aware=unit_aware)
+    )
 
 
 jacfwd.__doc__ = jacfwd.__doc__ % _doc_of_return
@@ -597,13 +747,15 @@ def hessian(
     obj: ObjectTransform
       The transformed object.
     """
-    return GradientTransform(target=func,
-                             transform=u.autograd.hessian if unit_aware else jax.hessian,
-                             grad_states=grad_states,
-                             argnums=argnums,
-                             return_value=return_value,
-                             has_aux=False if has_aux is None else has_aux,
-                             transform_params=dict(holomorphic=holomorphic))
+    return GradientTransform(
+        target=func,
+        transform=u.autograd.hessian if unit_aware else jax.hessian,
+        grad_states=grad_states,
+        argnums=argnums,
+        return_value=return_value,
+        has_aux=False if has_aux is None else has_aux,
+        transform_params=dict(holomorphic=holomorphic)
+    )
 
 
 hessian.__doc__ = hessian.__doc__ % _doc_of_return

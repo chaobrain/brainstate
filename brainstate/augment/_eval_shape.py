@@ -16,12 +16,11 @@
 from __future__ import annotations
 
 import functools
+import jax
 from typing import Any, TypeVar, Callable, Sequence, Union
 
-import jax
-
+from brainstate import random
 from brainstate.graph import Node, flatten, unflatten
-from brainstate.random import DEFAULT, RandomState
 from ._random import restore_rngs
 
 __all__ = [
@@ -34,7 +33,7 @@ A = TypeVar('A')
 def abstract_init(
     fn: Callable[..., A],
     *args: Any,
-    rngs: Union[RandomState, Sequence[RandomState]] = DEFAULT,
+    rngs: Union[random.RandomState, Sequence[random.RandomState]] = random.DEFAULT,
     **kwargs: Any,
 ) -> A:
     """

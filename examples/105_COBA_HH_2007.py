@@ -84,7 +84,7 @@ class EINet(bst.nn.DynamicsGroup):
 
 # network
 net = EINet()
-bst.nn.init_all_states(net, exclude=dx.IonChannel)
+bst.nn.init_all_states(net, node_to_exclude=dx.IonChannel)
 
 # simulation
 with bst.environ.context(dt=0.1 * u.ms):

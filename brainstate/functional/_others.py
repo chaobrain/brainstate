@@ -15,10 +15,9 @@
 
 from __future__ import annotations
 
-from functools import partial
-
 import jax
 import jax.numpy as jnp
+from functools import partial
 
 from brainstate.typing import PyTree
 

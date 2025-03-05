@@ -15,10 +15,9 @@
 
 from __future__ import annotations
 
-import unittest
-
 import jax.numpy as jnp
 import jax.random
+import unittest
 
 import brainstate as bst
 

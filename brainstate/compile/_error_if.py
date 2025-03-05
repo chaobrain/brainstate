@@ -16,10 +16,9 @@
 from __future__ import annotations
 
 import functools
+import jax
 from functools import partial
 from typing import Callable, Union
-
-import jax
 
 from brainstate._utils import set_module_as
 from ._unvmap import unvmap

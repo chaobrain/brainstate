@@ -16,14 +16,18 @@
 from __future__ import annotations
 
 from collections import namedtuple
-from typing import Dict, Callable, TypeVar
 
 import jax
+from typing import (
+    Callable, TypeVar, Tuple, Any, Dict
+)
 
 from brainstate._state import catch_new_states
 from brainstate._utils import set_module_as
+from brainstate.augment import vmap, vmap_new_states
 from brainstate.graph import nodes
-from brainstate.util._filter import Filter
+from brainstate.random import set_key, split_key
+from brainstate.typing import Filter
 from ._module import Module
 
 # the maximum order
@@ -35,8 +39,16 @@ StateLoadResult = namedtuple('StateLoadResult', ['missing_keys', 'unexpected_key
 T = TypeVar('T', bound=Module)
 
 __all__ = [
-    'MAX_ORDER', 'call_order', 'init_all_states', 'reset_all_states',
-    'load_all_states', 'save_all_states', 'assign_state_values',
+    'MAX_ORDER',
+    'call_order',
+    'call_all_functions',
+    'vmap_call_all_functions',
+    'init_all_states',
+    'vmap_init_all_states',
+    'reset_all_states',
+    'load_all_states',
+    'save_all_states',
+    'assign_state_values',
 ]
 
 
@@ -76,75 +88,366 @@ def call_order(level: int = 0, check_order_boundary: bool = True):
 
 
 @set_module_as('brainstate.nn')
-def init_all_states(
+def call_all_functions(
     target: T,
-    *args,
-    exclude: Filter = None,
-    **kwargs
+    fun_name: str,
+    args: Tuple[Any, ...] | Any = (),
+    kwargs: Dict[str, Any] | None = None,
+    node_to_exclude: Filter = None,
+    fun_if_not_exist: str = 'raise',
 ) -> T:
     """
-    Collectively initialize states of all children nodes in the given target.
+    Call a specified function on all nodes of a target module, respecting call order if defined.
 
-    Args:
-      target: The target Module.
-      exclude: The filter to exclude some nodes.
-      tag: The tag for the new states.
-      args: The positional arguments for the initialization, which will be passed to the `init_state` method
-        of each node.
-      kwargs: The keyword arguments for the initialization, which will be passed to the `init_state` method
-        of each node.
+    This function iterates through all nodes of the target module, calling a specified function
+    on each node. It respects the call order of functions if defined, and provides options for
+    handling cases where the specified function does not exist on a node.
 
+    Parameters:
+    -----------
+    target : T
+        The target module on which to call functions.
+    fun_name : str
+        The name of the function to call on each node.
+    args : Tuple[Any, ...] | Any, optional
+        Positional arguments to pass to the called function. Default is an empty tuple.
+    kwargs : Dict[str, Any] | None, optional
+        Keyword arguments to pass to the called function. Default is None.
+    node_to_exclude : Filter, optional
+        A filter function to exclude certain nodes from the function call.
+    fun_if_not_exist : str, optional
+        Specifies behavior when the function doesn't exist on a node. Options are:
+
+        - 'raise': Raise an exception (default)
+        - 'pass' or 'none': Skip the node and continue
+        
     Returns:
-      The target Module.
+    --------
+    T
+        The target module after calling the specified function on all applicable nodes.
+
+    Raises:
+    -------
+    AssertionError
+        If fun_name is not a string or kwargs is not a dictionary.
+    ValueError
+        If fun_if_not_exist is not one of the allowed values.
+    AttributeError
+        If the specified function doesn't exist on a node and fun_if_not_exist is 'raise'.
     """
+    assert isinstance(fun_name, str), f'fun_name must be a string, but got {fun_name}.'
 
-    # node that has `call_order` decorated
+    args = (args,) if not isinstance(args, tuple) else args
+    kwargs = kwargs or {}
+    assert isinstance(kwargs, dict), f'kwargs must be a dict, but got {kwargs}.'
+
+    all_nodes = nodes(target).filter(Module)
+    if node_to_exclude is not None:
+        all_nodes -= all_nodes.filter(node_to_exclude)
+
     nodes_with_order = []
+    for node in all_nodes.values():
+        try:
+            fun = getattr(node, fun_name)
+        except AttributeError as e:
+            if fun_if_not_exist == 'raise':
+                raise
+            elif fun_if_not_exist in ('pass', 'none'):
+                continue
+            else:
+                raise ValueError(
+                    f'fun_if_not_exist must be one of ["raise", "pass", "none"], but got {fun_if_not_exist}.')
 
-    nodes_ = nodes(target).filter(Module)
-    if exclude is not None:
-        nodes_ = nodes_ - nodes_.filter(exclude)
-
-    # reset node whose `init_state` has no `call_order`
-    for node in list(nodes_.values()):
-        if hasattr(node.init_state, 'call_order'):
+        assert callable(fun), f'{fun_name} must be a callable function, but got {fun}.'
+        if hasattr(fun, 'call_order'):
             nodes_with_order.append(node)
         else:
-            node.init_state(*args, **kwargs)
+            fun(*args, **kwargs)
 
-    # reset the node's states with `call_order`
-    for node in sorted(nodes_with_order, key=lambda x: x.init_state.call_order):
-        node.init_state(*args, **kwargs)
+    for node in sorted(nodes_with_order, key=lambda x: getattr(x, fun_name).call_order):
+        getattr(node, fun_name)(*args, **kwargs)
+
+    return target
+
+
+def vmap_call_all_functions(
+    target: T,
+    fun_name: str,
+    args: Tuple[Any, ...] | Any = (),
+    kwargs: Dict[str, Any] | None = None,
+    axis_size: int = None,
+    node_to_exclude: Filter = None,
+    tag: str | None = None,
+    fun_if_not_exist: str = 'raise',
+) -> T:
+    """
+    Apply vectorized mapping (vmap) to call a specified function on all nodes of a target module.
+
+    This function vectorizes the process of calling a specified function across multiple instances
+    of the target module, effectively batching the operation.
+
+    Parameters:
+    -----------
+    target : T
+        The target module on which to call functions.
+    fun_name : str
+        The name of the function to call on each node.
+    args : Tuple[Any, ...] | Any, optional
+        Positional arguments to pass to the called function. Default is an empty tuple.
+    kwargs : Dict[str, Any] | None, optional
+        Keyword arguments to pass to the called function. Default is None.
+    axis_size : int, optional
+        The size of the batch axis for vmap. Must be a positive integer.
+    node_to_exclude : Filter, optional
+        A filter function to exclude certain nodes from the function call.
+    tag : str | None, optional
+        A tag to be used for catching new states.
+    fun_if_not_exist : str, optional
+        Specifies behavior when the function doesn't exist on a node. Options are:
+
+        - 'raise': Raise an exception (default)
+        - 'pass' or 'none': Skip the node and continue
+
+    Returns:
+    --------
+    T
+        The target module after applying the vectorized function call on all applicable nodes.
+
+    Raises:
+    -------
+    AssertionError
+        If axis_size is not specified or is not a positive integer.
+    """
+    assert axis_size is not None and axis_size > 0, f"axis_size must be a positive integer, got {axis_size}"
+
+    if not isinstance(args, tuple):
+        args = (args,)
+    kwargs = kwargs or {}
+    assert isinstance(kwargs, dict), f'kwargs must be a dict, but got {kwargs}.'
+
+    @vmap(out_axes=0, axis_size=axis_size)
+    def vmapped_fn(key):
+        set_key(key)
+        with catch_new_states(tag) as inner_catcher:
+            call_all_functions(
+                target,
+                fun_name=fun_name,
+                args=args,
+                kwargs=kwargs,
+                node_to_exclude=node_to_exclude,
+                fun_if_not_exist=fun_if_not_exist
+            )
+        values = inner_catcher.get_state_values()
+        return values
+
+    with catch_new_states(tag) as outer_catcher:
+        values = vmapped_fn(split_key(axis_size))
+        states = outer_catcher.get_states()
+    for state, value in zip(states, values):
+        state.value = value
 
     return target
 
 
 @set_module_as('brainstate.nn')
-def reset_all_states(target: Module, *args, **kwargs) -> Module:
+def init_all_states(
+    target: T,
+    init_args: Tuple[Any, ...] | Any = (),
+    init_kwargs: Dict[str, Any] | None = None,
+    node_to_exclude: Filter = None,
+) -> T:
     """
-    Collectively reset states of all children nodes in the given target.
+    Initialize all states for the given target module and its submodules.
 
-    Args:
-      target: The target Module.
+    This function initializes the states of the target module and all its submodules,
+    respecting any call order decorators that may be present on the init_state methods.
+
+    Parameters
+    ----------
+    target : T
+        The target module whose states are to be initialized.
+    init_args : Tuple[Any, ...] | Any, optional
+        Positional arguments to be passed to each init_state method.
+        If a single non-tuple argument is provided, it will be wrapped in a tuple.
+    init_kwargs : Dict[str, Any] | None, optional
+        Keyword arguments to be passed to each init_state method.
+        If None, an empty dictionary will be used.
+    node_to_exclude : Filter, optional
+        A filter function or predicate to exclude certain nodes from initialization.
+
+    Returns
+    -------
+    T
+        The target module with all states initialized.
+
+    Raises
+    ------
+    AssertionError
+        If init_kwargs is provided but is not a dictionary.
+    """
+    return call_all_functions(target, 'init_state', init_args, init_kwargs, node_to_exclude)
+
+
+@set_module_as('brainstate.nn')
+def vmap_init_all_states(
+    target: T,
+    init_args: Tuple[Any, ...] | Any = (),
+    init_kwargs: Dict[str, Any] | None = None,
+    axis_size: int = None,
+    node_to_exclude: Filter = None,
+    state_to_exclude: Filter = None,
+    state_tag: str | None = None,
+) -> T:
+    """
+    Initialize all vmap states for the given target module.
+
+    This function applies vectorized mapping (vmap) to initialize states across multiple
+    instances of the target module, effectively batching the initialization process.
+
+    Parameters:
+    -----------
+    target : T
+        The target module whose states are to be initialized.
+    init_args : Tuple[Any, ...] | Any, optional
+        Positional arguments to be passed to the init_all_states function. Default is an empty tuple.
+    init_kwargs : Dict[str, Any] | None, optional
+        Keyword arguments to be passed to the init_all_states function. Default is None.
+    axis_size : int, optional
+        The size of the batch axis for vmap. This must be specified and should be greater than 0.
+    node_to_exclude : Filter, optional
+        A filter to exclude certain nodes from initialization.
+    state_tag : str | None, optional
+        A tag to be used for catching new states.
 
     Returns:
-      The target Module.
+    --------
+    T
+        The target module with initialized states.
+
+    Raises:
+    -------
+    AssertionError
+        If axis_size is not specified or is not greater than 0.
+        If init_kwargs is not a dictionary.
     """
 
-    nodes_with_order = []
+    # return vmap_call_all_functions(
+    #     target,
+    #     'init_state',
+    #     args=init_args,
+    #     kwargs=init_kwargs,
+    #     axis_size=axis_size,
+    #     node_to_exclude=node_to_exclude,
+    #     tag=tag,
+    # )
 
-    # reset node whose `init_state` has no `call_order`
-    for path, node in nodes(target).filter(Module).items():
-        if hasattr(node.reset_state, 'call_order'):
-            nodes_with_order.append(node)
-        else:
-            node.reset_state(*args, **kwargs)
+    def init_fn():
+        init_all_states(
+            target,
+            init_args=init_args,
+            init_kwargs=init_kwargs,
+            node_to_exclude=node_to_exclude,
+        )
+        return
 
-    # reset the node's states
-    for node in sorted(nodes_with_order, key=lambda x: x.reset_state.call_order):
-        node.reset_state(*args, **kwargs)
-
+    vmap_new_states(init_fn, state_tag=state_tag, axis_size=axis_size, state_to_exclude=state_to_exclude)()
     return target
+
+
+@set_module_as('brainstate.nn')
+def reset_all_states(
+    target: T,
+    reset_args: Tuple[Any, ...] | Any = (),
+    reset_kwargs: Dict[str, Any] | None = None,
+    node_to_exclude: Filter = None,
+) -> T:
+    """
+    Reset all states for the given target module and its submodules.
+
+    This function resets the states of the target module and all its submodules,
+    respecting any call order decorators that may be present on the reset_state methods.
+
+    Parameters
+    ----------
+    target : T
+        The target module whose states are to be reset.
+    reset_args : Tuple[Any, ...] | Any, optional
+        Positional arguments to be passed to each reset_state method.
+        If a single non-tuple argument is provided, it will be wrapped in a tuple.
+    reset_kwargs : Dict[str, Any] | None, optional
+        Keyword arguments to be passed to each reset_state method.
+        If None, an empty dictionary will be used.
+    node_to_exclude : Filter, optional
+        A filter function or predicate to exclude certain nodes from reset.
+
+    Returns
+    -------
+    T
+        The target module with all states reset.
+
+    Raises
+    ------
+    AssertionError
+        If init_kwargs is provided but is not a dictionary.
+    """
+    return call_all_functions(
+        target,
+        fun_name='reset_state',
+        args=reset_args,
+        kwargs=reset_kwargs,
+        node_to_exclude=node_to_exclude
+    )
+
+
+def vmap_reset_all_states(
+    target: T,
+    reset_args: Tuple[Any, ...] | Any = (),
+    reset_kwargs: Dict[str, Any] | None = None,
+    axis_size: int = None,
+    node_to_exclude: Filter = None,
+    tag: str | None = None,
+) -> T:
+    """
+    Reset all vmap states for the given target module.
+
+    This function applies vectorized mapping (vmap) to reset states across multiple
+    instances of the target module, effectively batching the reset process.
+
+    Parameters:
+    -----------
+    target : T
+        The target module whose states are to be reset.
+    reset_args : Tuple[Any, ...] | Any, optional
+        Positional arguments to be passed to the reset_all_states function. Default is an empty tuple.
+    reset_kwargs : Dict[str, Any] | None, optional
+        Keyword arguments to be passed to the reset_all_states function. Default is None.
+    axis_size : int, optional
+        The size of the batch axis for vmap. This must be specified and should be greater than 0.
+    node_to_exclude : Filter, optional
+        A filter to exclude certain nodes from reset.
+    tag : str | None, optional
+        A tag to be used for catching new states.
+
+    Returns:
+    --------
+    T
+        The target module with reset states.
+
+    Raises:
+    -------
+    AssertionError
+        If axis_size is not specified or is not greater than 0.
+        If reset_kwargs is not a dictionary.
+    """
+    return vmap_call_all_functions(
+        target,
+        fun_name='reset_state',
+        args=reset_args,
+        kwargs=reset_kwargs,
+        axis_size=axis_size,
+        node_to_exclude=node_to_exclude,
+        tag=tag,
+    )
 
 
 @set_module_as('brainstate.nn')

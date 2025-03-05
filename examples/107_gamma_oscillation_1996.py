@@ -20,14 +20,14 @@
 # - Wang X J, Buzsáki G. Gamma oscillation by synaptic inhibition in a hippocampal interneuronal network model[J]. Journal of neuroscience, 1996, 16(20): 6402-6413.
 #
 
-import braintools as bts
+import braintools
 import brainunit as u
 import matplotlib.pyplot as plt
 
-import brainstate as bst
+import brainstate
 
 
-class HH(bst.nn.Neuron):
+class HH(brainstate.nn.Neuron):
     def __init__(
         self, in_size, ENa=55. * u.mV, EK=-90. * u.mV, EL=-65 * u.mV, C=1.0 * u.uF,
         gNa=35. * u.msiemens, gK=9. * u.msiemens, gL=0.1 * u.msiemens, V_th=20. * u.mV, phi=5.0
@@ -47,10 +47,10 @@ class HH(bst.nn.Neuron):
 
     def init_state(self, *args, **kwargs):
         # variables
-        self.V = bst.HiddenState(-70. * u.mV + bst.random.randn(*self.varshape) * 20 * u.mV)
-        self.h = bst.HiddenState(bst.init.param(bst.init.Constant(0.6), self.varshape))
-        self.n = bst.HiddenState(bst.init.param(bst.init.Constant(0.3), self.varshape))
-        self.spike = bst.HiddenState(bst.init.param(lambda s: u.math.zeros(s, dtype=bool), self.varshape))
+        self.V = brainstate.HiddenState(-70. * u.mV + brainstate.random.randn(*self.varshape) * 20 * u.mV)
+        self.h = brainstate.HiddenState(brainstate.init.param(brainstate.init.Constant(0.6), self.varshape))
+        self.n = brainstate.HiddenState(brainstate.init.param(brainstate.init.Constant(0.3), self.varshape))
+        self.spike = brainstate.HiddenState(brainstate.init.param(lambda s: u.math.zeros(s, dtype=bool), self.varshape))
 
     def dh(self, h, t, V):
         alpha = 0.07 * u.math.exp(-(V / u.mV + 58) / 20)
@@ -75,10 +75,10 @@ class HH(bst.nn.Neuron):
         return dVdt
 
     def update(self, x=0. * u.uA):
-        t = bst.environ.get('t')
-        V = bst.nn.exp_euler_step(self.dV, self.V.value, t, self.h.value, self.n.value, x)
-        h = bst.nn.exp_euler_step(self.dh, self.h.value, t, V)
-        n = bst.nn.exp_euler_step(self.dn, self.n.value, t, V)
+        t = brainstate.environ.get('t')
+        V = brainstate.nn.exp_euler_step(self.dV, self.V.value, t, self.h.value, self.n.value, x)
+        h = brainstate.nn.exp_euler_step(self.dh, self.h.value, t, V)
+        n = brainstate.nn.exp_euler_step(self.dn, self.n.value, t, V)
         self.spike.value = u.math.logical_and(self.V.value < self.V_th, V >= self.V_th)
         self.V.value = V
         self.h.value = h
@@ -86,38 +86,38 @@ class HH(bst.nn.Neuron):
         return self.V.value
 
 
-class Synapse(bst.nn.Synapse):
+class Synapse(brainstate.nn.Synapse):
     def __init__(self, in_size, alpha=12 / u.ms, beta=0.1 / u.ms):
         super().__init__(in_size=in_size)
         self.alpha = alpha
         self.beta = beta
 
     def init_state(self, *args, **kwargs):
-        self.g = bst.HiddenState(bst.init.param(bst.init.ZeroInit(), self.varshape))
+        self.g = brainstate.HiddenState(brainstate.init.param(brainstate.init.ZeroInit(), self.varshape))
 
     def update(self, pre_V):
         f_v = lambda v: 1 / (1 + u.math.exp(-v / u.mV / 2))
         ds = lambda s: self.alpha * f_v(pre_V) * (1 - s) - self.beta * s
-        self.g.value = bst.nn.exp_euler_step(ds, self.g.value)
+        self.g.value = brainstate.nn.exp_euler_step(ds, self.g.value)
         return self.g.value
 
 
-class GammaNet(bst.nn.DynamicsGroup):
+class GammaNet(brainstate.nn.DynamicsGroup):
     def __init__(self, num: int = 100):
         super().__init__()
         self.neu = HH(num)
         # self.syn = bst.nn.GABAa(num, alpha=12 / (u.ms * u.mM), beta=0.1 / u.ms)
         self.syn = Synapse(num)
-        self.proj = bst.nn.CurrentProj(
+        self.proj = brainstate.nn.CurrentProj(
             self.syn.prefetch('g'),
-            comm=bst.nn.AllToAll(self.neu.varshape, self.neu.varshape, include_self=False,
-                                 w_init=0.1 * u.msiemens / num),
-            out=bst.nn.COBA(E=-75. * u.mV),
+            comm=brainstate.nn.AllToAll(self.neu.varshape, self.neu.varshape, include_self=False,
+                                        w_init=0.1 * u.msiemens / num),
+            out=brainstate.nn.COBA(E=-75. * u.mV),
             post=self.neu
         )
 
     def update(self, t):
-        with bst.environ.context(t=t):
+        with brainstate.environ.context(t=t):
             self.proj()
             self.syn(self.neu(I_inp))
             # visualize spikes and membrane potentials of the first 5 neurons
@@ -129,15 +129,15 @@ I_inp = 1.0 * u.uA
 
 # network
 net = GammaNet()
-bst.nn.init_all_states(net)
+brainstate.nn.init_all_states(net)
 
 # simulation
-with bst.environ.context(dt=0.01 * u.ms):
-    times = u.math.arange(0. * u.ms, 500. * u.ms, bst.environ.get_dt())
-    spikes, vs = bst.compile.for_loop(net.update, times, pbar=bst.compile.ProgressBar(10))
+with brainstate.environ.context(dt=0.01 * u.ms):
+    times = u.math.arange(0. * u.ms, 500. * u.ms, brainstate.environ.get_dt())
+    spikes, vs = brainstate.compile.for_loop(net.update, times, pbar=brainstate.compile.ProgressBar(10))
 
 # visualization
-fig, gs = bts.visualize.get_figure(1, 2, 4, 4)
+fig, gs = braintools.visualize.get_figure(1, 2, 4, 4)
 fig.add_subplot(gs[0, 0])
 plt.plot(times, vs.to_decimal(u.mV))
 plt.xlabel('Time (ms)')

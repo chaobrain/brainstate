@@ -17,11 +17,10 @@
 
 from __future__ import annotations
 
-import numbers
-from typing import Callable
-
 import brainunit as u
 import jax
+import numbers
+from typing import Callable
 
 from brainstate import environ, init, surrogate
 from brainstate._state import HiddenState, ParamState

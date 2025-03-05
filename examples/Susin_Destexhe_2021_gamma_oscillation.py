@@ -88,17 +88,16 @@ class AdEx(bst.nn.Neuron):
         self.ge_initializer = ge_initializer
         self.gi_initializer = gi_initializer
 
-    def init_state(self, batch_size=None):
+    def init_state(self):
         # neuronal variables
-        self.V = bst.HiddenState(bst.init.param(self.V_initializer, self.varshape, batch_size))
-        self.w = bst.HiddenState(bst.init.param(self.w_initializer, self.varshape, batch_size))
-        self.t_last_spike = bst.ShortTermState(
-            bst.init.param(bst.init.Constant(-1e7 * u.ms), self.varshape, batch_size))
-        self.spike = bst.ShortTermState(bst.init.param(lambda s: u.math.zeros(s, bool), self.varshape, batch_size))
+        self.V = bst.HiddenState(bst.init.param(self.V_initializer, self.varshape))
+        self.w = bst.HiddenState(bst.init.param(self.w_initializer, self.varshape))
+        self.t_last_spike = bst.HiddenState(bst.init.param(bst.init.Constant(-1e7 * u.ms), self.varshape))
+        self.spike = bst.HiddenState(bst.init.param(lambda s: u.math.zeros(s, bool), self.varshape))
 
         # synaptic parameters
-        self.ge = bst.HiddenState(bst.init.param(self.ge_initializer, self.varshape, batch_size))
-        self.gi = bst.HiddenState(bst.init.param(self.gi_initializer, self.varshape, batch_size))
+        self.ge = bst.HiddenState(bst.init.param(self.ge_initializer, self.varshape))
+        self.gi = bst.HiddenState(bst.init.param(self.gi_initializer, self.varshape))
 
     def dV(self, V, w, ge, gi, Iext):
         I = ge * (self.E_e - V) + gi * (self.E_i - V)

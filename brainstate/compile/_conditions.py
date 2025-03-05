@@ -15,11 +15,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
-
 import jax
 import jax.numpy as jnp
 import numpy as np
+from collections.abc import Callable, Sequence
 
 from brainstate._utils import set_module_as
 from ._error_if import jit_error_if
@@ -94,8 +93,8 @@ def cond(pred, true_fun: Callable, false_fun: Callable, *operands):
             return false_fun(*operands)
 
     # evaluate jaxpr
-    stateful_true = StatefulFunction(true_fun).make_jaxpr(*operands)
-    stateful_false = StatefulFunction(false_fun).make_jaxpr(*operands)
+    stateful_true = StatefulFunction(true_fun, name='cond:true').make_jaxpr(*operands)
+    stateful_false = StatefulFunction(false_fun, name='conda:false').make_jaxpr(*operands)
 
     # state trace and state values
     state_trace = stateful_true.get_state_trace() + stateful_false.get_state_trace()
@@ -174,7 +173,7 @@ def switch(index, branches: Sequence[Callable], *operands):
         return branches[int(index)](*operands)
 
     # evaluate jaxpr
-    wrapped_branches = [StatefulFunction(branch) for branch in branches]
+    wrapped_branches = [StatefulFunction(branch, name='switch') for branch in branches]
     for wrapped_branch in wrapped_branches:
         wrapped_branch.make_jaxpr(*operands)
 

@@ -18,10 +18,9 @@
 from __future__ import annotations
 
 import collections.abc
-from typing import Callable, Tuple, Union, Sequence, Optional, TypeVar
-
 import jax
 import jax.numpy as jnp
+from typing import Callable, Tuple, Union, Sequence, Optional, TypeVar
 
 from brainstate import init, functional
 from brainstate._state import ParamState

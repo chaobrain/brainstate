@@ -15,13 +15,12 @@
 
 from __future__ import annotations
 
-import unittest
-from collections.abc import Callable
-from threading import Thread
-
 import jax
 import jax.numpy as jnp
+import unittest
 from absl.testing import absltest, parameterized
+from collections.abc import Callable
+from threading import Thread
 
 import brainstate as bst
 

@@ -15,12 +15,15 @@
 
 from __future__ import annotations
 
+import jax
+import jax.numpy as jnp
+import numpy as np
 import unittest
 
-import jax.numpy as jnp
-
 import brainstate as bst
+import brainstate.augment
 from brainstate.augment._mapping import BatchAxisError
+from brainstate.augment._mapping import _remove_axis
 
 
 class TestVmap(unittest.TestCase):
@@ -99,6 +102,27 @@ class TestVmap(unittest.TestCase):
         )
         print(bst.random.DEFAULT)
 
+    def test_vmap_with_random_v3(self):
+        class Model(bst.nn.Module):
+            def __init__(self):
+                super().__init__()
+
+                self.a = bst.ShortTermState(bst.random.randn(5))
+                self.b = bst.ShortTermState(bst.random.randn(5))
+                self.c = bst.State(bst.random.randn(1))
+
+            def __call__(self):
+                self.c.value = self.a.value * self.b.value
+                return self.c.value + bst.random.randn(1)
+
+        model = Model()
+        r2 = bst.augment.vmap(
+            model,
+            in_states=model.states(bst.ShortTermState),
+            out_states=model.c
+        )()
+        print(bst.random.DEFAULT)
+
     def test_vmap_with_random_2(self):
         class Model(bst.nn.Module):
             def __init__(self):
@@ -115,21 +139,10 @@ class TestVmap(unittest.TestCase):
                 return self.c.value + bst.random.randn(1)
 
         model = Model()
-        with self.assertRaises(BatchAxisError):
-            r2 = bst.augment.vmap(
-                model,
-                in_states=model.states(bst.ShortTermState),
-                out_states=model.c
-            )(
-                bst.random.split_key(5)
-            )
-
-        model = Model()
         r2 = bst.augment.vmap(
             model,
             in_states=model.states(bst.ShortTermState),
-            out_states=model.c,
-            rngs=model.rng,
+            out_states=model.c
         )(
             bst.random.split_key(5)
         )
@@ -154,24 +167,17 @@ class TestVmap(unittest.TestCase):
         print(model.weight.value_call(jnp.shape))
         print(model.weight.value)
 
-    def test_vmap_model(self):
-        model = bst.nn.Linear(2, 3)
-        model_id = id(model)
-        weight_id = id(model.weight)
-        print(id(model), id(model.weight))
-        x = jnp.ones((5, 2))
+    def test_vmap_states_and_input_1(self):
+        gru = bst.nn.GRUCell(2, 3)
+        gru.init_state(5)
 
-        @bst.augment.vmap(in_axes=(None, 0), out_axes=0)
-        def forward(model, x):
-            self.assertTrue(id(model) == model_id)
-            self.assertTrue(id(model.weight) == weight_id)
-            print(id(model), id(model.weight))
-            return model(x)
+        @bst.augment.vmap(in_states=gru.states(bst.HiddenState))
+        def forward(x):
+            return gru(x)
 
-        y = forward(model, x)
-        print(y.shape)
-        print(model.weight.value_call(jnp.shape))
-        print(model.weight.value)
+        xs = bst.random.randn(5, 2)
+        y = forward(xs)
+        self.assertTrue(y.shape == (5, 3))
 
     def test_vmap_jit(self):
         class Foo(bst.nn.Module):
@@ -249,6 +255,27 @@ class TestVmap(unittest.TestCase):
         print(trace.get_write_states())
         print(trace.get_read_states())
 
+    def test_auto_rand_key_split(self):
+        def f():
+            return bst.random.rand(1)
+
+        res = bst.augment.vmap(f, axis_size=10)()
+        self.assertTrue(jnp.all(~(res[0] == res[1:])))
+
+        res2 = jax.vmap(f, axis_size=10)()
+        self.assertTrue(jnp.all((res2[0] == res2[1:])))
+
+    def test_axis(self):
+        def f(x):
+            return x - jax.lax.pmean(x, 'i')
+        r = jax.vmap(f, axis_name='i')(jnp.arange(10))
+        print(r)
+
+        r2 = brainstate.augment.vmap(f, axis_name='i')(jnp.arange(10))
+        print(r2)
+        self.assertTrue(jnp.allclose(r, r2))
+
+
 
 class TestMap(unittest.TestCase):
     def test_map(self):
@@ -264,3 +291,72 @@ class TestMap(unittest.TestCase):
             self.assertTrue(jnp.allclose(r2, true_r))
             self.assertTrue(jnp.allclose(r3, true_r))
             self.assertTrue(jnp.allclose(r4, true_r))
+
+
+class TestRemoveAxis:
+
+    def test_remove_axis_2d_array_axis_0(self):
+        input_array = np.array([[1, 2, 3], [4, 5, 6]])
+        expected_output = np.array([1, 2, 3])
+
+        result = _remove_axis(input_array, axis=0)
+
+        np.testing.assert_array_equal(result, expected_output)
+
+    def test_remove_axis_3d_array(self):
+        # Create a 3D array
+        x = np.arange(24).reshape((2, 3, 4))
+
+        # Remove axis 1
+        result = _remove_axis(x, axis=1)
+
+        # Expected result: a 2D array with shape (2, 4)
+        expected = x[:, 0, :]
+
+        np.testing.assert_array_equal(result, expected)
+        assert result.shape == (2, 4)
+
+    def test_remove_axis_1d_array(self):
+        # Create a 1D array
+        x = np.array([1, 2, 3, 4, 5])
+
+        # Remove axis 0 (the only axis in a 1D array)
+        result = _remove_axis(x, axis=0)
+
+        # Check that the result is a scalar (0D array) and equal to the first element
+        assert np.isscalar(result), "Result should be a scalar"
+        assert result == 1, "Result should be equal to the first element of the input array"
+
+    def test_remove_axis_out_of_bounds(self):
+        x = jnp.array([[1, 2], [3, 4]])
+        with unittest.TestCase().assertRaises(IndexError):
+            _remove_axis(x, axis=2)
+
+    def test_remove_axis_negative(self):
+        x = jnp.array([[[1, 2], [3, 4]], [[5, 6], [7, 8]]])
+        result = _remove_axis(x, -1)
+        expected = jnp.array([[1, 3], [5, 7]])
+        np.testing.assert_array_equal(result, expected)
+
+    def test_remove_axis_with_nan_and_inf(self):
+        x = jnp.array([[1.0, jnp.nan, 3.0], [4.0, 5.0, jnp.inf]])
+        result = _remove_axis(x, axis=0)
+        expected = jnp.array([1.0, jnp.nan, 3.0])
+        np.testing.assert_array_equal(result, expected)
+        assert jnp.isnan(result[1])
+
+    def test_remove_axis_different_dtypes(self):
+        # Test with integer array
+        int_array = jnp.array([[1, 2, 3], [4, 5, 6]])
+        int_result = _remove_axis(int_array, 0)
+        assert jnp.array_equal(int_result, jnp.array([1, 2, 3]))
+
+        # Test with float array
+        float_array = jnp.array([[1.1, 2.2, 3.3], [4.4, 5.5, 6.6]])
+        float_result = _remove_axis(float_array, 1)
+        assert jnp.allclose(float_result, jnp.array([1.1, 4.4]))
+
+        # Test with complex array
+        complex_array = jnp.array([[1 + 1j, 2 + 2j], [3 + 3j, 4 + 4j]])
+        complex_result = _remove_axis(complex_array, 0)
+        assert jnp.allclose(complex_result, jnp.array([1 + 1j, 2 + 2j]))

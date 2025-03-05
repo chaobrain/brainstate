@@ -15,9 +15,8 @@
 
 from __future__ import annotations
 
-import unittest
-
 import jax.numpy as jnp
+import unittest
 
 import brainstate as bst
 
@@ -37,7 +36,7 @@ class TestMultiStepLR(unittest.TestCase):
                 self.assertTrue(jnp.allclose(r, 0.0001))
 
     def test2(self):
-        lr = bst.transform.jit(bst.optim.MultiStepLR(0.1, [10, 20, 30], gamma=0.1))
+        lr = bst.compile.jit(bst.optim.MultiStepLR(0.1, [10, 20, 30], gamma=0.1))
         for i in range(40):
             r = lr(i)
             if i < 10:

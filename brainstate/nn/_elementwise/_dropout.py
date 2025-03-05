@@ -16,11 +16,10 @@
 
 from __future__ import annotations
 
-from functools import partial
-from typing import Optional, Sequence
-
 import brainunit as u
 import jax.numpy as jnp
+from functools import partial
+from typing import Optional, Sequence
 
 from brainstate import random, environ, init
 from brainstate._state import ShortTermState
@@ -72,11 +71,11 @@ class Dropout(ElementWiseBlock):
             for dim in self.broadcast_dims:
                 broadcast_shape[dim] = 1
             keep_mask = random.bernoulli(self.prob, broadcast_shape)
-            keep_mask = jnp.broadcast_to(keep_mask, x.shape)
-            return jnp.where(
+            keep_mask = u.math.broadcast_to(keep_mask, x.shape)
+            return u.math.where(
                 keep_mask,
-                jnp.asarray(x / self.prob, dtype=dtype),
-                jnp.asarray(0., dtype=dtype)
+                u.math.asarray(x / self.prob, dtype=dtype),
+                u.math.asarray(0., dtype=dtype)
             )
         else:
             return x

@@ -17,10 +17,9 @@
 
 from __future__ import annotations
 
-from typing import Callable, Union, Sequence, Optional, Any, Dict
-
 import jax
 import jax.numpy as jnp
+from typing import Callable, Union, Sequence, Optional, Any
 
 from brainstate import environ, init
 from brainstate._state import ParamState, BatchState

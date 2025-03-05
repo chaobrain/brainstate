@@ -132,8 +132,10 @@ def wrap_single_fun(
         assert len(been_writen) == len(writen_state_vals) == len(read_state_vals)
 
         # collect all written and read states
-        state_vals = [written_val if written else read_val
-                      for written, written_val, read_val in zip(been_writen, writen_state_vals, read_state_vals)]
+        state_vals = [
+            written_val if written else read_val
+            for written, written_val, read_val in zip(been_writen, writen_state_vals, read_state_vals)
+        ]
 
         # call the jaxpr
         state_vals, (carry, out) = stateful_fun.jaxpr_call(state_vals, carry, inputs)

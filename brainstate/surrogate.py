@@ -21,6 +21,8 @@ import jax.numpy as jnp
 import jax.scipy as sci
 from jax.interpreters import batching, ad, mlir
 
+from brainstate.util._pretty_pytree import PrettyObject
+
 if jax.__version_info__ < (0, 4, 38):
     from jax.core import Primitive
 else:
@@ -77,7 +79,10 @@ def _heaviside_imp(x, dx):
 
 
 def _heaviside_batching(args, axes):
-    return heaviside_p.bind(*args), [axes[0]]
+    x, dx = args
+    if axes[0] != axes[1]:
+        dx = batching.moveaxis(dx, axes[1], axes[0])
+    return heaviside_p.bind(x, dx), tuple([axes[0]])
 
 
 def _heaviside_jvp(primals, tangents):
@@ -97,7 +102,7 @@ ad.primitive_jvps[heaviside_p] = _heaviside_jvp
 mlir.register_lowering(heaviside_p, mlir.lower_fun(_heaviside_imp, multiple_results=True))
 
 
-class Surrogate(object):
+class Surrogate(PrettyObject):
     """The base surrograte gradient function.
 
     To customize a surrogate gradient function, you can inherit this class and
@@ -127,9 +132,6 @@ class Surrogate(object):
         dx = self.surrogate_grad(x)
         return heaviside_p.bind(x, dx)[0]
 
-    def __repr__(self):
-        return f'{self.__class__.__name__}()'
-
     def surrogate_fun(self, x) -> jax.Array:
         """The surrogate function."""
         raise NotImplementedError
@@ -142,9 +144,20 @@ class Surrogate(object):
 class Sigmoid(Surrogate):
     """Spike function with the sigmoid-shaped surrogate gradient.
 
+    This class implements a spiking neuron activation with a sigmoid-shaped
+    surrogate gradient for backpropagation. It can be used in spiking neural
+    networks to approximate the non-differentiable step function during training.
+
+    Parameters
+    ----------
+    alpha : float, optional
+        A parameter controlling the steepness of the sigmoid curve in the
+        surrogate gradient. Higher values make the transition sharper.
+        Default is 4.0.
+
     See Also
     --------
-    sigmoid
+    sigmoid : Function version of this class.
 
     """
 
@@ -153,9 +166,33 @@ class Sigmoid(Surrogate):
         self.alpha = alpha
 
     def surrogate_fun(self, x):
+        """Compute the surrogate function.
+
+        Parameters
+        ----------
+        x : jax.Array
+            The input array.
+
+        Returns
+        -------
+        jax.Array
+            The output of the surrogate function.
+        """
         return sci.special.expit(self.alpha * x)
 
     def surrogate_grad(self, x):
+        """Compute the gradient of the surrogate function.
+
+        Parameters
+        ----------
+        x : jax.Array
+            The input array.
+
+        Returns
+        -------
+        jax.Array
+            The gradient of the surrogate function.
+        """
         sgax = sci.special.expit(x * self.alpha)
         dx = (1. - sgax) * sgax * self.alpha
         return dx
@@ -171,7 +208,12 @@ def sigmoid(
     x: jax.Array,
     alpha: float = 4.,
 ):
-    r"""Spike function with the sigmoid-shaped surrogate gradient.
+    r"""
+    Compute a spike function with a sigmoid-shaped surrogate gradient.
+
+    This function implements a spiking neuron activation with a sigmoid-shaped
+    surrogate gradient for backpropagation. It can be used in spiking neural
+    networks to approximate the non-differentiable step function during training.
 
     If `origin=False`, return the forward function:
 
@@ -210,16 +252,28 @@ def sigmoid(
 
     Parameters
     ----------
-    x: jax.Array, Array
-      The input data.
-    alpha: float
-      Parameter to control smoothness of gradient
-
+    x : jax.Array
+        The input array representing the neuron's membrane potential.
+    alpha : float, optional
+        A parameter controlling the steepness of the sigmoid curve in the
+        surrogate gradient. Higher values make the transition sharper.
+        Default is 4.0.
 
     Returns
     -------
-    out: jax.Array
-      The spiking state.
+    jax.Array
+        An array of the same shape as the input, containing binary values (0 or 1)
+        representing the spiking state of each neuron.
+        
+    Notes
+    -----
+    The forward pass uses a step function (1 for x >= 0, 0 for x < 0),
+    while the backward pass uses a sigmoid-shaped surrogate gradient for
+    smooth optimization.
+
+    The surrogate gradient is defined as:
+    g'(x) = alpha * (1 - sigmoid(alpha * x)) * sigmoid(alpha * x)
+
     """
     return Sigmoid(alpha=alpha)(x)
 
@@ -238,11 +292,15 @@ class PiecewiseQuadratic(Surrogate):
         self.alpha = alpha
 
     def surrogate_fun(self, x):
-        z = jnp.where(x < -1 / self.alpha,
-                      0.,
-                      jnp.where(x > 1 / self.alpha,
-                                1.,
-                                (-self.alpha * jnp.abs(x) / 2 + 1) * self.alpha * x + 0.5))
+        z = jnp.where(
+            x < -1 / self.alpha,
+            0.,
+            jnp.where(
+                x > 1 / self.alpha,
+                1.,
+                (-self.alpha * jnp.abs(x) / 2 + 1) * self.alpha * x + 0.5
+            )
+        )
         return z
 
     def surrogate_grad(self, x):
@@ -260,7 +318,12 @@ def piecewise_quadratic(
     x: jax.Array,
     alpha: float = 1.,
 ):
-    r"""Judge spiking state with a piecewise quadratic function [1]_ [2]_ [3]_ [4]_ [5]_.
+    r"""
+    Judge spiking state with a piecewise quadratic function [1]_ [2]_ [3]_ [4]_ [5]_.
+
+    This function implements a surrogate gradient method for spiking neural networks
+    using a piecewise quadratic function. It provides a differentiable approximation
+    of the step function used in the forward pass of spiking neurons.
 
     If `origin=False`, computes the forward function:
 
@@ -306,18 +369,29 @@ def piecewise_quadratic(
        >>> plt.legend()
        >>> plt.show()
 
-    Parameters
+  Parameters
     ----------
-    x: jax.Array, Array
-      The input data.
-    alpha: float
-      Parameter to control smoothness of gradient
-
+    x : jax.Array
+        The input array representing the neuron's membrane potential.
+    alpha : float, optional
+        A parameter controlling the steepness of the surrogate gradient.
+        Higher values result in a steeper gradient. Default is 1.0.
 
     Returns
     -------
-    out: jax.Array
-      The spiking state.
+    jax.Array
+        An array of the same shape as the input, containing binary values (0 or 1)
+        representing the spiking state of each neuron.
+
+    Notes
+    -----
+    The function uses different computations for forward and backward passes:
+    - Forward: Step function (1 for x >= 0, 0 for x < 0)
+    - Backward: Piecewise quadratic function for smooth gradient
+
+    The surrogate gradient is defined as:
+    g'(x) = 0 if |x| > 1/alpha
+            -alpha^2|x| + alpha if |x| <= 1/alpha
 
     References
     ----------
@@ -331,11 +405,22 @@ def piecewise_quadratic(
 
 
 class PiecewiseExp(Surrogate):
-    """Judge spiking state with a piecewise exponential function.
+    """
+    Judge spiking state with a piecewise exponential function.
+
+    This class implements a surrogate gradient method for spiking neural networks
+    using a piecewise exponential function. It provides a differentiable approximation
+    of the step function used in the forward pass of spiking neurons.
+
+    Parameters
+    ----------
+    alpha : float, optional
+        A parameter controlling the steepness of the surrogate gradient.
+        Higher values result in a steeper gradient. Default is 1.0.
 
     See Also
     --------
-    piecewise_exp
+    piecewise_exp : Function version of this class.
     """
 
     def __init__(self, alpha: float = 1.):
@@ -343,16 +428,62 @@ class PiecewiseExp(Surrogate):
         self.alpha = alpha
 
     def surrogate_grad(self, x):
+        """
+        Compute the surrogate gradient.
+
+        Parameters
+        ----------
+        x : jax.Array
+            The input array.
+
+        Returns
+        -------
+        jax.Array
+            The surrogate gradient.
+        """
         dx = (self.alpha / 2) * jnp.exp(-self.alpha * jnp.abs(x))
         return dx
 
     def surrogate_fun(self, x):
-        return jnp.where(x < 0, jnp.exp(self.alpha * x) / 2, 1 - jnp.exp(-self.alpha * x) / 2)
+        """
+        Compute the surrogate function.
+
+        Parameters
+        ----------
+        x : jax.Array
+            The input array.
+
+        Returns
+        -------
+        jax.Array
+            The output of the surrogate function.
+        """
+        return jnp.where(
+            x < 0,
+            jnp.exp(self.alpha * x) / 2,
+            1 - jnp.exp(-self.alpha * x) / 2
+        )
 
     def __repr__(self):
+        """
+        Return a string representation of the PiecewiseExp instance.
+
+        Returns
+        -------
+        str
+            A string representation of the instance.
+        """
         return f'{self.__class__.__name__}(alpha={self.alpha})'
 
     def __hash__(self):
+        """
+        Compute a hash value for the PiecewiseExp instance.
+
+        Returns
+        -------
+        int
+            A hash value for the instance.
+        """
         return hash((self.__class__, self.alpha))
 
 
@@ -362,6 +493,10 @@ def piecewise_exp(
 
 ):
     r"""Judge spiking state with a piecewise exponential function [1]_.
+
+    This function implements a surrogate gradient method for spiking neural networks
+    using a piecewise exponential function. It provides a differentiable approximation
+    of the step function used in the forward pass of spiking neurons.
 
     If `origin=False`, computes the forward function:
 
@@ -403,16 +538,26 @@ def piecewise_exp(
 
     Parameters
     ----------
-    x: jax.Array, Array
-      The input data.
-    alpha: float
-      Parameter to control smoothness of gradient
-
+    x : jax.Array
+        The input array representing the neuron's membrane potential.
+    alpha : float, optional
+        A parameter controlling the steepness of the surrogate gradient.
+        Higher values result in a steeper gradient. Default is 1.0.
 
     Returns
     -------
-    out: jax.Array
-      The spiking state.
+    jax.Array
+        An array of the same shape as the input, containing binary values (0 or 1)
+        representing the spiking state of each neuron.
+
+    Notes
+    -----
+    The function uses different computations for forward and backward passes:
+    - Forward: Step function (1 for x >= 0, 0 for x < 0)
+    - Backward: Piecewise exponential function for smooth gradient
+
+    The surrogate gradient is defined as:
+    g'(x) = (alpha / 2) * exp(-alpha * |x|)
 
     References
     ----------

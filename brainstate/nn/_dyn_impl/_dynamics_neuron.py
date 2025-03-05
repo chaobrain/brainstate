@@ -17,10 +17,9 @@
 
 from __future__ import annotations
 
-from typing import Callable, Optional
-
 import brainunit as u
 import jax
+from typing import Callable, Optional
 
 from brainstate import init, surrogate, environ
 from brainstate._state import HiddenState, ShortTermState

@@ -14,10 +14,8 @@
 # ==============================================================================
 
 
-import unittest
-
-import jax
 import jax.numpy as jnp
+import unittest
 
 import brainstate as bst
 

@@ -16,13 +16,17 @@
 from __future__ import annotations
 
 import builtins
+
+import brainunit as u
 import functools as ft
 import importlib
 import inspect
-
-import brainunit as u
 import jax
 import numpy as np
+from typing import (
+    Any, Callable, Hashable, List, Protocol, Tuple, TypeVar, Union,
+    runtime_checkable, TYPE_CHECKING, Generic, Sequence
+)
 
 tp = importlib.import_module("typing")
 
@@ -41,35 +45,35 @@ __all__ = [
     'Missing',
 ]
 
-K = tp.TypeVar('K')
+K = TypeVar('K')
 
 
-@tp.runtime_checkable
-class Key(tp.Hashable, tp.Protocol):
+@runtime_checkable
+class Key(Hashable, Protocol):
     def __lt__(self: K, value: K, /) -> bool:
         ...
 
 
-Ellipsis = builtins.ellipsis if tp.TYPE_CHECKING else tp.Any
+Ellipsis = builtins.ellipsis if TYPE_CHECKING else Any
 
-PathParts = tp.Tuple[Key, ...]
-Predicate = tp.Callable[[PathParts, tp.Any], bool]
-FilterLiteral = tp.Union[type, str, Predicate, bool, Ellipsis, None]
-Filter = tp.Union[FilterLiteral, tp.Tuple['Filter', ...], tp.List['Filter']]
+PathParts = Tuple[Key, ...]
+Predicate = Callable[[PathParts, Any], bool]
+FilterLiteral = Union[type, str, Predicate, bool, Ellipsis, None]
+Filter = Union[FilterLiteral, Tuple['Filter', ...], List['Filter']]
 
-_T = tp.TypeVar("_T")
+_T = TypeVar("_T")
 
-_Annotation = tp.TypeVar("_Annotation")
+_Annotation = TypeVar("_Annotation")
 
 
-class _Array(tp.Generic[_Annotation]):
+class _Array(Generic[_Annotation]):
     pass
 
 
 _Array.__module__ = "builtins"
 
 
-def _item_to_str(item: tp.Union[str, type, slice]) -> str:
+def _item_to_str(item: Union[str, type, slice]) -> str:
     if isinstance(item, slice):
         if item.step is not None:
             raise NotImplementedError
@@ -83,7 +87,7 @@ def _item_to_str(item: tp.Union[str, type, slice]) -> str:
 
 
 def _maybe_tuple_to_str(
-    item: tp.Union[str, type, slice, tp.Tuple[tp.Union[str, type, slice], ...]]
+    item: Union[str, type, slice, Tuple[Union[str, type, slice], ...]]
 ) -> str:
     if isinstance(item, tuple):
         if len(item) == 0:
@@ -113,7 +117,7 @@ class Array:
 Array.__module__ = "builtins"
 
 
-class _FakePyTree(tp.Generic[_T]):
+class _FakePyTree(Generic[_T]):
     pass
 
 
@@ -255,11 +259,10 @@ f. A structure can end with a `...`, to denote that the PyTree must be a prefix 
     cases, all named pieces must already have been seen and their structures bound.
 """  # noqa: E501
 
-Size = tp.Union[int, tp.Sequence[int]]
-Axes = tp.Union[int, tp.Sequence[int]]
-SeedOrKey = tp.Union[int, jax.Array, np.ndarray]
-Shape = tp.Sequence[int]
-
+Size = Union[int, Sequence[int]]
+Axes = Union[int, Sequence[int]]
+SeedOrKey = Union[int, jax.Array, np.ndarray]
+Shape = Sequence[int]
 
 # --- Array --- #
 
@@ -267,7 +270,7 @@ Shape = tp.Sequence[int]
 # standard JAX array (i.e. not including future non-standard array types like
 # KeyArray and BInt). It's different than np.typing.ArrayLike in that it doesn't
 # accept arbitrary sequences, nor does it accept string data.
-ArrayLike = tp.Union[
+ArrayLike = Union[
     jax.Array,  # JAX array type
     np.ndarray,  # NumPy array type
     np.bool_, np.number,  # NumPy scalar types
@@ -281,7 +284,7 @@ ArrayLike = tp.Union[
 DType = np.dtype
 
 
-class SupportsDType(tp.Protocol):
+class SupportsDType(Protocol):
     @property
     def dtype(self) -> DType: ...
 
@@ -291,9 +294,9 @@ class SupportsDType(tp.Protocol):
 # because JAX doesn't support objects or structured dtypes.
 # Unlike np.typing.DTypeLike, we exclude None, and instead require
 # explicit annotations when None is acceptable.
-DTypeLike = tp.Union[
+DTypeLike = Union[
     str,  # like 'float32', 'int32'
-    type[tp.Any],  # like np.float32, np.int32, float, int
+    type[Any],  # like np.float32, np.int32, float, int
     np.dtype,  # like np.dtype('float32'), np.dtype('int32')
     SupportsDType,  # like jnp.float32, jnp.int32
 ]

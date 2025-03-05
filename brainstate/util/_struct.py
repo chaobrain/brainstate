@@ -21,11 +21,10 @@ from __future__ import annotations
 
 import collections
 import dataclasses
+import jax
 from collections.abc import Hashable, Mapping
 from types import MappingProxyType
 from typing import Any, TypeVar
-
-import jax
 from typing_extensions import dataclass_transform  # pytype: disable=not-supported-yet
 
 __all__ = [
@@ -46,7 +45,8 @@ def field(pytree_node=True, *, metadata=None, **kwargs):
 
 @dataclass_transform(field_specifiers=(field,))  # type: ignore[literal-required]
 def dataclass(clz: T, **kwargs) -> T:
-    """Create a class which can be passed to functional transformations.
+    """
+    Create a class which can be passed to functional transformations.
 
     .. note::
       Inherit from ``PyTreeNode`` instead to avoid type checking issues when
@@ -115,7 +115,7 @@ def dataclass(clz: T, **kwargs) -> T:
       The new class.
     """
     # check if already a flax dataclass
-    if '_flax_dataclass' in clz.__dict__:
+    if '_brainstate_dataclass' in clz.__dict__:
         return clz
 
     if 'frozen' not in kwargs.keys():
@@ -172,8 +172,8 @@ def dataclass(clz: T, **kwargs) -> T:
             iterate_clz,
         )
 
-    # add a _flax_dataclass flag to distinguish from regular dataclasses
-    data_clz._flax_dataclass = True  # type: ignore[attr-defined]
+    # add a _brainstate_dataclass flag to distinguish from regular dataclasses
+    data_clz._brainstate_dataclass = True  # type: ignore[attr-defined]
 
     return data_clz  # type: ignore
 
@@ -240,7 +240,9 @@ def _indent(x, num_spaces):
 
 @jax.tree_util.register_pytree_with_keys_class
 class FrozenDict(Mapping[K, V]):
-    """An immutable variant of the Python dict."""
+    """
+    An immutable variant of the Python dict.
+    """
 
     __slots__ = ('_dict', '_hash')
 
@@ -303,7 +305,8 @@ class FrozenDict(Mapping[K, V]):
         return self._hash
 
     def copy(
-        self, add_or_replace: Mapping[K, V] = MappingProxyType({})
+        self,
+        add_or_replace: Mapping[K, V] = MappingProxyType({})
     ) -> 'FrozenDict[K, V]':
         """Create a new FrozenDict with additional or replaced entries."""
         return type(self)({**self, **unfreeze(add_or_replace)})  # type: ignore[arg-type]
@@ -323,7 +326,6 @@ class FrozenDict(Mapping[K, V]):
 
         Example::
 
-          >>> from flax.core import FrozenDict
           >>> variables = FrozenDict({'params': {...}, 'batch_stats': {...}})
           >>> new_variables, params = variables.pop('params')
 
@@ -426,7 +428,6 @@ def copy(
 
     Example::
 
-      >>> from flax.core import FrozenDict, copy
       >>> variables = FrozenDict({'params': {...}, 'batch_stats': {...}})
       >>> new_variables = copy(variables, {'additional_entries': 1})
 
@@ -457,7 +458,6 @@ def pop(
 
     Example::
 
-      >>> from flax.core import FrozenDict, pop
       >>> variables = FrozenDict({'params': {...}, 'batch_stats': {...}})
       >>> new_variables, params = pop(variables, 'params')
 
