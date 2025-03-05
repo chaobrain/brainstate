@@ -18,6 +18,7 @@
     <a href="https://badge.fury.io/py/brainstate"><img alt="PyPI version" src="https://badge.fury.io/py/brainstate.svg"></a>
     <a href="https://github.com/chaobrain/brainstate/actions/workflows/CI.yml"><img alt="Continuous Integration" src="https://github.com/chaobrain/brainstate/actions/workflows/CI.yml/badge.svg"></a>
     <a href="https://pepy.tech/projects/brainstate"><img src="https://static.pepy.tech/badge/brainstate" alt="PyPI Downloads"></a>
+    <a href="https://doi.org/10.5281/zenodo.14970015"><img src="https://zenodo.org/badge/811300394.svg" alt="DOI"></a>
 </p>
 
 
