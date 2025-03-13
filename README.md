@@ -38,8 +38,8 @@ The official documentation is hosted on Read the Docs: [https://brainstate.readt
 
 
 
-## See also the BDP ecosystem
+## See also the brain modeling ecosystem
 
-We are building the Brain Dynamics Programming ecosystem: https://ecosystem-for-brain-dynamics.readthedocs.io/
+We are building the brain modeling ecosystem: https://brainmodeling.readthedocs.io/
 
 
