@@ -15,10 +15,11 @@
 
 from __future__ import annotations
 
+import unittest
+
 import jax
 import jax.numpy as jnp
 import numpy as np
-import unittest
 
 import brainstate as bst
 import brainstate.augment
@@ -268,12 +269,50 @@ class TestVmap(unittest.TestCase):
     def test_axis(self):
         def f(x):
             return x - jax.lax.pmean(x, 'i')
+
         r = jax.vmap(f, axis_name='i')(jnp.arange(10))
         print(r)
 
         r2 = brainstate.augment.vmap(f, axis_name='i')(jnp.arange(10))
         print(r2)
         self.assertTrue(jnp.allclose(r, r2))
+
+    def test_vmap_init(self):
+        class Foo(bst.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.a = bst.ParamState(jnp.arange(4))
+                self.b = bst.ShortTermState(jnp.arange(4))
+
+            def init_state_v1(self, *args, **kwargs):
+                self.c = bst.State(jnp.arange(4))
+
+            def init_state_v2(self):
+                self.d = bst.State(self.c.value * 2.)
+
+        foo = Foo()
+
+        @brainstate.augment.vmap_new_states(state_tag='new1', axis_size=5)
+        def init1():
+            foo.init_state_v1()
+
+        init1()
+        print(foo.c.value)
+
+        @brainstate.augment.vmap_new_states(state_tag='new2', axis_size=5, in_states=foo.states('new1'))
+        def init2():
+            foo.init_state_v2()
+
+        init2()
+        print(foo.c.value)
+        print(foo.d.value)
+
+        self.assertTrue(
+            jnp.allclose(
+                foo.d.value,
+                foo.c.value * 2.
+            )
+        )
 
 
 

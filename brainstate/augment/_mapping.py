@@ -918,11 +918,11 @@ def map(
         g = lambda _, x: ((), vmap(f)(*x))
         _, scan_ys = scan(g, (), scan_xs)
         if remainder_xs is None:
-            ys = jax.tree.map(lambda x: flatten_(x), scan_ys)
+            ys = jax.tree.map(lambda x: _flatten(x), scan_ys)
         else:
             remainder_ys = vmap(f)(*remainder_xs)
             ys = jax.tree.map(
-                lambda x, y: jax.lax.concatenate([flatten_(x), y], dimension=0),
+                lambda x, y: jax.lax.concatenate([_flatten(x), y], dimension=0),
                 scan_ys,
                 remainder_ys,
             )
@@ -932,7 +932,7 @@ def map(
     return ys
 
 
-def flatten_(x):
+def _flatten(x):
     return x.reshape(-1, *x.shape[2:])
 
 
@@ -948,6 +948,8 @@ def _vmap_new_states_transform(
     # -- brainstate specific arguments -- #
     state_tag: str | None = None,
     state_to_exclude: Filter | None = None,
+    in_states: Dict[int, Dict] | Any | None = None,
+    out_states: Dict[int, Dict] | Any | None = None,
 ):
     # TODO: How about nested call ``vmap_new_states``?
 
@@ -957,6 +959,8 @@ def _vmap_new_states_transform(
         axis_name=axis_name,
         axis_size=axis_size,
         spmd_axis_name=spmd_axis_name,
+        in_states=in_states,
+        out_states=out_states,
     )
     def new_fun(args):
         # call the function
@@ -999,6 +1003,8 @@ def vmap_new_states(
     # -- brainstate specific arguments -- #
     state_tag: str | None = None,
     state_to_exclude: Filter = None,
+    in_states: Dict[int, Dict] | Any | None = None,
+    out_states: Dict[int, Dict] | Any | None = None,
 ):
     """
     Vectorize a function over new states created within it.
@@ -1030,6 +1036,8 @@ def vmap_new_states(
             spmd_axis_name=spmd_axis_name,
             state_tag=state_tag,
             state_to_exclude=state_to_exclude,
+            in_states=in_states,
+            out_states=out_states,
         )
     else:
         return _vmap_new_states_transform(
@@ -1041,4 +1049,6 @@ def vmap_new_states(
             spmd_axis_name=spmd_axis_name,
             state_tag=state_tag,
             state_to_exclude=state_to_exclude,
+            in_states=in_states,
+            out_states=out_states,
         )
