@@ -18,9 +18,7 @@ from __future__ import annotations
 from collections import namedtuple
 
 import jax
-from typing import (
-    Callable, TypeVar, Tuple, Any, Dict
-)
+from typing import Callable, TypeVar, Tuple, Any, Dict
 
 from brainstate._state import catch_new_states
 from brainstate._utils import set_module_as
@@ -103,7 +101,7 @@ def call_all_functions(
     on each node. It respects the call order of functions if defined, and provides options for
     handling cases where the specified function does not exist on a node.
 
-    Parameters:
+    Parameters
     -----------
     target : T
         The target module on which to call functions.
@@ -121,12 +119,12 @@ def call_all_functions(
         - 'raise': Raise an exception (default)
         - 'pass' or 'none': Skip the node and continue
         
-    Returns:
+    Returns
     --------
     T
         The target module after calling the specified function on all applicable nodes.
 
-    Raises:
+    Raises
     -------
     AssertionError
         If fun_name is not a string or kwargs is not a dictionary.
@@ -186,7 +184,7 @@ def vmap_call_all_functions(
     This function vectorizes the process of calling a specified function across multiple instances
     of the target module, effectively batching the operation.
 
-    Parameters:
+    Parameters
     -----------
     target : T
         The target module on which to call functions.
@@ -208,12 +206,12 @@ def vmap_call_all_functions(
         - 'raise': Raise an exception (default)
         - 'pass' or 'none': Skip the node and continue
 
-    Returns:
+    Returns
     --------
     T
         The target module after applying the vectorized function call on all applicable nodes.
 
-    Raises:
+    Raises
     -------
     AssertionError
         If axis_size is not specified or is not a positive integer.
@@ -304,7 +302,7 @@ def vmap_init_all_states(
     This function applies vectorized mapping (vmap) to initialize states across multiple
     instances of the target module, effectively batching the initialization process.
 
-    Parameters:
+    Parameters
     -----------
     target : T
         The target module whose states are to be initialized.
@@ -319,12 +317,12 @@ def vmap_init_all_states(
     state_tag : str | None, optional
         A tag to be used for catching new states.
 
-    Returns:
+    Returns
     --------
     T
         The target module with initialized states.
 
-    Raises:
+    Raises
     -------
     AssertionError
         If axis_size is not specified or is not greater than 0.
@@ -413,7 +411,7 @@ def vmap_reset_all_states(
     This function applies vectorized mapping (vmap) to reset states across multiple
     instances of the target module, effectively batching the reset process.
 
-    Parameters:
+    Parameters
     -----------
     target : T
         The target module whose states are to be reset.
@@ -428,12 +426,12 @@ def vmap_reset_all_states(
     tag : str | None, optional
         A tag to be used for catching new states.
 
-    Returns:
+    Returns
     --------
     T
         The target module with reset states.
 
-    Raises:
+    Raises
     -------
     AssertionError
         If axis_size is not specified or is not greater than 0.
@@ -486,7 +484,7 @@ def save_all_states(target: Module, **kwargs) -> Dict:
     Args:
       target: Module. The node to save its states.
 
-    Returns:
+    Returns
       Dict. The state dict for serialization.
     """
     return {key: node.save_state(**kwargs) for key, node in target.nodes().items()}
