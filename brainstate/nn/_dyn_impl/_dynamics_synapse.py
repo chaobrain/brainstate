@@ -17,8 +17,9 @@
 
 from __future__ import annotations
 
+from typing import Optional, Callable
+
 import brainunit as u
-from typing import Optional
 
 from brainstate import init, environ
 from brainstate._state import ShortTermState, HiddenState
@@ -54,7 +55,7 @@ class Expon(Synapse, AlignPost):
         in_size: Size,
         name: Optional[str] = None,
         tau: ArrayLike = 8.0 * u.ms,
-        g_initializer: ArrayLike = init.ZeroInit(unit=u.mS),
+        g_initializer: ArrayLike | Callable = init.ZeroInit(unit=u.mS),
     ):
         super().__init__(name=name, in_size=in_size)
 
@@ -85,7 +86,7 @@ class DualExpon(Synapse, AlignPost):
         tau_decay: ArrayLike = 10.0 * u.ms,
         tau_rise: ArrayLike = 1.0 * u.ms,
         A: Optional[ArrayLike] = None,
-        g_initializer: ArrayLike = init.ZeroInit(unit=u.mS),
+        g_initializer: ArrayLike | Callable = init.ZeroInit(unit=u.mS),
     ):
         super().__init__(name=name, in_size=in_size)
 
@@ -133,7 +134,7 @@ class Alpha(Synapse):
         in_size: Size,
         name: Optional[str] = None,
         tau: ArrayLike = 8.0 * u.ms,
-        g_initializer: ArrayLike = init.ZeroInit(unit=u.mS),
+        g_initializer: ArrayLike | Callable = init.ZeroInit(unit=u.mS),
     ):
         super().__init__(name=name, in_size=in_size)
 
@@ -321,7 +322,7 @@ class AMPA(Synapse):
         beta: ArrayLike = 0.18 / u.ms,
         T: ArrayLike = 0.5 * u.mM,
         T_dur: ArrayLike = 0.5 * u.ms,
-        g_initializer: ArrayLike = init.ZeroInit(),
+        g_initializer: ArrayLike | Callable = init.ZeroInit(),
     ):
         super().__init__(name=name, in_size=in_size)
 
@@ -394,5 +395,14 @@ class GABAa(AMPA):
         beta: ArrayLike = 0.18 / u.ms,
         T: ArrayLike = 1.0 * u.mM,
         T_dur: ArrayLike = 1.0 * u.ms,
+        g_initializer: ArrayLike | Callable = init.ZeroInit(),
     ):
-        super().__init__(alpha=alpha, beta=beta, T=T, T_dur=T_dur, name=name, in_size=in_size)
+        super().__init__(
+            alpha=alpha,
+            beta=beta,
+            T=T,
+            T_dur=T_dur,
+            name=name,
+            in_size=in_size,
+            g_initializer=g_initializer
+        )

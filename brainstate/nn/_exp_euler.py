@@ -49,13 +49,13 @@ def exp_euler_step(
     should have units of ( [X]/\sqrt{[T]} ).
 
     Args:
-      fun: Callable. The function to be solved.
-      diffusion: Callable. The diffusion function.
-      *args: The input arguments.
-      drift: Callable. The drift function.
+        fun: Callable. The function to be solved.
+        diffusion: Callable. The diffusion function.
+        *args: The input arguments.
+        drift: Callable. The drift function.
 
     Returns:
-      The one-step solution of the ODE.
+        The one-step solution of the ODE.
     """
     assert callable(fn), 'The input function should be callable.'
     assert len(args) > 0, 'The input arguments should not be empty.'

@@ -15,10 +15,11 @@
 
 from __future__ import annotations
 
+import unittest
+
 import jax
 import jax.numpy as jnp
 import numpy as np
-import unittest
 
 import brainstate as bst
 import brainstate.augment
@@ -268,6 +269,7 @@ class TestVmap(unittest.TestCase):
     def test_axis(self):
         def f(x):
             return x - jax.lax.pmean(x, 'i')
+
         r = jax.vmap(f, axis_name='i')(jnp.arange(10))
         print(r)
 
@@ -275,6 +277,42 @@ class TestVmap(unittest.TestCase):
         print(r2)
         self.assertTrue(jnp.allclose(r, r2))
 
+    def test_vmap_init(self):
+        class Foo(bst.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.a = bst.ParamState(jnp.arange(4))
+                self.b = bst.ShortTermState(jnp.arange(4))
+
+            def init_state_v1(self, *args, **kwargs):
+                self.c = bst.State(jnp.arange(4))
+
+            def init_state_v2(self):
+                self.d = bst.State(self.c.value * 2.)
+
+        foo = Foo()
+
+        @brainstate.augment.vmap_new_states(state_tag='new1', axis_size=5)
+        def init1():
+            foo.init_state_v1()
+
+        init1()
+        print(foo.c.value)
+
+        @brainstate.augment.vmap_new_states(state_tag='new2', axis_size=5, in_states=foo.states('new1'))
+        def init2():
+            foo.init_state_v2()
+
+        init2()
+        print(foo.c.value)
+        print(foo.d.value)
+
+        self.assertTrue(
+            jnp.allclose(
+                foo.d.value,
+                foo.c.value * 2.
+            )
+        )
 
 
 class TestMap(unittest.TestCase):
@@ -360,3 +398,38 @@ class TestRemoveAxis:
         complex_array = jnp.array([[1 + 1j, 2 + 2j], [3 + 3j, 4 + 4j]])
         complex_result = _remove_axis(complex_array, 0)
         assert jnp.allclose(complex_result, jnp.array([1 + 1j, 2 + 2j]))
+
+
+class TestVMAPNewStatesEdgeCases(unittest.TestCase):
+
+    def test_axis_size_zero(self):
+        foo = brainstate.nn.LIF(3)
+        # Testing that axis_size of 0 raises an error.
+        with self.assertRaises(ValueError):
+            @bst.augment.vmap_new_states(state_tag='new1', axis_size=0)
+            def faulty_init():
+                foo.init_state()
+
+            # Call the decorated function to trigger validation
+            faulty_init()
+
+    def test_axis_size_negative(self):
+        foo = brainstate.nn.LIF(3)
+        # Testing that a negative axis_size raises an error.
+        with self.assertRaises(ValueError):
+            @bst.augment.vmap_new_states(state_tag='new1', axis_size=-3)
+            def faulty_init():
+                foo.init_state()
+
+            faulty_init()
+
+    def test_incompatible_shapes(self):
+        foo = brainstate.nn.LIF(3)
+        # Simulate an incompatible shapes scenario:
+        # We intentionally assign a state with a different shape than expected.
+        @bst.augment.vmap_new_states(state_tag='new1', axis_size=5)
+        def faulty_init():
+            # Modify state to produce an incompatible shape
+            foo.c = bst.State(jnp.arange(3))  # Original expected shape is (4,)
+
+        faulty_init()
