@@ -34,3 +34,14 @@ class Test_vmap_init_all_states:
             print(gru)
 
         init()
+
+
+class Test_init_all_states:
+    def test_init_all_states(self):
+        gru = bst.nn.GRUCell(1, 2)
+        bst.nn.init_all_states(gru, batch_size=10)
+        print(gru)
+
+
+
+

@@ -250,9 +250,9 @@ def vmap_call_all_functions(
 @set_module_as('brainstate.nn')
 def init_all_states(
     target: T,
-    init_args: Tuple[Any, ...] | Any = (),
-    init_kwargs: Dict[str, Any] | None = None,
+    *init_args,
     node_to_exclude: Filter = None,
+    **init_kwargs,
 ) -> T:
     """
     Initialize all states for the given target module and its submodules.
