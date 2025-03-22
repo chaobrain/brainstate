@@ -952,6 +952,9 @@ def _vmap_new_states_transform(
     out_states: Dict[int, Dict] | Any | None = None,
 ):
     # TODO: How about nested call ``vmap_new_states``?
+    if isinstance(axis_size, int) and axis_size <= 0:
+        raise ValueError(f"axis_size must be greater than 0, got {axis_size}.")
+
 
     @vmap(
         in_axes=in_axes,

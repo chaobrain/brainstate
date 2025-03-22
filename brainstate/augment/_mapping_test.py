@@ -315,7 +315,6 @@ class TestVmap(unittest.TestCase):
         )
 
 
-
 class TestMap(unittest.TestCase):
     def test_map(self):
         for dim in [(10,), (10, 10), (10, 10, 10)]:
@@ -399,3 +398,38 @@ class TestRemoveAxis:
         complex_array = jnp.array([[1 + 1j, 2 + 2j], [3 + 3j, 4 + 4j]])
         complex_result = _remove_axis(complex_array, 0)
         assert jnp.allclose(complex_result, jnp.array([1 + 1j, 2 + 2j]))
+
+
+class TestVMAPNewStatesEdgeCases(unittest.TestCase):
+
+    def test_axis_size_zero(self):
+        foo = brainstate.nn.LIF(3)
+        # Testing that axis_size of 0 raises an error.
+        with self.assertRaises(ValueError):
+            @bst.augment.vmap_new_states(state_tag='new1', axis_size=0)
+            def faulty_init():
+                foo.init_state()
+
+            # Call the decorated function to trigger validation
+            faulty_init()
+
+    def test_axis_size_negative(self):
+        foo = brainstate.nn.LIF(3)
+        # Testing that a negative axis_size raises an error.
+        with self.assertRaises(ValueError):
+            @bst.augment.vmap_new_states(state_tag='new1', axis_size=-3)
+            def faulty_init():
+                foo.init_state()
+
+            faulty_init()
+
+    def test_incompatible_shapes(self):
+        foo = brainstate.nn.LIF(3)
+        # Simulate an incompatible shapes scenario:
+        # We intentionally assign a state with a different shape than expected.
+        @bst.augment.vmap_new_states(state_tag='new1', axis_size=5)
+        def faulty_init():
+            # Modify state to produce an incompatible shape
+            foo.c = bst.State(jnp.arange(3))  # Original expected shape is (4,)
+
+        faulty_init()
