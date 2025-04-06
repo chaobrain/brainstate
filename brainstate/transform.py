@@ -15,3 +15,9 @@
 
 # alias for compilation and augmentation functions
 
+from .augment import *
+from .compile import *
+
+if __name__ == '__main__':
+    ifelse
+    grad
