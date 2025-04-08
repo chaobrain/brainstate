@@ -39,11 +39,11 @@
 import brainunit as u
 import matplotlib.pyplot as plt
 
-import brainstate as bst
-import brainevent.nn
+import brainstate
+import brainevent
 
 
-class EINet(bst.nn.DynamicsGroup):
+class EINet(brainstate.nn.DynamicsGroup):
     def __init__(self, n_exc, n_inh, prob, JE, JI):
         super().__init__()
         self.n_exc = n_exc
@@ -51,20 +51,20 @@ class EINet(bst.nn.DynamicsGroup):
         self.num = n_exc + n_inh
 
         # neurons
-        self.N = bst.nn.LIF(n_exc + n_inh, V_rest=-52. * u.mV, V_th=-50. * u.mV, V_reset=-60. * u.mV, tau=10. * u.ms,
-                            V_initializer=bst.init.Normal(-60., 10., unit=u.mV), spk_reset='soft')
+        self.N = brainstate.nn.LIF(n_exc + n_inh, V_rest=-52. * u.mV, V_th=-50. * u.mV, V_reset=-60. * u.mV, tau=10. * u.ms,
+                                   V_initializer=brainstate.init.Normal(-60., 10., unit=u.mV), spk_reset='soft')
 
         # synapses
-        self.E = bst.nn.AlignPostProj(
+        self.E = brainstate.nn.AlignPostProj(
             comm=brainevent.nn.FixedProb(n_exc, self.num, prob, JE),
-            syn=bst.nn.Expon.desc(self.num, tau=2. * u.ms),
-            out=bst.nn.CUBA.desc(),
+            syn=brainstate.nn.Expon.desc(self.num, tau=2. * u.ms),
+            out=brainstate.nn.CUBA.desc(),
             post=self.N,
         )
-        self.I = bst.nn.AlignPostProj(
+        self.I = brainstate.nn.AlignPostProj(
             comm=brainevent.nn.FixedProb(n_inh, self.num, prob, JI),
-            syn=bst.nn.Expon.desc(self.num, tau=2. * u.ms),
-            out=bst.nn.CUBA.desc(),
+            syn=brainstate.nn.Expon.desc(self.num, tau=2. * u.ms),
+            out=brainstate.nn.CUBA.desc(),
             post=self.N,
         )
 
@@ -87,13 +87,13 @@ JE = 1 / u.math.sqrt(prob * num_exc) * u.mS
 JI = -1 / u.math.sqrt(prob * num_inh) * u.mS
 
 # network
-bst.environ.set(dt=0.1 * u.ms)
+brainstate.environ.set(dt=0.1 * u.ms)
 net = EINet(num_exc, num_inh, prob=prob, JE=JE, JI=JI)
-bst.nn.init_all_states(net)
+brainstate.nn.init_all_states(net)
 
 # simulation
-times = u.math.arange(0. * u.ms, 1000. * u.ms, bst.environ.get_dt())
-spikes = bst.compile.for_loop(lambda t: net.update(Ib), times, pbar=bst.compile.ProgressBar(10))
+times = u.math.arange(0. * u.ms, 1000. * u.ms, brainstate.environ.get_dt())
+spikes = brainstate.compile.for_loop(lambda t: net.update(Ib), times, pbar=brainstate.compile.ProgressBar(10))
 
 # visualization
 t_indices, n_indices = u.math.where(spikes)

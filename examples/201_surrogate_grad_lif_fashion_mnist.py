@@ -23,14 +23,14 @@ Reproduce the results of the``spytorch`` tutorial 2 & 3:
 
 import time
 
-import braintools as bts
+import braintools
 import brainunit as u
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
 from datasets import load_dataset
 
-import brainstate as bst
+import brainstate
 
 dataset = load_dataset("zalando-datasets/fashion_mnist")
 
@@ -45,7 +45,7 @@ Y_train = np.array(dataset['train']['label'], dtype=np.int32)
 Y_test = np.array(dataset['test']['label'], dtype=np.int32)
 
 
-class SNN(bst.nn.DynamicsGroup):
+class SNN(brainstate.nn.DynamicsGroup):
     """
     This class implements a spiking neural network model with three layers:
 
@@ -63,16 +63,16 @@ class SNN(bst.nn.DynamicsGroup):
         self.num_out = num_out
 
         # synapse: i->r
-        self.i2r = bst.nn.Sequential(
-            bst.nn.Linear(num_in, num_rec, w_init=bst.init.KaimingNormal(scale=40.)),
-            bst.nn.Expon(num_rec, tau=10. * u.ms, g_initializer=bst.init.ZeroInit())
+        self.i2r = brainstate.nn.Sequential(
+            brainstate.nn.Linear(num_in, num_rec, w_init=brainstate.init.KaimingNormal(scale=40.)),
+            brainstate.nn.Expon(num_rec, tau=10. * u.ms, g_initializer=brainstate.init.ZeroInit())
         )
         # recurrent: r
-        self.r = bst.nn.LIF(num_rec, tau=10 * u.ms, V_reset=0 * u.mV, V_rest=0 * u.mV, V_th=1. * u.mV)
+        self.r = brainstate.nn.LIF(num_rec, tau=10 * u.ms, V_reset=0 * u.mV, V_rest=0 * u.mV, V_th=1. * u.mV)
         # synapse: r->o
-        self.r2o = bst.nn.Sequential(
-            bst.nn.Linear(num_rec, num_out, w_init=bst.init.KaimingNormal(scale=2.)),
-            bst.nn.Expon(num_out, tau=10. * u.ms, g_initializer=bst.init.ZeroInit())
+        self.r2o = brainstate.nn.Sequential(
+            brainstate.nn.Linear(num_rec, num_out, w_init=brainstate.init.KaimingNormal(scale=2.)),
+            brainstate.nn.Expon(num_out, tau=10. * u.ms, g_initializer=brainstate.init.ZeroInit())
         )
 
     def update(self, spikes):
@@ -86,7 +86,7 @@ class SNN(bst.nn.DynamicsGroup):
         return out, r_spikes, self.r.V.value
 
 
-with bst.environ.context(dt=1.0 * u.ms):
+with brainstate.environ.context(dt=1.0 * u.ms):
     # inputs
     batch_size = 256
 
@@ -94,14 +94,14 @@ with bst.environ.context(dt=1.0 * u.ms):
     net = SNN(num_in=X_train.shape[-1], num_rec=100, num_out=10)
 
     # encoding inputs as spikes
-    encoder = bts.LatencyEncoder(tau=100 * u.ms)
+    encoder = braintools.LatencyEncoder(tau=100 * u.ms)
 
 
-    @bst.compile.jit
+    @brainstate.compile.jit
     def predict(xs):
-        bst.nn.init_all_states(net, xs.shape[0])
+        brainstate.nn.init_all_states(net, xs.shape[0])
         xs = encoder(xs)
-        outs, spikes, vs = bst.compile.for_loop(net.predict, xs)
+        outs, spikes, vs = brainstate.compile.for_loop(net.predict, xs)
         return outs, spikes, vs
 
 
@@ -111,7 +111,7 @@ with bst.environ.context(dt=1.0 * u.ms):
         xs = np.asarray(encoder(xs))
         vs = np.asarray(vs.to_decimal(u.mV))
         # vs = np.where(spikes, vs, 5.0)
-        fig, gs = bts.visualize.get_figure(4, 4, 3., 4.)
+        fig, gs = braintools.visualize.get_figure(4, 4, 3., 4.)
         for i in range(4):
             ax = fig.add_subplot(gs[i, 0])
             i_indice, n_indices = np.where(xs[:, i])
@@ -134,19 +134,19 @@ with bst.environ.context(dt=1.0 * u.ms):
     visualize(X_test[:4])
 
     # optimizer
-    optimizer = bst.optim.Adam(lr=1e-3)
-    optimizer.register_trainable_weights(net.states(bst.ParamState))
+    optimizer = brainstate.optim.Adam(lr=1e-3)
+    optimizer.register_trainable_weights(net.states(brainstate.ParamState))
 
 
     def loss_fun(xs, ys):
         # initialize states
-        bst.nn.init_all_states(net, xs.shape[0])
+        brainstate.nn.init_all_states(net, xs.shape[0])
 
         # encode inputs
         xs = encoder(xs)
 
         # predictions
-        outs, r_spikes = bst.compile.for_loop(net.update, xs)
+        outs, r_spikes = brainstate.compile.for_loop(net.update, xs)
 
         # Here we set up our regularize loss
         # The strength parameters here are merely a guess and there should be ample
@@ -157,15 +157,15 @@ with bst.environ.context(dt=1.0 * u.ms):
 
         # predictions
         predicts = u.math.max(outs, axis=0)  # max over time, [T, B, C] -> [B, C]
-        loss = bts.metric.softmax_cross_entropy_with_integer_labels(predicts, ys).mean()
+        loss = braintools.metric.softmax_cross_entropy_with_integer_labels(predicts, ys).mean()
         correct_n = u.math.sum(ys == u.math.argmax(predicts, axis=1))  # compare to labels
         return loss + l2_loss + l1_loss, correct_n
 
 
-    @bst.compile.jit
+    @brainstate.compile.jit
     def train_fn(xs, ys):
-        grads, loss, correct_n = bst.augment.grad(loss_fun, net.states(bst.ParamState), has_aux=True,
-                                                  return_value=True)(xs, ys)
+        grads, loss, correct_n = brainstate.augment.grad(loss_fun, net.states(brainstate.ParamState), has_aux=True,
+                                                         return_value=True)(xs, ys)
         optimizer.update(grads)
         return loss, correct_n
 
@@ -175,7 +175,7 @@ with bst.environ.context(dt=1.0 * u.ms):
     indices = np.arange(X_train.shape[0])
 
     for epoch_i in range(n_epoch):
-        indices = bst.random.shuffle(indices)
+        indices = brainstate.random.shuffle(indices)
 
         # training phase
         t0 = time.time()
@@ -207,7 +207,7 @@ with bst.environ.context(dt=1.0 * u.ms):
         train_losses.append(train_loss)
         train_accs.append(train_acc)
 
-    fig, gs = bts.visualize.get_figure(1, 2, 3, 4)
+    fig, gs = braintools.visualize.get_figure(1, 2, 3, 4)
     fig.add_subplot(gs[0])
     plt.plot(np.asarray(train_losses))
     plt.xlabel("Epoch")

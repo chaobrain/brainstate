@@ -16,14 +16,14 @@
 import argparse
 import time
 
-import braintools as bts
+import braintools
+import brainstate
 import brainunit as u
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
 from datasets import load_dataset
 
-import brainstate as bst
 
 parser = argparse.ArgumentParser(description='LIF MNIST Training')
 parser.add_argument('-T', default=100, type=int, help='simulating time-steps')
@@ -37,11 +37,11 @@ args = parser.parse_args()
 print(args)
 
 
-class SNN(bst.nn.DynamicsGroup):
+class SNN(brainstate.nn.DynamicsGroup):
     def __init__(self, tau):
         super().__init__()
-        self.l1 = bst.nn.Linear(28 * 28, 10, b_init=None, w_init=bst.init.LecunNormal(scale=10., unit=u.mA))
-        self.l2 = bst.nn.LIF(10, V_rest=0. * u.mV, V_reset=0. * u.mV, V_th=1. * u.mV, tau=tau * u.ms)
+        self.l1 = brainstate.nn.Linear(28 * 28, 10, b_init=None, w_init=brainstate.init.LecunNormal(scale=10., unit=u.mA))
+        self.l2 = brainstate.nn.LIF(10, V_rest=0. * u.mV, V_reset=0. * u.mV, V_th=1. * u.mV, tau=tau * u.ms)
 
     def update(self, x):
         return self.l2(self.l1(x))
@@ -51,7 +51,7 @@ class SNN(bst.nn.DynamicsGroup):
         return self.l2.V.value, spikes
 
 
-with bst.environ.context(dt=1.0 * u.ms):
+with brainstate.environ.context(dt=1.0 * u.ms):
     net = SNN(args.tau)
 
     dataset = load_dataset('mnist')
@@ -65,19 +65,19 @@ with bst.environ.context(dt=1.0 * u.ms):
     Y_test = np.array(dataset['test']['label'], dtype=np.int32)
 
 
-    @bst.compile.jit
+    @brainstate.compile.jit
     def predict(xs):
-        bst.nn.init_all_states(net, xs.shape[0])
+        brainstate.nn.init_all_states(net, xs.shape[0])
         xs = (xs + 0.02)
-        xs = bst.random.rand(args.T, *xs.shape) < xs
-        vs, outs = bst.compile.for_loop(net.predict, xs)
+        xs = brainstate.random.rand(args.T, *xs.shape) < xs
+        vs, outs = brainstate.compile.for_loop(net.predict, xs)
         return vs, outs
 
 
     def visualize(xs):
         vs, outs = predict(xs)
         vs = np.asarray(vs.to_decimal(u.mV))
-        fig, gs = bts.visualize.get_figure(4, 2, 3., 6.)
+        fig, gs = braintools.visualize.get_figure(4, 2, 3., 6.)
         for i in range(4):
             ax = fig.add_subplot(gs[i, 0])
             i_indice, n_indices = np.where(outs[:, i])
@@ -94,33 +94,33 @@ with bst.environ.context(dt=1.0 * u.ms):
     visualize(X_test[:4])
 
 
-    @bst.compile.jit
+    @brainstate.compile.jit
     def loss_fun(xs, ys):
         # initialize states
-        bst.nn.init_all_states(net, xs.shape[0])
+        brainstate.nn.init_all_states(net, xs.shape[0])
 
         # encoding inputs as spikes
-        xs = bst.random.rand(args.T, *xs.shape) < xs
+        xs = brainstate.random.rand(args.T, *xs.shape) < xs
 
         # shared arguments for looping over time
-        outs = bst.compile.for_loop(net.update, xs)
+        outs = brainstate.compile.for_loop(net.update, xs)
         out_fr = u.math.mean(outs, axis=0)  # [T, B, C] -> [B, C]
-        ys_onehot = bst.functional.one_hot(ys, 10, dtype=float)
-        l = bts.metric.squared_error(out_fr, ys_onehot).mean()
+        ys_onehot = brainstate.functional.one_hot(ys, 10, dtype=float)
+        l = braintools.metric.squared_error(out_fr, ys_onehot).mean()
         n = u.math.sum(out_fr.argmax(1) == ys)
         return l, n
 
 
     # gradient function
-    grad_fun = bst.augment.grad(loss_fun, net.states(bst.ParamState), has_aux=True, return_value=True)
+    grad_fun = brainstate.augment.grad(loss_fun, net.states(brainstate.ParamState), has_aux=True, return_value=True)
 
     # optimizer
-    optimizer = bst.optim.Adam(lr=args.lr)
-    optimizer.register_trainable_weights(net.states(bst.ParamState))
+    optimizer = brainstate.optim.Adam(lr=args.lr)
+    optimizer.register_trainable_weights(net.states(brainstate.ParamState))
 
 
     # train
-    @bst.compile.jit
+    @brainstate.compile.jit
     def train(xs, ys):
         grads, l, n = grad_fun(xs, ys)
         optimizer.update(grads)
@@ -129,9 +129,9 @@ with bst.environ.context(dt=1.0 * u.ms):
 
     # training loop
     for epoch_i in range(args.epochs):
-        key = bst.random.split_key()
-        X_train = bst.random.shuffle(X_train, key=key)
-        Y_train = bst.random.shuffle(Y_train, key=key)
+        key = brainstate.random.split_key()
+        X_train = brainstate.random.shuffle(X_train, key=key)
+        Y_train = brainstate.random.shuffle(Y_train, key=key)
 
         # training phase
         t0 = time.time()

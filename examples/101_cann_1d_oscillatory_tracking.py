@@ -23,14 +23,14 @@
 import brainunit as u
 import jax
 import matplotlib.pyplot as plt
+import brainstate
 import numpy as np
 from matplotlib import animation
 from matplotlib.gridspec import GridSpec
 
-import brainstate as bst
 
 
-class CANN1D(bst.nn.Dynamics):
+class CANN1D(brainstate.nn.Dynamics):
     def __init__(
         self, num, tau=1., tau_v=50., k=1., a=0.3, A=0.2, J0=1.,
         z_min=-u.math.pi, z_max=u.math.pi, m=0.3
@@ -59,9 +59,9 @@ class CANN1D(bst.nn.Dynamics):
 
     def init_state(self, *args, **kwargs):
         # variables
-        self.r = bst.HiddenState(u.math.zeros(self.varshape))
-        self.u = bst.HiddenState(u.math.zeros(self.varshape))
-        self.v = bst.HiddenState(u.math.zeros(self.varshape))
+        self.r = brainstate.HiddenState(u.math.zeros(self.varshape))
+        self.u = brainstate.HiddenState(u.math.zeros(self.varshape))
+        self.v = brainstate.HiddenState(u.math.zeros(self.varshape))
 
     def dist(self, d):
         d = u.math.remainder(d, self.z_range)
@@ -83,13 +83,13 @@ class CANN1D(bst.nn.Dynamics):
         r2 = 1.0 + self.k * u.math.sum(r1)
         self.r.value = r1 / r2
         Irec = u.math.dot(self.conn_mat, self.r.value)
-        self.u.value += (-self.u.value + Irec + inp - self.v.value) / self.tau * bst.environ.get_dt()
-        self.v.value += (-self.v.value + self.m * self.u.value) / self.tau_v * bst.environ.get_dt()
+        self.u.value += (-self.u.value + Irec + inp - self.v.value) / self.tau * brainstate.environ.get_dt()
+        self.v.value += (-self.v.value + self.m * self.u.value) / self.tau_v * brainstate.environ.get_dt()
 
 
 def animate_1d(us, vs, frame_step=1, frame_delay=5,
                xlabel=None, ylabel=None, title_size=12):
-    dt = bst.environ.get_dt()
+    dt = brainstate.environ.get_dt()
     fig = plt.figure(figsize=(6, 6), constrained_layout=True)
     gs = GridSpec(1, 1, figure=fig)
     fig.add_subplot(gs[0, 0])
@@ -129,19 +129,19 @@ def get_inp(t):
     return inp
 
 
-bst.environ.set(dt=0.1)
+brainstate.environ.set(dt=0.1)
 cann = CANN1D(num=512)
 cann.init_state()
 
 
 def run_step(t):
-    with bst.environ.context(t=t):
+    with brainstate.environ.context(t=t):
         cann(get_inp(t))
         return cann.u.value, cann.v.value
 
 
 final_pos = cann.a / cann.tau_v * 0.6 * dur2
 
-times = u.math.arange(0, dur1 + dur2 + dur3, bst.environ.get_dt())
-us, vs = bst.compile.for_loop(run_step, times)
+times = u.math.arange(0, dur1 + dur2 + dur3, brainstate.environ.get_dt())
+us, vs = brainstate.compile.for_loop(run_step, times)
 animate_1d(us, vs, frame_step=30, frame_delay=5)

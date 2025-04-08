@@ -23,16 +23,16 @@ Reproduce the results of the``spytorch`` tutorial 1:
 
 import time
 
-import braintools as bts
+import braintools
 import brainunit as u
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
 
-import brainstate as bst
+import brainstate
 
 
-class SNN(bst.nn.DynamicsGroup):
+class SNN(brainstate.nn.DynamicsGroup):
     def __init__(self, num_in, num_rec, num_out):
         super(SNN, self).__init__()
 
@@ -42,25 +42,25 @@ class SNN(bst.nn.DynamicsGroup):
         self.num_out = num_out
 
         # synapse: i->r
-        scale = 7 * (1 - (u.math.exp(-bst.environ.get_dt() / (1 * u.ms))))
-        self.i2r = bst.nn.Sequential(
-            bst.nn.Linear(
+        scale = 7 * (1 - (u.math.exp(-brainstate.environ.get_dt() / (1 * u.ms))))
+        self.i2r = brainstate.nn.Sequential(
+            brainstate.nn.Linear(
                 num_in, num_rec,
-                w_init=bst.init.KaimingNormal(scale=scale, unit=u.mA),
-                b_init=bst.init.ZeroInit(unit=u.mA)
+                w_init=brainstate.init.KaimingNormal(scale=scale, unit=u.mA),
+                b_init=brainstate.init.ZeroInit(unit=u.mA)
             ),
-            bst.nn.Expon(num_rec, tau=5. * u.ms, g_initializer=bst.init.Constant(0. * u.mA))
+            brainstate.nn.Expon(num_rec, tau=5. * u.ms, g_initializer=brainstate.init.Constant(0. * u.mA))
         )
         # recurrent: r
-        self.r = bst.nn.LIF(
+        self.r = brainstate.nn.LIF(
             num_rec, tau=20 * u.ms, V_reset=0 * u.mV,
             V_rest=0 * u.mV, V_th=1. * u.mV,
-            spk_fun=bst.surrogate.ReluGrad()
+            spk_fun=brainstate.surrogate.ReluGrad()
         )
         # synapse: r->o
-        self.r2o = bst.nn.Linear(num_rec, num_out, w_init=bst.init.KaimingNormal())
+        self.r2o = brainstate.nn.Linear(num_rec, num_out, w_init=brainstate.init.KaimingNormal())
         # # output: o
-        self.o = bst.nn.Expon(num_out, tau=10. * u.ms, g_initializer=bst.init.Constant(0.))
+        self.o = brainstate.nn.Expon(num_out, tau=10. * u.ms, g_initializer=brainstate.init.Constant(0.))
 
     def update(self, spike):
         return self.o(self.r2o(self.r(self.i2r(spike))))
@@ -72,7 +72,7 @@ class SNN(bst.nn.DynamicsGroup):
 
 
 def plot_voltage_traces(mem, spk=None, dim=(3, 5), spike_height=5, show=True):
-    fig, gs = bts.visualize.get_figure(*dim, 3, 3)
+    fig, gs = braintools.visualize.get_figure(*dim, 3, 3)
     if spk is not None:
         mem[spk > 0.0] = spike_height
     if isinstance(mem, u.Quantity):
@@ -96,14 +96,14 @@ def print_classification_accuracy(output, target):
 
 
 def predict_and_visualize_net_activity(net):
-    bst.nn.init_all_states(net, batch_size=num_sample)
-    vs, spikes, outs = bst.compile.for_loop(net.predict, x_data, pbar=bst.compile.ProgressBar(10))
+    brainstate.nn.init_all_states(net, batch_size=num_sample)
+    vs, spikes, outs = brainstate.compile.for_loop(net.predict, x_data, pbar=brainstate.compile.ProgressBar(10))
     plot_voltage_traces(vs, spikes, spike_height=5 * u.mV, show=False)
     plot_voltage_traces(outs)
     print_classification_accuracy(outs, y_data)
 
 
-with bst.environ.context(dt=1.0 * u.ms):
+with brainstate.environ.context(dt=1.0 * u.ms):
     # network
     net = SNN(100, 4, 2)
 
@@ -111,15 +111,15 @@ with bst.environ.context(dt=1.0 * u.ms):
     num_step = 200
     num_sample = 256
     freq = 5 * u.Hz
-    x_data = bst.random.rand(num_step, num_sample, net.num_in) < freq * bst.environ.get_dt()
-    y_data = u.math.asarray(bst.random.rand(num_sample) < 0.5, dtype=int)
+    x_data = brainstate.random.rand(num_step, num_sample, net.num_in) < freq * brainstate.environ.get_dt()
+    y_data = u.math.asarray(brainstate.random.rand(num_sample) < 0.5, dtype=int)
 
     # Before training
     predict_and_visualize_net_activity(net)
 
     # brainstate optimizer
-    optimizer = bst.optim.Adam(lr=3e-3, beta1=0.9, beta2=0.999)
-    optimizer.register_trainable_weights(net.states(bst.ParamState))
+    optimizer = brainstate.optim.Adam(lr=3e-3, beta1=0.9, beta2=0.999)
+    optimizer.register_trainable_weights(net.states(brainstate.ParamState))
 
 
     # # optax optimizer
@@ -127,15 +127,15 @@ with bst.environ.context(dt=1.0 * u.ms):
     # optimizer = bst.optim.OptaxOptimizer(net.states(bst.ParamState), optax.adam(1e-3))
 
     def loss_fn():
-        predictions = bst.compile.for_loop(net.update, x_data)
+        predictions = brainstate.compile.for_loop(net.update, x_data)
         predictions = u.math.mean(predictions, axis=0)  # [T, B, C] -> [B, C]
-        return bts.metric.softmax_cross_entropy_with_integer_labels(predictions, y_data).mean()
+        return braintools.metric.softmax_cross_entropy_with_integer_labels(predictions, y_data).mean()
 
 
-    @bst.compile.jit
+    @brainstate.compile.jit
     def train_fn():
-        bst.nn.init_all_states(net, batch_size=num_sample)
-        grads, l = bst.augment.grad(loss_fn, net.states(bst.ParamState), return_value=True)()
+        brainstate.nn.init_all_states(net, batch_size=num_sample)
+        grads, l = brainstate.augment.grad(loss_fn, net.states(brainstate.ParamState), return_value=True)()
         optimizer.update(grads)
         return l
 

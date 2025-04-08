@@ -24,8 +24,8 @@ import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
+import brainstate
 
-import brainstate as bst
 
 X = np.linspace(0, 1, 100)[:, None]
 Y = 0.8 * X ** 2 + 0.1 + np.random.normal(0, 0.1, size=X.shape)
@@ -37,21 +37,21 @@ def dataset(batch_size):
         yield X[idx], Y[idx]
 
 
-class Linear(bst.nn.Module):
+class Linear(brainstate.nn.Module):
     def __init__(self, din: int, dout: int):
         super().__init__()
-        self.w = bst.ParamState(bst.random.rand(din, dout))
-        self.b = bst.ParamState(jnp.zeros((dout,)))
+        self.w = brainstate.ParamState(brainstate.random.rand(din, dout))
+        self.b = brainstate.ParamState(jnp.zeros((dout,)))
 
     def __call__(self, x):
         return x @ self.w.value + self.b.value
 
 
-class Count(bst.State):
+class Count(brainstate.State):
     pass
 
 
-class MLP(bst.graph.Node):
+class MLP(brainstate.graph.Node):
     def __init__(self, din, dhidden, dout):
         self.count = Count(jnp.array(0))
         self.linear1 = Linear(din, dhidden)
@@ -65,7 +65,7 @@ class MLP(bst.graph.Node):
         return x
 
 
-graphdef, params_, counts_ = bst.graph.treefy_split(MLP(din=1, dhidden=32, dout=1), bst.ParamState, Count)
+graphdef, params_, counts_ = brainstate.graph.treefy_split(MLP(din=1, dhidden=32, dout=1), brainstate.ParamState, Count)
 
 
 @jax.jit
@@ -73,9 +73,9 @@ def train_step(params, counts, batch):
     x, y = batch
 
     def loss_fn(params):
-        model = bst.graph.treefy_merge(graphdef, params, counts)
+        model = brainstate.graph.treefy_merge(graphdef, params, counts)
         y_pred = model(x)
-        new_counts = bst.graph.treefy_states(model, Count)
+        new_counts = brainstate.graph.treefy_states(model, Count)
         loss = jnp.mean((y - y_pred) ** 2)
         return loss, new_counts
 
@@ -89,7 +89,7 @@ def train_step(params, counts, batch):
 @jax.jit
 def test_step(params, counts, batch):
     x, y = batch
-    model = bst.graph.treefy_merge(graphdef, params, counts)
+    model = brainstate.graph.treefy_merge(graphdef, params, counts)
     y_pred = model(x)
     loss = jnp.mean((y - y_pred) ** 2)
     return {'loss': loss}
@@ -106,7 +106,7 @@ for step, batch in enumerate(dataset(32)):
     if step >= total_steps - 1:
         break
 
-model = bst.graph.treefy_merge(graphdef, params_, counts_)
+model = brainstate.graph.treefy_merge(graphdef, params_, counts_)
 print('times called:', model.count.value)
 
 y_pred = model(X)

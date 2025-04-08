@@ -24,8 +24,8 @@ import brainunit as u
 import matplotlib.pyplot as plt
 import numpy as np
 
-import brainstate as bst
-import brainevent.nn
+import brainstate
+import brainevent
 
 # bst.environ.set(precision='bf16')
 
@@ -61,7 +61,7 @@ we = 6. * u.nS  # excitatory synaptic conductance [nS]
 wi = 67. * u.nS  # inhibitory synaptic conductance [nS]
 
 
-class HH(bst.nn.Dynamics):
+class HH(brainstate.nn.Dynamics):
     """
     Hodgkin-Huxley neuron model.
     """
@@ -71,14 +71,14 @@ class HH(bst.nn.Dynamics):
 
     def init_state(self, *args, **kwargs):
         # variables
-        self.V = bst.HiddenState(El + (bst.random.randn(*self.varshape) * 5 - 5) * u.mV)
-        self.m = bst.HiddenState(u.math.zeros(self.varshape, dtype=bst.environ.dftype()))
-        self.n = bst.HiddenState(u.math.zeros(self.varshape, dtype=bst.environ.dftype()))
-        self.h = bst.HiddenState(u.math.zeros(self.varshape, dtype=bst.environ.dftype()))
-        self.spike = bst.HiddenState(u.math.zeros(self.varshape, dtype=bool))
+        self.V = brainstate.HiddenState(El + (brainstate.random.randn(*self.varshape) * 5 - 5) * u.mV)
+        self.m = brainstate.HiddenState(u.math.zeros(self.varshape, dtype=brainstate.environ.dftype()))
+        self.n = brainstate.HiddenState(u.math.zeros(self.varshape, dtype=brainstate.environ.dftype()))
+        self.h = brainstate.HiddenState(u.math.zeros(self.varshape, dtype=brainstate.environ.dftype()))
+        self.spike = brainstate.HiddenState(u.math.zeros(self.varshape, dtype=bool))
 
     def reset_state(self, *args, **kwargs):
-        self.V.value = El + (bst.random.randn(self.varshape) * 5 - 5)
+        self.V.value = El + (brainstate.random.randn(self.varshape) * 5 - 5)
         self.m.value = u.math.zeros(self.varshape)
         self.n.value = u.math.zeros(self.varshape)
         self.h.value = u.math.zeros(self.varshape)
@@ -116,10 +116,10 @@ class HH(bst.nn.Dynamics):
 
     def update(self, x=0. * u.mA):
         last_V = self.V.value
-        V = bst.nn.exp_euler_step(self.dV, last_V, self.m.value, self.h.value, self.n.value, x)
-        m = bst.nn.exp_euler_step(self.dm, self.m.value, last_V)
-        h = bst.nn.exp_euler_step(self.dh, self.h.value, last_V)
-        n = bst.nn.exp_euler_step(self.dn, self.n.value, last_V)
+        V = brainstate.nn.exp_euler_step(self.dV, last_V, self.m.value, self.h.value, self.n.value, x)
+        m = brainstate.nn.exp_euler_step(self.dm, self.m.value, last_V)
+        h = brainstate.nn.exp_euler_step(self.dh, self.h.value, last_V)
+        n = brainstate.nn.exp_euler_step(self.dn, self.n.value, last_V)
         self.spike.value = u.math.logical_and(last_V < V_th, V >= V_th)
         self.m.value = m
         self.h.value = h
@@ -128,7 +128,7 @@ class HH(bst.nn.Dynamics):
         return self.spike.value
 
 
-class EINet(bst.nn.DynamicsGroup):
+class EINet(brainstate.nn.DynamicsGroup):
     def __init__(self):
         super().__init__()
         self.n_exc = 3200
@@ -136,21 +136,21 @@ class EINet(bst.nn.DynamicsGroup):
         self.varshape = self.n_exc + self.n_inh
         self.N = HH(self.varshape)
 
-        self.E = bst.nn.AlignPostProj(
+        self.E = brainstate.nn.AlignPostProj(
             comm=brainevent.nn.FixedProb(self.n_exc, self.varshape, prob=0.02, weight=we),
-            syn=bst.nn.Expon(self.varshape, tau=taue),
-            out=bst.nn.COBA(E=Ee),
+            syn=brainstate.nn.Expon(self.varshape, tau=taue),
+            out=brainstate.nn.COBA(E=Ee),
             post=self.N
         )
-        self.I = bst.nn.AlignPostProj(
+        self.I = brainstate.nn.AlignPostProj(
             comm=brainevent.nn.FixedProb(self.n_inh, self.varshape, prob=0.02, weight=wi),
-            syn=bst.nn.Expon(self.varshape, tau=taui),
-            out=bst.nn.COBA(E=Ei),
+            syn=brainstate.nn.Expon(self.varshape, tau=taui),
+            out=brainstate.nn.COBA(E=Ei),
             post=self.N
         )
 
     def update(self, t):
-        with bst.environ.context(t=t):
+        with brainstate.environ.context(t=t):
             spk = self.N.spike.value
             self.E(spk[:self.n_exc])
             self.I(spk[self.n_exc:])
@@ -160,13 +160,13 @@ class EINet(bst.nn.DynamicsGroup):
 
 # network
 net = EINet()
-bst.nn.init_all_states(net)
+brainstate.nn.init_all_states(net)
 
 # simulation
-with bst.environ.context(dt=0.04 * u.ms):
-    times = u.math.arange(0. * u.ms, 300. * u.ms, bst.environ.get_dt())
-    times = u.math.asarray(times, dtype=bst.environ.dftype())
-    spikes = bst.compile.for_loop(net.update, times, pbar=bst.compile.ProgressBar(100))
+with brainstate.environ.context(dt=0.04 * u.ms):
+    times = u.math.arange(0. * u.ms, 300. * u.ms, brainstate.environ.get_dt())
+    times = u.math.asarray(times, dtype=brainstate.environ.dftype())
+    spikes = brainstate.compile.for_loop(net.update, times, pbar=brainstate.compile.ProgressBar(100))
 
 # visualization
 t_indices, n_indices = u.math.where(spikes)

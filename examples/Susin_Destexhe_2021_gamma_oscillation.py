@@ -19,13 +19,13 @@
 # - Susin, Eduarda, and Alain Destexhe. “Integration, coincidence detection and resonance in networks of spiking neurons expressing gamma oscillations and asynchronous states.” PLoS computational biology 17.9 (2021): e1009416.
 #
 
-import braintools as bts
+import braintools
+import brainstate
 import brainunit as u
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.signal import kaiserord, lfilter, firwin, hilbert
 
-import brainstate as bst
 
 # Table 1: specific neuron model parameters
 RS_par = dict(
@@ -45,7 +45,7 @@ Ch_par = dict(
 )
 
 
-class AdEx(bst.nn.Neuron):
+class AdEx(brainstate.nn.Neuron):
     def __init__(
         self,
         in_size,
@@ -56,10 +56,10 @@ class AdEx(bst.nn.Neuron):
         # synaptic parameters
         tau_e=1.5 * u.ms, tau_i=7.5 * u.ms, E_e=0. * u.mV, E_i=-80. * u.mV,
         # other parameters
-        V_initializer=bst.init.Uniform(-65., -50., unit=u.mV),
-        w_initializer=bst.init.Constant(0. * u.pA),
-        ge_initializer=bst.init.Constant(0. * u.nS),
-        gi_initializer=bst.init.Constant(0. * u.nS),
+        V_initializer=brainstate.init.Uniform(-65., -50., unit=u.mV),
+        w_initializer=brainstate.init.Constant(0. * u.pA),
+        ge_initializer=brainstate.init.Constant(0. * u.nS),
+        gi_initializer=brainstate.init.Constant(0. * u.nS),
     ):
         super().__init__(in_size=in_size)
 
@@ -90,14 +90,14 @@ class AdEx(bst.nn.Neuron):
 
     def init_state(self):
         # neuronal variables
-        self.V = bst.HiddenState(bst.init.param(self.V_initializer, self.varshape))
-        self.w = bst.HiddenState(bst.init.param(self.w_initializer, self.varshape))
-        self.t_last_spike = bst.HiddenState(bst.init.param(bst.init.Constant(-1e7 * u.ms), self.varshape))
-        self.spike = bst.HiddenState(bst.init.param(lambda s: u.math.zeros(s, bool), self.varshape))
+        self.V = brainstate.HiddenState(brainstate.init.param(self.V_initializer, self.varshape))
+        self.w = brainstate.HiddenState(brainstate.init.param(self.w_initializer, self.varshape))
+        self.t_last_spike = brainstate.HiddenState(brainstate.init.param(brainstate.init.Constant(-1e7 * u.ms), self.varshape))
+        self.spike = brainstate.HiddenState(brainstate.init.param(lambda s: u.math.zeros(s, bool), self.varshape))
 
         # synaptic parameters
-        self.ge = bst.HiddenState(bst.init.param(self.ge_initializer, self.varshape))
-        self.gi = bst.HiddenState(bst.init.param(self.gi_initializer, self.varshape))
+        self.ge = brainstate.HiddenState(brainstate.init.param(self.ge_initializer, self.varshape))
+        self.gi = brainstate.HiddenState(brainstate.init.param(self.gi_initializer, self.varshape))
 
     def dV(self, V, w, ge, gi, Iext):
         I = ge * (self.E_e - V) + gi * (self.E_i - V)
@@ -112,15 +112,15 @@ class AdEx(bst.nn.Neuron):
 
     def update(self, x=0. * u.pA):
         # numerical integration
-        ge = bst.nn.exp_euler_step(lambda g: -g / self.tau_e, self.ge.value)
+        ge = brainstate.nn.exp_euler_step(lambda g: -g / self.tau_e, self.ge.value)
         ge = self.sum_delta_inputs(ge, label='ge')
-        gi = bst.nn.exp_euler_step(lambda g: -g / self.tau_i, self.gi.value)
+        gi = brainstate.nn.exp_euler_step(lambda g: -g / self.tau_i, self.gi.value)
         gi = self.sum_delta_inputs(gi, label='gi')
-        V = bst.nn.exp_euler_step(self.dV, self.V.value, self.w.value, self.ge.value, self.gi.value, x)
+        V = brainstate.nn.exp_euler_step(self.dV, self.V.value, self.w.value, self.ge.value, self.gi.value, x)
         V = self.sum_delta_inputs(V, label='V')
-        w = bst.nn.exp_euler_step(self.dw, self.w.value, self.V.value)
+        w = brainstate.nn.exp_euler_step(self.dw, self.w.value, self.V.value)
         # spike detection
-        t = bst.environ.get('t')
+        t = brainstate.environ.get('t')
         refractory = (t - self.t_last_spike.value) <= self.tau_ref
         V = u.math.where(refractory, self.V.value, V)
         spike = V >= self.V_sp_th
@@ -135,7 +135,7 @@ class AdEx(bst.nn.Neuron):
 
 def get_inputs(c_low, c_high, t_transition, t_min_plato, t_max_plato, t_gap, t_total):
     t = 0
-    dt = bst.environ.get_dt()
+    dt = brainstate.environ.get_dt()
     num_gap = int(t_gap / dt)
     num_total = int(t_total / dt)
     num_transition = int(t_transition / dt)
@@ -145,7 +145,7 @@ def get_inputs(c_low, c_high, t_transition, t_min_plato, t_max_plato, t_gap, t_t
     ramp_down = u.math.linspace(c_high, c_low, num_transition)
     plato_base = u.math.ones(num_gap) * c_low
     while t < num_total:
-        num_plato = int(bst.random.uniform(low=t_min_plato, high=t_max_plato) / dt)
+        num_plato = int(brainstate.random.uniform(low=t_min_plato, high=t_max_plato) / dt)
         inputs.extend([plato_base, ramp_up, np.ones(num_plato) * c_high, ramp_down])
         t += (num_gap + num_transition + num_plato + num_transition)
     return u.math.concatenate(inputs)[:num_total]
@@ -207,7 +207,7 @@ def visualize_simulation_results(
     varied_rates = varied_rates.to_decimal(u.Hz)
     example_potentials = {k: v.to_decimal(u.mV) for k, v in example_potentials.items()}
 
-    fig, gs = bts.visualize.get_figure(7, 1, 1, 12)
+    fig, gs = braintools.visualize.get_figure(7, 1, 1, 12)
     # 1. input firing rate
     ax = fig.add_subplot(gs[0])
     plt.plot(times, varied_rates)
@@ -249,14 +249,14 @@ def visualize_simulation_results(
     # 4. LFP
     ax = fig.add_subplot(gs[5:7])
     ax.set_xlim(*xlim)
-    t1 = int(t_lfp_start / bst.environ.get_dt()) if t_lfp_start is not None else 0
-    t2 = int(t_lfp_end / bst.environ.get_dt()) if t_lfp_end is not None else len(times)
+    t1 = int(t_lfp_start / brainstate.environ.get_dt()) if t_lfp_start is not None else 0
+    t2 = int(t_lfp_end / brainstate.environ.get_dt()) if t_lfp_end is not None else len(times)
     times = times[t1: t2]
     lfp = 0
     for sp_matrix, sp_type in spikes.values():
-        lfp += bts.metric.unitary_LFP(times, sp_matrix[t1: t2], sp_type)
+        lfp += braintools.metric.unitary_LFP(times, sp_matrix[t1: t2], sp_type)
     phase_ts, filtered, cutted, envelope, _ = signal_phase_by_Hilbert(
-        lfp, times * 1e-3, 30, 50, bst.environ.get_dt() / u.second
+        lfp, times * 1e-3, 30, 50, brainstate.environ.get_dt() / u.second
     )
     plt.plot(phase_ts * 1e3, cutted, color='k', label='Raw LFP')
     plt.plot(phase_ts * 1e3, filtered, color='orange', label="Filtered LFP (30-50 Hz)")
