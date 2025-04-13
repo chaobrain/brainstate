@@ -230,7 +230,7 @@ def _normalize(
         y = y * mul
         if weights is not None:
             y = weights.execute(y)
-        dtype = canonicalize_dtype(x, *jax.tree.leaves(weights.value), dtype=dtype)
+            dtype = canonicalize_dtype(x, *jax.tree.leaves(weights.value), dtype=dtype)
     else:
         assert var is None, 'mean and val must be both None or not None.'
         assert weights is None, 'scale and bias are not supported without mean and val'
