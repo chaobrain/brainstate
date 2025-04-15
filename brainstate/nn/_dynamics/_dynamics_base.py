@@ -57,9 +57,38 @@ _max_order = 10
 
 class Projection(Module):
     """
-    Base class to model synaptic projections.
-    """
+    Base class for synaptic projection modules in neural network modeling.
 
+    This class defines the interface for modules that handle projections between
+    neural populations. Projections process input signals and transform them
+    before they reach the target neurons, implementing the connectivity patterns
+    in neural networks.
+
+    In the BrainState execution order, Projection modules are updated before
+    Dynamics modules, following the natural information flow in neural systems:
+    1. Projections process inputs (synaptic transmission)
+    2. Dynamics update neuron states (neural integration)
+
+    The Projection class does not implement the update logic directly but delegates
+    to its child nodes. If no child nodes exist, it raises a ValueError.
+
+    Parameters
+    ----------
+    *args : Any
+        Arguments passed to the parent Module class.
+    **kwargs : Any
+        Keyword arguments passed to the parent Module class.
+
+    Raises
+    ------
+    ValueError
+        If the update() method is called but no child nodes are defined.
+
+    Notes
+    -----
+    Derived classes should implement specific projection behaviors, such as
+    dense connectivity, sparse connectivity, or specific weight update rules.
+    """
     __module__ = 'brainstate.nn'
 
     def update(self, *args, **kwargs):

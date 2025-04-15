@@ -37,7 +37,44 @@ __all__ = [
 
 class LeakyRateReadout(Module):
     """
-    Leaky dynamics for the read-out module used in the Real-Time Recurrent Learning.
+    Leaky dynamics for the read-out module.
+
+    This module implements a leaky integrator with the following dynamics:
+
+    .. math::
+        r_{t} = \\alpha r_{t-1} + x_{t} W
+
+    where:
+      - :math:`r_{t}` is the output at time t
+      - :math:`\\alpha = e^{-\\Delta t / \\tau}` is the decay factor
+      - :math:`x_{t}` is the input at time t
+      - :math:`W` is the weight matrix
+
+    The leaky integrator acts as a low-pass filter, allowing the network
+    to maintain memory of past inputs with an exponential decay determined
+    by the time constant tau.
+
+    Parameters
+    ----------
+    in_size : int or sequence of int
+        Size of the input dimension(s)
+    out_size : int or sequence of int
+        Size of the output dimension(s)
+    tau : ArrayLike, optional
+        Time constant of the leaky dynamics, by default 5ms
+    w_init : Callable, optional
+        Weight initialization function, by default KaimingNormal()
+    name : str, optional
+        Name of the module, by default None
+
+    Attributes
+    ----------
+    decay : float
+        Decay factor computed as exp(-dt/tau)
+    weight : ParamState
+        Weight matrix connecting input to output
+    r : HiddenState
+        Hidden state representing the output values
     """
     __module__ = 'brainstate.nn'
 
@@ -73,7 +110,52 @@ class LeakyRateReadout(Module):
 
 class LeakySpikeReadout(Neuron):
     """
-    Integrate-and-fire neuron model with leaky dynamics.
+    Integrate-and-fire neuron model with leaky dynamics for readout functionality.
+
+    This class implements a spiking neuron with the following dynamics:
+
+    .. math::
+        \\frac{dV}{dt} = \\frac{-V + I_{in}}{\\tau}
+
+    where:
+      - :math:`V` is the membrane potential
+      - :math:`\\tau` is the membrane time constant
+      - :math:`I_{in}` is the input current
+
+    Spike generation occurs when :math:`V > V_{th}` according to:
+
+    .. math::
+        S_t = \\text{surrogate}\\left(\\frac{V - V_{th}}{V_{th}}\\right)
+
+    After spiking, the membrane potential is reset according to the reset mode:
+      - Soft reset: :math:`V \\leftarrow V - V_{th} \\cdot S_t`
+      - Hard reset: :math:`V \\leftarrow V - V_t \\cdot S_t` (where :math:`V_t` is detached)
+
+    Parameters
+    ----------
+    in_size : Size
+        Size of the input dimension
+    tau : ArrayLike, optional
+        Membrane time constant, by default 5ms
+    V_th : ArrayLike, optional
+        Spike threshold, by default 1mV
+    w_init : Callable, optional
+        Weight initialization function, by default KaimingNormal(unit=mV)
+    V_initializer : ArrayLike, optional
+        Initial membrane potential, by default ZeroInit(unit=mV)
+    spk_fun : Callable, optional
+        Surrogate gradient function for spike generation, by default ReluGrad()
+    spk_reset : str, optional
+        Reset mechanism after spike ('soft' or 'hard'), by default 'soft'
+    name : str, optional
+        Name of the module, by default None
+
+    Attributes
+    ----------
+    V : HiddenState
+        Membrane potential state variable
+    weight : ParamState
+        Synaptic weight matrix
     """
 
     __module__ = 'brainstate.nn'

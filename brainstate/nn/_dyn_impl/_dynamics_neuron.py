@@ -34,10 +34,33 @@ __all__ = [
 
 class Neuron(Dynamics):
     """
-    Base class for neuronal dynamics.
+    Base class for all spiking neuron models.
 
-    All neuron models are differentiable since they use surrogate gradient functions to
-    generate the spiking state.
+    This abstract class serves as the foundation for implementing various spiking neuron
+    models. It extends the Dynamics class and provides common functionality for spike
+    generation and membrane potential dynamics.
+
+    All neuron models should inherit from this class and implement the required methods,
+    particularly the `get_spike()` method which defines the spike generation mechanism.
+
+    Parameters
+    ----------
+    in_size : Size
+        Size of the input to the neuron.
+    spk_fun : Callable, default=surrogate.InvSquareGrad()
+        Surrogate gradient function for the non-differentiable spike generation.
+    spk_reset : str, default='soft'
+        Reset mechanism after spike generation:
+        - 'soft': subtract threshold from membrane potential
+        - 'hard': use stop_gradient for reset
+    name : str, optional
+        Name of the neuron layer.
+
+    Methods
+    -------
+    get_spike(*args, **kwargs)
+        Abstract method that generates spikes based on neuron state variables.
+        Must be implemented by subclasses.
     """
     __module__ = 'brainstate.nn'
 
@@ -57,8 +80,58 @@ class Neuron(Dynamics):
 
 
 class IF(Neuron):
-    """
-    Integrate-and-fire neuron model.
+    r"""
+    Integrate-and-Fire (IF) neuron model.
+
+    The IF neuron is one of the simplest spiking neuron models that captures
+    the essential dynamics of biological neurons. It accumulates input current
+    until a threshold is reached, at which point it fires a spike and resets.
+
+    Mathematical model:
+
+        $$
+        \tau dV/dt = -V + R I(t)
+        $$
+
+    Spike condition:
+        If $V ≥ V_{th}$: emit spike and reset $V = V - V_{th}$
+
+    Parameters
+    ----------
+    in_size : Size
+        Size of the input to the neuron.
+    R : ArrayLike, default=1.0 * u.ohm
+        Membrane resistance.
+    tau : ArrayLike, default=5.0 * u.ms
+        Membrane time constant.
+    V_th : ArrayLike, default=1.0 * u.mV
+        Firing threshold voltage (should be positive).
+    V_initializer : Callable, default=init.Constant(0. * u.mV)
+        Initializer for the membrane potential state.
+    spk_fun : Callable, default=surrogate.ReluGrad()
+        Surrogate gradient function for the non-differentiable spike generation.
+    spk_reset : str, default='soft'
+        Reset mechanism after spike generation:
+        - 'soft': subtract threshold V = V - V_th
+        - 'hard': strict reset using stop_gradient
+    name : str, optional
+        Name of the neuron layer.
+
+    State Variables
+    --------------
+    V : HiddenState
+        Membrane potential.
+
+    Methods
+    -------
+    init_state(batch_size=None, **kwargs)
+        Initialize the neuron state variables.
+    reset_state(batch_size=None, **kwargs)
+        Reset the neuron state variables.
+    get_spike(V=None)
+        Generate spikes based on the membrane potential.
+    update(x=0. * u.mA)
+        Update the neuron state for one time step and return spikes.
     """
 
     __module__ = 'brainstate.nn'
@@ -109,7 +182,58 @@ class IF(Neuron):
 
 class LIF(Neuron):
     """
-    Leaky integrate-and-fire neuron model.
+    Leaky Integrate-and-Fire (LIF) neuron model.
+
+    The LIF neuron extends the IF model by adding a leak term, making the membrane
+    potential decay towards a resting value when no input is present. This makes the
+    model more biologically realistic.
+
+    Mathematical model:
+        τ·dV/dt = -(V - V_rest) + R·I(t)
+
+    Spike condition:
+        If V ≥ V_th: emit spike and reset V = V_reset
+
+    Parameters
+    ----------
+    in_size : Size
+        Size of the input to the neuron.
+    R : ArrayLike, default=1.0 * u.ohm
+        Membrane resistance.
+    tau : ArrayLike, default=5.0 * u.ms
+        Membrane time constant.
+    V_th : ArrayLike, default=1.0 * u.mV
+        Firing threshold voltage.
+    V_reset : ArrayLike, default=0.0 * u.mV
+        Reset voltage after spike.
+    V_rest : ArrayLike, default=0.0 * u.mV
+        Resting membrane potential.
+    V_initializer : Callable, default=init.Constant(0. * u.mV)
+        Initializer for the membrane potential state.
+    spk_fun : Callable, default=surrogate.ReluGrad()
+        Surrogate gradient function for the non-differentiable spike generation.
+    spk_reset : str, default='soft'
+        Reset mechanism after spike generation:
+        - 'soft': subtract threshold V = V - V_th
+        - 'hard': strict reset using stop_gradient
+    name : str, optional
+        Name of the neuron layer.
+
+    State Variables
+    --------------
+    V : HiddenState
+        Membrane potential.
+
+    Methods
+    -------
+    init_state(batch_size=None, **kwargs)
+        Initialize the neuron state variables.
+    reset_state(batch_size=None, **kwargs)
+        Reset the neuron state variables.
+    get_spike(V=None)
+        Generate spikes based on the membrane potential.
+    update(x=0. * u.mA)
+        Update the neuron state for one time step and return spikes.
     """
     __module__ = 'brainstate.nn'
 
@@ -162,7 +286,64 @@ class LIF(Neuron):
 
 class LIFRef(Neuron):
     """
-    Leaky integrate-and-fire neuron model with refractory period.
+    Leaky Integrate-and-Fire with Refractory Period (LIFRef) neuron model.
+
+    This model extends the LIF neuron by adding a refractory period during which
+    the neuron cannot fire again after a spike, regardless of input strength.
+    This better mimics the behavior of biological neurons.
+
+    Mathematical model:
+        τ·dV/dt = -(V - V_rest) + R·I(t)  (when not in refractory period)
+        V = V_reset                        (during refractory period)
+
+    Spike condition:
+        If V ≥ V_th: emit spike, reset V = V_reset, and enter refractory period
+        for duration τ_ref
+
+    Parameters
+    ----------
+    in_size : Size
+        Size of the input to the neuron.
+    R : ArrayLike, default=1.0 * u.ohm
+        Membrane resistance.
+    tau : ArrayLike, default=5.0 * u.ms
+        Membrane time constant.
+    tau_ref : ArrayLike, default=5.0 * u.ms
+        Refractory period duration.
+    V_th : ArrayLike, default=1.0 * u.mV
+        Firing threshold voltage.
+    V_reset : ArrayLike, default=0.0 * u.mV
+        Reset voltage after spike.
+    V_rest : ArrayLike, default=0.0 * u.mV
+        Resting membrane potential.
+    V_initializer : Callable, default=init.Constant(0. * u.mV)
+        Initializer for the membrane potential state.
+    spk_fun : Callable, default=surrogate.ReluGrad()
+        Surrogate gradient function for the non-differentiable spike generation.
+    spk_reset : str, default='soft'
+        Reset mechanism after spike generation:
+        - 'soft': subtract threshold V = V - V_th
+        - 'hard': strict reset using stop_gradient
+    name : str, optional
+        Name of the neuron layer.
+
+    State Variables
+    --------------
+    V : HiddenState
+        Membrane potential.
+    last_spike_time : ShortTermState
+        Time of the last spike, used to implement refractory period.
+
+    Methods
+    -------
+    init_state(batch_size=None, **kwargs)
+        Initialize the neuron state variables.
+    reset_state(batch_size=None, **kwargs)
+        Reset the neuron state variables.
+    get_spike(V=None)
+        Generate spikes based on the membrane potential.
+    update(x=0. * u.mA)
+        Update the neuron state for one time step and return spikes.
     """
     __module__ = 'brainstate.nn'
 
@@ -223,7 +404,68 @@ class LIFRef(Neuron):
 
 class ALIF(Neuron):
     """
-    Adaptive Leaky Integrate-and-Fire (LIF) neuron model.
+    Adaptive Leaky Integrate-and-Fire (ALIF) neuron model.
+
+    The ALIF model extends the LIF neuron by adding an adaptation variable that
+    increases the effective firing threshold after each spike, allowing the neuron
+    to adapt its firing rate. This creates spike-frequency adaptation, a common
+    feature in biological neurons.
+
+    Mathematical model:
+        τ·dV/dt = -(V - V_rest) + R·I(t)
+        τ_a·da/dt = -a
+
+    Spike condition:
+        If V ≥ V_th + β·a: emit spike, reset V = V_reset, and increment a = a + 1
+
+    Parameters
+    ----------
+    in_size : Size
+        Size of the input to the neuron.
+    R : ArrayLike, default=1.0 * u.ohm
+        Membrane resistance.
+    tau : ArrayLike, default=5.0 * u.ms
+        Membrane time constant.
+    tau_a : ArrayLike, default=100.0 * u.ms
+        Adaptation time constant (typically longer than tau).
+    V_th : ArrayLike, default=1.0 * u.mV
+        Base firing threshold voltage.
+    V_reset : ArrayLike, default=0.0 * u.mV
+        Reset voltage after spike.
+    V_rest : ArrayLike, default=0.0 * u.mV
+        Resting membrane potential.
+    beta : ArrayLike, default=0.1 * u.mV
+        Adaptation coupling parameter that scales the effect of the adaptation variable.
+    spk_fun : Callable, default=surrogate.ReluGrad()
+        Surrogate gradient function for the non-differentiable spike generation.
+    spk_reset : str, default='soft'
+        Reset mechanism after spike generation:
+        - 'soft': subtract threshold V = V - V_th
+        - 'hard': strict reset using stop_gradient
+    V_initializer : Callable, default=init.Constant(0. * u.mV)
+        Initializer for the membrane potential state.
+    a_initializer : Callable, default=init.Constant(0.)
+        Initializer for the adaptation variable.
+    name : str, optional
+        Name of the neuron layer.
+
+    State Variables
+    --------------
+    V : HiddenState
+        Membrane potential.
+    a : HiddenState
+        Adaptation variable that increases after each spike and decays exponentially.
+
+    Methods
+    -------
+    init_state(batch_size=None, **kwargs)
+        Initialize the neuron state variables.
+    reset_state(batch_size=None, **kwargs)
+        Reset the neuron state variables.
+    get_spike(V=None, a=None)
+        Generate spikes based on the membrane potential and adaptation variable.
+    update(x=0. * u.mA)
+        Update the neuron state for one time step and return spikes.
     """
     __module__ = 'brainstate.nn'
 

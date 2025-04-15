@@ -141,9 +141,33 @@ class PoissonSpike(Dynamics):
 
 class PoissonEncoder(Dynamics):
     """
-    Poisson Neuron Group.
-    """
+    Poisson spike encoder for converting firing rates to spike trains.
 
+    This class implements a Poisson process to generate spikes based on provided
+    firing rates. Unlike the PoissonSpike class, this encoder accepts firing rates
+    as input during the update step rather than having them fixed at initialization.
+
+    The spike generation follows a Poisson process where the probability of a spike
+    in each time step is proportional to the firing rate and the simulation time step.
+
+    Mathematical model:
+        Probability(spike) = rate * dt
+
+    Parameters
+    ----------
+    in_size : Size
+        Size of the input to the encoder, defining the shape of the output spike train.
+    spk_type : DTypeLike, default=bool
+        Data type for the generated spikes. Typically boolean for binary spikes.
+    name : str, optional
+        Name of the encoder module.
+
+    Methods
+    -------
+    update(freqs: ArrayLike)
+        Generates spikes based on the provided firing rates.
+
+    """
     def __init__(
         self,
         in_size: Size,
@@ -241,11 +265,6 @@ def poisson_input(
     refractory : Optional[Union[jax.Array]], optional
         A boolean array indicating which parts of the target are in a refractory state
         and should not be updated. Should be the same length as the target.
-
-    Returns
-    -------
-    None
-        The function updates the target state in place with the generated Poisson input.
     """
     freq = maybe_state(freq)
     weight = maybe_state(weight)

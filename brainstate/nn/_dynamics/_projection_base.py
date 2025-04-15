@@ -314,10 +314,6 @@ class CurrentProj(Interaction):
     This is because the ``comm`` is computed after the synapse state, which is a floating-point number, rather
     than the spiking. To facilitate the event-driven computation, please use align post projections.
 
-    #    bint.CurrentInteraction(
-    #       LIF().align_pre(bst.nn.Expon.desc()).prefetch('g'), comm, out, post
-    #    )
-
     Args:
       prefetch: The synaptic dynamics.
       comm: The synaptic communication.

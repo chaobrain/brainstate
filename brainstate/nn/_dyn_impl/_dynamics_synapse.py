@@ -36,6 +36,25 @@ __all__ = [
 class Synapse(Dynamics):
     """
     Base class for synapse dynamics.
+
+    This class serves as the foundation for all synapse models in the library,
+    providing a common interface for implementing various types of synaptic
+    connectivity and transmission mechanisms.
+
+    Synapses are responsible for modeling the transmission of signals between
+    neurons, including temporal dynamics, plasticity, and neurotransmitter effects.
+    All specific synapse implementations (like Expon, Alpha, AMPA, etc.) should
+    inherit from this class.
+
+    See Also
+    --------
+    Expon : Simple first-order exponential decay synapse model
+    Alpha : Alpha function synapse model
+    DualExpon : Dual exponential synapse model
+    STP : Synapse with short-term plasticity
+    STD : Synapse with short-term depression
+    AMPA : AMPA receptor synapse model
+    GABAa : GABAa receptor synapse model
     """
     __module__ = 'brainstate.nn'
 
@@ -44,9 +63,39 @@ class Expon(Synapse, AlignPost):
     r"""
     Exponential decay synapse model.
 
-    Args:
-      tau: float. The time constant of decay. [ms]
-      %s
+    This class implements a simple first-order exponential decay synapse model where
+    the synaptic conductance g decays exponentially with time constant tau:
+
+    dg/dt = -g/tau + input
+
+    The model is widely used for basic synaptic transmission modeling.
+
+    Parameters
+    ----------
+    in_size : Size
+        Size of the input.
+    name : str, optional
+        Name of the synapse instance.
+    tau : ArrayLike, default=8.0*u.ms
+        Time constant of decay in milliseconds.
+    g_initializer : ArrayLike or Callable, default=init.ZeroInit(unit=u.mS)
+        Initial value or initializer for synaptic conductance.
+
+    Attributes
+    ----------
+    g : HiddenState
+        Synaptic conductance state variable.
+    tau : Parameter
+        Time constant of decay.
+
+    Notes
+    -----
+    The implementation uses an exponential Euler integration method.
+    The output of this synapse is the conductance value.
+
+    This class inherits from :py:class:`AlignPost`, which means it can be used in projection patterns
+    where synaptic variables are aligned with post-synaptic neurons, enabling event-driven
+    computation and more efficient handling of sparse connectivity patterns.
     """
     __module__ = 'brainstate.nn'
 
@@ -77,6 +126,62 @@ class Expon(Synapse, AlignPost):
 
 
 class DualExpon(Synapse, AlignPost):
+    r"""
+    Dual exponential synapse model.
+
+    This class implements a synapse model with separate rise and decay time constants,
+    which produces a more biologically realistic conductance waveform than a single
+    exponential model. The model is characterized by the differential equation system:
+
+    dg_rise/dt = -g_rise/tau_rise
+    dg_decay/dt = -g_decay/tau_decay
+    g = a * (g_decay - g_rise)
+
+    where a is a normalization factor that ensures the peak conductance reaches
+    the desired amplitude.
+
+    Parameters
+    ----------
+    in_size : Size
+        Size of the input.
+    name : str, optional
+        Name of the synapse instance.
+    tau_decay : ArrayLike, default=10.0*u.ms
+        Time constant of decay in milliseconds.
+    tau_rise : ArrayLike, default=1.0*u.ms
+        Time constant of rise in milliseconds.
+    A : ArrayLike, optional
+        Amplitude scaling factor. If None, a scaling factor is automatically
+        calculated to normalize the peak amplitude.
+    g_initializer : ArrayLike or Callable, default=init.ZeroInit(unit=u.mS)
+        Initial value or initializer for synaptic conductance.
+
+    Attributes
+    ----------
+    g_rise : HiddenState
+        Rise component of synaptic conductance.
+    g_decay : HiddenState
+        Decay component of synaptic conductance.
+    tau_rise : Parameter
+        Time constant of rise phase.
+    tau_decay : Parameter
+        Time constant of decay phase.
+    a : Parameter
+        Normalization factor calculated from tau_rise, tau_decay, and A.
+
+    Notes
+    -----
+    The dual exponential model produces a conductance waveform that is more
+    physiologically realistic than a simple exponential decay, with a finite
+    rise time followed by a slower decay.
+
+    The implementation uses an exponential Euler integration method.
+    The output of this synapse is the normalized difference between decay and rise components.
+
+    This class inherits from :py:class:`AlignPost`, which means it can be used in projection patterns
+    where synaptic variables are aligned with post-synaptic neurons, enabling event-driven
+    computation and more efficient handling of sparse connectivity patterns.
+    """
     __module__ = 'brainstate.nn'
 
     def __init__(
@@ -127,6 +232,45 @@ class DualExpon(Synapse, AlignPost):
 
 
 class Alpha(Synapse):
+    r"""
+    Alpha synapse model.
+
+    This class implements the alpha function synapse model, which produces
+    a smooth, biologically realistic synaptic conductance waveform.
+    The model is characterized by the differential equation system:
+
+    dh/dt = -h/tau
+    dg/dt = -g/tau + h/tau
+
+    This produces a response that rises and then falls with a characteristic
+    time constant tau, with peak amplitude occurring at time t = tau.
+
+    Parameters
+    ----------
+    in_size : Size
+        Size of the input.
+    name : str, optional
+        Name of the synapse instance.
+    tau : ArrayLike, default=8.0*u.ms
+        Time constant of the alpha function in milliseconds.
+    g_initializer : ArrayLike or Callable, default=init.ZeroInit(unit=u.mS)
+        Initial value or initializer for synaptic conductance.
+
+    Attributes
+    ----------
+    g : HiddenState
+        Synaptic conductance state variable.
+    h : HiddenState
+        Auxiliary state variable for implementing the alpha function.
+    tau : Parameter
+        Time constant of the alpha function.
+
+    Notes
+    -----
+    The alpha function is defined as g(t) = (t/tau) * exp(1-t/tau) for t ≥ 0.
+    This implementation uses an exponential Euler integration method.
+    The output of this synapse is the conductance value.
+    """
     __module__ = 'brainstate.nn'
 
     def __init__(
