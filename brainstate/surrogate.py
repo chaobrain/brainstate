@@ -22,11 +22,8 @@ import jax.scipy as sci
 from jax.interpreters import batching, ad, mlir
 
 from brainstate.util._pretty_pytree import PrettyObject
+from brainstate._compatible_import import Primitive
 
-if jax.__version_info__ < (0, 4, 38):
-    from jax.core import Primitive
-else:
-    from jax.extend.core import Primitive
 
 __all__ = [
     'Surrogate',
