@@ -65,7 +65,6 @@ from jax._src import source_info_util
 from jax._src.linear_util import annotate
 from jax._src.traceback_util import api_boundary
 from jax.api_util import shaped_abstractify
-from jax.core import trace_ctx
 from jax.extend.linear_util import transformation_with_aux, wrap_init
 from jax.interpreters import partial_eval as pe
 from jax.util import wraps
@@ -74,11 +73,7 @@ from brainstate._state import State, StateTraceStack
 from brainstate._utils import set_module_as
 from brainstate.typing import PyTree
 from brainstate.util import PrettyObject
-
-if jax.__version_info__ < (0, 4, 38):
-    from jax.core import ClosedJaxpr
-else:
-    from jax.extend.core import ClosedJaxpr
+from brainstate._compatible_import import ClosedJaxpr, extend_axis_env_nd
 
 AxisName = Hashable
 
@@ -774,13 +769,3 @@ def _make_jaxpr(
     if hasattr(fun, "__name__"):
         make_jaxpr_f.__name__ = f"make_jaxpr({fun.__name__})"
     return make_jaxpr_f
-
-
-@contextmanager
-def extend_axis_env_nd(name_size_pairs: Iterable[tuple[AxisName, int]]):
-    prev = trace_ctx.axis_env
-    try:
-        trace_ctx.set_axis_env(prev.extend_pure(name_size_pairs))
-        yield
-    finally:
-        trace_ctx.set_axis_env(prev)
