@@ -16,15 +16,27 @@
 # -*- coding: utf-8 -*-
 
 
-import jax
 from contextlib import contextmanager
 from typing import Iterable, Hashable
 
+import jax
+
+__all__ = [
+    'ClosedJaxpr',
+    'Primitive',
+    'extend_axis_env_nd',
+    'jaxpr_as_fun',
+    'get_aval',
+    'Tracer',
+    'to_concrete_aval',
+]
+
+from jax.core import get_aval, Tracer
 
 if jax.__version_info__ < (0, 4, 38):
-    from jax.core import ClosedJaxpr, extend_axis_env_nd, Primitive
+    from jax.core import ClosedJaxpr, extend_axis_env_nd, Primitive, jaxpr_as_fun
 else:
-    from jax.extend.core import ClosedJaxpr, Primitive
+    from jax.extend.core import ClosedJaxpr, Primitive, jaxpr_as_fun
     from jax.core import trace_ctx
 
 
@@ -38,4 +50,9 @@ else:
             trace_ctx.set_axis_env(prev)
 
 
+def to_concrete_aval(aval):
+    aval = get_aval(aval)
+    if isinstance(aval, Tracer):
+        return aval.to_concrete_value()
+    return aval
 
