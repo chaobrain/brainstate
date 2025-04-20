@@ -200,7 +200,7 @@ class StatefulFunction(PrettyObject):
 
         # implicit parameters
         self.cache_type = cache_type
-        self._cached_jaxpr: Dict[Any, jax.core.ClosedJaxpr] = dict()
+        self._cached_jaxpr: Dict[Any, ClosedJaxpr] = dict()
         self._cached_out_shapes: Dict[Any, PyTree] = dict()
         self._cached_jaxpr_out_tree: Dict[Any, PyTree] = dict()
         self._cached_state_trace: Dict[Any, StateTraceStack] = dict()
@@ -210,7 +210,7 @@ class StatefulFunction(PrettyObject):
             return None
         return k, v
 
-    def get_jaxpr(self, cache_key: Hashable = ()) -> jax.core.ClosedJaxpr:
+    def get_jaxpr(self, cache_key: Hashable = ()) -> ClosedJaxpr:
         """
         Read the JAX Jaxpr representation of the function.
 
@@ -507,8 +507,8 @@ def make_jaxpr(
     return_shape: bool = False,
     abstracted_axes: Optional[Any] = None,
     state_returns: Union[str, Tuple[str, ...]] = ('read', 'write')
-) -> Callable[..., (Tuple[jax.core.ClosedJaxpr, Tuple[State, ...]] |
-                    Tuple[jax.core.ClosedJaxpr, Tuple[State, ...], PyTree])]:
+) -> Callable[..., (Tuple[ClosedJaxpr, Tuple[State, ...]] |
+                    Tuple[ClosedJaxpr, Tuple[State, ...], PyTree])]:
     """
     Creates a function that produces its jaxpr given example args.
 
@@ -759,7 +759,7 @@ def _make_jaxpr(
                 jaxpr, out_type, consts = pe.trace_to_jaxpr_dynamic2(f, debug_info=debug_info)
             else:
                 jaxpr, out_type, consts = pe.trace_to_jaxpr_dynamic2(f)
-        closed_jaxpr = jax.core.ClosedJaxpr(jaxpr, consts)
+        closed_jaxpr = ClosedJaxpr(jaxpr, consts)
         if return_shape:
             out_avals, _ = jax.util.unzip2(out_type)
             out_shapes_flat = [jax.ShapeDtypeStruct(a.shape, a.dtype) for a in out_avals]
