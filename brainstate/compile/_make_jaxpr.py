@@ -55,18 +55,20 @@ from __future__ import annotations
 
 import functools
 import inspect
-import jax
 import operator
 from collections.abc import Hashable, Iterable, Sequence
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
+from typing import Any, Callable, Tuple, Union, Dict, Optional
+
+import jax
 from jax._src import source_info_util
 from jax._src.linear_util import annotate
 from jax._src.traceback_util import api_boundary
 from jax.api_util import shaped_abstractify
+from jax.core import trace_ctx
 from jax.extend.linear_util import transformation_with_aux, wrap_init
 from jax.interpreters import partial_eval as pe
 from jax.util import wraps
-from typing import Any, Callable, Tuple, Union, Dict, Optional
 
 from brainstate._state import State, StateTraceStack
 from brainstate._utils import set_module_as
@@ -754,7 +756,7 @@ def _make_jaxpr(
             debug_info = pe.debug_info(fun, in_tree, out_tree, True, 'make_jaxpr')
         with ExitStack() as stack:
             if axis_env is not None:
-                stack.enter_context(jax.core.extend_axis_env_nd(axis_env))
+                stack.enter_context(extend_axis_env_nd(axis_env))
             if jax.__version_info__ < (0, 5, 0):
                 jaxpr, out_type, consts = pe.trace_to_jaxpr_dynamic2(f, debug_info=debug_info)
             else:
@@ -772,3 +774,13 @@ def _make_jaxpr(
     if hasattr(fun, "__name__"):
         make_jaxpr_f.__name__ = f"make_jaxpr({fun.__name__})"
     return make_jaxpr_f
+
+
+@contextmanager
+def extend_axis_env_nd(name_size_pairs: Iterable[tuple[AxisName, int]]):
+    prev = trace_ctx.axis_env
+    try:
+        trace_ctx.set_axis_env(prev.extend_pure(name_size_pairs))
+        yield
+    finally:
+        trace_ctx.set_axis_env(prev)
