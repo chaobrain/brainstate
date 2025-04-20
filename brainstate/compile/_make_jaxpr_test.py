@@ -21,11 +21,7 @@ import pytest
 import unittest
 
 import brainstate as bst
-
-if jax.__version_info__ < (0, 4, 38):
-    from jax.core import jaxpr_as_fun
-else:
-    from jax.extend.core import jaxpr_as_fun
+from brainstate._compatible_import import jaxpr_as_fun
 
 
 class TestMakeJaxpr(unittest.TestCase):
