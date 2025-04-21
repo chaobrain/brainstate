@@ -66,7 +66,9 @@ class Expon(Synapse, AlignPost):
     This class implements a simple first-order exponential decay synapse model where
     the synaptic conductance g decays exponentially with time constant tau:
 
-    dg/dt = -g/tau + input
+    $$
+    dg/dt = -g/\tau + \text{input}
+    $$
 
     The model is widely used for basic synaptic transmission modeling.
 

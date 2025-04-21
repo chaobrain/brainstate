@@ -189,10 +189,13 @@ class LIF(Neuron):
     model more biologically realistic.
 
     Mathematical model:
-        τ·dV/dt = -(V - V_rest) + R·I(t)
+
+        $$
+        \tau dV/dt = -(V - V_{rest}) + R I(t)
+        $$
 
     Spike condition:
-        If V ≥ V_th: emit spike and reset V = V_reset
+        If $V $\ge$ V_{th}$: emit spike and reset $V = V_{reset}$
 
     Parameters
     ----------
@@ -285,7 +288,7 @@ class LIF(Neuron):
 
 
 class LIFRef(Neuron):
-    """
+    r"""
     Leaky Integrate-and-Fire with Refractory Period (LIFRef) neuron model.
 
     This model extends the LIF neuron by adding a refractory period during which
