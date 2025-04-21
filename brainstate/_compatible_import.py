@@ -16,6 +16,7 @@
 # -*- coding: utf-8 -*-
 
 
+import importlib.util
 from contextlib import contextmanager
 from typing import Iterable, Hashable
 
@@ -29,7 +30,10 @@ __all__ = [
     'get_aval',
     'Tracer',
     'to_concrete_aval',
+    'brainevent',
 ]
+
+brainevent_installed = importlib.util.find_spec('brainevent') is not None
 
 from jax.core import get_aval, Tracer
 
@@ -56,3 +60,14 @@ def to_concrete_aval(aval):
         return aval.to_concrete_value()
     return aval
 
+
+if brainevent_installed:
+    import brainevent
+else:
+
+    class BrainEvent:
+        def __getattr__(self, item):
+            raise ImportError('brainevent is not installed, please install brainevent first.')
+
+
+    brainevent = BrainEvent()
