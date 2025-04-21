@@ -59,7 +59,7 @@ class RNNCell(Module):
 
 
 class ValinaRNNCell(RNNCell):
-    """
+    r"""
     Vanilla Recurrent Neural Network (RNN) cell implementation.
 
     This class implements the basic RNN model that updates a hidden state based on
@@ -156,7 +156,7 @@ class ValinaRNNCell(RNNCell):
 
 
 class GRUCell(RNNCell):
-    """
+    r"""
     Gated Recurrent Unit (GRU) cell implementation.
 
     This class implements the GRU model that uses gating mechanisms to control
@@ -263,7 +263,7 @@ class GRUCell(RNNCell):
 
 
 class MGUCell(RNNCell):
-    """
+    r"""
     Minimal Gated Recurrent Unit (MGU) cell implementation.
 
     MGU is a simplified version of GRU that uses a single forget gate instead of

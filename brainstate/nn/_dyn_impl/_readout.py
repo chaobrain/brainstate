@@ -36,17 +36,17 @@ __all__ = [
 
 
 class LeakyRateReadout(Module):
-    """
+    r"""
     Leaky dynamics for the read-out module.
 
     This module implements a leaky integrator with the following dynamics:
 
     .. math::
-        r_{t} = \\alpha r_{t-1} + x_{t} W
+        r_{t} = \alpha r_{t-1} + x_{t} W
 
     where:
       - :math:`r_{t}` is the output at time t
-      - :math:`\\alpha = e^{-\\Delta t / \\tau}` is the decay factor
+      - :math:`\alpha = e^{-\Delta t / \tau}` is the decay factor
       - :math:`x_{t}` is the input at time t
       - :math:`W` is the weight matrix
 
@@ -109,27 +109,27 @@ class LeakyRateReadout(Module):
 
 
 class LeakySpikeReadout(Neuron):
-    """
+    r"""
     Integrate-and-fire neuron model with leaky dynamics for readout functionality.
 
     This class implements a spiking neuron with the following dynamics:
 
     .. math::
-        \\frac{dV}{dt} = \\frac{-V + I_{in}}{\\tau}
+        \frac{dV}{dt} = \frac{-V + I_{in}}{\tau}
 
     where:
       - :math:`V` is the membrane potential
-      - :math:`\\tau` is the membrane time constant
+      - :math:`\tau` is the membrane time constant
       - :math:`I_{in}` is the input current
 
     Spike generation occurs when :math:`V > V_{th}` according to:
 
     .. math::
-        S_t = \\text{surrogate}\\left(\\frac{V - V_{th}}{V_{th}}\\right)
+        S_t = \text{surrogate}\left(\frac{V - V_{th}}{V_{th}}\right)
 
     After spiking, the membrane potential is reset according to the reset mode:
-      - Soft reset: :math:`V \\leftarrow V - V_{th} \\cdot S_t`
-      - Hard reset: :math:`V \\leftarrow V - V_t \\cdot S_t` (where :math:`V_t` is detached)
+      - Soft reset: :math:`V \leftarrow V - V_{th} \cdot S_t`
+      - Hard reset: :math:`V \leftarrow V - V_t \cdot S_t` (where :math:`V_t` is detached)
 
     Parameters
     ----------
@@ -174,8 +174,8 @@ class LeakySpikeReadout(Neuron):
         super().__init__(in_size, name=name, spk_fun=spk_fun, spk_reset=spk_reset)
 
         # parameters
-        self.tau = init.param(tau, (self.varshape,))
-        self.V_th = init.param(V_th, (self.varshape,))
+        self.tau = init.param(tau, self.varshape)
+        self.V_th = init.param(V_th, self.varshape)
         self.V_initializer = V_initializer
 
         # weights

@@ -17,9 +17,10 @@
 
 from __future__ import annotations
 
+from typing import Callable, Optional
+
 import brainunit as u
 import jax
-from typing import Callable, Optional
 
 from brainstate import init, surrogate, environ
 from brainstate._state import HiddenState, ShortTermState
@@ -80,31 +81,30 @@ class Neuron(Dynamics):
 
 
 class IF(Neuron):
-    r"""
-    Integrate-and-Fire (IF) neuron model.
+    r"""Integrate-and-Fire (IF) neuron model.
 
-    The IF neuron is one of the simplest spiking neuron models that captures
-    the essential dynamics of biological neurons. It accumulates input current
-    until a threshold is reached, at which point it fires a spike and resets.
+    This class implements the classic Integrate-and-Fire neuron model, one of the simplest
+    spiking neuron models. It accumulates input current until the membrane potential reaches
+    a threshold, at which point it fires a spike and resets the potential.
 
-    Mathematical model:
+    The model is characterized by the following differential equation:
 
-        $$
-        \tau dV/dt = -V + R I(t)
-        $$
+    $$
+    \tau \frac{dV}{dt} = -V + R \cdot I(t)
+    $$
 
     Spike condition:
-        If $V ≥ V_{th}$: emit spike and reset $V = V - V_{th}$
+    If $V \geq V_{th}$: emit spike and reset $V = V - V_{th}$ (soft reset) or $V = 0$ (hard reset)
 
     Parameters
     ----------
     in_size : Size
         Size of the input to the neuron.
-    R : ArrayLike, default=1.0 * u.ohm
+    R : ArrayLike, default=1. * u.ohm
         Membrane resistance.
-    tau : ArrayLike, default=5.0 * u.ms
+    tau : ArrayLike, default=5. * u.ms
         Membrane time constant.
-    V_th : ArrayLike, default=1.0 * u.mV
+    V_th : ArrayLike, default=1. * u.mV
         Firing threshold voltage (should be positive).
     V_initializer : Callable, default=init.Constant(0. * u.mV)
         Initializer for the membrane potential state.
@@ -117,8 +117,8 @@ class IF(Neuron):
     name : str, optional
         Name of the neuron layer.
 
-    State Variables
-    --------------
+    Attributes
+    ----------
     V : HiddenState
         Membrane potential.
 
@@ -132,6 +132,44 @@ class IF(Neuron):
         Generate spikes based on the membrane potential.
     update(x=0. * u.mA)
         Update the neuron state for one time step and return spikes.
+
+    Examples
+    --------
+    >>> import brainstate as bs
+    >>> import brainunit as u
+    >>>
+    >>> # Create an IF neuron layer with 10 neurons
+    >>> if_neuron = bs.nn.IF(10, tau=8*u.ms, V_th=1.2*u.mV)
+    >>>
+    >>> # Initialize the state
+    >>> if_neuron.init_state(batch_size=1)
+    >>>
+    >>> # Apply an input current and update the neuron state
+    >>> spikes = if_neuron.update(x=2.0*u.mA)
+    >>>
+    >>> # Create a network with IF neurons
+    >>> network = bs.nn.Sequential([
+    ...     bs.nn.IF(100, tau=5.0*u.ms),
+    ...     bs.nn.Linear(100, 10)
+    ... ])
+
+    Notes
+    -----
+    - Unlike the LIF model, the IF model has no leak towards a resting potential.
+    - The membrane potential decays exponentially with time constant tau in the absence of input.
+    - The time-dependent dynamics are integrated using an exponential Euler method.
+    - The IF model is perfect integrator in the sense that it accumulates input indefinitely
+      until reaching threshold, without any leak current.
+
+    References
+    ----------
+    .. [1] Lapicque, L. (1907). Recherches quantitatives sur l'excitation électrique
+           des nerfs traitée comme une polarisation. Journal de Physiologie et de
+           Pathologie Générale, 9, 620-635.
+    .. [2] Abbott, L. F. (1999). Lapicque's introduction of the integrate-and-fire
+           model neuron (1907). Brain Research Bulletin, 50(5-6), 303-304.
+    .. [3] Burkitt, A. N. (2006). A review of the integrate-and-fire neuron model:
+           I. Homogeneous synaptic input. Biological cybernetics, 95(1), 1-19.
     """
 
     __module__ = 'brainstate.nn'
@@ -181,35 +219,35 @@ class IF(Neuron):
 
 
 class LIF(Neuron):
-    """
-    Leaky Integrate-and-Fire (LIF) neuron model.
+    r"""Leaky Integrate-and-Fire (LIF) neuron model.
 
-    The LIF neuron extends the IF model by adding a leak term, making the membrane
-    potential decay towards a resting value when no input is present. This makes the
-    model more biologically realistic.
+    This class implements the Leaky Integrate-and-Fire neuron model, which extends the basic
+    Integrate-and-Fire model by adding a leak term. The leak causes the membrane potential
+    to decay towards a resting value in the absence of input, making the model more
+    biologically plausible.
 
-    Mathematical model:
+    The model is characterized by the following differential equation:
 
-        $$
-        \tau dV/dt = -(V - V_{rest}) + R I(t)
-        $$
+    $$
+    \tau \frac{dV}{dt} = -(V - V_{rest}) + R \cdot I(t)
+    $$
 
     Spike condition:
-        If $V $\ge$ V_{th}$: emit spike and reset $V = V_{reset}$
+    If $V \geq V_{th}$: emit spike and reset $V = V_{reset}$
 
     Parameters
     ----------
     in_size : Size
         Size of the input to the neuron.
-    R : ArrayLike, default=1.0 * u.ohm
+    R : ArrayLike, default=1. * u.ohm
         Membrane resistance.
-    tau : ArrayLike, default=5.0 * u.ms
+    tau : ArrayLike, default=5. * u.ms
         Membrane time constant.
-    V_th : ArrayLike, default=1.0 * u.mV
+    V_th : ArrayLike, default=1. * u.mV
         Firing threshold voltage.
-    V_reset : ArrayLike, default=0.0 * u.mV
+    V_reset : ArrayLike, default=0. * u.mV
         Reset voltage after spike.
-    V_rest : ArrayLike, default=0.0 * u.mV
+    V_rest : ArrayLike, default=0. * u.mV
         Resting membrane potential.
     V_initializer : Callable, default=init.Constant(0. * u.mV)
         Initializer for the membrane potential state.
@@ -222,8 +260,8 @@ class LIF(Neuron):
     name : str, optional
         Name of the neuron layer.
 
-    State Variables
-    --------------
+    Attributes
+    ----------
     V : HiddenState
         Membrane potential.
 
@@ -237,6 +275,36 @@ class LIF(Neuron):
         Generate spikes based on the membrane potential.
     update(x=0. * u.mA)
         Update the neuron state for one time step and return spikes.
+
+    Examples
+    --------
+    >>> import brainstate
+    >>> import brainunit as u
+    >>>
+    >>> # Create a LIF neuron layer with 10 neurons
+    >>> lif = brainstate.nn.LIF(10, tau=10*u.ms, V_th=0.8*u.mV)
+    >>>
+    >>> # Initialize the state
+    >>> lif.init_state(batch_size=1)
+    >>>
+    >>> # Apply an input current and update the neuron state
+    >>> spikes = lif.update(x=1.5*u.mA)
+
+    Notes
+    -----
+    - The leak term causes the membrane potential to decay exponentially towards V_rest
+      with time constant tau when no input is present.
+    - The time-dependent dynamics are integrated using an exponential Euler method.
+    - Spike generation is non-differentiable, so surrogate gradients are used for
+      backpropagation during training.
+
+    References
+    ----------
+    .. [1] Gerstner, W., Kistler, W. M., Naud, R., & Paninski, L. (2014).
+           Neuronal dynamics: From single neurons to networks and models of cognition.
+           Cambridge University Press.
+    .. [2] Burkitt, A. N. (2006). A review of the integrate-and-fire neuron model:
+           I. Homogeneous synaptic input. Biological cybernetics, 95(1), 1-19.
     """
     __module__ = 'brainstate.nn'
 
@@ -288,36 +356,43 @@ class LIF(Neuron):
 
 
 class LIFRef(Neuron):
-    r"""
-    Leaky Integrate-and-Fire with Refractory Period (LIFRef) neuron model.
+    r"""Leaky Integrate-and-Fire neuron model with refractory period.
 
-    This model extends the LIF neuron by adding a refractory period during which
-    the neuron cannot fire again after a spike, regardless of input strength.
-    This better mimics the behavior of biological neurons.
+    This class implements a Leaky Integrate-and-Fire neuron model that includes a
+    refractory period after spiking, during which the neuron cannot fire regardless
+    of input. This better captures the behavior of biological neurons that exhibit
+    a recovery period after action potential generation.
 
-    Mathematical model:
-        τ·dV/dt = -(V - V_rest) + R·I(t)  (when not in refractory period)
-        V = V_reset                        (during refractory period)
+    The model is characterized by the following equations:
+
+    When not in refractory period:
+    $$
+    \tau \frac{dV}{dt} = -(V - V_{rest}) + R \cdot I(t)
+    $$
+
+    During refractory period:
+    $$
+    V = V_{reset}
+    $$
 
     Spike condition:
-        If V ≥ V_th: emit spike, reset V = V_reset, and enter refractory period
-        for duration τ_ref
+    If $V \geq V_{th}$: emit spike, set $V = V_{reset}$, and enter refractory period for $\tau_{ref}$
 
     Parameters
     ----------
     in_size : Size
         Size of the input to the neuron.
-    R : ArrayLike, default=1.0 * u.ohm
+    R : ArrayLike, default=1. * u.ohm
         Membrane resistance.
-    tau : ArrayLike, default=5.0 * u.ms
+    tau : ArrayLike, default=5. * u.ms
         Membrane time constant.
-    tau_ref : ArrayLike, default=5.0 * u.ms
+    tau_ref : ArrayLike, default=5. * u.ms
         Refractory period duration.
-    V_th : ArrayLike, default=1.0 * u.mV
+    V_th : ArrayLike, default=1. * u.mV
         Firing threshold voltage.
-    V_reset : ArrayLike, default=0.0 * u.mV
+    V_reset : ArrayLike, default=0. * u.mV
         Reset voltage after spike.
-    V_rest : ArrayLike, default=0.0 * u.mV
+    V_rest : ArrayLike, default=0. * u.mV
         Resting membrane potential.
     V_initializer : Callable, default=init.Constant(0. * u.mV)
         Initializer for the membrane potential state.
@@ -330,8 +405,8 @@ class LIFRef(Neuron):
     name : str, optional
         Name of the neuron layer.
 
-    State Variables
-    --------------
+    Attributes
+    ----------
     V : HiddenState
         Membrane potential.
     last_spike_time : ShortTermState
@@ -347,6 +422,50 @@ class LIFRef(Neuron):
         Generate spikes based on the membrane potential.
     update(x=0. * u.mA)
         Update the neuron state for one time step and return spikes.
+
+    Examples
+    --------
+    >>> import brainstate as bs
+    >>> import brainunit as u
+    >>>
+    >>> # Create a LIFRef neuron layer with 10 neurons
+    >>> lifref = bs.nn.LIFRef(10,
+    ...                       tau=10*u.ms,
+    ...                       tau_ref=5*u.ms,
+    ...                       V_th=0.8*u.mV)
+    >>>
+    >>> # Initialize the state
+    >>> lifref.init_state(batch_size=1)
+    >>>
+    >>> # Apply an input current and update the neuron state
+    >>> spikes = lifref.update(x=1.5*u.mA)
+    >>>
+    >>> # Create a network with refractory neurons
+    >>> network = bs.nn.Sequential([
+    ...     bs.nn.LIFRef(100, tau_ref=4*u.ms),
+    ...     bs.nn.Linear(100, 10)
+    ... ])
+
+    Notes
+    -----
+    - The refractory period is implemented by tracking the time of the last spike
+      and preventing membrane potential updates if the elapsed time is less than tau_ref.
+    - During the refractory period, the membrane potential remains at the reset value
+      regardless of input current strength.
+    - Refractory periods prevent high-frequency repetitive firing and are critical
+      for realistic neural dynamics.
+    - The time-dependent dynamics are integrated using an exponential Euler method.
+    - The simulation environment time variable 't' is used to track the refractory state.
+
+    References
+    ----------
+    .. [1] Gerstner, W., Kistler, W. M., Naud, R., & Paninski, L. (2014).
+           Neuronal dynamics: From single neurons to networks and models of cognition.
+           Cambridge University Press.
+    .. [2] Burkitt, A. N. (2006). A review of the integrate-and-fire neuron model:
+           I. Homogeneous synaptic input. Biological cybernetics, 95(1), 1-19.
+    .. [3] Izhikevich, E. M. (2003). Simple model of spiking neurons. IEEE Transactions on
+           neural networks, 14(6), 1569-1572.
     """
     __module__ = 'brainstate.nn'
 
@@ -406,36 +525,42 @@ class LIFRef(Neuron):
 
 
 class ALIF(Neuron):
-    """
-    Adaptive Leaky Integrate-and-Fire (ALIF) neuron model.
+    r"""Adaptive Leaky Integrate-and-Fire (ALIF) neuron model.
 
-    The ALIF model extends the LIF neuron by adding an adaptation variable that
-    increases the effective firing threshold after each spike, allowing the neuron
-    to adapt its firing rate. This creates spike-frequency adaptation, a common
-    feature in biological neurons.
+    This class implements the Adaptive Leaky Integrate-and-Fire neuron model, which extends
+    the basic LIF model by adding an adaptation variable. This adaptation mechanism increases
+    the effective firing threshold after each spike, allowing the neuron to exhibit
+    spike-frequency adaptation - a common feature in biological neurons that reduces
+    firing rate during sustained stimulation.
 
-    Mathematical model:
-        τ·dV/dt = -(V - V_rest) + R·I(t)
-        τ_a·da/dt = -a
+    The model is characterized by the following differential equations:
+
+    $$
+    \tau \frac{dV}{dt} = -(V - V_{rest}) + R \cdot I(t)
+    $$
+
+    $$
+    \tau_a \frac{da}{dt} = -a
+    $$
 
     Spike condition:
-        If V ≥ V_th + β·a: emit spike, reset V = V_reset, and increment a = a + 1
+    If $V \geq V_{th} + \beta \cdot a$: emit spike, set $V = V_{reset}$, and increment $a = a + 1$
 
     Parameters
     ----------
     in_size : Size
         Size of the input to the neuron.
-    R : ArrayLike, default=1.0 * u.ohm
+    R : ArrayLike, default=1. * u.ohm
         Membrane resistance.
-    tau : ArrayLike, default=5.0 * u.ms
+    tau : ArrayLike, default=5. * u.ms
         Membrane time constant.
-    tau_a : ArrayLike, default=100.0 * u.ms
-        Adaptation time constant (typically longer than tau).
-    V_th : ArrayLike, default=1.0 * u.mV
+    tau_a : ArrayLike, default=100. * u.ms
+        Adaptation time constant (typically much longer than tau).
+    V_th : ArrayLike, default=1. * u.mV
         Base firing threshold voltage.
-    V_reset : ArrayLike, default=0.0 * u.mV
+    V_reset : ArrayLike, default=0. * u.mV
         Reset voltage after spike.
-    V_rest : ArrayLike, default=0.0 * u.mV
+    V_rest : ArrayLike, default=0. * u.mV
         Resting membrane potential.
     beta : ArrayLike, default=0.1 * u.mV
         Adaptation coupling parameter that scales the effect of the adaptation variable.
@@ -452,8 +577,8 @@ class ALIF(Neuron):
     name : str, optional
         Name of the neuron layer.
 
-    State Variables
-    --------------
+    Attributes
+    ----------
     V : HiddenState
         Membrane potential.
     a : HiddenState
@@ -469,6 +594,54 @@ class ALIF(Neuron):
         Generate spikes based on the membrane potential and adaptation variable.
     update(x=0. * u.mA)
         Update the neuron state for one time step and return spikes.
+
+    Examples
+    --------
+    >>> import brainstate as bs
+    >>> import brainunit as u
+    >>>
+    >>> # Create an ALIF neuron layer with 10 neurons
+    >>> alif = bs.nn.ALIF(10,
+    ...                   tau=10*u.ms,
+    ...                   tau_a=200*u.ms,
+    ...                   beta=0.2*u.mV)
+    >>>
+    >>> # Initialize the state
+    >>> alif.init_state(batch_size=1)
+    >>>
+    >>> # Apply an input current and update the neuron state
+    >>> spikes = alif.update(x=1.5*u.mA)
+    >>>
+    >>> # Create a network with adaptation for burst detection
+    >>> network = bs.nn.Sequential([
+    ...     bs.nn.ALIF(100, tau_a=150*u.ms, beta=0.3*u.mV),
+    ...     bs.nn.Linear(100, 10)
+    ... ])
+
+    Notes
+    -----
+    - The adaptation variable 'a' increases by 1 with each spike and decays exponentially
+      with time constant tau_a between spikes.
+    - The effective threshold increases by beta*a, making it progressively harder for the
+      neuron to fire when it has recently been active.
+    - This adaptation mechanism creates spike-frequency adaptation, allowing the neuron
+      to respond strongly to input onset but then reduce its firing rate even if the
+      input remains constant.
+    - The adaptation time constant tau_a is typically much larger than the membrane time
+      constant tau, creating a longer-lasting adaptation effect.
+    - The time-dependent dynamics are integrated using an exponential Euler method.
+
+    References
+    ----------
+    .. [1] Gerstner, W., Kistler, W. M., Naud, R., & Paninski, L. (2014).
+           Neuronal dynamics: From single neurons to networks and models of cognition.
+           Cambridge University Press.
+    .. [2] Brette, R., & Gerstner, W. (2005). Adaptive exponential integrate-and-fire model
+           as an effective description of neuronal activity. Journal of neurophysiology,
+           94(5), 3637-3642.
+    .. [3] Naud, R., Marcille, N., Clopath, C., & Gerstner, W. (2008). Firing patterns in
+           the adaptive exponential integrate-and-fire model. Biological cybernetics,
+           99(4), 335-347.
     """
     __module__ = 'brainstate.nn'
 
