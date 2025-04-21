@@ -137,13 +137,13 @@ class EINet(brainstate.nn.DynamicsGroup):
         self.N = HH(self.varshape)
 
         self.E = brainstate.nn.AlignPostProj(
-            comm=brainevent.nn.FixedProb(self.n_exc, self.varshape, prob=0.02, weight=we),
+            comm=brainevent.nn.FixedProb(self.n_exc, self.varshape, conn_num=0.02, conn_weight=we),
             syn=brainstate.nn.Expon(self.varshape, tau=taue),
             out=brainstate.nn.COBA(E=Ee),
             post=self.N
         )
         self.I = brainstate.nn.AlignPostProj(
-            comm=brainevent.nn.FixedProb(self.n_inh, self.varshape, prob=0.02, weight=wi),
+            comm=brainevent.nn.FixedProb(self.n_inh, self.varshape, conn_num=0.02, conn_weight=wi),
             syn=brainstate.nn.Expon(self.varshape, tau=taui),
             out=brainstate.nn.COBA(E=Ei),
             post=self.N

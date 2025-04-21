@@ -44,13 +44,13 @@ class EINet(brainstate.nn.DynamicsGroup):
             V_initializer=brainstate.init.Normal(-55., 2., unit=u.mV)
         )
         self.E = brainstate.nn.AlignPostProj(
-            comm=brainevent.nn.FixedProb(self.n_exc, self.num, prob=0.02, weight=1.62 * u.mS),
+            comm=brainevent.nn.FixedProb(self.n_exc, self.num, conn_num=0.02, conn_weight=1.62 * u.mS),
             syn=brainstate.nn.Expon.desc(self.num, tau=5. * u.ms),
             out=brainstate.nn.CUBA.desc(scale=u.volt),
             post=self.N
         )
         self.I = brainstate.nn.AlignPostProj(
-            comm=brainevent.nn.FixedProb(self.n_inh, self.num, prob=0.02, weight=-9.0 * u.mS),
+            comm=brainevent.nn.FixedProb(self.n_inh, self.num, conn_num=0.02, conn_weight=-9.0 * u.mS),
             syn=brainstate.nn.Expon.desc(self.num, tau=10. * u.ms),
             out=brainstate.nn.CUBA.desc(scale=u.volt),
             post=self.N
