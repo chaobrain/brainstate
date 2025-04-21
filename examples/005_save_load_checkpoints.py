@@ -23,15 +23,14 @@ import os
 import jax
 import jax.numpy as jnp
 import orbax.checkpoint as orbax
+import brainstate
 
-import brainstate as bst
 
-
-class MLP(bst.nn.Module):
+class MLP(brainstate.nn.Module):
     def __init__(self, din: int, dmid: int, dout: int):
         super().__init__()
-        self.dense1 = bst.nn.Linear(din, dmid)
-        self.dense2 = bst.nn.Linear(dmid, dout)
+        self.dense1 = brainstate.nn.Linear(din, dmid)
+        self.dense2 = brainstate.nn.Linear(dmid, dout)
 
     def __call__(self, x: jax.Array) -> jax.Array:
         x = self.dense1(x)
@@ -41,13 +40,13 @@ class MLP(bst.nn.Module):
 
 
 def create_model(seed: int):
-    bst.random.seed(seed)
+    brainstate.random.seed(seed)
     return MLP(10, 20, 30)
 
 
 def create_and_save(seed: int, path: str):
   model = create_model(seed)
-  state_tree = bst.graph.treefy_states(model)
+  state_tree = brainstate.graph.treefy_states(model)
   # Save the parameters
   checkpointer = orbax.PyTreeCheckpointer()
   checkpointer.save(os.path.join(path, 'state'), state_tree)
@@ -55,13 +54,13 @@ def create_and_save(seed: int, path: str):
 
 def load_model(path: str) -> MLP:
   # create that model with abstract shapes
-  model = bst.augment.abstract_init(lambda: create_model(0))
-  state_tree = bst.graph.treefy_states(model)
+  model = brainstate.augment.abstract_init(lambda: create_model(0))
+  state_tree = brainstate.graph.treefy_states(model)
   # Load the parameters
   checkpointer = orbax.PyTreeCheckpointer()
   state_tree = checkpointer.restore(os.path.join(path, 'state'), item=state_tree)
   # update the model with the loaded state
-  bst.graph.update_states(model, state_tree)
+  brainstate.graph.update_states(model, state_tree)
   return model
 
 

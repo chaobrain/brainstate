@@ -21,10 +21,9 @@
 #
 
 import braintools
+import brainstate
 import brainunit as u
 import matplotlib.pyplot as plt
-
-import brainstate
 
 
 class HH(brainstate.nn.Neuron):

@@ -24,7 +24,7 @@ import brainunit as u
 import dendritex as dx
 import matplotlib.pyplot as plt
 
-import brainstate as bst
+import brainstate
 
 V_th = -20. * u.mV
 
@@ -41,10 +41,10 @@ class HH(dx.neurons.SingleCompartment):
         self.IL = dx.channels.IL(in_size, E=-60. * u.mV, g_max=0.001 * u.nS)
 
     def update(self):
-        dx.rk4_step(self, bst.environ.get('t'), 0. * u.nA)
+        dx.rk4_step(self, brainstate.environ.get('t'), 0. * u.nA)
 
 
-class EINet(bst.nn.DynamicsGroup):
+class EINet(brainstate.nn.DynamicsGroup):
     def __init__(self):
         super().__init__()
         self.n_exc = 3200
@@ -52,27 +52,27 @@ class EINet(bst.nn.DynamicsGroup):
         self.num = self.n_exc + self.n_inh
         self.N = HH(self.num)
 
-        self.E = bst.nn.AlignPostProj(
-            comm=bst.event.FixedProb(self.n_exc, self.num, prob=0.02, weight=6. * u.nS),
-            syn=bst.nn.Expon(self.num, tau=5. * u.ms),
-            out=bst.nn.COBA(E=0. * u.mV),
+        self.E = brainstate.nn.AlignPostProj(
+            comm=brainstate.event.FixedProb(self.n_exc, self.num, prob=0.02, weight=6. * u.nS),
+            syn=brainstate.nn.Expon(self.num, tau=5. * u.ms),
+            out=brainstate.nn.COBA(E=0. * u.mV),
             post=self.N
         )
-        self.I = bst.nn.AlignPostProj(
-            comm=bst.event.FixedProb(self.n_inh, self.num, prob=0.02, weight=67. * u.nS),
-            syn=bst.nn.Expon(self.num, tau=10. * u.ms),
-            out=bst.nn.COBA(E=-80. * u.mV),
+        self.I = brainstate.nn.AlignPostProj(
+            comm=brainstate.event.FixedProb(self.n_inh, self.num, prob=0.02, weight=67. * u.nS),
+            syn=brainstate.nn.Expon(self.num, tau=10. * u.ms),
+            out=brainstate.nn.COBA(E=-80. * u.mV),
             post=self.N
         )
 
     def init_state(self, *args, **kwargs):
-        self.last_v = bst.ShortTermState(self.N.V.value)
+        self.last_v = brainstate.ShortTermState(self.N.V.value)
 
     def reset_state(self, *args, **kwargs):
         self.last_v.value = self.N.V.value
 
     def update(self, t):
-        with bst.environ.context(t=t):
+        with brainstate.environ.context(t=t):
             spk = u.math.squeeze(u.math.logical_and(self.last_v.value < V_th, self.N.V.value >= V_th))
             self.last_v.value = self.N.V.value
             self.E(spk[:self.n_exc])
@@ -84,12 +84,12 @@ class EINet(bst.nn.DynamicsGroup):
 
 # network
 net = EINet()
-bst.nn.init_all_states(net, node_to_exclude=dx.IonChannel)
+brainstate.nn.init_all_states(net, node_to_exclude=dx.IonChannel)
 
 # simulation
-with bst.environ.context(dt=0.1 * u.ms):
-    times = u.math.arange(0. * u.ms, 1000. * u.ms, bst.environ.get_dt())
-    spikes, vs = bst.compile.for_loop(net.update, times, pbar=bst.compile.ProgressBar(10))
+with brainstate.environ.context(dt=0.1 * u.ms):
+    times = u.math.arange(0. * u.ms, 1000. * u.ms, brainstate.environ.get_dt())
+    spikes, vs = brainstate.compile.for_loop(net.update, times, pbar=brainstate.compile.ProgressBar(10))
 
 # visualization
 plt.plot(times, vs)

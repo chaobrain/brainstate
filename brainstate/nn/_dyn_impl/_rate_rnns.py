@@ -33,23 +33,83 @@ __all__ = [
 
 class RNNCell(Module):
     """
-    Base class for RNN cells.
+    Base class for all recurrent neural network (RNN) cell implementations.
+
+    This abstract class serves as the foundation for implementing various RNN cell types
+    such as vanilla RNN, GRU, LSTM, and other recurrent architectures. It extends the
+    Module class and provides common functionality and interface for recurrent units.
+
+    All RNN cell implementations should inherit from this class and implement the required
+    methods, particularly the `init_state()`, `reset_state()`, and `update()` methods that
+    define the state initialization and recurrent dynamics.
+
+    The RNNCell typically maintains hidden state(s) that are updated at each time step
+    based on the current input and previous state values.
+
+    Methods
+    -------
+    init_state(batch_size=None, **kwargs)
+        Initialize the cell state variables with appropriate dimensions.
+    reset_state(batch_size=None, **kwargs)
+        Reset the cell state variables to their initial values.
+    update(x)
+        Update the cell state for one time step based on input x and return output.
     """
     pass
 
 
 class ValinaRNNCell(RNNCell):
-    """
-    Vanilla RNN cell.
+    r"""
+    Vanilla Recurrent Neural Network (RNN) cell implementation.
 
-    Args:
-      num_in: int. The number of input units.
-      num_out: int. The number of hidden units.
-      state_init: callable, ArrayLike. The state initializer.
-      w_init: callable, ArrayLike. The input weight initializer.
-      b_init: optional, callable, ArrayLike. The bias weight initializer.
-      activation: str, callable. The activation function. It can be a string or a callable function.
-      name: optional, str. The name of the module.
+    This class implements the basic RNN model that updates a hidden state based on
+    the current input and previous hidden state. The standard RNN cell follows the
+    mathematical formulation:
+
+    .. math::
+
+        h_t = \phi(W [x_t, h_{t-1}] + b)
+
+    where:
+
+    - :math:`x_t` is the input vector at time t
+    - :math:`h_t` is the hidden state at time t
+    - :math:`h_{t-1}` is the hidden state at previous time step
+    - :math:`W` is the weight matrix for the combined input-hidden linear transformation
+    - :math:`b` is the bias vector
+    - :math:`\phi` is the activation function
+
+    Parameters
+    ----------
+    num_in : int
+        The number of input units.
+    num_out : int
+        The number of hidden units.
+    state_init : Union[ArrayLike, Callable], default=init.ZeroInit()
+        Initializer for the hidden state.
+    w_init : Union[ArrayLike, Callable], default=init.XavierNormal()
+        Initializer for the weight matrix.
+    b_init : Union[ArrayLike, Callable], default=init.ZeroInit()
+        Initializer for the bias vector.
+    activation : str or Callable, default='relu'
+        Activation function to use. Can be a string (e.g., 'relu', 'tanh')
+        or a callable function.
+    name : str, optional
+        Name of the module.
+
+    State Variables
+    --------------
+    h : HiddenState
+        Hidden state of the RNN cell.
+
+    Methods
+    -------
+    init_state(batch_size=None, **kwargs)
+        Initialize the cell hidden state.
+    reset_state(batch_size=None, **kwargs)
+        Reset the cell hidden state to its initial value.
+    update(x)
+        Update the hidden state for one time step and return the new state.
     """
     __module__ = 'brainstate.nn'
 
@@ -96,17 +156,62 @@ class ValinaRNNCell(RNNCell):
 
 
 class GRUCell(RNNCell):
-    """
-    Gated Recurrent Unit (GRU) cell.
+    r"""
+    Gated Recurrent Unit (GRU) cell implementation.
 
-    Args:
-      num_in: int. The number of input units.
-      num_out: int. The number of hidden units.
-      state_init: callable, ArrayLike. The state initializer.
-      w_init: callable, ArrayLike. The input weight initializer.
-      b_init: optional, callable, ArrayLike. The bias weight initializer.
-      activation: str, callable. The activation function. It can be a string or a callable function.
-      name: optional, str. The name of the module.
+    This class implements the GRU model that uses gating mechanisms to control
+    information flow. The GRU has fewer parameters than LSTM as it combines
+    the forget and input gates into a single update gate. The GRU follows the
+    mathematical formulation:
+
+    .. math::
+
+        r_t &= \sigma(W_r [x_t, h_{t-1}] + b_r) \\
+        z_t &= \sigma(W_z [x_t, h_{t-1}] + b_z) \\
+        \tilde{h}_t &= \tanh(W_h [x_t, (r_t \odot h_{t-1})] + b_h) \\
+        h_t &= (1 - z_t) \odot h_{t-1} + z_t \odot \tilde{h}_t
+
+    where:
+
+    - :math:`x_t` is the input vector at time t
+    - :math:`h_t` is the hidden state at time t
+    - :math:`r_t` is the reset gate vector
+    - :math:`z_t` is the update gate vector
+    - :math:`\tilde{h}_t` is the candidate hidden state
+    - :math:`\odot` represents element-wise multiplication
+    - :math:`\sigma` is the sigmoid activation function
+
+    Parameters
+    ----------
+    num_in : int
+        The number of input units.
+    num_out : int
+        The number of hidden units.
+    w_init : Union[ArrayLike, Callable], default=init.Orthogonal()
+        Initializer for the weight matrices.
+    b_init : Union[ArrayLike, Callable], default=init.ZeroInit()
+        Initializer for the bias vectors.
+    state_init : Union[ArrayLike, Callable], default=init.ZeroInit()
+        Initializer for the hidden state.
+    activation : str or Callable, default='tanh'
+        Activation function to use. Can be a string (e.g., 'tanh')
+        or a callable function.
+    name : str, optional
+        Name of the module.
+
+    State Variables
+    --------------
+    h : HiddenState
+        Hidden state of the GRU cell.
+
+    Methods
+    -------
+    init_state(batch_size=None, **kwargs)
+        Initialize the cell hidden state.
+    reset_state(batch_size=None, **kwargs)
+        Reset the cell hidden state to its initial value.
+    update(x)
+        Update the hidden state for one time step and return the new state.
     """
     __module__ = 'brainstate.nn'
 
@@ -159,32 +264,60 @@ class GRUCell(RNNCell):
 
 class MGUCell(RNNCell):
     r"""
-    Minimal Gated Recurrent Unit (MGU) cell.
+    Minimal Gated Recurrent Unit (MGU) cell implementation.
+
+    MGU is a simplified version of GRU that uses a single forget gate instead of
+    separate reset and update gates. This results in fewer parameters while
+    maintaining much of the gating capability. The MGU follows the mathematical
+    formulation:
 
     .. math::
 
-       \begin{aligned}
-       f_{t}&=\sigma (W_{f}x_{t}+U_{f}h_{t-1}+b_{f})\\
-       {\hat {h}}_{t}&=\phi (W_{h}x_{t}+U_{h}(f_{t}\odot h_{t-1})+b_{h})\\
-       h_{t}&=(1-f_{t})\odot h_{t-1}+f_{t}\odot {\hat {h}}_{t}
-       \end{aligned}
+        f_t &= \\sigma(W_f [x_t, h_{t-1}] + b_f) \\\\
+        \\tilde{h}_t &= \\phi(W_h [x_t, (f_t \\odot h_{t-1})] + b_h) \\\\
+        h_t &= (1 - f_t) \\odot h_{t-1} + f_t \\odot \\tilde{h}_t
 
     where:
 
-    - :math:`x_{t}`: input vector
-    - :math:`h_{t}`: output vector
-    - :math:`{\hat {h}}_{t}`: candidate activation vector
-    - :math:`f_{t}`: forget vector
-    - :math:`W, U, b`: parameter matrices and vector
+    - :math:`x_t` is the input vector at time t
+    - :math:`h_t` is the hidden state at time t
+    - :math:`f_t` is the forget gate vector
+    - :math:`\\tilde{h}_t` is the candidate hidden state
+    - :math:`\\odot` represents element-wise multiplication
+    - :math:`\\sigma` is the sigmoid activation function
+    - :math:`\\phi` is the activation function (typically tanh)
 
-    Args:
-      num_in: int. The number of input units.
-      num_out: int. The number of hidden units.
-      state_init: callable, ArrayLike. The state initializer.
-      w_init: callable, ArrayLike. The input weight initializer.
-      b_init: optional, callable, ArrayLike. The bias weight initializer.
-      activation: str, callable. The activation function. It can be a string or a callable function.
-      name: optional, str. The name of the module.
+    Parameters
+    ----------
+    num_in : int
+        The number of input units.
+    num_out : int
+        The number of hidden units.
+    w_init : Union[ArrayLike, Callable], default=init.Orthogonal()
+        Initializer for the weight matrices.
+    b_init : Union[ArrayLike, Callable], default=init.ZeroInit()
+        Initializer for the bias vectors.
+    state_init : Union[ArrayLike, Callable], default=init.ZeroInit()
+        Initializer for the hidden state.
+    activation : str or Callable, default='tanh'
+        Activation function to use. Can be a string (e.g., 'tanh')
+        or a callable function.
+    name : str, optional
+        Name of the module.
+
+    State Variables
+    --------------
+    h : HiddenState
+        Hidden state of the MGU cell.
+
+    Methods
+    -------
+    init_state(batch_size=None, **kwargs)
+        Initialize the cell hidden state.
+    reset_state(batch_size=None, **kwargs)
+        Reset the cell hidden state to its initial value.
+    update(x)
+        Update the hidden state for one time step and return the new state.
     """
     __module__ = 'brainstate.nn'
 
@@ -235,59 +368,81 @@ class MGUCell(RNNCell):
 
 
 class LSTMCell(RNNCell):
-    r"""Long short-term memory (LSTM) RNN core.
+    r"""
+    Long Short-Term Memory (LSTM) cell implementation.
 
-    The implementation is based on (zaremba, et al., 2014) [1]_. Given
-    :math:`x_t` and the previous state :math:`(h_{t-1}, c_{t-1})` the core
-    computes
+    This class implements the LSTM architecture which uses multiple gating mechanisms
+    to regulate information flow and address the vanishing gradient problem in RNNs.
+    The LSTM follows the mathematical formulation:
 
     .. math::
 
-       \begin{array}{ll}
-       i_t = \sigma(W_{ii} x_t + W_{hi} h_{t-1} + b_i) \\
-       f_t = \sigma(W_{if} x_t + W_{hf} h_{t-1} + b_f) \\
-       g_t = \tanh(W_{ig} x_t + W_{hg} h_{t-1} + b_g) \\
-       o_t = \sigma(W_{io} x_t + W_{ho} h_{t-1} + b_o) \\
-       c_t = f_t c_{t-1} + i_t g_t \\
-       h_t = o_t \tanh(c_t)
-       \end{array}
+        i_t &= \sigma(W_{ii} x_t + W_{hi} h_{t-1} + b_i) \\
+        f_t &= \sigma(W_{if} x_t + W_{hf} h_{t-1} + b_f) \\
+        g_t &= \tanh(W_{ig} x_t + W_{hg} h_{t-1} + b_g) \\
+        o_t &= \sigma(W_{io} x_t + W_{ho} h_{t-1} + b_o) \\
+        c_t &= f_t \odot c_{t-1} + i_t \odot g_t \\
+        h_t &= o_t \odot \tanh(c_t)
 
-    where :math:`i_t`, :math:`f_t`, :math:`o_t` are input, forget and
-    output gate activations, and :math:`g_t` is a vector of cell updates.
+    where:
 
-    The output is equal to the new hidden, :math:`h_t`.
+    - :math:`x_t` is the input vector at time t
+    - :math:`h_t` is the hidden state at time t
+    - :math:`c_t` is the cell state at time t
+    - :math:`i_t`, :math:`f_t`, :math:`o_t` are input, forget and output gate activations
+    - :math:`g_t` is the cell update vector
+    - :math:`\odot` represents element-wise multiplication
+    - :math:`\sigma` is the sigmoid activation function
 
     Notes
     -----
-
-    Forget gate initialization: Following (Jozefowicz, et al., 2015) [2]_ we add 1.0
-    to :math:`b_f` after initialization in order to reduce the scale of forgetting in
-    the beginning of the training.
-
+    Forget gate initialization: Following Jozefowicz et al. (2015), we add 1.0
+    to the forget gate bias after initialization to reduce forgetting at the
+    beginning of training.
 
     Parameters
     ----------
-    num_in: int
-      The dimension of the input vector
-    num_out: int
-      The number of hidden unit in the node.
-    state_init: callable, ArrayLike
-      The state initializer.
-    w_init: callable, ArrayLike
-      The input weight initializer.
-    b_init: optional, callable, ArrayLike
-      The bias weight initializer.
-    activation: str, callable
-      The activation function. It can be a string or a callable function.
+    num_in : int
+        The number of input units.
+    num_out : int
+        The number of hidden/cell units.
+    w_init : Union[ArrayLike, Callable], default=init.XavierNormal()
+        Initializer for the weight matrices.
+    b_init : Union[ArrayLike, Callable], default=init.ZeroInit()
+        Initializer for the bias vectors.
+    state_init : Union[ArrayLike, Callable], default=init.ZeroInit()
+        Initializer for the hidden and cell states.
+    activation : str or Callable, default='tanh'
+        Activation function to use. Can be a string (e.g., 'tanh')
+        or a callable function.
+    name : str, optional
+        Name of the module.
+
+    State Variables
+    --------------
+    h : HiddenState
+        Hidden state of the LSTM cell.
+    c : HiddenState
+        Cell state of the LSTM cell.
+
+    Methods
+    -------
+    init_state(batch_size=None, **kwargs)
+        Initialize the cell and hidden states.
+    reset_state(batch_size=None, **kwargs)
+        Reset the cell and hidden states to their initial values.
+    update(x)
+        Update the states for one time step and return the new hidden state.
 
     References
     ----------
-
-    .. [1] Zaremba, Wojciech, Ilya Sutskever, and Oriol Vinyals. "Recurrent neural
-           network regularization." arXiv preprint arXiv:1409.2329 (2014).
-    .. [2] Jozefowicz, Rafal, Wojciech Zaremba, and Ilya Sutskever. "An empirical
-           exploration of recurrent network architectures." In International conference
-           on machine learning, pp. 2342-2350. PMLR, 2015.
+    .. [1] Hochreiter, S., & Schmidhuber, J. (1997). Long short-term memory.
+           Neural computation, 9(8), 1735-1780.
+    .. [2] Zaremba, W., Sutskever, I., & Vinyals, O. (2014). Recurrent neural
+           network regularization. arXiv preprint arXiv:1409.2329.
+    .. [3] Jozefowicz, R., Zaremba, W., & Sutskever, I. (2015). An empirical
+           exploration of recurrent network architectures. In International
+           conference on machine learning, pp. 2342-2350.
     """
     __module__ = 'brainstate.nn'
 

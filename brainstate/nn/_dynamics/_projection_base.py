@@ -104,35 +104,38 @@ class _AlignPost(Module):
 
 class AlignPostProj(Interaction):
     """
-    Full-chain synaptic projection with the align-post reduction and the automatic synapse merging.
-
-    The ``full-chain`` means that the model needs to provide all information needed for a projection,
-    including ``pre`` -> ``delay`` -> ``comm`` -> ``syn`` -> ``out`` -> ``post``.
-
-    The ``align-post`` means that the synaptic variables have the same dimension as the post-synaptic neuron group.
-
-    The ``merging`` means that the same delay model is shared by all synapses, and the synapse model with same
-    parameters (such like time constants) will also share the same synaptic variables.
-
-    All align-post projection models prefer to use the event-driven computation mode. This means that the
-    ``comm`` model should be the event-driven model.
-
-    Moreover, it's worth noting that ``FullProjAlignPost`` has a different updating order with all align-pre
-    projection models. The updating order of align-post projections is ``spikes`` -> ``comm`` -> ``syn`` -> ``out``.
-    While, the updating order of all align-pre projection models is usually ``spikes`` -> ``syn`` -> ``comm`` -> ``out``.
+    Align-post projection of the neural network.
 
 
-    #  brainstate.nn.AlignPostProj(
-    #       LIF().prefetch('V').delay.at('I'), bst.surrogate.ReluGrad(), comm, syn, out, post
-    #  )
+    Examples
+    --------
 
-    Args:
-      pre: The pre-synaptic neuron group.
-      delay: The synaptic delay.
-      comm: The synaptic communication.
-      syn: The synaptic dynamics.
-      out: The synaptic output.
-      post: The post-synaptic neuron group.
+    Here is an example of using the `AlignPostProj` to create a synaptic projection.
+    Note that this projection needs the manual input of pre-synaptic spikes.
+
+    >>> import brainstate
+    >>> import brainevent
+    >>> import brainunit as u
+    >>> n_exc = 3200
+    >>> n_inh = 800
+    >>> num = n_exc + n_inh
+    >>> pop = brainstate.nn.LIFRef(
+    ...        num,
+    ...        V_rest=-49. * u.mV, V_th=-50. * u.mV, V_reset=-60. * u.mV,
+    ...        tau=20. * u.ms, tau_ref=5. * u.ms,
+    ...        V_initializer=brainstate.init.Normal(-55., 2., unit=u.mV)
+    ... )
+    >>> pop.reset_state()
+    >>> E = brainstate.nn.AlignPostProj(
+    ...        comm=brainevent.nn.FixedProb(n_exc, num, prob=80 / num, weight=1.62 * u.mS),
+    ...        syn=brainstate.nn.Expon.desc(num, tau=5. * u.ms),
+    ...        out=brainstate.nn.CUBA.desc(scale=u.volt),
+    ...        post=pop
+    ... )
+    >>> exe_current = E(pop.spike.value)
+
+
+
     """
     __module__ = 'brainstate.nn'
 
@@ -313,10 +316,6 @@ class CurrentProj(Interaction):
     Neither ``FullProjAlignPreDS`` nor ``FullProjAlignPreSD`` facilitates the event-driven computation.
     This is because the ``comm`` is computed after the synapse state, which is a floating-point number, rather
     than the spiking. To facilitate the event-driven computation, please use align post projections.
-
-    #    bint.CurrentInteraction(
-    #       LIF().align_pre(bst.nn.Expon.desc()).prefetch('g'), comm, out, post
-    #    )
 
     Args:
       prefetch: The synaptic dynamics.

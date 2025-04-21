@@ -19,22 +19,21 @@
 
 import jax
 import jax.numpy as jnp
+import brainstate
 
-import brainstate as bst
 
-
-class Block(bst.nn.Module):
+class Block(brainstate.nn.Module):
     def __init__(self, dim: int):
         super().__init__()
-        self.linear = bst.nn.Linear(dim, dim)
-        self.bn = bst.nn.BatchNorm0d([dim])
-        self.dropout = bst.nn.Dropout(0.5)
+        self.linear = brainstate.nn.Linear(dim, dim)
+        self.bn = brainstate.nn.BatchNorm0d([dim])
+        self.dropout = brainstate.nn.Dropout(0.5)
 
     def __call__(self, x: jax.Array):
         return jax.nn.gelu(self.dropout(self.bn(self.linear(x))))
 
 
-class ScanMLP(bst.nn.Module):
+class ScanMLP(brainstate.nn.Module):
     """
     An MLP that uses `vmap` during `__init__` to create a Block instance
     with an additional `layer` axis, and `scan` during `__call__` to apply
@@ -45,26 +44,26 @@ class ScanMLP(bst.nn.Module):
         super().__init__()
         self.n_layers = n_layers
 
-        @bst.augment.vmap
+        @brainstate.augment.vmap
         def create_block(key):
-            bst.random.set_key(key)
+            brainstate.random.set_key(key)
             return Block(dim)
 
-        self.layers = create_block(bst.random.split_key(n_layers))
+        self.layers = create_block(brainstate.random.split_key(n_layers))
 
     def __call__(self, x: jax.Array) -> jax.Array:
-        activation = bst.ShortTermState(x)
+        activation = brainstate.ShortTermState(x)
 
         def loop_fn(block_tree):
             # Feed the output of the previous layer to the next layer
-            block: Block = bst.graph.treefy_merge(graphdef, block_tree)
+            block: Block = brainstate.graph.treefy_merge(graphdef, block_tree)
             activation.value = block(activation.value)
-            return bst.graph.treefy_split(block)[1]
+            return brainstate.graph.treefy_split(block)[1]
 
         # Loop over each layer in the block tree
-        graphdef, statetree = bst.graph.treefy_split(self.layers)
-        block_trees = bst.compile.for_loop(loop_fn, statetree)
-        bst.graph.update_states(self.layers, block_trees)
+        graphdef, statetree = brainstate.graph.treefy_split(self.layers)
+        block_trees = brainstate.compile.for_loop(loop_fn, statetree)
+        brainstate.graph.update_states(self.layers, block_trees)
         return activation.value
 
 
@@ -72,8 +71,8 @@ model = ScanMLP(10, n_layers=5)
 
 x = jnp.ones((3, 10))
 
-with bst.environ.context(fit=True):
+with brainstate.environ.context(fit=True):
     y = model(x)
 
-print(jax.tree.map(jnp.shape, bst.graph.treefy_states(model)))
+print(jax.tree.map(jnp.shape, brainstate.graph.treefy_states(model)))
 print(y.shape)

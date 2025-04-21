@@ -19,20 +19,20 @@
 
 import jax
 
-import brainstate as bst
+import brainstate
 
 
 # lets pretend this function loads a pretrained model from a checkpoint
 def load_pretrained():
-    return bst.nn.Linear(784, 128)
+    return brainstate.nn.Linear(784, 128)
 
 
 # create a simple linear classifier using a pretrained backbone
-class Classifier(bst.nn.Module):
+class Classifier(brainstate.nn.Module):
     def __init__(self):
         super().__init__()
-        self.backbone = bst.nn.Linear(784, 128)
-        self.head = bst.nn.Linear(128, 10)
+        self.backbone = brainstate.nn.Linear(784, 128)
+        self.head = brainstate.nn.Linear(128, 10)
 
     def __call__(self, x):
         x = self.backbone(x)
@@ -51,11 +51,11 @@ model.backbone = load_pretrained()
 # create a filter to select all the parameters that are not part of the
 # backbone, i.e. the classifier parameters
 def is_trainable(path, node):
-    return 'backbone' not in path and issubclass(node.type, bst.ParamState)
+    return 'backbone' not in path and issubclass(node.type, brainstate.ParamState)
 
 
 # split the parameters into trainable and non-trainable parameters
-graphdef, trainable_params, non_trainable = bst.graph.treefy_split(model, is_trainable, ...)
+graphdef, trainable_params, non_trainable = brainstate.graph.treefy_split(model, is_trainable, ...)
 
 print(
     'trainable_params =',
