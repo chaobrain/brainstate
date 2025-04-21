@@ -2,3 +2,4 @@ numpy
 jax
 jaxlib
 brainunit>=0.0.4
+brainevent
