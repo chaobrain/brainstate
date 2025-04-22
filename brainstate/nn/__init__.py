@@ -33,6 +33,8 @@ from ._module import *
 from ._module import __all__ as module_all
 from ._utils import *
 from ._utils import __all__ as utils_all
+from ._event import *
+from ._event import __all__ as _event_all
 
 __all__ = (
     ['metrics']
@@ -45,6 +47,7 @@ __all__ = (
     + exp_euler_all
     + interaction_all
     + utils_all
+    + _event_all
 )
 
 del (
@@ -57,4 +60,5 @@ del (
     exp_euler_all,
     interaction_all,
     utils_all,
+    _event_all,
 )

@@ -54,6 +54,7 @@ dependencies = [
     'jaxlib',
     'numpy',
     'brainunit>=0.0.4',
+    'brainevent',
 ]
 
 dynamic = ['version']
