@@ -26,7 +26,6 @@ import jax
 import matplotlib.pyplot as plt
 
 import brainstate
-import brainevent
 
 Vr = 10. * u.mV
 theta = 20. * u.mV
@@ -49,7 +48,8 @@ class LIF(brainstate.nn.Neuron):
     def init_state(self, *args, **kwargs):
         # variables
         self.V = brainstate.HiddenState(brainstate.init.param(brainstate.init.Constant(Vr), self.varshape))
-        self.t_last_spike = brainstate.ShortTermState(brainstate.init.param(brainstate.init.Constant(-1e7 * u.ms), self.varshape))
+        self.t_last_spike = brainstate.ShortTermState(
+            brainstate.init.param(brainstate.init.Constant(-1e7 * u.ms), self.varshape))
 
     def update(self):
         # integrate membrane potential
@@ -76,7 +76,7 @@ class Net(brainstate.nn.DynamicsGroup):
         self.group = LIF(num)
         self.delay = brainstate.nn.Delay(jax.ShapeDtypeStruct((num,), bool), delta)
         self.syn = brainstate.nn.DeltaProj(
-            comm=brainevent.nn.FixedProb(num, num, sparseness, -J),
+            comm=brainstate.nn.EventFixedProb(num, num, sparseness, -J),
             post=self.group
         )
 
