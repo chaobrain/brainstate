@@ -41,8 +41,15 @@ with io.open(os.path.join(here, 'README.md'), 'r', encoding='utf-8') as f:
 # installation packages
 packages = find_packages(
     exclude=[
-        "docs*", "tests*", "examples*", "benchmark*", "experiments*", "build*",
-        "dist*", "brainstate.egg-info*", "brainstate/__pycache__*",
+        "docs*",
+        "tests*",
+        "examples*",
+        "benchmark*",
+        "experiments*",
+        "build*",
+        "dist*",
+        "brainstate.egg-info*",
+        "brainstate/__pycache__*",
         "brainstate/__init__.py"
     ]
 )
@@ -58,7 +65,7 @@ setup(
     author_email='chao.brain@qq.com',
     packages=packages,
     python_requires='>=3.9',
-    install_requires=['numpy>=1.15', 'jax', 'tqdm', 'brainunit>=0.0.4'],
+    install_requires=['numpy>=1.15', 'jax', 'tqdm', 'brainunit>=0.0.4', 'brainevent'],
     url='https://github.com/chaobrain/brainstate',
     project_urls={
         "Bug Tracker": "https://github.com/chaobrain/brainstate/issues",
@@ -80,7 +87,6 @@ setup(
         'Operating System :: OS Independent',
         'Programming Language :: Python',
         'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.9',
         'Programming Language :: Python :: 3.10',
         'Programming Language :: Python :: 3.11',
         'Programming Language :: Python :: 3.12',

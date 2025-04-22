@@ -23,8 +23,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import optax
 from datasets import load_dataset
+import brainstate
 
-import brainstate as bst
 
 np.random.seed(42)
 latent_size = 32
@@ -44,17 +44,17 @@ print('X_train:', X_train.shape, X_train.dtype)
 print('X_test:', X_test.shape, X_test.dtype)
 
 
-class Loss(bst.State):
+class Loss(brainstate.State):
     pass
 
 
 # %%
-class Encoder(bst.nn.Module):
+class Encoder(brainstate.nn.Module):
     def __init__(self, din: int, dmid: int, dout: int):
         super().__init__()
-        self.linear1 = bst.nn.Linear(din, dmid)
-        self.linear_mean = bst.nn.Linear(dmid, dout)
-        self.linear_std = bst.nn.Linear(dmid, dout)
+        self.linear1 = brainstate.nn.Linear(din, dmid)
+        self.linear_mean = brainstate.nn.Linear(dmid, dout)
+        self.linear_std = brainstate.nn.Linear(dmid, dout)
 
     def __call__(self, x: jax.Array) -> jax.Array:
         x = x.reshape((x.shape[0], -1))  # flatten
@@ -66,15 +66,15 @@ class Encoder(bst.nn.Module):
 
         loss = jnp.mean(0.5 * jnp.mean(-jnp.log(std ** 2) - 1.0 + std ** 2 + mean ** 2, axis=-1))
         self.kl_loss = Loss(loss)
-        z = mean + std * bst.random.normal(size=mean.shape)
+        z = mean + std * brainstate.random.normal(size=mean.shape)
         return z
 
 
-class Decoder(bst.nn.Module):
+class Decoder(brainstate.nn.Module):
     def __init__(self, din: int, dmid: int, dout: int):
         super().__init__()
-        self.linear1 = bst.nn.Linear(din, dmid)
-        self.linear2 = bst.nn.Linear(dmid, dout)
+        self.linear1 = brainstate.nn.Linear(din, dmid)
+        self.linear2 = brainstate.nn.Linear(dmid, dout)
 
     def __call__(self, z: jax.Array) -> jax.Array:
         z = self.linear1(z)
@@ -83,7 +83,7 @@ class Decoder(bst.nn.Module):
         return logits
 
 
-class VAE(bst.nn.Module):
+class VAE(brainstate.nn.Module):
     def __init__(
         self,
         din: int,
@@ -117,32 +117,32 @@ model = VAE(
     output_shape=image_shape,
 )
 
-optimizer = bst.optim.OptaxOptimizer(optax.adam(1e-3))
-optimizer.register_trainable_weights(model.states(bst.ParamState))
+optimizer = brainstate.optim.OptaxOptimizer(optax.adam(1e-3))
+optimizer.register_trainable_weights(model.states(brainstate.ParamState))
 
 
 # %%
-@bst.compile.jit
+@brainstate.compile.jit
 def train_step(x: jax.Array):
     def loss_fn():
         logits = model(x)
-        losses = bst.graph.treefy_states(model, Loss)
+        losses = brainstate.graph.treefy_states(model, Loss)
         kl_loss = sum(jax.tree_util.tree_leaves(losses), 0.0)
         reconstruction_loss = jnp.mean(optax.sigmoid_binary_cross_entropy(logits, x))
         loss = reconstruction_loss + 0.1 * kl_loss
         return loss
 
-    grads, loss = bst.augment.grad(loss_fn, model.states(bst.ParamState), return_value=True)()
+    grads, loss = brainstate.augment.grad(loss_fn, model.states(brainstate.ParamState), return_value=True)()
     optimizer.update(grads)
     return loss
 
 
-@bst.compile.jit
+@brainstate.compile.jit
 def forward(x: jax.Array) -> jax.Array:
     return jax.nn.sigmoid(model(x))
 
 
-@bst.compile.jit
+@brainstate.compile.jit
 def sample(z: jax.Array) -> jax.Array:
     return model.generate(z)
 

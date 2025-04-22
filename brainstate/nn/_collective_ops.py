@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 from collections import namedtuple
+from typing import Callable, TypeVar, Tuple, Any, Dict
 
 import jax
 from typing import Callable, TypeVar, Tuple, Any, Dict
@@ -289,12 +290,12 @@ def init_all_states(
 @set_module_as('brainstate.nn')
 def vmap_init_all_states(
     target: T,
-    init_args: Tuple[Any, ...] | Any = (),
-    init_kwargs: Dict[str, Any] | None = None,
+    *init_args: Tuple[Any, ...] | Any,
     axis_size: int = None,
     node_to_exclude: Filter = None,
     state_to_exclude: Filter = None,
     state_tag: str | None = None,
+    **init_kwargs: Dict[str, Any] | None
 ) -> T:
     """
     Initialize all vmap states for the given target module.
@@ -342,8 +343,8 @@ def vmap_init_all_states(
     def init_fn():
         init_all_states(
             target,
-            init_args=init_args,
-            init_kwargs=init_kwargs,
+            *init_args,
+            **init_kwargs,
             node_to_exclude=node_to_exclude,
         )
         return

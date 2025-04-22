@@ -28,36 +28,35 @@
 import brainunit as u
 import matplotlib.pyplot as plt
 
-import brainstate as bst
-import brainevent.nn
+import brainstate
 
 
-class EINet(bst.nn.DynamicsGroup):
+class EINet(brainstate.nn.DynamicsGroup):
     def __init__(self):
         super().__init__()
         self.n_exc = 3200
         self.n_inh = 800
         self.num = self.n_exc + self.n_inh
-        self.N = bst.nn.LIFRef(
+        self.N = brainstate.nn.LIFRef(
             self.num, V_rest=-49. * u.mV, V_th=-50. * u.mV, V_reset=-60. * u.mV,
             tau=20. * u.ms, tau_ref=5. * u.ms,
-            V_initializer=bst.init.Normal(-55., 2., unit=u.mV)
+            V_initializer=brainstate.init.Normal(-55., 2., unit=u.mV)
         )
-        self.E = bst.nn.AlignPostProj(
-            comm=brainevent.nn.FixedProb(self.n_exc, self.num, prob=0.02, weight=1.62 * u.mS),
-            syn=bst.nn.Expon.desc(self.num, tau=5. * u.ms),
-            out=bst.nn.CUBA.desc(scale=u.volt),
+        self.E = brainstate.nn.AlignPostProj(
+            comm=brainstate.nn.EventFixedProb(self.n_exc, self.num, conn_num=0.02, conn_weight=1.62 * u.mS),
+            syn=brainstate.nn.Expon.desc(self.num, tau=5. * u.ms),
+            out=brainstate.nn.CUBA.desc(scale=u.volt),
             post=self.N
         )
-        self.I = bst.nn.AlignPostProj(
-            comm=brainevent.nn.FixedProb(self.n_inh, self.num, prob=0.02, weight=-9.0 * u.mS),
-            syn=bst.nn.Expon.desc(self.num, tau=10. * u.ms),
-            out=bst.nn.CUBA.desc(scale=u.volt),
+        self.I = brainstate.nn.AlignPostProj(
+            comm=brainstate.nn.EventFixedProb(self.n_inh, self.num, conn_num=0.02, conn_weight=-9.0 * u.mS),
+            syn=brainstate.nn.Expon.desc(self.num, tau=10. * u.ms),
+            out=brainstate.nn.CUBA.desc(scale=u.volt),
             post=self.N
         )
 
     def update(self, t, inp):
-        with bst.environ.context(t=t):
+        with brainstate.environ.context(t=t):
             spk = self.N.get_spike() != 0.
             self.E(spk[:self.n_exc])
             self.I(spk[self.n_exc:])
@@ -67,12 +66,13 @@ class EINet(bst.nn.DynamicsGroup):
 
 # network
 net = EINet()
-bst.nn.init_all_states(net)
+brainstate.nn.init_all_states(net)
 
 # simulation
-with bst.environ.context(dt=0.1 * u.ms):
-    times = u.math.arange(0. * u.ms, 1000. * u.ms, bst.environ.get_dt())
-    spikes = bst.compile.for_loop(lambda t: net.update(t, 20. * u.mA), times, pbar=bst.compile.ProgressBar(10))
+with brainstate.environ.context(dt=0.1 * u.ms):
+    times = u.math.arange(0. * u.ms, 1000. * u.ms, brainstate.environ.get_dt())
+    spikes = brainstate.compile.for_loop(lambda t: net.update(t, 20. * u.mA), times,
+                                         pbar=brainstate.compile.ProgressBar(10))
 
 # visualization
 t_indices, n_indices = u.math.where(spikes)

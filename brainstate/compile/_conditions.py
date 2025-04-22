@@ -24,6 +24,8 @@ from brainstate._utils import set_module_as
 from ._error_if import jit_error_if
 from ._make_jaxpr import StatefulFunction
 from ._util import wrap_single_fun_in_multi_branches, write_back_state_values
+from brainstate._compatible_import import to_concrete_aval, Tracer
+
 
 __all__ = [
     'cond', 'switch', 'ifelse',
@@ -86,7 +88,7 @@ def cond(pred, true_fun: Callable, false_fun: Callable, *operands):
             raise TypeError("Pred type must be either boolean or number, got {}.".format(pred_dtype))
 
     # not jit
-    if jax.config.jax_disable_jit and isinstance(jax.core.get_aval(pred), jax.core.ConcreteArray):
+    if jax.config.jax_disable_jit and not isinstance(to_concrete_aval(pred), Tracer):
         if pred:
             return true_fun(*operands)
         else:

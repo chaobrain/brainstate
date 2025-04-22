@@ -27,9 +27,8 @@ import os
 os.environ['JAX_TRACEBACK_FILTERING'] = 'off'
 
 
-import brainstate as bst
-import braintools as bts
-import brainevent.nn
+import brainstate
+import braintools
 import brainunit as u
 import matplotlib.pyplot as plt
 
@@ -40,22 +39,22 @@ from Susin_Destexhe_2021_gamma_oscillation import (
 
 
 def simulate_adex_neuron(ax_v, ax_I, pars, title):
-    with bst.environ.context(dt=0.1 * u.ms):
+    with brainstate.environ.context(dt=0.1 * u.ms):
         # neuron
-        adex = bst.nn.init_all_states(AdEx(1, **pars))
+        adex = brainstate.nn.init_all_states(AdEx(1, **pars))
 
         def run_step(t, x):
-            with bst.environ.context(t=t):
+            with brainstate.environ.context(t=t):
                 adex.update(x)
                 return adex.V.value
 
         # simulation
         duration = 1.5e3 * u.ms
-        times = u.math.arange(0. * u.ms, duration, bst.environ.get_dt())
+        times = u.math.arange(0. * u.ms, duration, brainstate.environ.get_dt())
         inputs = get_inputs(0. * u.nA, 0.5 * u.nA, t_transition=50. * u.ms,
                             t_min_plato=500 * u.ms, t_max_plato=500 * u.ms,
                             t_gap=500 * u.ms, t_total=duration)
-        vs = bst.compile.for_loop(run_step, times, inputs, pbar=bst.compile.ProgressBar(10))
+        vs = brainstate.compile.for_loop(run_step, times, inputs, pbar=brainstate.compile.ProgressBar(10))
 
         # visualization
         ax_v.plot(times.to_decimal(u.ms), vs.to_decimal(u.mV))
@@ -70,14 +69,14 @@ def simulate_adex_neuron(ax_v, ax_I, pars, title):
 
 
 def simulate_adex_neurons():
-    fig, gs = bts.visualize.get_figure(2, 3, 4, 6)
+    fig, gs = braintools.visualize.get_figure(2, 3, 4, 6)
     simulate_adex_neuron(fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[1, 0]), RS_par, 'Regular Spiking')
     simulate_adex_neuron(fig.add_subplot(gs[0, 1]), fig.add_subplot(gs[1, 1]), FS_par, 'Fast Spiking')
     simulate_adex_neuron(fig.add_subplot(gs[0, 2]), fig.add_subplot(gs[1, 2]), Ch_par, 'Chattering')
     plt.show()
 
 
-class AINet(bst.nn.DynamicsGroup):
+class AINet(brainstate.nn.DynamicsGroup):
     def __init__(self):
         super().__init__()
 
@@ -97,48 +96,48 @@ class AINet(bst.nn.DynamicsGroup):
         FS_par_.update(Vth=-50 * u.mV, V_sp_th=-40 * u.mV)
         self.fs_pop = AdEx(self.num_inh, tau_e=self.exc_syn_tau, tau_i=self.inh_syn_tau, **FS_par_)
         self.rs_pop = AdEx(self.num_exc, tau_e=self.exc_syn_tau, tau_i=self.inh_syn_tau, **RS_par_)
-        self.ext_pop = bst.nn.PoissonEncoder(self.num_exc)
+        self.ext_pop = brainstate.nn.PoissonEncoder(self.num_exc)
 
         # Poisson inputs
-        self.ext_to_FS = bst.nn.DeltaProj(
-            comm=brainevent.nn.FixedProb(self.num_exc, self.num_inh, 0.02, self.ext_weight),
+        self.ext_to_FS = brainstate.nn.DeltaProj(
+            comm=brainstate.nn.EventFixedProb(self.num_exc, self.num_inh, 0.02, self.ext_weight),
             post=self.fs_pop,
             label='ge'
         )
-        self.ext_to_RS = bst.nn.DeltaProj(
-            comm=brainevent.nn.FixedProb(self.num_exc, self.num_exc, 0.02, self.ext_weight),
+        self.ext_to_RS = brainstate.nn.DeltaProj(
+            comm=brainstate.nn.EventFixedProb(self.num_exc, self.num_exc, 0.02, self.ext_weight),
             post=self.rs_pop,
             label='ge'
         )
 
         # synaptic projections
-        self.RS_to_FS = bst.nn.DeltaProj(
+        self.RS_to_FS = brainstate.nn.DeltaProj(
             self.rs_pop.prefetch('spike').delay.at(self.delay),
-            comm=brainevent.nn.FixedProb(self.num_exc, self.num_inh, 0.02, self.exc_syn_weight),
+            comm=brainstate.nn.EventFixedProb(self.num_exc, self.num_inh, 0.02, self.exc_syn_weight),
             post=self.fs_pop,
             label='ge'
         )
-        self.RS_to_RS = bst.nn.DeltaProj(
+        self.RS_to_RS = brainstate.nn.DeltaProj(
             self.rs_pop.prefetch('spike').delay.at(self.delay),
-            comm=brainevent.nn.FixedProb(self.num_exc, self.num_exc, 0.02, self.exc_syn_weight),
+            comm=brainstate.nn.EventFixedProb(self.num_exc, self.num_exc, 0.02, self.exc_syn_weight),
             post=self.rs_pop,
             label='ge'
         )
-        self.FS_to_FS = bst.nn.DeltaProj(
+        self.FS_to_FS = brainstate.nn.DeltaProj(
             self.fs_pop.prefetch('spike').delay.at(self.delay),
-            comm=brainevent.nn.FixedProb(self.num_inh, self.num_inh, 0.02, self.inh_syn_weight),
+            comm=brainstate.nn.EventFixedProb(self.num_inh, self.num_inh, 0.02, self.inh_syn_weight),
             post=self.fs_pop,
             label='gi'
         )
-        self.FS_to_RS = bst.nn.DeltaProj(
+        self.FS_to_RS = brainstate.nn.DeltaProj(
             self.fs_pop.prefetch('spike').delay.at(self.delay),
-            comm=brainevent.nn.FixedProb(self.num_inh, self.num_exc, 0.02, self.inh_syn_weight),
+            comm=brainstate.nn.EventFixedProb(self.num_inh, self.num_exc, 0.02, self.inh_syn_weight),
             post=self.rs_pop,
             label='gi'
         )
 
     def update(self, i, t, freq):
-        with bst.environ.context(t=t, i=i):
+        with brainstate.environ.context(t=t, i=i):
             ext_spikes = self.ext_pop(freq)
             self.ext_to_FS(ext_spikes)
             self.ext_to_RS(ext_spikes)
@@ -157,18 +156,18 @@ class AINet(bst.nn.DynamicsGroup):
 
 
 def simulate_ai_net():
-    with bst.environ.context(dt=0.1 * u.ms):
+    with brainstate.environ.context(dt=0.1 * u.ms):
         # inputs
         duration = 2e3 * u.ms
         varied_rates = get_inputs(2. * u.Hz, 2. * u.Hz, 50. * u.ms, 150 * u.ms, 600 * u.ms, 1e3 * u.ms, duration)
 
         # network
-        net = bst.nn.init_all_states(AINet())
+        net = brainstate.nn.init_all_states(AINet())
 
         # simulation
-        times = u.math.arange(0. * u.ms, duration, bst.environ.get_dt())
+        times = u.math.arange(0. * u.ms, duration, brainstate.environ.get_dt())
         indices = u.math.arange(0, len(times))
-        returns = bst.compile.for_loop(net.update, indices, times, varied_rates, pbar=bst.compile.ProgressBar(100))
+        returns = brainstate.compile.for_loop(net.update, indices, times, varied_rates, pbar=brainstate.compile.ProgressBar(100))
 
         # # spike raster plot
         # spikes = returns['FS.spike']

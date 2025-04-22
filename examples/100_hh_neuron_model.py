@@ -15,13 +15,12 @@
 
 
 import brainunit as u
+import brainstate
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 
-import brainstate as bst
 
-
-class HH(bst.nn.Dynamics):
+class HH(brainstate.nn.Dynamics):
     def __init__(
         self,
         in_size,
@@ -63,10 +62,10 @@ class HH(bst.nn.Dynamics):
     dn = lambda self, n, t, V: (self.n_alpha(V) * (1 - n) - self.n_beta(V) * n) / u.ms
 
     def init_state(self, batch_size=None):
-        self.V = bst.HiddenState(jnp.ones(self.varshape, bst.environ.dftype()) * -65. * u.mV)
-        self.m = bst.HiddenState(self.m_inf(self.V.value))
-        self.h = bst.HiddenState(self.h_inf(self.V.value))
-        self.n = bst.HiddenState(self.n_inf(self.V.value))
+        self.V = brainstate.HiddenState(jnp.ones(self.varshape, brainstate.environ.dftype()) * -65. * u.mV)
+        self.m = brainstate.HiddenState(self.m_inf(self.V.value))
+        self.h = brainstate.HiddenState(self.h_inf(self.V.value))
+        self.n = brainstate.HiddenState(self.n_inf(self.V.value))
 
     def dV(self, V, t, m, h, n, I):
         I = self.sum_current_inputs(I, V)
@@ -78,11 +77,11 @@ class HH(bst.nn.Dynamics):
         return dVdt
 
     def update(self, x=0. * u.mA / u.cm ** 2):
-        t = bst.environ.get('t')
-        V = bst.nn.exp_euler_step(self.dV, self.V.value, t, self.m.value, self.h.value, self.n.value, x)
-        m = bst.nn.exp_euler_step(self.dm, self.m.value, t, self.V.value)
-        h = bst.nn.exp_euler_step(self.dh, self.h.value, t, self.V.value)
-        n = bst.nn.exp_euler_step(self.dn, self.n.value, t, self.V.value)
+        t = brainstate.environ.get('t')
+        V = brainstate.nn.exp_euler_step(self.dV, self.V.value, t, self.m.value, self.h.value, self.n.value, x)
+        m = brainstate.nn.exp_euler_step(self.dm, self.m.value, t, self.V.value)
+        h = brainstate.nn.exp_euler_step(self.dh, self.h.value, t, self.V.value)
+        n = brainstate.nn.exp_euler_step(self.dn, self.n.value, t, self.V.value)
         V = self.sum_delta_inputs(init=V)
         spike = jnp.logical_and(self.V.value < self.V_th, V >= self.V_th)
         self.V.value = V
@@ -94,22 +93,22 @@ class HH(bst.nn.Dynamics):
 
 
 hh = HH(10)
-bst.nn.init_all_states(hh)
+brainstate.nn.init_all_states(hh)
 dt = 0.01 * u.ms
 
 
 def run(t, inp):
-    with bst.environ.context(t=t, dt=dt):
+    with brainstate.environ.context(t=t, dt=dt):
         hh(inp)
     return hh.V.value
 
 
 times = u.math.arange(0. * u.ms, 100. * u.ms, dt)
-vs = bst.compile.for_loop(
+vs = brainstate.compile.for_loop(
     run,
     # times, random inputs
-    times, bst.random.uniform(1., 10., times.shape) * u.uA / u.cm ** 2,
-    pbar=bst.compile.ProgressBar(count=100)
+    times, brainstate.random.uniform(1., 10., times.shape) * u.uA / u.cm ** 2,
+    pbar=brainstate.compile.ProgressBar(count=100)
 )
 
 plt.plot(times.to_decimal(u.ms), vs.to_decimal(u.mV))

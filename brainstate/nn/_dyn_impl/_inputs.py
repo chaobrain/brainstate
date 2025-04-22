@@ -14,10 +14,11 @@
 # ==============================================================================
 from __future__ import annotations
 
+from typing import Union, Optional, Sequence, Callable
+
 import brainunit as u
 import jax
 import numpy as np
-from typing import Union, Optional, Sequence, Callable
 
 from brainstate import environ, init, random
 from brainstate._state import ShortTermState
@@ -140,8 +141,68 @@ class PoissonSpike(Dynamics):
 
 
 class PoissonEncoder(Dynamics):
-    """
-    Poisson Neuron Group.
+    r"""Poisson spike encoder for converting firing rates to spike trains.
+
+    This class implements a Poisson process to generate spikes based on provided
+    firing rates. Unlike the PoissonSpike class, this encoder accepts firing rates
+    as input during the update step rather than having them fixed at initialization.
+
+    The spike generation follows a Poisson process where the probability of a spike
+    in each time step is proportional to the firing rate and the simulation time step:
+
+    $$
+    P(\text{spike}) = \text{rate} \cdot \text{dt}
+    $$
+
+    For each neuron and time step, the encoder draws a random number from a uniform
+    distribution [0,1] and generates a spike if the number is less than or equal to
+    the spiking probability.
+
+    Parameters
+    ----------
+    in_size : Size
+        Size of the input to the encoder, defining the shape of the output spike train.
+    spk_type : DTypeLike, default=bool
+        Data type for the generated spikes. Typically boolean for binary spikes.
+    name : str, optional
+        Name of the encoder module.
+
+    Examples
+    --------
+    >>> import brainstate as bs
+    >>> import brainunit as u
+    >>> import numpy as np
+    >>>
+    >>> # Create a Poisson encoder for 10 neurons
+    >>> encoder = bs.nn.PoissonEncoder(10)
+    >>>
+    >>> # Generate spikes with varying firing rates
+    >>> rates = np.array([10, 20, 30, 40, 50, 60, 70, 80, 90, 100]) * u.Hz
+    >>> spikes = encoder.update(rates)
+    >>>
+    >>> # Use in a more complex processing pipeline
+    >>> # First, generate rate-coded output from an analog signal
+    >>> analog_values = np.random.rand(10) * 100  # values between 0 and 100
+    >>> firing_rates = analog_values * u.Hz  # convert to firing rates
+    >>> spike_train = encoder.update(firing_rates)
+    >>>
+    >>> # Feed the spikes into a spiking neural network
+    >>> neuron_layer = bs.nn.LIF(10)
+    >>> neuron_layer.init_state(batch_size=1)
+    >>> output_spikes = neuron_layer.update(spike_train)
+
+    Notes
+    -----
+    - This encoder is particularly useful for rate-to-spike conversion in neuromorphic
+      computing applications and sensory encoding tasks.
+    - The statistical properties of the generated spike trains follow a Poisson process,
+      where the inter-spike intervals are exponentially distributed.
+    - For small time steps (dt), the number of spikes in a time window T approximately
+      follows a Poisson distribution with parameter λ = rate * T.
+    - Unlike PoissonSpike which has fixed rates, this encoder allows dynamic rate changes
+      with every update call, making it suitable for encoding time-varying signals.
+    - The independence of spike generation between time steps results in renewal process
+      statistics without memory of previous spiking history.
     """
 
     def __init__(
@@ -160,23 +221,99 @@ class PoissonEncoder(Dynamics):
 
 
 class PoissonInput(Module):
-    """
-    Poisson Input to the given :py:class:`brainstate.State`.
+    r"""Poisson Input to the given state variable.
 
-    Adds independent Poisson input to a target variable. For large
-    numbers of inputs, this is much more efficient than creating a
-    `PoissonGroup`. The synaptic events are generated randomly during the
-    simulation and are not preloaded and stored in memory. All the inputs must
-    target the same variable, have the same frequency and same synaptic weight.
-    All neurons in the target variable receive independent realizations of
-    Poisson spike trains.
+    This class provides a way to add independent Poisson-distributed spiking input
+    to a target state variable. For large numbers of inputs, this implementation is
+    computationally more efficient than creating separate Poisson spike generators.
 
-    Args:
-      target: The variable that is targeted by this input. Should be an instance of :py:class:`~.Variable`.
-      num_input: The number of inputs.
-      freq: The frequency of each of the inputs. Must be a scalar.
-      weight: The synaptic weight. Must be a scalar.
-      name: The target name.
+    The synaptic events are generated randomly during simulation runtime and are not
+    preloaded or stored in memory, which improves memory efficiency for large-scale
+    simulations. All inputs target the same variable with the same frequency and
+    synaptic weight.
+
+    The Poisson process generates spikes with probability based on the frequency and
+    simulation time step:
+
+    $$
+    P(\text{spike}) = \text{freq} \cdot \text{dt}
+    $$
+
+    For computational efficiency, two different methods are used for spike generation:
+
+    1. For large numbers of inputs, a normal approximation:
+       $$
+       \text{inputs} \sim \mathcal{N}(\mu, \sigma^2)
+       $$
+       where $\mu = \text{num\_input} \cdot p$ and $\sigma^2 = \text{num\_input} \cdot p \cdot (1-p)$
+
+    2. For smaller numbers, a direct binomial sampling:
+       $$
+       \text{inputs} \sim \text{Binomial}(\text{num\_input}, p)
+       $$
+
+    where $p = \text{freq} \cdot \text{dt}$ in both cases.
+
+    Parameters
+    ----------
+    target : Prefetch
+        The variable that is targeted by this input. Should be an instance of
+        :py:class:`brainstate.State` that's prefetched via the target mechanism.
+    indices : Union[np.ndarray, jax.Array]
+        Indices of the target to receive input. If None, input is applied to the entire target.
+    num_input : int
+        The number of independent Poisson input sources.
+    freq : Union[int, float]
+        The firing frequency of each input source in Hz.
+    weight :  ndarray, float, or brainunit.Quantity
+        The synaptic weight of each input spike.
+    name : Optional[str], optional
+        The name of this module.
+
+    Examples
+    --------
+    >>> import brainstate as bs
+    >>> import brainunit as u
+    >>> import numpy as np
+    >>>
+    >>> # Create a neuron group with membrane potential
+    >>> neuron = bs.nn.LIF(100)
+    >>> neuron.init_state(batch_size=1)
+    >>>
+    >>> # Add Poisson input to all neurons
+    >>> poisson_in = bs.nn.PoissonInput(
+    ...     target=neuron.V,
+    ...     indices=None,
+    ...     num_input=200,
+    ...     freq=50 * u.Hz,
+    ...     weight=0.1 * u.mV
+    ... )
+    >>>
+    >>> # Add Poisson input only to specific neurons
+    >>> indices = np.array([0, 10, 20, 30])
+    >>> specific_input = bs.nn.PoissonInput(
+    ...     target=neuron.V,
+    ...     indices=indices,
+    ...     num_input=50,
+    ...     freq=100 * u.Hz,
+    ...     weight=0.2 * u.mV
+    ... )
+    >>>
+    >>> # Run simulation with the inputs
+    >>> for t in range(100):
+    ...     poisson_in.update()
+    ...     specific_input.update()
+    ...     neuron.update()
+
+    Notes
+    -----
+    - The Poisson inputs are statistically independent between update steps and across
+      target neurons.
+    - This implementation is particularly efficient for large numbers of inputs or targets.
+    - For very sparse connectivity patterns, consider using individual PoissonSpike neurons
+      with specific connectivity patterns instead.
+    - The update method internally calls the poisson_input function which handles the
+      spike generation and target state updates.
     """
 
     def __init__(
@@ -184,8 +321,8 @@ class PoissonInput(Module):
         target: Prefetch,
         indices: Union[np.ndarray, jax.Array],
         num_input: int,
-        freq: Union[int, float],
-        weight: Union[int, float],
+        freq: u.Quantity[u.Hz],
+        weight: Union[jax.typing.ArrayLike, u.Quantity],
         name: Optional[str] = None,
     ):
         super().__init__(name=name)
@@ -212,18 +349,46 @@ class PoissonInput(Module):
 def poisson_input(
     freq: u.Quantity[u.Hz],
     num_input: int,
-    weight: u.Quantity,
+    weight: Union[jax.typing.ArrayLike, u.Quantity],
     target: State,
     indices: Optional[Union[np.ndarray, jax.Array]] = None,
     refractory: Optional[Union[jax.Array]] = None,
 ):
-    """
-    Generates Poisson-distributed input spikes to a target state variable.
+    r"""Generates Poisson-distributed input spikes to a target state variable.
 
     This function simulates Poisson input to a given state, updating the target
     variable with generated spikes based on the specified frequency, number of inputs,
     and synaptic weight. The input can be applied to specific indices of the target
     or to the entire target if indices are not provided.
+
+    The function uses two different methods to generate the Poisson-distributed input:
+    1. For large numbers of inputs (a > 5 and b > 5), a normal approximation is used
+    2. For smaller numbers, a direct binomial sampling approach is used
+
+    Mathematical model for Poisson input:
+    $$
+    P(\text{spike}) = \text{freq} \cdot \text{dt}
+    $$
+
+    For the normal approximation (when a > 5 and b > 5):
+    $$
+    \text{inputs} \sim \mathcal{N}(a, b \cdot p)
+    $$
+    where:
+    $$
+    a = \text{num\_input} \cdot p
+    $$
+    $$
+    b = \text{num\_input} \cdot (1 - p)
+    $$
+    $$
+    p = \text{freq} \cdot \text{dt}
+    $$
+
+    For direct binomial sampling (when a ≤ 5 or b ≤ 5):
+    $$
+    \text{inputs} \sim \text{Binomial}(\text{num\_input}, p)
+    $$
 
     Parameters
     ----------
@@ -242,10 +407,52 @@ def poisson_input(
         A boolean array indicating which parts of the target are in a refractory state
         and should not be updated. Should be the same length as the target.
 
-    Returns
-    -------
-    None
-        The function updates the target state in place with the generated Poisson input.
+    Examples
+    --------
+    >>> import brainstate as bs
+    >>> import brainunit as u
+    >>> import numpy as np
+    >>>
+    >>> # Create a membrane potential state
+    >>> V = bs.HiddenState(np.zeros(100) * u.mV)
+    >>>
+    >>> # Add Poisson input to all neurons at 50 Hz
+    >>> bs.nn.poisson_input(
+    ...     freq=50 * u.Hz,
+    ...     num_input=200,
+    ...     weight=0.1 * u.mV,
+    ...     target=V
+    ... )
+    >>>
+    >>> # Apply Poisson input only to a subset of neurons
+    >>> indices = np.array([0, 10, 20, 30])
+    >>> bs.nn.poisson_input(
+    ...     freq=100 * u.Hz,
+    ...     num_input=50,
+    ...     weight=0.2 * u.mV,
+    ...     target=V,
+    ...     indices=indices
+    ... )
+    >>>
+    >>> # Apply input with refractory mask
+    >>> refractory = np.zeros(100, dtype=bool)
+    >>> refractory[40:60] = True  # neurons 40-59 are in refractory period
+    >>> bs.nn.poisson_input(
+    ...     freq=75 * u.Hz,
+    ...     num_input=100,
+    ...     weight=0.15 * u.mV,
+    ...     target=V,
+    ...     refractory=refractory
+    ... )
+
+    Notes
+    -----
+    - The function automatically switches between normal approximation and binomial
+      sampling based on the input parameters to optimize computation efficiency.
+    - For large numbers of inputs, the normal approximation provides significant
+      performance improvements.
+    - The weight parameter is applied uniformly to all generated spikes.
+    - When refractory is provided, the corresponding target elements are not updated.
     """
     freq = maybe_state(freq)
     weight = maybe_state(weight)

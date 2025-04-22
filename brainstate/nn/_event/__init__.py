@@ -1,4 +1,4 @@
-# Copyright 2024 BDP Ecosystem Limited. All Rights Reserved.
+# Copyright 2025 BDP Ecosystem Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,13 +13,14 @@
 # limitations under the License.
 # ==============================================================================
 
-from __future__ import annotations
+# -*- coding: utf-8 -*-
 
-from brainstate.nn._dynamics._dynamics_base import Projection
+
+from ._fixedprob_mv import EventFixedProb, EventFixedNumConn
+from ._linear_mv import EventLinear
 
 __all__ = [
+    'EventLinear',
+    'EventFixedProb',
+    'EventFixedNumConn',
 ]
-
-
-class ExponentialSynapse(Projection):
-    pass

@@ -57,9 +57,38 @@ _max_order = 10
 
 class Projection(Module):
     """
-    Base class to model synaptic projections.
-    """
+    Base class for synaptic projection modules in neural network modeling.
 
+    This class defines the interface for modules that handle projections between
+    neural populations. Projections process input signals and transform them
+    before they reach the target neurons, implementing the connectivity patterns
+    in neural networks.
+
+    In the BrainState execution order, Projection modules are updated before
+    Dynamics modules, following the natural information flow in neural systems:
+    1. Projections process inputs (synaptic transmission)
+    2. Dynamics update neuron states (neural integration)
+
+    The Projection class does not implement the update logic directly but delegates
+    to its child nodes. If no child nodes exist, it raises a ValueError.
+
+    Parameters
+    ----------
+    *args : Any
+        Arguments passed to the parent Module class.
+    **kwargs : Any
+        Keyword arguments passed to the parent Module class.
+
+    Raises
+    ------
+    ValueError
+        If the update() method is called but no child nodes are defined.
+
+    Notes
+    -----
+    Derived classes should implement specific projection behaviors, such as
+    dense connectivity, sparse connectivity, or specific weight update rules.
+    """
     __module__ = 'brainstate.nn'
 
     def update(self, *args, **kwargs):
@@ -73,24 +102,48 @@ class Projection(Module):
 
 class Dynamics(Module):
     """
-    Base class to model dynamics.
+    Base class for implementing neural dynamics models in BrainState.
 
-    .. note::
-       In general, every instance of :py:class:`~.Module` implemented in
-       BrainPy only defines the evolving function at each time step :math:`t`.
+    Dynamics classes represent the core computational units in neural simulations,
+    implementing the differential equations or update rules that govern neural activity.
+    This class provides infrastructure for managing neural populations, handling inputs,
+    and coordinating updates within the simulation framework.
 
-       If users want to define the logic of running models across multiple steps,
-       we recommend users to use :py:func:`~.for_loop`, :py:class:`~.LoopOverTime`,
-       :py:class:`~.DSRunner`, or :py:class:`~.DSTrainer`.
+    The Dynamics class serves several key purposes:
+    1. Managing neuron population geometry and size information
+    2. Handling current and delta (instantaneous change) inputs to neurons
+    3. Supporting before/after update hooks for computational dependencies
+    4. Providing access to delayed state variables through the prefetch mechanism
+    5. Establishing the execution order in neural network simulations
 
-       To be compatible with previous APIs, :py:class:`~.Module` inherits
-       from the :py:class:`~.DelayRegister`. It's worthy to note that the methods of
-       :py:class:`~.DelayRegister` will be removed in the future, including:
+    Parameters
+    ----------
+    in_size : Size
+        The geometry of the neuron population. Can be an integer (e.g., 10) for
+        1D neuron arrays, or a tuple (e.g., (10, 10)) for multi-dimensional populations.
+    name : Optional[str], default=None
+        Optional name identifier for this dynamics module.
 
-       - ``.register_delay()``
-       - ``.get_delay_data()``
-       - ``.update_local_delays()``
-       - ``.reset_local_delays()``
+    Attributes
+    ----------
+    in_size : tuple
+        The shape/geometry of the neuron population.
+    out_size : tuple
+        The output shape, typically matches in_size.
+    current_inputs : Optional[Dict[str, Union[Callable, ArrayLike]]]
+        Dictionary of registered current input functions or arrays.
+    delta_inputs : Optional[Dict[str, Union[Callable, ArrayLike]]]
+        Dictionary of registered delta input functions or arrays.
+    before_updates : Optional[Dict[Hashable, Callable]]
+        Dictionary of functions to call before the main update.
+    after_updates : Optional[Dict[Hashable, Callable]]
+        Dictionary of functions to call after the main update.
+
+    Notes
+    -----
+    In the BrainState execution sequence, Dynamics modules are updated after
+    Projection modules and before other module types, reflecting the natural
+    flow of information in neural systems.
 
     There are several essential attributes:
 
@@ -100,9 +153,12 @@ class Dynamics(Module):
     - ``num``: the flattened number of neurons in the group. For example, `size=(10, )` => \
       `num=10`, `size=(10, 10)` => `num=100`, `size=(10, 15, 4)` => `num=600`.
 
-    Args:
-      in_size: The neuron group geometry.
-      name: The name of the dynamic system.
+
+    See Also
+    --------
+    Module : Parent class providing base module functionality
+    Projection : Class for handling synaptic projections between neural populations
+    DynamicsGroup : Container for organizing multiple dynamics modules
     """
 
     __module__ = 'brainstate.nn'
@@ -158,26 +214,72 @@ class Dynamics(Module):
         self.out_size = self.in_size
 
     def __pretty_repr_item__(self, name, value):
-        if name in ['_before_updates', '_after_updates', '_current_inputs', '_delta_inputs']:
-            return None if value is None else (name[1:], value)  # skip the first `_`
+        if name in [
+            '_before_updates', '_after_updates', '_current_inputs', '_delta_inputs',
+            '_in_size', '_out_size', '_name', '_mode',
+        ]:
+            return (name, value) if value is None else (name[1:], value)  # skip the first `_`
         return super().__pretty_repr_item__(name, value)
 
     @property
     def varshape(self):
-        """The shape of variables in the neuron group."""
+        """
+        Get the shape of variables in the neuron group.
+
+        This property provides access to the geometry (shape) of the neuron population,
+        which determines how variables and states are structured.
+
+        Returns
+        -------
+        tuple
+            A tuple representing the dimensional shape of the neuron group,
+            matching the in_size parameter provided during initialization.
+
+        See Also
+        --------
+        in_size : The input geometry specification for the neuron group
+        """
         return self.in_size
 
     @property
     def current_inputs(self):
         """
-        The current inputs of the model. It should be a dictionary of the input data.
+        Get the dictionary of current inputs registered with this dynamics model.
+
+        Current inputs represent direct input currents that flow into the model.
+
+        Returns
+        -------
+        dict or None
+            A dictionary mapping keys to current input functions or values,
+            or None if no current inputs have been registered.
+
+        See Also
+        --------
+        add_current_input : Register a new current input
+        sum_current_inputs : Apply and sum all current inputs
+        delta_inputs : Dictionary of instantaneous change inputs
         """
         return self._current_inputs
 
     @property
     def delta_inputs(self):
         """
-        The delta inputs of the model. It should be a dictionary of the input data.
+        Get the dictionary of delta inputs registered with this dynamics model.
+
+        Delta inputs represent instantaneous changes to state variables (dX/dt).
+
+        Returns
+        -------
+        dict or None
+            A dictionary mapping keys to delta input functions or values,
+            or None if no delta inputs have been registered.
+
+        See Also
+        --------
+        add_delta_input : Register a new delta input
+        sum_delta_inputs : Apply and sum all delta inputs
+        current_inputs : Dictionary of direct current inputs
         """
         return self._delta_inputs
 
@@ -188,12 +290,40 @@ class Dynamics(Module):
         label: Optional[str] = None
     ):
         """
-        Add a current input function.
+        Add a current input function or array to the dynamics model.
 
-        Args:
-          key: str. The dict key.
-          inp: Callable, ArrayLike. The currents or the function to generate currents.
-          label: str. The input label.
+        Current inputs represent direct input currents that can be accessed during
+        model updates through the `sum_current_inputs()` method.
+
+        Parameters
+        ----------
+        key : str
+            Unique identifier for this current input. Used to retrieve or reference
+            the input later.
+        inp : Union[Callable, ArrayLike]
+            The input data or function that generates input data.
+            - If callable: Will be called during updates with arguments passed to `sum_current_inputs()`
+            - If array-like: Will be applied once and then automatically removed from available inputs
+        label : Optional[str], default=None
+            Optional grouping label for the input. When provided, allows selective
+            processing of inputs by label in `sum_current_inputs()`.
+
+        Raises
+        ------
+        ValueError
+            If the key has already been used for a different current input.
+
+        Notes
+        -----
+        - Inputs with the same label can be processed together using the `label`
+          parameter in `sum_current_inputs()`.
+        - Non-callable inputs are consumed when used (removed after first use).
+        - Callable inputs persist and can be called repeatedly.
+
+        See Also
+        --------
+        sum_current_inputs : Sum all current inputs matching a given label
+        add_delta_input : Add a delta input function or array
         """
         key = _input_label_repr(key, label)
         if self._current_inputs is None:
@@ -210,12 +340,41 @@ class Dynamics(Module):
         label: Optional[str] = None
     ):
         """
-        Add a delta input function.
+        Add a delta input function or array to the dynamics model.
 
-        Args:
-          key: str. The dict key.
-          inp: Callable, ArrayLike. The currents or the function to generate currents.
-          label: str. The input label.
+        Delta inputs represent instantaneous changes to the model state (i.e., dX/dt contributions).
+        This method registers a function or array that provides delta inputs which will be
+        accessible during model updates through the `sum_delta_inputs()` method.
+
+        Parameters
+        ----------
+        key : str
+            Unique identifier for this delta input. Used to retrieve or reference
+            the input later.
+        inp : Union[Callable, ArrayLike]
+            The input data or function that generates input data.
+            - If callable: Will be called during updates with arguments passed to `sum_delta_inputs()`
+            - If array-like: Will be applied once and then automatically removed from available inputs
+        label : Optional[str], default=None
+            Optional grouping label for the input. When provided, allows selective
+            processing of inputs by label in `sum_delta_inputs()`.
+
+        Raises
+        ------
+        ValueError
+            If the key has already been used for a different delta input.
+
+        Notes
+        -----
+        - Inputs with the same label can be processed together using the `label`
+          parameter in `sum_delta_inputs()`.
+        - Non-callable inputs are consumed when used (removed after first use).
+        - Callable inputs persist and can be called repeatedly.
+
+        See Also
+        --------
+        sum_delta_inputs : Sum all delta inputs matching a given label
+        add_current_input : Add a current input function or array
         """
         key = _input_label_repr(key, label)
         if self._delta_inputs is None:
@@ -226,13 +385,40 @@ class Dynamics(Module):
         self._delta_inputs[key] = inp
 
     def get_input(self, key: str):
-        """Get the input function.
+        """
+        Get a registered input function by its key.
 
-        Args:
-          key: str. The key.
+        Retrieves either a current input or a delta input function that was previously
+        registered with the given key. This method checks both current_inputs and
+        delta_inputs dictionaries for the specified key.
 
-        Returns:
-          The input function which generates currents.
+        Parameters
+        ----------
+        key : str
+            The unique identifier used when the input function was registered.
+
+        Returns
+        -------
+        Callable or ArrayLike
+            The input function or array associated with the given key.
+
+        Raises
+        ------
+        ValueError
+            If no input function is found with the specified key in either
+            current_inputs or delta_inputs.
+
+        See Also
+        --------
+        add_current_input : Register a current input function
+        add_delta_input : Register a delta input function
+
+        Examples
+        --------
+        >>> model = Dynamics(10)
+        >>> model.add_current_input('stimulus', lambda t: np.sin(t))
+        >>> input_func = model.get_input('stimulus')
+        >>> input_func(0.5)  # Returns sin(0.5)
         """
         if self._current_inputs is not None and key in self._current_inputs:
             return self._current_inputs[key]
@@ -249,16 +435,36 @@ class Dynamics(Module):
         **kwargs
     ):
         """
-        Summarize all current inputs by the defined input functions ``.current_inputs``.
+        Summarize all current inputs by applying and summing all registered current input functions.
 
-        Args:
-          init: The initial input data.
-          *args: The arguments for input functions.
-          **kwargs: The arguments for input functions.
-          label: str. The input label.
+        This method iterates through all registered current input functions (from `.current_inputs`)
+        and applies them to calculate the total input current for the dynamics model. It adds all results
+        to the initial value provided.
 
-        Returns:
-          The total currents.
+        Parameters
+        ----------
+        init : Any
+            The initial value to which all current inputs will be added.
+        *args : tuple
+            Variable length argument list passed to each current input function.
+        label : Optional[str], default=None
+            If provided, only process current inputs with this label prefix.
+            When None, process all current inputs regardless of label.
+        **kwargs : dict
+            Arbitrary keyword arguments passed to each current input function.
+
+        Returns
+        -------
+        Any
+            The initial value plus all applicable current inputs summed together.
+
+        Notes
+        -----
+        - Non-callable current inputs are applied once and then automatically removed from
+          the current_inputs dictionary.
+        - Callable current inputs remain registered for subsequent calls.
+        - When a label is provided, only current inputs with keys starting with that label
+          are applied.
         """
         if self._current_inputs is None:
             return init
@@ -288,16 +494,36 @@ class Dynamics(Module):
         **kwargs
     ):
         """
-        Summarize all delta inputs by the defined input functions ``.delta_inputs``.
+        Summarize all delta inputs by applying and summing all registered delta input functions.
 
-        Args:
-          init: The initial input data.
-          *args: The arguments for input functions.
-          **kwargs: The arguments for input functions.
-          label: str. The input label.
+        This method iterates through all registered delta input functions (from `.delta_inputs`)
+        and applies them to calculate instantaneous changes to model states. It adds all results
+        to the initial value provided.
 
-        Returns:
-          The total currents.
+        Parameters
+        ----------
+        init : Any
+            The initial value to which all delta inputs will be added.
+        *args : tuple
+            Variable length argument list passed to each delta input function.
+        label : Optional[str], default=None
+            If provided, only process delta inputs with this label prefix.
+            When None, process all delta inputs regardless of label.
+        **kwargs : dict
+            Arbitrary keyword arguments passed to each delta input function.
+
+        Returns
+        -------
+        Any
+            The initial value plus all applicable delta inputs summed together.
+
+        Notes
+        -----
+        - Non-callable delta inputs are applied once and then automatically removed from
+          the delta_inputs dictionary.
+        - Callable delta inputs remain registered for subsequent calls.
+        - When a label is provided, only delta inputs with keys starting with that label
+          are applied.
         """
         if self._delta_inputs is None:
             return init
@@ -322,20 +548,59 @@ class Dynamics(Module):
     @property
     def before_updates(self):
         """
-        The before updates of the model. It should be a dictionary of the updating functions.
+        Get the dictionary of functions to execute before the module's update.
+
+        Returns
+        -------
+        dict or None
+            Dictionary mapping keys to callable functions that will be executed
+            before the main update, or None if no before updates are registered.
+
+        Notes
+        -----
+        Before updates are executed in the order they were registered whenever
+        the module is called via __call__.
         """
         return self._before_updates
 
     @property
     def after_updates(self):
         """
-        The after updates of the model. It should be a dictionary of the updating functions.
+        Get the dictionary of functions to execute after the module's update.
+
+        Returns
+        -------
+        dict or None
+            Dictionary mapping keys to callable functions that will be executed
+            after the main update, or None if no after updates are registered.
+
+        Notes
+        -----
+        After updates are executed in the order they were registered whenever
+        the module is called via __call__, and may optionally receive the return
+        value from the update method.
         """
         return self._after_updates
 
     def _add_before_update(self, key: Any, fun: Callable):
         """
-        Add the before update into this node.
+        Register a function to be executed before the module's update.
+
+        Parameters
+        ----------
+        key : Any
+            A unique identifier for the update function.
+        fun : Callable
+            The function to execute before the module's update.
+
+        Raises
+        ------
+        KeyError
+            If the key is already registered in before_updates.
+
+        Notes
+        -----
+        Internal method used by the module system to register dependencies.
         """
         if self._before_updates is None:
             self._before_updates = dict()
@@ -344,7 +609,25 @@ class Dynamics(Module):
         self.before_updates[key] = fun
 
     def _add_after_update(self, key: Any, fun: Callable):
-        """Add the after update into this node"""
+        """
+        Register a function to be executed after the module's update.
+
+        Parameters
+        ----------
+        key : Any
+            A unique identifier for the update function.
+        fun : Callable
+            The function to execute after the module's update.
+
+        Raises
+        ------
+        KeyError
+            If the key is already registered in after_updates.
+
+        Notes
+        -----
+        Internal method used by the module system to register dependencies.
+        """
         if self._after_updates is None:
             self._after_updates = dict()
         if key in self.after_updates:
@@ -352,7 +635,24 @@ class Dynamics(Module):
         self.after_updates[key] = fun
 
     def _get_before_update(self, key: Any):
-        """Get the before update of this node by the given ``key``."""
+        """
+        Retrieve a registered before-update function by its key.
+
+        Parameters
+        ----------
+        key : Any
+            The identifier of the before-update function to retrieve.
+
+        Returns
+        -------
+        Callable
+            The registered before-update function.
+
+        Raises
+        ------
+        KeyError
+            If the key is not registered in before_updates or if before_updates is None.
+        """
         if self._before_updates is None:
             raise KeyError(f'{key} is not registered in before_updates of {self}')
         if key not in self.before_updates:
@@ -360,7 +660,24 @@ class Dynamics(Module):
         return self.before_updates.get(key)
 
     def _get_after_update(self, key: Any):
-        """Get the after update of this node by the given ``key``."""
+        """
+        Retrieve a registered after-update function by its key.
+
+        Parameters
+        ----------
+        key : Any
+            The identifier of the after-update function to retrieve.
+
+        Returns
+        -------
+        Callable
+            The registered after-update function.
+
+        Raises
+        ------
+        KeyError
+            If the key is not registered in after_updates or if after_updates is None.
+        """
         if self._after_updates is None:
             raise KeyError(f'{key} is not registered in after_updates of {self}')
         if key not in self.after_updates:
@@ -368,13 +685,37 @@ class Dynamics(Module):
         return self.after_updates.get(key)
 
     def _has_before_update(self, key: Any):
-        """Whether this node has the before update of the given ``key``."""
+        """
+        Check if a before-update function is registered with the given key.
+
+        Parameters
+        ----------
+        key : Any
+            The identifier to check for in the before_updates dictionary.
+
+        Returns
+        -------
+        bool
+            True if the key is registered in before_updates, False otherwise.
+        """
         if self._before_updates is None:
             return False
         return key in self.before_updates
 
     def _has_after_update(self, key: Any):
-        """Whether this node has the after update of the given ``key``."""
+        """
+        Check if an after-update function is registered with the given key.
+
+        Parameters
+        ----------
+        key : Any
+            The identifier to check for in the after_updates dictionary.
+
+        Returns
+        -------
+        bool
+            True if the key is registered in after_updates, False otherwise.
+        """
         if self._after_updates is None:
             return False
         return key in self.after_updates
@@ -405,19 +746,75 @@ class Dynamics(Module):
         return ret
 
     def prefetch(self, item: str) -> 'Prefetch':
+        """
+        Create a reference to a state or variable that may not be initialized yet.
+
+        This method allows accessing module attributes or states before they are
+        fully defined, acting as a placeholder that will be resolved when called.
+        Particularly useful for creating references to variables that will be defined
+        during initialization or runtime.
+
+        Parameters
+        ----------
+        item : str
+            The name of the attribute or state to reference.
+
+        Returns
+        -------
+        Prefetch
+            A Prefetch object that provides access to the referenced item.
+
+        Examples
+        --------
+        >>> import brainstate
+        >>> import brainunit as u
+        >>> neuron = brainstate.nn.LIF(...)
+        >>> v_ref = neuron.prefetch('V')  # Reference to voltage
+        >>> v_value = v_ref()  # Get current value
+        >>> delayed_v = v_ref.delay.at(5.0 * u.ms)  # Get delayed value
+        """
         return Prefetch(self, item)
 
     def align_pre(
-        self, dyn: Union[ParamDescriber[T], T]
+        self,
+        dyn: Union[ParamDescriber[T], T]
     ) -> T:
         """
-        Align the dynamics before the interaction.
+        Registers a dynamics module to execute after this module.
+
+        This method establishes a sequential execution relationship where the specified
+        dynamics module will be called after this module completes its update. This
+        creates a feed-forward connection in the computational graph.
+
+        Parameters
+        ----------
+        dyn : Union[ParamDescriber[T], T]
+            The dynamics module to be executed after this module. Can be either:
+            - An instance of Dynamics
+            - A ParamDescriber that can instantiate a Dynamics object
+
+        Returns
+        -------
+        T
+            The dynamics module that was registered, allowing for method chaining.
+
+        Raises
+        ------
+        TypeError
+            If the input is not a Dynamics instance or a ParamDescriber that creates
+            a Dynamics instance.
+
+        Examples
+        --------
+        >>> import brainstate
+        >>> n1 = brainstate.nn.LIF(10)
+        >>> n1.align_pre(brainstate.nn.Expon.desc(n1.varshape))  # n2 will run after n1
         """
         if isinstance(dyn, Dynamics):
             self._add_after_update(dyn.name, dyn)
             return dyn
         elif isinstance(dyn, ParamDescriber):
-            if not isinstance(dyn.cls, Dynamics):
+            if not issubclass(dyn.cls, Dynamics):
                 raise TypeError(f'The input {dyn} should be an instance of {Dynamics}.')
             if not self._has_after_update(dyn.identifier):
                 self._add_after_update(dyn.identifier, dyn())
@@ -425,62 +822,206 @@ class Dynamics(Module):
         else:
             raise TypeError(f'The input {dyn} should be an instance of {Dynamics} or a delayed initializer.')
 
-    def __pretty_repr_item__(self, name, value):
-        if name in ['_in_size', '_out_size', '_name', '_mode',
-                    '_before_updates', '_after_updates', '_current_inputs', '_delta_inputs']:
-            return (name, value) if value is None else (name[1:], value)  # skip the first `_`
-        return name, value
-
 
 class Prefetch(Node):
     """
-    Prefetch a variable of the given module.
+    Prefetch a state or variable in a module before it is initialized.
+
+
+    This class provides a mechanism to reference a module's state or attribute
+    that may not have been initialized yet. It acts as a placeholder or reference
+    that will be resolved when called.
+
+    Use cases:
+    - Access variables within dynamics modules that will be defined later
+    - Create references to states across module boundaries
+    - Enable access to delayed states through the `.delay` property
+
+    Parameters
+    ----------
+    module : Module
+        The module that contains or will contain the referenced item.
+    item : str
+        The attribute name of the state or variable to prefetch.
+
+    Examples
+    --------
+    >>> import brainstate
+    >>> import brainunit as u
+    >>> neuron = brainstate.nn.LIF(...)
+    >>> v_reference = neuron.prefetch('V')  # Reference to voltage before initialization
+    >>> v_value = v_reference()  # Get the current value
+    >>> delay_ref = v_reference.delay.at(5.0 * u.ms)  # Reference voltage delayed by 5ms
+
+    Notes
+    -----
+    When called, this class retrieves the current value of the referenced item.
+    Use the `.delay` property to access delayed versions of the state.
+
     """
 
-    def __init__(self, module: Module, item: str):
+    def __init__(self, module: Dynamics, item: str):
+        """
+        Initialize a Prefetch object.
+
+        Parameters
+        ----------
+        module : Module
+            The module that contains or will contain the referenced item.
+        item : str
+            The attribute name of the state or variable to prefetch.
+        """
         super().__init__()
         self.module = module
         self.item = item
 
     @property
     def delay(self):
+        """
+        Access delayed versions of the prefetched item.
+
+        Returns
+        -------
+        PrefetchDelay
+            An object that provides access to delayed versions of the prefetched item.
+        """
         return PrefetchDelay(self.module, self.item)
 
     def __call__(self, *args, **kwargs):
+        """
+        Get the current value of the prefetched item.
+
+        Returns
+        -------
+        Any
+            The current value of the referenced item. If the item is a State object,
+            returns its value attribute, otherwise returns the item itself.
+        """
         item = _get_prefetch_item(self)
         return item.value if isinstance(item, State) else item
 
     def get_item_value(self):
+        """
+        Get the current value of the prefetched item.
+
+        Similar to __call__, but explicitly named for clarity.
+
+        Returns
+        -------
+        Any
+            The current value of the referenced item. If the item is a State object,
+            returns its value attribute, otherwise returns the item itself.
+        """
         item = _get_prefetch_item(self)
         return item.value if isinstance(item, State) else item
 
     def get_item(self):
         """
-        Get
+        Get the referenced item object itself, not its value.
+
+        Returns
+        -------
+        Any
+            The actual referenced item from the module, which could be a State
+            object or any other attribute.
         """
         return _get_prefetch_item(self)
 
 
 class PrefetchDelay(Node):
+    """
+    Provides access to delayed versions of a prefetched state or variable.
+
+    This class acts as an intermediary for accessing delayed values of module variables.
+    It doesn't retrieve values directly but provides methods to specify the delay time
+    via the `at()` method.
+
+    Parameters
+    ----------
+    module : Dynamics
+        The dynamics module that contains the referenced state or variable.
+    item : str
+        The name of the state or variable to access with delay.
+
+    Examples
+    --------
+    >>> import brainstate
+    >>> import brainunit as u
+    >>> neuron = brainstate.nn.LIF(10)
+    >>> # Access voltage delayed by 5ms
+    >>> delayed_v = neuron.prefetch('V').delay.at(5.0 * u.ms)
+    >>> delayed_value = delayed_v()  # Get the delayed value
+    """
+
     def __init__(self, module: Dynamics, item: str):
         self.module = module
         self.item = item
 
     def at(self, time: ArrayLike):
+        """
+        Specifies the delay time for accessing the variable.
+
+        Parameters
+        ----------
+        time : ArrayLike
+            The amount of time to delay the variable access, typically in time units
+            (e.g., milliseconds).
+
+        Returns
+        -------
+        PrefetchDelayAt
+            An object that provides access to the variable at the specified delay time.
+        """
         return PrefetchDelayAt(self.module, self.item, time)
 
 
 class PrefetchDelayAt(Node):
     """
-    Prefetch the delay of a variable in the given module at a specific time.
+    Provides access to a specific delayed state or variable value at the specific time.
 
-    Args:
-      module: The module that has the item with the name specified by ``item`` argument.
-      item: The item that has the delay.
-      time: The time to retrieve the delay.
+    This class represents the final step in the prefetch delay chain, providing
+    actual access to state values at a specific delay time. It converts the
+    specified time delay into steps and registers the delay with the appropriate
+    StateWithDelay handler.
+
+    Parameters
+    ----------
+    module : Dynamics
+        The dynamics module that contains the referenced state or variable.
+    item : str
+        The name of the state or variable to access with delay.
+    time : ArrayLike
+        The amount of time to delay access by, typically in time units (e.g., milliseconds).
+
+    Examples
+    --------
+    >>> import brainstate
+    >>> import brainunit as u
+    >>> neuron = brainstate.nn.LIF(10)
+    >>> # Create a reference to voltage delayed by 5ms
+    >>> delayed_v = PrefetchDelayAt(neuron, 'V', 5.0 * u.ms)
+    >>> # Get the delayed value
+    >>> v_value = delayed_v()
     """
 
-    def __init__(self, module: Dynamics, item: str, time: ArrayLike):
+    def __init__(
+        self,
+        module: Dynamics,
+        item: str,
+        time: ArrayLike
+    ):
+        """
+        Initialize a PrefetchDelayAt object.
+
+        Parameters
+        ----------
+        module : Dynamics
+            The dynamics module that contains the referenced state or variable.
+        item : str
+            The name of the state or variable to access with delay.
+        time : ArrayLike
+            The amount of time to delay access by, typically in time units.
+        """
         super().__init__()
         assert isinstance(module, Dynamics), ''
         self.module = module
@@ -496,6 +1037,14 @@ class PrefetchDelayAt(Node):
         self.state_delay.register_delay(time)
 
     def __call__(self, *args, **kwargs):
+        """
+        Retrieve the value of the state at the specified delay time.
+
+        Returns
+        -------
+        Any
+            The value of the state or variable at the specified delay time.
+        """
         # return self.state_delay.retrieve_at_time(self.time)
         return self.state_delay.retrieve_at_step(self.step)
 
@@ -512,8 +1061,10 @@ def _get_prefetch_item(target: Union[Prefetch, PrefetchDelayAt]) -> Any:
 
 
 def _get_prefetch_item_delay(target: Union[Prefetch, PrefetchDelay, PrefetchDelayAt]) -> Delay:
-    assert isinstance(target.module, Dynamics), (f'The target module should be an instance '
-                                                 f'of Dynamics. But got {target.module}.')
+    assert isinstance(target.module, Dynamics), (
+        f'The target module should be an instance '
+        f'of Dynamics. But got {target.module}.'
+    )
     delay = target.module._get_after_update(_get_delay_key(target.item))
     if not isinstance(delay, StateWithDelay):
         raise TypeError(f'The prefetch target should be a {StateWithDelay.__name__} when accessing '
@@ -522,6 +1073,35 @@ def _get_prefetch_item_delay(target: Union[Prefetch, PrefetchDelay, PrefetchDela
 
 
 def maybe_init_prefetch(target, *args, **kwargs):
+    """
+    Initialize a prefetch target if needed, based on its type.
+
+    This function ensures that prefetch references are properly initialized
+    and ready to use. It handles different types of prefetch objects by
+    performing the appropriate initialization action:
+    - For :py:class:`Prefetch` objects: retrieves the referenced item
+    - For :py:class:`PrefetchDelay` objects: retrieves the delay handler
+    - For :py:class:`PrefetchDelayAt` objects: registers the specified delay
+
+    Parameters
+    ----------
+    target : Union[Prefetch, PrefetchDelay, PrefetchDelayAt]
+        The prefetch target to initialize.
+    *args : Any
+        Additional positional arguments (unused).
+    **kwargs : Any
+        Additional keyword arguments (unused).
+
+    Returns
+    -------
+    None
+        This function performs initialization side effects only.
+
+    Notes
+    -----
+    This function is typically called internally when prefetched references
+    are used to ensure they are properly set up before access.
+    """
     if isinstance(target, Prefetch):
         _get_prefetch_item(target)
 

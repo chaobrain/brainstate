@@ -55,10 +55,12 @@ from __future__ import annotations
 
 import functools
 import inspect
-import jax
 import operator
 from collections.abc import Hashable, Iterable, Sequence
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
+from typing import Any, Callable, Tuple, Union, Dict, Optional
+
+import jax
 from jax._src import source_info_util
 from jax._src.linear_util import annotate
 from jax._src.traceback_util import api_boundary
@@ -66,17 +68,12 @@ from jax.api_util import shaped_abstractify
 from jax.extend.linear_util import transformation_with_aux, wrap_init
 from jax.interpreters import partial_eval as pe
 from jax.util import wraps
-from typing import Any, Callable, Tuple, Union, Dict, Optional
 
 from brainstate._state import State, StateTraceStack
 from brainstate._utils import set_module_as
 from brainstate.typing import PyTree
 from brainstate.util import PrettyObject
-
-if jax.__version_info__ < (0, 4, 38):
-    from jax.core import ClosedJaxpr
-else:
-    from jax.extend.core import ClosedJaxpr
+from brainstate._compatible_import import ClosedJaxpr, extend_axis_env_nd
 
 AxisName = Hashable
 
@@ -200,7 +197,7 @@ class StatefulFunction(PrettyObject):
 
         # implicit parameters
         self.cache_type = cache_type
-        self._cached_jaxpr: Dict[Any, jax.core.ClosedJaxpr] = dict()
+        self._cached_jaxpr: Dict[Any, ClosedJaxpr] = dict()
         self._cached_out_shapes: Dict[Any, PyTree] = dict()
         self._cached_jaxpr_out_tree: Dict[Any, PyTree] = dict()
         self._cached_state_trace: Dict[Any, StateTraceStack] = dict()
@@ -210,7 +207,7 @@ class StatefulFunction(PrettyObject):
             return None
         return k, v
 
-    def get_jaxpr(self, cache_key: Hashable = ()) -> jax.core.ClosedJaxpr:
+    def get_jaxpr(self, cache_key: Hashable = ()) -> ClosedJaxpr:
         """
         Read the JAX Jaxpr representation of the function.
 
@@ -507,8 +504,8 @@ def make_jaxpr(
     return_shape: bool = False,
     abstracted_axes: Optional[Any] = None,
     state_returns: Union[str, Tuple[str, ...]] = ('read', 'write')
-) -> Callable[..., (Tuple[jax.core.ClosedJaxpr, Tuple[State, ...]] |
-                    Tuple[jax.core.ClosedJaxpr, Tuple[State, ...], PyTree])]:
+) -> Callable[..., (Tuple[ClosedJaxpr, Tuple[State, ...]] |
+                    Tuple[ClosedJaxpr, Tuple[State, ...], PyTree])]:
     """
     Creates a function that produces its jaxpr given example args.
 
@@ -754,12 +751,12 @@ def _make_jaxpr(
             debug_info = pe.debug_info(fun, in_tree, out_tree, True, 'make_jaxpr')
         with ExitStack() as stack:
             if axis_env is not None:
-                stack.enter_context(jax.core.extend_axis_env_nd(axis_env))
+                stack.enter_context(extend_axis_env_nd(axis_env))
             if jax.__version_info__ < (0, 5, 0):
                 jaxpr, out_type, consts = pe.trace_to_jaxpr_dynamic2(f, debug_info=debug_info)
             else:
                 jaxpr, out_type, consts = pe.trace_to_jaxpr_dynamic2(f)
-        closed_jaxpr = jax.core.ClosedJaxpr(jaxpr, consts)
+        closed_jaxpr = ClosedJaxpr(jaxpr, consts)
         if return_shape:
             out_avals, _ = jax.util.unzip2(out_type)
             out_shapes_flat = [jax.ShapeDtypeStruct(a.shape, a.dtype) for a in out_avals]

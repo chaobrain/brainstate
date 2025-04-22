@@ -19,12 +19,12 @@
 # - Diesmann, Markus, Marc-Oliver Gewaltig, and Ad Aertsen. “Stable propagation of synchronous spiking in cortical neural networks.” Nature 402.6761 (1999): 529-533.
 #
 
-import braintools as bts
+import braintools
+import brainstate
 import brainunit as u
 import jax
 import matplotlib.pyplot as plt
 
-import brainstate as bst
 
 duration = 100. * u.ms
 
@@ -50,16 +50,16 @@ delay = 5.0 * u.ms  # ms
 # ------------
 
 
-class Population(bst.nn.Neuron):
+class Population(brainstate.nn.Neuron):
     def __init__(self, in_size, **kwargs):
         super().__init__(in_size, **kwargs)
 
     def init_state(self, *args, **kwargs):
-        self.V = bst.HiddenState(Vr + bst.random.random(self.varshape) * (Vt - Vr))
-        self.x = bst.HiddenState(u.math.zeros(self.varshape) * u.mV)
-        self.y = bst.HiddenState(u.math.zeros(self.varshape) * u.mV)
-        self.spike = bst.ShortTermState(u.math.zeros(self.varshape, dtype=bool))
-        self.t_last_spike = bst.ShortTermState(u.math.ones(self.varshape) * -1e7 * u.ms)
+        self.V = brainstate.HiddenState(Vr + brainstate.random.random(self.varshape) * (Vt - Vr))
+        self.x = brainstate.HiddenState(u.math.zeros(self.varshape) * u.mV)
+        self.y = brainstate.HiddenState(u.math.zeros(self.varshape) * u.mV)
+        self.spike = brainstate.ShortTermState(u.math.zeros(self.varshape, dtype=bool))
+        self.t_last_spike = brainstate.ShortTermState(u.math.ones(self.varshape) * -1e7 * u.ms)
 
     def update(self):
         dv = lambda V, x: (-(V - Vr) + x) / tau_m
@@ -67,10 +67,10 @@ class Population(bst.nn.Neuron):
         dy_f = lambda y: -y / tau_psp + 25.27 * u.mV / u.ms
         dy_g = lambda y: noise / u.ms ** 0.5
 
-        t = bst.environ.get('t')
-        x = bst.nn.exp_euler_step(dx, self.x.value, self.y.value)
-        y = bst.nn.exp_euler_step(dy_f, dy_g, self.y.value)
-        V = bst.nn.exp_euler_step(dv, self.V.value, self.x.value)
+        t = brainstate.environ.get('t')
+        x = brainstate.nn.exp_euler_step(dx, self.x.value, self.y.value)
+        y = brainstate.nn.exp_euler_step(dy_f, dy_g, self.y.value)
+        V = brainstate.nn.exp_euler_step(dv, self.V.value, self.x.value)
         in_ref = (t - self.t_last_spike.value) < tau_ref
         V = u.math.where(in_ref, self.V.value, V)
         self.x.value = x
@@ -84,7 +84,7 @@ class Population(bst.nn.Neuron):
 # synaptic  model
 # ---------------
 
-class Projection(bst.nn.Synapse):
+class Projection(brainstate.nn.Synapse):
     def __init__(self, group, **kwargs):
         super().__init__(group.varshape, **kwargs)
 
@@ -92,8 +92,8 @@ class Projection(bst.nn.Synapse):
         self.group = group
 
         # variables
-        self.g = bst.nn.Delay(
-            jax.ShapeDtypeStruct(self.group.varshape, bst.environ.dftype()) * u.mV,
+        self.g = brainstate.nn.Delay(
+            jax.ShapeDtypeStruct(self.group.varshape, brainstate.environ.dftype()) * u.mV,
             entries={'I': delay}
         )
 
@@ -110,7 +110,7 @@ class Projection(bst.nn.Synapse):
         # delay push
         self.g.update(g)
         # delay pull
-        g = self.g.retrieve_at_step((delay / bst.environ.get_dt()).astype(int))
+        g = self.g.retrieve_at_step((delay / brainstate.environ.get_dt()).astype(int))
         # update group
         self.group.y.value += g
 
@@ -118,16 +118,16 @@ class Projection(bst.nn.Synapse):
 # network model
 # ---------------
 
-class Net(bst.nn.DynamicsGroup):
+class Net(brainstate.nn.DynamicsGroup):
     def __init__(self, n_spike):
         super().__init__()
-        times = bst.random.randn(n_spike) * spike_sigma + 20 * u.ms
-        self.ext = bst.nn.SpikeTime(n_spike, times=times, indices=u.math.arange(n_spike), need_sort=False)
+        times = brainstate.random.randn(n_spike) * spike_sigma + 20 * u.ms
+        self.ext = brainstate.nn.SpikeTime(n_spike, times=times, indices=u.math.arange(n_spike), need_sort=False)
         self.pop = Population(in_size=n_groups * group_size)
         self.syn = Projection(self.pop)
 
     def update(self, t, i):
-        with bst.environ.context(t=t, i=i):
+        with brainstate.environ.context(t=t, i=i):
             self.syn(self.ext())
             return self.pop()
 
@@ -136,16 +136,16 @@ class Net(bst.nn.DynamicsGroup):
 # ---------------
 
 def run_network(spike_num: int, ax):
-    bst.random.seed(1)
+    brainstate.random.seed(1)
 
-    with bst.environ.context(dt=0.1 * u.ms):
+    with brainstate.environ.context(dt=0.1 * u.ms):
         # initialization
-        net = bst.nn.init_all_states(Net(spike_num))
+        net = brainstate.nn.init_all_states(Net(spike_num))
 
         # simulation
-        times = u.math.arange(0. * u.ms, duration, bst.environ.get_dt())
+        times = u.math.arange(0. * u.ms, duration, brainstate.environ.get_dt())
         indices = u.math.arange(times.size)
-        spikes = bst.compile.for_loop(net.update, times, indices, pbar=bst.compile.ProgressBar(10))
+        spikes = brainstate.compile.for_loop(net.update, times, indices, pbar=brainstate.compile.ProgressBar(10))
 
     # visualization
     times = times.to_decimal(u.ms)
@@ -155,7 +155,7 @@ def run_network(spike_num: int, ax):
     ax.set_ylabel('Neuron index')
 
 
-fig, gs = bts.visualize.get_figure(1, 2, 4, 4)
+fig, gs = braintools.visualize.get_figure(1, 2, 4, 4)
 run_network(spike_num=40, ax=fig.add_subplot(gs[0, 0]))
 run_network(spike_num=30, ax=fig.add_subplot(gs[0, 1]))
 plt.show()

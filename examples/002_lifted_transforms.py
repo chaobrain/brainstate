@@ -23,8 +23,8 @@ import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
 import optax
+import brainstate
 
-import brainstate as bst
 
 X = np.linspace(0, 1, 100)[:, None]
 Y = 0.8 * X ** 2 + 0.1 + np.random.normal(0, 0.1, size=X.shape)
@@ -36,21 +36,21 @@ def dataset(batch_size):
         yield X[idx], Y[idx]
 
 
-class Linear(bst.nn.Module):
+class Linear(brainstate.nn.Module):
     def __init__(self, din: int, dout: int):
         super().__init__()
-        self.w = bst.ParamState(bst.random.rand(din, dout))
-        self.b = bst.ParamState(jnp.zeros((dout,)))
+        self.w = brainstate.ParamState(brainstate.random.rand(din, dout))
+        self.b = brainstate.ParamState(jnp.zeros((dout,)))
 
     def __call__(self, x):
         return x @ self.w.value + self.b.value
 
 
-class Count(bst.State):
+class Count(brainstate.State):
     pass
 
 
-class MLP(bst.nn.Module):
+class MLP(brainstate.nn.Module):
     def __init__(self, din, dhidden, dout):
         super().__init__()
         self.count = Count(jnp.array(0))
@@ -66,22 +66,22 @@ class MLP(bst.nn.Module):
 
 
 model = MLP(din=1, dhidden=32, dout=1)
-optimizer = bst.optim.OptaxOptimizer(optax.sgd(1e-3))
-optimizer.register_trainable_weights(model.states(bst.ParamState))
+optimizer = brainstate.optim.OptaxOptimizer(optax.sgd(1e-3))
+optimizer.register_trainable_weights(model.states(brainstate.ParamState))
 
 
-@bst.compile.jit
+@brainstate.compile.jit
 def train_step(batch):
     x, y = batch
 
     def loss_fn():
         return jnp.mean((y - model(x)) ** 2)
 
-    grads = bst.augment.grad(loss_fn, model.states(bst.ParamState))()
+    grads = brainstate.augment.grad(loss_fn, model.states(brainstate.ParamState))()
     optimizer.update(grads)
 
 
-@bst.compile.jit
+@brainstate.compile.jit
 def test_step(batch):
     x, y = batch
     y_pred = model(x)

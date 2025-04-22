@@ -24,15 +24,14 @@
 
 
 import brainunit as u
-import brainstate as bst
-import brainevent.nn
 
+import brainstate
 from Susin_Destexhe_2021_gamma_oscillation import (
     get_inputs, visualize_simulation_results, RS_par, FS_par, AdEx
 )
 
 
-class INGNet(bst.nn.DynamicsGroup):
+class INGNet(brainstate.nn.DynamicsGroup):
     def __init__(self):
         super().__init__()
 
@@ -56,85 +55,85 @@ class INGNet(bst.nn.DynamicsGroup):
         self.rs_pop = AdEx(self.num_rs, tau_e=self.exc_syn_tau, tau_i=self.inh_syn_tau, **RS_par_)
         self.fs_pop = AdEx(self.num_fs, tau_e=self.exc_syn_tau, tau_i=self.inh_syn_tau, **FS_par_)
         self.fs2_pop = AdEx(self.num_fs2, tau_e=self.exc_syn_tau, tau_i=self.inh_syn_tau, **FS2_par_)
-        self.ext_pop = bst.nn.PoissonEncoder(self.num_rs)
+        self.ext_pop = brainstate.nn.PoissonEncoder(self.num_rs)
 
         # Poisson inputs
-        self.ext_to_FS = bst.nn.DeltaProj(
-            comm=brainevent.nn.FixedProb(self.num_rs, self.num_fs, 0.02, self.ext_weight),
+        self.ext_to_FS = brainstate.nn.DeltaProj(
+            comm=brainstate.nn.EventFixedProb(self.num_rs, self.num_fs, 0.02, self.ext_weight),
             post=self.fs_pop,
             label='ge'
         )
-        self.ext_to_RS = bst.nn.DeltaProj(
-            comm=brainevent.nn.FixedProb(self.num_rs, self.num_rs, 0.02, self.ext_weight),
+        self.ext_to_RS = brainstate.nn.DeltaProj(
+            comm=brainstate.nn.EventFixedProb(self.num_rs, self.num_rs, 0.02, self.ext_weight),
             post=self.rs_pop,
             label='ge'
         )
-        self.ext_to_RS2 = bst.nn.DeltaProj(
-            comm=brainevent.nn.FixedProb(self.num_rs, self.num_fs2, 0.02, self.ext_weight),
+        self.ext_to_RS2 = brainstate.nn.DeltaProj(
+            comm=brainstate.nn.EventFixedProb(self.num_rs, self.num_fs2, 0.02, self.ext_weight),
             post=self.fs2_pop,
             label='ge'
         )
 
         # synaptic projections
-        self.RS_to_FS = bst.nn.DeltaProj(
+        self.RS_to_FS = brainstate.nn.DeltaProj(
             self.rs_pop.prefetch('spike').delay.at(self.delay),
-            comm=brainevent.nn.FixedProb(self.num_rs, self.num_fs, 0.02, self.exc_syn_weight),
+            comm=brainstate.nn.EventFixedProb(self.num_rs, self.num_fs, 0.02, self.exc_syn_weight),
             post=self.fs_pop,
             label='ge'
         )
-        self.RS_to_RS = bst.nn.DeltaProj(
+        self.RS_to_RS = brainstate.nn.DeltaProj(
             self.rs_pop.prefetch('spike').delay.at(self.delay),
-            comm=brainevent.nn.FixedProb(self.num_rs, self.num_rs, 0.02, self.exc_syn_weight),
+            comm=brainstate.nn.EventFixedProb(self.num_rs, self.num_rs, 0.02, self.exc_syn_weight),
             post=self.rs_pop,
             label='ge'
         )
-        self.RS_to_FS2 = bst.nn.DeltaProj(
+        self.RS_to_FS2 = brainstate.nn.DeltaProj(
             self.rs_pop.prefetch('spike').delay.at(self.delay),
-            comm=brainevent.nn.FixedProb(self.num_rs, self.num_fs2, 0.15, self.exc_syn_weight),
+            comm=brainstate.nn.EventFixedProb(self.num_rs, self.num_fs2, 0.15, self.exc_syn_weight),
             post=self.fs2_pop,
             label='ge'
         )
 
-        self.FS_to_RS = bst.nn.DeltaProj(
+        self.FS_to_RS = brainstate.nn.DeltaProj(
             self.fs_pop.prefetch('spike').delay.at(self.delay),
-            comm=brainevent.nn.FixedProb(self.num_fs, self.num_rs, 0.02, self.inh_syn_weight),
+            comm=brainstate.nn.EventFixedProb(self.num_fs, self.num_rs, 0.02, self.inh_syn_weight),
             post=self.rs_pop,
             label='gi'
         )
-        self.FS_to_FS = bst.nn.DeltaProj(
+        self.FS_to_FS = brainstate.nn.DeltaProj(
             self.fs_pop.prefetch('spike').delay.at(self.delay),
-            comm=brainevent.nn.FixedProb(self.num_fs, self.num_fs, 0.02, self.inh_syn_weight),
+            comm=brainstate.nn.EventFixedProb(self.num_fs, self.num_fs, 0.02, self.inh_syn_weight),
             post=self.fs_pop,
             label='gi'
         )
-        self.FS_to_FS2 = bst.nn.DeltaProj(
+        self.FS_to_FS2 = brainstate.nn.DeltaProj(
             self.fs_pop.prefetch('spike').delay.at(self.delay),
-            comm=brainevent.nn.FixedProb(self.num_fs, self.num_fs2, 0.03, self.inh_syn_weight),
+            comm=brainstate.nn.EventFixedProb(self.num_fs, self.num_fs2, 0.03, self.inh_syn_weight),
             post=self.fs2_pop,
             label='gi'
         )
 
-        self.FS2_to_RS = bst.nn.DeltaProj(
+        self.FS2_to_RS = brainstate.nn.DeltaProj(
             self.fs_pop.prefetch('spike').delay.at(self.delay),
-            comm=brainevent.nn.FixedProb(self.num_fs2, self.num_rs, 0.15, self.exc_syn_weight),
+            comm=brainstate.nn.EventFixedProb(self.num_fs2, self.num_rs, 0.15, self.exc_syn_weight),
             post=self.rs_pop,
             label='gi'
         )
-        self.FS2_to_FS = bst.nn.DeltaProj(
+        self.FS2_to_FS = brainstate.nn.DeltaProj(
             self.fs_pop.prefetch('spike').delay.at(self.delay),
-            comm=brainevent.nn.FixedProb(self.num_fs2, self.num_fs, 0.15, self.exc_syn_weight),
+            comm=brainstate.nn.EventFixedProb(self.num_fs2, self.num_fs, 0.15, self.exc_syn_weight),
             post=self.fs_pop,
             label='gi'
         )
-        self.FS2_to_FS2 = bst.nn.DeltaProj(
+        self.FS2_to_FS2 = brainstate.nn.DeltaProj(
             self.fs_pop.prefetch('spike').delay.at(self.delay),
-            comm=brainevent.nn.FixedProb(self.num_fs2, self.num_fs2, 0.6, self.exc_syn_weight),
+            comm=brainstate.nn.EventFixedProb(self.num_fs2, self.num_fs2, 0.6, self.exc_syn_weight),
             post=self.fs2_pop,
             label='gi'
         )
 
     def update(self, i, t, freq):
-        with bst.environ.context(t=t, i=i):
+        with brainstate.environ.context(t=t, i=i):
             ext_spikes = self.ext_pop(freq)
             self.ext_to_FS(ext_spikes)
             self.ext_to_RS(ext_spikes)
@@ -167,18 +166,19 @@ class INGNet(bst.nn.DynamicsGroup):
 
 
 def simulate_ing_net():
-    with bst.environ.context(dt=0.1 * u.ms):
+    with brainstate.environ.context(dt=0.1 * u.ms):
         # inputs
         duration = 6e3 * u.ms
         varied_rates = get_inputs(2. * u.Hz, 3. * u.Hz, 50. * u.ms, 350 * u.ms, 600 * u.ms, 1e3 * u.ms, duration)
 
         # network
-        net = bst.nn.init_all_states(INGNet())
+        net = brainstate.nn.init_all_states(INGNet())
 
         # simulation
-        times = u.math.arange(0. * u.ms, duration, bst.environ.get_dt())
+        times = u.math.arange(0. * u.ms, duration, brainstate.environ.get_dt())
         indices = u.math.arange(0, len(times))
-        returns = bst.compile.for_loop(net.update, indices, times, varied_rates, pbar=bst.compile.ProgressBar(100))
+        returns = brainstate.compile.for_loop(net.update, indices, times, varied_rates,
+                                              pbar=brainstate.compile.ProgressBar(100))
 
         # visualization
         visualize_simulation_results(

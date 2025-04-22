@@ -20,8 +20,6 @@ from ._dynamics_synapse import *
 from ._dynamics_synapse import __all__ as dyn_synapse_all
 from ._inputs import *
 from ._inputs import __all__ as inputs_all
-from ._projection_alignpost import *
-from ._projection_alignpost import __all__ as alignpost_all
 from ._rate_rnns import *
 from ._rate_rnns import __all__ as rate_rnns
 from ._readout import *
@@ -31,7 +29,6 @@ __all__ = (
     dyn_neuron_all
     + dyn_synapse_all
     + inputs_all
-    + alignpost_all
     + rate_rnns
     + readout_all
 )
@@ -41,6 +38,5 @@ del (
     dyn_synapse_all,
     inputs_all,
     readout_all,
-    alignpost_all,
     rate_rnns,
 )

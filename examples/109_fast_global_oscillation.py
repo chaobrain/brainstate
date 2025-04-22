@@ -25,8 +25,7 @@ import brainunit as u
 import jax
 import matplotlib.pyplot as plt
 
-import brainstate as bst
-import brainevent.nn
+import brainstate
 
 Vr = 10. * u.mV
 theta = 20. * u.mV
@@ -42,24 +41,25 @@ N = 5000
 sparseness = C / N
 
 
-class LIF(bst.nn.Neuron):
+class LIF(brainstate.nn.Neuron):
     def __init__(self, in_size, **kwargs):
         super().__init__(in_size, **kwargs)
 
     def init_state(self, *args, **kwargs):
         # variables
-        self.V = bst.HiddenState(bst.init.param(bst.init.Constant(Vr), self.varshape))
-        self.t_last_spike = bst.ShortTermState(bst.init.param(bst.init.Constant(-1e7 * u.ms), self.varshape))
+        self.V = brainstate.HiddenState(brainstate.init.param(brainstate.init.Constant(Vr), self.varshape))
+        self.t_last_spike = brainstate.ShortTermState(
+            brainstate.init.param(brainstate.init.Constant(-1e7 * u.ms), self.varshape))
 
     def update(self):
         # integrate membrane potential
         fv = lambda V: (-V + self.sum_current_inputs(muext, V)) / tau
         gv = lambda V: sigmaext / u.math.sqrt(tau)
-        V = bst.nn.exp_euler_step(fv, gv, self.V.value)
+        V = brainstate.nn.exp_euler_step(fv, gv, self.V.value)
         V = self.sum_delta_inputs(V)
 
         # refractory period
-        t = bst.environ.get('t')
+        t = brainstate.environ.get('t')
         in_ref = (t - self.t_last_spike.value) <= taurefr
         V = u.math.where(in_ref, self.V.value, V)
 
@@ -70,32 +70,32 @@ class LIF(bst.nn.Neuron):
         return spike
 
 
-class Net(bst.nn.DynamicsGroup):
+class Net(brainstate.nn.DynamicsGroup):
     def __init__(self, num):
         super().__init__()
         self.group = LIF(num)
-        self.delay = bst.nn.Delay(jax.ShapeDtypeStruct((num,), bool), delta)
-        self.syn = bst.nn.DeltaProj(
-            comm=brainevent.nn.FixedProb(num, num, sparseness, -J),
+        self.delay = brainstate.nn.Delay(jax.ShapeDtypeStruct((num,), bool), delta)
+        self.syn = brainstate.nn.DeltaProj(
+            comm=brainstate.nn.EventFixedProb(num, num, sparseness, -J),
             post=self.group
         )
 
     def update(self, t, i):
-        with bst.environ.context(t=t, i=i):
-            self.syn(self.delay.retrieve_at_step(jax.numpy.asarray(delta / bst.environ.get_dt(), dtype=int)))
+        with brainstate.environ.context(t=t, i=i):
+            self.syn(self.delay.retrieve_at_step(jax.numpy.asarray(delta / brainstate.environ.get_dt(), dtype=int)))
             spike = self.group()
             self.delay(spike)
             return spike
 
 
-with bst.environ.context(dt=0.1 * u.ms):
+with brainstate.environ.context(dt=0.1 * u.ms):
     # initialize network
-    net = bst.nn.init_all_states(Net(N))
+    net = brainstate.nn.init_all_states(Net(N))
 
     # simulation
-    times = u.math.arange(0. * u.ms, duration, bst.environ.get_dt())
+    times = u.math.arange(0. * u.ms, duration, brainstate.environ.get_dt())
     indices = u.math.arange(times.size)
-    spikes = bst.compile.for_loop(net.update, times, indices, pbar=bst.compile.ProgressBar(10))
+    spikes = brainstate.compile.for_loop(net.update, times, indices, pbar=brainstate.compile.ProgressBar(10))
 
 # visualization
 times = times.to_decimal(u.ms)
