@@ -40,7 +40,6 @@ import brainunit as u
 import matplotlib.pyplot as plt
 
 import brainstate
-import brainevent
 
 
 class EINet(brainstate.nn.DynamicsGroup):
@@ -51,18 +50,21 @@ class EINet(brainstate.nn.DynamicsGroup):
         self.num = n_exc + n_inh
 
         # neurons
-        self.N = brainstate.nn.LIF(n_exc + n_inh, V_rest=-52. * u.mV, V_th=-50. * u.mV, V_reset=-60. * u.mV, tau=10. * u.ms,
-                                   V_initializer=brainstate.init.Normal(-60., 10., unit=u.mV), spk_reset='soft')
+        self.N = brainstate.nn.LIF(
+            n_exc + n_inh,
+            V_rest=-52. * u.mV, V_th=-50. * u.mV, V_reset=-60. * u.mV, tau=10. * u.ms,
+            V_initializer=brainstate.init.Normal(-60., 10., unit=u.mV), spk_reset='soft'
+        )
 
         # synapses
         self.E = brainstate.nn.AlignPostProj(
-            comm=brainevent.nn.FixedProb(n_exc, self.num, prob, JE),
+            comm=brainstate.nn.EventFixedProb(n_exc, self.num, prob, JE),
             syn=brainstate.nn.Expon.desc(self.num, tau=2. * u.ms),
             out=brainstate.nn.CUBA.desc(),
             post=self.N,
         )
         self.I = brainstate.nn.AlignPostProj(
-            comm=brainevent.nn.FixedProb(n_inh, self.num, prob, JI),
+            comm=brainstate.nn.EventFixedProb(n_inh, self.num, prob, JI),
             syn=brainstate.nn.Expon.desc(self.num, tau=2. * u.ms),
             out=brainstate.nn.CUBA.desc(),
             post=self.N,

@@ -28,7 +28,6 @@
 import brainunit as u
 import matplotlib.pyplot as plt
 
-import brainevent
 import brainstate
 
 
@@ -52,7 +51,7 @@ class EINet(brainstate.nn.DynamicsGroup):
         self.E2E = brainstate.nn.AlignPostProj(
             self.E.prefetch('V'),
             lambda x: self.E.get_spike(x) != 0.,
-            comm=brainevent.nn.FixedProb(self.n_exc, self.n_exc, conn_num=0.02, conn_weight=1.62 * u.mS),
+            comm=brainstate.nn.EventFixedProb(self.n_exc, self.n_exc, conn_num=0.02, conn_weight=1.62 * u.mS),
             syn=brainstate.nn.Expon.desc(self.n_exc, tau=5. * u.ms),
             out=brainstate.nn.CUBA.desc(scale=u.volt),
             post=self.E
@@ -60,7 +59,7 @@ class EINet(brainstate.nn.DynamicsGroup):
         self.E2I = brainstate.nn.AlignPostProj(
             self.E.prefetch('V'),
             lambda x: self.E.get_spike(x) != 0.,
-            comm=brainevent.nn.FixedProb(self.n_exc, self.n_inh, conn_num=0.02, conn_weight=1.62 * u.mS),
+            comm=brainstate.nn.EventFixedProb(self.n_exc, self.n_inh, conn_num=0.02, conn_weight=1.62 * u.mS),
             syn=brainstate.nn.Expon.desc(self.n_inh, tau=5. * u.ms),
             out=brainstate.nn.CUBA.desc(scale=u.volt),
             post=self.I
@@ -68,7 +67,7 @@ class EINet(brainstate.nn.DynamicsGroup):
         self.I2E = brainstate.nn.AlignPostProj(
             self.I.prefetch('V'),
             lambda x: self.I.get_spike(x) != 0.,
-            comm=brainevent.nn.FixedProb(self.n_inh, self.n_exc, conn_num=0.02, conn_weight=-9.0 * u.mS),
+            comm=brainstate.nn.EventFixedProb(self.n_inh, self.n_exc, conn_num=0.02, conn_weight=-9.0 * u.mS),
             syn=brainstate.nn.Expon.desc(self.n_exc, tau=10. * u.ms),
             out=brainstate.nn.CUBA.desc(scale=u.volt),
             post=self.E
@@ -76,7 +75,7 @@ class EINet(brainstate.nn.DynamicsGroup):
         self.I2I = brainstate.nn.AlignPostProj(
             self.I.prefetch('V'),
             lambda x: self.I.get_spike(x) != 0.,
-            comm=brainevent.nn.FixedProb(self.n_inh, self.n_inh, conn_num=0.02, conn_weight=-9.0 * u.mS),
+            comm=brainstate.nn.EventFixedProb(self.n_inh, self.n_inh, conn_num=0.02, conn_weight=-9.0 * u.mS),
             syn=brainstate.nn.Expon.desc(self.n_inh, tau=10. * u.ms),
             out=brainstate.nn.CUBA.desc(scale=u.volt),
             post=self.I

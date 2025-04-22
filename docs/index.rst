@@ -88,14 +88,6 @@ We are building the `Brain Dynamics Programming ecosystem <https://ecosystem-for
 
    quickstart/concepts-en.ipynb
    quickstart/concepts-zh.ipynb
-   quickstart/ann_training-en.ipynb
-   quickstart/ann_training-zh.ipynb
-   quickstart/snn_simulation-en.ipynb
-   quickstart/snn_simulation-zh.ipynb
-   quickstart/snn_training-en.ipynb
-   quickstart/snn_training-zh.ipynb
-
-
 
 
 
@@ -136,6 +128,12 @@ We are building the `Brain Dynamics Programming ecosystem <https://ecosystem-for
    :caption: Examples
 
    examples/core_examples.rst
+   examples/ann_training-en.ipynb
+   examples/ann_training-zh.ipynb
+   examples/snn_simulation-en.ipynb
+   examples/snn_simulation-zh.ipynb
+   examples/snn_training-en.ipynb
+   examples/snn_training-zh.ipynb
 
 
 
