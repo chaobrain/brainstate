@@ -16,10 +16,11 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+from typing import Sequence, Union
+
 import jax
 import jax.numpy as jnp
 import numpy as np
-from typing import Sequence, Union
 
 from brainstate import environ
 from brainstate._state import State, LongTermState

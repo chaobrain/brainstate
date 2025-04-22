@@ -17,9 +17,10 @@
 
 from __future__ import annotations
 
+from typing import Callable, Union, Optional
+
 import brainunit as u
 import jax.numpy as jnp
-from typing import Callable, Union, Optional
 
 from brainstate import init, functional
 from brainstate._state import ParamState

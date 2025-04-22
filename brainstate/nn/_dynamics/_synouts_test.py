@@ -15,10 +15,11 @@
 
 from __future__ import annotations
 
+import unittest
+
 import brainunit as u
 import jax.numpy as jnp
 import numpy as np
-import unittest
 
 import brainstate as bst
 

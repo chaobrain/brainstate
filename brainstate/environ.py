@@ -17,18 +17,18 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
-
 import contextlib
 import dataclasses
 import functools
-import numpy as np
 import os
 import re
 import threading
+from collections import defaultdict
+from typing import Any, Callable, Dict, Hashable
+
+import numpy as np
 from jax import config, devices, numpy as jnp
 from jax.typing import DTypeLike
-from typing import Any, Callable, Dict, Hashable
 
 from .mixin import Mode
 

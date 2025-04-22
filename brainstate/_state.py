@@ -17,12 +17,8 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
-import jax
-import numpy as np
 import threading
 from functools import wraps, partial
-from jax.api_util import shaped_abstractify
-from jax.extend import source_info_util
 from typing import (
     Any,
     Union,
@@ -38,6 +34,11 @@ from typing import (
     Sequence,
     Generator,
 )
+
+import jax
+import numpy as np
+from jax.api_util import shaped_abstractify
+from jax.extend import source_info_util
 
 from brainstate.typing import ArrayLike, PyTree, Missing, Filter
 from brainstate.util import DictManager, PrettyObject

@@ -15,9 +15,10 @@
 
 from __future__ import annotations
 
+import unittest
+
 import jax
 import optax
-import unittest
 
 import brainstate as bst
 

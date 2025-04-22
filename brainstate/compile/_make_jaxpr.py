@@ -57,7 +57,7 @@ import functools
 import inspect
 import operator
 from collections.abc import Hashable, Iterable, Sequence
-from contextlib import ExitStack, contextmanager
+from contextlib import ExitStack
 from typing import Any, Callable, Tuple, Union, Dict, Optional
 
 import jax
@@ -69,11 +69,11 @@ from jax.extend.linear_util import transformation_with_aux, wrap_init
 from jax.interpreters import partial_eval as pe
 from jax.util import wraps
 
+from brainstate._compatible_import import ClosedJaxpr, extend_axis_env_nd
 from brainstate._state import State, StateTraceStack
 from brainstate._utils import set_module_as
 from brainstate.typing import PyTree
 from brainstate.util import PrettyObject
-from brainstate._compatible_import import ClosedJaxpr, extend_axis_env_nd
 
 AxisName = Hashable
 

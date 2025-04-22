@@ -15,9 +15,10 @@
 
 from __future__ import annotations
 
+from typing import Optional, Union
+
 import brainunit as u
 import jax
-from typing import Optional, Union
 
 from brainstate._utils import set_module_as
 from brainstate.typing import ArrayLike

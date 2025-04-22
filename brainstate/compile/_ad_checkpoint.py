@@ -16,8 +16,9 @@
 from __future__ import annotations
 
 import functools
-import jax
 from typing import Callable, Tuple, Union
+
+import jax
 
 from brainstate.typing import Missing
 from ._make_jaxpr import StatefulFunction, _ensure_index_tuple

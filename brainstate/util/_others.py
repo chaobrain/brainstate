@@ -15,16 +15,16 @@
 
 from __future__ import annotations
 
-import gc
-
 import copy
 import functools
-import jax
+import gc
 import threading
 import types
 from collections.abc import Iterable
-from jax.lib import xla_bridge
 from typing import Any, Callable, Tuple, Union, Dict
+
+import jax
+from jax.lib import xla_bridge
 
 from brainstate._utils import set_module_as
 

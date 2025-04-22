@@ -20,9 +20,8 @@ import jax.interpreters.batching as batching
 import jax.interpreters.mlir as mlir
 import jax.numpy as jnp
 
-from brainstate._utils import set_module_as
 from brainstate._compatible_import import Primitive
-
+from brainstate._utils import set_module_as
 
 __all__ = [
     "unvmap",

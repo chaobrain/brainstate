@@ -16,9 +16,10 @@
 
 from __future__ import annotations
 
+from typing import Callable
+
 import brainunit as u
 import jax.numpy as jnp
-from typing import Callable
 
 from brainstate import environ, random
 from brainstate.augment import vector_grad

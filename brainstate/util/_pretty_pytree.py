@@ -18,9 +18,9 @@
 from __future__ import annotations
 
 from collections import abc
+from typing import TypeVar, Hashable, Union, Iterable, Any, Optional, Tuple, Dict
 
 import jax
-from typing import TypeVar, Hashable, Union, Iterable, Any, Optional, Tuple, Dict
 
 from brainstate.typing import Filter, PathParts
 from ._pretty_repr import PrettyRepr, PrettyType, PrettyAttr, yield_unique_pretty_repr_items, pretty_repr_object

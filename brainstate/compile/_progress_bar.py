@@ -17,8 +17,9 @@ from __future__ import annotations
 
 import copy
 import importlib.util
-import jax
 from typing import Optional, Callable, Any, Tuple, Dict
+
+import jax
 
 tqdm_installed = importlib.util.find_spec('tqdm') is not None
 

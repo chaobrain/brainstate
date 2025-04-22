@@ -17,13 +17,14 @@
 
 from __future__ import annotations
 
-import brainunit as u
 import functools
+from typing import Sequence, Optional
+from typing import Union, Tuple, Callable, List
+
+import brainunit as u
 import jax
 import jax.numpy as jnp
 import numpy as np
-from typing import Sequence, Optional
-from typing import Union, Tuple, Callable, List
 
 from brainstate import environ
 from brainstate.nn._module import Module

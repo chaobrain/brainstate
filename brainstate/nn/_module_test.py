@@ -15,9 +15,10 @@
 
 from __future__ import annotations
 
+import unittest
+
 import jax.numpy as jnp
 import jaxlib.xla_extension
-import unittest
 
 import brainstate as bst
 

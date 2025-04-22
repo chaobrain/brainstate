@@ -16,8 +16,9 @@
 from __future__ import annotations
 
 import functools
-import jax
 from typing import Any, TypeVar, Callable, Sequence, Union
+
+import jax
 
 from brainstate import random
 from brainstate.graph import Node, flatten, unflatten

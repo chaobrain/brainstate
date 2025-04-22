@@ -16,12 +16,12 @@
 """Tests for nn module."""
 
 import itertools
+from functools import partial
 
 import jax
 import jax.numpy as jnp
 import scipy.stats
 from absl.testing import parameterized
-from functools import partial
 from jax._src import test_util as jtu
 from jax.test_util import check_grads
 

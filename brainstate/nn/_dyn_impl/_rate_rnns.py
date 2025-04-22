@@ -17,8 +17,9 @@
 
 from __future__ import annotations
 
-import jax.numpy as jnp
 from typing import Callable, Union
+
+import jax.numpy as jnp
 
 from brainstate import random, init, functional
 from brainstate._state import HiddenState, ParamState

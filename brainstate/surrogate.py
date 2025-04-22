@@ -21,9 +21,8 @@ import jax.numpy as jnp
 import jax.scipy as sci
 from jax.interpreters import batching, ad, mlir
 
-from brainstate.util._pretty_pytree import PrettyObject
 from brainstate._compatible_import import Primitive
-
+from brainstate.util._pretty_pytree import PrettyObject
 
 __all__ = [
     'Surrogate',

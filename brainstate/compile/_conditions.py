@@ -15,17 +15,17 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
+
 import jax
 import jax.numpy as jnp
 import numpy as np
-from collections.abc import Callable, Sequence
 
+from brainstate._compatible_import import to_concrete_aval, Tracer
 from brainstate._utils import set_module_as
 from ._error_if import jit_error_if
 from ._make_jaxpr import StatefulFunction
 from ._util import wrap_single_fun_in_multi_branches, write_back_state_values
-from brainstate._compatible_import import to_concrete_aval, Tracer
-
 
 __all__ = [
     'cond', 'switch', 'ifelse',

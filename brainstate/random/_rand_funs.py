@@ -17,8 +17,9 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-import numpy as np
 from typing import Optional
+
+import numpy as np
 
 from brainstate.typing import DTypeLike, Size, SeedOrKey
 from ._rand_state import RandomState, DEFAULT

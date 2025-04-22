@@ -955,7 +955,6 @@ def _vmap_new_states_transform(
     if isinstance(axis_size, int) and axis_size <= 0:
         raise ValueError(f"axis_size must be greater than 0, got {axis_size}.")
 
-
     @vmap(
         in_axes=in_axes,
         out_axes=out_axes,

@@ -16,8 +16,9 @@
 
 from __future__ import annotations
 
-import brainunit as u
 import unittest
+
+import brainunit as u
 from absl.testing import parameterized
 
 import brainstate as bst

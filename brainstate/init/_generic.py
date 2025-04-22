@@ -16,10 +16,11 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+from typing import Union, Callable, Optional, Sequence
+
 import brainunit as bu
 import jax
 import numpy as np
-from typing import Union, Callable, Optional, Sequence
 
 from brainstate._state import State
 from brainstate._utils import set_module_as

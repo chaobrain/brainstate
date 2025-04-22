@@ -16,10 +16,11 @@
 
 from __future__ import annotations
 
-import brainunit as u
-import jax.numpy as jnp
 from functools import partial
 from typing import Optional, Sequence
+
+import brainunit as u
+import jax.numpy as jnp
 
 from brainstate import random, environ, init
 from brainstate._state import ShortTermState

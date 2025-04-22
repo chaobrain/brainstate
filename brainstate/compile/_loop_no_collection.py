@@ -16,9 +16,9 @@
 from __future__ import annotations
 
 import math
+from typing import Any, Callable, TypeVar
 
 import jax
-from typing import Any, Callable, TypeVar
 
 from brainstate._utils import set_module_as
 from ._loop_collect_return import _bounded_while_loop

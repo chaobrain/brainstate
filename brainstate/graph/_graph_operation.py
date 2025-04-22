@@ -18,10 +18,11 @@
 from __future__ import annotations
 
 import dataclasses
-import jax
-import numpy as np
 from typing import (Any, Callable, Generic, Iterable, Iterator, Mapping, MutableMapping,
                     Sequence, Type, TypeVar, Union, Hashable, Tuple, Dict, Optional, overload)
+
+import jax
+import numpy as np
 from typing_extensions import TypeGuard, Unpack
 
 from brainstate._state import State, TreefyState

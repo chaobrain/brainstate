@@ -422,14 +422,14 @@ class PrettyTable:
     def _column_specific_args(self):
         # Column specific arguments, use property.setters
         for attr in (
-            "align",
-            "valign",
-            "max_width",
-            "min_width",
-            "int_format",
-            "float_format",
-            "custom_format",
-            "none_format",
+                "align",
+                "valign",
+                "max_width",
+                "min_width",
+                "int_format",
+                "float_format",
+                "custom_format",
+                "none_format",
         ):
             setattr(
                 self, attr, (self._kwargs[attr] or {}) if attr in self._kwargs else {}
@@ -517,15 +517,15 @@ class PrettyTable:
         elif option == "none_format":
             self._validate_none_format(val)
         elif option in (
-            "start",
-            "end",
-            "max_width",
-            "min_width",
-            "min_table_width",
-            "max_table_width",
-            "padding_width",
-            "left_padding_width",
-            "right_padding_width",
+                "start",
+                "end",
+                "max_width",
+                "min_width",
+                "min_table_width",
+                "max_table_width",
+                "padding_width",
+                "left_padding_width",
+                "right_padding_width",
         ):
             self._validate_nonnegative_int(option, val)
         elif option == "sortby":
@@ -539,16 +539,16 @@ class PrettyTable:
         elif option == "fields":
             self._validate_all_field_names(option, val)
         elif option in (
-            "header",
-            "border",
-            "preserve_internal_border",
-            "reversesort",
-            "xhtml",
-            "format",
-            "print_empty",
-            "oldsortslice",
-            "escape_header",
-            "escape_data",
+                "header",
+                "border",
+                "preserve_internal_border",
+                "reversesort",
+                "xhtml",
+                "format",
+                "print_empty",
+                "oldsortslice",
+                "escape_header",
+                "escape_data",
         ):
             self._validate_true_or_false(option, val)
         elif option == "header_style":
@@ -561,18 +561,18 @@ class PrettyTable:
             for k, formatter in val.items():
                 self._validate_function(f"{option}.{k}", formatter)
         elif option in (
-            "vertical_char",
-            "horizontal_char",
-            "horizontal_align_char",
-            "junction_char",
-            "top_junction_char",
-            "bottom_junction_char",
-            "right_junction_char",
-            "left_junction_char",
-            "top_right_junction_char",
-            "top_left_junction_char",
-            "bottom_right_junction_char",
-            "bottom_left_junction_char",
+                "vertical_char",
+                "horizontal_char",
+                "horizontal_align_char",
+                "junction_char",
+                "top_junction_char",
+                "bottom_junction_char",
+                "right_junction_char",
+                "left_junction_char",
+                "top_right_junction_char",
+                "top_left_junction_char",
+                "bottom_right_junction_char",
+                "bottom_left_junction_char",
         ):
             self._validate_single_char(option, val)
         elif option == "attributes":
@@ -1998,8 +1998,8 @@ class PrettyTable:
         if options["header"]:
             lines.append(self._stringify_header(options))
         elif options["border"] and options["hrules"] in (
-            HRuleStyle.ALL,
-            HRuleStyle.FRAME,
+                HRuleStyle.ALL,
+                HRuleStyle.FRAME,
         ):
             lines.append(self._stringify_hrule(options, where="top_"))
             if title and options["vrules"] in (VRuleStyle.ALL, VRuleStyle.FRAME):
@@ -2115,8 +2115,8 @@ class PrettyTable:
             if options["hrules"] in (HRuleStyle.ALL, HRuleStyle.FRAME):
                 bits.append(self._stringify_hrule(options, "top_"))
                 if options["title"] and options["vrules"] in (
-                    VRuleStyle.ALL,
-                    VRuleStyle.FRAME,
+                        VRuleStyle.ALL,
+                        VRuleStyle.FRAME,
                 ):
                     left_j_len = len(self.left_junction_char)
                     right_j_len = len(self.right_junction_char)

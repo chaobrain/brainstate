@@ -16,11 +16,12 @@
 from __future__ import annotations
 
 import functools
-import jax
 from collections.abc import Iterable, Sequence
+from typing import (Any, Callable, Union)
+
+import jax
 from jax._src import sharding_impls
 from jax.lib import xla_client as xc
-from typing import (Any, Callable, Union)
 
 from brainstate._utils import set_module_as
 from brainstate.typing import Missing

@@ -15,10 +15,11 @@
 
 from __future__ import annotations
 
+import unittest
+
 import jax
 import jax.numpy as jnp
 import pytest
-import unittest
 
 import brainstate as bst
 from brainstate._compatible_import import jaxpr_as_fun

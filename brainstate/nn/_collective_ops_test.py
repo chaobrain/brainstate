@@ -41,7 +41,3 @@ class Test_init_all_states:
         gru = bst.nn.GRUCell(1, 2)
         bst.nn.init_all_states(gru, batch_size=10)
         print(gru)
-
-
-
-

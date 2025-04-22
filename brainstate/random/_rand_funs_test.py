@@ -15,12 +15,13 @@
 
 from __future__ import annotations
 
+import platform
+import unittest
+
 import jax.numpy as jnp
 import jax.random as jr
 import numpy as np
-import platform
 import pytest
-import unittest
 
 import brainstate as bst
 

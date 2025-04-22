@@ -20,10 +20,11 @@ Shared neural network activations and other functions.
 
 from __future__ import annotations
 
+from typing import Any, Union, Sequence
+
 import brainunit as u
 import jax
 from jax.scipy.special import logsumexp
-from typing import Any, Union, Sequence
 
 from brainstate import random
 from brainstate.typing import ArrayLike

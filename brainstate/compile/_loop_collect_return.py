@@ -16,11 +16,11 @@
 from __future__ import annotations
 
 import math
+from functools import wraps
+from typing import Callable, Optional, TypeVar, Tuple, Any
 
 import jax
 import jax.numpy as jnp
-from functools import wraps
-from typing import Callable, Optional, TypeVar, Tuple, Any
 
 from brainstate._utils import set_module_as
 from ._make_jaxpr import StatefulFunction

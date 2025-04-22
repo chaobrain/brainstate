@@ -22,7 +22,6 @@ import pytest
 import brainstate
 
 
-
 class TestEventLinear:
     @pytest.mark.parametrize('bool_x', [True, False])
     @pytest.mark.parametrize('homo_w', [True, False])

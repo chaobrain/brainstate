@@ -18,8 +18,9 @@
 from __future__ import annotations
 
 import dataclasses
-import jax
 from typing import Any, TypeVar, Protocol, Generic
+
+import jax
 
 __all__ = [
     'DelayedAccessor',

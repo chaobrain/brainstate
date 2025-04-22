@@ -25,6 +25,8 @@ from ._dynamics import *
 from ._dynamics import __all__ as dynamics_all
 from ._elementwise import *
 from ._elementwise import __all__ as elementwise_all
+from ._event import *
+from ._event import __all__ as _event_all
 from ._exp_euler import *
 from ._exp_euler import __all__ as exp_euler_all
 from ._interaction import *
@@ -33,8 +35,6 @@ from ._module import *
 from ._module import __all__ as module_all
 from ._utils import *
 from ._utils import __all__ as utils_all
-from ._event import *
-from ._event import __all__ as _event_all
 
 __all__ = (
     ['metrics']

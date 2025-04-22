@@ -22,12 +22,12 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from brainstate.nn._module import Module
-from brainstate._compatible_import import brainevent
 from brainstate import random, augment, environ, init
-from brainstate.compile import for_loop
-from brainstate.typing import Size, ArrayLike
+from brainstate._compatible_import import brainevent
 from brainstate._state import ParamState
+from brainstate.compile import for_loop
+from brainstate.nn._module import Module
+from brainstate.typing import Size, ArrayLike
 
 __all__ = [
     'EventFixedNumConn',

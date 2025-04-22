@@ -425,6 +425,7 @@ class TestVMAPNewStatesEdgeCases(unittest.TestCase):
 
     def test_incompatible_shapes(self):
         foo = brainstate.nn.LIF(3)
+
         # Simulate an incompatible shapes scenario:
         # We intentionally assign a state with a different shape than expected.
         @bst.augment.vmap_new_states(state_tag='new1', axis_size=5)
