@@ -67,9 +67,15 @@ from jax._src.traceback_util import api_boundary
 from jax.api_util import shaped_abstractify
 from jax.extend.linear_util import transformation_with_aux, wrap_init
 from jax.interpreters import partial_eval as pe
-from jax.util import wraps
 
-from brainstate._compatible_import import ClosedJaxpr, extend_axis_env_nd
+from brainstate._compatible_import import (
+    ClosedJaxpr,
+    extend_axis_env_nd,
+    safe_map,
+    safe_zip,
+    unzip2,
+    wraps,
+)
 from brainstate._state import State, StateTraceStack
 from brainstate._utils import set_module_as
 from brainstate.typing import PyTree
@@ -89,7 +95,7 @@ def _ensure_index_tuple(x: Any) -> tuple[int, ...]:
     try:
         return (operator.index(x),)
     except TypeError:
-        return tuple(jax.util.safe_map(operator.index, x))
+        return tuple(safe_map(operator.index, x))
 
 
 def _new_arg_fn(frame, trace, aval):
@@ -733,7 +739,7 @@ def _make_jaxpr(
         else:
             axes_specs = _flat_axes_specs(abstracted_axes, *args, **kwargs)
             in_type = pe.infer_lambda_input_type(axes_specs, flat_args)
-            in_avals, keep_inputs = jax.util.unzip2(in_type)
+            in_avals, keep_inputs = unzip2(in_type)
             return in_avals, in_tree, keep_inputs
 
     @wraps(fun)
@@ -744,7 +750,7 @@ def _make_jaxpr(
             dyn_argnums = [i for i in range(len(args)) if i not in static_argnums]
             f, args = jax.api_util.argnums_partial(f, dyn_argnums, args)
         in_avals, in_tree, keep_inputs = _abstractify(args, kwargs)
-        in_type = tuple(jax.util.safe_zip(in_avals, keep_inputs))
+        in_type = tuple(safe_zip(in_avals, keep_inputs))
         f, out_tree = _flatten_fun(f, in_tree)
         f = annotate(f, in_type)
         if jax.__version_info__ < (0, 5, 0):
@@ -758,7 +764,7 @@ def _make_jaxpr(
                 jaxpr, out_type, consts = pe.trace_to_jaxpr_dynamic2(f)
         closed_jaxpr = ClosedJaxpr(jaxpr, consts)
         if return_shape:
-            out_avals, _ = jax.util.unzip2(out_type)
+            out_avals, _ = unzip2(out_type)
             out_shapes_flat = [jax.ShapeDtypeStruct(a.shape, a.dtype) for a in out_avals]
             return closed_jaxpr, jax.tree.unflatten(out_tree(), out_shapes_flat)
         return closed_jaxpr
