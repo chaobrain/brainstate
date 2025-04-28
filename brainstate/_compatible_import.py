@@ -18,7 +18,8 @@
 
 import importlib.util
 from contextlib import contextmanager
-from typing import Iterable, Hashable
+from functools import partial
+from typing import Iterable, Hashable, TypeVar, Callable
 
 import jax
 
@@ -31,7 +32,17 @@ __all__ = [
     'Tracer',
     'to_concrete_aval',
     'brainevent',
+    'safe_map',
+    'safe_zip',
+    'unzip2',
+    'unzip3',
+    'wraps',
 ]
+
+T = TypeVar("T")
+T1 = TypeVar("T1")
+T2 = TypeVar("T2")
+T3 = TypeVar("T3")
 
 brainevent_installed = importlib.util.find_spec('brainevent') is not None
 
@@ -52,6 +63,93 @@ else:
             yield
         finally:
             trace_ctx.set_axis_env(prev)
+
+if jax.__version_info__ < (0, 6, 0):
+    from jax.util import safe_map, safe_zip, unzip2, unzip3, wraps
+
+else:
+    def safe_map(f, *args):
+        args = list(map(list, args))
+        n = len(args[0])
+        for arg in args[1:]:
+            assert len(arg) == n, f'length mismatch: {list(map(len, args))}'
+        return list(map(f, *args))
+
+
+    def safe_zip(*args):
+        args = list(map(list, args))
+        n = len(args[0])
+        for arg in args[1:]:
+            assert len(arg) == n, f'length mismatch: {list(map(len, args))}'
+        return list(zip(*args))
+
+
+    def unzip2(xys: Iterable[tuple[T1, T2]]
+               ) -> tuple[tuple[T1, ...], tuple[T2, ...]]:
+        """Unzip sequence of length-2 tuples into two tuples."""
+        # Note: we deliberately don't use zip(*xys) because it is lazily evaluated,
+        # is too permissive about inputs, and does not guarantee a length-2 output.
+        xs: list[T1] = []
+        ys: list[T2] = []
+        for x, y in xys:
+            xs.append(x)
+            ys.append(y)
+        return tuple(xs), tuple(ys)
+
+
+    def unzip3(xyzs: Iterable[tuple[T1, T2, T3]]
+               ) -> tuple[tuple[T1, ...], tuple[T2, ...], tuple[T3, ...]]:
+        """Unzip sequence of length-3 tuples into three tuples."""
+        # Note: we deliberately don't use zip(*xyzs) because it is lazily evaluated,
+        # is too permissive about inputs, and does not guarantee a length-3 output.
+        xs: list[T1] = []
+        ys: list[T2] = []
+        zs: list[T3] = []
+        for x, y, z in xyzs:
+            xs.append(x)
+            ys.append(y)
+            zs.append(z)
+        return tuple(xs), tuple(ys), tuple(zs)
+
+
+    def fun_name(fun: Callable):
+        name = getattr(fun, "__name__", None)
+        if name is not None:
+            return name
+        if isinstance(fun, partial):
+            return fun_name(fun.func)
+        else:
+            return "<unnamed function>"
+
+
+    def wraps(
+        wrapped: Callable,
+        namestr: str | None = None,
+        docstr: str | None = None,
+        **kwargs,
+    ) -> Callable[[T], T]:
+        """
+        Like functools.wraps, but with finer-grained control over the name and docstring
+        of the resulting function.
+        """
+
+        def wrapper(fun: T) -> T:
+            try:
+                name = fun_name(wrapped)
+                doc = getattr(wrapped, "__doc__", "") or ""
+                fun.__dict__.update(getattr(wrapped, "__dict__", {}))
+                fun.__annotations__ = getattr(wrapped, "__annotations__", {})
+                fun.__name__ = name if namestr is None else namestr.format(fun=name)
+                fun.__module__ = getattr(wrapped, "__module__", "<unknown module>")
+                fun.__doc__ = (doc if docstr is None
+                               else docstr.format(fun=name, doc=doc, **kwargs))
+                fun.__qualname__ = getattr(wrapped, "__qualname__", fun.__name__)
+                fun.__wrapped__ = wrapped
+            except Exception:
+                pass
+            return fun
+
+        return wrapper
 
 
 def to_concrete_aval(aval):
