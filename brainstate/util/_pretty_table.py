@@ -2713,10 +2713,64 @@ class PrettyTable:
 ##############################
 
 
-def _str_block_width(val: str) -> int:
-    import wcwidth  # type: ignore[import-untyped]
+# def _str_block_width(val: str) -> int:
+#     import wcwidth  # type: ignore[import-untyped]
+#
+#     return wcwidth.wcswidth(_re.sub("", val))
 
-    return wcwidth.wcswidth(_re.sub("", val))
+def _str_block_width(val: str) -> int:
+    """Calculate the visual width of a string, accounting for wide Unicode characters.
+
+    This is a custom implementation to replace the wcwidth dependency.
+
+    Args:
+        val: The string to measure
+
+    Returns:
+        The visual width of the string when displayed in a monospace context
+    """
+    # Remove ANSI escape sequences
+    val = _re.sub("", val)
+
+    # Fast path for ASCII-only strings
+    if all(ord(c) < 128 for c in val):
+        return len(val)
+
+    width = 0
+    for char in val:
+        width += _char_width(char)
+
+    return width
+
+
+def _char_width(char: str) -> int:
+    """Calculate the display width of a single character.
+
+    Args:
+        char: A single Unicode character
+
+    Returns:
+        0 for control characters
+        2 for wide characters (CJK, emoji, etc.)
+        1 for all other characters
+    """
+    code = ord(char)
+
+    # Control characters and empty space
+    if code == 0 or code == 0x034F or (0x200B <= code <= 0x200F) or code == 0x2028 or code == 0x2029 or (
+        0x202A <= code <= 0x202E) or (0x2060 <= code <= 0x2063):
+        return 0
+
+    # Wide characters: CJK, emoji, etc.
+    if (0x1100 <= code <= 0x115F) or (0x2329 <= code <= 0x232A) or (0x2E80 <= code <= 0x303E) or (
+        0x3040 <= code <= 0x4DBF) or (0x4E00 <= code <= 0x9FFF) or (0xA000 <= code <= 0xA4CF) or (
+        0xAC00 <= code <= 0xD7A3) or (0xF900 <= code <= 0xFAFF) or (0xFE10 <= code <= 0xFE19) or (
+        0xFE30 <= code <= 0xFE6F) or (0xFF00 <= code <= 0xFF60) or (0xFFE0 <= code <= 0xFFE6) or (
+        0x1F300 <= code <= 0x1F64F) or (0x1F900 <= code <= 0x1F9FF):
+        return 2
+
+    # Default single-width character
+    return 1
 
 
 ##############################

@@ -314,7 +314,7 @@ class PrettyDict(dict, PrettyRepr):
 
     def treefy_state(self):
         """
-        Convert the ``State`` objects to a reference tree of the state.
+        Convert the :class:`State` objects to a reference tree of the state.
         """
         from brainstate._state import State
         leaves, treedef = jax.tree.flatten(self)
@@ -323,7 +323,7 @@ class PrettyDict(dict, PrettyRepr):
 
     def to_dict(self) -> Dict[K, Dict[K, Any] | V]:
         """
-        Convert the ``PrettyDict`` to a dictionary.
+        Convert the :class:`PrettyDict` to a dictionary.
 
         Returns:
           The dictionary.
@@ -348,9 +348,9 @@ class PrettyDict(dict, PrettyRepr):
 
     def subset(self, *filters) -> Union[PrettyDict[K, V], Tuple[PrettyDict[K, V], ...]]:
         """
-        Subset a ``PrettyDict`` into one or more ``PrettyDict``'s. The user must pass at least one
-        ``Filter`` (i.e. :class:`State`), and the filters must be exhaustive (i.e. they must cover all
-        :class:`State` types in the ``PrettyDict``).
+        Subset a :class:`PrettyDict` into one or more :class:`PrettyDict`'s. The user must pass at least one
+        `:class:`Filter` (i.e. :class:`State`), and the filters must be exhaustive (i.e. they must cover all
+        :class:`State` types in the :class:`PrettyDict`).
         """
         return self.filter(*filters)
 
@@ -375,10 +375,10 @@ def _default_repr_attr(node):
 
 class NestedDict(PrettyDict):
     """
-    A pytree-like structure that contains a ``Mapping`` from strings or integers to leaves.
+    A pytree-like structure that contains a :class:`Mapping` from strings or integers to leaves.
 
     A valid leaf type is either :class:`State`, ``jax.Array``, ``numpy.ndarray`` or nested
-    ``NestedDict`` and ``FlattedDict``.
+    :class:`NestedDict` and :class:`FlattedDict`.
     """
     __module__ = 'brainstate.util'
 
@@ -403,20 +403,20 @@ class NestedDict(PrettyDict):
         Flatten the nested mapping into a flat mapping.
 
         Returns:
-          The flattened mapping.
+            The flattened mapping.
         """
         return flat_mapping(self)
 
     @classmethod
     def from_flat(cls, flat_dict: abc.Mapping[PathParts, V] | Iterable[tuple[PathParts, V]]) -> NestedDict:
         """
-        Create a ``NestedDict`` from a flat mapping.
+        Create a :class:`NestedDict` from a flat mapping.
 
         Args:
           flat_dict: The flat mapping.
 
         Returns:
-          The ``NestedDict``.
+          The :class:`NestedDict`.
         """
         nested_state = nest_mapping(dict(flat_dict))
         return cls(nested_state)
@@ -428,10 +428,10 @@ class NestedDict(PrettyDict):
         *filters: Filter
     ) -> Union[NestedDict[K, V], Tuple[NestedDict[K, V], ...]]:
         """
-        Split a ``NestedDict`` into one or more ``NestedDict``'s. The
-        user must pass at least one ``Filter`` (i.e. :class:`State`),
+        Split a :class:`NestedDict` into one or more :class:`NestedDict`'s. The
+        user must pass at least one `:class:`Filter` (i.e. :class:`State`),
         and the filters must be exhaustive (i.e. they must cover all
-        :class:`State` types in the ``NestedDict``).
+        :class:`State` types in the :class:`NestedDict`).
 
         Example usage::
 
@@ -476,8 +476,8 @@ class NestedDict(PrettyDict):
         *filters: Filter,
     ) -> Union[NestedDict[K, V], Tuple[NestedDict[K, V], ...]]:
         """
-        Filter a ``NestedDict`` into one or more ``NestedDict``'s. The
-        user must pass at least one ``Filter`` (i.e. :class:`State`).
+        Filter a :class:`NestedDict` into one or more :class:`NestedDict`'s. The
+        user must pass at least one `:class:`Filter` (i.e. :class:`State`).
         This method is similar to :meth:`split() <flax.nnx.NestedDict.state.split>`,
         except the filters can be non-exhaustive.
 
@@ -505,14 +505,14 @@ class NestedDict(PrettyDict):
         """
         The inverse of :meth:`split()`.
 
-        ``merge`` takes one or more ``PrettyDict``'s and creates a new ``PrettyDict``.
+        ``merge`` takes one or more :class:`PrettyDict`'s and creates a new :class:`PrettyDict`.
 
         Args:
-          state: A ``PrettyDict`` object.
-          *states: Additional ``PrettyDict`` objects.
+          state: A :class:`PrettyDict` object.
+          *states: Additional :class:`PrettyDict` objects.
 
         Returns:
-          The merged ``PrettyDict``.
+          The merged :class:`PrettyDict`.
         """
         if not states:
             return state
@@ -548,11 +548,11 @@ class NestedDict(PrettyDict):
 
 class FlattedDict(PrettyDict):
     """
-    A pytree-like structure that contains a ``Mapping`` from strings or integers to leaves.
+    A pytree-like structure that contains a :class:`Mapping` from strings or integers to leaves.
 
     A valid leaf type is either :class:`State`, ``jax.Array``, ``numpy.ndarray`` or Python variables.
 
-    A ``NestedDict`` can be generated by either calling :func:`states()` or
+    A :class:`NestedDict` can be generated by either calling :func:`states()` or
     :func:`nodes()` on the :class:`Module`.
 
     Example usage::
@@ -649,7 +649,7 @@ class FlattedDict(PrettyDict):
         Unflatten the flat mapping into a nested mapping.
 
         Returns:
-          The nested mapping.
+            The nested mapping.
         """
         return nest_mapping(self)
 
@@ -658,13 +658,13 @@ class FlattedDict(PrettyDict):
         cls, nested_dict: abc.Mapping[PathParts, V] | Iterable[tuple[PathParts, V]],
     ) -> FlattedDict:
         """
-        Create a ``NestedDict`` from a flat mapping.
+        Create a :class:`NestedDict` from a flat mapping.
 
         Args:
           nested_dict: The flat mapping.
 
         Returns:
-          The ``NestedDict``.
+          The :class:`NestedDict`.
         """
         return flat_mapping(nested_dict)
 
@@ -675,17 +675,17 @@ class FlattedDict(PrettyDict):
         *filters: Filter
     ) -> Union[FlattedDict[K, V], tuple[FlattedDict[K, V], ...]]:
         """
-        Split a ``FlattedDict`` into one or more ``FlattedDict``'s. The
-        user must pass at least one ``Filter`` (i.e. :class:`State`),
+        Split a :class:`FlattedDict` into one or more :class:`FlattedDict`'s. The
+        user must pass at least one `:class:`Filter` (i.e. :class:`State`),
         and the filters must be exhaustive (i.e. they must cover all
-        :class:`State` types in the ``NestedDict``).
+        :class:`State` types in the :class:`NestedDict`).
 
         Arguments:
-          first: The first filter
-          *filters: The optional, additional filters to group the state into mutually exclusive substates.
+            first: The first filter
+            *filters: The optional, additional filters to group the state into mutually exclusive substates.
 
         Returns:
-          One or more ``States`` equal to the number of filters passed.
+            One or more ``States`` equal to the number of filters passed.
         """
         filters = (first, *filters)
         *states_, rest = _split_flatted_mapping(self, *filters)
@@ -707,17 +707,17 @@ class FlattedDict(PrettyDict):
         *filters: Filter,
     ) -> Union[FlattedDict[K, V], Tuple[FlattedDict[K, V], ...]]:
         """
-        Filter a ``FlattedDict`` into one or more ``FlattedDict``'s. The
-        user must pass at least one ``Filter`` (i.e. :class:`State`).
+        Filter a :class:`FlattedDict` into one or more :class:`FlattedDict`'s. The
+        user must pass at least one `:class:`Filter` (i.e. :class:`State`).
         This method is similar to :meth:`split() <flax.nnx.NestedDict.state.split>`,
         except the filters can be non-exhaustive.
 
         Arguments:
-          first: The first filter
-          *filters: The optional, additional filters to group the state into mutually exclusive substates.
+            first: The first filter
+            *filters: The optional, additional filters to group the state into mutually exclusive substates.
 
         Returns:
-          One or more ``States`` equal to the number of filters passed.
+            One or more ``States`` equal to the number of filters passed.
         """
         *states_, _rest = _split_flatted_mapping(self, first, *filters)
         assert len(states_) == len(filters) + 1, f'Expected {len(filters) + 1} states, got {len(states_)}'
@@ -736,14 +736,14 @@ class FlattedDict(PrettyDict):
         """
         The inverse of :meth:`split()`.
 
-        ``merge`` takes one or more ``FlattedDict``'s and creates a new ``FlattedDict``.
+        ``merge`` takes one or more :class:`FlattedDict`'s and creates a new :class:`FlattedDict`.
 
         Args:
-          state: A ``PrettyDict`` object.
-          *states: Additional ``PrettyDict`` objects.
+          state: A :class:`PrettyDict` object.
+          *states: Additional :class:`PrettyDict` objects.
 
         Returns:
-          The merged ``PrettyDict``.
+          The merged :class:`PrettyDict`.
         """
         if not states:
             return state
@@ -759,8 +759,61 @@ class FlattedDict(PrettyDict):
         return FlattedDict(new_state)
 
     def to_dict_values(self):
+        """
+        Convert a FlattedDict containing State objects to a plain dictionary of values.
+        
+        This method extracts the underlying values from any State objects in the FlattedDict,
+        creating a new dictionary with the same keys but where each State object is replaced
+        by its value attribute. Non-State objects are kept as is.
+        
+        Returns:
+            dict: A dictionary with the same keys as the FlattedDict, but where each State
+                  object is replaced by its value attribute. Non-State objects remain unchanged.
+        
+        Example:
+            >>> flat_dict = FlattedDict({('model', 'layer1', 'weight'): ParamState(value=jnp.ones((10, 5)))})
+            >>> flat_dict.to_dict_values()
+            {('model', 'layer1', 'weight'): Array([[1., 1., ...]], dtype=float32)}
+        """
         from brainstate._state import State
-        return {k: v.value if isinstance(v, State) else v for k, v in self.items()}
+        return {
+            k: v.value if isinstance(v, State) else v 
+            for k, v in self.items()
+        }
+    
+    def assign_dict_values(self, data: dict):
+        """
+        Assign values from a dictionary to this FlattedDict.
+        
+        This method updates the values in the FlattedDict with values from the provided
+        dictionary. For keys that correspond to State objects, the value attribute of
+        the State is updated. For other keys, the value in the FlattedDict is directly
+        replaced with the new value.
+        
+        The method requires that all keys in the FlattedDict exist in the provided
+        dictionary, otherwise a KeyError is raised.
+        
+        Args:
+            data (dict): A dictionary containing the values to assign, where keys 
+                         must match those in the FlattedDict.
+        
+        Raises:
+            KeyError: If a key in the FlattedDict is not present in the provided dictionary.
+        
+        Example:
+            >>> flat_dict = FlattedDict({('model', 'weight'): ParamState(value=jnp.zeros((5, 5)))})
+            >>> flat_dict.assign_dict_values({('model', 'weight'): jnp.ones((5, 5))})
+            # The ParamState's value is now an array of ones
+        """
+        from brainstate._state import State
+        for k in self.keys():
+            if k not in data:
+                raise KeyError(f'Invalid key: {k!r}')
+            val = self[k]
+            if isinstance(val, State):
+                val.value = data[k]
+            else:
+                self[k] = data[k]
 
 
 def _split_nested_mapping(
@@ -828,7 +881,7 @@ def _split_flatted_mapping(
     return tuple(FlattedDict(flat_state) for flat_state in flat_states)
 
 
-# register ``NestedDict`` as a pytree
+# register :class:`NestedDict` as a pytree
 def _nest_flatten_with_keys(x: NestedDict):
     items = sorted(x.items())
     children = tuple((jax.tree_util.DictKey(key), value) for key, value in items)
@@ -847,7 +900,7 @@ jax.tree_util.register_pytree_with_keys(NestedDict,
                                         _nest_unflatten)  # type: ignore[arg-type]
 
 
-# register ``FlattedDict`` as a pytree
+# register :class:`FlattedDict` as a pytree
 
 def _flat_unflatten(
     static: Tuple[K, ...],
