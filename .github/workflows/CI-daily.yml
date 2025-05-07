@@ -1,0 +1,73 @@
+# This workflow will install Python dependencies, run tests and lint with a variety of Python versions
+# For more information see: https://help.github.com/actions/language-and-framework-guides/using-python-with-github-actions
+
+name: Daily CI Tests
+
+on:
+  schedule:
+    # Runs 'at 00:00 on every day' UTC time.
+    # You can adjust the time. Use cron syntax (minute hour day month day-of-week).
+    # See: https://crontab.guru for help with cron syntax.
+    # Example: '0 3 * * *' runs at 3:00 AM UTC daily.
+    - cron: '0 0 * * *'
+
+  # OPTIONAL: Add other triggers if you want tests to run more often
+  # For example, run on pushes and pull requests to the main branch:
+  # push:
+  #   branches: [ main ]
+  # pull_request:
+  #   branches: [ main ]
+
+  # OPTIONAL: Allow manual triggering from the Actions tab
+  workflow_dispatch:
+
+
+permissions:
+  contents: read  # to fetch code
+  actions: write  # to cancel previous workflows
+
+# This is what will cancel the workflow
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test_linux:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        jax-version: ["0.4.38", "0.5.2", "0.6.0", ""]
+        # Optional: Exclude incompatible combinations if needed
+        # exclude:
+        #   - python-version: "3.13"
+        #     jax-version: "0.4.38"
+
+    steps:
+      - name: Cancel Previous Runs
+        uses: styfle/cancel-workflow-action@0.12.1
+        with:
+          access_token: ${{ github.token }}
+      - uses: actions/checkout@v4
+      - name: Print concurrency group
+        run: echo '${{ github.workflow }}-${{ github.ref }}'
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
+        run: |
+          python -m pip cache purge
+          python -m pip install --upgrade pip setuptools
+          python -m pip install -r requirements-cpu.txt
+          if [ "${{ matrix.jax-version }}" == "" ]; then
+            python -m pip install jax || exit 1
+          else
+            python -m pip install jax==${{ matrix.jax-version }} || exit 1
+          fi
+          python -m pip install . || exit 1
+      - name: Test with pytest
+        run: |
+          pytest brainstate/
+

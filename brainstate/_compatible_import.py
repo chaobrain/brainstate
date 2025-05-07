@@ -35,7 +35,6 @@ __all__ = [
     'safe_map',
     'safe_zip',
     'unzip2',
-    'unzip3',
     'wraps',
 ]
 
@@ -65,7 +64,7 @@ else:
             trace_ctx.set_axis_env(prev)
 
 if jax.__version_info__ < (0, 6, 0):
-    from jax.util import safe_map, safe_zip, unzip2, unzip3, wraps
+    from jax.util import safe_map, safe_zip, unzip2, wraps
 
 else:
     def safe_map(f, *args):
@@ -84,8 +83,7 @@ else:
         return list(zip(*args))
 
 
-    def unzip2(xys: Iterable[tuple[T1, T2]]
-               ) -> tuple[tuple[T1, ...], tuple[T2, ...]]:
+    def unzip2(xys: Iterable[tuple[T1, T2]]) -> tuple[tuple[T1, ...], tuple[T2, ...]]:
         """Unzip sequence of length-2 tuples into two tuples."""
         # Note: we deliberately don't use zip(*xys) because it is lazily evaluated,
         # is too permissive about inputs, and does not guarantee a length-2 output.
@@ -95,21 +93,6 @@ else:
             xs.append(x)
             ys.append(y)
         return tuple(xs), tuple(ys)
-
-
-    def unzip3(xyzs: Iterable[tuple[T1, T2, T3]]
-               ) -> tuple[tuple[T1, ...], tuple[T2, ...], tuple[T3, ...]]:
-        """Unzip sequence of length-3 tuples into three tuples."""
-        # Note: we deliberately don't use zip(*xyzs) because it is lazily evaluated,
-        # is too permissive about inputs, and does not guarantee a length-3 output.
-        xs: list[T1] = []
-        ys: list[T2] = []
-        zs: list[T3] = []
-        for x, y, z in xyzs:
-            xs.append(x)
-            ys.append(y)
-            zs.append(z)
-        return tuple(xs), tuple(ys), tuple(zs)
 
 
     def fun_name(fun: Callable):

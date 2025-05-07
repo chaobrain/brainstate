@@ -4,7 +4,7 @@
 
 
 <p align="center">
-  	<img alt="Header image of brainstate." src="https://github.com/chaobrain/brainstate/blob/main/docs/_static/brainstate.png" width=40%>
+  	<img alt="Header image of brainstate." src="https://raw.githubusercontent.com/chaobrain/brainstate/main/docs/_static/brainstate.png" width=40%>
 </p> 
 
 
@@ -30,7 +30,11 @@ You can install ``brainstate`` via pip:
 pip install brainstate --upgrade
 ```
 
+Alternatively, you can install `BrainX`, which bundles `brainstate` with other compatible packages for a comprehensive brain modeling ecosystem:
 
+```bash
+pip install BrainX -U
+```
 
 ## Documentation
 

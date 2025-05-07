@@ -79,7 +79,7 @@ autosummary_generate = True
 master_doc = 'index'
 
 intersphinx_mapping = {
-    "python": ("https://docs.python.org/3.8", None),
+    "python": ("https://docs.python.org/3.13", None),
     "sphinx": ("https://www.sphinx-doc.org/en/master", None),
 }
 nitpick_ignore = [
