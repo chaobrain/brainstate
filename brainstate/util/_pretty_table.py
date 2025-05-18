@@ -31,6 +31,8 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
+from __future__ import annotations
+
 import io
 import re
 import warnings
@@ -467,7 +469,7 @@ class PrettyTable:
         else:
             raise AttributeError(name)
 
-    def __getitem__(self, index: int | slice) -> PrettyTable:
+    def __getitem__(self, index: int | slice) -> 'PrettyTable':
         new = PrettyTable()
         new.field_names = self.field_names
         for attr in self._options:

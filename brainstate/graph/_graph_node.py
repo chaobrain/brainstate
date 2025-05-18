@@ -208,7 +208,7 @@ class List(Node):
     def __len__(self):
         return len(vars(self))
 
-    def __add__(self, other: Sequence[A]) -> List[A]:
+    def __add__(self, other: Sequence[A]) -> 'List[A]':
         return List(list(self) + list(other))
 
     def append(self, value):

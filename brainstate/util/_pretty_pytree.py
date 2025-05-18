@@ -44,66 +44,6 @@ ExtractValueFn = abc.Callable[[Any], Any]
 SetValueFn = abc.Callable[[V, Any], V]
 
 
-def _repr_object_general(node: PrettyDict):
-    """
-    Generate a general representation of a PrettyDict object.
-
-    This function is used to create a pretty representation of a PrettyDict
-    object, which includes the type of the object and its value separator.
-
-    Args:
-        node (PrettyDict): The PrettyDict object to be represented.
-
-    Yields:
-        PrettyType: A PrettyType object representing the type of the node,
-        with specified value separator, start, and end characters.
-    """
-    yield PrettyType(type(node), value_sep='=', start='(', end=')')
-
-
-def _repr_attribute_general(node):
-    """
-    Generate a pretty representation of the attributes of a node.
-
-    This function iterates over the attributes of a given node and attempts
-    to generate a pretty representation for each attribute. It handles
-    conversion of lists and dictionaries to their pretty representation
-    counterparts and yields a PrettyAttr object for each attribute.
-
-    Args:
-        node: The object whose attributes are to be represented.
-
-    Yields:
-        PrettyAttr: A PrettyAttr object representing the key and value of
-        each attribute in a pretty format.
-    """
-    for k, v in vars(node).items():
-        try:
-            res = node.__pretty_repr_item__(k, v)
-            if res is None:
-                continue
-            k, v = res
-        except AttributeError:
-            pass
-
-        if k is None:
-            continue
-
-        # convert list to PrettyList
-        if isinstance(v, list):
-            v = PrettyList(v)
-
-        # convert dict to PrettyDict
-        if isinstance(v, dict):
-            v = PrettyDict(v)
-
-        # convert PrettyDict to NestedStateRepr
-        if isinstance(v, PrettyDict):
-            v = NestedStateRepr(v)
-
-        yield PrettyAttr(k, v)
-
-
 class PrettyObject(PrettyRepr):
     """
     A class for generating a pretty representation of a tree-like structure.
@@ -282,32 +222,10 @@ def _default_process(x):
     return id(x)
 
 
-class NestedStateRepr(PrettyRepr):
-    def __init__(self, state: PrettyDict):
-        self.state = state
-
-    def __pretty_repr__(self):
-        yield PrettyType('', value_sep=': ', start='{', end='}')
-
-        for r in self.state.__pretty_repr__():
-            if isinstance(r, PrettyType):
-                continue
-            yield r
-
-    def __treescope_repr__(self, path, subtree_renderer):
-        children = {}
-        for k, v in self.state.items():
-            if isinstance(v, PrettyDict):
-                v = NestedStateRepr(v)
-            children[k] = v
-        # Render as the dictionary itself at the same path.
-        return subtree_renderer(children, path=path)
-
-
 class PrettyDict(dict, PrettyRepr):
     __module__ = 'brainstate.util'
 
-    def __getattr__(self, key: K) -> NestedMapping | V:  # type: ignore[misc]
+    def __getattr__(self, key: K):  # type: ignore[misc]
         return self[key]
 
     def treefy_state(self):
@@ -335,22 +253,44 @@ class PrettyDict(dict, PrettyRepr):
     def __pretty_repr__(self):
         yield from yield_unique_pretty_repr_items(self, _default_repr_object, _default_repr_attr)
 
-    def split(self, *filters) -> Union[PrettyDict[K, V], Tuple[PrettyDict[K, V], ...]]:
+    def split(self, *filters) -> Union['PrettyDict[K, V]', Tuple['PrettyDict[K, V]', ...]]:
         raise NotImplementedError
 
-    def filter(self, *filters) -> Union[PrettyDict[K, V], Tuple[PrettyDict[K, V], ...]]:
+    def filter(self, *filters) -> Union['PrettyDict[K, V]', Tuple['PrettyDict[K, V]', ...]]:
         raise NotImplementedError
 
-    def merge(self, *states) -> PrettyDict[K, V]:
+    def merge(self, *states) -> 'PrettyDict[K, V]':
         raise NotImplementedError
 
-    def subset(self, *filters) -> Union[PrettyDict[K, V], Tuple[PrettyDict[K, V], ...]]:
+    def subset(self, *filters) -> Union['PrettyDict[K, V]', Tuple['PrettyDict[K, V]', ...]]:
         """
         Subset a :class:`PrettyDict` into one or more :class:`PrettyDict`'s. The user must pass at least one
         `:class:`Filter` (i.e. :class:`State`), and the filters must be exhaustive (i.e. they must cover all
         :class:`State` types in the :class:`PrettyDict`).
         """
         return self.filter(*filters)
+
+
+class NestedStateRepr(PrettyRepr):
+    def __init__(self, state: PrettyDict):
+        self.state = state
+
+    def __pretty_repr__(self):
+        yield PrettyType('', value_sep=': ', start='{', end='}')
+
+        for r in self.state.__pretty_repr__():
+            if isinstance(r, PrettyType):
+                continue
+            yield r
+
+    def __treescope_repr__(self, path, subtree_renderer):
+        children = {}
+        for k, v in self.state.items():
+            if isinstance(v, PrettyDict):
+                v = NestedStateRepr(v)
+            children[k] = v
+        # Render as the dictionary itself at the same path.
+        return subtree_renderer(children, path=path)
 
 
 def _default_repr_object(node: PrettyDict):
@@ -380,13 +320,13 @@ class NestedDict(PrettyDict):
     """
     __module__ = 'brainstate.util'
 
-    def __or__(self, other: NestedDict[K, V]) -> NestedDict[K, V]:
+    def __or__(self, other: 'NestedDict[K, V]') -> 'NestedDict[K, V]':
         if not other:
             return self
         assert isinstance(other, NestedDict), f'expected NestedDict; got {type(other).__qualname__}'
         return NestedDict.merge(self, other)
 
-    def __sub__(self, other: NestedDict[K, V]) -> NestedDict[K, V]:
+    def __sub__(self, other: 'NestedDict[K, V]') -> 'NestedDict[K, V]':
         if not other:
             return self
 
@@ -396,7 +336,7 @@ class NestedDict(PrettyDict):
         diff = {k: v for k, v in self_flat.items() if k not in other_flat}
         return NestedDict.from_flat(diff)
 
-    def to_flat(self) -> FlattedDict:
+    def to_flat(self) -> 'FlattedDict':
         """
         Flatten the nested mapping into a flat mapping.
 
@@ -406,7 +346,7 @@ class NestedDict(PrettyDict):
         return flat_mapping(self)
 
     @classmethod
-    def from_flat(cls, flat_dict: abc.Mapping[PathParts, V] | Iterable[tuple[PathParts, V]]) -> NestedDict:
+    def from_flat(cls, flat_dict: abc.Mapping[PathParts, V] | Iterable[tuple[PathParts, V]]) -> 'NestedDict':
         """
         Create a :class:`NestedDict` from a flat mapping.
 
@@ -424,7 +364,7 @@ class NestedDict(PrettyDict):
         first: Filter,
         /,
         *filters: Filter
-    ) -> Union[NestedDict[K, V], Tuple[NestedDict[K, V], ...]]:
+    ) -> Union['NestedDict[K, V]', Tuple['NestedDict[K, V]', ...]]:
         """
         Split a :class:`NestedDict` into one or more :class:`NestedDict`'s. The
         user must pass at least one `:class:`Filter` (i.e. :class:`State`),
@@ -472,7 +412,7 @@ class NestedDict(PrettyDict):
         first: Filter,
         /,
         *filters: Filter,
-    ) -> Union[NestedDict[K, V], Tuple[NestedDict[K, V], ...]]:
+    ) -> Union['NestedDict[K, V]', Tuple['NestedDict[K, V]', ...]]:
         """
         Filter a :class:`NestedDict` into one or more :class:`NestedDict`'s. The
         user must pass at least one `:class:`Filter` (i.e. :class:`State`).
@@ -496,10 +436,10 @@ class NestedDict(PrettyDict):
 
     @staticmethod
     def merge(
-        state: NestedDict[K, V] | FlattedDict[K, V],
+        state: Union['NestedDict[K, V]', 'FlattedDict[K, V]'],
         /,
-        *states: NestedDict[K, V] | FlattedDict[K, V]
-    ) -> NestedDict[K, V]:
+        *states: Union['NestedDict[K, V]', 'FlattedDict[K, V]']
+    ) -> 'NestedDict[K, V]':
         """
         The inverse of :meth:`split()`.
 
@@ -629,13 +569,13 @@ class FlattedDict(PrettyDict):
     """
     __module__ = 'brainstate.util'
 
-    def __or__(self, other: FlattedDict[K, V]) -> FlattedDict[K, V]:
+    def __or__(self, other: 'FlattedDict[K, V]') -> 'FlattedDict[K, V]':
         if not other:
             return self
         assert isinstance(other, FlattedDict), f'expected NestedDict; got {type(other).__qualname__}'
         return FlattedDict.merge(self, other)
 
-    def __sub__(self, other: FlattedDict[K, V]) -> FlattedDict[K, V]:
+    def __sub__(self, other: 'FlattedDict[K, V]') -> 'FlattedDict[K, V]':
         if not other:
             return self
         assert isinstance(other, FlattedDict), f'expected NestedDict; got {type(other).__qualname__}'
@@ -654,7 +594,7 @@ class FlattedDict(PrettyDict):
     @classmethod
     def from_nest(
         cls, nested_dict: abc.Mapping[PathParts, V] | Iterable[tuple[PathParts, V]],
-    ) -> FlattedDict:
+    ) -> 'FlattedDict':
         """
         Create a :class:`NestedDict` from a flat mapping.
 
@@ -671,7 +611,7 @@ class FlattedDict(PrettyDict):
         first: Filter,
         /,
         *filters: Filter
-    ) -> Union[FlattedDict[K, V], tuple[FlattedDict[K, V], ...]]:
+    ) -> Union['FlattedDict[K, V]', tuple['FlattedDict[K, V]', ...]]:
         """
         Split a :class:`FlattedDict` into one or more :class:`FlattedDict`'s. The
         user must pass at least one `:class:`Filter` (i.e. :class:`State`),
@@ -703,7 +643,7 @@ class FlattedDict(PrettyDict):
         first: Filter,
         /,
         *filters: Filter,
-    ) -> Union[FlattedDict[K, V], Tuple[FlattedDict[K, V], ...]]:
+    ) -> Union['FlattedDict[K, V]', Tuple['FlattedDict[K, V]', ...]]:
         """
         Filter a :class:`FlattedDict` into one or more :class:`FlattedDict`'s. The
         user must pass at least one `:class:`Filter` (i.e. :class:`State`).
@@ -727,10 +667,10 @@ class FlattedDict(PrettyDict):
 
     @staticmethod
     def merge(
-        state: FlattedDict[K, V] | NestedDict[K, V],
+        state: Union['FlattedDict[K, V]', 'NestedDict[K, V]'],
         /,
-        *states: FlattedDict[K, V] | NestedDict[K, V]
-    ) -> FlattedDict[K, V]:
+        *states: Union['FlattedDict[K, V]', 'NestedDict[K, V]']
+    ) -> 'FlattedDict[K, V]':
         """
         The inverse of :meth:`split()`.
 
@@ -775,10 +715,10 @@ class FlattedDict(PrettyDict):
         """
         from brainstate._state import State
         return {
-            k: v.value if isinstance(v, State) else v 
+            k: v.value if isinstance(v, State) else v
             for k, v in self.items()
         }
-    
+
     def assign_dict_values(self, data: dict):
         """
         Assign values from a dictionary to this FlattedDict.
@@ -815,9 +755,9 @@ class FlattedDict(PrettyDict):
 
 
 def _split_nested_mapping(
-    mapping: NestedDict[K, V],
+    mapping: 'NestedDict[K, V]',
     *filters: Filter,
-) -> Tuple[NestedDict[K, V], ...]:
+) -> Tuple['NestedDict[K, V]', ...]:
     # check if the filters are exhaustive
     for i, filter_ in enumerate(filters):
         if filter_ in (..., True) and i != len(filters) - 1:
@@ -943,3 +883,63 @@ def _list_repr_attr(node: PrettyList):
 
 def _list_repr_object(node: PrettyDict):
     yield PrettyType('', value_sep='', start='[', end=']')
+
+
+def _repr_object_general(node: PrettyDict):
+    """
+    Generate a general representation of a PrettyDict object.
+
+    This function is used to create a pretty representation of a PrettyDict
+    object, which includes the type of the object and its value separator.
+
+    Args:
+        node (PrettyDict): The PrettyDict object to be represented.
+
+    Yields:
+        PrettyType: A PrettyType object representing the type of the node,
+        with specified value separator, start, and end characters.
+    """
+    yield PrettyType(type(node), value_sep='=', start='(', end=')')
+
+
+def _repr_attribute_general(node):
+    """
+    Generate a pretty representation of the attributes of a node.
+
+    This function iterates over the attributes of a given node and attempts
+    to generate a pretty representation for each attribute. It handles
+    conversion of lists and dictionaries to their pretty representation
+    counterparts and yields a PrettyAttr object for each attribute.
+
+    Args:
+        node: The object whose attributes are to be represented.
+
+    Yields:
+        PrettyAttr: A PrettyAttr object representing the key and value of
+        each attribute in a pretty format.
+    """
+    for k, v in vars(node).items():
+        try:
+            res = node.__pretty_repr_item__(k, v)
+            if res is None:
+                continue
+            k, v = res
+        except AttributeError:
+            pass
+
+        if k is None:
+            continue
+
+        # convert list to PrettyList
+        if isinstance(v, list):
+            v = PrettyList(v)
+
+        # convert dict to PrettyDict
+        if isinstance(v, dict):
+            v = PrettyDict(v)
+
+        # convert PrettyDict to NestedStateRepr
+        if isinstance(v, PrettyDict):
+            v = NestedStateRepr(v)
+
+        yield PrettyAttr(k, v)

@@ -80,18 +80,18 @@ class CallableProxy:
     def __call__(self, *args, **kwargs):
         return self._callable(self._accessor, *args, **kwargs)
 
-    def __getattr__(self, name) -> CallableProxy:
+    def __getattr__(self, name) -> 'CallableProxy':
         return CallableProxy(self._callable, getattr(self._accessor, name))
 
-    def __getitem__(self, key) -> CallableProxy:
+    def __getitem__(self, key) -> 'CallableProxy':
         return CallableProxy(self._callable, self._accessor[key])
 
 
 class ApplyCaller(Protocol, Generic[A]):
-    def __getattr__(self, __name) -> ApplyCaller[A]:
+    def __getattr__(self, __name) -> 'ApplyCaller[A]':
         ...
 
-    def __getitem__(self, __name) -> ApplyCaller[A]:
+    def __getitem__(self, __name) -> 'ApplyCaller[A]':
         ...
 
     def __call__(self, *args, **kwargs) -> tuple[Any, A]:
