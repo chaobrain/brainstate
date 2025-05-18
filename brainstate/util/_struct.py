@@ -17,8 +17,6 @@
 
 """Utilities for defining custom classes that can be used with jax transformations."""
 
-from __future__ import annotations
-
 import collections
 import dataclasses
 from collections.abc import Hashable, Mapping

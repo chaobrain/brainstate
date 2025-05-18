@@ -13,8 +13,6 @@
 # limitations under the License.
 # ==============================================================================
 
-from __future__ import annotations
-
 import math
 import numbers
 from functools import partial

@@ -14,8 +14,6 @@
 # ==============================================================================
 
 
-from __future__ import annotations
-
 from typing import Callable
 
 import brainunit as u

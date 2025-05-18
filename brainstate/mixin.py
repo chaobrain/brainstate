@@ -15,8 +15,6 @@
 
 # -*- coding: utf-8 -*-
 
-from __future__ import annotations
-
 from typing import (Sequence, Optional, TypeVar, _SpecialForm, _type_check, _remove_dups_flatten, _UnionGenericAlias)
 
 from brainstate.typing import PyTree

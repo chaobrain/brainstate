@@ -13,8 +13,6 @@
 # limitations under the License.
 # ==============================================================================
 
-from __future__ import annotations
-
 import functools
 from functools import partial
 from typing import Callable, Union

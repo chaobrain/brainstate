@@ -13,8 +13,6 @@
 # limitations under the License.
 # ==============================================================================
 
-from __future__ import annotations
-
 from typing import Union, Callable, Optional
 
 import brainunit as u

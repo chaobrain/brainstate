@@ -13,8 +13,6 @@
 # limitations under the License.
 # ==============================================================================
 
-from __future__ import annotations
-
 import functools
 from collections.abc import Iterable, Sequence
 from typing import (Any, Callable, Union)

@@ -27,8 +27,6 @@ The wrapped gradient transformations here are made possible by using the followi
 
 """
 
-from __future__ import annotations
-
 from functools import wraps, partial
 from typing import Union, Callable, Dict, Sequence, Optional, Any, Tuple, TypeVar, Iterator
 

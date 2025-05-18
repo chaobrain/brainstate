@@ -14,8 +14,6 @@
 # ==============================================================================
 
 
-from __future__ import annotations
-
 from typing import Dict, Hashable
 
 from brainstate._state import State, StateDictManager

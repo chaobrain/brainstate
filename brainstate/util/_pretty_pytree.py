@@ -15,8 +15,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import annotations
-
 from collections import abc
 from typing import TypeVar, Hashable, Union, Iterable, Any, Optional, Tuple, Dict
 

@@ -14,8 +14,6 @@
 # ==============================================================================
 
 
-from __future__ import annotations
-
 from functools import partial
 from typing import Optional, Sequence
 

@@ -15,7 +15,6 @@
 
 # -*- coding: utf-8 -*-
 
-from __future__ import annotations
 
 import numbers
 from typing import Callable

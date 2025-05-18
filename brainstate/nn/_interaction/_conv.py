@@ -15,8 +15,6 @@
 
 # -*- coding: utf-8 -*-
 
-from __future__ import annotations
-
 import collections.abc
 from typing import Callable, Tuple, Union, Sequence, Optional, TypeVar
 
