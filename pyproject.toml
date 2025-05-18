@@ -20,7 +20,7 @@ name = "brainstate"
 description = "A ``State``-based Transformation System for Program Compilation and Augmentation."
 readme = 'README.md'
 license = { text = 'Apache-2.0 license' }
-requires-python = '>=3.9'
+requires-python = '>=3.10'
 authors = [{ name = 'BrainState Developers', email = 'chao.brain@qq.com' }]
 classifiers = [
     'Natural Language :: English',
