@@ -14,8 +14,6 @@
 # ==============================================================================
 
 
-from __future__ import annotations
-
 import importlib.util
 from typing import Hashable, Dict, Optional
 

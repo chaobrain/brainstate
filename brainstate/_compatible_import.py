@@ -36,6 +36,7 @@ __all__ = [
     'safe_zip',
     'unzip2',
     'wraps',
+    'Device',
 ]
 
 T = TypeVar("T")
@@ -46,6 +47,11 @@ T3 = TypeVar("T3")
 brainevent_installed = importlib.util.find_spec('brainevent') is not None
 
 from jax.core import get_aval, Tracer
+
+if jax.__version_info__ < (0, 5, 0):
+    from jax.lib.xla_client import Device
+else:
+    from jax import Device
 
 if jax.__version_info__ < (0, 4, 38):
     from jax.core import ClosedJaxpr, extend_axis_env_nd, Primitive, jaxpr_as_fun

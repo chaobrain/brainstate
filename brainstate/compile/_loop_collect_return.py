@@ -13,8 +13,6 @@
 # limitations under the License.
 # ==============================================================================
 
-from __future__ import annotations
-
 import math
 from functools import wraps
 from typing import Callable, Optional, TypeVar, Tuple, Any

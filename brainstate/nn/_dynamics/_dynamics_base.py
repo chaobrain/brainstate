@@ -32,7 +32,6 @@ For handling the delays:
 - ``DelayAccess``: The class for the delay access.
 
 """
-from __future__ import annotations
 
 from typing import Any, Dict, Callable, Hashable, Optional, Union, TypeVar, TYPE_CHECKING
 

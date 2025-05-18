@@ -469,7 +469,7 @@ class PrettyTable:
         else:
             raise AttributeError(name)
 
-    def __getitem__(self, index: int | slice) -> PrettyTable:
+    def __getitem__(self, index: int | slice) -> 'PrettyTable':
         new = PrettyTable()
         new.field_names = self.field_names
         for attr in self._options:

@@ -13,8 +13,6 @@
 # limitations under the License.
 # ==============================================================================
 
-from __future__ import annotations
-
 from functools import wraps
 from typing import Sequence, Tuple
 

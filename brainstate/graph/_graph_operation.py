@@ -18,8 +18,10 @@
 from __future__ import annotations
 
 import dataclasses
-from typing import (Any, Callable, Generic, Iterable, Iterator, Mapping, MutableMapping,
-                    Sequence, Type, TypeVar, Union, Hashable, Tuple, Dict, Optional, overload)
+from typing import (
+    Any, Callable, Generic, Iterable, Iterator, Mapping, MutableMapping,
+    Sequence, Type, TypeVar, Union, Hashable, Tuple, Dict, Optional, overload
+)
 
 import jax
 import numpy as np

@@ -13,13 +13,10 @@
 # limitations under the License.
 # ==============================================================================
 
-from __future__ import annotations
-
 from collections import namedtuple
 from typing import Callable, TypeVar, Tuple, Any, Dict
 
 import jax
-from typing import Callable, TypeVar, Tuple, Any, Dict
 
 from brainstate._state import catch_new_states
 from brainstate._utils import set_module_as

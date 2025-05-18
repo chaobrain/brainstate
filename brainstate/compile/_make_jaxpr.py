@@ -51,8 +51,6 @@ function.
 
 """
 
-from __future__ import annotations
-
 import functools
 import inspect
 import operator
@@ -64,7 +62,7 @@ import jax
 from jax._src import source_info_util
 from jax._src.linear_util import annotate
 from jax._src.traceback_util import api_boundary
-from jax.api_util import shaped_abstractify
+from jax.api_util import shaped_abstractify, debug_info
 from jax.extend.linear_util import transformation_with_aux, wrap_init
 from jax.interpreters import partial_eval as pe
 
@@ -745,7 +743,7 @@ def _make_jaxpr(
     @wraps(fun)
     @api_boundary
     def make_jaxpr_f(*args, **kwargs):
-        f = wrap_init(fun)
+        f = wrap_init(fun, debug_info=debug_info('make_jaxpr', fun, args, kwargs))
         if static_argnums:
             dyn_argnums = [i for i in range(len(args)) if i not in static_argnums]
             f, args = jax.api_util.argnums_partial(f, dyn_argnums, args)
@@ -754,12 +752,12 @@ def _make_jaxpr(
         f, out_tree = _flatten_fun(f, in_tree)
         f = annotate(f, in_type)
         if jax.__version_info__ < (0, 5, 0):
-            debug_info = pe.debug_info(fun, in_tree, out_tree, True, 'make_jaxpr')
+            debug_info_ = pe.debug_info(fun, in_tree, out_tree, True, 'make_jaxpr')
         with ExitStack() as stack:
             if axis_env is not None:
                 stack.enter_context(extend_axis_env_nd(axis_env))
             if jax.__version_info__ < (0, 5, 0):
-                jaxpr, out_type, consts = pe.trace_to_jaxpr_dynamic2(f, debug_info=debug_info)
+                jaxpr, out_type, consts = pe.trace_to_jaxpr_dynamic2(f, debug_info=debug_info_)
             else:
                 jaxpr, out_type, consts = pe.trace_to_jaxpr_dynamic2(f)
         closed_jaxpr = ClosedJaxpr(jaxpr, consts)

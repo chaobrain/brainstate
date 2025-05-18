@@ -13,16 +13,14 @@
 # limitations under the License.
 # ==============================================================================
 
-from __future__ import annotations
-
 import functools
 from collections.abc import Iterable, Sequence
 from typing import (Any, Callable, Union)
 
 import jax
 from jax._src import sharding_impls
-from jax.lib import xla_client as xc
 
+from brainstate._compatible_import import Device
 from brainstate._utils import set_module_as
 from brainstate.typing import Missing
 from ._make_jaxpr import StatefulFunction, _ensure_index_tuple
@@ -94,8 +92,8 @@ def _get_jitted_fun(
         read_state_vals = state_trace.get_read_state_values(True)
 
         # call the jitted function
-        # print('Running ...')
         write_state_vals, outs = jit_fun(state_trace.get_state_values(), *args, **params)
+
         # write the state values back to the states
         write_back_state_values(state_trace, read_state_vals, write_state_vals)
         return outs
@@ -106,8 +104,11 @@ def _get_jitted_fun(
         """
         # clear the cache of the stateful function
         fun.clear_cache()
-        # clear the cache of the jitted function
-        jit_fun.clear_cache()
+        try:
+            # clear the cache of the jitted function
+            jit_fun.clear_cache()
+        except AttributeError:
+            pass
 
     def eval_shape():
         raise NotImplementedError
@@ -165,7 +166,7 @@ def _get_jitted_fun(
     # compile the jitted function
     jitted_fun.compile = compile
 
-    # trace the jitted
+    # trace the jitted function
     jitted_fun.trace = trace
 
     return jitted_fun
@@ -180,7 +181,7 @@ def jit(
     donate_argnums: int | Sequence[int] | None = None,
     donate_argnames: str | Iterable[str] | None = None,
     keep_unused: bool = False,
-    device: xc.Device | None = None,
+    device: Device | None = None,
     backend: str | None = None,
     inline: bool = False,
     abstracted_axes: Any | None = None,

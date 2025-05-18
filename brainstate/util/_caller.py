@@ -15,8 +15,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import annotations
-
 import dataclasses
 from typing import Any, TypeVar, Protocol, Generic
 
@@ -82,18 +80,18 @@ class CallableProxy:
     def __call__(self, *args, **kwargs):
         return self._callable(self._accessor, *args, **kwargs)
 
-    def __getattr__(self, name) -> CallableProxy:
+    def __getattr__(self, name) -> 'CallableProxy':
         return CallableProxy(self._callable, getattr(self._accessor, name))
 
-    def __getitem__(self, key) -> CallableProxy:
+    def __getitem__(self, key) -> 'CallableProxy':
         return CallableProxy(self._callable, self._accessor[key])
 
 
 class ApplyCaller(Protocol, Generic[A]):
-    def __getattr__(self, __name) -> ApplyCaller[A]:
+    def __getattr__(self, __name) -> 'ApplyCaller[A]':
         ...
 
-    def __getitem__(self, __name) -> ApplyCaller[A]:
+    def __getitem__(self, __name) -> 'ApplyCaller[A]':
         ...
 
     def __call__(self, *args, **kwargs) -> tuple[Any, A]:

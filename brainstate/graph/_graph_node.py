@@ -15,8 +15,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import annotations
-
 from abc import ABCMeta
 from copy import deepcopy
 from typing import Any, Callable, Type, TypeVar, Tuple, TYPE_CHECKING, Mapping, Iterator, Sequence
@@ -210,7 +208,7 @@ class List(Node):
     def __len__(self):
         return len(vars(self))
 
-    def __add__(self, other: Sequence[A]) -> List[A]:
+    def __add__(self, other: Sequence[A]) -> 'List[A]':
         return List(list(self) + list(other))
 
     def append(self, value):

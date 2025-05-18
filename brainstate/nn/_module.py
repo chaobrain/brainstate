@@ -25,7 +25,6 @@ The basic classes include:
 - ``Sequential``: The class for a sequential of modules, which update the modules sequentially.
 
 """
-from __future__ import annotations
 
 import warnings
 from typing import Sequence, Optional, Tuple, Union, TYPE_CHECKING, Callable

@@ -133,183 +133,6 @@ def check_state_value_tree(val: bool = True) -> Generator[None, None, None]:
         TRACE_CONTEXT.tree_check.pop()
 
 
-class StateCatcher(PrettyObject):
-    """
-    The catcher to catch and manage new states.
-
-    This class provides functionality to collect and tag new State objects.
-    It ensures that each state is only added once and assigns a tag to each state.
-
-    Attributes:
-        state_tag (str): A string identifier used to tag the caught states.
-        state_ids (set): A set of state IDs to ensure uniqueness.
-        states (list): A list to store the caught State objects.
-    """
-
-    def __init__(
-        self,
-        state_tag: str,
-        state_to_exclude: Filter = Nothing()
-    ):
-        """
-        Initialize a new Catcher instance.
-
-        Args:
-            state_tag (str): The tag to be assigned to caught states.
-            state_to_exclude (Filter, optional): A filter to exclude states from being caught.
-        """
-        if state_to_exclude is None:
-            state_to_exclude = Nothing()
-        self.state_to_exclude = state_to_exclude
-        self.state_tag = state_tag
-        self.state_ids = set()
-        self.states = []
-
-    def get_state_values(self) -> List[PyTree]:
-        """
-        Get the values of the caught states.
-
-        Returns:
-            list: A list of values of the caught states.
-        """
-        return [state.value for state in self.states]
-
-    def get_states(self) -> List[State]:
-        """
-        Get the caught states.
-
-        Returns:
-            list: A list of the caught states.
-        """
-        return self.states
-
-    def append(self, state: State):
-        """
-        Add a new state to the catcher if it hasn't been added before.
-
-        This method adds the state to the internal list, records its ID,
-        and assigns the catcher's tag to the state.
-
-        Args:
-            state (State): The State object to be added.
-        """
-        if self.state_to_exclude((), state):
-            return
-        if id(state) not in self.state_ids:
-            self.state_ids.add(id(state))
-            self.states.append(state)
-            state.tag = self.state_tag
-
-    def __iter__(self):
-        """
-        Allow iteration over the caught states.
-
-        Returns:
-            iterator: An iterator over the list of caught states.
-        """
-        return iter(self.states)
-
-    def __len__(self):
-        """
-        Return the number of caught states.
-
-        Returns:
-            int: The number of caught states.
-        """
-        return len(self.states)
-
-    def __getitem__(self, index):
-        """
-        Get a state by index.
-
-        Args:
-            index (int): The index of the state to retrieve.
-
-        Returns:
-            State: The state at the specified index.
-        """
-        return self.states[index]
-
-    def clear(self):
-        """
-        Clear all caught states.
-        """
-        self.state_ids.clear()
-        self.states.clear()
-
-    def get_by_tag(self, tag: str):
-        """
-        Get all states with a specific tag.
-
-        Args:
-            tag (str): The tag to filter by.
-
-        Returns:
-            list: A list of states with the specified tag.
-        """
-        return [state for state in self.states if state.tag == tag]
-
-    def remove(self, state: State):
-        """
-        Remove a specific state from the catcher.
-
-        Args:
-            state (State): The state to remove.
-        """
-        if id(state) in self.state_ids:
-            self.state_ids.remove(id(state))
-            self.states.remove(state)
-
-    def __contains__(self, state: State):
-        """
-        Check if a state is in the catcher.
-
-        Args:
-            state (State): The state to check for.
-
-        Returns:
-            bool: True if the state is in the catcher, False otherwise.
-        """
-        return id(state) in self.state_ids
-
-
-@contextlib.contextmanager
-def catch_new_states(
-    state_tag: str = None,
-    state_to_exclude: Filter = Nothing()
-) -> Generator[StateCatcher, None, None]:
-    """
-    A context manager that catches and tracks new states created within its scope.
-
-    This function creates a new Catcher object and adds it to the TRACE_CONTEXT's
-    new_state_catcher list. It allows for tracking and managing new states created
-    within the context.
-
-    Args:
-        state_tag (str, optional): A string tag to associate with the caught states.
-            Defaults to None.
-        state_to_exclude (Filter, optional): A filter object to specify which states
-            should be excluded from catching. Defaults to Nothing(), which excludes no states.
-
-    Yields:
-        Catcher: A Catcher object that can be used to access and manage the
-            newly created states within the context.
-
-    Example::
-    
-        with catch_new_states("my_tag") as catcher:
-            # Create new states here
-            # They will be caught and tagged with "my_tag"
-        # Access caught states through catcher object
-    """
-    try:
-        catcher = StateCatcher(state_tag=state_tag, state_to_exclude=state_to_exclude)
-        TRACE_CONTEXT.new_state_catcher.append(catcher)
-        yield catcher
-    finally:
-        TRACE_CONTEXT.new_state_catcher.pop()
-
-
 def maybe_state(val: Any) -> Any:
     """
     Extracts the value from a State object if given, otherwise returns the input value.
@@ -1660,3 +1483,180 @@ jax.tree_util.register_pytree_with_keys(
     _state_ref_unflatten,  # type: ignore
     flatten_func=partial(_state_ref_flatten, with_keys=False),  # type: ignore
 )
+
+
+class StateCatcher(PrettyObject):
+    """
+    The catcher to catch and manage new states.
+
+    This class provides functionality to collect and tag new State objects.
+    It ensures that each state is only added once and assigns a tag to each state.
+
+    Attributes:
+        state_tag (str): A string identifier used to tag the caught states.
+        state_ids (set): A set of state IDs to ensure uniqueness.
+        states (list): A list to store the caught State objects.
+    """
+
+    def __init__(
+        self,
+        state_tag: str,
+        state_to_exclude: Filter = Nothing()
+    ):
+        """
+        Initialize a new Catcher instance.
+
+        Args:
+            state_tag (str): The tag to be assigned to caught states.
+            state_to_exclude (Filter, optional): A filter to exclude states from being caught.
+        """
+        if state_to_exclude is None:
+            state_to_exclude = Nothing()
+        self.state_to_exclude = state_to_exclude
+        self.state_tag = state_tag
+        self.state_ids = set()
+        self.states = []
+
+    def get_state_values(self) -> List[PyTree]:
+        """
+        Get the values of the caught states.
+
+        Returns:
+            list: A list of values of the caught states.
+        """
+        return [state.value for state in self.states]
+
+    def get_states(self) -> List[State]:
+        """
+        Get the caught states.
+
+        Returns:
+            list: A list of the caught states.
+        """
+        return self.states
+
+    def append(self, state: State):
+        """
+        Add a new state to the catcher if it hasn't been added before.
+
+        This method adds the state to the internal list, records its ID,
+        and assigns the catcher's tag to the state.
+
+        Args:
+            state (State): The State object to be added.
+        """
+        if self.state_to_exclude((), state):
+            return
+        if id(state) not in self.state_ids:
+            self.state_ids.add(id(state))
+            self.states.append(state)
+            state.tag = self.state_tag
+
+    def __iter__(self):
+        """
+        Allow iteration over the caught states.
+
+        Returns:
+            iterator: An iterator over the list of caught states.
+        """
+        return iter(self.states)
+
+    def __len__(self):
+        """
+        Return the number of caught states.
+
+        Returns:
+            int: The number of caught states.
+        """
+        return len(self.states)
+
+    def __getitem__(self, index):
+        """
+        Get a state by index.
+
+        Args:
+            index (int): The index of the state to retrieve.
+
+        Returns:
+            State: The state at the specified index.
+        """
+        return self.states[index]
+
+    def clear(self):
+        """
+        Clear all caught states.
+        """
+        self.state_ids.clear()
+        self.states.clear()
+
+    def get_by_tag(self, tag: str):
+        """
+        Get all states with a specific tag.
+
+        Args:
+            tag (str): The tag to filter by.
+
+        Returns:
+            list: A list of states with the specified tag.
+        """
+        return [state for state in self.states if state.tag == tag]
+
+    def remove(self, state: State):
+        """
+        Remove a specific state from the catcher.
+
+        Args:
+            state (State): The state to remove.
+        """
+        if id(state) in self.state_ids:
+            self.state_ids.remove(id(state))
+            self.states.remove(state)
+
+    def __contains__(self, state: State):
+        """
+        Check if a state is in the catcher.
+
+        Args:
+            state (State): The state to check for.
+
+        Returns:
+            bool: True if the state is in the catcher, False otherwise.
+        """
+        return id(state) in self.state_ids
+
+
+@contextlib.contextmanager
+def catch_new_states(
+    state_tag: str = None,
+    state_to_exclude: Filter = Nothing()
+) -> Generator[StateCatcher, None, None]:
+    """
+    A context manager that catches and tracks new states created within its scope.
+
+    This function creates a new Catcher object and adds it to the TRACE_CONTEXT's
+    new_state_catcher list. It allows for tracking and managing new states created
+    within the context.
+
+    Args:
+        state_tag (str, optional): A string tag to associate with the caught states.
+            Defaults to None.
+        state_to_exclude (Filter, optional): A filter object to specify which states
+            should be excluded from catching. Defaults to Nothing(), which excludes no states.
+
+    Yields:
+        Catcher: A Catcher object that can be used to access and manage the
+            newly created states within the context.
+
+    Example::
+
+        with catch_new_states("my_tag") as catcher:
+            # Create new states here
+            # They will be caught and tagged with "my_tag"
+        # Access caught states through catcher object
+    """
+    try:
+        catcher = StateCatcher(state_tag=state_tag, state_to_exclude=state_to_exclude)
+        TRACE_CONTEXT.new_state_catcher.append(catcher)
+        yield catcher
+    finally:
+        TRACE_CONTEXT.new_state_catcher.pop()
