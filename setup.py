@@ -65,7 +65,7 @@ setup(
     author_email='chao.brain@qq.com',
     packages=packages,
     python_requires='>=3.9',
-    install_requires=['numpy>=1.15', 'jax', 'tqdm', 'brainunit>=0.0.4', 'brainevent'],
+    install_requires=['numpy>=1.15', 'tqdm', 'brainunit', 'brainevent'],
     url='https://github.com/chaobrain/brainstate',
     project_urls={
         "Bug Tracker": "https://github.com/chaobrain/brainstate/issues",
@@ -73,9 +73,9 @@ setup(
         "Source Code": "https://github.com/chaobrain/brainstate",
     },
     extras_require={
-        'cpu': ['jaxlib'],
-        'cuda12': ['jaxlib[cuda12]'],
-        'tpu': ['jaxlib[tpu]'],
+        'cpu': ['jax[cpu]', 'brainunit[cpu]', 'brainevent[cpu]'],
+        'cuda12': ['jax[cuda12]', 'brainunit[cuda12]', 'brainevent[cuda12]'],
+        'tpu': ['jax[tpu]', 'brainunit[tpu]', 'brainevent[tpu]'],
     },
     keywords=(
         'computational neuroscience, '
