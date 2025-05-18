@@ -33,6 +33,7 @@ from typing import (
 import jax
 from jax.interpreters.batching import BatchTracer
 
+from brainstate._compatible_import import Device
 from brainstate._state import State, catch_new_states
 from brainstate.compile import scan, StatefulFunction
 from brainstate.random import RandomState, DEFAULT
@@ -700,7 +701,7 @@ def pmap(
     in_axes: Any = 0,
     out_axes: Any = 0,
     static_broadcasted_argnums: int | Iterable[int] = (),
-    devices: Optional[Sequence[jax.Device]] = None,  # noqa: F811
+    devices: Optional[Sequence[Device]] = None,  # noqa: F811
     backend: Optional[str] = None,
     axis_size: Optional[int] = None,
     donate_argnums: int | Iterable[int] = (),
