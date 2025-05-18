@@ -18,8 +18,6 @@
 import io
 import os
 import re
-import sys
-import time
 
 from setuptools import find_packages
 from setuptools import setup
@@ -29,10 +27,6 @@ here = os.path.abspath(os.path.dirname(__file__))
 with open(os.path.join(here, 'brainstate/', '__init__.py'), 'r') as f:
     init_py = f.read()
 version = re.search('__version__ = "(.*)"', init_py).groups()[0]
-if len(sys.argv) > 2 and sys.argv[2] == '--python-tag=py3':
-    version = version
-else:
-    version += '.post{}'.format(time.strftime("%Y%m%d", time.localtime()))
 
 # obtain long description from README
 with io.open(os.path.join(here, 'README.md'), 'r', encoding='utf-8') as f:
@@ -64,7 +58,7 @@ setup(
     author='BrainState Developers',
     author_email='chao.brain@qq.com',
     packages=packages,
-    python_requires='>=3.9',
+    python_requires='>=3.10',
     install_requires=['numpy>=1.15', 'tqdm', 'brainunit', 'brainevent'],
     url='https://github.com/chaobrain/brainstate',
     project_urls={
