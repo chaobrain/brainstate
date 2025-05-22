@@ -97,7 +97,7 @@ def _ensure_index_tuple(x: Any) -> tuple[int, ...]:
         return tuple(safe_map(operator.index, x))
 
 
-def _new_arg_fn(frame, trace, aval):
+def _jax_v04_new_arg_fn(frame, trace, aval):
     """
     Transform a new argument to a tracer.
 
@@ -118,27 +118,41 @@ def _new_arg_fn(frame, trace, aval):
     return tracer
 
 
-def _new_jax_trace():
+def _jax_v04_new_jax_trace():
     main = jax.core.thread_local_state.trace_state.trace_stack.stack[-1]
     frame = main.jaxpr_stack[-1]
     trace = pe.DynamicJaxprTrace(main, jax.core.cur_sublevel())
     return frame, trace
 
 
+def _jax_v04_new_arg():
+    # Should be within the calling of ``jax.make_jaxpr()``
+    frame, trace = _jax_v04_new_jax_trace()
+    # Set the function to transform the new argument to a tracer
+    fn = functools.partial(_jax_v04_new_arg_fn, frame, trace)
+    return fn
+
+
+def _jax_new_version_new_arg():
+    trace = jax.core.trace_ctx.trace
+
+    def wrapper(x):
+        if jax.__version_info__ < (0, 6, 1):
+            return trace.new_arg(shaped_abstractify(x))
+        else:
+            return trace.new_arg(shaped_abstractify(x), source_info=source_info_util.current())
+
+    return wrapper
+
+
 def _init_state_trace_stack(name) -> StateTraceStack:
     state_trace: StateTraceStack = StateTraceStack(name=name)
 
     if jax.__version_info__ < (0, 4, 36):
-        # Should be within the calling of ``jax.make_jaxpr()``
-        frame, trace = _new_jax_trace()
-        # Set the function to transform the new argument to a tracer
-        state_trace.set_new_arg(functools.partial(_new_arg_fn, frame, trace))
-        return state_trace
-
+        state_trace.set_new_arg(_jax_v04_new_arg())
     else:
-        trace = jax.core.trace_ctx.trace
-        state_trace.set_new_arg(trace.new_arg)
-        return state_trace
+        state_trace.set_new_arg(_jax_new_version_new_arg())
+    return state_trace
 
 
 class StatefulFunction(PrettyObject):
