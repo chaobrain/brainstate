@@ -18,19 +18,19 @@ import unittest
 
 import numpy as np
 
-import brainstate as bst
+import brainstate
 
 
 class TestDropout(unittest.TestCase):
 
     def test_dropout(self):
         # Create a Dropout layer with a dropout rate of 0.5
-        dropout_layer = bst.nn.Dropout(0.5)
+        dropout_layer = brainstate.nn.Dropout(0.5)
 
         # Input data
         input_data = np.arange(20)
 
-        with bst.environ.context(fit=True):
+        with brainstate.environ.context(fit=True):
             # Apply dropout
             output_data = dropout_layer(input_data)
 
@@ -47,10 +47,10 @@ class TestDropout(unittest.TestCase):
             np.testing.assert_almost_equal(non_zero_elements, expected_non_zero_elements)
 
     def test_DropoutFixed(self):
-        dropout_layer = bst.nn.DropoutFixed(in_size=(2, 3), prob=0.5)
+        dropout_layer = brainstate.nn.DropoutFixed(in_size=(2, 3), prob=0.5)
         dropout_layer.init_state(batch_size=2)
         input_data = np.random.randn(2, 2, 3)
-        with bst.environ.context(fit=True):
+        with brainstate.environ.context(fit=True):
             output_data = dropout_layer.update(input_data)
         self.assertEqual(input_data.shape, output_data.shape)
         self.assertTrue(np.any(output_data == 0))
@@ -72,9 +72,9 @@ class TestDropout(unittest.TestCase):
     #     np.testing.assert_almost_equal(non_zero_elements, expected_non_zero_elements, decimal=4)
 
     def test_Dropout2d(self):
-        dropout_layer = bst.nn.Dropout2d(prob=0.5)
+        dropout_layer = brainstate.nn.Dropout2d(prob=0.5)
         input_data = np.random.randn(2, 3, 4, 5)
-        with bst.environ.context(fit=True):
+        with brainstate.environ.context(fit=True):
             output_data = dropout_layer(input_data)
         self.assertEqual(input_data.shape, output_data.shape)
         self.assertTrue(np.any(output_data == 0))
@@ -84,9 +84,9 @@ class TestDropout(unittest.TestCase):
         np.testing.assert_almost_equal(non_zero_elements, expected_non_zero_elements, decimal=4)
 
     def test_Dropout3d(self):
-        dropout_layer = bst.nn.Dropout3d(prob=0.5)
+        dropout_layer = brainstate.nn.Dropout3d(prob=0.5)
         input_data = np.random.randn(2, 3, 4, 5, 6)
-        with bst.environ.context(fit=True):
+        with brainstate.environ.context(fit=True):
             output_data = dropout_layer(input_data)
         self.assertEqual(input_data.shape, output_data.shape)
         self.assertTrue(np.any(output_data == 0))

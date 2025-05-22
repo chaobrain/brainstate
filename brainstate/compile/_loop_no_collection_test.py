@@ -13,17 +13,16 @@
 # limitations under the License.
 # ==============================================================================
 
-from __future__ import annotations
 
 from unittest import TestCase
 
-import brainstate as bst
+import brainstate 
 
 
 class TestWhileLoop(TestCase):
     def test1(self):
-        a = bst.State(1.)
-        b = bst.State(20.)
+        a = brainstate.State(1.)
+        b = brainstate.State(20.)
 
         def cond(_):
             return a.value < b.value
@@ -31,13 +30,13 @@ class TestWhileLoop(TestCase):
         def body(_):
             a.value += 1.
 
-        bst.compile.while_loop(cond, body, None)
+        brainstate.compile.while_loop(cond, body, None)
 
         print(a.value, b.value)
 
     def test2(self):
-        a = bst.State(1.)
-        b = bst.State(20.)
+        a = brainstate.State(1.)
+        b = brainstate.State(20.)
 
         def cond(x):
             return a.value < b.value
@@ -46,6 +45,6 @@ class TestWhileLoop(TestCase):
             a.value += x
             return x
 
-        r = bst.compile.while_loop(cond, body, 1.)
+        r = brainstate.compile.while_loop(cond, body, 1.)
 
         print(a.value, b.value, r)

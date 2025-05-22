@@ -13,34 +13,32 @@
 # limitations under the License.
 # ==============================================================================
 
-from __future__ import annotations
-
 import jax
 import jax.numpy as jnp
 from absl.testing import absltest
 
-import brainstate as bst
+import brainstate
 
 
 class TestRemat(absltest.TestCase):
     def test_basic_remat(self):
-        module = bst.compile.remat(bst.nn.Linear(2, 3))
+        module = brainstate.compile.remat(brainstate.nn.Linear(2, 3))
         y = module(jnp.ones((1, 2)))
         assert y.shape == (1, 3)
 
     def test_remat_with_scan(self):
-        class ScanLinear(bst.nn.Module):
+        class ScanLinear(brainstate.nn.Module):
             def __init__(self):
                 super().__init__()
-                self.linear = bst.nn.Linear(3, 3)
+                self.linear = brainstate.nn.Linear(3, 3)
 
             def __call__(self, x: jax.Array):
-                @bst.compile.remat
+                @brainstate.compile.remat
                 def fun(x: jax.Array, _):
                     x = self.linear(x)
                     return x, None
 
-                return bst.compile.scan(fun, x, None, length=10)[0]
+                return brainstate.compile.scan(fun, x, None, length=10)[0]
 
         m = ScanLinear()
 

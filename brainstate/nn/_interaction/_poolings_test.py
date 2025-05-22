@@ -1,13 +1,11 @@
 # -*- coding: utf-8 -*-
 
-from __future__ import annotations
-
 import jax
 import numpy as np
 from absl.testing import absltest
 from absl.testing import parameterized
 
-import brainstate as bst
+import brainstate
 import brainstate.nn as nn
 
 
@@ -18,7 +16,7 @@ class TestFlatten(parameterized.TestCase):
             (32, 8),
             (10, 20, 30),
         ]:
-            arr = bst.random.rand(*size)
+            arr = brainstate.random.rand(*size)
             f = nn.Flatten(start_axis=0)
             out = f(arr)
             self.assertTrue(out.shape == (np.prod(size),))
@@ -29,21 +27,21 @@ class TestFlatten(parameterized.TestCase):
             (32, 8),
             (10, 20, 30),
         ]:
-            arr = bst.random.rand(*size)
+            arr = brainstate.random.rand(*size)
             f = nn.Flatten(start_axis=1)
             out = f(arr)
             self.assertTrue(out.shape == (size[0], np.prod(size[1:])))
 
     def test_flatten3(self):
         size = (16, 32, 32, 8)
-        arr = bst.random.rand(*size)
+        arr = brainstate.random.rand(*size)
         f = nn.Flatten(start_axis=0, in_size=(32, 8))
         out = f(arr)
         self.assertTrue(out.shape == (16, 32, 32 * 8))
 
     def test_flatten4(self):
         size = (16, 32, 32, 8)
-        arr = bst.random.rand(*size)
+        arr = brainstate.random.rand(*size)
         f = nn.Flatten(start_axis=1, in_size=(32, 32, 8))
         out = f(arr)
         self.assertTrue(out.shape == (16, 32, 32 * 8))
@@ -58,7 +56,7 @@ class TestPool(parameterized.TestCase):
         super().__init__(*args, **kwargs)
 
     def test_MaxPool2d_v1(self):
-        arr = bst.random.rand(16, 32, 32, 8)
+        arr = brainstate.random.rand(16, 32, 32, 8)
 
         out = nn.MaxPool2d(2, 2, channel_axis=-1)(arr)
         self.assertTrue(out.shape == (16, 16, 16, 8))
@@ -79,7 +77,7 @@ class TestPool(parameterized.TestCase):
         self.assertTrue(out.shape == (16, 17, 32, 5))
 
     def test_AvgPool2d_v1(self):
-        arr = bst.random.rand(16, 32, 32, 8)
+        arr = brainstate.random.rand(16, 32, 32, 8)
 
         out = nn.AvgPool2d(2, 2, channel_axis=-1)(arr)
         self.assertTrue(out.shape == (16, 16, 16, 8))
@@ -107,7 +105,7 @@ class TestPool(parameterized.TestCase):
     def test_adaptive_pool1d(self, target_size):
         from brainstate.nn._interaction._poolings import _adaptive_pool1d
 
-        arr = bst.random.rand(100)
+        arr = brainstate.random.rand(100)
         op = jax.numpy.mean
 
         out = _adaptive_pool1d(arr, target_size, op)
@@ -119,7 +117,7 @@ class TestPool(parameterized.TestCase):
         self.assertTrue(out.shape == (target_size,))
 
     def test_AdaptiveAvgPool2d_v1(self):
-        input = bst.random.randn(64, 8, 9)
+        input = brainstate.random.randn(64, 8, 9)
 
         output = nn.AdaptiveAvgPool2d((5, 7), channel_axis=0)(input)
         self.assertTrue(output.shape == (64, 5, 7))
@@ -137,8 +135,8 @@ class TestPool(parameterized.TestCase):
         self.assertTrue(output.shape == (64, 2, 3))
 
     def test_AdaptiveAvgPool2d_v2(self):
-        bst.random.seed()
-        input = bst.random.randn(128, 64, 32, 16)
+        brainstate.random.seed()
+        input = brainstate.random.randn(128, 64, 32, 16)
 
         output = nn.AdaptiveAvgPool2d((5, 7), channel_axis=0)(input)
         self.assertTrue(output.shape == (128, 64, 5, 7))
@@ -154,13 +152,13 @@ class TestPool(parameterized.TestCase):
         print()
 
     def test_AdaptiveAvgPool3d_v1(self):
-        input = bst.random.randn(10, 128, 64, 32)
+        input = brainstate.random.randn(10, 128, 64, 32)
         net = nn.AdaptiveAvgPool3d(target_size=[6, 5, 3], channel_axis=0)
         output = net(input)
         self.assertTrue(output.shape == (10, 6, 5, 3))
 
     def test_AdaptiveAvgPool3d_v2(self):
-        input = bst.random.randn(10, 20, 128, 64, 32)
+        input = brainstate.random.randn(10, 20, 128, 64, 32)
         net = nn.AdaptiveAvgPool3d(target_size=[6, 5, 3])
         output = net(input)
         self.assertTrue(output.shape == (10, 6, 5, 3, 32))
@@ -169,7 +167,7 @@ class TestPool(parameterized.TestCase):
         axis=(-1, 0, 1)
     )
     def test_AdaptiveMaxPool1d_v1(self, axis):
-        input = bst.random.randn(32, 16)
+        input = brainstate.random.randn(32, 16)
         net = nn.AdaptiveMaxPool1d(target_size=4, channel_axis=axis)
         output = net(input)
 
@@ -177,7 +175,7 @@ class TestPool(parameterized.TestCase):
         axis=(-1, 0, 1, 2)
     )
     def test_AdaptiveMaxPool1d_v2(self, axis):
-        input = bst.random.randn(2, 32, 16)
+        input = brainstate.random.randn(2, 32, 16)
         net = nn.AdaptiveMaxPool1d(target_size=4, channel_axis=axis)
         output = net(input)
 
@@ -185,7 +183,7 @@ class TestPool(parameterized.TestCase):
         axis=(-1, 0, 1, 2)
     )
     def test_AdaptiveMaxPool2d_v1(self, axis):
-        input = bst.random.randn(32, 16, 12)
+        input = brainstate.random.randn(32, 16, 12)
         net = nn.AdaptiveAvgPool2d(target_size=[5, 4], channel_axis=axis)
         output = net(input)
 
@@ -193,7 +191,7 @@ class TestPool(parameterized.TestCase):
         axis=(-1, 0, 1, 2, 3)
     )
     def test_AdaptiveMaxPool2d_v2(self, axis):
-        input = bst.random.randn(2, 32, 16, 12)
+        input = brainstate.random.randn(2, 32, 16, 12)
         net = nn.AdaptiveAvgPool2d(target_size=[5, 4], channel_axis=axis)
         output = net(input)
 
@@ -201,7 +199,7 @@ class TestPool(parameterized.TestCase):
         axis=(-1, 0, 1, 2, 3)
     )
     def test_AdaptiveMaxPool3d_v1(self, axis):
-        input = bst.random.randn(2, 128, 64, 32)
+        input = brainstate.random.randn(2, 128, 64, 32)
         net = nn.AdaptiveMaxPool3d(target_size=[6, 5, 4], channel_axis=axis)
         output = net(input)
         print()
@@ -210,7 +208,7 @@ class TestPool(parameterized.TestCase):
         axis=(-1, 0, 1, 2, 3, 4)
     )
     def test_AdaptiveMaxPool3d_v1(self, axis):
-        input = bst.random.randn(2, 128, 64, 32, 16)
+        input = brainstate.random.randn(2, 128, 64, 32, 16)
         net = nn.AdaptiveMaxPool3d(target_size=[6, 5, 4], channel_axis=axis)
         output = net(input)
 

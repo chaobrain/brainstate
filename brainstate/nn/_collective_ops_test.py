@@ -16,21 +16,21 @@
 # -*- coding: utf-8 -*-
 
 
-import brainstate as bst
+import brainstate
 
 
 class Test_vmap_init_all_states:
 
     def test_vmap_init_all_states(self):
-        gru = bst.nn.GRUCell(1, 2)
-        bst.nn.vmap_init_all_states(gru, axis_size=10)
+        gru = brainstate.nn.GRUCell(1, 2)
+        brainstate.nn.vmap_init_all_states(gru, axis_size=10)
         print(gru)
 
     def test_vmap_init_all_states_v2(self):
-        @bst.compile.jit
+        @brainstate.compile.jit
         def init():
-            gru = bst.nn.GRUCell(1, 2)
-            bst.nn.vmap_init_all_states(gru, axis_size=10)
+            gru = brainstate.nn.GRUCell(1, 2)
+            brainstate.nn.vmap_init_all_states(gru, axis_size=10)
             print(gru)
 
         init()
@@ -38,6 +38,6 @@ class Test_vmap_init_all_states:
 
 class Test_init_all_states:
     def test_init_all_states(self):
-        gru = bst.nn.GRUCell(1, 2)
-        bst.nn.init_all_states(gru, batch_size=10)
+        gru = brainstate.nn.GRUCell(1, 2)
+        brainstate.nn.init_all_states(gru, batch_size=10)
         print(gru)

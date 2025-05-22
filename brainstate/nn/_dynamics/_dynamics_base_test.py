@@ -15,47 +15,46 @@
 
 # -*- coding: utf-8 -*-
 
-from __future__ import annotations
 
 import unittest
 
 import numpy as np
 
-import brainstate as bst
+import brainstate
 
 
 class TestModuleGroup(unittest.TestCase):
     def test_initialization(self):
-        group = bst.nn.DynamicsGroup()
-        self.assertIsInstance(group, bst.nn.DynamicsGroup)
+        group = brainstate.nn.DynamicsGroup()
+        self.assertIsInstance(group, brainstate.nn.DynamicsGroup)
 
 
 class TestProjection(unittest.TestCase):
     def test_initialization(self):
-        proj = bst.nn.Projection()
-        self.assertIsInstance(proj, bst.nn.Projection)
+        proj = brainstate.nn.Projection()
+        self.assertIsInstance(proj, brainstate.nn.Projection)
 
     def test_update_not_implemented(self):
-        proj = bst.nn.Projection()
+        proj = brainstate.nn.Projection()
         with self.assertRaises(ValueError):
             proj.update()
 
 
 class TestDynamics(unittest.TestCase):
     def test_initialization(self):
-        dyn = bst.nn.Dynamics(in_size=10)
-        self.assertIsInstance(dyn, bst.nn.Dynamics)
+        dyn = brainstate.nn.Dynamics(in_size=10)
+        self.assertIsInstance(dyn, brainstate.nn.Dynamics)
         self.assertEqual(dyn.in_size, (10,))
         self.assertEqual(dyn.out_size, (10,))
 
     def test_size_validation(self):
         with self.assertRaises(ValueError):
-            bst.nn.Dynamics(in_size=[])
+            brainstate.nn.Dynamics(in_size=[])
         with self.assertRaises(ValueError):
-            bst.nn.Dynamics(in_size="invalid")
+            brainstate.nn.Dynamics(in_size="invalid")
 
     def test_input_handling(self):
-        dyn = bst.nn.Dynamics(in_size=10)
+        dyn = brainstate.nn.Dynamics(in_size=10)
         dyn.add_current_input("test_current", lambda: np.random.rand(10))
         dyn.add_delta_input("test_delta", lambda: np.random.rand(10))
 
@@ -63,15 +62,15 @@ class TestDynamics(unittest.TestCase):
         self.assertIn("test_delta", dyn.delta_inputs)
 
     def test_duplicate_input_key(self):
-        dyn = bst.nn.Dynamics(in_size=10)
+        dyn = brainstate.nn.Dynamics(in_size=10)
         dyn.add_current_input("test", lambda: np.random.rand(10))
         with self.assertRaises(ValueError):
             dyn.add_current_input("test", lambda: np.random.rand(10))
 
     def test_varshape(self):
-        dyn = bst.nn.Dynamics(in_size=(2, 3))
+        dyn = brainstate.nn.Dynamics(in_size=(2, 3))
         self.assertEqual(dyn.varshape, (2, 3))
-        dyn = bst.nn.Dynamics(in_size=(2, 3))
+        dyn = brainstate.nn.Dynamics(in_size=(2, 3))
         self.assertEqual(dyn.varshape, (2, 3))
 
 

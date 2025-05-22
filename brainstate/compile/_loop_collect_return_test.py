@@ -13,20 +13,18 @@
 # limitations under the License.
 # ==============================================================================
 
-from __future__ import annotations
-
 import unittest
 
 import jax.numpy as jnp
 import numpy as np
 
-import brainstate as bst
+import brainstate
 
 
 class TestForLoop(unittest.TestCase):
     def test_for_loop(self):
-        a = bst.ShortTermState(0.)
-        b = bst.ShortTermState(0.)
+        a = brainstate.ShortTermState(0.)
+        b = brainstate.ShortTermState(0.)
 
         def f(i):
             a.value += (1 + b.value)
@@ -34,7 +32,7 @@ class TestForLoop(unittest.TestCase):
 
         n_iter = 10
         ops = np.arange(n_iter)
-        r = bst.compile.for_loop(f, ops)
+        r = brainstate.compile.for_loop(f, ops)
 
         print(a)
         print(b)
@@ -42,8 +40,8 @@ class TestForLoop(unittest.TestCase):
         self.assertTrue(jnp.allclose(r, ops + 1))
 
     def test_checkpointed_for_loop(self):
-        a = bst.ShortTermState(0.)
-        b = bst.ShortTermState(0.)
+        a = brainstate.ShortTermState(0.)
+        b = brainstate.ShortTermState(0.)
 
         def f(i):
             a.value += (1 + b.value)
@@ -51,7 +49,7 @@ class TestForLoop(unittest.TestCase):
 
         n_iter = 18
         ops = jnp.arange(n_iter)
-        r = bst.compile.checkpointed_for_loop(f, ops, base=2, pbar=bst.compile.ProgressBar())
+        r = brainstate.compile.checkpointed_for_loop(f, ops, base=2, pbar=brainstate.compile.ProgressBar())
 
         print(a)
         print(b)

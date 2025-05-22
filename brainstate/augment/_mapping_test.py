@@ -13,7 +13,6 @@
 # limitations under the License.
 # ==============================================================================
 
-from __future__ import annotations
 
 import unittest
 
@@ -21,7 +20,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-import brainstate as bst
+import brainstate
 import brainstate.augment
 from brainstate.augment._mapping import BatchAxisError
 from brainstate.augment._mapping import _remove_axis
@@ -29,29 +28,29 @@ from brainstate.augment._mapping import _remove_axis
 
 class TestVmap(unittest.TestCase):
     def test_vmap_1(self):
-        class Model(bst.nn.Module):
+        class Model(brainstate.nn.Module):
             def __init__(self):
                 super().__init__()
 
-                self.a = bst.State(bst.random.randn(5))
-                self.b = bst.State(bst.random.randn(5))
+                self.a = brainstate.State(brainstate.random.randn(5))
+                self.b = brainstate.State(brainstate.random.randn(5))
 
             def __call__(self, *args, **kwargs):
                 return self.a.value * self.b.value
 
         model = Model()
         r1 = model.a.value * model.b.value
-        r2 = bst.augment.vmap(model, in_states=model.states())()
+        r2 = brainstate.augment.vmap(model, in_states=model.states())()
         self.assertTrue(jnp.allclose(r1, r2))
 
     def test_vmap_2(self):
-        class Model(bst.nn.Module):
+        class Model(brainstate.nn.Module):
             def __init__(self):
                 super().__init__()
 
-                self.a = bst.ShortTermState(bst.random.randn(5))
-                self.b = bst.ShortTermState(bst.random.randn(5))
-                self.c = bst.State(bst.random.randn(1))
+                self.a = brainstate.ShortTermState(brainstate.random.randn(5))
+                self.b = brainstate.ShortTermState(brainstate.random.randn(5))
+                self.c = brainstate.State(brainstate.random.randn(1))
 
             def __call__(self, *args, **kwargs):
                 self.c.value = self.a.value * self.b.value
@@ -59,104 +58,104 @@ class TestVmap(unittest.TestCase):
 
         model = Model()
         with self.assertRaises(BatchAxisError):
-            r2 = bst.augment.vmap(model, in_states=model.states(bst.ShortTermState))()
+            r2 = brainstate.augment.vmap(model, in_states=model.states(brainstate.ShortTermState))()
 
         model = Model()
-        r2 = bst.augment.vmap(model, in_states=model.states(bst.ShortTermState), out_states=model.c)()
+        r2 = brainstate.augment.vmap(model, in_states=model.states(brainstate.ShortTermState), out_states=model.c)()
 
     def test_vmap_3(self):
-        class Model(bst.nn.Module):
+        class Model(brainstate.nn.Module):
             def __init__(self):
                 super().__init__()
 
-                self.a = bst.State(bst.random.randn(5))
-                self.b = bst.State(bst.random.randn(5))
+                self.a = brainstate.State(brainstate.random.randn(5))
+                self.b = brainstate.State(brainstate.random.randn(5))
 
             def __call__(self, *args, **kwargs):
                 return self.a.value * self.b.value
 
         model = Model()
         with self.assertRaises(BatchAxisError):
-            r2 = bst.augment.vmap(model, in_states=model.states(), out_states={1: model.states()})()
+            r2 = brainstate.augment.vmap(model, in_states=model.states(), out_states={1: model.states()})()
 
     def test_vmap_with_random(self):
-        class Model(bst.nn.Module):
+        class Model(brainstate.nn.Module):
             def __init__(self):
                 super().__init__()
 
-                self.a = bst.ShortTermState(bst.random.randn(5))
-                self.b = bst.ShortTermState(bst.random.randn(5))
-                self.c = bst.State(bst.random.randn(1))
+                self.a = brainstate.ShortTermState(brainstate.random.randn(5))
+                self.b = brainstate.ShortTermState(brainstate.random.randn(5))
+                self.c = brainstate.State(brainstate.random.randn(1))
 
             def __call__(self, key):
-                bst.random.set_key(key)
+                brainstate.random.set_key(key)
                 self.c.value = self.a.value * self.b.value
-                return self.c.value + bst.random.randn(1)
+                return self.c.value + brainstate.random.randn(1)
 
         model = Model()
-        r2 = bst.augment.vmap(
+        r2 = brainstate.augment.vmap(
             model,
-            in_states=model.states(bst.ShortTermState),
+            in_states=model.states(brainstate.ShortTermState),
             out_states=model.c
         )(
-            bst.random.split_key(5)
+            brainstate.random.split_key(5)
         )
-        print(bst.random.DEFAULT)
+        print(brainstate.random.DEFAULT)
 
     def test_vmap_with_random_v3(self):
-        class Model(bst.nn.Module):
+        class Model(brainstate.nn.Module):
             def __init__(self):
                 super().__init__()
 
-                self.a = bst.ShortTermState(bst.random.randn(5))
-                self.b = bst.ShortTermState(bst.random.randn(5))
-                self.c = bst.State(bst.random.randn(1))
+                self.a = brainstate.ShortTermState(brainstate.random.randn(5))
+                self.b = brainstate.ShortTermState(brainstate.random.randn(5))
+                self.c = brainstate.State(brainstate.random.randn(1))
 
             def __call__(self):
                 self.c.value = self.a.value * self.b.value
-                return self.c.value + bst.random.randn(1)
+                return self.c.value + brainstate.random.randn(1)
 
         model = Model()
-        r2 = bst.augment.vmap(
+        r2 = brainstate.augment.vmap(
             model,
-            in_states=model.states(bst.ShortTermState),
+            in_states=model.states(brainstate.ShortTermState),
             out_states=model.c
         )()
-        print(bst.random.DEFAULT)
+        print(brainstate.random.DEFAULT)
 
     def test_vmap_with_random_2(self):
-        class Model(bst.nn.Module):
+        class Model(brainstate.nn.Module):
             def __init__(self):
                 super().__init__()
 
-                self.a = bst.ShortTermState(bst.random.randn(5))
-                self.b = bst.ShortTermState(bst.random.randn(5))
-                self.c = bst.State(bst.random.randn(1))
-                self.rng = bst.random.RandomState(1)
+                self.a = brainstate.ShortTermState(brainstate.random.randn(5))
+                self.b = brainstate.ShortTermState(brainstate.random.randn(5))
+                self.c = brainstate.State(brainstate.random.randn(1))
+                self.rng = brainstate.random.RandomState(1)
 
             def __call__(self, key):
                 self.rng.set_key(key)
                 self.c.value = self.a.value * self.b.value
-                return self.c.value + bst.random.randn(1)
+                return self.c.value + brainstate.random.randn(1)
 
         model = Model()
-        r2 = bst.augment.vmap(
+        r2 = brainstate.augment.vmap(
             model,
-            in_states=model.states(bst.ShortTermState),
+            in_states=model.states(brainstate.ShortTermState),
             out_states=model.c
         )(
-            bst.random.split_key(5)
+            brainstate.random.split_key(5)
         )
 
     def test_vmap_input(self):
-        model = bst.nn.Linear(2, 3)
+        model = brainstate.nn.Linear(2, 3)
         print(id(model), id(model.weight))
         model_id = id(model)
         weight_id = id(model.weight)
 
         x = jnp.ones((5, 2))
 
-        @bst.augment.vmap
+        @brainstate.augment.vmap
         def forward(x):
             self.assertTrue(id(model) == model_id)
             self.assertTrue(id(model.weight) == weight_id)
@@ -169,39 +168,39 @@ class TestVmap(unittest.TestCase):
         print(model.weight.value)
 
     def test_vmap_states_and_input_1(self):
-        gru = bst.nn.GRUCell(2, 3)
+        gru = brainstate.nn.GRUCell(2, 3)
         gru.init_state(5)
 
-        @bst.augment.vmap(in_states=gru.states(bst.HiddenState))
+        @brainstate.augment.vmap(in_states=gru.states(brainstate.HiddenState))
         def forward(x):
             return gru(x)
 
-        xs = bst.random.randn(5, 2)
+        xs = brainstate.random.randn(5, 2)
         y = forward(xs)
         self.assertTrue(y.shape == (5, 3))
 
     def test_vmap_jit(self):
-        class Foo(bst.nn.Module):
+        class Foo(brainstate.nn.Module):
             def __init__(self):
                 super().__init__()
-                self.a = bst.ParamState(jnp.arange(4))
-                self.b = bst.ShortTermState(jnp.arange(4))
+                self.a = brainstate.ParamState(jnp.arange(4))
+                self.b = brainstate.ShortTermState(jnp.arange(4))
 
             def __call__(self):
                 self.b.value = self.a.value * self.b.value
 
         foo = Foo()
 
-        @bst.augment.vmap(in_states=foo.states())
+        @brainstate.augment.vmap(in_states=foo.states())
         def mul():
             foo()
 
-        @bst.compile.jit
+        @brainstate.compile.jit
         def mul_jit(inp):
             mul()
             foo.a.value += inp
 
-        with bst.StateTraceStack() as trace:
+        with brainstate.StateTraceStack() as trace:
             mul_jit(1.)
 
         print(foo.a.value)
@@ -219,27 +218,27 @@ class TestVmap(unittest.TestCase):
         print(trace.get_read_states())
 
     def test_vmap_jit_2(self):
-        class Foo(bst.nn.Module):
+        class Foo(brainstate.nn.Module):
             def __init__(self):
                 super().__init__()
-                self.a = bst.ParamState(jnp.arange(4))
-                self.b = bst.ShortTermState(jnp.arange(4))
+                self.a = brainstate.ParamState(jnp.arange(4))
+                self.b = brainstate.ShortTermState(jnp.arange(4))
 
             def __call__(self):
                 self.b.value = self.a.value * self.b.value
 
         foo = Foo()
 
-        @bst.augment.vmap(in_states=foo.states())
+        @brainstate.augment.vmap(in_states=foo.states())
         def mul():
             foo()
 
-        @bst.compile.jit
+        @brainstate.compile.jit
         def mul_jit(inp):
             mul()
             foo.b.value += inp
 
-        with bst.StateTraceStack() as trace:
+        with brainstate.StateTraceStack() as trace:
             mul_jit(1.)
 
         print(foo.a.value)
@@ -258,9 +257,9 @@ class TestVmap(unittest.TestCase):
 
     def test_auto_rand_key_split(self):
         def f():
-            return bst.random.rand(1)
+            return brainstate.random.rand(1)
 
-        res = bst.augment.vmap(f, axis_size=10)()
+        res = brainstate.augment.vmap(f, axis_size=10)()
         self.assertTrue(jnp.all(~(res[0] == res[1:])))
 
         res2 = jax.vmap(f, axis_size=10)()
@@ -278,17 +277,17 @@ class TestVmap(unittest.TestCase):
         self.assertTrue(jnp.allclose(r, r2))
 
     def test_vmap_init(self):
-        class Foo(bst.nn.Module):
+        class Foo(brainstate.nn.Module):
             def __init__(self):
                 super().__init__()
-                self.a = bst.ParamState(jnp.arange(4))
-                self.b = bst.ShortTermState(jnp.arange(4))
+                self.a = brainstate.ParamState(jnp.arange(4))
+                self.b = brainstate.ShortTermState(jnp.arange(4))
 
             def init_state_v1(self, *args, **kwargs):
-                self.c = bst.State(jnp.arange(4))
+                self.c = brainstate.State(jnp.arange(4))
 
             def init_state_v2(self):
-                self.d = bst.State(self.c.value * 2.)
+                self.d = brainstate.State(self.c.value * 2.)
 
         foo = Foo()
 
@@ -318,11 +317,11 @@ class TestVmap(unittest.TestCase):
 class TestMap(unittest.TestCase):
     def test_map(self):
         for dim in [(10,), (10, 10), (10, 10, 10)]:
-            x = bst.random.rand(*dim)
-            r1 = bst.augment.map(lambda a: a + 1, x, batch_size=None)
-            r2 = bst.augment.map(lambda a: a + 1, x, batch_size=2)
-            r3 = bst.augment.map(lambda a: a + 1, x, batch_size=4)
-            r4 = bst.augment.map(lambda a: a + 1, x, batch_size=5)
+            x = brainstate.random.rand(*dim)
+            r1 = brainstate.augment.map(lambda a: a + 1, x, batch_size=None)
+            r2 = brainstate.augment.map(lambda a: a + 1, x, batch_size=2)
+            r3 = brainstate.augment.map(lambda a: a + 1, x, batch_size=4)
+            r4 = brainstate.augment.map(lambda a: a + 1, x, batch_size=5)
             true_r = x + 1
 
             self.assertTrue(jnp.allclose(r1, true_r))
@@ -406,7 +405,7 @@ class TestVMAPNewStatesEdgeCases(unittest.TestCase):
         foo = brainstate.nn.LIF(3)
         # Testing that axis_size of 0 raises an error.
         with self.assertRaises(ValueError):
-            @bst.augment.vmap_new_states(state_tag='new1', axis_size=0)
+            @brainstate.augment.vmap_new_states(state_tag='new1', axis_size=0)
             def faulty_init():
                 foo.init_state()
 
@@ -417,7 +416,7 @@ class TestVMAPNewStatesEdgeCases(unittest.TestCase):
         foo = brainstate.nn.LIF(3)
         # Testing that a negative axis_size raises an error.
         with self.assertRaises(ValueError):
-            @bst.augment.vmap_new_states(state_tag='new1', axis_size=-3)
+            @brainstate.augment.vmap_new_states(state_tag='new1', axis_size=-3)
             def faulty_init():
                 foo.init_state()
 
@@ -428,9 +427,9 @@ class TestVMAPNewStatesEdgeCases(unittest.TestCase):
 
         # Simulate an incompatible shapes scenario:
         # We intentionally assign a state with a different shape than expected.
-        @bst.augment.vmap_new_states(state_tag='new1', axis_size=5)
+        @brainstate.augment.vmap_new_states(state_tag='new1', axis_size=5)
         def faulty_init():
             # Modify state to produce an incompatible shape
-            foo.c = bst.State(jnp.arange(3))  # Original expected shape is (4,)
+            foo.c = brainstate.State(jnp.arange(3))  # Original expected shape is (4,)
 
         faulty_init()

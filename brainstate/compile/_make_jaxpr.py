@@ -62,8 +62,8 @@ import jax
 from jax._src import source_info_util
 from jax._src.linear_util import annotate
 from jax._src.traceback_util import api_boundary
-from jax.api_util import shaped_abstractify, debug_info
-from jax.extend.linear_util import transformation_with_aux, wrap_init
+from jax.api_util import shaped_abstractify
+from jax.extend.linear_util import transformation_with_aux
 from jax.interpreters import partial_eval as pe
 
 from brainstate._compatible_import import (
@@ -73,6 +73,7 @@ from brainstate._compatible_import import (
     safe_zip,
     unzip2,
     wraps,
+    wrap_init,
 )
 from brainstate._state import State, StateTraceStack
 from brainstate._utils import set_module_as
@@ -96,7 +97,7 @@ def _ensure_index_tuple(x: Any) -> tuple[int, ...]:
         return tuple(safe_map(operator.index, x))
 
 
-def _new_arg_fn(frame, trace, aval):
+def _jax_v04_new_arg_fn(frame, trace, aval):
     """
     Transform a new argument to a tracer.
 
@@ -117,27 +118,41 @@ def _new_arg_fn(frame, trace, aval):
     return tracer
 
 
-def _new_jax_trace():
+def _jax_v04_new_jax_trace():
     main = jax.core.thread_local_state.trace_state.trace_stack.stack[-1]
     frame = main.jaxpr_stack[-1]
     trace = pe.DynamicJaxprTrace(main, jax.core.cur_sublevel())
     return frame, trace
 
 
+def _jax_v04_new_arg():
+    # Should be within the calling of ``jax.make_jaxpr()``
+    frame, trace = _jax_v04_new_jax_trace()
+    # Set the function to transform the new argument to a tracer
+    fn = functools.partial(_jax_v04_new_arg_fn, frame, trace)
+    return fn
+
+
+def _jax_new_version_new_arg():
+    trace = jax.core.trace_ctx.trace
+
+    def wrapper(x):
+        if jax.__version_info__ < (0, 6, 1):
+            return trace.new_arg(shaped_abstractify(x))
+        else:
+            return trace.new_arg(shaped_abstractify(x), source_info=source_info_util.current())
+
+    return wrapper
+
+
 def _init_state_trace_stack(name) -> StateTraceStack:
     state_trace: StateTraceStack = StateTraceStack(name=name)
 
     if jax.__version_info__ < (0, 4, 36):
-        # Should be within the calling of ``jax.make_jaxpr()``
-        frame, trace = _new_jax_trace()
-        # Set the function to transform the new argument to a tracer
-        state_trace.set_new_arg(functools.partial(_new_arg_fn, frame, trace))
-        return state_trace
-
+        state_trace.set_new_arg(_jax_v04_new_arg())
     else:
-        trace = jax.core.trace_ctx.trace
-        state_trace.set_new_arg(trace.new_arg)
-        return state_trace
+        state_trace.set_new_arg(_jax_new_version_new_arg())
+    return state_trace
 
 
 class StatefulFunction(PrettyObject):
@@ -743,7 +758,7 @@ def _make_jaxpr(
     @wraps(fun)
     @api_boundary
     def make_jaxpr_f(*args, **kwargs):
-        f = wrap_init(fun, debug_info=debug_info('make_jaxpr', fun, args, kwargs))
+        f = wrap_init(fun, (), {}, 'brainstate.compile.make_jaxpr')
         if static_argnums:
             dyn_argnums = [i for i in range(len(args)) if i not in static_argnums]
             f, args = jax.api_util.argnums_partial(f, dyn_argnums, args)

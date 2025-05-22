@@ -37,6 +37,7 @@ __all__ = [
     'unzip2',
     'wraps',
     'Device',
+    'wrap_init',
 ]
 
 T = TypeVar("T")
@@ -44,6 +45,8 @@ T1 = TypeVar("T1")
 T2 = TypeVar("T2")
 T3 = TypeVar("T3")
 
+
+from saiunit._compatible_import import wrap_init
 brainevent_installed = importlib.util.find_spec('brainevent') is not None
 
 from jax.core import get_aval, Tracer
