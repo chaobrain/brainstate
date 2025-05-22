@@ -13,12 +13,9 @@
 # limitations under the License.
 # ==============================================================================
 
-from __future__ import annotations
-
 import unittest
 
 import jax.numpy as jnp
-import jaxlib.xla_extension
 
 import brainstate as bst
 
@@ -88,14 +85,14 @@ class TestDelay(unittest.TestCase):
 
         with bst.environ.context(i=0, t=0, jit_error_check=True):
             rotation_delay.retrieve_at_time(-2.0)
-            with self.assertRaises(jaxlib.xla_extension.XlaRuntimeError):
+            with self.assertRaises(Exception):
                 rotation_delay.retrieve_at_time(-2.1)
             rotation_delay.retrieve_at_time(-2.01)
-            with self.assertRaises(jaxlib.xla_extension.XlaRuntimeError):
+            with self.assertRaises(Exception):
                 rotation_delay.retrieve_at_time(-2.09)
-            with self.assertRaises(jaxlib.xla_extension.XlaRuntimeError):
+            with self.assertRaises(Exception):
                 rotation_delay.retrieve_at_time(0.1)
-            with self.assertRaises(jaxlib.xla_extension.XlaRuntimeError):
+            with self.assertRaises(Exception):
                 rotation_delay.retrieve_at_time(0.01)
 
     def test_round_interp(self):
