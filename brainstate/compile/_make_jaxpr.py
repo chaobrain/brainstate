@@ -62,8 +62,8 @@ import jax
 from jax._src import source_info_util
 from jax._src.linear_util import annotate
 from jax._src.traceback_util import api_boundary
-from jax.api_util import shaped_abstractify, debug_info
-from jax.extend.linear_util import transformation_with_aux, wrap_init
+from jax.api_util import shaped_abstractify
+from jax.extend.linear_util import transformation_with_aux
 from jax.interpreters import partial_eval as pe
 
 from brainstate._compatible_import import (
@@ -73,6 +73,7 @@ from brainstate._compatible_import import (
     safe_zip,
     unzip2,
     wraps,
+    wrap_init,
 )
 from brainstate._state import State, StateTraceStack
 from brainstate._utils import set_module_as
@@ -743,7 +744,7 @@ def _make_jaxpr(
     @wraps(fun)
     @api_boundary
     def make_jaxpr_f(*args, **kwargs):
-        f = wrap_init(fun, debug_info=debug_info('make_jaxpr', fun, args, kwargs))
+        f = wrap_init(fun, (), {}, 'brainstate.compile.make_jaxpr')
         if static_argnums:
             dyn_argnums = [i for i in range(len(args)) if i not in static_argnums]
             f, args = jax.api_util.argnums_partial(f, dyn_argnums, args)
