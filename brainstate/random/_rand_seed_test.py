@@ -13,14 +13,12 @@
 # limitations under the License.
 # ==============================================================================
 
-from __future__ import annotations
-
 import unittest
 
 import jax.numpy as jnp
 import jax.random
 
-import brainstate as bst
+import brainstate
 
 
 class TestRandom(unittest.TestCase):
@@ -28,23 +26,23 @@ class TestRandom(unittest.TestCase):
     def test_seed2(self):
         test_seed = 299
         key = jax.random.PRNGKey(test_seed)
-        bst.random.seed(key)
+        brainstate.random.seed(key)
 
         @jax.jit
         def jit_seed(key):
-            bst.random.seed(key)
-            with bst.random.seed_context(key):
-                print(bst.random.DEFAULT.value)
+            brainstate.random.seed(key)
+            with brainstate.random.seed_context(key):
+                print(brainstate.random.DEFAULT.value)
 
         jit_seed(key)
         jit_seed(1)
         jit_seed(None)
-        bst.random.seed(1)
+        brainstate.random.seed(1)
 
     def test_seed(self):
         test_seed = 299
-        bst.random.seed(test_seed)
-        a = bst.random.rand(3)
-        bst.random.seed(test_seed)
-        b = bst.random.rand(3)
+        brainstate.random.seed(test_seed)
+        a = brainstate.random.rand(3)
+        brainstate.random.seed(test_seed)
+        b = brainstate.random.rand(3)
         self.assertTrue(jnp.array_equal(a, b))

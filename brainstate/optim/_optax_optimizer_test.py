@@ -13,39 +13,38 @@
 # limitations under the License.
 # ==============================================================================
 
-from __future__ import annotations
 
 import unittest
 
 import jax
 import optax
 
-import brainstate as bst
+import brainstate
 
 
 class TestOptaxOptimizer(unittest.TestCase):
     def test1(self):
-        class Model(bst.nn.Module):
+        class Model(brainstate.nn.Module):
             def __init__(self):
                 super().__init__()
-                self.linear1 = bst.nn.Linear(2, 3)
-                self.linear2 = bst.nn.Linear(3, 4)
+                self.linear1 = brainstate.nn.Linear(2, 3)
+                self.linear2 = brainstate.nn.Linear(3, 4)
 
             def __call__(self, x):
                 return self.linear2(self.linear1(x))
 
-        x = bst.random.randn(1, 2)
+        x = brainstate.random.randn(1, 2)
         y = jax.numpy.ones((1, 4))
 
         model = Model()
         tx = optax.adam(1e-3)
-        optimizer = bst.optim.OptaxOptimizer(tx)
-        optimizer.register_trainable_weights(model.states(bst.ParamState))
+        optimizer = brainstate.optim.OptaxOptimizer(tx)
+        optimizer.register_trainable_weights(model.states(brainstate.ParamState))
 
         loss_fn = lambda: ((model(x) - y) ** 2).mean()
         prev_loss = loss_fn()
 
-        grads = bst.augment.grad(loss_fn, model.states(bst.ParamState))()
+        grads = brainstate.augment.grad(loss_fn, model.states(brainstate.ParamState))()
         optimizer.update(grads)
 
         new_loss = loss_fn()

@@ -19,12 +19,12 @@ import unittest
 
 import jax.numpy as jnp
 
-import brainstate as bst
+import brainstate
 
 
 class TestMultiStepLR(unittest.TestCase):
     def test1(self):
-        lr = bst.optim.MultiStepLR(0.1, [10, 20, 30], gamma=0.1)
+        lr = brainstate.optim.MultiStepLR(0.1, [10, 20, 30], gamma=0.1)
         for i in range(40):
             r = lr(i)
             if i < 10:
@@ -37,7 +37,7 @@ class TestMultiStepLR(unittest.TestCase):
                 self.assertTrue(jnp.allclose(r, 0.0001))
 
     def test2(self):
-        lr = bst.compile.jit(bst.optim.MultiStepLR(0.1, [10, 20, 30], gamma=0.1))
+        lr = brainstate.compile.jit(brainstate.optim.MultiStepLR(0.1, [10, 20, 30], gamma=0.1))
         for i in range(40):
             r = lr(i)
             if i < 10:
