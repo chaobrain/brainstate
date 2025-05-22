@@ -15,7 +15,6 @@
 
 # -*- coding: utf-8 -*-
 
-from __future__ import annotations
 
 import unittest
 
@@ -23,7 +22,7 @@ import brainunit as u
 import jax
 import jax.numpy as jnp
 
-import brainstate as bst
+import brainstate
 from brainstate.nn import IF, LIF, ALIF
 
 
@@ -35,13 +34,13 @@ class TestNeuron(unittest.TestCase):
 
     def test_neuron_base_class(self):
         with self.assertRaises(NotImplementedError):
-            bst.nn.Neuron(self.in_size).get_spike()  # Neuron is an abstract base class
+            brainstate.nn.Neuron(self.in_size).get_spike()  # Neuron is an abstract base class
 
     def generate_input(self):
-        return bst.random.randn(self.time_steps, self.batch_size, self.in_size) * u.mA
+        return brainstate.random.randn(self.time_steps, self.batch_size, self.in_size) * u.mA
 
     def test_if_neuron(self):
-        with bst.environ.context(dt=0.1 * u.ms):
+        with brainstate.environ.context(dt=0.1 * u.ms):
             neuron = IF(self.in_size)
             inputs = self.generate_input()
 
@@ -62,7 +61,7 @@ class TestNeuron(unittest.TestCase):
             self.assertTrue(jnp.all((spikes >= 0) & (spikes <= 1)))
 
     def test_lif_neuron(self):
-        with bst.environ.context(dt=0.1 * u.ms):
+        with brainstate.environ.context(dt=0.1 * u.ms):
             tau = 20.0 * u.ms
             neuron = LIF(self.in_size, tau=tau)
             inputs = self.generate_input()
@@ -74,7 +73,7 @@ class TestNeuron(unittest.TestCase):
 
             # Test forward pass
             state = neuron.init_state(self.batch_size)
-            call = bst.compile.jit(neuron)
+            call = brainstate.compile.jit(neuron)
 
             for t in range(self.time_steps):
                 out = call(inputs[t])
@@ -94,8 +93,8 @@ class TestNeuron(unittest.TestCase):
 
         # Test forward pass
         neuron.init_state(self.batch_size)
-        call = bst.compile.jit(neuron)
-        with bst.environ.context(dt=0.1 * u.ms):
+        call = brainstate.compile.jit(neuron)
+        with brainstate.environ.context(dt=0.1 * u.ms):
             for t in range(self.time_steps):
                 out = call(inputs[t])
                 self.assertEqual(out.shape, (self.batch_size, self.in_size))
@@ -113,8 +112,8 @@ class TestNeuron(unittest.TestCase):
             neuron = NeuronClass(self.in_size, spk_reset='soft')
             inputs = self.generate_input()
             state = neuron.init_state(self.batch_size)
-            call = bst.compile.jit(neuron)
-            with bst.environ.context(dt=0.1 * u.ms):
+            call = brainstate.compile.jit(neuron)
+            with brainstate.environ.context(dt=0.1 * u.ms):
                 for t in range(self.time_steps):
                     out = call(inputs[t])
                     self.assertTrue(jnp.all(neuron.V.value <= neuron.V_th))
@@ -124,8 +123,8 @@ class TestNeuron(unittest.TestCase):
             neuron = NeuronClass(self.in_size, spk_reset='hard')
             inputs = self.generate_input()
             state = neuron.init_state(self.batch_size)
-            call = bst.compile.jit(neuron)
-            with bst.environ.context(dt=0.1 * u.ms):
+            call = brainstate.compile.jit(neuron)
+            with brainstate.environ.context(dt=0.1 * u.ms):
                 for t in range(self.time_steps):
                     out = call(inputs[t])
                     self.assertTrue(jnp.all((neuron.V.value < neuron.V_th) | (neuron.V.value == 0. * u.mV)))
@@ -135,8 +134,8 @@ class TestNeuron(unittest.TestCase):
             neuron = NeuronClass(self.in_size)
             inputs = self.generate_input()
             state = neuron.init_state(self.batch_size)
-            call = bst.compile.jit(neuron)
-            with bst.environ.context(dt=0.1 * u.ms):
+            call = brainstate.compile.jit(neuron)
+            with brainstate.environ.context(dt=0.1 * u.ms):
                 for t in range(self.time_steps):
                     out = call(inputs[t])
                     self.assertFalse(jax.tree_util.tree_leaves(out)[0].aval.weak_type)
@@ -148,15 +147,15 @@ class TestNeuron(unittest.TestCase):
             self.assertEqual(neuron.in_size, in_size)
             self.assertEqual(neuron.out_size, in_size)
 
-            inputs = bst.random.randn(self.time_steps, self.batch_size, *in_size) * u.mA
+            inputs = brainstate.random.randn(self.time_steps, self.batch_size, *in_size) * u.mA
             state = neuron.init_state(self.batch_size)
-            call = bst.compile.jit(neuron)
-            with bst.environ.context(dt=0.1 * u.ms):
+            call = brainstate.compile.jit(neuron)
+            with brainstate.environ.context(dt=0.1 * u.ms):
                 for t in range(self.time_steps):
                     out = call(inputs[t])
                     self.assertEqual(out.shape, (self.batch_size, *in_size))
 
 
 if __name__ == '__main__':
-    with bst.environ.context(dt=0.1):
+    with brainstate.environ.context(dt=0.1):
         unittest.main()

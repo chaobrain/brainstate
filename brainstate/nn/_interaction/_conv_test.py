@@ -1,13 +1,11 @@
 # -*- coding: utf-8 -*-
 
-from __future__ import annotations
-
 import jax.numpy as jnp
 import pytest
 from absl.testing import absltest
 from absl.testing import parameterized
 
-import brainstate as bst
+import brainstate
 
 
 class TestConv(parameterized.TestCase):
@@ -19,8 +17,8 @@ class TestConv(parameterized.TestCase):
             img = img.at[0, x:x + 10, y:y + 10, k].set(1.0)
             img = img.at[1, x:x + 20, y:y + 20, k].set(3.0)
 
-        net = bst.nn.Conv2d((200, 198, 4), out_channels=32, kernel_size=(3, 3),
-                            stride=(2, 1), padding='VALID', groups=4)
+        net = brainstate.nn.Conv2d((200, 198, 4), out_channels=32, kernel_size=(3, 3),
+                                   stride=(2, 1), padding='VALID', groups=4)
         out = net(img)
         print("out shape: ", out.shape)
         self.assertEqual(out.shape, (2, 99, 196, 32))
@@ -30,7 +28,7 @@ class TestConv(parameterized.TestCase):
         # plt.show()
 
     def test_conv1D(self):
-        model = bst.nn.Conv1d((5, 3), out_channels=32, kernel_size=(3,))
+        model = brainstate.nn.Conv1d((5, 3), out_channels=32, kernel_size=(3,))
         input = jnp.ones((2, 5, 3))
         out = model(input)
         print("out shape: ", out.shape)
@@ -41,7 +39,7 @@ class TestConv(parameterized.TestCase):
         # plt.show()
 
     def test_conv2D(self):
-        model = bst.nn.Conv2d((5, 5, 3), out_channels=32, kernel_size=(3, 3))
+        model = brainstate.nn.Conv2d((5, 5, 3), out_channels=32, kernel_size=(3, 3))
         input = jnp.ones((2, 5, 5, 3))
 
         out = model(input)
@@ -49,7 +47,7 @@ class TestConv(parameterized.TestCase):
         self.assertEqual(out.shape, (2, 5, 5, 32))
 
     def test_conv3D(self):
-        model = bst.nn.Conv3d((5, 5, 5, 3), out_channels=32, kernel_size=(3, 3, 3))
+        model = brainstate.nn.Conv3d((5, 5, 5, 3), out_channels=32, kernel_size=(3, 3, 3))
         input = jnp.ones((2, 5, 5, 5, 3))
         out = model(input)
         print("out shape: ", out.shape)
@@ -62,13 +60,13 @@ class TestConvTranspose1d(parameterized.TestCase):
 
         x = jnp.ones((1, 8, 3))
         for use_bias in [True, False]:
-            conv_transpose_module = bst.nn.ConvTranspose1d(
+            conv_transpose_module = brainstate.nn.ConvTranspose1d(
                 in_channels=3,
                 out_channels=4,
                 kernel_size=(3,),
                 padding='VALID',
-                w_initializer=bst.init.Constant(1.),
-                b_initializer=bst.init.Constant(1.) if use_bias else None,
+                w_initializer=brainstate.init.Constant(1.),
+                b_initializer=brainstate.init.Constant(1.) if use_bias else None,
             )
             self.assertEqual(conv_transpose_module.w.shape, (3, 3, 4))
             y = conv_transpose_module(x)
@@ -91,14 +89,14 @@ class TestConvTranspose1d(parameterized.TestCase):
 
         x = jnp.ones((1, 8, 3))
         m = jnp.tril(jnp.ones((3, 3, 4)))
-        conv_transpose_module = bst.nn.ConvTranspose1d(
+        conv_transpose_module = brainstate.nn.ConvTranspose1d(
             in_channels=3,
             out_channels=4,
             kernel_size=(3,),
             padding='VALID',
             mask=m,
-            w_initializer=bst.init.Constant(),
-            b_initializer=bst.init.Constant(),
+            w_initializer=brainstate.init.Constant(),
+            b_initializer=brainstate.init.Constant(),
         )
         self.assertEqual(conv_transpose_module.w.shape, (3, 3, 4))
         y = conv_transpose_module(x)
@@ -119,14 +117,14 @@ class TestConvTranspose1d(parameterized.TestCase):
 
         data = jnp.ones([1, 3, 1])
         for use_bias in [True, False]:
-            net = bst.nn.ConvTranspose1d(
+            net = brainstate.nn.ConvTranspose1d(
                 in_channels=1,
                 out_channels=1,
                 kernel_size=3,
                 stride=1,
                 padding="SAME",
-                w_initializer=bst.init.Constant(),
-                b_initializer=bst.init.Constant() if use_bias else None,
+                w_initializer=brainstate.init.Constant(),
+                b_initializer=brainstate.init.Constant() if use_bias else None,
             )
             out = net(data)
             self.assertEqual(out.shape, (1, 3, 1))
@@ -143,13 +141,13 @@ class TestConvTranspose2d(parameterized.TestCase):
 
         x = jnp.ones((1, 8, 8, 3))
         for use_bias in [True, False]:
-            conv_transpose_module = bst.nn.ConvTranspose2d(
+            conv_transpose_module = brainstate.nn.ConvTranspose2d(
                 in_channels=3,
                 out_channels=4,
                 kernel_size=(3, 3),
                 padding='VALID',
-                w_initializer=bst.init.Constant(),
-                b_initializer=bst.init.Constant() if use_bias else None,
+                w_initializer=brainstate.init.Constant(),
+                b_initializer=brainstate.init.Constant() if use_bias else None,
             )
         self.assertEqual(conv_transpose_module.w.shape, (3, 3, 3, 4))
         y = conv_transpose_module(x)
@@ -159,13 +157,13 @@ class TestConvTranspose2d(parameterized.TestCase):
 
         x = jnp.ones((1, 8, 8, 3))
         m = jnp.tril(jnp.ones((3, 3, 3, 4)))
-        conv_transpose_module = bst.nn.ConvTranspose2d(
+        conv_transpose_module = brainstate.nn.ConvTranspose2d(
             in_channels=3,
             out_channels=4,
             kernel_size=(3, 3),
             padding='VALID',
             mask=m,
-            w_initializer=bst.init.Constant(),
+            w_initializer=brainstate.init.Constant(),
         )
         y = conv_transpose_module(x)
         print(y.shape)
@@ -174,14 +172,14 @@ class TestConvTranspose2d(parameterized.TestCase):
 
         x = jnp.ones((1, 8, 8, 3))
         for use_bias in [True, False]:
-            conv_transpose_module = bst.nn.ConvTranspose2d(
+            conv_transpose_module = brainstate.nn.ConvTranspose2d(
                 in_channels=3,
                 out_channels=4,
                 kernel_size=(3, 3),
                 stride=1,
                 padding='SAME',
-                w_initializer=bst.init.Constant(),
-                b_initializer=bst.init.Constant() if use_bias else None,
+                w_initializer=brainstate.init.Constant(),
+                b_initializer=brainstate.init.Constant() if use_bias else None,
             )
         y = conv_transpose_module(x)
         print(y.shape)
@@ -193,13 +191,13 @@ class TestConvTranspose3d(parameterized.TestCase):
 
         x = jnp.ones((1, 8, 8, 8, 3))
         for use_bias in [True, False]:
-            conv_transpose_module = bst.nn.ConvTranspose3d(
+            conv_transpose_module = brainstate.nn.ConvTranspose3d(
                 in_channels=3,
                 out_channels=4,
                 kernel_size=(3, 3, 3),
                 padding='VALID',
-                w_initializer=bst.init.Constant(),
-                b_initializer=bst.init.Constant() if use_bias else None,
+                w_initializer=brainstate.init.Constant(),
+                b_initializer=brainstate.init.Constant() if use_bias else None,
             )
         y = conv_transpose_module(x)
         print(y.shape)
@@ -208,13 +206,13 @@ class TestConvTranspose3d(parameterized.TestCase):
 
         x = jnp.ones((1, 8, 8, 8, 3))
         m = jnp.tril(jnp.ones((3, 3, 3, 3, 4)))
-        conv_transpose_module = bst.nn.ConvTranspose3d(
+        conv_transpose_module = brainstate.nn.ConvTranspose3d(
             in_channels=3,
             out_channels=4,
             kernel_size=(3, 3, 3),
             padding='VALID',
             mask=m,
-            w_initializer=bst.init.Constant(),
+            w_initializer=brainstate.init.Constant(),
         )
         y = conv_transpose_module(x)
         print(y.shape)
@@ -223,14 +221,14 @@ class TestConvTranspose3d(parameterized.TestCase):
 
         x = jnp.ones((1, 8, 8, 8, 3))
         for use_bias in [True, False]:
-            conv_transpose_module = bst.nn.ConvTranspose3d(
+            conv_transpose_module = brainstate.nn.ConvTranspose3d(
                 in_channels=3,
                 out_channels=4,
                 kernel_size=(3, 3, 3),
                 stride=1,
                 padding='SAME',
-                w_initializer=bst.init.Constant(),
-                b_initializer=bst.init.Constant() if use_bias else None,
+                w_initializer=brainstate.init.Constant(),
+                b_initializer=brainstate.init.Constant() if use_bias else None,
             )
         y = conv_transpose_module(x)
         print(y.shape)

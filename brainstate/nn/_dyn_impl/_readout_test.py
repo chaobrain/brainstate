@@ -13,13 +13,12 @@
 # limitations under the License.
 # ==============================================================================
 
-from __future__ import annotations
 
 import unittest
 
 import jax.numpy as jnp
 
-import brainstate as bst
+import brainstate
 
 
 class TestReadoutModels(unittest.TestCase):
@@ -32,23 +31,23 @@ class TestReadoutModels(unittest.TestCase):
         self.x = jnp.ones((self.batch_size, self.in_size))
 
     def test_LeakyRateReadout(self):
-        with bst.environ.context(dt=0.1):
-            model = bst.nn.LeakyRateReadout(in_size=self.in_size, out_size=self.out_size, tau=self.tau)
+        with brainstate.environ.context(dt=0.1):
+            model = brainstate.nn.LeakyRateReadout(in_size=self.in_size, out_size=self.out_size, tau=self.tau)
             model.init_state(batch_size=self.batch_size)
             output = model.update(self.x)
             self.assertEqual(output.shape, (self.batch_size, self.out_size))
 
     def test_LeakySpikeReadout(self):
-        with bst.environ.context(dt=0.1):
-            model = bst.nn.LeakySpikeReadout(in_size=self.in_size, tau=self.tau, V_th=self.V_th,
-                                             V_initializer=bst.init.ZeroInit(),
-                                             w_init=bst.init.KaimingNormal())
+        with brainstate.environ.context(dt=0.1):
+            model = brainstate.nn.LeakySpikeReadout(in_size=self.in_size, tau=self.tau, V_th=self.V_th,
+                                                    V_initializer=brainstate.init.ZeroInit(),
+                                                    w_init=brainstate.init.KaimingNormal())
             model.init_state(batch_size=self.batch_size)
-            with bst.environ.context(t=0.):
+            with brainstate.environ.context(t=0.):
                 output = model.update(self.x)
             self.assertEqual(output.shape, (self.batch_size, self.out_size))
 
 
 if __name__ == '__main__':
-    with bst.environ.context(dt=0.1):
+    with brainstate.environ.context(dt=0.1):
         unittest.main()

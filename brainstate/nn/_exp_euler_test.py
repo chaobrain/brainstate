@@ -13,13 +13,12 @@
 # limitations under the License.
 # ==============================================================================
 
-from __future__ import annotations
 
 import unittest
 
 import brainunit as u
 
-import brainstate as bst
+import brainstate
 
 
 class TestExpEuler(unittest.TestCase):
@@ -27,10 +26,10 @@ class TestExpEuler(unittest.TestCase):
         def fun(x, tau):
             return -x / tau
 
-        with bst.environ.context(dt=0.1):
+        with brainstate.environ.context(dt=0.1):
             with self.assertRaises(AssertionError):
-                r = bst.nn.exp_euler_step(fun, 1.0 * u.mV, 1. * u.ms)
+                r = brainstate.nn.exp_euler_step(fun, 1.0 * u.mV, 1. * u.ms)
 
-        with bst.environ.context(dt=1. * u.ms):
-            r = bst.nn.exp_euler_step(fun, 1.0 * u.mV, 1. * u.ms)
+        with brainstate.environ.context(dt=1. * u.ms):
+            r = brainstate.nn.exp_euler_step(fun, 1.0 * u.mV, 1. * u.ms)
             print(r)

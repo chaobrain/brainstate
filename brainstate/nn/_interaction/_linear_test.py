@@ -14,14 +14,12 @@
 # ==============================================================================
 
 
-from __future__ import annotations
-
 import unittest
 
 import brainunit as u
 from absl.testing import parameterized
 
-import brainstate as bst
+import brainstate
 
 
 class TestDense(parameterized.TestCase):
@@ -32,19 +30,19 @@ class TestDense(parameterized.TestCase):
         num_out=[20, ]
     )
     def test_Dense1(self, size, num_out):
-        f = bst.nn.Linear(10, num_out)
-        x = bst.random.random(size)
+        f = brainstate.nn.Linear(10, num_out)
+        x = brainstate.random.random(size)
         y = f(x)
         self.assertTrue(y.shape == size[:-1] + (num_out,))
 
 
 class TestSparseMatrix(unittest.TestCase):
     def test_csr(self):
-        data = bst.random.rand(10, 20)
+        data = brainstate.random.rand(10, 20)
         data = data * (data > 0.9)
-        f = bst.nn.SparseLinear(u.sparse.CSR.fromdense(data))
+        f = brainstate.nn.SparseLinear(u.sparse.CSR.fromdense(data))
 
-        x = bst.random.rand(10)
+        x = brainstate.random.rand(10)
         y = f(x)
         self.assertTrue(
             u.math.allclose(
@@ -53,7 +51,7 @@ class TestSparseMatrix(unittest.TestCase):
             )
         )
 
-        x = bst.random.rand(5, 10)
+        x = brainstate.random.rand(5, 10)
         y = f(x)
         self.assertTrue(
             u.math.allclose(
@@ -63,11 +61,11 @@ class TestSparseMatrix(unittest.TestCase):
         )
 
     def test_csc(self):
-        data = bst.random.rand(10, 20)
+        data = brainstate.random.rand(10, 20)
         data = data * (data > 0.9)
-        f = bst.nn.SparseLinear(u.sparse.CSC.fromdense(data))
+        f = brainstate.nn.SparseLinear(u.sparse.CSC.fromdense(data))
 
-        x = bst.random.rand(10)
+        x = brainstate.random.rand(10)
         y = f(x)
         self.assertTrue(
             u.math.allclose(
@@ -76,7 +74,7 @@ class TestSparseMatrix(unittest.TestCase):
             )
         )
 
-        x = bst.random.rand(5, 10)
+        x = brainstate.random.rand(5, 10)
         y = f(x)
         self.assertTrue(
             u.math.allclose(
@@ -86,11 +84,11 @@ class TestSparseMatrix(unittest.TestCase):
         )
 
     def test_coo(self):
-        data = bst.random.rand(10, 20)
+        data = brainstate.random.rand(10, 20)
         data = data * (data > 0.9)
-        f = bst.nn.SparseLinear(u.sparse.COO.fromdense(data))
+        f = brainstate.nn.SparseLinear(u.sparse.COO.fromdense(data))
 
-        x = bst.random.rand(10)
+        x = brainstate.random.rand(10)
         y = f(x)
         self.assertTrue(
             u.math.allclose(
@@ -99,7 +97,7 @@ class TestSparseMatrix(unittest.TestCase):
             )
         )
 
-        x = bst.random.rand(5, 10)
+        x = brainstate.random.rand(5, 10)
         y = f(x)
         self.assertTrue(
             u.math.allclose(

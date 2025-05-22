@@ -13,7 +13,6 @@
 # limitations under the License.
 # ==============================================================================
 
-from __future__ import annotations
 
 import unittest
 
@@ -21,7 +20,7 @@ import brainunit as u
 import jax.numpy as jnp
 import pytest
 
-import brainstate as bst
+import brainstate
 from brainstate.nn import Expon, STP, STD
 
 
@@ -32,7 +31,7 @@ class TestSynapse(unittest.TestCase):
         self.time_steps = 100
 
     def generate_input(self):
-        return bst.random.randn(self.time_steps, self.batch_size, self.in_size) * u.mS
+        return brainstate.random.randn(self.time_steps, self.batch_size, self.in_size) * u.mS
 
     def test_expon_synapse(self):
         tau = 20.0 * u.ms
@@ -46,8 +45,8 @@ class TestSynapse(unittest.TestCase):
 
         # Test forward pass
         state = synapse.init_state(self.batch_size)
-        call = bst.compile.jit(synapse)
-        with bst.environ.context(dt=0.1 * u.ms):
+        call = brainstate.compile.jit(synapse)
+        with brainstate.environ.context(dt=0.1 * u.ms):
             for t in range(self.time_steps):
                 out = call(inputs[t])
                 self.assertEqual(out.shape, (self.batch_size, self.in_size))
@@ -75,7 +74,7 @@ class TestSynapse(unittest.TestCase):
 
         # Test forward pass
         state = synapse.init_state(self.batch_size)
-        call = bst.compile.jit(synapse)
+        call = brainstate.compile.jit(synapse)
         for t in range(self.time_steps):
             out = call(inputs[t])
             self.assertEqual(out.shape, (self.batch_size, self.in_size))
@@ -118,15 +117,15 @@ class TestSynapse(unittest.TestCase):
             self.assertEqual(synapse.in_size, in_size)
             self.assertEqual(synapse.out_size, in_size)
 
-            inputs = bst.random.randn(self.time_steps, self.batch_size, *in_size) * u.mS
+            inputs = brainstate.random.randn(self.time_steps, self.batch_size, *in_size) * u.mS
             state = synapse.init_state(self.batch_size)
-            call = bst.compile.jit(synapse)
-            with bst.environ.context(dt=0.1 * u.ms):
+            call = brainstate.compile.jit(synapse)
+            with brainstate.environ.context(dt=0.1 * u.ms):
                 for t in range(self.time_steps):
                     out = call(inputs[t])
                     self.assertEqual(out.shape, (self.batch_size, *in_size))
 
 
 if __name__ == '__main__':
-    with bst.environ.context(dt=0.1):
+    with brainstate.environ.context(dt=0.1):
         unittest.main()

@@ -13,12 +13,10 @@
 # limitations under the License.
 # ==============================================================================
 
-from __future__ import annotations
-
 from absl.testing import absltest
 from absl.testing import parameterized
 
-import brainstate as bst
+import brainstate
 
 
 class Test_Normalization(parameterized.TestCase):
@@ -26,27 +24,27 @@ class Test_Normalization(parameterized.TestCase):
         fit=[True, False],
     )
     def test_BatchNorm1d(self, fit):
-        net = bst.nn.BatchNorm1d((3, 10))
-        bst.environ.set(fit=fit)
-        input = bst.random.randn(1, 3, 10)
+        net = brainstate.nn.BatchNorm1d((3, 10))
+        brainstate.environ.set(fit=fit)
+        input = brainstate.random.randn(1, 3, 10)
         output = net(input)
 
     @parameterized.product(
         fit=[True, False]
     )
     def test_BatchNorm2d(self, fit):
-        net = bst.nn.BatchNorm2d([3, 4, 10])
-        bst.environ.set(fit=fit)
-        input = bst.random.randn(1, 3, 4, 10)
+        net = brainstate.nn.BatchNorm2d([3, 4, 10])
+        brainstate.environ.set(fit=fit)
+        input = brainstate.random.randn(1, 3, 4, 10)
         output = net(input)
 
     @parameterized.product(
         fit=[True, False]
     )
     def test_BatchNorm3d(self, fit):
-        net = bst.nn.BatchNorm3d([3, 4, 5, 10])
-        bst.environ.set(fit=fit)
-        input = bst.random.randn(1, 3, 4, 5, 10)
+        net = brainstate.nn.BatchNorm3d([3, 4, 5, 10])
+        brainstate.environ.set(fit=fit)
+        input = brainstate.random.randn(1, 3, 4, 5, 10)
         output = net(input)
 
     # @parameterized.product(
