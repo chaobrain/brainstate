@@ -14,27 +14,25 @@
 # ==============================================================================
 
 
-from __future__ import annotations
-
 import unittest
 
-import brainstate as bst
+import brainstate
 
 
 class TestEvalShape(unittest.TestCase):
     def test1(self):
-        class MLP(bst.nn.Module):
+        class MLP(brainstate.nn.Module):
             def __init__(self, n_in, n_mid, n_out):
                 super().__init__()
-                self.dense1 = bst.nn.Linear(n_in, n_mid)
-                self.dense2 = bst.nn.Linear(n_mid, n_out)
+                self.dense1 = brainstate.nn.Linear(n_in, n_mid)
+                self.dense2 = brainstate.nn.Linear(n_mid, n_out)
 
             def __call__(self, x):
                 x = self.dense1(x)
-                x = bst.functional.relu(x)
+                x = brainstate.functional.relu(x)
                 x = self.dense2(x)
                 return x
 
-        r = bst.augment.abstract_init(lambda: MLP(1, 2, 3))
+        r = brainstate.augment.abstract_init(lambda: MLP(1, 2, 3))
         print(r)
-        print(bst.random.DEFAULT)
+        print(brainstate.random.DEFAULT)
