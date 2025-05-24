@@ -21,27 +21,33 @@
 #
 
 import brainunit as u
-import dendritex as dx
 import matplotlib.pyplot as plt
 
+import braincell
 import brainstate
 
+assert braincell.__version__ >= '0.0.2'
+
 V_th = -20. * u.mV
+area = 20000 * u.um ** 2
+area = area.in_unit(u.cm ** 2)
+Cm = (1 * u.uF * u.cm ** -2) * area  # Membrane Capacitance [pF]
 
 
-class HH(dx.neurons.SingleCompartment):
+class HH(braincell.SingleCompartment):
     def __init__(self, in_size):
-        super().__init__(in_size, C=0.0002 * u.uF)
-        self.na = dx.ions.SodiumFixed(in_size)
-        self.na.add_elem(INa=dx.channels.INa_TM1991(in_size, g_max=0.02 * u.mS, V_sh=-63. * u.mV))
+        super().__init__(in_size, C=Cm, solver='exp_euler')
+        self.na = braincell.ion.SodiumFixed(in_size, E=50. * u.mV)
+        self.na.add_elem(
+            INa=braincell.channel.INa_TM1991(in_size, g_max=(100. * u.mS * u.cm ** -2) * area, V_sh=-63. * u.mV)
+        )
 
-        self.k = dx.ions.PotassiumFixed(in_size, E=-90 * u.mV)
-        self.k.add_elem(IK=dx.channels.IK_TM1991(in_size, g_max=0.006 * u.mS, V_sh=-63. * u.mV))
+        self.k = braincell.ion.PotassiumFixed(in_size, E=-90 * u.mV)
+        self.k.add_elem(
+            IK=braincell.channel.IK_TM1991(in_size, g_max=(30. * u.mS * u.cm ** -2) * area, V_sh=-63. * u.mV)
+        )
 
-        self.IL = dx.channels.IL(in_size, E=-60. * u.mV, g_max=0.001 * u.nS)
-
-    def update(self):
-        dx.rk4_step(self, brainstate.environ.get('t'), 0. * u.nA)
+        self.IL = braincell.channel.IL(in_size, E=-60. * u.mV, g_max=(5. * u.nS * u.cm ** -2) * area)
 
 
 class EINet(brainstate.nn.DynamicsGroup):
@@ -53,48 +59,37 @@ class EINet(brainstate.nn.DynamicsGroup):
         self.N = HH(self.num)
 
         self.E = brainstate.nn.AlignPostProj(
-            comm=brainstate.event.FixedProb(self.n_exc, self.num, prob=0.02, weight=6. * u.nS),
+            comm=brainstate.nn.EventFixedProb(self.n_exc, self.num, conn_num=0.02, conn_weight=6. * u.nS),
             syn=brainstate.nn.Expon(self.num, tau=5. * u.ms),
             out=brainstate.nn.COBA(E=0. * u.mV),
             post=self.N
         )
         self.I = brainstate.nn.AlignPostProj(
-            comm=brainstate.event.FixedProb(self.n_inh, self.num, prob=0.02, weight=67. * u.nS),
+            comm=brainstate.nn.EventFixedProb(self.n_inh, self.num, conn_num=0.02, conn_weight=67. * u.nS),
             syn=brainstate.nn.Expon(self.num, tau=10. * u.ms),
             out=brainstate.nn.COBA(E=-80. * u.mV),
             post=self.N
         )
 
-    def init_state(self, *args, **kwargs):
-        self.last_v = brainstate.ShortTermState(self.N.V.value)
-
-    def reset_state(self, *args, **kwargs):
-        self.last_v.value = self.N.V.value
-
     def update(self, t):
         with brainstate.environ.context(t=t):
-            spk = u.math.squeeze(u.math.logical_and(self.last_v.value < V_th, self.N.V.value >= V_th))
-            self.last_v.value = self.N.V.value
+            spk = self.N.spike.value
             self.E(spk[:self.n_exc])
             self.I(spk[self.n_exc:])
-            self.N()
-            spk = u.math.squeeze(u.math.logical_and(self.last_v.value < V_th, self.N.V.value >= V_th))
-            return spk, self.N.V.value[:10]
+            spk = self.N(0. * u.nA)
+            return spk
 
 
 # network
 net = EINet()
-brainstate.nn.init_all_states(net, node_to_exclude=dx.IonChannel)
+brainstate.nn.init_all_states(net)
 
 # simulation
 with brainstate.environ.context(dt=0.1 * u.ms):
-    times = u.math.arange(0. * u.ms, 1000. * u.ms, brainstate.environ.get_dt())
-    spikes, vs = brainstate.compile.for_loop(net.update, times, pbar=brainstate.compile.ProgressBar(10))
+    times = u.math.arange(0. * u.ms, 100. * u.ms, brainstate.environ.get_dt())
+    spikes = brainstate.compile.for_loop(net.update, times, pbar=brainstate.compile.ProgressBar(10))
 
 # visualization
-plt.plot(times, vs)
-plt.show()
-
 t_indices, n_indices = u.math.where(spikes)
 plt.scatter(times[t_indices], n_indices, s=1)
 plt.xlabel('Time (ms)')
