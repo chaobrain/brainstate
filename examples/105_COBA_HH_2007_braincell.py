@@ -36,7 +36,7 @@ Cm = (1 * u.uF * u.cm ** -2) * area  # Membrane Capacitance [pF]
 
 class HH(braincell.SingleCompartment):
     def __init__(self, in_size):
-        super().__init__(in_size, C=Cm, solver='exp_euler')
+        super().__init__(in_size, C=Cm, solver='ind_exp_euler')
         self.na = braincell.ion.SodiumFixed(in_size, E=50. * u.mV)
         self.na.add_elem(
             INa=braincell.channel.INa_TM1991(in_size, g_max=(100. * u.mS * u.cm ** -2) * area, V_sh=-63. * u.mV)

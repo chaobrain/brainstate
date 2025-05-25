@@ -110,7 +110,7 @@ class Projection(brainstate.nn.Synapse):
         # delay push
         self.g.update(g)
         # delay pull
-        g = self.g.retrieve_at_step((delay / brainstate.environ.get_dt()).astype(int))
+        g = self.g.retrieve_at_step(u.math.asarray(delay / brainstate.environ.get_dt(), dtype=int))
         # update group
         self.group.y.value += g
 
