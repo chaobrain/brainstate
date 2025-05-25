@@ -132,6 +132,7 @@ class AlignPost(Mixin):
         raise NotImplementedError
 
 
+
 class BindCondData(Mixin):
     """Bind temporary conductance data.
 
@@ -147,7 +148,6 @@ class BindCondData(Mixin):
 
 
 class UpdateReturn(Mixin):
-
     def update_return(self) -> PyTree:
         """
         The update function return of the model.
@@ -156,19 +156,6 @@ class UpdateReturn(Mixin):
 
         """
         raise NotImplementedError(f'Must implement the "{self.update_return.__name__}()" function.')
-
-    def update_return_info(self) -> PyTree:
-        """
-        The update return information of the model.
-
-        It should be a pytree, with each element as a ``jax.Array``.
-
-        .. note::
-           Should not include the batch axis and batch in_size.
-           These information will be inferred from the ``mode`` attribute.
-
-        """
-        raise NotImplementedError(f'Must implement the "{self.update_return_info.__name__}()" function.')
 
 
 class _MetaUnionType(type):
