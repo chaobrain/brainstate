@@ -121,13 +121,26 @@ Base Dynamics Classes
    DynamicsGroup
    Projection
    Dynamics
-   Prefetch
    AlignPostProj
    DeltaProj
    CurrentProj
    SynOut
    Neuron
    Synapse
+
+
+Dynamics Utilities
+------------------
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+   :template: classtemplate.rst
+
+    Prefetch
+    PrefetchDelay
+    PrefetchDelayAt
+    OutputDelayAt
 
 
 Neuronal Dynamics
