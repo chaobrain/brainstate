@@ -24,10 +24,10 @@ import jax
 
 from brainstate import environ, init, surrogate
 from brainstate._state import HiddenState, ParamState
-from brainstate.nn._exp_euler import exp_euler_step
-from brainstate.nn._module import Module
 from brainstate.typing import Size, ArrayLike
-from ._dynamics_neuron import Neuron
+from ._exp_euler import exp_euler_step
+from ._module import Module
+from ._neuron import Neuron
 
 __all__ = [
     'LeakyRateReadout',

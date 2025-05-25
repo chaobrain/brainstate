@@ -125,34 +125,23 @@ Base Dynamics Classes
    AlignPostProj
    DeltaProj
    CurrentProj
-   Delay
-   DelayAccess
-   StateWithDelay
    SynOut
-   COBA
-   CUBA
-   MgBlock
+   Neuron
+   Synapse
 
 
-Neuronal/Synaptic Dynamics
---------------------------
+Neuronal Dynamics
+-----------------
 
 .. autosummary::
    :toctree: generated/
    :nosignatures:
    :template: classtemplate.rst
 
-   Neuron
    IF
    LIF
    LIFRef
    ALIF
-   Synapse
-   Expon
-   STP
-   STD
-   AMPA
-   GABAa
    SpikeTime
    PoissonSpike
    PoissonEncoder
@@ -164,6 +153,59 @@ Neuronal/Synaptic Dynamics
    URLSTMCell
    LeakyRateReadout
    LeakySpikeReadout
+
+
+Synaptic Dynamics
+-----------------
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+   :template: classtemplate.rst
+
+   Expon
+   DualExpon
+   AMPA
+   GABAa
+
+
+
+Short-Term Plasticity
+---------------------
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+   :template: classtemplate.rst
+
+   STD
+   STP
+
+
+Synaptic Outputs
+----------------
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+   :template: classtemplate.rst
+
+   COBA
+   CUBA
+   MgBlock
+
+
+Synaptic Delays
+----------------
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+   :template: classtemplate.rst
+
+   Delay
+   DelayAccess
+   StateWithDelay
 
 
 Numerical Integration Methods

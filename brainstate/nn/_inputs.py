@@ -20,12 +20,11 @@ import jax
 import numpy as np
 
 from brainstate import environ, init, random
-from brainstate._state import ShortTermState
-from brainstate._state import State, maybe_state
+from brainstate._state import ShortTermState, State, maybe_state
 from brainstate.compile import while_loop
-from brainstate.nn._dynamics._dynamics_base import Dynamics, Prefetch
-from brainstate.nn._module import Module
 from brainstate.typing import ArrayLike, Size, DTypeLike
+from ._dynamics import Dynamics, Prefetch
+from ._module import Module
 
 __all__ = [
     'SpikeTime',

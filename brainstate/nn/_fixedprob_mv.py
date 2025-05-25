@@ -25,8 +25,8 @@ from brainstate import random, augment, environ, init
 from brainstate._compatible_import import brainevent
 from brainstate._state import ParamState
 from brainstate.compile import for_loop
-from brainstate.nn._module import Module
 from brainstate.typing import Size, ArrayLike
+from ._module import Module
 
 __all__ = [
     'EventFixedNumConn',

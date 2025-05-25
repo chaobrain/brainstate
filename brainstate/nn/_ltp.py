@@ -1,4 +1,4 @@
-# Copyright 2024 BDP Ecosystem Limited. All Rights Reserved.
+# Copyright 2025 BDP Ecosystem Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,25 +13,16 @@
 # limitations under the License.
 # ==============================================================================
 
-from ._dynamics_base import *
-from ._dynamics_base import __all__ as dyn_all
-from ._projection_base import *
-from ._projection_base import __all__ as projection_all
-from ._state_delay import *
-from ._state_delay import __all__ as state_delay_all
-from ._synouts import *
-from ._synouts import __all__ as synouts_all
+# -*- coding: utf-8 -*-
 
-__all__ = (
-    dyn_all
-    + projection_all
-    + state_delay_all
-    + synouts_all
-)
 
-del (
-    dyn_all,
-    projection_all,
-    state_delay_all,
-    synouts_all
-)
+from ._synapse import Synapse
+
+__all__ = [
+    'LongTermPlasticity',
+]
+
+
+class LongTermPlasticity(Synapse):
+    pass
+

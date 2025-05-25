@@ -27,9 +27,9 @@ from brainstate import environ
 from brainstate._state import ShortTermState, State
 from brainstate.compile import jit_error_if
 from brainstate.graph import Node
-from brainstate.nn._collective_ops import call_order
-from brainstate.nn._module import Module
 from brainstate.typing import ArrayLike, PyTree
+from ._collective_ops import call_order
+from ._module import Module
 
 __all__ = [
     'Delay', 'DelayAccess', 'StateWithDelay',
@@ -135,6 +135,7 @@ class Delay(Module):
         entries: Optional[Dict] = None,  # delay access entry
         delay_method: Optional[str] = _DELAY_ROTATE,  # delay method
         interp_method: str = _INTERP_LINEAR,  # interpolation method
+        take_aware_unit: bool = False
     ):
         # target information
         self.target_info = jax.tree.map(lambda a: jax.ShapeDtypeStruct(a.shape, a.dtype), target_info)
@@ -169,6 +170,9 @@ class Delay(Module):
         if entries is not None:
             for entry, delay_time in entries.items():
                 self.register_entry(entry, delay_time)
+
+        self.take_aware_unit = take_aware_unit
+        self._unit = None
 
     @property
     def history(self):

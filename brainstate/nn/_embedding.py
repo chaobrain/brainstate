@@ -17,8 +17,8 @@ from typing import Optional, Callable, Union
 
 from brainstate import init
 from brainstate._state import ParamState
-from brainstate.nn._module import Module
 from brainstate.typing import ArrayLike
+from ._module import Module
 
 __all__ = [
     'Embedding',

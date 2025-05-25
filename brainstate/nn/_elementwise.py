@@ -23,8 +23,8 @@ import jax.typing
 
 from brainstate import random, functional as F
 from brainstate._state import ParamState
-from brainstate.nn._module import ElementWiseBlock
 from brainstate.typing import ArrayLike
+from ._module import ElementWiseBlock
 
 __all__ = [
     # activation functions

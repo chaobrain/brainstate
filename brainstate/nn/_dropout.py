@@ -22,8 +22,8 @@ import jax.numpy as jnp
 
 from brainstate import random, environ, init
 from brainstate._state import ShortTermState
-from brainstate.nn._module import ElementWiseBlock
 from brainstate.typing import Size
+from ._module import ElementWiseBlock
 
 __all__ = [
     'DropoutFixed', 'Dropout', 'Dropout1d', 'Dropout2d', 'Dropout3d',
