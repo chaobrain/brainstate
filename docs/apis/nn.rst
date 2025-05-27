@@ -221,6 +221,20 @@ Synaptic Delays
    StateWithDelay
 
 
+
+Synaptic Projections
+--------------------
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+   :template: classtemplate.rst
+
+    align_pre_projection
+    align_post_projection
+
+
+
 Numerical Integration Methods
 -----------------------------
 
