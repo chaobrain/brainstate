@@ -133,7 +133,7 @@ class PoissonSpike(Dynamics):
         self.freqs = init.param(freqs, self.varshape, allow_none=False)
 
     def update(self):
-        spikes = random.rand(self.varshape) <= (self.freqs * environ.get_dt())
+        spikes = random.rand(*self.varshape) <= (self.freqs * environ.get_dt())
         spikes = u.math.asarray(spikes, dtype=self.spk_type)
         return spikes
 

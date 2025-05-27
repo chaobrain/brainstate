@@ -21,13 +21,13 @@ from ._common import *
 from ._common import __all__ as common_all
 from ._conv import *
 from ._conv import __all__ as conv_all
+from ._delay import *
+from ._delay import __all__ as state_delay_all
 from ._dropout import *
 from ._dropout import __all__ as dropout_all
 from ._dynamics import *
 from ._dynamics import __all__ as dyn_all
 from ._elementwise import *
-from ._elementwise import *
-from ._elementwise import __all__ as elementwise_all
 from ._elementwise import __all__ as elementwise_all
 from ._embedding import *
 from ._embedding import __all__ as embed_all
@@ -55,8 +55,6 @@ from ._rate_rnns import *
 from ._rate_rnns import __all__ as rate_rnns
 from ._readout import *
 from ._readout import __all__ as readout_all
-from ._delay import *
-from ._delay import __all__ as state_delay_all
 from ._stp import *
 from ._stp import __all__ as stp_all
 from ._synapse import *
@@ -105,7 +103,6 @@ __all__ = (
 del (
     collective_ops_all,
     common_all,
-    elementwise_all,
     module_all,
     exp_euler_all,
     utils_all,
