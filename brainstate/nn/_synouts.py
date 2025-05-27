@@ -19,8 +19,8 @@ import brainunit as u
 import jax.numpy as jnp
 
 from brainstate.mixin import BindCondData
-from brainstate.nn._module import Module
 from brainstate.typing import ArrayLike
+from ._module import Module
 
 __all__ = [
     'SynOut', 'COBA', 'CUBA', 'MgBlock',
@@ -46,6 +46,9 @@ class SynOut(Module, BindCondData):
                              f'".{BindCondData.bind_cond.__name__}(data)". {self}')
         ret = self.update(self._conductance, *args, **kwargs)
         return ret
+
+    def update(self, conductance, potential):
+        raise NotImplementedError
 
 
 class COBA(SynOut):

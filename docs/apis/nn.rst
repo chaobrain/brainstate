@@ -121,38 +121,40 @@ Base Dynamics Classes
    DynamicsGroup
    Projection
    Dynamics
-   Prefetch
    AlignPostProj
    DeltaProj
    CurrentProj
-   Delay
-   DelayAccess
-   StateWithDelay
    SynOut
-   COBA
-   CUBA
-   MgBlock
+   Neuron
+   Synapse
 
 
-Neuronal/Synaptic Dynamics
---------------------------
+Dynamics Utilities
+------------------
 
 .. autosummary::
    :toctree: generated/
    :nosignatures:
    :template: classtemplate.rst
 
-   Neuron
+    Prefetch
+    PrefetchDelay
+    PrefetchDelayAt
+    OutputDelayAt
+
+
+Neuronal Dynamics
+-----------------
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+   :template: classtemplate.rst
+
    IF
    LIF
    LIFRef
    ALIF
-   Synapse
-   Expon
-   STP
-   STD
-   AMPA
-   GABAa
    SpikeTime
    PoissonSpike
    PoissonEncoder
@@ -164,6 +166,73 @@ Neuronal/Synaptic Dynamics
    URLSTMCell
    LeakyRateReadout
    LeakySpikeReadout
+
+
+Synaptic Dynamics
+-----------------
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+   :template: classtemplate.rst
+
+   Expon
+   DualExpon
+   AMPA
+   GABAa
+
+
+
+Short-Term Plasticity
+---------------------
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+   :template: classtemplate.rst
+
+   STD
+   STP
+
+
+Synaptic Outputs
+----------------
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+   :template: classtemplate.rst
+
+   COBA
+   CUBA
+   MgBlock
+
+
+Synaptic Delays
+----------------
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+   :template: classtemplate.rst
+
+   Delay
+   DelayAccess
+   StateWithDelay
+
+
+
+Synaptic Projections
+--------------------
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+   :template: classtemplate.rst
+
+    align_pre_projection
+    align_post_projection
+
 
 
 Numerical Integration Methods

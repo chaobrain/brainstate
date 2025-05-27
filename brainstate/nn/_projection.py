@@ -17,10 +17,10 @@ from typing import Union, Callable, Optional
 
 from brainstate._state import State
 from brainstate.mixin import AlignPost, ParamDescriber, BindCondData, JointTypes
-from brainstate.nn._collective_ops import call_order
-from brainstate.nn._module import Module
 from brainstate.util._others import get_unique_name
-from ._dynamics_base import Dynamics, maybe_init_prefetch, Prefetch, PrefetchDelayAt
+from ._collective_ops import call_order
+from ._dynamics import Dynamics, maybe_init_prefetch, Prefetch, PrefetchDelayAt
+from ._module import Module
 from ._synouts import SynOut
 
 __all__ = [
@@ -358,5 +358,37 @@ class CurrentProj(Interaction):
 
     def update(self, *x):
         x = self.prefetch(*x)
+        x = self.comm(x)
+        self.out.bind_cond(x)
+
+
+class RawProj(Interaction):
+    """
+    """
+    __module__ = 'brainstate.nn'
+
+    def __init__(
+        self,
+        comm: Callable,
+        out: SynOut,
+        post: Dynamics,
+    ):
+        super().__init__(name=get_unique_name(self.__class__.__name__))
+
+        # check out
+        if not isinstance(out, SynOut):
+            raise TypeError(f'The out should be a SynOut, but got {out}.')
+        self.out = out
+
+        # check post
+        if not isinstance(post, Dynamics):
+            raise TypeError(f'The post should be a Dynamics, but got {post}.')
+        self.post = post
+        post.add_current_input(self.name, out)
+
+        # output initialization
+        self.comm = comm
+
+    def update(self, x):
         x = self.comm(x)
         self.out.bind_cond(x)

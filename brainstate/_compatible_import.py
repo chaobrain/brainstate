@@ -19,7 +19,7 @@
 import importlib.util
 from contextlib import contextmanager
 from functools import partial
-from typing import Iterable, Hashable, TypeVar, Callable
+from typing import Iterable, Hashable, TypeVar, Callable, TYPE_CHECKING
 
 import jax
 
@@ -45,8 +45,8 @@ T1 = TypeVar("T1")
 T2 = TypeVar("T2")
 T3 = TypeVar("T3")
 
-
 from saiunit._compatible_import import wrap_init
+
 brainevent_installed = importlib.util.find_spec('brainevent') is not None
 
 from jax.core import get_aval, Tracer
@@ -151,13 +151,13 @@ def to_concrete_aval(aval):
     return aval
 
 
-if brainevent_installed:
-    import brainevent
+if not brainevent_installed:
+    if not TYPE_CHECKING:
+        class BrainEvent:
+            def __getattr__(self, item):
+                raise ImportError('brainevent is not installed, please install brainevent first.')
+
+        brainevent = BrainEvent()
+
 else:
-
-    class BrainEvent:
-        def __getattr__(self, item):
-            raise ImportError('brainevent is not installed, please install brainevent first.')
-
-
-    brainevent = BrainEvent()
+    import brainevent

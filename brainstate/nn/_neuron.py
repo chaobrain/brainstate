@@ -22,9 +22,9 @@ import jax
 
 from brainstate import init, surrogate, environ
 from brainstate._state import HiddenState, ShortTermState
-from brainstate.nn._dynamics._dynamics_base import Dynamics
-from brainstate.nn._exp_euler import exp_euler_step
 from brainstate.typing import ArrayLike, Size
+from ._dynamics import Dynamics
+from ._exp_euler import exp_euler_step
 
 __all__ = [
     'Neuron', 'IF', 'LIF', 'LIFRef', 'ALIF',

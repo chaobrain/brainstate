@@ -25,8 +25,8 @@ import jax.numpy as jnp
 import numpy as np
 
 from brainstate import environ
-from brainstate.nn._module import Module
 from brainstate.typing import Size
+from ._module import Module
 
 __all__ = [
     'Flatten', 'Unflatten',

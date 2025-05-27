@@ -41,13 +41,14 @@ import numpy as np
 from brainstate import environ
 from brainstate._state import State
 from brainstate.graph import Node
-from brainstate.mixin import ParamDescriber
-from brainstate.nn._module import Module
+from brainstate.mixin import ParamDescriber, UpdateReturn
 from brainstate.typing import Size, ArrayLike
-from ._state_delay import StateWithDelay, Delay
+from ._delay import StateWithDelay, Delay
+from ._module import Module
 
 __all__ = [
-    'DynamicsGroup', 'Projection', 'Dynamics', 'Prefetch',
+    'DynamicsGroup', 'Projection', 'Dynamics',
+    'Prefetch', 'PrefetchDelay', 'PrefetchDelayAt', 'OutputDelayAt',
 ]
 
 T = TypeVar('T')
@@ -99,7 +100,7 @@ class Projection(Module):
             raise ValueError('Do not implement the update() function.')
 
 
-class Dynamics(Module):
+class Dynamics(Module, UpdateReturn):
     """
     Base class for implementing neural dynamics models in BrainState.
 
@@ -821,6 +822,41 @@ class Dynamics(Module):
         else:
             raise TypeError(f'The input {dyn} should be an instance of {Dynamics} or a delayed initializer.')
 
+    def prefetch_delay(self, state: str, delay: Optional[ArrayLike] = None) -> 'PrefetchDelayAt':
+        """
+        Create a reference to a delayed state or variable in the module.
+
+        This method simplifies the process of accessing a delayed version of a state or variable
+        within the module. It first creates a prefetch reference to the specified state,
+        then specifies the delay time for accessing this state.
+
+        Args:
+            state (str): The name of the state or variable to reference.
+            delay (Optional[ArrayLike]): The amount of time to delay the variable access,
+                typically in time units (e.g., milliseconds). Defaults to None.
+
+        Returns:
+            PrefetchDelayAt: An object that provides access to the variable at the specified delay time.
+        """
+        return self.prefetch(state).delay.at(delay)
+
+    def output_delay(self, delay: Optional[ArrayLike] = None) -> 'OutputDelayAt':
+        """
+        Create a reference to the delayed output of the module.
+
+        This method simplifies the process of accessing a delayed version of the module's output.
+        It instantiates an `OutputDelayAt` object, which can be used to retrieve the output value
+        at the specified delay time.
+
+        Args:
+            delay (Optional[ArrayLike]): The amount of time to delay the output access,
+                typically in time units (e.g., milliseconds). Defaults to None.
+
+        Returns:
+            OutputDelayAt: An object that provides access to the module's output at the specified delay time.
+        """
+        return OutputDelayAt(self, delay)
+
 
 class Prefetch(Node):
     """
@@ -885,6 +921,7 @@ class Prefetch(Node):
             An object that provides access to delayed versions of the prefetched item.
         """
         return PrefetchDelay(self.module, self.item)
+        # return PrefetchDelayAt(self.module, self.item, time)
 
     def __call__(self, *args, **kwargs):
         """
@@ -1007,7 +1044,7 @@ class PrefetchDelayAt(Node):
         self,
         module: Dynamics,
         item: str,
-        time: ArrayLike
+        time: ArrayLike = None,
     ):
         """
         Initialize a PrefetchDelayAt object.
@@ -1026,14 +1063,16 @@ class PrefetchDelayAt(Node):
         self.module = module
         self.item = item
         self.time = time
-        self.step = u.math.asarray(time / environ.get_dt(), dtype=environ.ditype())
 
-        # register the delay
-        key = _get_delay_key(item)
-        if not module._has_after_update(key):
-            module._add_after_update(key, not_receive_update_output(StateWithDelay(module, item)))
-        self.state_delay: StateWithDelay = module._get_after_update(key)
-        self.state_delay.register_delay(time)
+        if time is not None:
+            self.step = u.math.asarray(time / environ.get_dt(), dtype=environ.ditype())
+
+            # register the delay
+            key = _get_prefetch_delay_key(item)
+            if not module._has_after_update(key):
+                module._add_after_update(key, not_receive_update_output(StateWithDelay(module, item)))
+            self.state_delay: StateWithDelay = module._get_after_update(key)
+            self.state_delay.register_delay(time)
 
     def __call__(self, *args, **kwargs):
         """
@@ -1044,12 +1083,94 @@ class PrefetchDelayAt(Node):
         Any
             The value of the state or variable at the specified delay time.
         """
-        # return self.state_delay.retrieve_at_time(self.time)
-        return self.state_delay.retrieve_at_step(self.step)
+        if self.time is None:
+            return _get_prefetch_item(self).value
+        else:
+            return self.state_delay.retrieve_at_step(self.step)
 
 
-def _get_delay_key(item) -> str:
-    return f'{item}-delay'
+class OutputDelayAt(Node):
+    """
+    Provides access to a specific delayed state or variable value at the specific time.
+
+    This class represents the final step in the prefetch delay chain, providing
+    actual access to state values at a specific delay time. It converts the
+    specified time delay into steps and registers the delay with the appropriate
+    StateWithDelay handler.
+
+    Parameters
+    ----------
+    module : Dynamics
+        The dynamics module that contains the referenced state or variable.
+    item : str
+        The name of the state or variable to access with delay.
+    time : ArrayLike
+        The amount of time to delay access by, typically in time units (e.g., milliseconds).
+
+    Examples
+    --------
+    >>> import brainstate
+    >>> import brainunit as u
+    >>> neuron = brainstate.nn.LIF(10)
+    >>> # Create a reference to voltage delayed by 5ms
+    >>> delayed_v = PrefetchDelayAt(neuron, 'V', 5.0 * u.ms)
+    >>> # Get the delayed value
+    >>> v_value = delayed_v()
+    """
+
+    def __init__(
+        self,
+        module: Dynamics,
+        time: Optional[ArrayLike] = None,
+    ):
+        """
+        Initialize a PrefetchDelayAt object.
+
+        Parameters
+        ----------
+        module : AlignPre, Module
+            The dynamics module that contains the referenced state or variable.
+        time : ArrayLike
+            The amount of time to delay access by, typically in time units.
+        """
+        super().__init__()
+        assert isinstance(module, UpdateReturn), 'The module should implement the `update_return` method.'
+        assert isinstance(module, Module), 'The module should be an instance of Module.'
+        self.module = module
+        self.time = time
+        if time is not None:
+            self.step = u.math.asarray(time / environ.get_dt(), dtype=environ.ditype())
+
+            # register the delay
+            key = _get_output_delay_key()
+            if not module._has_after_update(key):
+                # TODO: unit processing
+                delay = Delay(module.update_return(), time)
+                module._add_after_update(key, receive_update_output(delay))
+            self.out_delay: Delay = module._get_after_update(key)
+            self.out_delay.register_delay(time)
+
+    def __call__(self, *args, **kwargs):
+        """
+        Retrieve the value of the state at the specified delay time.
+
+        Returns
+        -------
+        Any
+            The value of the state or variable at the specified delay time.
+        """
+        if self.time is None:
+            return self.module.update_return()
+        else:
+            return self.out_delay.retrieve_at_step(self.step)
+
+
+def _get_prefetch_delay_key(item) -> str:
+    return f'{item}-prefetch-delay'
+
+
+def _get_output_delay_key() -> str:
+    return f'output-delay'
 
 
 def _get_prefetch_item(target: Union[Prefetch, PrefetchDelayAt]) -> Any:
@@ -1064,7 +1185,7 @@ def _get_prefetch_item_delay(target: Union[Prefetch, PrefetchDelay, PrefetchDela
         f'The target module should be an instance '
         f'of Dynamics. But got {target.module}.'
     )
-    delay = target.module._get_after_update(_get_delay_key(target.item))
+    delay = target.module._get_after_update(_get_prefetch_delay_key(target.item))
     if not isinstance(delay, StateWithDelay):
         raise TypeError(f'The prefetch target should be a {StateWithDelay.__name__} when accessing '
                         f'its delay. But got {delay}.')

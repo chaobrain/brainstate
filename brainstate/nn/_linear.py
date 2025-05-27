@@ -22,8 +22,8 @@ import jax.numpy as jnp
 
 from brainstate import init, functional
 from brainstate._state import ParamState
-from brainstate.nn._module import Module
 from brainstate.typing import ArrayLike, Size
+from ._module import Module
 
 __all__ = [
     'Linear',
@@ -350,10 +350,7 @@ class OneToOne(Module):
         self.weight = param_type(param)
 
     def update(self, pre_val):
-        pre_val, pre_unit = u.get_mantissa(pre_val), u.get_unit(pre_val)
-        w_val, w_unit = u.get_mantissa(self.weight.value['weight']), u.get_unit(self.weight.value['weight'])
-        post_val = pre_val * w_val
-        post_val = u.maybe_decimal(u.Quantity(post_val, unit=w_unit * pre_unit))
+        post_val = pre_val * self.weight.value['weight']
         if 'bias' in self.weight.value:
             post_val = post_val + self.weight.value['bias']
         return post_val

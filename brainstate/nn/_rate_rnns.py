@@ -22,9 +22,9 @@ import jax.numpy as jnp
 
 from brainstate import random, init, functional
 from brainstate._state import HiddenState, ParamState
-from brainstate.nn._interaction._linear import Linear
-from brainstate.nn._module import Module
 from brainstate.typing import ArrayLike
+from ._linear import Linear
+from ._module import Module
 
 __all__ = [
     'RNNCell', 'ValinaRNNCell', 'GRUCell', 'MGUCell', 'LSTMCell', 'URLSTMCell',
