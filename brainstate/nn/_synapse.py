@@ -394,7 +394,7 @@ class AMPA(Synapse):
         beta: ArrayLike = 0.18 / u.ms,
         T: ArrayLike = 0.5 * u.mM,
         T_dur: ArrayLike = 0.5 * u.ms,
-        g_initializer: ArrayLike | Callable = init.ZeroInit(),
+        g_initializer: ArrayLike | Callable = init.ZeroInit(unit=u.mS),
     ):
         super().__init__(name=name, in_size=in_size)
 
@@ -413,14 +413,12 @@ class AMPA(Synapse):
         self.g.value = init.param(self.g_initializer, self.varshape, batch_or_mode)
         self.spike_arrival_time.value = init.param(init.Constant(-1e7 * u.ms), self.varshape, batch_or_mode)
 
-    def dg(self, g, t, TT):
-        return self.alpha * TT * (1 - g) - self.beta * g
-
     def update(self, pre_spike):
         t = environ.get('t')
         self.spike_arrival_time.value = u.math.where(pre_spike, t, self.spike_arrival_time.value)
         TT = ((t - self.spike_arrival_time.value) < self.T_duration) * self.T
-        self.g.value = exp_euler_step(self.dg, self.g.value, t, TT)
+        dg = lambda g: self.alpha * TT * (1 - g) - self.beta * g
+        self.g.value = exp_euler_step(dg, self.g.value)
         return self.update_return()
 
     def update_return(self) -> PyTree:
@@ -507,7 +505,7 @@ class GABAa(AMPA):
         beta: ArrayLike = 0.18 / u.ms,
         T: ArrayLike = 1.0 * u.mM,
         T_dur: ArrayLike = 1.0 * u.ms,
-        g_initializer: ArrayLike | Callable = init.ZeroInit(),
+        g_initializer: ArrayLike | Callable = init.ZeroInit(unit=u.mS),
     ):
         super().__init__(
             alpha=alpha,
@@ -518,3 +516,4 @@ class GABAa(AMPA):
             in_size=in_size,
             g_initializer=g_initializer
         )
+
