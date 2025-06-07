@@ -330,7 +330,14 @@ class Delay(Module):
         indices = (delay_idx,) + indices
 
         # the delay data
-        return jax.tree.map(lambda a: a[indices], self.history.value)
+        if self._unit is None:
+            return jax.tree.map(lambda a: a[indices], self.history.value)
+        else:
+            return jax.tree.map(
+                lambda hist, unit: u.maybe_decimal(hist[indices] * unit),
+                self.history.value,
+                self._unit
+            )
 
     def retrieve_at_time(self, delay_time, *indices) -> PyTree:
         """
@@ -393,6 +400,9 @@ class Delay(Module):
         """
         assert self.history is not None, 'The delay history is not initialized.'
 
+        if self.take_aware_unit and self._unit is None:
+            self._unit = jax.tree.map(lambda x: u.get_unit(x), current, is_leaf=u.math.is_quantity)
+
         # update the delay data at the rotation index
         if self.delay_method == _DELAY_ROTATE:
             i = environ.get(environ.I)
@@ -417,6 +427,8 @@ class Delay(Module):
 
         else:
             raise ValueError(f'Unknown updating method "{self.delay_method}"')
+
+
 
 
 class StateWithDelay(Delay):
