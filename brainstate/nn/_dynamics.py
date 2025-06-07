@@ -36,6 +36,7 @@ For handling the delays:
 from typing import Any, Dict, Callable, Hashable, Optional, Union, TypeVar, TYPE_CHECKING
 
 import brainunit as u
+import jax
 import numpy as np
 
 from brainstate import environ
@@ -811,7 +812,7 @@ class Dynamics(Module, UpdateReturn):
         >>> n1.align_pre(brainstate.nn.Expon.desc(n1.varshape))  # n2 will run after n1
         """
         if isinstance(dyn, Dynamics):
-            self._add_after_update(dyn.name, dyn)
+            self._add_after_update(id(dyn), dyn)
             return dyn
         elif isinstance(dyn, ParamDescriber):
             if not issubclass(dyn.cls, Dynamics):
@@ -1134,8 +1135,7 @@ class OutputDelayAt(Node):
             The amount of time to delay access by, typically in time units.
         """
         super().__init__()
-        assert isinstance(module, UpdateReturn), 'The module should implement the `update_return` method.'
-        assert isinstance(module, Module), 'The module should be an instance of Module.'
+        assert isinstance(module, Dynamics), 'The module should be an instance of Dynamics.'
         self.module = module
         self.time = time
         if time is not None:
@@ -1145,7 +1145,7 @@ class OutputDelayAt(Node):
             key = _get_output_delay_key()
             if not module._has_after_update(key):
                 # TODO: unit processing
-                delay = Delay(module.update_return(), time)
+                delay = Delay(jax.ShapeDtypeStruct(module.out_size, dtype=environ.dftype()), time, take_aware_unit=True)
                 module._add_after_update(key, receive_update_output(delay))
             self.out_delay: Delay = module._get_after_update(key)
             self.out_delay.register_delay(time)
