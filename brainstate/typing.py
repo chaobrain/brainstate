@@ -257,7 +257,7 @@ f. A structure can end with a `...`, to denote that the PyTree must be a prefix 
     cases, all named pieces must already have been seen and their structures bound.
 """  # noqa: E501
 
-Size = Union[int, Sequence[int]]
+Size = Union[int, Sequence[int], np.integer, Sequence[np.integer]]
 Axes = Union[int, Sequence[int]]
 SeedOrKey = Union[int, jax.Array, np.ndarray]
 Shape = Sequence[int]
