@@ -34,7 +34,7 @@ import numpy as np
 from brainstate._state import State
 from brainstate.graph import Node, states, nodes, flatten
 from brainstate.mixin import ParamDescriber, ParamDesc
-from brainstate.typing import PathParts
+from brainstate.typing import PathParts, Size
 from brainstate.util import FlattedDict, NestedDict, BrainStateError
 
 # maximum integer
@@ -62,8 +62,8 @@ class Module(Node, ParamDesc):
 
     __module__ = 'brainstate.nn'
 
-    _in_size: Optional[Tuple[int, ...]]
-    _out_size: Optional[Tuple[int, ...]]
+    _in_size: Optional[Size]
+    _out_size: Optional[Size]
     _name: Optional[str]
 
     if not TYPE_CHECKING:
@@ -87,7 +87,7 @@ class Module(Node, ParamDesc):
         raise AttributeError('The name of the model is read-only.')
 
     @property
-    def in_size(self) -> Tuple[int, ...]:
+    def in_size(self) -> Size:
         return self._in_size
 
     @in_size.setter
@@ -98,7 +98,7 @@ class Module(Node, ParamDesc):
         self._in_size = tuple(in_size)
 
     @property
-    def out_size(self) -> Tuple[int, ...]:
+    def out_size(self) -> Size:
         return self._out_size
 
     @out_size.setter
