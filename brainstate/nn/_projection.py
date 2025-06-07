@@ -19,7 +19,7 @@ from brainstate._state import State
 from brainstate.mixin import AlignPost, ParamDescriber, BindCondData, JointTypes
 from brainstate.util._others import get_unique_name
 from ._collective_ops import call_order
-from ._dynamics import Dynamics, maybe_init_prefetch, Prefetch, PrefetchDelayAt
+from ._dynamics import Dynamics, maybe_init_prefetch, Prefetch, PrefetchDelayAt, Projection
 from ._module import Module
 from ._synouts import SynOut
 
@@ -28,10 +28,6 @@ __all__ = [
     'DeltaProj',
     'CurrentProj',
 ]
-
-
-class Interaction(Module):
-    __module__ = 'brainstate.nn'
 
 
 def _check_modules(*modules):
@@ -101,7 +97,7 @@ class _AlignPost(Module):
         self.out.bind_cond(self.syn(*args, **kwargs))
 
 
-class AlignPostProj(Interaction):
+class AlignPostProj(Projection):
     """
     Align-post projection of the neural network.
 
@@ -113,7 +109,6 @@ class AlignPostProj(Interaction):
     Note that this projection needs the manual input of pre-synaptic spikes.
 
     >>> import brainstate
-    >>> import brainevent
     >>> import brainunit as u
     >>> n_exc = 3200
     >>> n_inh = 800
@@ -124,16 +119,14 @@ class AlignPostProj(Interaction):
     ...        tau=20. * u.ms, tau_ref=5. * u.ms,
     ...        V_initializer=brainstate.init.Normal(-55., 2., unit=u.mV)
     ... )
-    >>> pop.reset_state()
+    >>> pop.init_state()
     >>> E = brainstate.nn.AlignPostProj(
-    ...        comm=brainevent.nn.FixedProb(n_exc, num, prob=80 / num, weight=1.62 * u.mS),
+    ...        comm=brainstate.nn.FixedNumConn(n_exc, num, prob=80 / num, weight=1.62 * u.mS),
     ...        syn=brainstate.nn.Expon.desc(num, tau=5. * u.ms),
     ...        out=brainstate.nn.CUBA.desc(scale=u.volt),
     ...        post=pop
     ... )
-    >>> exe_current = E(pop.spike.value)
-
-
+    >>> exe_current = E(pop.get_spike())
 
     """
     __module__ = 'brainstate.nn'
@@ -226,48 +219,47 @@ class AlignPostProj(Interaction):
             self.out.bind_cond(conductance)
 
 
-class DeltaProj(Interaction):
-    r"""Full-chain of the synaptic projection for the Delta synapse model.
-
-    The synaptic projection requires the input is the spiking data, otherwise
-    the synapse is not the Delta synapse model.
-
-    The ``full-chain`` means that the model needs to provide all information needed for a projection,
-    including ``pre`` -> ``delay`` -> ``comm`` -> ``post``.
-
-    **Model Descriptions**
-
-    .. math::
-
-        I_{syn} (t) = \sum_{j\in C} g_{\mathrm{max}} * \delta(t-t_j-D)
-
-    where :math:`g_{\mathrm{max}}` denotes the chemical synaptic strength,
-    :math:`t_j` the spiking moment of the presynaptic neuron :math:`j`,
-    :math:`C` the set of neurons connected to the post-synaptic neuron,
-    and :math:`D` the transmission delay of chemical synapses.
-    For simplicity, the rise and decay phases of post-synaptic currents are
-    omitted in this model.
-
-    #     brainstate.nn.DeltaInteraction(
-    #       LIF().prefetch('V'), bst.surrogate.ReluGrad(), comm, post
-    #     )
-
-    Args:
-      pre: The pre-synaptic neuron group.
-      delay: The synaptic delay.
-      comm: DynamicalSystem. The synaptic communication.
-      post: DynamicalSystem. The post-synaptic neuron group.
+class DeltaProj(Projection):
     """
+    Delta-based projection of the neural network.
 
+    This projection directly applies delta inputs to post-synaptic neurons without intervening
+    synaptic dynamics. It processes inputs through optional prefetch modules, applies a communication model,
+    and adds the result directly as a delta input to the post-synaptic population.
+
+    Parameters
+    ----------
+    *prefetch : State or callable
+        Optional prefetch modules to process input before communication.
+    comm : callable
+        Communication model that determines how signals are transmitted.
+    post : Dynamics
+        Post-synaptic neural population to receive the delta inputs.
+    label : Optional[str], default=None
+        Optional label for the projection to identify it in the post-synaptic population.
+
+    Examples
+    --------
+    >>> import brainstate
+    >>> import brainunit as u
+    >>> n_neurons = 100
+    >>> pop = brainstate.nn.LIF(n_neurons, V_rest=-70*u.mV, V_threshold=-50*u.mV)
+    >>> pop.init_state()
+    >>> delta_input = brainstate.nn.DeltaProj(
+    ...     comm=lambda x: x * 10.0*u.mV,
+    ...     post=pop
+    ... )
+    >>> delta_input(1.0)  # Apply voltage increment directly
+    """
     __module__ = 'brainstate.nn'
 
-    def __init__(self, *modules, comm: Callable, post: Dynamics, label=None):
+    def __init__(self, *prefetch, comm: Callable, post: Dynamics, label=None):
         super().__init__(name=get_unique_name(self.__class__.__name__))
 
         self.label = label
 
         # checking modules
-        self.modules = _check_modules(*modules)
+        self.prefetches = _check_modules(*prefetch)
 
         # checking communication model
         if not callable(comm):
@@ -285,58 +277,69 @@ class DeltaProj(Interaction):
 
     @call_order(2)
     def init_state(self, *args, **kwargs):
-        for module in self.modules:
-            maybe_init_prefetch(module, *args, **kwargs)
+        for prefetch in self.prefetches:
+            maybe_init_prefetch(prefetch, *args, **kwargs)
 
     def update(self, *x):
-        for module in self.modules:
+        for module in self.prefetches:
             x = (call_module(module, *x),)
         assert len(x) == 1, f'The output of the modules should be a single value, but got {x}.'
         x = self.comm(x[0])
         self.post.add_delta_input(self.name, x, label=self.label)
 
 
-class CurrentProj(Interaction):
+class CurrentProj(Projection):
     """
-    Full-chain synaptic projection with the align-pre reduction and delay+synapse updating and merging.
+    Current-based projection of the neural network.
 
-    The ``full-chain`` means that the model needs to provide all information needed for a projection,
-    including ``pre`` -> ``delay`` -> ``syn`` -> ``comm`` -> ``out`` -> ``post``.
-    Note here, compared to ``FullProjAlignPreSD``, the ``delay`` and ``syn`` are exchanged.
+    This projection directly modulates post-synaptic currents without separate synaptic dynamics.
+    It processes inputs through optional prefetch modules, applies a communication model,
+    and binds the result to the output model which is then added as a current input to the post-synaptic population.
 
-    The ``align-pre`` means that the synaptic variables have the same dimension as the pre-synaptic neuron group.
+    Parameters
+    ----------
+    *prefetch : State or callable
+        Optional prefetch modules to process input before communication.
+        The last element must be an instance of Prefetch or PrefetchDelayAt if any are provided.
+    comm : callable
+        Communication model that determines how signals are transmitted.
+    out : SynOut
+        Output model that converts communication results to post-synaptic currents.
+    post : Dynamics
+        Post-synaptic neural population to receive the currents.
 
-    The ``delay+synapse updating`` means that the projection first delivers the pre neuron output (usually the
-    spiking)  to the delay model, then computes the synapse states, and finally computes the synaptic current.
-
-    The ``merging`` means that the same delay model is shared by all synapses, and the synapse model with same
-    parameters (such like time constants) will also share the same synaptic variables.
-
-    Neither ``FullProjAlignPreDS`` nor ``FullProjAlignPreSD`` facilitates the event-driven computation.
-    This is because the ``comm`` is computed after the synapse state, which is a floating-point number, rather
-    than the spiking. To facilitate the event-driven computation, please use align post projections.
-
-    Args:
-      prefetch: The synaptic dynamics.
-      comm: The synaptic communication.
-      out: The synaptic output.
-      post: The post-synaptic neuron group.
+    Examples
+    --------
+    >>> import brainstate
+    >>> import brainunit as u
+    >>> n_neurons = 100
+    >>> pop = brainstate.nn.LIF(n_neurons, V_rest=-70*u.mV, V_threshold=-50*u.mV)
+    >>> pop.init_state()
+    >>> current_input = brainstate.nn.CurrentProj(
+    ...     comm=lambda x: x * 0.5,
+    ...     out=brainstate.nn.CUBA(scale=1.0*u.nA),
+    ...     post=pop
+    ... )
+    >>> current_input(0.2)  # Apply external current
     """
     __module__ = 'brainstate.nn'
 
     def __init__(
         self,
-        prefetch: Union[Prefetch, PrefetchDelayAt],
+        *prefetch,
         comm: Callable,
         out: SynOut,
         post: Dynamics,
     ):
         super().__init__(name=get_unique_name(self.__class__.__name__))
 
-        # pre-synaptic neuron group
-        if not isinstance(prefetch, (Prefetch, PrefetchDelayAt)):
-            raise TypeError(f'The pre should be a Prefetch or PrefetchDelayAt, but got {prefetch}.')
+        # check prefetch
         self.prefetch = prefetch
+        if len(self.prefetch) > 0 and not isinstance(prefetch[-1], (Prefetch, PrefetchDelayAt)):
+            raise TypeError(
+                f'The last element of prefetch should be an instance of {Prefetch} or {PrefetchDelayAt}, '
+                f'but got {prefetch[-1]}.'
+            )
 
         # check out
         if not isinstance(out, SynOut):
@@ -354,41 +357,11 @@ class CurrentProj(Interaction):
 
     @call_order(2)
     def init_state(self, *args, **kwargs):
-        maybe_init_prefetch(self.prefetch, *args, **kwargs)
+        for prefetch in self.prefetch:
+            maybe_init_prefetch(prefetch, *args, **kwargs)
 
     def update(self, *x):
-        x = self.prefetch(*x)
-        x = self.comm(x)
-        self.out.bind_cond(x)
-
-
-class RawProj(Interaction):
-    """
-    """
-    __module__ = 'brainstate.nn'
-
-    def __init__(
-        self,
-        comm: Callable,
-        out: SynOut,
-        post: Dynamics,
-    ):
-        super().__init__(name=get_unique_name(self.__class__.__name__))
-
-        # check out
-        if not isinstance(out, SynOut):
-            raise TypeError(f'The out should be a SynOut, but got {out}.')
-        self.out = out
-
-        # check post
-        if not isinstance(post, Dynamics):
-            raise TypeError(f'The post should be a Dynamics, but got {post}.')
-        self.post = post
-        post.add_current_input(self.name, out)
-
-        # output initialization
-        self.comm = comm
-
-    def update(self, x):
-        x = self.comm(x)
+        for prefetch in self.prefetch:
+            x = (call_module(prefetch, *x),)
+        x = self.comm(*x)
         self.out.bind_cond(x)
