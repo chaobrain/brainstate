@@ -162,7 +162,18 @@ class BindCondData(Mixin):
         self._conductance = None
 
 
+def not_implemented(func):
+
+    def wrapper(*args, **kwargs):
+        raise NotImplementedError(f'{func.__name__} is not implemented.')
+
+    wrapper.not_implemented = True
+    return wrapper
+
+
+
 class UpdateReturn(Mixin):
+    @not_implemented
     def update_return(self) -> PyTree:
         """
         The update function return of the model.

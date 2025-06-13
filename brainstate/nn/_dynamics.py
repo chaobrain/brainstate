@@ -1103,8 +1103,6 @@ class OutputDelayAt(Node):
     ----------
     module : Dynamics
         The dynamics module that contains the referenced state or variable.
-    item : str
-        The name of the state or variable to access with delay.
     time : ArrayLike
         The amount of time to delay access by, typically in time units (e.g., milliseconds).
 
@@ -1114,9 +1112,9 @@ class OutputDelayAt(Node):
     >>> import brainunit as u
     >>> neuron = brainstate.nn.LIF(10)
     >>> # Create a reference to voltage delayed by 5ms
-    >>> delayed_v = PrefetchDelayAt(neuron, 'V', 5.0 * u.ms)
+    >>> delayed_spike = OutputDelayAt(neuron, 5.0 * u.ms)
     >>> # Get the delayed value
-    >>> v_value = delayed_v()
+    >>> v_value = delayed_spike()
     """
 
     def __init__(
@@ -1124,16 +1122,6 @@ class OutputDelayAt(Node):
         module: Dynamics,
         time: Optional[ArrayLike] = None,
     ):
-        """
-        Initialize a PrefetchDelayAt object.
-
-        Parameters
-        ----------
-        module : AlignPre, Module
-            The dynamics module that contains the referenced state or variable.
-        time : ArrayLike
-            The amount of time to delay access by, typically in time units.
-        """
         super().__init__()
         assert isinstance(module, Dynamics), 'The module should be an instance of Dynamics.'
         self.module = module
@@ -1144,21 +1132,17 @@ class OutputDelayAt(Node):
             # register the delay
             key = _get_output_delay_key()
             if not module._has_after_update(key):
-                # TODO: unit processing
-                delay = Delay(jax.ShapeDtypeStruct(module.out_size, dtype=environ.dftype()), time, take_aware_unit=True)
+                delay = Delay(jax.ShapeDtypeStruct(module.out_size, dtype=environ.dftype()), time,
+                              take_aware_unit=True)
                 module._add_after_update(key, receive_update_output(delay))
             self.out_delay: Delay = module._get_after_update(key)
             self.out_delay.register_delay(time)
+        else:
+            if hasattr(module.update_return, 'not_implemented') and module.update_return.not_implemented:
+                raise NotImplementedError(f'When the `time` is None, the `update_return` of {module} '
+                                          f'should be implemented.')
 
     def __call__(self, *args, **kwargs):
-        """
-        Retrieve the value of the state at the specified delay time.
-
-        Returns
-        -------
-        Any
-            The value of the state or variable at the specified delay time.
-        """
         if self.time is None:
             return self.module.update_return()
         else:
