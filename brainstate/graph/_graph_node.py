@@ -25,7 +25,7 @@ import numpy as np
 
 from brainstate._state import State, TreefyState
 from brainstate.typing import Key
-from brainstate.util._pretty_pytree import PrettyObject
+from brainstate.util.pretty_pytree import PrettyObject
 from ._graph_operation import register_graph_node_type
 
 __all__ = [
