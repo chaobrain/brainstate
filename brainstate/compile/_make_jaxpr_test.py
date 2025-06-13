@@ -88,7 +88,7 @@ class TestMakeJaxpr(unittest.TestCase):
         self.assertTrue(jnp.allclose(jaxpr_as_fun(jaxpr)(jnp.zeros(1), st1.value)[0],
                                      f3(jnp.zeros(1))))
 
-    def test_compar_jax_make_jaxpr2(self):
+    def test_compare_jax_make_jaxpr2(self):
         st1 = brainstate.State(jnp.ones(10))
 
         def fa(x):
@@ -108,7 +108,7 @@ class TestMakeJaxpr(unittest.TestCase):
         print(jaxpr)
         print(jaxpr_as_fun(jaxpr)(jnp.zeros(1)))
 
-    def test_compar_jax_make_jaxpr3(self):
+    def test_compare_jax_make_jaxpr3(self):
         def fa(x):
             return 1.
 
@@ -120,6 +120,17 @@ class TestMakeJaxpr(unittest.TestCase):
         jaxpr = jax.make_jaxpr(fa)(jnp.zeros(1))
         print(jaxpr)
         # print(jaxpr_as_fun(jaxpr)(jnp.zeros(1)))
+
+    def test_static_argnames(self):
+        def func4(a, b):  # Arg is a pair
+            temp = a + jnp.sin(b) * 3.
+            c = brainstate.random.rand_like(a)
+            return jnp.sum(temp + c)
+
+        jaxpr, states = brainstate.compile.make_jaxpr(func4, static_argnames='b')(jnp.zeros(8), 1.)
+        print()
+        print(jaxpr)
+        print(states)
 
 
 def test_return_states():

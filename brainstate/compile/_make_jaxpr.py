@@ -88,6 +88,12 @@ __all__ = [
 ]
 
 
+def _ensure_str(x: str) -> str:
+    if not isinstance(x, str):
+        raise TypeError(f"argument is not a string: {x}")
+    return x
+
+
 def _ensure_index_tuple(x: Any) -> tuple[int, ...]:
     """Convert x to a tuple of indices."""
     x = jax.core.concrete_or_error(None, x, "expected a static index or sequence of indices.")
@@ -95,6 +101,14 @@ def _ensure_index_tuple(x: Any) -> tuple[int, ...]:
         return (operator.index(x),)
     except TypeError:
         return tuple(safe_map(operator.index, x))
+
+
+def _ensure_str_tuple(x: str | Iterable[str]) -> tuple[str, ...]:
+    """Convert x to a tuple of strings."""
+    if isinstance(x, str):
+        return (x,)
+    else:
+        return tuple(safe_map(_ensure_str, x))
 
 
 def _jax_v04_new_arg_fn(frame, trace, aval):
@@ -170,6 +184,7 @@ class StatefulFunction(PrettyObject):
         arguments and return value should be arrays, scalars, or standard Python
         containers (tuple/list/dict) thereof.
       static_argnums: See the :py:func:`jax.jit` docstring.
+      static_argnames: See the :py:func:`jax.jit` docstring.
       axis_env: Optional, a sequence of pairs where the first element is an axis
           name and the second element is a positive integer representing the size of
           the mapped axis with that name. This parameter is useful when lowering
@@ -199,6 +214,7 @@ class StatefulFunction(PrettyObject):
         self,
         fun: Callable,
         static_argnums: Union[int, Iterable[int]] = (),
+        static_argnames: Union[str, Iterable[str]] = (),
         axis_env: Optional[Sequence[tuple[Hashable, int]]] = None,
         abstracted_axes: Optional[Any] = None,
         state_returns: Union[str, Tuple[str, ...]] = ('read', 'write'),
@@ -207,11 +223,12 @@ class StatefulFunction(PrettyObject):
     ):
         # explicit parameters
         self.fun = fun
-        self.static_argnums = _ensure_index_tuple(tuple() if static_argnums is None else static_argnums)
+        self.static_argnums = tuple() if static_argnums is None else _ensure_index_tuple(static_argnums)
+        self.static_argnames = () if static_argnames is None else _ensure_str_tuple(static_argnames)
         self.axis_env = axis_env
         self.abstracted_axes = abstracted_axes
         self.state_returns = tuple(state_returns) if isinstance(state_returns, (tuple, list)) else (state_returns,)
-        assert cache_type in [None, 'jit']
+        assert cache_type in [None, 'jit'], f"Invalid cache type: {cache_type}"
         self.name = name
 
         # implicit parameters
@@ -323,10 +340,11 @@ class StatefulFunction(PrettyObject):
         Get the static arguments from the arguments.
 
         Args:
-          *args: The arguments to the function.
+            *args: The arguments to the function.
+            **kwargs: The keyword arguments to the function.
 
         Returns:
-          The static arguments.
+          The static arguments and keyword arguments as a tuple.
         """
         if self.cache_type == 'jit':
             static_args, dyn_args = [], []
@@ -336,11 +354,19 @@ class StatefulFunction(PrettyObject):
                 else:
                     dyn_args.append(arg)
             dyn_args = jax.tree.map(shaped_abstractify, jax.tree.leaves(dyn_args))
-            dyn_kwargs = jax.tree.map(shaped_abstractify, jax.tree.leaves(kwargs))
-            return tuple([tuple(static_args), tuple(dyn_args), tuple(dyn_kwargs)])
+            static_kwargs, dyn_kwargs = [], []
+            for k, v in kwargs.items():
+                if k in self.static_argnames:
+                    static_kwargs.append((k, v))
+                else:
+                    dyn_kwargs.append((k, v))
+            dyn_kwargs = jax.tree.map(shaped_abstractify, dyn_kwargs)
+            return tuple([tuple(static_args), tuple(dyn_args), tuple(static_kwargs), tuple(dyn_kwargs)])
         elif self.cache_type is None:
             num_arg = len(args)
-            return tuple(args[i] for i in self.static_argnums if i < num_arg)
+            static_args = tuple(args[i] for i in self.static_argnums if i < num_arg)
+            static_kwargs = tuple((k, v) for k, v in kwargs.items() if k in self.static_argnames)
+            return tuple([static_args, static_kwargs])
         else:
             raise ValueError(f"Invalid cache type: {self.cache_type}")
 
@@ -519,6 +545,7 @@ class StatefulFunction(PrettyObject):
 def make_jaxpr(
     fun: Callable,
     static_argnums: Union[int, Iterable[int]] = (),
+    static_argnames: Union[str, Iterable[str]] = (),
     axis_env: Optional[Sequence[tuple[Hashable, int]]] = None,
     return_shape: bool = False,
     abstracted_axes: Optional[Any] = None,
@@ -533,6 +560,7 @@ def make_jaxpr(
         arguments and return value should be arrays, scalars, or standard Python
         containers (tuple/list/dict) thereof.
       static_argnums: See the :py:func:`jax.jit` docstring.
+      static_argnames: See the :py:func:`jax.jit` docstring.
       axis_env: Optional, a sequence of pairs where the first element is an axis
         name and the second element is a positive integer representing the size of
         the mapped axis with that name. This parameter is useful when lowering
@@ -605,11 +633,11 @@ def make_jaxpr(
     stateful_fun = StatefulFunction(
         fun,
         static_argnums=static_argnums,
+        static_argnames=static_argnames,
         axis_env=axis_env,
         abstracted_axes=abstracted_axes,
         state_returns=state_returns,
         name='make_jaxpr'
-
     )
 
     @wraps(fun)
