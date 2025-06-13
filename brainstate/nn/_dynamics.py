@@ -43,7 +43,7 @@ from brainstate import environ
 from brainstate._state import State
 from brainstate.graph import Node
 from brainstate.mixin import ParamDescriber, UpdateReturn
-from brainstate.typing import Size, ArrayLike
+from brainstate.typing import Size, ArrayLike, PyTree
 from ._delay import StateWithDelay, Delay
 from ._module import Module
 
@@ -818,12 +818,19 @@ class Dynamics(Module, UpdateReturn):
             if not issubclass(dyn.cls, Dynamics):
                 raise TypeError(f'The input {dyn} should be an instance of {Dynamics}.')
             if not self._has_after_update(dyn.identifier):
-                self._add_after_update(dyn.identifier, dyn())
+                self._add_after_update(
+                    dyn.identifier,
+                    dyn() if ('in_size' in dyn.kwargs or len(dyn.args) > 0) else dyn(in_size=self.varshape)
+                )
             return self._get_after_update(dyn.identifier)
         else:
             raise TypeError(f'The input {dyn} should be an instance of {Dynamics} or a delayed initializer.')
 
-    def prefetch_delay(self, state: str, delay: Optional[ArrayLike] = None) -> 'PrefetchDelayAt':
+    def prefetch_delay(
+        self,
+        state: str,
+        delay: Optional[ArrayLike] = None
+    ) -> 'PrefetchDelayAt':
         """
         Create a reference to a delayed state or variable in the module.
 
@@ -841,7 +848,11 @@ class Dynamics(Module, UpdateReturn):
         """
         return self.prefetch(state).delay.at(delay)
 
-    def output_delay(self, delay: Optional[ArrayLike] = None) -> 'OutputDelayAt':
+    def output_delay(
+        self,
+        delay: Optional[ArrayLike] = None,
+        variable_like: PyTree = None
+    ) -> 'OutputDelayAt':
         """
         Create a reference to the delayed output of the module.
 
@@ -852,6 +863,7 @@ class Dynamics(Module, UpdateReturn):
         Args:
             delay (Optional[ArrayLike]): The amount of time to delay the output access,
                 typically in time units (e.g., milliseconds). Defaults to None.
+            variable_like:
 
         Returns:
             OutputDelayAt: An object that provides access to the module's output at the specified delay time.
@@ -1121,32 +1133,31 @@ class OutputDelayAt(Node):
         self,
         module: Dynamics,
         time: Optional[ArrayLike] = None,
+        variable_like: Optional[PyTree] = None,
     ):
         super().__init__()
         assert isinstance(module, Dynamics), 'The module should be an instance of Dynamics.'
         self.module = module
+        dt = environ.get_dt()
+        if time is None:
+            time = u.math.zeros_like(dt)
         self.time = time
-        if time is not None:
-            self.step = u.math.asarray(time / environ.get_dt(), dtype=environ.ditype())
+        self.step = u.math.asarray(time / dt, dtype=environ.ditype())
 
-            # register the delay
-            key = _get_output_delay_key()
-            if not module._has_after_update(key):
-                delay = Delay(jax.ShapeDtypeStruct(module.out_size, dtype=environ.dftype()), time,
-                              take_aware_unit=True)
-                module._add_after_update(key, receive_update_output(delay))
-            self.out_delay: Delay = module._get_after_update(key)
-            self.out_delay.register_delay(time)
-        else:
-            if hasattr(module.update_return, 'not_implemented') and module.update_return.not_implemented:
-                raise NotImplementedError(f'When the `time` is None, the `update_return` of {module} '
-                                          f'should be implemented.')
+        # register the delay
+        key = _get_output_delay_key()
+        if not module._has_after_update(key):
+            delay = Delay(
+                jax.ShapeDtypeStruct(module.out_size, dtype=environ.dftype()),
+                time,
+                take_aware_unit=True
+            )
+            module._add_after_update(key, receive_update_output(delay))
+        self.out_delay: Delay = module._get_after_update(key)
+        self.out_delay.register_delay(time)
 
     def __call__(self, *args, **kwargs):
-        if self.time is None:
-            return self.module.update_return()
-        else:
-            return self.out_delay.retrieve_at_step(self.step)
+        return self.out_delay.retrieve_at_step(self.step)
 
 
 def _get_prefetch_delay_key(item) -> str:
