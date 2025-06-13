@@ -246,7 +246,7 @@ class StatefulFunction(PrettyObject):
             return None
         return k, v
 
-    def get_jaxpr(self, cache_key: Hashable = default_cache_key) -> ClosedJaxpr:
+    def get_jaxpr(self, cache_key: Hashable = None) -> ClosedJaxpr:
         """
         Read the JAX Jaxpr representation of the function.
 
@@ -256,11 +256,13 @@ class StatefulFunction(PrettyObject):
         Returns:
           The JAX Jaxpr representation of the function.
         """
+        if cache_key is None:
+            cache_key = default_cache_key
         if cache_key not in self._cached_jaxpr:
             raise ValueError(f"the function is not called with the static arguments: {cache_key}")
         return self._cached_jaxpr[cache_key]
 
-    def get_out_shapes(self, cache_key: Hashable = default_cache_key) -> PyTree:
+    def get_out_shapes(self, cache_key: Hashable = None) -> PyTree:
         """
         Read the output shapes of the function.
 
@@ -270,11 +272,13 @@ class StatefulFunction(PrettyObject):
         Returns:
           The output shapes of the function.
         """
+        if cache_key is None:
+            cache_key = default_cache_key
         if cache_key not in self._cached_out_shapes:
             raise ValueError(f"the function is not called with the static arguments: {cache_key}")
         return self._cached_out_shapes[cache_key]
 
-    def get_out_treedef(self, cache_key: Hashable = default_cache_key) -> PyTree:
+    def get_out_treedef(self, cache_key: Hashable = None) -> PyTree:
         """
         Read the output tree of the function.
 
@@ -284,11 +288,13 @@ class StatefulFunction(PrettyObject):
         Returns:
           The output tree of the function.
         """
+        if cache_key is None:
+            cache_key = default_cache_key
         if cache_key not in self._cached_jaxpr_out_tree:
             raise ValueError(f"the function is not called with the static arguments: {cache_key}")
         return self._cached_jaxpr_out_tree[cache_key]
 
-    def get_state_trace(self, cache_key: Hashable = default_cache_key) -> StateTraceStack:
+    def get_state_trace(self, cache_key: Hashable = None) -> StateTraceStack:
         """
         Read the state trace of the function.
 
@@ -298,11 +304,13 @@ class StatefulFunction(PrettyObject):
         Returns:
           The state trace of the function.
         """
+        if cache_key is None:
+            cache_key = default_cache_key
         if cache_key not in self._cached_state_trace:
             raise ValueError(f"the function is not called with the static arguments: {cache_key}")
         return self._cached_state_trace[cache_key]
 
-    def get_states(self, cache_key: Hashable = default_cache_key) -> Tuple[State, ...]:
+    def get_states(self, cache_key: Hashable = None) -> Tuple[State, ...]:
         """
         Read the states that are read and written by the function.
 
@@ -312,9 +320,11 @@ class StatefulFunction(PrettyObject):
         Returns:
           The states that are read and written by the function.
         """
+        if cache_key is None:
+            cache_key = default_cache_key
         return tuple(self.get_state_trace(cache_key).states)
 
-    def get_read_states(self, cache_key: Hashable = default_cache_key) -> Tuple[State, ...]:
+    def get_read_states(self, cache_key: Hashable = None) -> Tuple[State, ...]:
         """
         Read the states that are read by the function.
 
@@ -324,9 +334,11 @@ class StatefulFunction(PrettyObject):
         Returns:
           The states that are read by the function.
         """
+        if cache_key is None:
+            cache_key = default_cache_key
         return self.get_state_trace(cache_key).get_read_states()
 
-    def get_write_states(self, cache_key: Hashable = default_cache_key) -> Tuple[State, ...]:
+    def get_write_states(self, cache_key: Hashable = None) -> Tuple[State, ...]:
         """
         Read the states that are written by the function.
 
@@ -336,6 +348,8 @@ class StatefulFunction(PrettyObject):
         Returns:
           The states that are written by the function.
         """
+        if cache_key is None:
+            cache_key = default_cache_key
         return self.get_state_trace(cache_key).get_write_states()
 
     def get_arg_cache_key(self, *args, **kwargs) -> Tuple:
@@ -418,7 +432,7 @@ class StatefulFunction(PrettyObject):
         self._cached_state_trace.clear()
 
     def _wrapped_fun_to_eval(
-        self, cache_key, *args, static_kwargs: dict, return_only_write: bool = False, **dyn_kwargs,
+        self, cache_key, static_kwargs: dict, *args, return_only_write: bool = False, **dyn_kwargs,
     ) -> Tuple[Any, Tuple[State, ...]]:
         """
         Wrap the function and return the states that are read and written by the function and the output of the function.
@@ -459,8 +473,9 @@ class StatefulFunction(PrettyObject):
         the structure, shape, dtypes, and named shapes of the output of ``fun``.
 
         Args:
-          *args: The arguments to the function.
-          **kwargs: The keyword arguments to the function.
+            *args: The arguments to the function.
+            **kwargs: The keyword arguments to the function.
+            return_only_write: If True, only return the states that are written by the function.
         """
 
         # static args
@@ -478,8 +493,8 @@ class StatefulFunction(PrettyObject):
                 jaxpr, (out_shapes, state_shapes) = _make_jaxpr(
                     functools.partial(
                         self._wrapped_fun_to_eval,
-                        cache_key=cache_key,
-                        static_kwargs=static_kwargs,
+                        cache_key,
+                        static_kwargs,
                         return_only_write=return_only_write
                     ),
                     static_argnums=self.static_argnums,
@@ -519,6 +534,7 @@ class StatefulFunction(PrettyObject):
         assert len(state_vals) == len(states), 'State length mismatch.'
 
         # parameters
+        kwargs = {k: v for k, v in kwargs.items() if k not in self.static_argnames}  # remove static kwargs
         args = tuple(args[i] for i in range(len(args)) if i not in self.static_argnums)
         args = jax.tree.flatten((args, kwargs, state_vals))[0]
 
