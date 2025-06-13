@@ -45,7 +45,7 @@ def init_indices_without_replace(
     rng = random.default_rng(seed)
 
     if method == 'vmap':
-        @augment.vmap
+        @augment.vmap(axis_size=n_pre)
         def rand_indices():
             return rng.choice(n_post, size=(conn_num,), replace=False)
 
