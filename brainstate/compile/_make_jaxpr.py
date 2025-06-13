@@ -376,8 +376,7 @@ class StatefulFunction(PrettyObject):
                 if k in self.static_argnames:
                     static_kwargs.append((k, v))
                 else:
-                    dyn_kwargs.append((k, v))
-            dyn_kwargs = jax.tree.map(shaped_abstractify, dyn_kwargs)
+                    dyn_kwargs.append((k, jax.tree.map(shaped_abstractify, v)))
             return tuple([tuple(static_args), tuple(dyn_args), tuple(static_kwargs), tuple(dyn_kwargs)])
         elif self.cache_type is None:
             num_arg = len(args)
