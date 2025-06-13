@@ -169,6 +169,9 @@ def _init_state_trace_stack(name) -> StateTraceStack:
     return state_trace
 
 
+default_cache_key = ((), ())
+
+
 class StatefulFunction(PrettyObject):
     """
     A wrapper class for a function that collects the states that are read and written by the function. The states are
@@ -224,7 +227,7 @@ class StatefulFunction(PrettyObject):
         # explicit parameters
         self.fun = fun
         self.static_argnums = tuple() if static_argnums is None else _ensure_index_tuple(static_argnums)
-        self.static_argnames = () if static_argnames is None else _ensure_str_tuple(static_argnames)
+        self.static_argnames = tuple() if static_argnames is None else _ensure_str_tuple(static_argnames)
         self.axis_env = axis_env
         self.abstracted_axes = abstracted_axes
         self.state_returns = tuple(state_returns) if isinstance(state_returns, (tuple, list)) else (state_returns,)
@@ -243,7 +246,7 @@ class StatefulFunction(PrettyObject):
             return None
         return k, v
 
-    def get_jaxpr(self, cache_key: Hashable = ()) -> ClosedJaxpr:
+    def get_jaxpr(self, cache_key: Hashable = default_cache_key) -> ClosedJaxpr:
         """
         Read the JAX Jaxpr representation of the function.
 
@@ -257,7 +260,7 @@ class StatefulFunction(PrettyObject):
             raise ValueError(f"the function is not called with the static arguments: {cache_key}")
         return self._cached_jaxpr[cache_key]
 
-    def get_out_shapes(self, cache_key: Hashable = ()) -> PyTree:
+    def get_out_shapes(self, cache_key: Hashable = default_cache_key) -> PyTree:
         """
         Read the output shapes of the function.
 
@@ -271,7 +274,7 @@ class StatefulFunction(PrettyObject):
             raise ValueError(f"the function is not called with the static arguments: {cache_key}")
         return self._cached_out_shapes[cache_key]
 
-    def get_out_treedef(self, cache_key: Hashable = ()) -> PyTree:
+    def get_out_treedef(self, cache_key: Hashable = default_cache_key) -> PyTree:
         """
         Read the output tree of the function.
 
@@ -285,7 +288,7 @@ class StatefulFunction(PrettyObject):
             raise ValueError(f"the function is not called with the static arguments: {cache_key}")
         return self._cached_jaxpr_out_tree[cache_key]
 
-    def get_state_trace(self, cache_key: Hashable = ()) -> StateTraceStack:
+    def get_state_trace(self, cache_key: Hashable = default_cache_key) -> StateTraceStack:
         """
         Read the state trace of the function.
 
@@ -299,7 +302,7 @@ class StatefulFunction(PrettyObject):
             raise ValueError(f"the function is not called with the static arguments: {cache_key}")
         return self._cached_state_trace[cache_key]
 
-    def get_states(self, cache_key: Hashable = ()) -> Tuple[State, ...]:
+    def get_states(self, cache_key: Hashable = default_cache_key) -> Tuple[State, ...]:
         """
         Read the states that are read and written by the function.
 
@@ -311,7 +314,7 @@ class StatefulFunction(PrettyObject):
         """
         return tuple(self.get_state_trace(cache_key).states)
 
-    def get_read_states(self, cache_key: Hashable = ()) -> Tuple[State, ...]:
+    def get_read_states(self, cache_key: Hashable = default_cache_key) -> Tuple[State, ...]:
         """
         Read the states that are read by the function.
 
@@ -323,7 +326,7 @@ class StatefulFunction(PrettyObject):
         """
         return self.get_state_trace(cache_key).get_read_states()
 
-    def get_write_states(self, cache_key: Hashable = ()) -> Tuple[State, ...]:
+    def get_write_states(self, cache_key: Hashable = default_cache_key) -> Tuple[State, ...]:
         """
         Read the states that are written by the function.
 
@@ -415,7 +418,7 @@ class StatefulFunction(PrettyObject):
         self._cached_state_trace.clear()
 
     def _wrapped_fun_to_eval(
-        self, cache_key, *args, return_only_write: bool = False, **kwargs,
+        self, cache_key, *args, static_kwargs: dict, return_only_write: bool = False, **dyn_kwargs,
     ) -> Tuple[Any, Tuple[State, ...]]:
         """
         Wrap the function and return the states that are read and written by the function and the output of the function.
@@ -431,7 +434,7 @@ class StatefulFunction(PrettyObject):
         state_trace = _init_state_trace_stack(self.name)
         self._cached_state_trace[cache_key] = state_trace
         with state_trace:
-            out = self.fun(*args, **kwargs)
+            out = self.fun(*args, **dyn_kwargs, **static_kwargs)
             state_values = (
                 state_trace.get_write_state_values(True)
                 if return_only_write else
@@ -466,17 +469,24 @@ class StatefulFunction(PrettyObject):
         if cache_key not in self._cached_state_trace:
             try:
                 # jaxpr
+                static_kwargs, dyn_kwargs = {}, {}
+                for k, v in kwargs.items():
+                    if k in self.static_argnames:
+                        static_kwargs[k] = v
+                    else:
+                        dyn_kwargs[k] = v
                 jaxpr, (out_shapes, state_shapes) = _make_jaxpr(
                     functools.partial(
                         self._wrapped_fun_to_eval,
-                        cache_key,
+                        cache_key=cache_key,
+                        static_kwargs=static_kwargs,
                         return_only_write=return_only_write
                     ),
                     static_argnums=self.static_argnums,
                     axis_env=self.axis_env,
                     return_shape=True,
                     abstracted_axes=self.abstracted_axes
-                )(*args, **kwargs)
+                )(*args, **dyn_kwargs)
                 # returns
                 self._cached_jaxpr_out_tree[cache_key] = jax.tree.structure((out_shapes, state_shapes))
                 self._cached_out_shapes[cache_key] = (out_shapes, state_shapes)
@@ -550,8 +560,11 @@ def make_jaxpr(
     return_shape: bool = False,
     abstracted_axes: Optional[Any] = None,
     state_returns: Union[str, Tuple[str, ...]] = ('read', 'write')
-) -> Callable[..., (Tuple[ClosedJaxpr, Tuple[State, ...]] |
-                    Tuple[ClosedJaxpr, Tuple[State, ...], PyTree])]:
+) -> Callable[
+    ...,
+    (Tuple[ClosedJaxpr, Tuple[State, ...]] |
+     Tuple[ClosedJaxpr, Tuple[State, ...], PyTree])
+]:
     """
     Creates a function that produces its jaxpr given example args.
 
