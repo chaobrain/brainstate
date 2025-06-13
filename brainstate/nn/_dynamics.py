@@ -36,13 +36,14 @@ For handling the delays:
 from typing import Any, Dict, Callable, Hashable, Optional, Union, TypeVar, TYPE_CHECKING
 
 import brainunit as u
+import jax
 import numpy as np
 
 from brainstate import environ
 from brainstate._state import State
 from brainstate.graph import Node
 from brainstate.mixin import ParamDescriber, UpdateReturn
-from brainstate.typing import Size, ArrayLike
+from brainstate.typing import Size, ArrayLike, PyTree
 from ._delay import StateWithDelay, Delay
 from ._module import Module
 
@@ -811,18 +812,25 @@ class Dynamics(Module, UpdateReturn):
         >>> n1.align_pre(brainstate.nn.Expon.desc(n1.varshape))  # n2 will run after n1
         """
         if isinstance(dyn, Dynamics):
-            self._add_after_update(dyn.name, dyn)
+            self._add_after_update(id(dyn), dyn)
             return dyn
         elif isinstance(dyn, ParamDescriber):
             if not issubclass(dyn.cls, Dynamics):
                 raise TypeError(f'The input {dyn} should be an instance of {Dynamics}.')
             if not self._has_after_update(dyn.identifier):
-                self._add_after_update(dyn.identifier, dyn())
+                self._add_after_update(
+                    dyn.identifier,
+                    dyn() if ('in_size' in dyn.kwargs or len(dyn.args) > 0) else dyn(in_size=self.varshape)
+                )
             return self._get_after_update(dyn.identifier)
         else:
             raise TypeError(f'The input {dyn} should be an instance of {Dynamics} or a delayed initializer.')
 
-    def prefetch_delay(self, state: str, delay: Optional[ArrayLike] = None) -> 'PrefetchDelayAt':
+    def prefetch_delay(
+        self,
+        state: str,
+        delay: Optional[ArrayLike] = None
+    ) -> 'PrefetchDelayAt':
         """
         Create a reference to a delayed state or variable in the module.
 
@@ -840,7 +848,11 @@ class Dynamics(Module, UpdateReturn):
         """
         return self.prefetch(state).delay.at(delay)
 
-    def output_delay(self, delay: Optional[ArrayLike] = None) -> 'OutputDelayAt':
+    def output_delay(
+        self,
+        delay: Optional[ArrayLike] = None,
+        variable_like: PyTree = None
+    ) -> 'OutputDelayAt':
         """
         Create a reference to the delayed output of the module.
 
@@ -851,6 +863,7 @@ class Dynamics(Module, UpdateReturn):
         Args:
             delay (Optional[ArrayLike]): The amount of time to delay the output access,
                 typically in time units (e.g., milliseconds). Defaults to None.
+            variable_like:
 
         Returns:
             OutputDelayAt: An object that provides access to the module's output at the specified delay time.
@@ -1102,8 +1115,6 @@ class OutputDelayAt(Node):
     ----------
     module : Dynamics
         The dynamics module that contains the referenced state or variable.
-    item : str
-        The name of the state or variable to access with delay.
     time : ArrayLike
         The amount of time to delay access by, typically in time units (e.g., milliseconds).
 
@@ -1113,56 +1124,40 @@ class OutputDelayAt(Node):
     >>> import brainunit as u
     >>> neuron = brainstate.nn.LIF(10)
     >>> # Create a reference to voltage delayed by 5ms
-    >>> delayed_v = PrefetchDelayAt(neuron, 'V', 5.0 * u.ms)
+    >>> delayed_spike = OutputDelayAt(neuron, 5.0 * u.ms)
     >>> # Get the delayed value
-    >>> v_value = delayed_v()
+    >>> v_value = delayed_spike()
     """
 
     def __init__(
         self,
         module: Dynamics,
         time: Optional[ArrayLike] = None,
+        variable_like: Optional[PyTree] = None,
     ):
-        """
-        Initialize a PrefetchDelayAt object.
-
-        Parameters
-        ----------
-        module : AlignPre, Module
-            The dynamics module that contains the referenced state or variable.
-        time : ArrayLike
-            The amount of time to delay access by, typically in time units.
-        """
         super().__init__()
-        assert isinstance(module, UpdateReturn), 'The module should implement the `update_return` method.'
-        assert isinstance(module, Module), 'The module should be an instance of Module.'
+        assert isinstance(module, Dynamics), 'The module should be an instance of Dynamics.'
         self.module = module
+        dt = environ.get_dt()
+        if time is None:
+            time = u.math.zeros_like(dt)
         self.time = time
-        if time is not None:
-            self.step = u.math.asarray(time / environ.get_dt(), dtype=environ.ditype())
+        self.step = u.math.asarray(time / dt, dtype=environ.ditype())
 
-            # register the delay
-            key = _get_output_delay_key()
-            if not module._has_after_update(key):
-                # TODO: unit processing
-                delay = Delay(module.update_return(), time)
-                module._add_after_update(key, receive_update_output(delay))
-            self.out_delay: Delay = module._get_after_update(key)
-            self.out_delay.register_delay(time)
+        # register the delay
+        key = _get_output_delay_key()
+        if not module._has_after_update(key):
+            delay = Delay(
+                jax.ShapeDtypeStruct(module.out_size, dtype=environ.dftype()),
+                time,
+                take_aware_unit=True
+            )
+            module._add_after_update(key, receive_update_output(delay))
+        self.out_delay: Delay = module._get_after_update(key)
+        self.out_delay.register_delay(time)
 
     def __call__(self, *args, **kwargs):
-        """
-        Retrieve the value of the state at the specified delay time.
-
-        Returns
-        -------
-        Any
-            The value of the state or variable at the specified delay time.
-        """
-        if self.time is None:
-            return self.module.update_return()
-        else:
-            return self.out_delay.retrieve_at_step(self.step)
+        return self.out_delay.retrieve_at_step(self.step)
 
 
 def _get_prefetch_delay_key(item) -> str:

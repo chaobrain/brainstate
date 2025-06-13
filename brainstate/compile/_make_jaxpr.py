@@ -88,6 +88,12 @@ __all__ = [
 ]
 
 
+def _ensure_str(x: str) -> str:
+    if not isinstance(x, str):
+        raise TypeError(f"argument is not a string: {x}")
+    return x
+
+
 def _ensure_index_tuple(x: Any) -> tuple[int, ...]:
     """Convert x to a tuple of indices."""
     x = jax.core.concrete_or_error(None, x, "expected a static index or sequence of indices.")
@@ -95,6 +101,14 @@ def _ensure_index_tuple(x: Any) -> tuple[int, ...]:
         return (operator.index(x),)
     except TypeError:
         return tuple(safe_map(operator.index, x))
+
+
+def _ensure_str_tuple(x: str | Iterable[str]) -> tuple[str, ...]:
+    """Convert x to a tuple of strings."""
+    if isinstance(x, str):
+        return (x,)
+    else:
+        return tuple(safe_map(_ensure_str, x))
 
 
 def _jax_v04_new_arg_fn(frame, trace, aval):
@@ -155,6 +169,9 @@ def _init_state_trace_stack(name) -> StateTraceStack:
     return state_trace
 
 
+default_cache_key = ((), ())
+
+
 class StatefulFunction(PrettyObject):
     """
     A wrapper class for a function that collects the states that are read and written by the function. The states are
@@ -170,6 +187,7 @@ class StatefulFunction(PrettyObject):
         arguments and return value should be arrays, scalars, or standard Python
         containers (tuple/list/dict) thereof.
       static_argnums: See the :py:func:`jax.jit` docstring.
+      static_argnames: See the :py:func:`jax.jit` docstring.
       axis_env: Optional, a sequence of pairs where the first element is an axis
           name and the second element is a positive integer representing the size of
           the mapped axis with that name. This parameter is useful when lowering
@@ -199,6 +217,7 @@ class StatefulFunction(PrettyObject):
         self,
         fun: Callable,
         static_argnums: Union[int, Iterable[int]] = (),
+        static_argnames: Union[str, Iterable[str]] = (),
         axis_env: Optional[Sequence[tuple[Hashable, int]]] = None,
         abstracted_axes: Optional[Any] = None,
         state_returns: Union[str, Tuple[str, ...]] = ('read', 'write'),
@@ -207,11 +226,12 @@ class StatefulFunction(PrettyObject):
     ):
         # explicit parameters
         self.fun = fun
-        self.static_argnums = _ensure_index_tuple(tuple() if static_argnums is None else static_argnums)
+        self.static_argnums = tuple() if static_argnums is None else _ensure_index_tuple(static_argnums)
+        self.static_argnames = tuple() if static_argnames is None else _ensure_str_tuple(static_argnames)
         self.axis_env = axis_env
         self.abstracted_axes = abstracted_axes
         self.state_returns = tuple(state_returns) if isinstance(state_returns, (tuple, list)) else (state_returns,)
-        assert cache_type in [None, 'jit']
+        assert cache_type in [None, 'jit'], f"Invalid cache type: {cache_type}"
         self.name = name
 
         # implicit parameters
@@ -226,7 +246,7 @@ class StatefulFunction(PrettyObject):
             return None
         return k, v
 
-    def get_jaxpr(self, cache_key: Hashable = ()) -> ClosedJaxpr:
+    def get_jaxpr(self, cache_key: Hashable = None) -> ClosedJaxpr:
         """
         Read the JAX Jaxpr representation of the function.
 
@@ -236,11 +256,13 @@ class StatefulFunction(PrettyObject):
         Returns:
           The JAX Jaxpr representation of the function.
         """
+        if cache_key is None:
+            cache_key = default_cache_key
         if cache_key not in self._cached_jaxpr:
             raise ValueError(f"the function is not called with the static arguments: {cache_key}")
         return self._cached_jaxpr[cache_key]
 
-    def get_out_shapes(self, cache_key: Hashable = ()) -> PyTree:
+    def get_out_shapes(self, cache_key: Hashable = None) -> PyTree:
         """
         Read the output shapes of the function.
 
@@ -250,11 +272,13 @@ class StatefulFunction(PrettyObject):
         Returns:
           The output shapes of the function.
         """
+        if cache_key is None:
+            cache_key = default_cache_key
         if cache_key not in self._cached_out_shapes:
             raise ValueError(f"the function is not called with the static arguments: {cache_key}")
         return self._cached_out_shapes[cache_key]
 
-    def get_out_treedef(self, cache_key: Hashable = ()) -> PyTree:
+    def get_out_treedef(self, cache_key: Hashable = None) -> PyTree:
         """
         Read the output tree of the function.
 
@@ -264,11 +288,13 @@ class StatefulFunction(PrettyObject):
         Returns:
           The output tree of the function.
         """
+        if cache_key is None:
+            cache_key = default_cache_key
         if cache_key not in self._cached_jaxpr_out_tree:
             raise ValueError(f"the function is not called with the static arguments: {cache_key}")
         return self._cached_jaxpr_out_tree[cache_key]
 
-    def get_state_trace(self, cache_key: Hashable = ()) -> StateTraceStack:
+    def get_state_trace(self, cache_key: Hashable = None) -> StateTraceStack:
         """
         Read the state trace of the function.
 
@@ -278,11 +304,13 @@ class StatefulFunction(PrettyObject):
         Returns:
           The state trace of the function.
         """
+        if cache_key is None:
+            cache_key = default_cache_key
         if cache_key not in self._cached_state_trace:
             raise ValueError(f"the function is not called with the static arguments: {cache_key}")
         return self._cached_state_trace[cache_key]
 
-    def get_states(self, cache_key: Hashable = ()) -> Tuple[State, ...]:
+    def get_states(self, cache_key: Hashable = None) -> Tuple[State, ...]:
         """
         Read the states that are read and written by the function.
 
@@ -292,9 +320,11 @@ class StatefulFunction(PrettyObject):
         Returns:
           The states that are read and written by the function.
         """
+        if cache_key is None:
+            cache_key = default_cache_key
         return tuple(self.get_state_trace(cache_key).states)
 
-    def get_read_states(self, cache_key: Hashable = ()) -> Tuple[State, ...]:
+    def get_read_states(self, cache_key: Hashable = None) -> Tuple[State, ...]:
         """
         Read the states that are read by the function.
 
@@ -304,9 +334,11 @@ class StatefulFunction(PrettyObject):
         Returns:
           The states that are read by the function.
         """
+        if cache_key is None:
+            cache_key = default_cache_key
         return self.get_state_trace(cache_key).get_read_states()
 
-    def get_write_states(self, cache_key: Hashable = ()) -> Tuple[State, ...]:
+    def get_write_states(self, cache_key: Hashable = None) -> Tuple[State, ...]:
         """
         Read the states that are written by the function.
 
@@ -316,6 +348,8 @@ class StatefulFunction(PrettyObject):
         Returns:
           The states that are written by the function.
         """
+        if cache_key is None:
+            cache_key = default_cache_key
         return self.get_state_trace(cache_key).get_write_states()
 
     def get_arg_cache_key(self, *args, **kwargs) -> Tuple:
@@ -323,10 +357,11 @@ class StatefulFunction(PrettyObject):
         Get the static arguments from the arguments.
 
         Args:
-          *args: The arguments to the function.
+            *args: The arguments to the function.
+            **kwargs: The keyword arguments to the function.
 
         Returns:
-          The static arguments.
+          The static arguments and keyword arguments as a tuple.
         """
         if self.cache_type == 'jit':
             static_args, dyn_args = [], []
@@ -336,11 +371,18 @@ class StatefulFunction(PrettyObject):
                 else:
                     dyn_args.append(arg)
             dyn_args = jax.tree.map(shaped_abstractify, jax.tree.leaves(dyn_args))
-            dyn_kwargs = jax.tree.map(shaped_abstractify, jax.tree.leaves(kwargs))
-            return tuple([tuple(static_args), tuple(dyn_args), tuple(dyn_kwargs)])
+            static_kwargs, dyn_kwargs = [], []
+            for k, v in kwargs.items():
+                if k in self.static_argnames:
+                    static_kwargs.append((k, v))
+                else:
+                    dyn_kwargs.append((k, jax.tree.map(shaped_abstractify, v)))
+            return tuple([tuple(static_args), tuple(dyn_args), tuple(static_kwargs), tuple(dyn_kwargs)])
         elif self.cache_type is None:
             num_arg = len(args)
-            return tuple(args[i] for i in self.static_argnums if i < num_arg)
+            static_args = tuple(args[i] for i in self.static_argnums if i < num_arg)
+            static_kwargs = tuple((k, v) for k, v in kwargs.items() if k in self.static_argnames)
+            return tuple([static_args, static_kwargs])
         else:
             raise ValueError(f"Invalid cache type: {self.cache_type}")
 
@@ -389,7 +431,7 @@ class StatefulFunction(PrettyObject):
         self._cached_state_trace.clear()
 
     def _wrapped_fun_to_eval(
-        self, cache_key, *args, return_only_write: bool = False, **kwargs,
+        self, cache_key, static_kwargs: dict, *args, return_only_write: bool = False, **dyn_kwargs,
     ) -> Tuple[Any, Tuple[State, ...]]:
         """
         Wrap the function and return the states that are read and written by the function and the output of the function.
@@ -405,7 +447,7 @@ class StatefulFunction(PrettyObject):
         state_trace = _init_state_trace_stack(self.name)
         self._cached_state_trace[cache_key] = state_trace
         with state_trace:
-            out = self.fun(*args, **kwargs)
+            out = self.fun(*args, **dyn_kwargs, **static_kwargs)
             state_values = (
                 state_trace.get_write_state_values(True)
                 if return_only_write else
@@ -430,8 +472,9 @@ class StatefulFunction(PrettyObject):
         the structure, shape, dtypes, and named shapes of the output of ``fun``.
 
         Args:
-          *args: The arguments to the function.
-          **kwargs: The keyword arguments to the function.
+            *args: The arguments to the function.
+            **kwargs: The keyword arguments to the function.
+            return_only_write: If True, only return the states that are written by the function.
         """
 
         # static args
@@ -440,17 +483,24 @@ class StatefulFunction(PrettyObject):
         if cache_key not in self._cached_state_trace:
             try:
                 # jaxpr
+                static_kwargs, dyn_kwargs = {}, {}
+                for k, v in kwargs.items():
+                    if k in self.static_argnames:
+                        static_kwargs[k] = v
+                    else:
+                        dyn_kwargs[k] = v
                 jaxpr, (out_shapes, state_shapes) = _make_jaxpr(
                     functools.partial(
                         self._wrapped_fun_to_eval,
                         cache_key,
+                        static_kwargs,
                         return_only_write=return_only_write
                     ),
                     static_argnums=self.static_argnums,
                     axis_env=self.axis_env,
                     return_shape=True,
                     abstracted_axes=self.abstracted_axes
-                )(*args, **kwargs)
+                )(*args, **dyn_kwargs)
                 # returns
                 self._cached_jaxpr_out_tree[cache_key] = jax.tree.structure((out_shapes, state_shapes))
                 self._cached_out_shapes[cache_key] = (out_shapes, state_shapes)
@@ -483,6 +533,7 @@ class StatefulFunction(PrettyObject):
         assert len(state_vals) == len(states), 'State length mismatch.'
 
         # parameters
+        kwargs = {k: v for k, v in kwargs.items() if k not in self.static_argnames}  # remove static kwargs
         args = tuple(args[i] for i in range(len(args)) if i not in self.static_argnums)
         args = jax.tree.flatten((args, kwargs, state_vals))[0]
 
@@ -519,12 +570,16 @@ class StatefulFunction(PrettyObject):
 def make_jaxpr(
     fun: Callable,
     static_argnums: Union[int, Iterable[int]] = (),
+    static_argnames: Union[str, Iterable[str]] = (),
     axis_env: Optional[Sequence[tuple[Hashable, int]]] = None,
     return_shape: bool = False,
     abstracted_axes: Optional[Any] = None,
     state_returns: Union[str, Tuple[str, ...]] = ('read', 'write')
-) -> Callable[..., (Tuple[ClosedJaxpr, Tuple[State, ...]] |
-                    Tuple[ClosedJaxpr, Tuple[State, ...], PyTree])]:
+) -> Callable[
+    ...,
+    (Tuple[ClosedJaxpr, Tuple[State, ...]] |
+     Tuple[ClosedJaxpr, Tuple[State, ...], PyTree])
+]:
     """
     Creates a function that produces its jaxpr given example args.
 
@@ -533,6 +588,7 @@ def make_jaxpr(
         arguments and return value should be arrays, scalars, or standard Python
         containers (tuple/list/dict) thereof.
       static_argnums: See the :py:func:`jax.jit` docstring.
+      static_argnames: See the :py:func:`jax.jit` docstring.
       axis_env: Optional, a sequence of pairs where the first element is an axis
         name and the second element is a positive integer representing the size of
         the mapped axis with that name. This parameter is useful when lowering
@@ -605,11 +661,11 @@ def make_jaxpr(
     stateful_fun = StatefulFunction(
         fun,
         static_argnums=static_argnums,
+        static_argnames=static_argnames,
         axis_env=axis_env,
         abstracted_axes=abstracted_axes,
         state_returns=state_returns,
         name='make_jaxpr'
-
     )
 
     @wraps(fun)

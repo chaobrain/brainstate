@@ -19,7 +19,7 @@ import brainunit as u
 import jax
 
 from brainstate import init
-from brainstate._compatible_import import brainevent
+import brainevent
 from brainstate._state import ParamState
 from brainstate.typing import Size, ArrayLike
 from ._module import Module

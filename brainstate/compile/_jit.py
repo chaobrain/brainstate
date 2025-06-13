@@ -51,6 +51,7 @@ def _get_jitted_fun(
     out_shardings,
     static_argnums,
     donate_argnums,
+    static_argnames,
     donate_argnames,
     keep_unused,
     device,
@@ -59,10 +60,12 @@ def _get_jitted_fun(
     abstracted_axes,
     **kwargs
 ) -> JittedFunction:
-    static_argnums = _ensure_index_tuple(tuple() if static_argnums is None else static_argnums)
+    static_argnums = tuple() if static_argnums is None else _ensure_index_tuple(static_argnums)
+    donate_argnums = tuple() if donate_argnums is None else _ensure_index_tuple(donate_argnums)
     fun = StatefulFunction(
         fun,
         static_argnums=static_argnums,
+        static_argnames=static_argnames,
         abstracted_axes=abstracted_axes,
         cache_type='jit',
         name='jit'
@@ -70,7 +73,8 @@ def _get_jitted_fun(
     jit_fun = jax.jit(
         fun.jaxpr_call,
         static_argnums=tuple(i + 1 for i in static_argnums),
-        donate_argnums=donate_argnums,
+        static_argnames=static_argnames,
+        donate_argnums=tuple(i + 1 for i in donate_argnums),
         donate_argnames=donate_argnames,
         keep_unused=keep_unused,
         device=device,
@@ -179,6 +183,7 @@ def jit(
     out_shardings=sharding_impls.UNSPECIFIED,
     static_argnums: int | Sequence[int] | None = None,
     donate_argnums: int | Sequence[int] | None = None,
+    static_argnames: str | Sequence[str] | None = None,
     donate_argnames: str | Iterable[str] | None = None,
     keep_unused: bool = False,
     device: Device | None = None,
@@ -189,9 +194,6 @@ def jit(
 ) -> Union[JittedFunction, Callable[[Callable], JittedFunction]]:
     """
     Sets up ``fun`` for just-in-time compilation with XLA.
-
-    Does not support setting ``static_argnames`` as in ``jax.jit()``.
-
 
     Args:
       fun: Function to be jitted.
@@ -246,6 +248,11 @@ def jit(
         provided, ``inspect.signature`` is not used, and only actual
         parameters listed in either ``static_argnums`` or ``static_argnames`` will
         be treated as static.
+      static_argnames: An optional string or collection of strings specifying
+        which named arguments are treated as static (compile-time constant).
+        Operations that only depend on static arguments will be constant-folded in
+        Python (during tracing), and so the corresponding argument values can be
+        any Python object.
       donate_argnums: Specify which positional argument buffers are "donated" to
         the computation. It is safe to donate argument buffers if you no longer
         need them once the computation has finished. In some cases XLA can make
@@ -309,6 +316,7 @@ def jit(
                 out_shardings=out_shardings,
                 static_argnums=static_argnums,
                 donate_argnums=donate_argnums,
+                static_argnames=static_argnames,
                 donate_argnames=donate_argnames,
                 keep_unused=keep_unused,
                 device=device,
@@ -327,6 +335,7 @@ def jit(
             out_shardings,
             static_argnums,
             donate_argnums,
+            static_argnames,
             donate_argnames,
             keep_unused,
             device,

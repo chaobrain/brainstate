@@ -41,6 +41,14 @@ __all__ = [
 ]
 
 
+def hashable(x):
+    try:
+        hash(x)
+        return True
+    except TypeError:
+        return False
+
+
 class Mixin(object):
     """Base Mixin object.
 
@@ -67,6 +75,14 @@ class ParamDesc(Mixin):
 
 
 class HashableDict(dict):
+    def __init__(self, the_dict: dict):
+        out = dict()
+        for k, v in the_dict.items():
+            if not hashable(v):
+                v = str(v)  # convert to string if not hashable
+            out[k] = v
+        super().__init__(out)
+
     def __hash__(self):
         return hash(tuple(sorted(self.items())))
 
@@ -132,7 +148,6 @@ class AlignPost(Mixin):
         raise NotImplementedError
 
 
-
 class BindCondData(Mixin):
     """Bind temporary conductance data.
 
@@ -147,12 +162,26 @@ class BindCondData(Mixin):
         self._conductance = None
 
 
+def not_implemented(func):
+
+    def wrapper(*args, **kwargs):
+        raise NotImplementedError(f'{func.__name__} is not implemented.')
+
+    wrapper.not_implemented = True
+    return wrapper
+
+
+
 class UpdateReturn(Mixin):
+    @not_implemented
     def update_return(self) -> PyTree:
         """
         The update function return of the model.
 
-        It should be a pytree, with each element as a ``jax.ShapeDtypeStruct`` or ``jax.core.ShapedArray``.
+        This function requires no parameters and must return a PyTree.
+
+        It is usually used for delay initialization, for example, ``Dynamics.output_delay`` relies on this function to
+        initialize the output delay.
 
         """
         raise NotImplementedError(f'Must implement the "{self.update_return.__name__}()" function.')

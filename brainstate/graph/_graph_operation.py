@@ -30,10 +30,10 @@ from typing_extensions import TypeGuard, Unpack
 from brainstate._state import State, TreefyState
 from brainstate._utils import set_module_as
 from brainstate.typing import PathParts, Filter, Predicate, Key
-from brainstate.util._caller import ApplyCaller, CallableProxy, DelayedAccessor
-from brainstate.util._pretty_pytree import NestedDict, FlattedDict, PrettyDict
-from brainstate.util._pretty_repr import PrettyRepr, PrettyType, PrettyAttr, PrettyMapping, MappingReprMixin
-from brainstate.util._struct import FrozenDict
+from brainstate.util.caller import ApplyCaller, CallableProxy, DelayedAccessor
+from brainstate.util.pretty_pytree import NestedDict, FlattedDict, PrettyDict
+from brainstate.util.pretty_repr import PrettyRepr, PrettyType, PrettyAttr, PrettyMapping, MappingReprMixin
+from brainstate.util.struct import FrozenDict
 from brainstate.util.filter import to_predicate
 
 _max_int = np.iinfo(np.int32).max

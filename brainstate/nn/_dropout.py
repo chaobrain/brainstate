@@ -409,7 +409,8 @@ class DropoutFixed(ElementWiseBlock):
         self.out_size = in_size
 
     def init_state(self, batch_size=None, **kwargs):
-        self.mask = ShortTermState(init.param(partial(random.bernoulli, self.prob), self.in_size, batch_size))
+        if self.prob < 1.:
+            self.mask = ShortTermState(init.param(partial(random.bernoulli, self.prob), self.in_size, batch_size))
 
     def update(self, x):
         dtype = u.math.get_dtype(x)
@@ -418,8 +419,8 @@ class DropoutFixed(ElementWiseBlock):
             if self.mask.value.shape != x.shape:
                 raise ValueError(f"Input shape {x.shape} does not match the mask shape {self.mask.value.shape}. "
                                  f"Please call `init_state()` method first.")
-            return jnp.where(self.mask.value,
-                             jnp.asarray(x / self.prob, dtype=dtype),
-                             jnp.asarray(0., dtype=dtype))
+            return u.math.where(self.mask.value,
+                                u.math.asarray(x / self.prob, dtype=dtype),
+                                u.math.asarray(0., dtype=dtype) * u.get_unit(x))
         else:
             return x

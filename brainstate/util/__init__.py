@@ -14,20 +14,20 @@
 # ==============================================================================
 
 from . import filter
-from ._error import *
-from ._error import __all__ as _error_all
-from ._others import *
-from ._others import __all__ as _others_all
-from ._pretty_pytree import *
-from ._pretty_pytree import __all__ as _mapping_all
-from ._pretty_repr import *
-from ._pretty_repr import __all__ as _pretty_repr_all
-from ._pretty_table import *
-from ._pretty_table import __all__ as _table_all
-from ._scaling import *
-from ._scaling import __all__ as _mem_scale_all
-from ._struct import *
-from ._struct import __all__ as _struct_all
+from .error import *
+from .error import __all__ as _error_all
+from .others import *
+from .others import __all__ as _others_all
+from .pretty_pytree import *
+from .pretty_pytree import __all__ as _mapping_all
+from .pretty_repr import *
+from .pretty_repr import __all__ as _pretty_repr_all
+from .pretty_table import *
+from .pretty_table import __all__ as _table_all
+from .scaling import *
+from .scaling import __all__ as _mem_scale_all
+from .struct import *
+from .struct import __all__ as _struct_all
 
 __all__ = (
     ['filter']
