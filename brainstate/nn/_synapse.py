@@ -307,9 +307,6 @@ class Alpha(Synapse):
         self.h.value = self.sum_delta_inputs(h)
         if x is not None:
             self.h.value += x
-        return self.update_return()
-
-    def update_return(self) -> PyTree:
         return self.g.value
 
 
