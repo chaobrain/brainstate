@@ -50,6 +50,7 @@ __all__ = [
     'LongTermState',
     'HiddenState',
     'ParamState',
+    'BatchState',
     'TreefyState',
     'FakeState',
 
