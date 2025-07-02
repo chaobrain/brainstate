@@ -173,6 +173,7 @@ class GradientTransform(PrettyRepr):
         return_value: bool = False,
         has_aux: bool = False,
         transform_params: Optional[Dict[str, Any]] = None,
+        check_state_trace: bool = False,
     ):
         """
         Initialize a ``GradientTransform`` instance.
@@ -192,7 +193,10 @@ class GradientTransform(PrettyRepr):
         # gradient variables
         if isinstance(grad_states, dict):
             grad_states = {k: v for k, v in grad_states.items()}
-        self._grad_states, self._grad_tree = jax.tree.flatten(grad_states)
+        self._grad_states, self._grad_tree = jax.tree.flatten(
+            grad_states,
+            is_leaf=lambda x: isinstance(x, State)
+        )
         self._grad_state_ids = [id(v) for v in self._grad_states]
         self._grad_id_to_state = {id(v): v for v in self._grad_states}
         if any(not isinstance(v, State) for v in self._grad_states):
@@ -228,6 +232,9 @@ class GradientTransform(PrettyRepr):
         else:
             self._transform = transform(self._fun_without_aux, argnums=self.true_argnums, has_aux=True, **grad_setting)
 
+        # check
+        self.check_state_trace = check_state_trace
+
     def __pretty_repr__(self) -> Iterator[Union[PrettyType, PrettyAttr]]:
         yield PrettyType(self.__class__.__name__)
         yield PrettyAttr("target", self.target)
@@ -258,7 +265,7 @@ class GradientTransform(PrettyRepr):
                 all_ids.remove(id_)
             else:
                 other_vals[id_] = st.value
-        if len(all_ids):
+        if len(all_ids) and self.check_state_trace:
             err = f"Some states are not found in the state trace when performing gradient transformations.\n "
             for i, id_ in enumerate(all_ids):
                 st = self._grad_id_to_state[id_]
