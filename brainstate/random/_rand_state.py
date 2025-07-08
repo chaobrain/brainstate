@@ -403,8 +403,8 @@ class RandomState(State):
         scale = _check_py_seq(scale)
         if size is None:
             size = lax.broadcast_shapes(
-                jnp.shape(scale) if scale is not None else None,
-                jnp.shape(loc) if loc is not None else None
+                jnp.shape(scale) if scale is not None else (),
+                jnp.shape(loc) if loc is not None else ()
             )
         key = self.split_key() if key is None else _formalize_key(key)
         dtype = dtype or environ.dftype()
