@@ -26,7 +26,7 @@ import numpy as np
 
 import brainstate
 
-# bst.environ.set(precision='bf16')
+# brainstate.environ.set(precision='bf16')
 
 num_exc = 3200
 num_inh = 800

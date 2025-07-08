@@ -124,7 +124,7 @@ with brainstate.environ.context(dt=1.0 * u.ms):
 
     # # optax optimizer
     # import optax
-    # optimizer = bst.optim.OptaxOptimizer(net.states(bst.ParamState), optax.adam(1e-3))
+    # optimizer = brainstate.optim.OptaxOptimizer(net.states(brainstate.ParamState), optax.adam(1e-3))
 
     def loss_fn():
         predictions = brainstate.compile.for_loop(net.update, x_data)

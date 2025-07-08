@@ -56,16 +56,16 @@ def dataclass(clz: T, **kwargs) -> T:
     The ``dataclass`` decorator makes it easy to define custom classes that can be
     passed safely to Jax. For example::
 
-      >>> import brainstate as bst
+      >>> import brainstate as brainstate
       >>> import jax
       >>> from typing import Any, Callable
 
-      >>> @bst.util.dataclass
+      >>> @brainstate.util.dataclass
       ... class Model:
       ...   params: Any
       ...   # use pytree_node=False to indicate an attribute should not be touched
       ...   # by Jax transformations.
-      ...   apply_fn: Callable = bst.util.field(pytree_node=False)
+      ...   apply_fn: Callable = brainstate.util.field(pytree_node=False)
 
       ...   def __apply__(self, *args):
       ...     return self.apply_fn(*args)
@@ -97,7 +97,7 @@ def dataclass(clz: T, **kwargs) -> T:
     This way the simple constructor used by ``jax.tree_util`` is
     preserved. Consider the following example::
 
-      >>> @bst.util.dataclass
+      >>> @brainstate.util.dataclass
       ... class DirectionAndScaleKernel:
       ...   direction: jax.Array
       ...   scale: jax.Array
@@ -189,15 +189,15 @@ class PyTreeNode:
 
     Example::
 
-      >>> import brainstate as bst
+      >>> import brainstate as brainstate
       >>> import jax
       >>> from typing import Any, Callable
 
-      >>> class Model(bst.util.PyTreeNode):
+      >>> class Model(brainstate.util.PyTreeNode):
       ...   params: Any
       ...   # use pytree_node=False to indicate an attribute should not be touched
       ...   # by Jax transformations.
-      ...   apply_fn: Callable = bst.util.field(pytree_node=False)
+      ...   apply_fn: Callable = brainstate.util.field(pytree_node=False)
 
       ...   def __apply__(self, *args):
       ...     return self.apply_fn(*args)

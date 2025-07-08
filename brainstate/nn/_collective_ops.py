@@ -56,10 +56,10 @@ def call_order(level: int = 0, check_order_boundary: bool = True):
 
     The lower the level, the earlier the function is called.
 
-    >>> import brainstate as bst
-    >>> bst.nn.call_order(0)
-    >>> bst.nn.call_order(-1)
-    >>> bst.nn.call_order(-2)
+    >>> import brainstate as brainstate
+    >>> brainstate.nn.call_order(0)
+    >>> brainstate.nn.call_order(-1)
+    >>> brainstate.nn.call_order(-2)
 
     Parameters
     ----------

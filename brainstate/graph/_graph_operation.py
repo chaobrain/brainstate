@@ -473,8 +473,8 @@ def flatten(
 
     Example::
 
-        >>> import brainstate as bst
-        >>> node = bst.graph.Node()
+        >>> import brainstate as brainstate
+        >>> node = brainstate.graph.Node()
         >>> graph_def, state_mapping = flatten(node)
         >>> print(graph_def)
         >>> print(state_mapping)
@@ -709,15 +709,15 @@ def unflatten(
 
     Example::
 
-    >>> import brainstate as bst
-    >>> class MyNode(bst.graph.Node):
+    >>> import brainstate as brainstate
+    >>> class MyNode(brainstate.graph.Node):
     ...   def __init__(self):
-    ...      self.a = bst.nn.Linear(2, 3)
-    ...      self.b = bst.nn.Linear(3, 4)
-    ...      self.c = [bst.nn.Linear(4, 5), bst.nn.Linear(5, 6)]
-    ...      self.d = {'x': bst.nn.Linear(6, 7), 'y': bst.nn.Linear(7, 8)}
+    ...      self.a = brainstate.nn.Linear(2, 3)
+    ...      self.b = brainstate.nn.Linear(3, 4)
+    ...      self.c = [brainstate.nn.Linear(4, 5), brainstate.nn.Linear(5, 6)]
+    ...      self.d = {'x': brainstate.nn.Linear(6, 7), 'y': brainstate.nn.Linear(7, 8)}
     ...
-    >>> graphdef, statetree = bst.graph.flatten(MyNode())
+    >>> graphdef, statetree = brainstate.graph.flatten(MyNode())
     >>> statetree
     NestedDict({
       'a': {
@@ -764,7 +764,7 @@ def unflatten(
         }
       }
     })
-    >>> node = bst.graph.unflatten(graphdef, statetree)
+    >>> node = brainstate.graph.unflatten(graphdef, statetree)
     >>> node
     MyNode(
       a=Linear(
@@ -942,21 +942,21 @@ def pop_states(
 
     Example usage::
 
-      >>> import brainstate as bst
+      >>> import brainstate as brainstate
       >>> import jax.numpy as jnp
 
-      >>> class Model(bst.nn.Module):
+      >>> class Model(brainstate.nn.Module):
       ...   def __init__(self):
       ...     super().__init__()
-      ...     self.a = bst.nn.Linear(2, 3)
-      ...     self.b = bst.nn.LIF([10, 2])
+      ...     self.a = brainstate.nn.Linear(2, 3)
+      ...     self.b = brainstate.nn.LIF([10, 2])
 
       >>> model = Model()
-      >>> with bst.catch_new_states('new'):
-      ...    bst.nn.init_all_states(model)
+      >>> with brainstate.catch_new_states('new'):
+      ...    brainstate.nn.init_all_states(model)
 
       >>> assert len(model.states()) == 2
-      >>> model_states = bst.graph.pop_states(model, 'new')
+      >>> model_states = brainstate.graph.pop_states(model, 'new')
       >>> model_states
       NestedDict({
         'b': {
@@ -1046,16 +1046,16 @@ def treefy_split(
 
     Example usage::
 
-      >>> from joblib.testing import param    >>> import brainstate as bst
+      >>> from joblib.testing import param    >>> import brainstate as brainstate
       >>> import jax, jax.numpy as jnp
       ...
-      >>> class Foo(bst.graph.Node):
+      >>> class Foo(brainstate.graph.Node):
       ...   def __init__(self):
-      ...     self.a = bst.nn.BatchNorm1d([10, 2])
-      ...     self.b = bst.nn.Linear(2, 3)
+      ...     self.a = brainstate.nn.BatchNorm1d([10, 2])
+      ...     self.b = brainstate.nn.Linear(2, 3)
       ...
       >>> node = Foo()
-      >>> graphdef, params, others = bst.graph.treefy_split(node, bst.ParamState, ...)
+      >>> graphdef, params, others = brainstate.graph.treefy_split(node, brainstate.ParamState, ...)
       ...
       >>> params
       NestedDict({
@@ -1119,21 +1119,21 @@ def treefy_merge(
 
     Example usage::
 
-      >>> import brainstate as bst
+      >>> import brainstate as brainstate
       >>> import jax, jax.numpy as jnp
       ...
-      >>> class Foo(bst.graph.Node):
+      >>> class Foo(brainstate.graph.Node):
       ...   def __init__(self):
-      ...     self.a = bst.nn.BatchNorm1d([10, 2])
-      ...     self.b = bst.nn.Linear(2, 3)
+      ...     self.a = brainstate.nn.BatchNorm1d([10, 2])
+      ...     self.b = brainstate.nn.Linear(2, 3)
       ...
       >>> node = Foo()
-      >>> graphdef, params, others = bst.graph.treefy_split(node, bst.ParamState, ...)
+      >>> graphdef, params, others = brainstate.graph.treefy_split(node, brainstate.ParamState, ...)
       ...
-      >>> new_node = bst.graph.treefy_merge(graphdef, params, others)
+      >>> new_node = brainstate.graph.treefy_merge(graphdef, params, others)
       >>> assert isinstance(new_node, Foo)
-      >>> assert isinstance(new_node.b, bst.nn.BatchNorm1d)
-      >>> assert isinstance(new_node.a, bst.nn.Linear)
+      >>> assert isinstance(new_node.b, brainstate.nn.BatchNorm1d)
+      >>> assert isinstance(new_node.a, brainstate.nn.Linear)
 
     :func:`split` and :func:`merge` are primarily used to interact directly with JAX
     transformations, see
@@ -1302,22 +1302,22 @@ def treefy_states(
 
     Example usage::
 
-      >>> import brainstate as bst
-      >>> class Model(bst.nn.Module):
+      >>> import brainstate as brainstate
+      >>> class Model(brainstate.nn.Module):
       ...   def __init__(self):
       ...     super().__init__()
-      ...     self.l1 = bst.nn.Linear(2, 3)
-      ...     self.l2 = bst.nn.Linear(3, 4)
+      ...     self.l1 = brainstate.nn.Linear(2, 3)
+      ...     self.l2 = brainstate.nn.Linear(3, 4)
       ...   def __call__(self, x):
       ...     return self.l2(self.l1(x))
 
       >>> model = Model()
       >>> # get the learnable parameters from the batch norm and linear layer
-      >>> params = bst.graph.treefy_states(model, bst.ParamState)
+      >>> params = brainstate.graph.treefy_states(model, brainstate.ParamState)
       >>> # get them separately
-      >>> params, others = bst.graph.treefy_states(model, bst.ParamState, bst.ShortTermState)
+      >>> params, others = brainstate.graph.treefy_states(model, brainstate.ParamState, brainstate.ShortTermState)
       >>> # get them together
-      >>> states = bst.graph.treefy_states(model)
+      >>> states = brainstate.graph.treefy_states(model)
 
     Args:
       node: A graph node object.
@@ -1403,11 +1403,11 @@ def graphdef(node: Any, /) -> GraphDef[Any]:
 
     Example usage::
 
-      >>> import brainstate as bst
+      >>> import brainstate as brainstate
 
-      >>> model = bst.nn.Linear(2, 3)
-      >>> graphdef, _ = bst.graph.treefy_split(model)
-      >>> assert graphdef == bst.graph.graphdef(model)
+      >>> model = brainstate.nn.Linear(2, 3)
+      >>> graphdef, _ = brainstate.graph.treefy_split(model)
+      >>> assert graphdef == brainstate.graph.graphdef(model)
 
     Args:
       node: A graph node object.
@@ -1426,8 +1426,8 @@ def clone(node: Node) -> Node:
 
     Example usage::
 
-      >>> import brainstate as bst
-      >>> model = bst.nn.Linear(2, 3)
+      >>> import brainstate as brainstate
+      >>> model = brainstate.nn.Linear(2, 3)
       >>> cloned_model = clone(model)
       >>> model.weight.value['bias'] += 1
       >>> assert (model.weight.value['bias'] != cloned_model.weight.value['bias']).all()
@@ -1456,15 +1456,15 @@ def call(
 
     Example::
 
-      >>> import brainstate as bst
+      >>> import brainstate as brainstate
       >>> import jax
       >>> import jax.numpy as jnp
       ...
-      >>> class StatefulLinear(bst.graph.Node):
+      >>> class StatefulLinear(brainstate.graph.Node):
       ...   def __init__(self, din, dout):
-      ...     self.w = bst.ParamState(bst.random.rand(din, dout))
-      ...     self.b = bst.ParamState(jnp.zeros((dout,)))
-      ...     self.count = bst.State(jnp.array(0, dtype=jnp.uint32))
+      ...     self.w = brainstate.ParamState(brainstate.random.rand(din, dout))
+      ...     self.b = brainstate.ParamState(jnp.zeros((dout,)))
+      ...     self.count = brainstate.State(jnp.array(0, dtype=jnp.uint32))
       ...
       ...   def increment(self):
       ...     self.count.value += 1
@@ -1474,18 +1474,18 @@ def call(
       ...     return x @ self.w.value + self.b.value
       ...
       >>> linear = StatefulLinear(3, 2)
-      >>> linear_state = bst.graph.treefy_split(linear)
+      >>> linear_state = brainstate.graph.treefy_split(linear)
       ...
       >>> @jax.jit
       ... def forward(x, linear_state):
-      ...   y, linear_state = bst.graph.call(linear_state)(x)
+      ...   y, linear_state = brainstate.graph.call(linear_state)(x)
       ...   return y, linear_state
       ...
       >>> x = jnp.ones((1, 3))
       >>> y, linear_state = forward(x, linear_state)
       >>> y, linear_state = forward(x, linear_state)
       ...
-      >>> linear = bst.graph.treefy_merge(*linear_state)
+      >>> linear = brainstate.graph.treefy_merge(*linear_state)
       >>> linear.count.value
       Array(2, dtype=uint32)
 
@@ -1494,11 +1494,11 @@ def call(
     is used to call the ``increment`` method of the ``StatefulLinear`` module
     at the ``b`` key of a ``nodes`` dictionary.
 
-      >>> class StatefulLinear(bst.graph.Node):
+      >>> class StatefulLinear(brainstate.graph.Node):
       ...   def __init__(self, din, dout):
-      ...     self.w = bst.ParamState(bst.random.rand(din, dout))
-      ...     self.b = bst.ParamState(jnp.zeros((dout,)))
-      ...     self.count = bst.State(jnp.array(0, dtype=jnp.uint32))
+      ...     self.w = brainstate.ParamState(brainstate.random.rand(din, dout))
+      ...     self.b = brainstate.ParamState(jnp.zeros((dout,)))
+      ...     self.count = brainstate.State(jnp.array(0, dtype=jnp.uint32))
       ...
       ...   def increment(self):
       ...     self.count.value += 1
@@ -1514,7 +1514,7 @@ def call(
       ...
       >>> node_state = treefy_split(nodes)
       >>> # use attribute access
-      >>> _, node_state = bst.graph.call(node_state)['b'].increment()
+      >>> _, node_state = brainstate.graph.call(node_state)['b'].increment()
       ...
       >>> nodes = treefy_merge(*node_state)
       >>> nodes['a'].count.value
@@ -1544,19 +1544,19 @@ def iter_leaf(
     root. Repeated nodes are visited only once. Leaves include static values.
 
     Example::
-      >>> import brainstate as bst
+      >>> import brainstate as brainstate
       >>> import jax.numpy as jnp
       ...
-      >>> class Linear(bst.nn.Module):
+      >>> class Linear(brainstate.nn.Module):
       ...   def __init__(self, din, dout):
       ...     super().__init__()
-      ...     self.weight = bst.ParamState(bst.random.randn(din, dout))
-      ...     self.bias = bst.ParamState(bst.random.randn(dout))
+      ...     self.weight = brainstate.ParamState(brainstate.random.randn(din, dout))
+      ...     self.bias = brainstate.ParamState(brainstate.random.randn(dout))
       ...     self.a = 1
       ...
       >>> module = Linear(3, 4)
       ...
-      >>> for path, value in bst.graph.iter_leaf([module, module]):
+      >>> for path, value in brainstate.graph.iter_leaf([module, module]):
       ...   print(path, type(value).__name__)
       ...
       (0, 'a') int
@@ -1616,21 +1616,21 @@ def iter_node(
     root. Repeated nodes are visited only once. Leaves include static values.
 
     Example::
-      >>> import brainstate as bst
+      >>> import brainstate as brainstate
       >>> import jax.numpy as jnp
       ...
-      >>> class Model(bst.nn.Module):
+      >>> class Model(brainstate.nn.Module):
       ...   def __init__(self):
       ...     super().__init__()
-      ...     self.a = bst.nn.Linear(1, 2)
-      ...     self.b = bst.nn.Linear(2, 3)
-      ...     self.c = [bst.nn.Linear(3, 4), bst.nn.Linear(4, 5)]
-      ...     self.d = {'x': bst.nn.Linear(5, 6), 'y': bst.nn.Linear(6, 7)}
-      ...     self.b.a = bst.nn.LIF(2)
+      ...     self.a = brainstate.nn.Linear(1, 2)
+      ...     self.b = brainstate.nn.Linear(2, 3)
+      ...     self.c = [brainstate.nn.Linear(3, 4), brainstate.nn.Linear(4, 5)]
+      ...     self.d = {'x': brainstate.nn.Linear(5, 6), 'y': brainstate.nn.Linear(6, 7)}
+      ...     self.b.a = brainstate.nn.LIF(2)
       ...
       >>> model = Model()
       ...
-      >>> for path, node in bst.graph.iter_node([model, model]):
+      >>> for path, node in brainstate.graph.iter_node([model, model]):
       ...    print(path, node.__class__.__name__)
       ...
       (0, 'a') Linear

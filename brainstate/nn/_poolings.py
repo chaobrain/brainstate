@@ -55,8 +55,8 @@ class Flatten(Module):
         end_axis: last dim to flatten (default = -1).
 
     Examples::
-        >>> import brainstate as bst
-        >>> inp = bst.random.randn(32, 1, 5, 5)
+        >>> import brainstate as brainstate
+        >>> inp = brainstate.random.randn(32, 1, 5, 5)
         >>> # With default parameters
         >>> m = Flatten()
         >>> output = m(inp)
@@ -334,10 +334,10 @@ class MaxPool1d(_MaxPool):
 
     Examples::
 
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> # pool of size=3, stride=2
         >>> m = MaxPool1d(3, stride=2, channel_axis=-1)
-        >>> input = bst.random.randn(20, 50, 16)
+        >>> input = brainstate.random.randn(20, 50, 16)
         >>> output = m(input)
         >>> output.shape
         (20, 24, 16)
@@ -418,12 +418,12 @@ class MaxPool2d(_MaxPool):
 
     Examples::
 
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> # pool of square window of size=3, stride=2
         >>> m = MaxPool2d(3, stride=2)
         >>> # pool of non-square window
         >>> m = MaxPool2d((3, 2), stride=(2, 1), channel_axis=-1)
-        >>> input = bst.random.randn(20, 50, 32, 16)
+        >>> input = brainstate.random.randn(20, 50, 32, 16)
         >>> output = m(input)
         >>> output.shape
         (20, 24, 31, 16)
@@ -509,12 +509,12 @@ class MaxPool3d(_MaxPool):
 
     Examples::
 
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> # pool of square window of size=3, stride=2
         >>> m = MaxPool3d(3, stride=2)
         >>> # pool of non-square window
         >>> m = MaxPool3d((3, 2, 2), stride=(2, 1, 2), channel_axis=-1)
-        >>> input = bst.random.randn(20, 50, 44, 31, 16)
+        >>> input = brainstate.random.randn(20, 50, 44, 31, 16)
         >>> output = m(input)
         >>> output.shape
         (20, 24, 43, 15, 16)
@@ -588,10 +588,10 @@ class AvgPool1d(_AvgPool):
 
     Examples::
 
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> # pool with window of size=3, stride=2
         >>> m = AvgPool1d(3, stride=2)
-        >>> input = bst.random.randn(20, 50, 16)
+        >>> input = brainstate.random.randn(20, 50, 16)
         >>> m(input).shape
         (20, 24, 16)
 
@@ -665,12 +665,12 @@ class AvgPool2d(_AvgPool):
 
     Examples::
 
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> # pool of square window of size=3, stride=2
         >>> m = AvgPool2d(3, stride=2)
         >>> # pool of non-square window
         >>> m = AvgPool2d((3, 2), stride=(2, 1))
-        >>> input = bst.random.randn(20, 50, 32, , 16)
+        >>> input = brainstate.random.randn(20, 50, 32, , 16)
         >>> output = m(input)
         >>> output.shape
         (20, 24, 31, 16)
@@ -753,12 +753,12 @@ class AvgPool3d(_AvgPool):
 
     Examples::
 
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> # pool of square window of size=3, stride=2
         >>> m = AvgPool3d(3, stride=2)
         >>> # pool of non-square window
         >>> m = AvgPool3d((3, 2, 2), stride=(2, 1, 2))
-        >>> input = bst.random.randn(20, 50, 44, 31, 16)
+        >>> input = brainstate.random.randn(20, 50, 44, 31, 16)
         >>> output = m(input)
         >>> output.shape
         (20, 24, 43, 15, 16)
@@ -931,10 +931,10 @@ class AdaptiveAvgPool1d(_AdaptivePool):
 
     Examples:
 
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> # target output size of 5
         >>> m = AdaptiveMaxPool1d(5)
-        >>> input = bst.random.randn(1, 64, 8)
+        >>> input = brainstate.random.randn(1, 64, 8)
         >>> output = m(input)
         >>> output.shape
         (1, 5, 8)
@@ -979,22 +979,22 @@ class AdaptiveAvgPool2d(_AdaptivePool):
 
     Examples:
 
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> # target output size of 5x7
         >>> m = AdaptiveMaxPool2d((5, 7))
-        >>> input = bst.random.randn(1, 8, 9, 64)
+        >>> input = brainstate.random.randn(1, 8, 9, 64)
         >>> output = m(input)
         >>> output.shape
         (1, 5, 7, 64)
         >>> # target output size of 7x7 (square)
         >>> m = AdaptiveMaxPool2d(7)
-        >>> input = bst.random.randn(1, 10, 9, 64)
+        >>> input = brainstate.random.randn(1, 10, 9, 64)
         >>> output = m(input)
         >>> output.shape
         (1, 7, 7, 64)
         >>> # target output size of 10x7
         >>> m = AdaptiveMaxPool2d((None, 7))
-        >>> input = bst.random.randn(1, 10, 9, 64)
+        >>> input = brainstate.random.randn(1, 10, 9, 64)
         >>> output = m(input)
         >>> output.shape
         (1, 10, 7, 64)
@@ -1040,22 +1040,22 @@ class AdaptiveAvgPool3d(_AdaptivePool):
 
     Examples:
 
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> # target output size of 5x7x9
         >>> m = AdaptiveMaxPool3d((5, 7, 9))
-        >>> input = bst.random.randn(1, 8, 9, 10, 64)
+        >>> input = brainstate.random.randn(1, 8, 9, 10, 64)
         >>> output = m(input)
         >>> output.shape
         (1, 5, 7, 9, 64)
         >>> # target output size of 7x7x7 (cube)
         >>> m = AdaptiveMaxPool3d(7)
-        >>> input = bst.random.randn(1, 10, 9, 8, 64)
+        >>> input = brainstate.random.randn(1, 10, 9, 8, 64)
         >>> output = m(input)
         >>> output.shape
         (1, 7, 7, 7, 64)
         >>> # target output size of 7x9x8
         >>> m = AdaptiveMaxPool3d((7, None, None))
-        >>> input = bst.random.randn(1, 10, 9, 8, 64)
+        >>> input = brainstate.random.randn(1, 10, 9, 8, 64)
         >>> output = m(input)
         >>> output.shape
         (1, 7, 9, 8, 64)

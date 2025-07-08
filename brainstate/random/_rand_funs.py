@@ -78,8 +78,8 @@ def rand(*dn, key: Optional[SeedOrKey] = None, dtype: DTypeLike = None):
 
     Examples
     --------
-    >>> import brainstate as bst
-    >>> bst.random.rand(3,2)
+    >>> import brainstate as brainstate
+    >>> brainstate.random.rand(3,2)
     array([[ 0.14022471,  0.96360618],  #random
            [ 0.37601032,  0.25528411],  #random
            [ 0.49313049,  0.94909878]]) #random
@@ -135,31 +135,31 @@ def randint(low, high=None, size: Optional[Size] = None,
 
     Examples
     --------
-    >>> import brainstate as bst
-    >>> bst.random.randint(2, size=10)
+    >>> import brainstate as brainstate
+    >>> brainstate.random.randint(2, size=10)
     array([1, 0, 0, 0, 1, 1, 0, 0, 1, 0]) # random
-    >>> bst.random.randint(1, size=10)
+    >>> brainstate.random.randint(1, size=10)
     array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
 
     Generate a 2 x 4 array of ints between 0 and 4, inclusive:
 
-    >>> bst.random.randint(5, size=(2, 4))
+    >>> brainstate.random.randint(5, size=(2, 4))
     array([[4, 0, 2, 1], # random
            [3, 2, 2, 0]])
 
     Generate a 1 x 3 array with 3 different upper bounds
 
-    >>> bst.random.randint(1, [3, 5, 10])
+    >>> brainstate.random.randint(1, [3, 5, 10])
     array([2, 2, 9]) # random
 
     Generate a 1 by 3 array with 3 different lower bounds
 
-    >>> bst.random.randint([1, 5, 7], 10)
+    >>> brainstate.random.randint([1, 5, 7], 10)
     array([9, 8, 7]) # random
 
     Generate a 2 by 4 array using broadcasting with dtype of uint8
 
-    >>> bst.random.randint([1, 3, 5, 7], [[10], [20]], dtype=np.uint8)
+    >>> brainstate.random.randint([1, 3, 5, 7], [[10], [20]], dtype=np.uint8)
     array([[ 8,  6,  9,  7], # random
            [ 1, 16,  9, 12]], dtype=uint8)
     """
@@ -219,12 +219,12 @@ def random_integers(low,
 
     Examples
     --------
-    >>> import brainstate as bst
-    >>> bst.random.random_integers(5)
+    >>> import brainstate as brainstate
+    >>> brainstate.random.random_integers(5)
     4 # random
-    >>> type(bst.random.random_integers(5))
+    >>> type(brainstate.random.random_integers(5))
     <class 'numpy.int64'>
-    >>> bst.random.random_integers(5, size=(3,2))
+    >>> brainstate.random.random_integers(5, size=(3,2))
     array([[5, 4], # random
            [3, 3],
            [4, 5]])
@@ -233,13 +233,13 @@ def random_integers(low,
     numbers between 0 and 2.5, inclusive (*i.e.*, from the set
     :math:`{0, 5/8, 10/8, 15/8, 20/8}`):
 
-    >>> 2.5 * (bst.random.random_integers(5, size=(5,)) - 1) / 4.
+    >>> 2.5 * (brainstate.random.random_integers(5, size=(5,)) - 1) / 4.
     array([ 0.625,  1.25 ,  0.625,  0.625,  2.5  ]) # random
 
     Roll two six sided dice 1000 times and sum the results:
 
-    >>> d1 = bst.random.random_integers(1, 6, 1000)
-    >>> d2 = bst.random.random_integers(1, 6, 1000)
+    >>> d1 = brainstate.random.random_integers(1, 6, 1000)
+    >>> d2 = brainstate.random.random_integers(1, 6, 1000)
     >>> dsums = d1 + d2
 
     Display results as a histogram:
@@ -301,13 +301,13 @@ def randn(*dn, key: Optional[SeedOrKey] = None, dtype: DTypeLike = None):
 
     Examples
     --------
-    >>> import brainstate as bst
-    >>> bst.random.randn()
+    >>> import brainstate as brainstate
+    >>> brainstate.random.randn()
     2.1923875335537315  # random
 
     Two-by-four array of samples from N(3, 6.25):
 
-    >>> 3 + 2.5 * bst.random.randn(2, 4)
+    >>> 3 + 2.5 * brainstate.random.randn(2, 4)
     array([[-4.49401501,  4.00950034, -1.81814867,  7.29718677],   # random
            [ 0.39924804,  4.68456316,  4.99394529,  4.84057254]])  # random
     """
@@ -359,17 +359,17 @@ def random_sample(size: Optional[Size] = None, key: Optional[SeedOrKey] = None, 
 
     Examples
     --------
-    >>> import brainstate as bst
-    >>> bst.random.random_sample()
+    >>> import brainstate as brainstate
+    >>> brainstate.random.random_sample()
     0.47108547995356098 # random
-    >>> type(bst.random.random_sample())
+    >>> type(brainstate.random.random_sample())
     <class 'float'>
-    >>> bst.random.random_sample((5,))
+    >>> brainstate.random.random_sample((5,))
     array([ 0.30220482,  0.86820401,  0.1654503 ,  0.11659149,  0.54323428]) # random
 
     Three-by-two array of random numbers from [-5, 0):
 
-    >>> 5 * bst.random.random_sample((3, 2)) - 5
+    >>> 5 * brainstate.random.random_sample((3, 2)) - 5
     array([[-3.99149989, -0.52338984], # random
            [-2.99091858, -0.79479508],
            [-1.23204345, -1.75224494]])
@@ -450,34 +450,34 @@ def choice(a, size: Optional[Size] = None, replace=True, p=None,
     --------
     Generate a uniform random sample from np.arange(5) of size 3:
 
-    >>> import brainstate as bst
-    >>> bst.random.choice(5, 3)
+    >>> import brainstate as brainstate
+    >>> brainstate.random.choice(5, 3)
     array([0, 3, 4]) # random
     >>> #This is equivalent to brainpy.math.random.randint(0,5,3)
 
     Generate a non-uniform random sample from np.arange(5) of size 3:
 
-    >>> bst.random.choice(5, 3, p=[0.1, 0, 0.3, 0.6, 0])
+    >>> brainstate.random.choice(5, 3, p=[0.1, 0, 0.3, 0.6, 0])
     array([3, 3, 0]) # random
 
     Generate a uniform random sample from np.arange(5) of size 3 without
     replacement:
 
-    >>> bst.random.choice(5, 3, replace=False)
+    >>> brainstate.random.choice(5, 3, replace=False)
     array([3,1,0]) # random
     >>> #This is equivalent to brainpy.math.random.permutation(np.arange(5))[:3]
 
     Generate a non-uniform random sample from np.arange(5) of size
     3 without replacement:
 
-    >>> bst.random.choice(5, 3, replace=False, p=[0.1, 0, 0.3, 0.6, 0])
+    >>> brainstate.random.choice(5, 3, replace=False, p=[0.1, 0, 0.3, 0.6, 0])
     array([2, 3, 0]) # random
 
     Any of the above can be repeated with an arbitrary array-like
     instead of just integers. For instance:
 
     >>> aa_milne_arr = ['pooh', 'rabbit', 'piglet', 'Christopher']
-    >>> bst.random.choice(aa_milne_arr, 5, p=[0.5, 0.1, 0.1, 0.3])
+    >>> brainstate.random.choice(aa_milne_arr, 5, p=[0.5, 0.1, 0.1, 0.3])
     array(['pooh', 'pooh', 'pooh', 'Christopher', 'piglet'], # random
           dtype='<U11')
     """
@@ -519,15 +519,15 @@ def permutation(x,
 
     Examples
     --------
-    >>> import brainstate as bst
-    >>> bst.random.permutation(10)
+    >>> import brainstate as brainstate
+    >>> brainstate.random.permutation(10)
     array([1, 7, 4, 3, 0, 9, 2, 5, 8, 6]) # random
 
-    >>> bst.random.permutation([1, 4, 9, 12, 15])
+    >>> brainstate.random.permutation([1, 4, 9, 12, 15])
     array([15,  1,  9,  4, 12]) # random
 
     >>> arr = np.arange(9).reshape((3, 3))
-    >>> bst.random.permutation(arr)
+    >>> brainstate.random.permutation(arr)
     array([[6, 7, 8], # random
            [0, 1, 2],
            [3, 4, 5]])
@@ -557,16 +557,16 @@ def shuffle(x, axis=0, key: Optional[SeedOrKey] = None):
 
     Examples
     --------
-    >>> import brainstate as bst
+    >>> import brainstate as brainstate
     >>> arr = np.arange(10)
-    >>> bst.random.shuffle(arr)
+    >>> brainstate.random.shuffle(arr)
     >>> arr
     [1 7 5 2 9 4 3 6 0 8] # random
 
     Multi-dimensional arrays are only shuffled along the first axis:
 
     >>> arr = np.arange(9).reshape((3, 3))
-    >>> bst.random.shuffle(arr)
+    >>> brainstate.random.shuffle(arr)
     >>> arr
     array([[3, 4, 5], # random
            [6, 7, 8],

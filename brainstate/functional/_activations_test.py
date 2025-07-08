@@ -70,39 +70,39 @@ class NNFunctionsTest(jtu.JaxTestCase):
             check_dtypes=False)
 
     #   def testSquareplusGrad(self):
-    #     check_grads(bst.functional.squareplus, (1e-8,), order=4,
+    #     check_grads(brainstate.functional.squareplus, (1e-8,), order=4,
     #                 )
 
     #   def testSquareplusGradZero(self):
-    #     check_grads(bst.functional.squareplus, (0.,), order=1,
+    #     check_grads(brainstate.functional.squareplus, (0.,), order=1,
     #                 )
 
     #   def testSquareplusGradNegInf(self):
-    #     check_grads(bst.functional.squareplus, (-float('inf'),), order=1,
+    #     check_grads(brainstate.functional.squareplus, (-float('inf'),), order=1,
     #                 )
 
     #   def testSquareplusGradNan(self):
-    #     check_grads(bst.functional.squareplus, (float('nan'),), order=1,
+    #     check_grads(brainstate.functional.squareplus, (float('nan'),), order=1,
     #                 )
 
     #   @parameterized.parameters([float] + jtu.dtypes.floating)
     #   def testSquareplusZero(self, dtype):
-    #     self.assertEqual(dtype(1), bst.functional.squareplus(dtype(0), dtype(4)))
+    #     self.assertEqual(dtype(1), brainstate.functional.squareplus(dtype(0), dtype(4)))
     #
     # def testMishGrad(self):
-    #   check_grads(bst.functional.mish, (1e-8,), order=4,
+    #   check_grads(brainstate.functional.mish, (1e-8,), order=4,
     #               )
     #
     # def testMishGradZero(self):
-    #   check_grads(bst.functional.mish, (0.,), order=1,
+    #   check_grads(brainstate.functional.mish, (0.,), order=1,
     #               )
     #
     # def testMishGradNegInf(self):
-    #   check_grads(bst.functional.mish, (-float('inf'),), order=1,
+    #   check_grads(brainstate.functional.mish, (-float('inf'),), order=1,
     #               )
     #
     # def testMishGradNan(self):
-    #   check_grads(bst.functional.mish, (float('nan'),), order=1,
+    #   check_grads(brainstate.functional.mish, (float('nan'),), order=1,
     #               )
 
     @parameterized.parameters([float] + jtu.dtypes.floating)
@@ -137,7 +137,7 @@ class NNFunctionsTest(jtu.JaxTestCase):
         self.assertAllClose(brainstate.functional.sparse_sigmoid(0.), .5, check_dtypes=False)
 
     #   def testSquareplusValue(self):
-    #     val = bst.functional.squareplus(1e3)
+    #     val = brainstate.functional.squareplus(1e3)
     #     self.assertAllClose(val, 1e3, check_dtypes=False, atol=1e-3)
 
     def testMishValue(self):
@@ -177,7 +177,7 @@ class NNFunctionsTest(jtu.JaxTestCase):
          brainstate.functional.softplus,
          brainstate.functional.sparse_plus,
          brainstate.functional.sigmoid,
-         #  bst.functional.squareplus,
+         #  brainstate.functional.squareplus,
          brainstate.functional.mish)))
     def testDtypeMatchesInput(self, dtype, fn):
         x = jnp.zeros((), dtype=dtype)
@@ -306,7 +306,7 @@ class NNFunctionsTest(jtu.JaxTestCase):
 
     def testCustomJVPLeak2(self):
         # https://github.com/google/jax/issues/8171
-        # The above test uses jax.bst.functional.sigmoid, as in the original #8171, but that
+        # The above test uses jax.brainstate.functional.sigmoid, as in the original #8171, but that
         # function no longer actually has a custom_jvp! So we inline the old def.
 
         @jax.custom_jvp

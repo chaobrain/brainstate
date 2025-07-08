@@ -61,7 +61,7 @@ class Threshold(ElementWiseBlock):
     Examples::
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as bst
+        >>> import brainstate
         >>> m = nn.Threshold(0.1, 20)
         >>> x = random.randn(2)
         >>> output = m(x)
@@ -97,7 +97,7 @@ class ReLU(ElementWiseBlock):
     Examples::
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> m = nn.ReLU()
         >>> x = random.randn(2)
         >>> output = m(x)
@@ -106,7 +106,7 @@ class ReLU(ElementWiseBlock):
       An implementation of CReLU - https://arxiv.org/abs/1603.05201
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> m = nn.ReLU()
         >>> x = random.randn(2).unsqueeze(0)
         >>> output = jax.numpy.concat((m(x), m(-x)))
@@ -151,7 +151,7 @@ class RReLU(ElementWiseBlock):
     Examples::
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> m = nn.RReLU(0.1, 0.3)
         >>> x = random.randn(2)
         >>> output = m(x)
@@ -205,7 +205,7 @@ class Hardtanh(ElementWiseBlock):
     Examples::
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> m = nn.Hardtanh(-2, 2)
         >>> x = random.randn(2)
         >>> output = m(x)
@@ -244,7 +244,7 @@ class ReLU6(Hardtanh, ElementWiseBlock):
     Examples::
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> m = nn.ReLU6()
         >>> x = random.randn(2)
         >>> output = m(x)
@@ -269,7 +269,7 @@ class Sigmoid(ElementWiseBlock):
     Examples::
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> m = nn.Sigmoid()
         >>> x = random.randn(2)
         >>> output = m(x)
@@ -299,7 +299,7 @@ class Hardsigmoid(ElementWiseBlock):
     Examples::
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> m = nn.Hardsigmoid()
         >>> x = random.randn(2)
         >>> output = m(x)
@@ -325,7 +325,7 @@ class Tanh(ElementWiseBlock):
     Examples::
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> m = nn.Tanh()
         >>> x = random.randn(2)
         >>> output = m(x)
@@ -386,7 +386,7 @@ class Mish(ElementWiseBlock):
     Examples::
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> m = nn.Mish()
         >>> x = random.randn(2)
         >>> output = m(x)
@@ -418,7 +418,7 @@ class Hardswish(ElementWiseBlock):
     Examples::
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> m = nn.Hardswish()
         >>> x = random.randn(2)
         >>> output = m(x)
@@ -452,7 +452,7 @@ class ELU(ElementWiseBlock):
     Examples::
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> m = nn.ELU()
         >>> x = random.randn(2)
         >>> output = m(x)
@@ -489,7 +489,7 @@ class CELU(ElementWiseBlock):
     Examples::
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> m = nn.CELU()
         >>> x = random.randn(2)
         >>> output = m(x)
@@ -530,7 +530,7 @@ class SELU(ElementWiseBlock):
     Examples::
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> m = nn.SELU()
         >>> x = random.randn(2)
         >>> output = m(x)
@@ -559,7 +559,7 @@ class GLU(ElementWiseBlock):
     Examples::
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> m = nn.GLU()
         >>> x = random.randn(4, 2)
         >>> output = m(x)
@@ -600,7 +600,7 @@ class GELU(ElementWiseBlock):
     Examples::
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> m = nn.GELU()
         >>> x = random.randn(2)
         >>> output = m(x)
@@ -642,7 +642,7 @@ class Hardshrink(ElementWiseBlock):
     Examples::
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> m = nn.Hardshrink()
         >>> x = random.randn(2)
         >>> output = m(x)
@@ -689,7 +689,7 @@ class LeakyReLU(ElementWiseBlock):
     Examples::
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> m = nn.LeakyReLU(0.1)
         >>> x = random.randn(2)
         >>> output = m(x)
@@ -721,7 +721,7 @@ class LogSigmoid(ElementWiseBlock):
     Examples::
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> m = nn.LogSigmoid()
         >>> x = random.randn(2)
         >>> output = m(x)
@@ -749,7 +749,7 @@ class Softplus(ElementWiseBlock):
     Examples::
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> m = nn.Softplus()
         >>> x = random.randn(2)
         >>> output = m(x)
@@ -781,7 +781,7 @@ class Softshrink(ElementWiseBlock):
     Examples::
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> m = nn.Softshrink()
         >>> x = random.randn(2)
         >>> output = m(x)
@@ -843,9 +843,9 @@ class PReLU(ElementWiseBlock):
 
     Examples::
 
-        >>> import brainstate as bst
-        >>> m = bst.nn.PReLU()
-        >>> x = bst.random.randn(2)
+        >>> import brainstate as brainstate
+        >>> m = brainstate.nn.PReLU()
+        >>> x = brainstate.random.randn(2)
         >>> output = m(x)
     """
     __module__ = 'brainstate.nn'
@@ -876,7 +876,7 @@ class Softsign(ElementWiseBlock):
     Examples::
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> m = nn.Softsign()
         >>> x = random.randn(2)
         >>> output = m(x)
@@ -900,7 +900,7 @@ class Tanhshrink(ElementWiseBlock):
     Examples::
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> m = nn.Tanhshrink()
         >>> x = random.randn(2)
         >>> output = m(x)
@@ -937,7 +937,7 @@ class Softmin(ElementWiseBlock):
     Examples::
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> m = nn.Softmin(dim=1)
         >>> x = random.randn(2, 3)
         >>> output = m(x)
@@ -990,7 +990,7 @@ class Softmax(ElementWiseBlock):
     Examples::
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> m = nn.Softmax(dim=1)
         >>> x = random.randn(2, 3)
         >>> output = m(x)
@@ -1027,7 +1027,7 @@ class Softmax2d(ElementWiseBlock):
     Examples::
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> m = nn.Softmax2d()
         >>> # you softmax over the 2nd dimension
         >>> x = random.randn(2, 3, 12, 13)
@@ -1062,7 +1062,7 @@ class LogSoftmax(ElementWiseBlock):
     Examples::
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> m = nn.LogSoftmax(dim=1)
         >>> x = random.randn(2, 3)
         >>> output = m(x)
