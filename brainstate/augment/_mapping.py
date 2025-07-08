@@ -185,10 +185,10 @@ def _compile_stateful_function(
     if isinstance(in_axes, int):
         args = jax.tree.map(lambda x: _remove_axis(x, in_axes), args)
     elif isinstance(in_axes, tuple):
-        args = tuple(
-            [arg if in_axis is None else _remove_axis(arg, in_axis)
-             for arg, in_axis in zip(args, in_axes)]
-        )
+        args = tuple([
+            arg if in_axis is None else _remove_axis(arg, in_axis)
+            for arg, in_axis in zip(args, in_axes)
+        ])
     stateful_fn.make_jaxpr(state_vals, args)
     return stateful_fn.get_arg_cache_key(state_vals, args)
 
@@ -383,10 +383,7 @@ def _vmap_transform(
         stateful_fn.axis_env = axis_env
 
     # stateful function
-    stateful_fn = StatefulFunction(
-        _vmap_fn_for_compilation,
-        name='vmap',
-    )
+    stateful_fn = StatefulFunction(_vmap_fn_for_compilation, name='vmap')
 
     @functools.wraps(f)
     def new_fn_for_vmap(
@@ -460,7 +457,10 @@ def _vmap_transform(
         # analyze vmapping axis error
         for state in state_trace.get_write_states():
             leaves = jax.tree.leaves(state.value)
-            if any([isinstance(leaf, BatchTracer) for leaf in leaves]) and state not in out_state_to_axis:
+            if (
+                any([isinstance(leaf, BatchTracer) and (leaf.batch_dim is not None) for leaf in leaves])
+                and state not in out_state_to_axis
+            ):
                 if isinstance(state, RandomState) and state in rng_sets:
                     continue
                 state.raise_error_with_source_info(

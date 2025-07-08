@@ -547,7 +547,7 @@ def poisson_input(
                 num_input,
                 p,
                 tar[indices].shape,
-                # check_valid=False,
+                check_valid=False,
                 dtype=tar.dtype
             ),
             tar_val,

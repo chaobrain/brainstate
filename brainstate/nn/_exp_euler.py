@@ -69,27 +69,24 @@ def exp_euler_step(
             f'The input data type should be float64, float32, float16, or bfloat16 '
             f'when using Exponential Euler method. But we got {args[0].dtype}.'
         )
+
+    # drift
     dt = environ.get('dt')
     linear, derivative = vector_grad(fn, argnums=0, return_value=True)(*args, **kwargs)
     linear = u.Quantity(u.get_mantissa(linear), u.get_unit(derivative) / u.get_unit(linear))
     phi = u.math.exprel(dt * linear)
     x_next = args[0] + dt * phi * derivative
 
+    # diffusion
     if diffusion is not None:
-        # unit checking
-        diffusion = diffusion(*args, **kwargs)
-        time_unit = u.get_unit(dt)
-        drift_unit = u.get_unit(derivative)
-        diffusion_unit = u.get_unit(diffusion)
-        # if drift_unit.is_unitless:
-        #   assert diffusion_unit.is_unitless, 'The diffusion term should be unitless when the drift term is unitless.'
-        # else:
-        #   u.fail_for_dimension_mismatch(
-        #     drift_unit, diffusion_unit * time_unit ** 0.5,
-        #     "Drift unit is {drift}, diffusion unit is {diffusion}, ",
-        #     drift=drift_unit, diffusion=diffusion_unit * time_unit ** 0.5
-        #   )
-
-        # diffusion
-        x_next += diffusion * u.math.sqrt(dt) * random.randn_like(args[0])
+        diffusion_part = diffusion(*args, **kwargs) * u.math.sqrt(dt) * random.randn_like(args[0])
+        if u.get_dim(x_next) != u.get_dim(diffusion_part):
+            drift_unit = u.get_unit(x_next)
+            time_unit = u.get_unit(dt)
+            raise ValueError(
+                f"Drift unit is {drift_unit}, "
+                f"expected diffusion unit is {drift_unit / time_unit ** 0.5}, "
+                f"but we got {u.get_unit(diffusion_part)}."
+            )
+        x_next += diffusion_part
     return x_next

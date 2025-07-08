@@ -118,14 +118,14 @@ class Vmap(Module):
     This class wraps a module and applies vectorized mapping to its execution,
     allowing for efficient parallel processing across specified axes.
 
-    Attributes:
+    Args:
         module (Module): The module to be vmapped.
-        in_axes (int | None | Sequence[Any]): Specifies how to map over inputs.
-        out_axes (Any): Specifies how to map over outputs.
-        vmap_states (Filter | Dict[Filter, int]): Specifies which states to vmap and on which axes.
-        vmap_out_states (Filter | Dict[Filter, int]): Specifies which output states to vmap and on which axes.
-        axis_name (AxisName | None): Name of the axis being mapped over.
-        axis_size (int | None): Size of the axis being mapped over.
+        in_axes (int | None | Sequence[Any], optional): Specifies how to map over inputs. Defaults to 0.
+        out_axes (Any, optional): Specifies how to map over outputs. Defaults to 0.
+        vmap_states (Filter | Dict[Filter, int], optional): Specifies which states to vmap and on which axes. Defaults to None.
+        vmap_out_states (Filter | Dict[Filter, int], optional): Specifies which output states to vmap and on which axes. Defaults to None.
+        axis_name (AxisName | None, optional): Name of the axis being mapped over. Defaults to None.
+        axis_size (int | None, optional): Size of the axis being mapped over. Defaults to None.
     """
 
     def __init__(
@@ -138,18 +138,6 @@ class Vmap(Module):
         axis_name: AxisName | None = None,
         axis_size: int | None = None,
     ):
-        """
-        Initialize the Vmap instance.
-
-        Args:
-            module (Module): The module to be vmapped.
-            in_axes (int | None | Sequence[Any], optional): Specifies how to map over inputs. Defaults to 0.
-            out_axes (Any, optional): Specifies how to map over outputs. Defaults to 0.
-            vmap_states (Filter | Dict[Filter, int], optional): Specifies which states to vmap and on which axes. Defaults to None.
-            vmap_out_states (Filter | Dict[Filter, int], optional): Specifies which output states to vmap and on which axes. Defaults to None.
-            axis_name (AxisName | None, optional): Name of the axis being mapped over. Defaults to None.
-            axis_size (int | None, optional): Size of the axis being mapped over. Defaults to None.
-        """
         super().__init__()
 
         # parameters
