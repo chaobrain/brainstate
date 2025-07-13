@@ -183,16 +183,16 @@ def seed_context(seed_or_key: SeedOrKey):
 
     Examples:
 
-    >>> import brainstate as bst
-    >>> print(bst.random.rand(2))
+    >>> import brainstate as brainstate
+    >>> print(brainstate.random.rand(2))
     [0.57721865 0.9820676 ]
-    >>> print(bst.random.rand(2))
+    >>> print(brainstate.random.rand(2))
     [0.8511752  0.95312667]
-    >>> with bst.random.seed_context(42):
-    ...     print(bst.random.rand(2))
+    >>> with brainstate.random.seed_context(42):
+    ...     print(brainstate.random.rand(2))
     [0.95598125 0.4032725 ]
-    >>> with bst.random.seed_context(42):
-    ...     print(bst.random.rand(2))
+    >>> with brainstate.random.seed_context(42):
+    ...     print(brainstate.random.rand(2))
     [0.95598125 0.4032725 ]
 
     Args:

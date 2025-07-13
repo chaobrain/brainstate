@@ -370,7 +370,7 @@ class StatefulFunction(PrettyObject):
                     static_args.append(arg)
                 else:
                     dyn_args.append(arg)
-            dyn_args = jax.tree.map(shaped_abstractify, jax.tree.leaves(dyn_args))
+            dyn_args = jax.tree.map(shaped_abstractify, dyn_args)
             static_kwargs, dyn_kwargs = [], []
             for k, v in kwargs.items():
                 if k in self.static_argnames:
@@ -637,15 +637,15 @@ def make_jaxpr(
     instead give a few examples.
 
     >>> import jax
-    >>> import brainstate as bst
+    >>> import brainstate as brainstate
     >>>
     >>> def f(x): return jax.numpy.sin(jax.numpy.cos(x))
     >>> print(f(3.0))
     -0.83602
-    >>> jaxpr, states = bst.compile.make_jaxpr(f)(3.0)
+    >>> jaxpr, states = brainstate.compile.make_jaxpr(f)(3.0)
     >>> jaxpr
     { lambda ; a:f32[]. let b:f32[] = cos a; c:f32[] = sin b in (c,) }
-    >>> jaxpr, states = bst.compile.make_jaxpr(jax.grad(f))(3.0)
+    >>> jaxpr, states = brainstate.compile.make_jaxpr(jax.grad(f))(3.0)
     >>> jaxpr
     { lambda ; a:f32[]. let
         b:f32[] = cos a

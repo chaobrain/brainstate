@@ -62,7 +62,7 @@ def count_parameters(
 
     Parameters:
     -----------
-    model : bst.nn.Module
+    model : brainstate.nn.Module
         The neural network model for which to count parameters.
 
     Returns:

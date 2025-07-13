@@ -373,19 +373,19 @@ class NestedDict(PrettyDict):
 
         Example usage::
 
-          >>> import brainstate as bst
+          >>> import brainstate as brainstate
 
-          >>> class Model(bst.nn.Module):
+          >>> class Model(brainstate.nn.Module):
           ...   def __init__(self):
           ...     super().__init__()
-          ...     self.batchnorm = bst.nn.BatchNorm1d([10, 3])
-          ...     self.linear = bst.nn.Linear(2, 3)
+          ...     self.batchnorm = brainstate.nn.BatchNorm1d([10, 3])
+          ...     self.linear = brainstate.nn.Linear(2, 3)
           ...   def __call__(self, x):
           ...     return self.linear(self.batchnorm(x))
 
           >>> model = Model()
-          >>> state_map = bst.graph.treefy_states(model)
-          >>> param, others = state_map.treefy_split(bst.ParamState, ...)
+          >>> state_map = brainstate.graph.treefy_states(model)
+          >>> param, others = state_map.treefy_split(brainstate.ParamState, ...)
 
         Arguments:
           first: The first filter
@@ -495,14 +495,14 @@ class FlattedDict(PrettyDict):
 
     Example usage::
 
-      >>> import brainstate as bst
+      >>> import brainstate as brainstate
       >>> import jax.numpy as jnp
       >>>
-      >>> class Model(bst.nn.Module):
+      >>> class Model(brainstate.nn.Module):
       ...   def __init__(self):
       ...     super().__init__()
-      ...     self.batchnorm = bst.nn.BatchNorm1d([10, 3])
-      ...     self.linear = bst.nn.Linear(2, 3)
+      ...     self.batchnorm = brainstate.nn.BatchNorm1d([10, 3])
+      ...     self.linear = brainstate.nn.Linear(2, 3)
       ...   def __call__(self, x):
       ...     return self.linear(self.batchnorm(x))
       >>>

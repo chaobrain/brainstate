@@ -86,7 +86,7 @@ def run(scale: float):
     with brainstate.environ.context(dt=0.1 * u.ms):
         times = u.math.arange(0. * u.ms, duration, brainstate.environ.get_dt())
         brainstate.compile.for_loop(lambda t: net.update(t, 20. * u.mA), times,
-                                    # pbar=bst.compile.ProgressBar(100)
+                                    # pbar=brainstate.compile.ProgressBar(100)
                                     )
 
     return net.num, net.rate.value.sum() / net.num / duration.to_decimal(u.second)

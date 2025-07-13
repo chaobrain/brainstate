@@ -615,16 +615,16 @@ def vmap(
 
     These are several example usage::
 
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> import jax.numpy as jnp
 
-        >>> class Model(bst.nn.Module):
+        >>> class Model(brainstate.nn.Module):
         >>>     def __init__(self):
         >>>         super().__init__()
         >>>
-        >>>         self.a = bst.ShortTermState(bst.random.randn(5))
-        >>>         self.b = bst.ShortTermState(bst.random.randn(5))
-        >>>         self.c = bst.State(bst.random.randn(1))
+        >>>         self.a = brainstate.ShortTermState(brainstate.random.randn(5))
+        >>>         self.b = brainstate.ShortTermState(brainstate.random.randn(5))
+        >>>         self.c = brainstate.State(brainstate.random.randn(1))
 
         >>>     def __call__(self, *args, **kwargs):
         >>>         self.c.value = self.a.value * self.b.value
@@ -632,9 +632,9 @@ def vmap(
 
         >>> model = Model()
 
-        >>> r = bst.augment.vmap(
+        >>> r = brainstate.augment.vmap(
         >>>     model,
-        >>>     in_states=model.states(bst.ShortTermState),
+        >>>     in_states=model.states(brainstate.ShortTermState),
         >>>     out_states=model.c
         >>> )()
 

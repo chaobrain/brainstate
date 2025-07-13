@@ -40,13 +40,13 @@ def abstract_init(
 
     Here's an example::
 
-        >>> import brainstate as bst
+        >>> import brainstate
         >>> class MLP:
         ...     def __init__(self, n_in, n_mid, n_out):
-        ...         self.dense1 = bst.nn.Linear(n_in, n_mid)
-        ...         self.dense2 = bst.nn.Linear(n_mid, n_out)
+        ...         self.dense1 = brainstate.nn.Linear(n_in, n_mid)
+        ...         self.dense2 = brainstate.nn.Linear(n_mid, n_out)
 
-        >>> r = bst.augment.abstract_init(lambda: MLP(1, 2, 3))
+        >>> r = brainstate.augment.abstract_init(lambda: MLP(1, 2, 3))
         >>> r
         MLP(
           dense1=Linear(

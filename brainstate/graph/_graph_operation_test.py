@@ -443,7 +443,7 @@ class TestGraphOperation(unittest.TestCase):
         graphdef, statetree = brainstate.graph.flatten(MyNode())
         # print(graphdef)
         print(statetree)
-        # print(bst.graph.unflatten(graphdef, statetree))
+        # print(brainstate.graph.unflatten(graphdef, statetree))
 
     def test_split(self):
         class Foo(brainstate.graph.Node):
@@ -530,7 +530,7 @@ class TestGraphOperation(unittest.TestCase):
         print(graph_def)
         print(treefy_states)
 
-        # states = bst.graph.states(model)
+        # states = brainstate.graph.states(model)
         # print(states)
         # nest_states = states.to_nest()
         # print(nest_states)

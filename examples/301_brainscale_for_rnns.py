@@ -386,7 +386,7 @@ class Trainer(object):
 
 def network_training():
     # environment setting
-    # bst.environ.set(dt=args.dt)
+    # brainstate.environ.set(dt=args.dt)
 
     # get file path to output
     now = time.strftime('%Y-%m-%d %H-%M-%S', time.localtime(int(round(time.time() * 1000)) / 1000))

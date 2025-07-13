@@ -106,11 +106,11 @@ class Surrogate(PrettyObject):
     Examples
     --------
 
-    >>> import brainstate as bst
+    >>> import brainstate as brainstate
     >>> import brainstate.nn as nn
     >>> import jax.numpy as jnp
 
-    >>> class MySurrogate(bst.surrogate.Surrogate):
+    >>> class MySurrogate(brainstate.surrogate.Surrogate):
     ...   def __init__(self, alpha=1.):
     ...     super().__init__()
     ...     self.alpha = alpha
@@ -236,11 +236,11 @@ def sigmoid(
 
        >>> import jax
        >>> import brainstate.nn as nn
-       >>> import brainstate as bst
+       >>> import brainstate as brainstate
        >>> import matplotlib.pyplot as plt
        >>> xs = jax.numpy.linspace(-2, 2, 1000)
        >>> for alpha in [1., 2., 4.]:
-       >>>   grads = bst.augment.vector_grad(bst.surrogate.sigmoid)(xs, alpha)
+       >>>   grads = brainstate.augment.vector_grad(brainstate.surrogate.sigmoid)(xs, alpha)
        >>>   plt.plot(xs, grads, label=r'$\alpha$=' + str(alpha))
        >>> plt.legend()
        >>> plt.show()
@@ -355,11 +355,11 @@ def piecewise_quadratic(
 
        >>> import jax
        >>> import brainstate.nn as nn
-       >>> import brainstate as bst
+       >>> import brainstate as brainstate
        >>> import matplotlib.pyplot as plt
        >>> xs = jax.numpy.linspace(-3, 3, 1000)
        >>> for alpha in [0.5, 1., 2., 4.]:
-       >>>   grads = bst.augment.vector_grad(bst.surrogate.piecewise_quadratic)(xs, alpha)
+       >>>   grads = brainstate.augment.vector_grad(brainstate.surrogate.piecewise_quadratic)(xs, alpha)
        >>>   plt.plot(xs, grads, label=r'$\alpha$=' + str(alpha))
        >>> plt.legend()
        >>> plt.show()
@@ -522,11 +522,11 @@ def piecewise_exp(
 
        >>> import jax
        >>> import brainstate.nn as nn
-       >>> import brainstate as bst
+       >>> import brainstate as brainstate
        >>> import matplotlib.pyplot as plt
        >>> xs = jax.numpy.linspace(-3, 3, 1000)
        >>> for alpha in [0.5, 1., 2., 4.]:
-       >>>   grads = bst.augment.vector_grad(bst.surrogate.piecewise_exp)(xs, alpha)
+       >>>   grads = brainstate.augment.vector_grad(brainstate.surrogate.piecewise_exp)(xs, alpha)
        >>>   plt.plot(xs, grads, label=r'$\alpha$=' + str(alpha))
        >>> plt.legend()
        >>> plt.show()
@@ -621,11 +621,11 @@ def soft_sign(
 
        >>> import jax
        >>> import brainstate.nn as nn
-       >>> import brainstate as bst
+       >>> import brainstate as brainstate
        >>> import matplotlib.pyplot as plt
        >>> xs = jax.numpy.linspace(-3, 3, 1000)
        >>> for alpha in [0.5, 1., 2., 4.]:
-       >>>   grads = bst.augment.vector_grad(bst.surrogate.soft_sign)(xs, alpha)
+       >>>   grads = brainstate.augment.vector_grad(brainstate.surrogate.soft_sign)(xs, alpha)
        >>>   plt.plot(xs, grads, label=r'$\alpha$=' + str(alpha))
        >>> plt.legend()
        >>> plt.show()
@@ -706,11 +706,11 @@ def arctan(
 
        >>> import jax
        >>> import brainstate.nn as nn
-       >>> import brainstate as bst
+       >>> import brainstate as brainstate
        >>> import matplotlib.pyplot as plt
        >>> xs = jax.numpy.linspace(-3, 3, 1000)
        >>> for alpha in [0.5, 1., 2., 4.]:
-       >>>   grads = bst.augment.vector_grad(bst.surrogate.arctan)(xs, alpha)
+       >>>   grads = brainstate.augment.vector_grad(brainstate.surrogate.arctan)(xs, alpha)
        >>>   plt.plot(xs, grads, label=r'$\alpha$=' + str(alpha))
        >>> plt.legend()
        >>> plt.show()
@@ -804,11 +804,11 @@ def nonzero_sign_log(
 
        >>> import jax
        >>> import brainstate.nn as nn
-       >>> import brainstate as bst
+       >>> import brainstate as brainstate
        >>> import matplotlib.pyplot as plt
        >>> xs = jax.numpy.linspace(-3, 3, 1000)
        >>> for alpha in [0.5, 1., 2., 4.]:
-       >>>   grads = bst.augment.vector_grad(bst.surrogate.nonzero_sign_log)(xs, alpha)
+       >>>   grads = brainstate.augment.vector_grad(brainstate.surrogate.nonzero_sign_log)(xs, alpha)
        >>>   plt.plot(xs, grads, label=r'$\alpha$=' + str(alpha))
        >>> plt.legend()
        >>> plt.show()
@@ -893,11 +893,11 @@ def erf(
 
        >>> import jax
        >>> import brainstate.nn as nn
-       >>> import brainstate as bst
+       >>> import brainstate as brainstate
        >>> import matplotlib.pyplot as plt
        >>> xs = jax.numpy.linspace(-3, 3, 1000)
        >>> for alpha in [0.5, 1., 2., 4.]:
-       >>>   grads = bst.augment.vector_grad(bst.surrogate.nonzero_sign_log)(xs, alpha)
+       >>>   grads = brainstate.augment.vector_grad(brainstate.surrogate.nonzero_sign_log)(xs, alpha)
        >>>   plt.plot(xs, grads, label=r'$\alpha$=' + str(alpha))
        >>> plt.legend()
        >>> plt.show()
@@ -1000,12 +1000,12 @@ def piecewise_leaky_relu(
 
        >>> import jax
        >>> import brainstate.nn as nn
-       >>> import brainstate as bst
+       >>> import brainstate as brainstate
        >>> import matplotlib.pyplot as plt
        >>> xs = jax.numpy.linspace(-3, 3, 1000)
        >>> for c in [0.01, 0.05, 0.1]:
        >>>   for w in [1., 2.]:
-       >>>     grads1 = bst.augment.vector_grad(bst.surrogate.piecewise_leaky_relu)(xs, c=c, w=w)
+       >>>     grads1 = brainstate.augment.vector_grad(brainstate.surrogate.piecewise_leaky_relu)(xs, c=c, w=w)
        >>>     plt.plot(xs, grads1, label=f'x={c}, w={w}')
        >>> plt.legend()
        >>> plt.show()
@@ -1113,12 +1113,12 @@ def squarewave_fourier_series(
 
        >>> import jax
        >>> import brainstate.nn as nn
-       >>> import brainstate as bst
+       >>> import brainstate as brainstate
        >>> import matplotlib.pyplot as plt
        >>> xs = jax.numpy.linspace(-3, 3, 1000)
        >>> for n in [2, 4, 8]:
-       >>>   f = bst.surrogate.SquarewaveFourierSeries(n=n)
-       >>>   grads1 = bst.augment.vector_grad(f)(xs)
+       >>>   f = brainstate.surrogate.SquarewaveFourierSeries(n=n)
+       >>>   grads1 = brainstate.augment.vector_grad(f)(xs)
        >>>   plt.plot(xs, grads1, label=f'n={n}')
        >>> plt.legend()
        >>> plt.show()
@@ -1214,12 +1214,12 @@ def s2nn(
 
        >>> import jax
        >>> import brainstate.nn as nn
-       >>> import brainstate as bst
+       >>> import brainstate as brainstate
        >>> import matplotlib.pyplot as plt
        >>> xs = jax.numpy.linspace(-3, 3, 1000)
-       >>> grads = bst.augment.vector_grad(bst.surrogate.s2nn)(xs, 4., 1.)
+       >>> grads = brainstate.augment.vector_grad(brainstate.surrogate.s2nn)(xs, 4., 1.)
        >>> plt.plot(xs, grads, label=r'$\alpha=4, \beta=1$')
-       >>> grads = bst.augment.vector_grad(bst.surrogate.s2nn)(xs, 8., 2.)
+       >>> grads = brainstate.augment.vector_grad(brainstate.surrogate.s2nn)(xs, 8., 2.)
        >>> plt.plot(xs, grads, label=r'$\alpha=8, \beta=2$')
        >>> plt.legend()
        >>> plt.show()
@@ -1315,11 +1315,11 @@ def q_pseudo_spike(
 
        >>> import jax
        >>> import brainstate.nn as nn
-       >>> import brainstate as bst
+       >>> import brainstate as brainstate
        >>> import matplotlib.pyplot as plt
        >>> xs = jax.numpy.linspace(-3, 3, 1000)
        >>> for alpha in [0.5, 1., 2., 4.]:
-       >>>   grads = bst.augment.vector_grad(bst.surrogate.q_pseudo_spike)(xs, alpha)
+       >>>   grads = brainstate.augment.vector_grad(brainstate.surrogate.q_pseudo_spike)(xs, alpha)
        >>>   plt.plot(xs, grads, label=r'$\alpha=$' + str(alpha))
        >>> plt.legend()
        >>> plt.show()
@@ -1413,10 +1413,10 @@ def leaky_relu(
 
        >>> import jax
        >>> import brainstate.nn as nn
-       >>> import brainstate as bst
+       >>> import brainstate as brainstate
        >>> import matplotlib.pyplot as plt
        >>> xs = jax.numpy.linspace(-3, 3, 1000)
-       >>> grads = bst.augment.vector_grad(bst.surrogate.leaky_relu)(xs, 0., 1.)
+       >>> grads = brainstate.augment.vector_grad(brainstate.surrogate.leaky_relu)(xs, 0., 1.)
        >>> plt.plot(xs, grads, label=r'$\alpha=0., \beta=1.$')
        >>> plt.legend()
        >>> plt.show()
@@ -1517,10 +1517,10 @@ def log_tailed_relu(
 
        >>> import jax
        >>> import brainstate.nn as nn
-       >>> import brainstate as bst
+       >>> import brainstate as brainstate
        >>> import matplotlib.pyplot as plt
        >>> xs = jax.numpy.linspace(-3, 3, 1000)
-       >>> grads = bst.augment.vector_grad(bst.surrogate.leaky_relu)(xs, 0., 1.)
+       >>> grads = brainstate.augment.vector_grad(brainstate.surrogate.leaky_relu)(xs, 0., 1.)
        >>> plt.plot(xs, grads, label=r'$\alpha=0., \beta=1.$')
        >>> plt.legend()
        >>> plt.show()
@@ -1596,12 +1596,12 @@ def relu_grad(
 
        >>> import jax
        >>> import brainstate.nn as nn
-       >>> import brainstate as bst
+       >>> import brainstate as brainstate
        >>> import matplotlib.pyplot as plt
        >>> xs = jax.numpy.linspace(-3, 3, 1000)
        >>> for s in [0.5, 1.]:
        >>>   for w in [1, 2.]:
-       >>>     grads = bst.augment.vector_grad(bst.surrogate.relu_grad)(xs, s, w)
+       >>>     grads = brainstate.augment.vector_grad(brainstate.surrogate.relu_grad)(xs, s, w)
        >>>     plt.plot(xs, grads, label=r'$\alpha=$' + f'{s}, width={w}')
        >>> plt.legend()
        >>> plt.show()
@@ -1678,11 +1678,11 @@ def gaussian_grad(
 
        >>> import jax
        >>> import brainstate.nn as nn
-       >>> import brainstate as bst
+       >>> import brainstate as brainstate
        >>> import matplotlib.pyplot as plt
        >>> xs = jax.numpy.linspace(-3, 3, 1000)
        >>> for s in [0.5, 1., 2.]:
-       >>>   grads = bst.augment.vector_grad(bst.surrogate.gaussian_grad)(xs, s, 0.5)
+       >>>   grads = brainstate.augment.vector_grad(brainstate.surrogate.gaussian_grad)(xs, s, 0.5)
        >>>   plt.plot(xs, grads, label=r'$\alpha=0.5, \sigma=$' + str(s))
        >>> plt.legend()
        >>> plt.show()
@@ -1773,10 +1773,10 @@ def multi_gaussian_grad(
 
        >>> import jax
        >>> import brainstate.nn as nn
-       >>> import brainstate as bst
+       >>> import brainstate as brainstate
        >>> import matplotlib.pyplot as plt
        >>> xs = jax.numpy.linspace(-3, 3, 1000)
-       >>> grads = bst.augment.vector_grad(bst.surrogate.multi_gaussian_grad)(xs)
+       >>> grads = brainstate.augment.vector_grad(brainstate.surrogate.multi_gaussian_grad)(xs)
        >>> plt.plot(xs, grads)
        >>> plt.show()
 
@@ -1855,11 +1855,11 @@ def inv_square_grad(
 
        >>> import jax
        >>> import brainstate.nn as nn
-       >>> import brainstate as bst
+       >>> import brainstate as brainstate
        >>> import matplotlib.pyplot as plt
        >>> xs = jax.numpy.linspace(-1, 1, 1000)
        >>> for alpha in [1., 10., 100.]:
-       >>>   grads = bst.augment.vector_grad(bst.surrogate.inv_square_grad)(xs, alpha)
+       >>>   grads = brainstate.augment.vector_grad(brainstate.surrogate.inv_square_grad)(xs, alpha)
        >>>   plt.plot(xs, grads, label=r'$\alpha$=' + str(alpha))
        >>> plt.legend()
        >>> plt.show()
@@ -1929,11 +1929,11 @@ def slayer_grad(
 
        >>> import jax
        >>> import brainstate.nn as nn
-       >>> import brainstate as bst
+       >>> import brainstate as brainstate
        >>> import matplotlib.pyplot as plt
        >>> xs = jax.numpy.linspace(-3, 3, 1000)
        >>> for alpha in [0.5, 1., 2., 4.]:
-       >>>   grads = bst.augment.vector_grad(bst.surrogate.slayer_grad)(xs, alpha)
+       >>>   grads = brainstate.augment.vector_grad(brainstate.surrogate.slayer_grad)(xs, alpha)
        >>>   plt.plot(xs, grads, label=r'$\alpha$=' + str(alpha))
        >>> plt.legend()
        >>> plt.show()

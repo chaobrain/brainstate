@@ -361,9 +361,9 @@ class LoRA(Module):
 
     Example usage::
 
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> import jax, jax.numpy as jnp
-        >>> layer = bst.nn.LoRA(3, 2, 4)
+        >>> layer = brainstate.nn.LoRA(3, 2, 4)
         >>> layer.weight.value
     {'lora_a': Array([[ 0.25141352, -0.09826107],
             [ 0.2328382 ,  0.38869813],
@@ -371,8 +371,8 @@ class LoRA(Module):
      'lora_b': Array([[-0.8372317 ,  0.21012013, -0.52999765, -0.31939325],
             [ 0.64234126, -0.42980042,  1.2549229 , -0.47134295]],      dtype=float32)}
         >>> # Wrap around existing layer
-        >>> linear = bst.nn.Linear(3, 4)
-        >>> wrapper = bst.nn.LoRA(3, 2, 4, base_module=linear)
+        >>> linear = brainstate.nn.Linear(3, 4)
+        >>> wrapper = brainstate.nn.LoRA(3, 2, 4, base_module=linear)
         >>> assert wrapper.base_module == linear
         >>> y = layer(jnp.ones((16, 3)))
         >>> y.shape

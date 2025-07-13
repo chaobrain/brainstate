@@ -53,7 +53,7 @@ class ProgressBar(object):
 
     .. code-block:: python
 
-                a = bst.State(1.)
+                a = brainstate.State(1.)
                 def loop_fn(x):
                     a.value = x.value + 1.
                     return jnp.sum(x ** 2)
@@ -61,7 +61,7 @@ class ProgressBar(object):
                 pbar = ProgressBar(desc=("Running {i} iterations, loss = {loss}",
                                          lambda i_carray_y: {"i": i_carray_y["i"], "loss": i_carray_y["y"]}))
 
-                bst.compile.for_loop(loop_fn, xs, pbar=pbar)
+                brainstate.compile.for_loop(loop_fn, xs, pbar=pbar)
 
     In this example, ``"i"`` denotes the iteration number and ``"loss"`` is computed from the output,
     the ``"carry"`` is the dynamic state in the loop, for example ``a.value`` in this case.

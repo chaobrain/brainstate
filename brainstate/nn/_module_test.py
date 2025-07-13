@@ -77,7 +77,7 @@ class TestDelay(unittest.TestCase):
             self.assertTrue(jnp.allclose(rotation_delay.at('a'), jnp.ones((1,)) * i))
             self.assertTrue(jnp.allclose(rotation_delay.at('b'), jnp.maximum(jnp.ones((1,)) * i - n1, 0.)))
             self.assertTrue(jnp.allclose(rotation_delay.at('c'), jnp.maximum(jnp.ones((1,)) * i - n2, 0.)))
-        # bst.util.clear_buffer_memory()
+        # brainstate.util.clear_buffer_memory()
 
     def test_jit_erro(self):
         rotation_delay = brainstate.nn.Delay(jnp.ones([1]), time=2., delay_method='concat', interp_method='round')
