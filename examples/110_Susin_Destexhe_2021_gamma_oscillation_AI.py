@@ -171,7 +171,7 @@ def simulate_ai_net():
 
         # # spike raster plot
         # spikes = returns['FS.spike']
-        # fig, gs = bts.visualize.get_figure(1, 1, 4., 5.)
+        # fig, gs = braintools.visualize.get_figure(1, 1, 4., 5.)
         # fig.add_subplot(gs[0, 0])
         # times2 = times.to_decimal(u.ms)
         # t_indices, n_indices = u.math.where(spikes)
