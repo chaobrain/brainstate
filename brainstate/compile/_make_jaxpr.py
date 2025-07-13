@@ -370,7 +370,7 @@ class StatefulFunction(PrettyObject):
                     static_args.append(arg)
                 else:
                     dyn_args.append(arg)
-            dyn_args = jax.tree.map(shaped_abstractify, jax.tree.leaves(dyn_args))
+            dyn_args = jax.tree.map(shaped_abstractify, dyn_args)
             static_kwargs, dyn_kwargs = [], []
             for k, v in kwargs.items():
                 if k in self.static_argnames:
