@@ -562,6 +562,6 @@ class TestRandom(unittest.TestCase):
 
 # class TestRandomKey(unittest.TestCase):
 #   def test_clear_memory(self):
-#     bst.random.split_key()
-#     print(bst.random.DEFAULT.value)
-#     self.assertTrue(isinstance(bst.random.DEFAULT.value, np.ndarray))
+#     brainstate.random.split_key()
+#     print(brainstate.random.DEFAULT.value)
+#     self.assertTrue(isinstance(brainstate.random.DEFAULT.value, np.ndarray))

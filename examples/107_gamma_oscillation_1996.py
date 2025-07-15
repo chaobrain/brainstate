@@ -105,7 +105,7 @@ class GammaNet(brainstate.nn.DynamicsGroup):
     def __init__(self, num: int = 100):
         super().__init__()
         self.neu = HH(num)
-        # self.syn = bst.nn.GABAa(num, alpha=12 / (u.ms * u.mM), beta=0.1 / u.ms)
+        # self.syn = brainstate.nn.GABAa(num, alpha=12 / (u.ms * u.mM), beta=0.1 / u.ms)
         self.syn = Synapse(num)
         self.proj = brainstate.nn.CurrentProj(
             self.syn.prefetch('g'),

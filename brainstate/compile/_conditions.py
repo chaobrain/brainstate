@@ -203,9 +203,9 @@ def ifelse(conditions, branches, *operands, check_cond: bool = True):
     Examples
     --------
 
-    >>> import brainstate as bst
+    >>> import brainstate
     >>> def f(a):
-    >>>    return bst.compile.ifelse(conditions=[a > 10, a > 5, a > 2, a > 0],
+    >>>    return brainstate.compile.ifelse(conditions=[a > 10, a > 5, a > 2, a > 0],
     >>>                               branches=[lambda: 1,
     >>>                                         lambda: 2,
     >>>                                         lambda: 3,

@@ -60,9 +60,9 @@ class TestDropout(unittest.TestCase):
         np.testing.assert_almost_equal(non_zero_elements, expected_non_zero_elements)
 
     # def test_Dropout1d(self):
-    #     dropout_layer = bst.nn.Dropout1d(prob=0.5)
+    #     dropout_layer = brainstate.nn.Dropout1d(prob=0.5)
     #     input_data = np.random.randn(2, 3, 4)
-    #     with bst.environ.context(fit=True):
+    #     with brainstate.environ.context(fit=True):
     #         output_data = dropout_layer(input_data)
     #     self.assertEqual(input_data.shape, output_data.shape)
     #     self.assertTrue(np.any(output_data == 0))

@@ -384,7 +384,10 @@ class RandomState(State):
         loc = _check_py_seq(loc)
         scale = _check_py_seq(scale)
         if size is None:
-            size = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
+            size = lax.broadcast_shapes(
+                jnp.shape(loc) if loc is not None else (),
+                jnp.shape(scale) if scale is not None else ()
+            )
         key = self.split_key() if key is None else _formalize_key(key)
         dtype = dtype or environ.dftype()
         r = _loc_scale(loc, scale, jr.logistic(key, shape=_size2shape(size), dtype=dtype))
@@ -399,7 +402,10 @@ class RandomState(State):
         loc = _check_py_seq(loc)
         scale = _check_py_seq(scale)
         if size is None:
-            size = lax.broadcast_shapes(jnp.shape(scale), jnp.shape(loc))
+            size = lax.broadcast_shapes(
+                jnp.shape(scale) if scale is not None else (),
+                jnp.shape(loc) if loc is not None else ()
+            )
         key = self.split_key() if key is None else _formalize_key(key)
         dtype = dtype or environ.dftype()
         r = _loc_scale(loc, scale, jr.normal(key, shape=_size2shape(size), dtype=dtype))
@@ -456,7 +462,7 @@ class RandomState(State):
                        dtype: DTypeLike = None):
         shape = _check_py_seq(shape)
         if size is None:
-            size = jnp.shape(shape)
+            size = jnp.shape(shape) if shape is not None else ()
         key = self.split_key() if key is None else _formalize_key(key)
         dtype = dtype or environ.dftype()
         r = jr.gamma(key, a=shape, shape=_size2shape(size), dtype=dtype)
@@ -477,7 +483,7 @@ class RandomState(State):
                    dtype: DTypeLike = None):
         df = _check_py_seq(df)
         if size is None:
-            size = jnp.shape(size)
+            size = jnp.shape(size) if size is not None else ()
         key = self.split_key() if key is None else _formalize_key(key)
         dtype = dtype or environ.dftype()
         r = jr.t(key, df=df, shape=_size2shape(size), dtype=dtype)
@@ -606,8 +612,8 @@ class RandomState(State):
 
         if size is None:
             size = jnp.broadcast_shapes(
-                jnp.shape(mean),
-                jnp.shape(sigma)
+                jnp.shape(mean) if mean is not None else (),
+                jnp.shape(sigma) if sigma is not None else ()
             )
         key = self.split_key() if key is None else _formalize_key(key)
         dtype = dtype or environ.dftype()
@@ -822,7 +828,7 @@ class RandomState(State):
         a = _check_py_seq(a)
         scale = _check_py_seq(scale)
         if size is None:
-            size = jnp.broadcast_shapes(jnp.shape(a), jnp.shape(scale))
+            size = jnp.broadcast_shapes(jnp.shape(a), jnp.shape(scale) if scale is not None else ())
         else:
             if jnp.size(a) > 1:
                 raise ValueError(f'"a" should be a scalar when "size" is provided. But we got {a}')

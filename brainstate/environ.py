@@ -76,9 +76,9 @@ def context(**kwargs):
 
     For instance::
 
-    >>> import brainstate as bst
-    >>> with bst.environ.context(dt=0.1) as env:
-    ...     dt = bst.environ.get('dt')
+    >>> import brainstate as brainstate
+    >>> with brainstate.environ.context(dt=0.1) as env:
+    ...     dt = brainstate.environ.get('dt')
     ...     print(env)
 
     """
@@ -424,10 +424,10 @@ def dftype() -> DTypeLike:
 
     For example, if the precision is set to 32, the default floating data type is ``np.float32``.
 
-    >>> import brainstate as bst
+    >>> import brainstate as brainstate
     >>> import numpy as np
-    >>> with bst.environ.context(precision=32):
-    ...    a = np.zeros(1, dtype=bst.environ.dftype())
+    >>> with brainstate.environ.context(precision=32):
+    ...    a = np.zeros(1, dtype=brainstate.environ.dftype())
     >>> print(a.dtype)
 
     Returns
@@ -448,10 +448,10 @@ def ditype() -> DTypeLike:
 
     For example, if the precision is set to 32, the default integer data type is ``np.int32``.
 
-    >>> import brainstate as bst
+    >>> import brainstate as brainstate
     >>> import numpy as np
-    >>> with bst.environ.context(precision=32):
-    ...    a = np.zeros(1, dtype=bst.environ.ditype())
+    >>> with brainstate.environ.context(precision=32):
+    ...    a = np.zeros(1, dtype=brainstate.environ.ditype())
     >>> print(a.dtype)
     int32
 
@@ -474,10 +474,10 @@ def dutype() -> DTypeLike:
 
     For example, if the precision is set to 32, the default unsigned integer data type is ``np.uint32``.
 
-    >>> import brainstate as bst
+    >>> import brainstate as brainstate
     >>> import numpy as np
-    >>> with bst.environ.context(precision=32):
-    ...   a = np.zeros(1, dtype=bst.environ.dutype())
+    >>> with brainstate.environ.context(precision=32):
+    ...   a = np.zeros(1, dtype=brainstate.environ.dutype())
     >>> print(a.dtype)
     uint32
 
@@ -499,10 +499,10 @@ def dctype() -> DTypeLike:
 
     For example, if the precision is set to 32, the default complex data type is ``np.complex64``.
 
-    >>> import brainstate as bst
+    >>> import brainstate as brainstate
     >>> import numpy as np
-    >>> with bst.environ.context(precision=32):
-    ...    a = np.zeros(1, dtype=bst.environ.dctype())
+    >>> with brainstate.environ.context(precision=32):
+    ...    a = np.zeros(1, dtype=brainstate.environ.dctype())
     >>> print(a.dtype)
     complex64
 
@@ -529,19 +529,19 @@ def register_default_behavior(key: str, behavior: Callable, replace_if_exist: bo
 
     For example, you can register a default behavior for the key 'dt' by::
 
-    >>> import brainstate as bst
+    >>> import brainstate as brainstate
     >>> def dt_behavior(dt):
     ...     print(f'Set the default dt to {dt}.')
     ...
-    >>> bst.environ.register_default_behavior('dt', dt_behavior)
+    >>> brainstate.environ.register_default_behavior('dt', dt_behavior)
 
     Then, when you set the default dt by `brainstate.environ.set(dt=0.1)`, the behavior
     `dt_behavior` will be called with
     `dt_behavior(0.1)`.
 
-    >>> bst.environ.set(dt=0.1)
+    >>> brainstate.environ.set(dt=0.1)
     Set the default dt to 0.1.
-    >>> with bst.environ.context(dt=0.2):
+    >>> with brainstate.environ.context(dt=0.2):
     ...     pass
     Set the default dt to 0.2.
     Set the default dt to 0.1.

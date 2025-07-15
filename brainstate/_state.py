@@ -116,10 +116,10 @@ def check_state_value_tree(val: bool = True) -> Generator[None, None, None]:
 
     Example::
 
-      >>> import brainstate as bst
+      >>> import brainstate as brainstate
       >>> import jax.numpy as jnp
-      >>> state = bst.ShortTermState(jnp.zeros((2, 3)))
-      >>> with bst.check_state_value_tree():
+      >>> state = brainstate.ShortTermState(jnp.zeros((2, 3)))
+      >>> with brainstate.check_state_value_tree():
       >>>   # The line below will not raise an error.
       >>>   state.value = jnp.zeros((2, 3))
       ...
@@ -163,10 +163,10 @@ def check_state_jax_tracer(val: bool = True) -> Generator[None, None, None]:
     Example::
 
       >>> import jax
-      >>> import brainstate as bst
+      >>> import brainstate as brainstate
       >>> import jax.numpy as jnp
       >>>
-      >>> a = bst.ShortTermState(jnp.zeros((2, 3)))
+      >>> a = brainstate.ShortTermState(jnp.zeros((2, 3)))
       >>>
       >>> @jax.jit
       >>> def run_state(b):

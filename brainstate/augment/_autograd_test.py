@@ -619,7 +619,7 @@ class TestClassFuncJacobian(unittest.TestCase):
 #     _x = jnp.array([1., 2., 3.])
 #     _y = jnp.array([10., 5.])
 #
-#     class Test(bst.nn.Module):
+#     class Test(brainstate.nn.Module):
 #       def __init__(self):
 #         super(Test, self).__init__()
 #         self.x = jnp.Variable(jnp.array([1., 2., 3.]))
@@ -635,12 +635,12 @@ class TestClassFuncJacobian(unittest.TestCase):
 #
 #     _jr = jax.jacfwd(f1)(_x, _y)
 #     t = Test()
-#     br = bst.augment.jacfwd(t, grad_states=t.x)()
+#     br = brainstate.augment.jacfwd(t, grad_states=t.x)()
 #     self.assertTrue((br == _jr).all())
 #
 #     _jr = jax.jacfwd(f1, argnums=(0, 1))(_x, _y)
 #     t = Test()
-#     br = bst.augment.jacfwd(t, grad_states=[t.x, t.y])()
+#     br = brainstate.augment.jacfwd(t, grad_states=[t.x, t.y])()
 #     self.assertTrue((br[0] == _jr[0]).all())
 #     self.assertTrue((br[1] == _jr[1]).all())
 #
@@ -652,7 +652,7 @@ class TestClassFuncJacobian(unittest.TestCase):
 #     _x = jnp.array([1., 2., 3.])
 #     _y = jnp.array([10., 5.])
 #
-#     class Test(bst.nn.Module):
+#     class Test(brainstate.nn.Module):
 #       def __init__(self):
 #         super(Test, self).__init__()
 #         self.x = jnp.Variable(jnp.array([1., 2., 3.]))
@@ -667,12 +667,12 @@ class TestClassFuncJacobian(unittest.TestCase):
 #
 #     _jr = jax.jacrev(f1)(_x, _y)
 #     t = Test()
-#     br = bst.augment.jacrev(t, grad_states=t.x)(_y)
+#     br = brainstate.augment.jacrev(t, grad_states=t.x)(_y)
 #     self.assertTrue((br == _jr).all())
 #
 #     _jr = jax.jacrev(f1, argnums=(0, 1))(_x, _y)
 #     t = Test()
-#     var_grads, arg_grads = bst.augment.jacrev(t, grad_states=t.x, argnums=0)(_y)
+#     var_grads, arg_grads = brainstate.augment.jacrev(t, grad_states=t.x, argnums=0)(_y)
 #     print(var_grads, )
 #     print(arg_grads, )
 #     self.assertTrue((var_grads == _jr[0]).all())
@@ -686,7 +686,7 @@ class TestClassFuncJacobian(unittest.TestCase):
 #     _x = jnp.array([1., 2., 3.])
 #     _y = jnp.array([10., 5.])
 #
-#     class Test(bst.nn.Module):
+#     class Test(brainstate.nn.Module):
 #       def __init__(self):
 #         super(Test, self).__init__()
 #         self.x = jnp.Variable(jnp.array([1., 2., 3.]))
@@ -701,12 +701,12 @@ class TestClassFuncJacobian(unittest.TestCase):
 #
 #     _jr = jax.jacfwd(f1)(_x, _y)
 #     t = Test()
-#     br = bst.augment.jacfwd(t, grad_states=t.x)(_y)
+#     br = brainstate.augment.jacfwd(t, grad_states=t.x)(_y)
 #     self.assertTrue((br == _jr).all())
 #
 #     _jr = jax.jacfwd(f1, argnums=(0, 1))(_x, _y)
 #     t = Test()
-#     var_grads, arg_grads = bst.augment.jacfwd(t, grad_states=t.x, argnums=0)(_y)
+#     var_grads, arg_grads = brainstate.augment.jacfwd(t, grad_states=t.x, argnums=0)(_y)
 #     print(var_grads, )
 #     print(arg_grads, )
 #     self.assertTrue((var_grads == _jr[0]).all())
@@ -722,7 +722,7 @@ class TestClassFuncJacobian(unittest.TestCase):
 #     _x = jnp.array([1., 2., 3.])
 #     _y = jnp.array([10., 5.])
 #
-#     class Test(bst.nn.Module):
+#     class Test(brainstate.nn.Module):
 #       def __init__(self):
 #         super(Test, self).__init__()
 #         self.x = jnp.Variable(jnp.array([1., 2., 3.]))
@@ -737,13 +737,13 @@ class TestClassFuncJacobian(unittest.TestCase):
 #
 #     _jr = jax.jacrev(f1)(_x, _y)
 #     t = Test()
-#     br, _ = bst.augment.jacrev(t, grad_states=t.x, has_aux=True)(_y)
+#     br, _ = brainstate.augment.jacrev(t, grad_states=t.x, has_aux=True)(_y)
 #     self.assertTrue((br == _jr).all())
 #
 #     t = Test()
 #     _jr = jax.jacrev(f1, argnums=(0, 1))(_x, _y)
 #     _aux = t(_y)[1]
-#     (var_grads, arg_grads), aux = bst.augment.jacrev(t, grad_states=t.x, argnums=0, has_aux=True)(_y)
+#     (var_grads, arg_grads), aux = brainstate.augment.jacrev(t, grad_states=t.x, argnums=0, has_aux=True)(_y)
 #     print(var_grads, )
 #     print(arg_grads, )
 #     self.assertTrue((var_grads == _jr[0]).all())
@@ -762,7 +762,7 @@ class TestClassFuncJacobian(unittest.TestCase):
 #     _x = jnp.array([1., 2., 3.])
 #     _y = jnp.array([10., 5.])
 #
-#     class Test(bst.nn.Module):
+#     class Test(brainstate.nn.Module):
 #       def __init__(self):
 #         super(Test, self).__init__()
 #         self.x = jnp.Variable(jnp.array([1., 2., 3.]))
@@ -777,7 +777,7 @@ class TestClassFuncJacobian(unittest.TestCase):
 #
 #     _jr = jax.jacfwd(f1)(_x, _y)
 #     t = Test()
-#     br, (c, d) = bst.augment.jacfwd(t, grad_states=t.x, has_aux=True)(_y)
+#     br, (c, d) = brainstate.augment.jacfwd(t, grad_states=t.x, has_aux=True)(_y)
 #     # print(_jr)
 #     # print(br)
 #     a = (br == _jr)
@@ -786,7 +786,7 @@ class TestClassFuncJacobian(unittest.TestCase):
 #     t = Test()
 #     _jr = jax.jacfwd(f1, argnums=(0, 1))(_x, _y)
 #     _aux = t(_y)[1]
-#     (var_grads, arg_grads), aux = bst.augment.jacfwd(t, grad_states=t.x, argnums=0, has_aux=True)(_y)
+#     (var_grads, arg_grads), aux = brainstate.augment.jacfwd(t, grad_states=t.x, argnums=0, has_aux=True)(_y)
 #     print(var_grads, )
 #     print(arg_grads, )
 #     self.assertTrue((var_grads == _jr[0]).all())
@@ -805,7 +805,7 @@ class TestClassFuncJacobian(unittest.TestCase):
 #     _x = jnp.array([1., 2., 3.])
 #     _y = jnp.array([10., 5.])
 #
-#     class Test(bst.nn.Module):
+#     class Test(brainstate.nn.Module):
 #       def __init__(self):
 #         super(Test, self).__init__()
 #         self.x = jnp.Variable(jnp.array([1., 2., 3.]))
@@ -820,13 +820,13 @@ class TestClassFuncJacobian(unittest.TestCase):
 #
 #     _jr = jax.jacrev(f1)(_x, _y)
 #     t = Test()
-#     br, _ = bst.augment.jacrev(t, grad_states=t.x, has_aux=True)(_y)
+#     br, _ = brainstate.augment.jacrev(t, grad_states=t.x, has_aux=True)(_y)
 #     self.assertTrue((br == _jr).all())
 #
 #     t = Test()
 #     _jr = jax.jacrev(f1, argnums=(0, 1))(_x, _y)
 #     _val, _aux = t(_y)
-#     (var_grads, arg_grads), value, aux = bst.augment.jacrev(t, grad_states=t.x, argnums=0, has_aux=True, return_value=True)(_y)
+#     (var_grads, arg_grads), value, aux = brainstate.augment.jacrev(t, grad_states=t.x, argnums=0, has_aux=True, return_value=True)(_y)
 #     print(var_grads, )
 #     print(arg_grads, )
 #     self.assertTrue((var_grads == _jr[0]).all())
@@ -846,7 +846,7 @@ class TestClassFuncJacobian(unittest.TestCase):
 #     _x = jnp.array([1., 2., 3.])
 #     _y = jnp.array([10., 5.])
 #
-#     class Test(bst.nn.Module):
+#     class Test(brainstate.nn.Module):
 #       def __init__(self):
 #         super(Test, self).__init__()
 #         self.x = jnp.Variable(jnp.array([1., 2., 3.]))
@@ -861,13 +861,13 @@ class TestClassFuncJacobian(unittest.TestCase):
 #
 #     _jr = jax.jacfwd(f1)(_x, _y)
 #     t = Test()
-#     br, _ = bst.augment.jacfwd(t, grad_states=t.x, has_aux=True)(_y)
+#     br, _ = brainstate.augment.jacfwd(t, grad_states=t.x, has_aux=True)(_y)
 #     self.assertTrue((br == _jr).all())
 #
 #     t = Test()
 #     _jr = jax.jacfwd(f1, argnums=(0, 1))(_x, _y)
 #     _val, _aux = t(_y)
-#     (var_grads, arg_grads), value, aux = bst.augment.jacfwd(t, grad_states=t.x, argnums=0, has_aux=True, return_value=True)(_y)
+#     (var_grads, arg_grads), value, aux = brainstate.augment.jacfwd(t, grad_states=t.x, argnums=0, has_aux=True, return_value=True)(_y)
 #     print(_val, )
 #     print('_aux: ', _aux, 'aux: ', aux)
 #     print(var_grads, )
@@ -884,7 +884,7 @@ class TestClassFuncJacobian(unittest.TestCase):
 #   def test1(self):
 #     f = lambda x: 3 * x ** 2
 #     _x = jnp.ones(10)
-#     pprint(bst.augment.vector_grad(f, argnums=0)(_x))
+#     pprint(brainstate.augment.vector_grad(f, argnums=0)(_x))
 #
 #   def test2(self):
 #     def f(x, y):
@@ -894,14 +894,14 @@ class TestClassFuncJacobian(unittest.TestCase):
 #     _x = jnp.ones(5)
 #     _y = jnp.ones(5)
 #
-#     g = bst.augment.vector_grad(f, argnums=0)(_x, _y)
+#     g = brainstate.augment.vector_grad(f, argnums=0)(_x, _y)
 #     pprint(g)
 #     self.assertTrue(jnp.array_equal(g, 2 * _x))
 #
-#     g = bst.augment.vector_grad(f, argnums=(0,))(_x, _y)
+#     g = brainstate.augment.vector_grad(f, argnums=(0,))(_x, _y)
 #     self.assertTrue(jnp.array_equal(g[0], 2 * _x))
 #
-#     g = bst.augment.vector_grad(f, argnums=(0, 1))(_x, _y)
+#     g = brainstate.augment.vector_grad(f, argnums=(0, 1))(_x, _y)
 #     pprint(g)
 #     self.assertTrue(jnp.array_equal(g[0], 2 * _x))
 #     self.assertTrue(jnp.array_equal(g[1], 2 * _y))
@@ -915,14 +915,14 @@ class TestClassFuncJacobian(unittest.TestCase):
 #     _x = jnp.ones(5)
 #     _y = jnp.ones(5)
 #
-#     g = bst.augment.vector_grad(f, argnums=0)(_x, _y)
+#     g = brainstate.augment.vector_grad(f, argnums=0)(_x, _y)
 #     # pprint(g)
 #     self.assertTrue(jnp.array_equal(g, 2 * _x + 3 * _x ** 2))
 #
-#     g = bst.augment.vector_grad(f, argnums=(0,))(_x, _y)
+#     g = brainstate.augment.vector_grad(f, argnums=(0,))(_x, _y)
 #     self.assertTrue(jnp.array_equal(g[0], 2 * _x + 3 * _x ** 2))
 #
-#     g = bst.augment.vector_grad(f, argnums=(0, 1))(_x, _y)
+#     g = brainstate.augment.vector_grad(f, argnums=(0, 1))(_x, _y)
 #     # pprint(g)
 #     self.assertTrue(jnp.array_equal(g[0], 2 * _x + 3 * _x ** 2))
 #     self.assertTrue(jnp.array_equal(g[1], 2 * _y + 3 * _y ** 2))
@@ -935,14 +935,14 @@ class TestClassFuncJacobian(unittest.TestCase):
 #     _x = jnp.ones((5, 5))
 #     _y = jnp.ones((5, 5))
 #
-#     g = bst.augment.vector_grad(f, argnums=0)(_x, _y)
+#     g = brainstate.augment.vector_grad(f, argnums=0)(_x, _y)
 #     pprint(g)
 #     self.assertTrue(jnp.array_equal(g, 2 * _x))
 #
-#     g = bst.augment.vector_grad(f, argnums=(0,))(_x, _y)
+#     g = brainstate.augment.vector_grad(f, argnums=(0,))(_x, _y)
 #     self.assertTrue(jnp.array_equal(g[0], 2 * _x))
 #
-#     g = bst.augment.vector_grad(f, argnums=(0, 1))(_x, _y)
+#     g = brainstate.augment.vector_grad(f, argnums=(0, 1))(_x, _y)
 #     pprint(g)
 #     self.assertTrue(jnp.array_equal(g[0], 2 * _x))
 #     self.assertTrue(jnp.array_equal(g[1], 2 * _y))
@@ -956,7 +956,7 @@ class TestClassFuncJacobian(unittest.TestCase):
 #     _x = jnp.ones(5)
 #     _y = jnp.ones(5)
 #
-#     g, aux = bst.augment.vector_grad(f, has_aux=True)(_x, _y)
+#     g, aux = brainstate.augment.vector_grad(f, has_aux=True)(_x, _y)
 #     pprint(g, )
 #     pprint(aux)
 #     self.assertTrue(jnp.array_equal(g, 2 * _x))
@@ -970,7 +970,7 @@ class TestClassFuncJacobian(unittest.TestCase):
 #     _x = jnp.ones(5)
 #     _y = jnp.ones(5)
 #
-#     g, value = bst.augment.vector_grad(f, return_value=True)(_x, _y)
+#     g, value = brainstate.augment.vector_grad(f, return_value=True)(_x, _y)
 #     pprint(g, )
 #     pprint(value)
 #     self.assertTrue(jnp.array_equal(g, 2 * _x))
@@ -985,7 +985,7 @@ class TestClassFuncJacobian(unittest.TestCase):
 #     _x = jnp.ones(5)
 #     _y = jnp.ones(5)
 #
-#     g, value, aux = bst.augment.vector_grad(f, has_aux=True, return_value=True)(_x, _y)
+#     g, value, aux = brainstate.augment.vector_grad(f, has_aux=True, return_value=True)(_x, _y)
 #     print('grad', g)
 #     print('value', value)
 #     print('aux', aux)
@@ -996,7 +996,7 @@ class TestClassFuncJacobian(unittest.TestCase):
 #
 # class TestClassFuncVectorGrad(unittest.TestCase):
 #   def test1(self):
-#     class Test(bst.nn.Module):
+#     class Test(brainstate.nn.Module):
 #       def __init__(self):
 #         super(Test, self).__init__()
 #         self.x = jnp.Variable(jnp.ones(5))
@@ -1007,13 +1007,13 @@ class TestClassFuncJacobian(unittest.TestCase):
 #
 #     t = Test()
 #
-#     g = bst.augment.vector_grad(t, grad_states=t.x)()
+#     g = brainstate.augment.vector_grad(t, grad_states=t.x)()
 #     self.assertTrue(jnp.array_equal(g, 2 * t.x))
 #
-#     g = bst.augment.vector_grad(t, grad_states=(t.x,))()
+#     g = brainstate.augment.vector_grad(t, grad_states=(t.x,))()
 #     self.assertTrue(jnp.array_equal(g[0], 2 * t.x))
 #
-#     g = bst.augment.vector_grad(t, grad_states=(t.x, t.y))()
+#     g = brainstate.augment.vector_grad(t, grad_states=(t.x, t.y))()
 #     self.assertTrue(jnp.array_equal(g[0], 2 * t.x))
 #     self.assertTrue(jnp.array_equal(g[1], 2 * t.y))
 #
@@ -1025,20 +1025,20 @@ class TestClassFuncJacobian(unittest.TestCase):
 #
 # class TestDebug(parameterized.TestCase):
 #   def test_debug1(self):
-#     a = bst.random.RandomState()
+#     a = brainstate.random.RandomState()
 #
 #     def f(b):
 #       print(a.value)
 #       return a + b + a.random()
 #
-#     f = bst.augment.vector_grad(f, argnums=0)
+#     f = brainstate.augment.vector_grad(f, argnums=0)
 #     f(1.)
 #
 #     with jax.disable_jit():
 #       f(1.)
 #
 #   @parameterized.product(
-#     grad_fun=[bst.augment.grad, bst.augment.vector_grad]
+#     grad_fun=[brainstate.augment.grad, brainstate.augment.vector_grad]
 #   )
 #   def test_print_info1(self, grad_fun):
 #     file = tempfile.TemporaryFile(mode='w+')
@@ -1075,7 +1075,7 @@ class TestClassFuncJacobian(unittest.TestCase):
 #       self.assertTrue(file.read().strip() == expect_res.strip())
 #
 #   @parameterized.product(
-#     grad_fun=[bst.augment.grad, bst.augment.vector_grad]
+#     grad_fun=[brainstate.augment.grad, brainstate.augment.vector_grad]
 #   )
 #   def test_print_info2(self, grad_fun):
 #     file = tempfile.TemporaryFile(mode='w+')
@@ -1117,7 +1117,7 @@ class TestClassFuncJacobian(unittest.TestCase):
 #       a = jnp.Variable(jnp.ones(2))
 #       b = jnp.Variable(jnp.zeros(2))
 #
-#       @bst.augment.vector_grad(argnums=0)
+#       @brainstate.augment.vector_grad(argnums=0)
 #       def f1(c):
 #         a.value += 1
 #         b.value += 10
@@ -1149,7 +1149,7 @@ class TestClassFuncJacobian(unittest.TestCase):
 #
 #
 #     def run_fun(d):
-#       @bst.augment.vector_grad(argnums=0)
+#       @brainstate.augment.vector_grad(argnums=0)
 #       def f1(c):
 #         a.value += d
 #         b.value += 10
@@ -1178,8 +1178,8 @@ class TestClassFuncJacobian(unittest.TestCase):
 #         print('compiling f ...', file=file)
 #         return a + b
 #
-#       grad1 = bst.augment.grad(f)(1., 2.)  # call "f" twice, one for Variable finding, one for compiling
-#       grad2 = bst.augment.vector_grad(f)(1., 2.)  # call "f" once for compiling
+#       grad1 = brainstate.augment.grad(f)(1., 2.)  # call "f" twice, one for Variable finding, one for compiling
+#       grad2 = brainstate.augment.vector_grad(f)(1., 2.)  # call "f" once for compiling
 #
 #       file.seek(0)
 #       print(file.read().strip())

@@ -488,9 +488,9 @@ class LayerNorm(Module):
 
     Example usage::
 
-      >>> import brainstate as bst
-      >>> x = bst.random.normal(size=(3, 4, 5, 6))
-      >>> layer = bst.nn.LayerNorm(x.shape)
+      >>> import brainstate as brainstate
+      >>> x = brainstate.random.normal(size=(3, 4, 5, 6))
+      >>> layer = brainstate.nn.LayerNorm(x.shape)
       >>> layer.states()
       >>> y = layer(x)
 
@@ -616,9 +616,9 @@ class RMSNorm(Module):
 
     Example usage::
 
-      >>> import brainstate as bst
-      >>> x = bst.random.normal(size=(5, 6))
-      >>> layer = bst.nn.RMSNorm(num_features=6)
+      >>> import brainstate as brainstate
+      >>> x = brainstate.random.normal(size=(5, 6))
+      >>> layer = brainstate.nn.RMSNorm(num_features=6)
       >>> layer.states()
       >>> y = layer(x)
 
@@ -739,14 +739,14 @@ class GroupNorm(Module):
     Example usage::
 
       >>> import numpy as np
-      >>> import brainstate as bst
+      >>> import brainstate as brainstate
       ...
-      >>> x = bst.random.normal(size=(3, 4, 5, 6))
-      >>> layer = bst.nn.GroupNorm(x.shape, num_groups=3)
+      >>> x = brainstate.random.normal(size=(3, 4, 5, 6))
+      >>> layer = brainstate.nn.GroupNorm(x.shape, num_groups=3)
       >>> layer.states()
       >>> y = layer(x)
-      >>> y = bst.nn.GroupNorm(x.shape, num_groups=1)(x)
-      >>> y2 = bst.nn.LayerNorm(x.shape, reduction_axes=(1, 2, 3))(x)
+      >>> y = brainstate.nn.GroupNorm(x.shape, num_groups=1)(x)
+      >>> y2 = brainstate.nn.LayerNorm(x.shape, reduction_axes=(1, 2, 3))(x)
       >>> np.testing.assert_allclose(y, y2)
 
     Attributes:

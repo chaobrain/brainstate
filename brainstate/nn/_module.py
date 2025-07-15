@@ -128,9 +128,9 @@ class Module(Node, ParamDesc):
         Examples
         --------
 
-        >>> import brainstate as bst
-        >>> x = bst.random.rand((10, 10))
-        >>> l = bst.nn.Dropout(0.5)
+        >>> import brainstate as brainstate
+        >>> x = brainstate.random.rand((10, 10))
+        >>> l = brainstate.nn.Dropout(0.5)
         >>> y = x >> l
         """
         return self.__call__(other)
@@ -266,14 +266,14 @@ class Sequential(Module):
     --------
 
     >>> import jax
-    >>> import brainstate as bst
+    >>> import brainstate as brainstate
     >>> import brainstate.nn as nn
     >>>
     >>> # composing ANN models
     >>> l = nn.Sequential(nn.Linear(100, 10),
     >>>                   jax.nn.relu,
     >>>                   nn.Linear(10, 2))
-    >>> l(bst.random.random((256, 100)))
+    >>> l(brainstate.random.random((256, 100)))
 
     Args:
       modules_as_tuple: The children modules.

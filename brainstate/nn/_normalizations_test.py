@@ -51,21 +51,21 @@ class Test_Normalization(parameterized.TestCase):
     #   normalized_shape=(10, [5, 10])
     # )
     # def test_LayerNorm(self, normalized_shape):
-    #   net = bst.nn.LayerNorm(normalized_shape, )
-    #   input = bst.random.randn(20, 5, 10)
+    #   net = brainstate.nn.LayerNorm(normalized_shape, )
+    #   input = brainstate.random.randn(20, 5, 10)
     #   output = net(input)
     #
     # @parameterized.product(
     #   num_groups=[1, 2, 3, 6]
     # )
     # def test_GroupNorm(self, num_groups):
-    #   input = bst.random.randn(20, 10, 10, 6)
-    #   net = bst.nn.GroupNorm(num_groups=num_groups, num_channels=6, )
+    #   input = brainstate.random.randn(20, 10, 10, 6)
+    #   net = brainstate.nn.GroupNorm(num_groups=num_groups, num_channels=6, )
     #   output = net(input)
     #
     # def test_InstanceNorm(self):
-    #   input = bst.random.randn(20, 10, 10, 6)
-    #   net = bst.nn.InstanceNorm(num_channels=6, )
+    #   input = brainstate.random.randn(20, 10, 10, 6)
+    #   net = brainstate.nn.InstanceNorm(num_channels=6, )
     #   output = net(input)
 
 

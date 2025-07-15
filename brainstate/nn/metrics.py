@@ -61,12 +61,12 @@ class Average(Metric):
     Example usage::
 
       >>> import jax.numpy as jnp
-      >>> import brainstate as bst
+      >>> import brainstate as brainstate
 
       >>> batch_loss = jnp.array([1, 2, 3, 4])
       >>> batch_loss2 = jnp.array([3, 2, 1, 0])
 
-      >>> metrics = bst.nn.metrics.Average()
+      >>> metrics = brainstate.nn.metrics.Average()
       >>> metrics.compute()
       Array(nan, dtype=float32)
       >>> metrics.update(values=batch_loss)
@@ -223,7 +223,7 @@ class Accuracy(Average):
 
     Example usage::
 
-      >>> import brainstate as bst
+      >>> import brainstate as brainstate
       >>> import jax, jax.numpy as jnp
 
       >>> logits = jax.random.normal(jax.random.key(0), (5, 2))
@@ -231,7 +231,7 @@ class Accuracy(Average):
       >>> logits2 = jax.random.normal(jax.random.key(1), (5, 2))
       >>> labels2 = jnp.array([0, 1, 1, 1, 1])
 
-      >>> metrics = bst.nn.metrics.Accuracy()
+      >>> metrics = brainstate.nn.metrics.Accuracy()
       >>> metrics.compute()
       Array(nan, dtype=float32)
       >>> metrics.update(logits=logits, labels=labels)
