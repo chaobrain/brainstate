@@ -481,7 +481,7 @@ def _vmap_transform(
         return out_rng_keys, out_state_vmap_vals, out_state_oth_vals, outs
 
     @functools.wraps(f)
-    def vmapped_fn(*args):
+    def vmapped_fn(*args, **kwargs):
         """
         Applies vectorized mapping (vmap) to the input function while managing state.
 
@@ -503,6 +503,11 @@ def _vmap_transform(
             data structures (e.g., axis_to_in_states, in_state_to_axis) which
             should be defined in the broader context.
         """
+        if len(kwargs):
+            raise NotImplementedError(
+                "Keyword arguments `f(**kwargs)` are not supported in brainstate.augment.vmap"
+            )
+
         # in states values
         in_state_map_vals = [
             [st.value for st in states]
