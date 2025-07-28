@@ -27,7 +27,6 @@ __all__ = [
     'ParamDescriber',
     'AlignPost',
     'BindCondData',
-    'UpdateReturn',
 
     # types
     'JointTypes',
@@ -169,22 +168,6 @@ def not_implemented(func):
 
     wrapper.not_implemented = True
     return wrapper
-
-
-
-class UpdateReturn(Mixin):
-    @not_implemented
-    def update_return(self) -> PyTree:
-        """
-        The update function return of the model.
-
-        This function requires no parameters and must return a PyTree.
-
-        It is usually used for delay initialization, for example, ``Dynamics.output_delay`` relies on this function to
-        initialize the output delay.
-
-        """
-        raise NotImplementedError(f'Must implement the "{self.update_return.__name__}()" function.')
 
 
 class _MetaUnionType(type):
