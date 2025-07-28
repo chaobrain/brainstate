@@ -429,8 +429,6 @@ class Delay(Module):
             raise ValueError(f'Unknown updating method "{self.delay_method}"')
 
 
-
-
 class StateWithDelay(Delay):
     """
     A ``State`` type that defines the state in a differential equation.

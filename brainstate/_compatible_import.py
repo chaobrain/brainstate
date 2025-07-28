@@ -145,4 +145,3 @@ def to_concrete_aval(aval):
     if isinstance(aval, Tracer):
         return aval.to_concrete_value()
     return aval
-

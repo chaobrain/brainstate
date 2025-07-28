@@ -591,7 +591,3 @@ class TestAxisName:
         individual_grads_jax, averaged_grads_jax = self._gradient_averaging_simulation_jax()
         assert jnp.allclose(individual_grads, individual_grads_jax)
         assert jnp.allclose(averaged_grads, averaged_grads_jax)
-
-
-
-

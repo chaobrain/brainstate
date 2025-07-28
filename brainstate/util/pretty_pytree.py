@@ -21,9 +21,9 @@ from typing import TypeVar, Hashable, Union, Iterable, Any, Optional, Tuple, Dic
 import jax
 
 from brainstate.typing import Filter, PathParts
+from .filter import to_predicate
 from .pretty_repr import PrettyRepr, PrettyType, PrettyAttr, yield_unique_pretty_repr_items, pretty_repr_object
 from .struct import dataclass
-from .filter import to_predicate
 
 __all__ = [
     'PrettyDict',

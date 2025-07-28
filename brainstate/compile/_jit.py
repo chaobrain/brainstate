@@ -33,6 +33,8 @@ class JittedFunction(Callable):
     """
     A wrapped version of ``fun``, set up for just-in-time compilation.
     """
+    __module__ = 'brainstate.compile'
+
     origin_fun: Callable  # the original function
     stateful_fun: StatefulFunction  # the stateful function for extracting states
     jitted_fun: jax.stages.Wrapped  # the jitted function

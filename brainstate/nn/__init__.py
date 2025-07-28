@@ -34,7 +34,7 @@ from ._embedding import __all__ as embed_all
 from ._exp_euler import *
 from ._exp_euler import __all__ as exp_euler_all
 from ._fixedprob import *
-from._fixedprob import __all__ as fixedprob_all
+from ._fixedprob import __all__ as fixedprob_all
 from ._inputs import *
 from ._inputs import __all__ as inputs_all
 from ._linear import *

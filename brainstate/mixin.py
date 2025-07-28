@@ -17,8 +17,6 @@
 
 from typing import (Sequence, Optional, TypeVar, _SpecialForm, _type_check, _remove_dups_flatten, _UnionGenericAlias)
 
-from brainstate.typing import PyTree
-
 T = TypeVar('T')
 
 __all__ = [
@@ -162,7 +160,6 @@ class BindCondData(Mixin):
 
 
 def not_implemented(func):
-
     def wrapper(*args, **kwargs):
         raise NotImplementedError(f'{func.__name__} is not implemented.')
 
