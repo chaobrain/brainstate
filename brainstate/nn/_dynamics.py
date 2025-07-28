@@ -42,7 +42,7 @@ import numpy as np
 from brainstate import environ
 from brainstate._state import State
 from brainstate.graph import Node
-from brainstate.mixin import ParamDescriber, UpdateReturn
+from brainstate.mixin import ParamDescriber
 from brainstate.typing import Size, ArrayLike, PyTree
 from ._delay import StateWithDelay, Delay
 from ._module import Module
@@ -101,7 +101,7 @@ class Projection(Module):
             raise ValueError('Do not implement the update() function.')
 
 
-class Dynamics(Module, UpdateReturn):
+class Dynamics(Module):
     """
     Base class for implementing neural dynamics models in BrainState.
 
@@ -214,13 +214,13 @@ class Dynamics(Module, UpdateReturn):
         # in-/out- size of neuron population
         self.out_size = self.in_size
 
-    def __pretty_repr_item__(self, name, value):
-        if name in [
-            '_before_updates', '_after_updates', '_current_inputs', '_delta_inputs',
-            '_in_size', '_out_size', '_name', '_mode',
-        ]:
-            return (name, value) if value is None else (name[1:], value)  # skip the first `_`
-        return super().__pretty_repr_item__(name, value)
+    # def __pretty_repr_item__(self, name, value):
+    #     if name in [
+    #         '_before_updates', '_after_updates', '_current_inputs', '_delta_inputs',
+    #         '_in_size', '_out_size', '_name', '_mode',
+    #     ]:
+    #         return (name, value) if value is None else (name[1:], value)  # skip the first `_`
+    #     return super().__pretty_repr_item__(name, value)
 
     @property
     def varshape(self):
@@ -470,21 +470,30 @@ class Dynamics(Module, UpdateReturn):
         if self._current_inputs is None:
             return init
         if label is None:
-            # no label
-            for key in tuple(self._current_inputs.keys()):
-                out = self._current_inputs[key]
-                init = init + (out(*args, **kwargs) if callable(out) else out)
-                if not callable(out):
-                    self._current_inputs.pop(key)
+            filter_fn = lambda k: True
         else:
-            # has label
             label_repr = _input_label_start(label)
-            for key in tuple(self._current_inputs.keys()):
-                if key.startswith(label_repr):
-                    out = self._current_inputs[key]
-                    init = init + (out(*args, **kwargs) if callable(out) else out)
-                    if not callable(out):
-                        self._current_inputs.pop(key)
+            filter_fn = lambda k: k.startswith(label_repr)
+        for key in tuple(self._current_inputs.keys()):
+            if filter_fn(key):
+                out = self._current_inputs[key]
+                if callable(out):
+                    try:
+                        init = init + out(*args, **kwargs)
+                    except Exception as e:
+                        raise ValueError(
+                            f'Error in delta input value {key}: {out}\n'
+                            f'Error: {e}'
+                        ) from e
+                else:
+                    try:
+                        init = init + out
+                    except Exception as e:
+                        raise ValueError(
+                            f'Error in delta input value {key}: {out}\n'
+                            f'Error: {e}'
+                        ) from e
+                    self._current_inputs.pop(key)
         return init
 
     def sum_delta_inputs(
@@ -529,21 +538,30 @@ class Dynamics(Module, UpdateReturn):
         if self._delta_inputs is None:
             return init
         if label is None:
-            # no label
-            for key in tuple(self._delta_inputs.keys()):
-                out = self._delta_inputs[key]
-                init = init + (out(*args, **kwargs) if callable(out) else out)
-                if not callable(out):
-                    self._delta_inputs.pop(key)
+            filter_fn = lambda k: True
         else:
-            # has label
             label_repr = _input_label_start(label)
-            for key in tuple(self._delta_inputs.keys()):
-                if key.startswith(label_repr):
-                    out = self._delta_inputs[key]
-                    init = init + (out(*args, **kwargs) if callable(out) else out)
-                    if not callable(out):
-                        self._delta_inputs.pop(key)
+            filter_fn = lambda k: k.startswith(label_repr)
+        for key in tuple(self._delta_inputs.keys()):
+            if filter_fn(key):
+                out = self._delta_inputs[key]
+                if callable(out):
+                    try:
+                        init = init + out(*args, **kwargs)
+                    except Exception as e:
+                        raise ValueError(
+                            f'Error in delta input function {key}: {out}\n'
+                            f'Error: {e}'
+                        ) from e
+                else:
+                    try:
+                        init = init + out
+                    except Exception as e:
+                        raise ValueError(
+                            f'Error in delta input value {key}: {out}\n'
+                            f'Error: {e}'
+                        ) from e
+                    self._delta_inputs.pop(key)
         return init
 
     @property

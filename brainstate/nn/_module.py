@@ -230,7 +230,7 @@ class Module(Node, ParamDesc):
         pass
 
     def __pretty_repr_item__(self, name, value):
-        if name in ['_in_size', '_out_size', '_name']:
+        if name.startswith('_'):
             return None if value is None else (name[1:], value)  # skip the first `_`
         return name, value
 

@@ -123,9 +123,6 @@ class Expon(Synapse, AlignPost):
         g = exp_euler_step(lambda g: self.sum_current_inputs(-g) / self.tau, self.g.value)
         self.g.value = self.sum_delta_inputs(g)
         if x is not None: self.g.value += x
-        return self.update_return()
-
-    def update_return(self) -> PyTree:
         return self.g.value
 
 
@@ -232,9 +229,6 @@ class DualExpon(Synapse, AlignPost):
         if x is not None:
             self.g_rise.value += x
             self.g_decay.value += x
-        return self.update_return()
-
-    def update_return(self) -> PyTree:
         return self.a * (self.g_decay.value - self.g_rise.value)
 
 
@@ -414,12 +408,8 @@ class AMPA(Synapse):
         t = environ.get('t')
         self.spike_arrival_time.value = u.math.where(pre_spike, t, self.spike_arrival_time.value)
         TT = ((t - self.spike_arrival_time.value) < self.T_duration) * self.T
-        dg = lambda g: self.alpha * TT * (1 - g) - self.beta * g
+        dg = lambda g: self.alpha * TT * (1 * u.get_unit(g) - g) - self.beta * g
         self.g.value = exp_euler_step(dg, self.g.value)
-        return self.update_return()
-
-    def update_return(self) -> PyTree:
-        """Return the synaptic conductance value."""
         return self.g.value
 
 
@@ -513,4 +503,3 @@ class GABAa(AMPA):
             in_size=in_size,
             g_initializer=g_initializer
         )
-
