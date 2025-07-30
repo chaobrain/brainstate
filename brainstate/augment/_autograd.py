@@ -173,6 +173,7 @@ class GradientTransform(PrettyRepr):
         return_value: bool = False,
         has_aux: bool = False,
         transform_params: Optional[Dict[str, Any]] = None,
+        check_states: bool = True,
     ):
         """
         Initialize a ``GradientTransform`` instance.
@@ -192,11 +193,12 @@ class GradientTransform(PrettyRepr):
         # gradient variables
         if isinstance(grad_states, dict):
             grad_states = {k: v for k, v in grad_states.items()}
-        self._grad_states, self._grad_tree = jax.tree.flatten(grad_states)
+        self._grad_states, self._grad_tree = jax.tree.flatten(grad_states, is_leaf=lambda x: isinstance(x, State))
         self._grad_state_ids = [id(v) for v in self._grad_states]
         self._grad_id_to_state = {id(v): v for v in self._grad_states}
         if any(not isinstance(v, State) for v in self._grad_states):
             raise TypeError("All grad_states must be State instances.")
+        self.check_states = check_states
 
         # parameters
         if argnums is None and len(self._grad_states) == 0:
@@ -259,10 +261,15 @@ class GradientTransform(PrettyRepr):
             else:
                 other_vals[id_] = st.value
         if len(all_ids):
-            err = f"Some states are not found in the state trace when performing gradient transformations.\n "
-            for i, id_ in enumerate(all_ids):
-                st = self._grad_id_to_state[id_]
-                st.raise_error_with_source_info(ValueError(err + str(st)))
+            if self.check_states:
+                err = f"Some states are not found in the state trace when performing gradient transformations.\n "
+                for i, id_ in enumerate(all_ids):
+                    st = self._grad_id_to_state[id_]
+                    st.raise_error_with_source_info(ValueError(err + str(st)))
+            else:
+                id2state = {id(st): st for st in self._grad_states}
+                for id_ in all_ids:
+                    grad_vals[id_] = id2state[id_].value
 
         return grad_vals, other_vals
 
@@ -449,6 +456,7 @@ def grad(
     has_aux: Optional[bool] = None,
     return_value: Optional[bool] = False,
     unit_aware: bool = False,
+    check_states: bool = True,
 ) -> GradientTransform | Callable[[Callable], GradientTransform]:
     """
     Compute the gradient of a scalar-valued function with respect to its arguments.
@@ -493,7 +501,8 @@ def grad(
                 argnums=argnums,
                 return_value=return_value,
                 has_aux=False if has_aux is None else has_aux,
-                transform_params=dict(holomorphic=holomorphic, allow_int=allow_int)
+                transform_params=dict(holomorphic=holomorphic, allow_int=allow_int),
+                check_states=check_states
             )
 
         return transform
@@ -505,7 +514,8 @@ def grad(
         argnums=argnums,
         return_value=return_value,
         has_aux=False if has_aux is None else has_aux,
-        transform_params=dict(holomorphic=holomorphic, allow_int=allow_int)
+        transform_params=dict(holomorphic=holomorphic, allow_int=allow_int),
+        check_states=check_states
     )
 
 
@@ -520,6 +530,7 @@ def vector_grad(
     return_value: bool = False,
     has_aux: Optional[bool] = None,
     unit_aware: bool = False,
+    check_states: bool = True,
 ) -> GradientTransform | Callable[[Callable], GradientTransform]:
     """Take vector-valued gradients for function ``func``.
 
@@ -559,7 +570,8 @@ def vector_grad(
                 grad_states=grad_states,
                 argnums=argnums,
                 return_value=return_value,
-                has_aux=False if has_aux is None else has_aux
+                has_aux=False if has_aux is None else has_aux,
+                check_states=check_states
             )
 
         return transform
@@ -571,7 +583,8 @@ def vector_grad(
             grad_states=grad_states,
             argnums=argnums,
             return_value=return_value,
-            has_aux=False if has_aux is None else has_aux
+            has_aux=False if has_aux is None else has_aux,
+            check_states=check_states
         )
 
 
@@ -588,6 +601,7 @@ def jacrev(
     holomorphic: bool = False,
     allow_int: bool = False,
     unit_aware: bool = False,
+    check_states: bool = True,
 ) -> GradientTransform:
     """
     Extending automatic Jacobian (reverse-mode) of ``func`` to classes.
@@ -638,7 +652,8 @@ def jacrev(
         has_aux=False if has_aux is None else has_aux,
         transform_params=dict(holomorphic=holomorphic,
                               allow_int=allow_int,
-                              unit_aware=unit_aware, )
+                              unit_aware=unit_aware, ),
+        check_states=check_states
     )
 
 
@@ -656,6 +671,7 @@ def jacfwd(
     return_value: bool = False,
     holomorphic: bool = False,
     unit_aware: bool = False,
+    check_states: bool = True,
 ) -> GradientTransform:
     """Extending automatic Jacobian (forward-mode) of ``func`` to classes.
 
@@ -696,7 +712,8 @@ def jacfwd(
         argnums=argnums,
         return_value=return_value,
         has_aux=False if has_aux is None else has_aux,
-        transform_params=dict(holomorphic=holomorphic, unit_aware=unit_aware)
+        transform_params=dict(holomorphic=holomorphic, unit_aware=unit_aware),
+        check_states=check_states
     )
 
 
@@ -712,6 +729,7 @@ def hessian(
     holomorphic: bool = False,
     has_aux: Optional[bool] = None,
     unit_aware: bool = False,
+    check_states: bool = True,
 ) -> GradientTransform:
     """
     Hessian of ``func`` as a dense array.
@@ -752,7 +770,8 @@ def hessian(
         argnums=argnums,
         return_value=return_value,
         has_aux=False if has_aux is None else has_aux,
-        transform_params=dict(holomorphic=holomorphic)
+        transform_params=dict(holomorphic=holomorphic),
+        check_states=check_states
     )
 
 
