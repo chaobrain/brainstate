@@ -352,6 +352,13 @@ class StatefulFunction(PrettyObject):
             cache_key = default_cache_key
         return self.get_state_trace(cache_key).get_write_states()
 
+    def _check_input(self, x):
+        if isinstance(x, State):
+            raise ValueError(
+                'Inputs for brainstate transformations cannot be an instance of State. '
+                f'But we got {x}'
+            )
+
     def get_arg_cache_key(self, *args, **kwargs) -> Tuple:
         """
         Get the static arguments from the arguments.
@@ -377,14 +384,27 @@ class StatefulFunction(PrettyObject):
                     static_kwargs.append((k, v))
                 else:
                     dyn_kwargs.append((k, jax.tree.map(shaped_abstractify, v)))
-            return tuple([tuple(static_args), tuple(dyn_args), tuple(static_kwargs), tuple(dyn_kwargs)])
+
+            static_args = make_hashable(tuple(static_args))
+            dyn_args = make_hashable(tuple(dyn_args))
+            static_kwargs = make_hashable(static_kwargs)
+            dyn_kwargs = make_hashable(dyn_kwargs)
+
+            cache_key = (static_args, dyn_args, static_kwargs, dyn_kwargs)
         elif self.cache_type is None:
             num_arg = len(args)
             static_args = tuple(args[i] for i in self.static_argnums if i < num_arg)
             static_kwargs = tuple((k, v) for k, v in kwargs.items() if k in self.static_argnames)
-            return tuple([static_args, static_kwargs])
+
+            # Make everything hashable
+            static_args = make_hashable(static_args)
+            static_kwargs = make_hashable(static_kwargs)
+
+            cache_key = (static_args, static_kwargs)
         else:
             raise ValueError(f"Invalid cache type: {self.cache_type}")
+
+        return cache_key
 
     def compile_function_and_get_states(self, *args, **kwargs) -> Tuple[State, ...]:
         """
@@ -479,6 +499,9 @@ class StatefulFunction(PrettyObject):
 
         # static args
         cache_key = self.get_arg_cache_key(*args, **kwargs)
+
+        # check input types
+        jax.tree.map(self._check_input, (args, kwargs), is_leaf=lambda x: isinstance(x, State))
 
         if cache_key not in self._cached_state_trace:
             try:
@@ -844,3 +867,33 @@ def _make_jaxpr(
     if hasattr(fun, "__name__"):
         make_jaxpr_f.__name__ = f"make_jaxpr({fun.__name__})"
     return make_jaxpr_f
+
+
+def make_hashable(obj):
+    """Convert a pytree into a hashable representation."""
+    if isinstance(obj, (list, tuple)):
+        return tuple(make_hashable(item) for item in obj)
+    elif isinstance(obj, dict):
+        return tuple(sorted((k, make_hashable(v)) for k, v in obj.items()))
+    elif isinstance(obj, set):
+        return frozenset(make_hashable(item) for item in obj)
+    elif hasattr(obj, '__dict__'):  # Handle custom objects
+        return (
+            obj.__class__.__name__,
+            tuple(
+                sorted(
+                    (k, make_hashable(v))
+                    for k, v in obj.__dict__.items()
+                    if not k.startswith('_')
+                )
+            )
+        )
+    else:
+        # # Use JAX's tree_util for any other pytree structures
+        # try:
+        #     leaves, treedef = jax.tree_util.tree_flatten(obj)
+        #     hashable_leaves = tuple(make_hashable(leaf) for leaf in leaves)
+        #     return (str(treedef), hashable_leaves)
+        # except:
+        #     # Assume obj is already hashable
+        return obj
