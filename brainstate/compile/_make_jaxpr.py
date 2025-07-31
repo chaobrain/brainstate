@@ -877,17 +877,6 @@ def make_hashable(obj):
         return tuple(sorted((k, make_hashable(v)) for k, v in obj.items()))
     elif isinstance(obj, set):
         return frozenset(make_hashable(item) for item in obj)
-    elif hasattr(obj, '__dict__'):  # Handle custom objects
-        return (
-            obj.__class__.__name__,
-            tuple(
-                sorted(
-                    (k, make_hashable(v))
-                    for k, v in obj.__dict__.items()
-                    if not k.startswith('_')
-                )
-            )
-        )
     else:
         # # Use JAX's tree_util for any other pytree structures
         # try:
