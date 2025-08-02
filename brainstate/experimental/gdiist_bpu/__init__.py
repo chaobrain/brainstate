@@ -13,4 +13,10 @@
 # limitations under the License.
 # ==============================================================================
 
+from .parser import analyze_jaxpr_group_connection
+
+__all__ = [
+    'analyze_jaxpr_group_connection',
+]
+
 
