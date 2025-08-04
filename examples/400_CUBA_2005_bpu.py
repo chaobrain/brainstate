@@ -68,15 +68,32 @@ class EINet(brainstate.nn.DynamicsGroup):
 net = EINet()
 brainstate.nn.init_all_states(net)
 
-# simulation
-with brainstate.environ.context(dt=0.1 * u.ms):
-    times = u.math.arange(0. * u.ms, 1000. * u.ms, brainstate.environ.get_dt())
-    runner = brainstate.experimental.ForLoop(lambda t: net.update(t, 20. * u.mA), device='bpu')
-    spikes = runner(times)
+t = 0. * u.ms
+inp = 20. * u.mA
+def run_step(t):
+    with brainstate.environ.context(dt=0.1 * u.ms):
+        spikes = net.update(t, inp)
+        return spikes
 
-# visualization
-t_indices, n_indices = u.math.where(spikes)
-plt.scatter(times[t_indices], n_indices, s=1)
-plt.xlabel('Time (ms)')
-plt.ylabel('Neuron index')
-plt.show()
+from brainstate.experimental.gdiist_bpu.parser import BpuGroupConnectionParser
+from brainstate.experimental.gdiist_bpu.data import display_analysis_results
+parser = BpuGroupConnectionParser(net)
+with brainstate.environ.context(dt=0.1 * u.ms):
+    raw_jaxpr = parser.debug_raw_jaxpr(t, inp)
+    groups, connections, state_mappings = parser.parse(t, inp)
+
+print(raw_jaxpr.eqns)
+display_analysis_results(groups, connections, state_mappings)
+
+# # simulation
+# with brainstate.environ.context(dt=0.1 * u.ms):
+#     times = u.math.arange(0. * u.ms, 1000. * u.ms, brainstate.environ.get_dt())
+#     runner = brainstate.experimental.ForLoop(lambda t: net.update(t, 20. * u.mA), device='bpu')
+#     spikes = runner(times)
+#
+# # visualization
+# t_indices, n_indices = u.math.where(spikes)
+# plt.scatter(times[t_indices], n_indices, s=1)
+# plt.xlabel('Time (ms)')
+# plt.ylabel('Neuron index')
+# plt.show()
