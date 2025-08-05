@@ -75,17 +75,17 @@ def run_step(t):
         spikes = net.update(t, inp)
         return spikes
 
-from brainstate.experimental.gdiist_bpu.parser import BpuGroupConnectionParser
+from brainstate.experimental.gdiist_bpu.parser import BpuOperationConnectionParser
 from brainstate.experimental.gdiist_bpu.data import display_analysis_results
-parser = BpuGroupConnectionParser(net)
+parser = BpuOperationConnectionParser(net)
 with brainstate.environ.context(dt=0.1 * u.ms):
     raw_jaxpr = parser.debug_raw_jaxpr(t, inp)
-    groups, connections, state_mappings = parser.parse(t, inp)
+    operations, connections, state_mappings = parser.parse(t, inp)
 
-print(raw_jaxpr.eqns)
-display_analysis_results(groups, connections, state_mappings)
+display_analysis_results(operations, connections, state_mappings)
 
 # # simulation
+
 # with brainstate.environ.context(dt=0.1 * u.ms):
 #     times = u.math.arange(0. * u.ms, 1000. * u.ms, brainstate.environ.get_dt())
 #     runner = brainstate.experimental.ForLoop(lambda t: net.update(t, 20. * u.mA), device='bpu')

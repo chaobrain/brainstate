@@ -20,51 +20,51 @@ from typing import NamedTuple, Dict, List, Any
 from brainstate._compatible_import import ClosedJaxpr
 
 
-class Group(NamedTuple):
+class Operation(NamedTuple):
     name: str
     eqns: list[ClosedJaxpr]
 
 
 class Connection(NamedTuple):
-    pre: Group
-    post: Group
-    eqn: ClosedJaxpr
+    pre: Operation
+    post: Operation
+    jaxpr: ClosedJaxpr
 
 
-def display_analysis_results(groups: List[Group], connections: List[Connection], state_mappings: Dict[str, Any]):
+def display_analysis_results(operations: List[Operation], connections: List[Connection], state_mappings: Dict[str, Any]):
     """
-    Display comprehensive analysis results for BPU Group Connection Parser
+    Display comprehensive analysis results for BPU Operation Connection Parser
     
     Args:
-        groups: List of identified groups
-        connections: List of connections between groups
+        operations: List of identified operations
+        connections: List of connections between operations
         state_mappings: Dictionary containing state variable mappings
     """
-    print("BPU Group Connection Parser - Comprehensive Analysis")
+    print("BPU Operation Connection Parser - Comprehensive Analysis")
     print("=" * 60)
     
     print(f"\nAnalysis Complete!")
-    print(f"   - Groups identified: {len(groups)}")
+    print(f"   - Operations identified: {len(operations)}")
     print(f"   - Connections found: {len(connections)}")
     print(f"   - State mappings: {len(state_mappings.get('invars_to_state', {}))} inputs, {len(state_mappings.get('outvars_to_state', {}))} outputs")
     
-    # Detailed group analysis
-    print(f"\nDetailed Group Analysis:")
-    for i, group in enumerate(groups):
-        print(f"\n   Group {i} ({group.name}):")
-        print(f"     - Equations: {len(group.eqns)}")
+    # Detailed operation analysis
+    print(f"\nDetailed Operation Analysis:")
+    for i, operation in enumerate(operations):
+        print(f"\n   Operation {i} ({operation.name}):")
+        print(f"     - Equations: {len(operation.eqns)}")
         
         # Show equation types and shapes
         eq_types = {}
-        for eqn in group.eqns:
+        for eqn in operation.eqns:
             prim_name = eqn.primitive.name
             eq_types[prim_name] = eq_types.get(prim_name, 0) + 1
         
-        print(f"     - Operations: {dict(eq_types)}")
+        print(f"     - Primitives: {dict(eq_types)}")
         
         # Show representative shape
-        if group.eqns and len(group.eqns[0].outvars) > 0:
-            outvar = group.eqns[0].outvars[0]
+        if operation.eqns and len(operation.eqns[0].outvars) > 0:
+            outvar = operation.eqns[0].outvars[0]
             if hasattr(outvar, 'aval'):
                 print(f"     - Output shape: {outvar.aval.shape}")
     
@@ -74,12 +74,14 @@ def display_analysis_results(groups: List[Group], connections: List[Connection],
         print(f"\n   Connection {i}:")
         print(f"     - From: {conn.pre.name} ({len(conn.pre.eqns)} ops)")
         print(f"     - To: {conn.post.name} ({len(conn.post.eqns)} ops)")
-        print(f"     - Via: {conn.eqn.primitive.name}")
+        print(f"     - JAXpr: {type(conn.jaxpr).__name__}")
         
         # Connection details
-        if hasattr(conn.eqn, 'params') and 'dimension_numbers' in conn.eqn.params:
-            dims = conn.eqn.params['dimension_numbers']
-            print(f"     - Dimensions: {dims}")
+        if hasattr(conn.jaxpr, 'jaxpr') and len(conn.jaxpr.jaxpr.eqns) > 0:
+            inner_eqns = conn.jaxpr.jaxpr.eqns
+            print(f"     - Inner equations: {len(inner_eqns)}")
+            if inner_eqns:
+                print(f"     - Primary primitive: {inner_eqns[0].primitive.name}")
     
     # State mapping analysis
     print(f"\nState Mapping Analysis:")
@@ -154,9 +156,9 @@ def display_analysis_results(groups: List[Group], connections: List[Connection],
     # Validation
     print(f"\nValidation Results:")
     
-    # Check group coverage
-    total_eqns = sum(len(group.eqns) for group in groups)
-    print(f"   - Equation coverage: {total_eqns} equations grouped")
+    # Check operation coverage
+    total_eqns = sum(len(operation.eqns) for operation in operations)
+    print(f"   - Equation coverage: {total_eqns} equations in operations")
     
     # Check state mapping completeness
     total_state_vars = len(state_mappings.get('invars_to_state', {})) + len(state_mappings.get('outvars_to_state', {}))
@@ -164,8 +166,8 @@ def display_analysis_results(groups: List[Group], connections: List[Connection],
     
     print(f"\nSummary:")
     print(f"   The BPU parser successfully analyzed the neural network into:")
-    print(f"   - {len(groups)} computational groups")
-    print(f"   - {len(connections)} inter-group connections")
+    print(f"   - {len(operations)} computational operations")
+    print(f"   - {len(connections)} inter-operation connections")
     print(f"   - Complete state variable mappings")
     print(f"   This structure is ready for BPU compilation and optimization!")
 

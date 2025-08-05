@@ -15,14 +15,14 @@
 from brainevent import get_all_primitive_names
 
 import brainstate.compile
-from .data import Group, Connection
+from .data import Operation, Connection
 import jax
 
 
-class BpuGroupConnectionParser:
+class BpuOperationConnectionParser:
     """
-    Parser for BPU group and connections.
-    This class is responsible for parsing the connections between groups in a BPU model.
+    Parser for BPU operations and connections.
+    This class is responsible for parsing the operations and connections in a BPU model.
     """
 
     def __init__(
@@ -30,17 +30,17 @@ class BpuGroupConnectionParser:
         module_instance,
     ):
         self.module_instance = module_instance
-        self.groups = []
+        self.operations = []
         self.connections = []
         self.invars_to_state = dict()
         self.state_to_invars = dict()
         self.outvars_to_state = dict()
         self.state_to_outvars = dict()
         
-        # Track current grouping state
-        self.current_group_eqns = []
-        self.current_group_name = None
-        self.group_counter = 0
+        # Track current operation state
+        self.current_operation_eqns = []
+        self.current_operation_name = None
+        self.operation_counter = 0
 
     def _build_state_mappings(self, closed_jaxpr, states, cache_key, stateful_module):
         """Build mappings between state variables and JAXpr input/output variables
@@ -107,70 +107,87 @@ class BpuGroupConnectionParser:
             else:
                 self.state_to_outvars[state] = outvar_leaves
 
-    def _is_connection_primitive(self, primitive_name):
-        """Check if primitive represents a connection operation that should end current group"""
-        connection_primitives = {
-            'dot_general',
-            *get_all_primitive_names()
-        }
-        return primitive_name in connection_primitives
-
-    def _can_group_together(self, eqn1, eqn2):
-        """Check if two equations can be grouped together based on shape and dimension consistency"""
-        # Some operations should always be grouped with adjacent operations
-        always_group_ops = {
-            'broadcast_in_dim', 'stop_gradient', 'convert_element_type', 
-            'squeeze', 'expand_dims', 'reshape', 'slice'
-        }
-        
-        # If either operation is in always_group_ops, they can be grouped
-        if (eqn1.primitive.name in always_group_ops or 
-            eqn2.primitive.name in always_group_ops):
-            return True
-        
-        # Check shape and dimension consistency for other operations
-        if hasattr(eqn1, 'outvars') and hasattr(eqn2, 'outvars'):
-            if len(eqn1.outvars) > 0 and len(eqn2.outvars) > 0:
-                out1 = eqn1.outvars[0]
-                out2 = eqn2.outvars[0]
-                
-                # Check if shapes are consistent
-                if hasattr(out1, 'aval') and hasattr(out2, 'aval'):
-                    if out1.aval.shape == out2.aval.shape and out1.aval.ndim == out2.aval.ndim:
-                        return True
+    def _is_brainevent_jit_connection(self, eqn):
+        """Check if equation is a jit-wrapped brainevent operation that should be a connection"""
+        if eqn.primitive.name == 'jit':
+            # Check if the function name starts with 'brainevent'
+            if 'name' in eqn.params:
+                name = eqn.params['name']
+                if isinstance(name, str) and name.startswith('brainevent'):
+                    return True
         return False
 
-    def _finalize_current_group(self):
-        """Finalize the current group and add it to groups list"""
-        if self.current_group_eqns:
-            group_name = f"group_{self.group_counter}"
-            group = Group(name=group_name, eqns=self.current_group_eqns.copy())
-            self.groups.append(group)
-            self.group_counter += 1
-            self.current_group_eqns.clear()
-            return group
+    def _should_split_operation(self, eqn):
+        """Check if equation should cause a split in current operation"""
+        # slice operations should cause a split and become their own operation
+        if eqn.primitive.name == 'slice':
+            return True
+        
+        # brainevent jit connections should cause a split (but don't become operations themselves)
+        if self._is_brainevent_jit_connection(eqn):
+            return True
+            
+        # All other operations can be merged into the current operation
+        return False
+
+    def _finalize_current_operation(self):
+        """Finalize the current operation and add it to operations list"""
+        if self.current_operation_eqns:
+            operation_name = f"operation_{self.operation_counter}"
+            operation = Operation(name=operation_name, eqns=self.current_operation_eqns.copy())
+            self.operations.append(operation)
+            self.operation_counter += 1
+            self.current_operation_eqns.clear()
+            return operation
         return None
 
     def _expand_nested_jaxpr(self, eqn):
-        """Expand nested JAXpr (like jit) by replacing them with their inner equations"""
+        """Expand nested JAXpr (like jit) by replacing them with their inner equations
+        
+        Exception: brainevent jit operations are kept as-is for connection detection
+        """
         expanded_eqns = []
         
         if eqn.primitive.name == 'jit':
-            # Get nested jaxpr
-            if 'jaxpr' in eqn.params:
-                nested_jaxpr = eqn.params['jaxpr']
-                # Recursively process nested equations
-                for nested_eqn in nested_jaxpr.eqns:
-                    expanded_eqns.extend(self._expand_nested_jaxpr(nested_eqn))
-            else:
+            # Check if this is a brainevent connection - if so, keep it as-is
+            if self._is_brainevent_jit_connection(eqn):
                 expanded_eqns.append(eqn)
+            else:
+                # Expand other jit operations
+                if 'jaxpr' in eqn.params:
+                    nested_jaxpr = eqn.params['jaxpr']
+                    # Recursively process nested equations
+                    for nested_eqn in nested_jaxpr.eqns:
+                        expanded_eqns.extend(self._expand_nested_jaxpr(nested_eqn))
+                else:
+                    expanded_eqns.append(eqn)
         else:
             expanded_eqns.append(eqn)
             
         return expanded_eqns
 
+    def _create_connection(self, pre_operation, post_operation, jit_eqn):
+        """Create a connection between two operations using the inner jaxpr from jit"""
+        # Extract the inner jaxpr from the jit equation
+        if 'jaxpr' in jit_eqn.params:
+            inner_jaxpr = jit_eqn.params['jaxpr']
+        else:
+            # Fallback - use the jit equation itself
+            inner_jaxpr = jit_eqn
+        
+        # Avoid duplicate connections
+        for existing_conn in self.connections:
+            if (existing_conn.pre == pre_operation and 
+                existing_conn.post == post_operation):
+                return existing_conn
+        
+        # Create new connection
+        connection = Connection(pre=pre_operation, post=post_operation, jaxpr=inner_jaxpr)
+        self.connections.append(connection)
+        return connection
+
     def _parse_equations(self, closed_jaxpr):
-        """Parse JAXpr equations to identify groups and connections"""
+        """Parse JAXpr equations to identify operations and connections"""
         # Extract the actual jaxpr from ClosedJaxpr
         jaxpr = closed_jaxpr.jaxpr
         expanded_eqns = []
@@ -179,117 +196,55 @@ class BpuGroupConnectionParser:
         for eqn in jaxpr.eqns:
             expanded_eqns.extend(self._expand_nested_jaxpr(eqn))
         
-        # Process expanded equations for grouping
-        i = 0
-        while i < len(expanded_eqns):
-            eqn = expanded_eqns[i]
-            primitive_name = eqn.primitive.name
-            
-            # Check if this is a connection operation
-            if self._is_connection_primitive(primitive_name):
-                # Finalize current group as pre_group
-                pre_group = self._finalize_current_group()
+        # First pass: create operations and identify connections
+        for eqn in expanded_eqns:
+            # Check if this equation should split the current operation
+            if self._should_split_operation(eqn):
+                # Finalize current operation before the split
+                self._finalize_current_operation()
                 
-                # The connection eqn itself is not added to any group
-                connection_eqn = eqn
-                
-                # Move to next equation
-                i += 1
-                
-                # Start collecting equations for post_group right away
-                # The post_group will be finalized when we hit the next connection
-                # or when we reach the end
-                
-                # Create connection if we have a pre_group
-                # We'll set post_group to None for now and update it later
-                if pre_group is not None:
-                    # We'll create a temporary connection and update post_group later
-                    # For now, just continue with normal grouping
-                    pass
-                
-                # Continue normal processing - the next non-connection equations
-                # will start forming a new group
-                continue
+                # If it's a brainevent connection, don't add to operations - we'll handle separately
+                if self._is_brainevent_jit_connection(eqn):
+                    continue
+                # If it's a slice, add it as a new operation
+                elif eqn.primitive.name == 'slice':
+                    self.current_operation_eqns.append(eqn)
             else:
-                # Non-connection operation, add to current group
-                if (not self.current_group_eqns or 
-                    len(self.current_group_eqns) == 0 or 
-                    self._can_group_together(self.current_group_eqns[-1], eqn)):
-                    self.current_group_eqns.append(eqn)
-                else:
-                    # Start new group
-                    self._finalize_current_group()
-                    self.current_group_eqns.append(eqn)
-                i += 1
+                # Regular equation - add to current operation
+                self.current_operation_eqns.append(eqn)
         
-        # Finalize the last group
-        self._finalize_current_group()
+        # Finalize the last operation
+        self._finalize_current_operation()
         
-        # Now we need to create connections by scanning for connection operations
-        # and linking adjacent groups
-        self._create_connections_from_groups(expanded_eqns)
-    
-    def _create_connections_from_groups(self, expanded_eqns):
-        """Create connections by analyzing connection operations between groups"""
-        # Find all connection operations and their positions
-        connection_positions = []
+        # Second pass: create connections between adjacent operations
         for i, eqn in enumerate(expanded_eqns):
-            if self._is_connection_primitive(eqn.primitive.name):
-                connection_positions.append((i, eqn))
-        
-        # For each connection operation, find the pre and post groups
-        for pos, conn_eqn in connection_positions:
-            pre_group = None
-            post_group = None
-            pre_group_max_pos = -1
-            post_group_min_pos = float('inf')
-            
-            # Find pre_group: look for the group with equations closest before this position
-            for group in self.groups:
-                group_max_pos = -1
-                for group_eqn in group.eqns:
-                    try:
-                        group_eqn_pos = expanded_eqns.index(group_eqn)
-                        if group_eqn_pos < pos:
-                            group_max_pos = max(group_max_pos, group_eqn_pos)
-                    except ValueError:
-                        continue
+            if self._is_brainevent_jit_connection(eqn):
+                # Find the pre and post operations around this connection
+                pre_operation = None
+                post_operation = None
                 
-                # Update pre_group if this group is closer to the connection
-                if group_max_pos > pre_group_max_pos:
-                    pre_group_max_pos = group_max_pos
-                    pre_group = group
-            
-            # Find post_group: look for the group with equations closest after this position
-            for group in self.groups:
-                group_min_pos = float('inf')
-                for group_eqn in group.eqns:
-                    try:
-                        group_eqn_pos = expanded_eqns.index(group_eqn)
-                        if group_eqn_pos > pos:
-                            group_min_pos = min(group_min_pos, group_eqn_pos)
-                    except ValueError:
-                        continue
-                
-                # Update post_group if this group is closer to the connection
-                if group_min_pos < post_group_min_pos:
-                    post_group_min_pos = group_min_pos
-                    post_group = group
-            
-            # Create connection if we have both groups
-            if pre_group is not None and post_group is not None:
-                # Avoid duplicate connections
-                existing_connection = None
-                for existing_conn in self.connections:
-                    if (existing_conn.pre == pre_group and 
-                        existing_conn.post == post_group and
-                        existing_conn.eqn.primitive.name == conn_eqn.primitive.name):
-                        existing_connection = existing_conn
+                # Find pre_operation: the operation containing equations before this position
+                for j in range(i-1, -1, -1):
+                    for operation in self.operations:
+                        if expanded_eqns[j] in operation.eqns:
+                            pre_operation = operation
+                            break
+                    if pre_operation:
                         break
                 
-                if existing_connection is None:
-                    connection = Connection(pre=pre_group, post=post_group, eqn=conn_eqn)
-                    self.connections.append(connection)
+                # Find post_operation: the operation containing equations after this position  
+                for j in range(i+1, len(expanded_eqns)):
+                    for operation in self.operations:
+                        if expanded_eqns[j] in operation.eqns:
+                            post_operation = operation
+                            break
+                    if post_operation:
+                        break
+                
+                # Create connection if we have both operations
+                if pre_operation is not None and post_operation is not None:
+                    self._create_connection(pre_operation, post_operation, eqn)
+    
 
     def parse(self, *args, **kwargs):
         """Main parsing function that analyzes JAXpr and builds groups and connections"""
@@ -305,7 +260,7 @@ class BpuGroupConnectionParser:
         # Parse equations to identify groups and connections
         self._parse_equations(jaxpr)
         
-        return self.groups, self.connections, {
+        return self.operations, self.connections, {
             'invars_to_state': self.invars_to_state,
             'state_to_invars': self.state_to_invars,
             'outvars_to_state': self.outvars_to_state,
