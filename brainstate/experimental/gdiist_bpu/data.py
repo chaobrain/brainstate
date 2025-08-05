@@ -52,7 +52,7 @@ def display_analysis_results(operations: List[Operation], connections: List[Conn
     print(f"\nDetailed Operation Analysis:")
     for i, operation in enumerate(operations):
         print(f"\n   Operation {i} ({operation.name}):")
-        print(f"     - Equations: {len(operation.eqns)}")
+        print(f"     - Total equations: {len(operation.eqns)}")
         
         # Show equation types and shapes
         eq_types = {}
@@ -60,13 +60,31 @@ def display_analysis_results(operations: List[Operation], connections: List[Conn
             prim_name = eqn.primitive.name
             eq_types[prim_name] = eq_types.get(prim_name, 0) + 1
         
-        print(f"     - Primitives: {dict(eq_types)}")
+        print(f"     - Primitive summary: {dict(eq_types)}")
         
-        # Show representative shape
-        if operation.eqns and len(operation.eqns[0].outvars) > 0:
-            outvar = operation.eqns[0].outvars[0]
-            if hasattr(outvar, 'aval'):
-                print(f"     - Output shape: {outvar.aval.shape}")
+        # Show all equations in this operation
+        print(f"     - All equations:")
+        for j, eqn in enumerate(operation.eqns):
+            # Get output info
+            output_info = ""
+            if len(eqn.outvars) > 0:
+                outvar = eqn.outvars[0]
+                if hasattr(outvar, 'aval'):
+                    output_info = f" -> {outvar.aval.dtype}{list(outvar.aval.shape)}"
+            
+            # Get input count
+            input_count = len(eqn.invars)
+            
+            print(f"       [{j:2d}] {eqn.primitive.name}({input_count} inputs){output_info}")
+            
+            # Show parameters if they exist and are interesting
+            if hasattr(eqn, 'params') and eqn.params:
+                interesting_params = {}
+                for key, value in eqn.params.items():
+                    if key in ['limit_indices', 'start_indices', 'strides', 'dimension_numbers', 'axes']:
+                        interesting_params[key] = value
+                if interesting_params:
+                    print(f"            params: {interesting_params}")
     
     # Connection analysis
     print(f"\nConnection Analysis:")
@@ -74,14 +92,35 @@ def display_analysis_results(operations: List[Operation], connections: List[Conn
         print(f"\n   Connection {i}:")
         print(f"     - From: {conn.pre.name} ({len(conn.pre.eqns)} ops)")
         print(f"     - To: {conn.post.name} ({len(conn.post.eqns)} ops)")
-        print(f"     - JAXpr: {type(conn.jaxpr).__name__}")
         
-        # Connection details
+        # Show complete jaxpr equations if available
         if hasattr(conn.jaxpr, 'jaxpr') and len(conn.jaxpr.jaxpr.eqns) > 0:
             inner_eqns = conn.jaxpr.jaxpr.eqns
-            print(f"     - Inner equations: {len(inner_eqns)}")
-            if inner_eqns:
-                print(f"     - Primary primitive: {inner_eqns[0].primitive.name}")
+            print(f"     - Connection equations ({len(inner_eqns)} total):")
+            
+            for j, eqn in enumerate(inner_eqns):
+                # Get output info
+                output_info = ""
+                if len(eqn.outvars) > 0:
+                    outvar = eqn.outvars[0]
+                    if hasattr(outvar, 'aval'):
+                        output_info = f" -> {outvar.aval.dtype}{list(outvar.aval.shape)}"
+                
+                # Get input count
+                input_count = len(eqn.invars)
+                
+                print(f"       [{j:2d}] {eqn.primitive.name}({input_count} inputs){output_info}")
+                
+                # Show parameters if they exist and are interesting
+                if hasattr(eqn, 'params') and eqn.params:
+                    interesting_params = {}
+                    for key, value in eqn.params.items():
+                        if key in ['limit_indices', 'start_indices', 'strides', 'dimension_numbers', 'axes', 'shape', 'broadcast_dimensions']:
+                            interesting_params[key] = value
+                    if interesting_params:
+                        print(f"            params: {interesting_params}")
+        else:
+            print(f"     - Connection JAXpr: No inner equations found")
     
     # State mapping analysis
     print(f"\nState Mapping Analysis:")
