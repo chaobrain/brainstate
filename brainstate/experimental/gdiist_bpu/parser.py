@@ -166,6 +166,26 @@ class BpuOperationConnectionParser:
             
         return expanded_eqns
 
+    def _find_operation_by_variable(self, var, expanded_eqns):
+        """Find which operation produces or consumes a given variable"""
+        for operation in self.operations:
+            for eqn in operation.eqns:
+                # Check if this equation produces the variable
+                if var in eqn.outvars:
+                    return operation
+        return None
+    
+    def _find_operations_using_variable(self, var, expanded_eqns):
+        """Find which operations use a given variable as input"""
+        using_operations = []
+        for operation in self.operations:
+            for eqn in operation.eqns:
+                # Check if this equation uses the variable as input
+                if var in eqn.invars:
+                    using_operations.append(operation)
+                    break  # Don't add the same operation multiple times
+        return using_operations
+
     def _create_connection(self, pre_operation, post_operation, jit_eqn):
         """Create a connection between two operations using the inner jaxpr from jit"""
         # Extract the inner jaxpr from the jit equation
@@ -216,34 +236,39 @@ class BpuOperationConnectionParser:
         # Finalize the last operation
         self._finalize_current_operation()
         
-        # Second pass: create connections between adjacent operations
+        # Second pass: create connections based on data flow analysis
         for i, eqn in enumerate(expanded_eqns):
             if self._is_brainevent_jit_connection(eqn):
-                # Find the pre and post operations around this connection
+                # Analyze data flow for this connection
                 pre_operation = None
-                post_operation = None
+                post_operations = []
                 
-                # Find pre_operation: the operation containing equations before this position
-                for j in range(i-1, -1, -1):
-                    for operation in self.operations:
-                        if expanded_eqns[j] in operation.eqns:
-                            pre_operation = operation
-                            break
-                    if pre_operation:
-                        break
+                # Find pre_operation: which operation produces the input variables for this connection
+                for input_var in eqn.invars:
+                    producer = self._find_operation_by_variable(input_var, expanded_eqns)
+                    if producer:
+                        pre_operation = producer
+                        break  # Use the first producer we find
                 
-                # Find post_operation: the operation containing equations after this position  
-                for j in range(i+1, len(expanded_eqns)):
-                    for operation in self.operations:
-                        if expanded_eqns[j] in operation.eqns:
-                            post_operation = operation
-                            break
-                    if post_operation:
-                        break
+                # Find post_operations: which operations use the output variables from this connection
+                for output_var in eqn.outvars:
+                    consumers = self._find_operations_using_variable(output_var, expanded_eqns)
+                    post_operations.extend(consumers)
                 
-                # Create connection if we have both operations
-                if pre_operation is not None and post_operation is not None:
-                    self._create_connection(pre_operation, post_operation, eqn)
+                # Remove duplicates from post_operations
+                seen = set()
+                unique_post_operations = []
+                for op in post_operations:
+                    if id(op) not in seen:
+                        seen.add(id(op))
+                        unique_post_operations.append(op)
+                post_operations = unique_post_operations
+                
+                # Create connections from pre_operation to each post_operation
+                if pre_operation is not None:
+                    for post_operation in post_operations:
+                        if post_operation != pre_operation:  # Avoid self-connections
+                            self._create_connection(pre_operation, post_operation, eqn)
     
 
     def parse(self, *args, **kwargs):
