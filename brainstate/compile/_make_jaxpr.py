@@ -352,11 +352,13 @@ class StatefulFunction(PrettyObject):
             cache_key = default_cache_key
         return self.get_state_trace(cache_key).get_write_states()
 
-    def _check_input(self, x):
+    def _check_input_ouput(self, x):
         if isinstance(x, State):
-            raise ValueError(
-                'Inputs for brainstate transformations cannot be an instance of State. '
-                f'But we got {x}'
+            x.raise_error_with_source_info(
+                ValueError(
+                    'Inputs/outputs for brainstate transformations cannot be an instance of State. '
+                    f'But we got {x}'
+                )
             )
 
     def get_arg_cache_key(self, *args, **kwargs) -> Tuple:
@@ -477,9 +479,7 @@ class StatefulFunction(PrettyObject):
 
         # State instance as functional returns is not allowed.
         # Checking whether the states are returned.
-        for leaf in jax.tree.leaves(out):
-            if isinstance(leaf, State):
-                leaf.raise_error_with_source_info(ValueError(f"State object is not allowed to be returned: {leaf}"))
+        jax.tree.map(self._check_input_ouput, out, is_leaf=lambda x: isinstance(x, State))
         return out, state_values
 
     def make_jaxpr(self, *args, return_only_write: bool = False, **kwargs):
@@ -501,7 +501,7 @@ class StatefulFunction(PrettyObject):
         cache_key = self.get_arg_cache_key(*args, **kwargs)
 
         # check input types
-        jax.tree.map(self._check_input, (args, kwargs), is_leaf=lambda x: isinstance(x, State))
+        jax.tree.map(self._check_input_ouput, (args, kwargs), is_leaf=lambda x: isinstance(x, State))
 
         if cache_key not in self._cached_state_trace:
             try:
