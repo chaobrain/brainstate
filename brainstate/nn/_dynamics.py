@@ -1151,7 +1151,6 @@ class OutputDelayAt(Node):
         self,
         module: Dynamics,
         time: Optional[ArrayLike] = None,
-        variable_like: Optional[PyTree] = None,
     ):
         super().__init__()
         assert isinstance(module, Dynamics), 'The module should be an instance of Dynamics.'

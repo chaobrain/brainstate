@@ -23,7 +23,7 @@ import brainunit as u
 from brainstate import init, environ
 from brainstate._state import ShortTermState, HiddenState
 from brainstate.mixin import AlignPost
-from brainstate.typing import ArrayLike, Size, PyTree
+from brainstate.typing import ArrayLike, Size
 from ._dynamics import Dynamics
 from ._exp_euler import exp_euler_step
 

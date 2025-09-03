@@ -19,9 +19,8 @@ from typing import Optional
 
 import brainunit as u
 import jax.numpy as jnp
-import jax.typing
 
-from brainstate import random, functional as F
+from brainstate import functional as F
 from brainstate._state import ParamState
 from brainstate.typing import ArrayLike
 from ._module import ElementWiseBlock
