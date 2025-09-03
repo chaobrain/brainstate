@@ -1083,6 +1083,8 @@ class PrefetchDelayAt(Node):
         assert isinstance(module, Dynamics), 'The module should be an instance of Dynamics.'
         self.module = module
         self.item = item
+        if not isinstance(delay_time, (tuple, list)):
+            delay_time = (delay_time,)
         self.delay_time = delay_time
         if len(delay_time) > 0:
             key = _get_prefetch_delay_key(item)
