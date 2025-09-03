@@ -114,19 +114,19 @@ class INGNet(brainstate.nn.DynamicsGroup):
         )
 
         self.FS2_to_RS = brainstate.nn.DeltaProj(
-            self.fs_pop.prefetch('spike').delay.at(self.delay),
+            self.fs2_pop.prefetch('spike').delay.at(self.delay),
             comm=brainstate.nn.EventFixedProb(self.num_fs2, self.num_rs, 0.15, self.exc_syn_weight),
             post=self.rs_pop,
             label='gi'
         )
         self.FS2_to_FS = brainstate.nn.DeltaProj(
-            self.fs_pop.prefetch('spike').delay.at(self.delay),
+            self.fs2_pop.prefetch('spike').delay.at(self.delay),
             comm=brainstate.nn.EventFixedProb(self.num_fs2, self.num_fs, 0.15, self.exc_syn_weight),
             post=self.fs_pop,
             label='gi'
         )
         self.FS2_to_FS2 = brainstate.nn.DeltaProj(
-            self.fs_pop.prefetch('spike').delay.at(self.delay),
+            self.fs2_pop.prefetch('spike').delay.at(self.delay),
             comm=brainstate.nn.EventFixedProb(self.num_fs2, self.num_fs2, 0.6, self.exc_syn_weight),
             post=self.fs2_pop,
             label='gi'

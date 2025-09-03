@@ -13,7 +13,6 @@
 # limitations under the License.
 # ==============================================================================
 
-from __future__ import annotations
 
 import unittest
 
@@ -132,15 +131,26 @@ class TestMakeJaxpr(unittest.TestCase):
         print(jaxpr)
         print(states)
 
+    def test_state_in(self):
+        def f(a):
+            return a.value
 
-def test_return_states():
-    import jax.numpy
+        with pytest.raises(ValueError):
+            brainstate.compile.StatefulFunction(f).make_jaxpr(brainstate.State(1.))
 
-    a = brainstate.State(jax.numpy.ones(3))
+    def test_state_out(self):
+        def f(a):
+            return brainstate.State(a)
 
-    @brainstate.compile.jit
-    def f():
-        return a
+        with pytest.raises(ValueError):
+            brainstate.compile.StatefulFunction(f).make_jaxpr(1.)
 
-    with pytest.raises(ValueError):
-        f()
+    def test_return_states(self):
+        a = brainstate.State(jnp.ones(3))
+
+        @brainstate.compile.jit
+        def f():
+            return a
+
+        with pytest.raises(ValueError):
+            f()

@@ -17,7 +17,7 @@
 A ``State``-based Transformation System for Program Compilation and Augmentation
 """
 
-__version__ = "0.1.7"
+__version__ = "0.1.8"
 
 from . import augment
 from . import compile
