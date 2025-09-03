@@ -13,7 +13,6 @@
 # limitations under the License.
 # ==============================================================================
 
-import math
 import numbers
 from functools import partial
 from typing import Optional, Dict, Callable, Union, Sequence
@@ -41,23 +40,19 @@ _INTERP_LINEAR = 'linear_interp'
 _INTERP_ROUND = 'round'
 
 
-def _get_delay(delay_time, delay_step):
-    if delay_time is None:
-        if delay_step is None:
-            return 0., 0
-        else:
-            assert isinstance(delay_step, int), '"delay_step" should be an integer.'
-            if delay_step == 0:
-                return 0., 0
-            with jax.ensure_compile_time_eval():
-                delay_time = delay_step * environ.get_dt()
-    else:
-        assert delay_step is None, '"delay_step" should be None if "delay_time" is given.'
-        # assert isinstance(delay_time, (int, float))
-        with jax.ensure_compile_time_eval():
-            delay_step = delay_time / environ.get_dt()
-        delay_step = math.ceil(float(delay_step))
+def _get_delay(delay_time):
+    with jax.ensure_compile_time_eval():
+        if delay_time is None:
+            return 0. * environ.get_dt(), 0
+        delay_step = delay_time / environ.get_dt()
+        delay_step = jnp.ceil(delay_step).astype(environ.ditype())
     return delay_time, delay_step
+
+
+def _formalize_delay_time(delay_time):
+    if isinstance(delay_time, (np.ndarray, jax.Array)):
+        assert delay_time.size == 1 and delay_time.ndim == 0
+        delay_time = delay_time.item()
 
 
 class DelayAccess(Node):
@@ -141,17 +136,21 @@ class Delay(Module):
         self.target_info = jax.tree.map(lambda a: jax.ShapeDtypeStruct(a.shape, a.dtype), target_info)
 
         # delay method
-        assert delay_method in [_DELAY_ROTATE, _DELAY_CONCAT], (f'Un-supported delay method {delay_method}. '
-                                                                f'Only support {_DELAY_ROTATE} and {_DELAY_CONCAT}')
+        assert delay_method in [_DELAY_ROTATE, _DELAY_CONCAT], (
+            f'Un-supported delay method {delay_method}. '
+            f'Only support {_DELAY_ROTATE} and {_DELAY_CONCAT}'
+        )
         self.delay_method = delay_method
 
         # interp method
-        assert interp_method in [_INTERP_LINEAR, _INTERP_ROUND], (f'Un-supported interpolation method {interp_method}. '
-                                                                  f'we only support: {[_INTERP_LINEAR, _INTERP_ROUND]}')
+        assert interp_method in [_INTERP_LINEAR, _INTERP_ROUND], (
+            f'Un-supported interpolation method {interp_method}. '
+            f'we only support: {[_INTERP_LINEAR, _INTERP_ROUND]}'
+        )
         self.interp_method = interp_method
 
         # delay length and time
-        self.max_time, delay_length = _get_delay(time, None)
+        self.max_time, delay_length = _get_delay(time)
         self.max_length = delay_length + 1
 
         super().__init__()
@@ -169,7 +168,10 @@ class Delay(Module):
         # other info
         if entries is not None:
             for entry, delay_time in entries.items():
-                self.register_entry(entry, delay_time)
+                if isinstance(delay_time, (tuple, list)):
+                    self.register_entry(entry, *delay_time)
+                else:
+                    self.register_entry(entry, delay_time)
 
         self.take_aware_unit = take_aware_unit
         self._unit = None
@@ -205,58 +207,87 @@ class Delay(Module):
         fun = partial(self._f_to_init, length=self.max_length, batch_size=batch_size)
         self.history.value = jax.tree.map(fun, self.target_info)
 
-    def register_delay(
-        self,
-        delay_time: Optional[Union[int, float]] = None,
-        delay_step: Optional[int] = None,
-    ):
-        if isinstance(delay_time, (np.ndarray, jax.Array)):
-            assert delay_time.size == 1 and delay_time.ndim == 0
-            delay_time = delay_time.item()
+    def register_delay(self, *delay_time):
+        """
+        Register delay times and update the maximum delay configuration.
 
-        _, delay_step = _get_delay(delay_time, delay_step)
+        This method processes one or more delay times, validates their format and consistency,
+        and updates the delay buffer size if necessary. It handles both scalar and vector
+        delay times, ensuring all vector delays have the same size.
+
+        Args:
+            *delay_time: Variable number of delay time arguments. The first argument should be
+                the primary delay time (float, int, or array-like). Additional arguments are
+                treated as indices or secondary delay parameters. All delay times should be
+                non-negative numbers or arrays of the same size.
+
+        Returns:
+            tuple or None: If delay_time[0] is None, returns None. Otherwise, returns a tuple
+                containing (delay_step, *delay_time[1:]) where delay_step is the computed
+                delay step in integer time units, and the remaining elements are the
+                additional delay parameters passed in.
+
+        Raises:
+            AssertionError: If no delay time is provided (empty delay_time).
+            ValueError: If delay times have inconsistent sizes when using vector delays,
+                or if delay times are not scalar or 1D arrays.
+
+        Note:
+            - The method updates self.max_time and self.max_length if the new delay
+              requires a larger buffer size.
+            - Delay steps are computed using the current environment time step (dt).
+            - All delay indices (delay_time[1:]) must be integers.
+            - Vector delays must all have the same size as the first delay time.
+
+        Example:
+            >>> delay_obj.register_delay(5.0)  # Register 5ms delay
+            >>> delay_obj.register_delay(jnp.array([2.0, 3.0]), 0, 1)  # Vector delay with indices
+        """
+        assert len(delay_time) >= 1, 'You should provide at least one delay time.'
+        delay_size = u.math.size(delay_time[0])
+        for dt in delay_time[1:]:
+            assert jnp.issubdtype(u.math.get_dtype(dt), jnp.integer), f'The index should be integer. But got {dt}.'
+        for dt in delay_time:
+            if u.math.ndim(dt) == 0:
+                pass
+            elif u.math.ndim(dt) == 1:
+                if u.math.size(dt) != delay_size:
+                    raise ValueError(
+                        f'The delay time should be a scalar or a vector with the same size. '
+                        f'But got {delay_time}. The delay time {dt} has size {u.math.size(dt)}'
+                    )
+            else:
+                raise ValueError(f'The delay time should be a scalar/vector. But got {dt}.')
+        if delay_time[0] is None:
+            return None
+        time, delay_step = _get_delay(delay_time[0])
+        max_delay_step = jnp.max(delay_step)
+        self.max_time = u.math.max(time)
 
         # delay variable
-        if self.max_length <= delay_step + 1:
-            self.max_length = delay_step + 1
-            self.max_time = delay_time
-        return self
+        if self.max_length <= max_delay_step + 1:
+            self.max_length = max_delay_step + 1
+        return delay_step, *delay_time[1:]
 
-    def register_entry(
-        self,
-        entry: str,
-        delay_time: Optional[Union[int, float]] = None,
-        delay_step: Optional[int] = None,
-    ) -> 'Delay':
+    def register_entry(self, entry: str, *delay_time) -> 'Delay':
         """
         Register an entry to access the delay data.
 
         Args:
           entry: str. The entry to access the delay data.
-          delay_time: The delay time of the entry (can be a float).
-          delay_step: The delay step of the entry (must be an int). ``delat_step = delay_time / dt``.
-
-        Returns:
-          Return the self.
+          delay_time: The delay time of the entry, the first element is the delay time,
+            the second and later element is the index.
         """
         if entry in self._registered_entries:
-            raise KeyError(f'Entry {entry} has been registered. '
-                           f'The existing delay for the key {entry} is {self._registered_entries[entry]}. '
-                           f'The new delay for the key {entry} is {delay_time}. '
-                           f'You can use another key. ')
-
-        if isinstance(delay_time, (np.ndarray, jax.Array)):
-            assert delay_time.size == 1 and delay_time.ndim == 0
-            delay_time = delay_time.item()
-
-        _, delay_step = _get_delay(delay_time, delay_step)
-
-        # delay variable
-        if self.max_length <= delay_step + 1:
-            self.max_length = delay_step + 1
-            self.max_time = delay_time
-        self._registered_entries[entry] = delay_step
-        return self
+            raise KeyError(
+                f'Entry {entry} has been registered. '
+                f'The existing delay for the key {entry} is {self._registered_entries[entry]}. '
+                f'The new delay for the key {entry} is {delay_time}. '
+                f'You can use another key. '
+            )
+        delay_info = self.register_delay(*delay_time)
+        self._registered_entries[entry] = delay_info
+        return delay_info
 
     def access(
         self,
@@ -265,7 +296,7 @@ class Delay(Module):
     ) -> DelayAccess:
         return DelayAccess(self, time, delay_entry=entry)
 
-    def at(self, entry: str, *indices) -> ArrayLike:
+    def at(self, entry: str) -> ArrayLike:
         """
         Get the data at the given entry.
 
@@ -282,8 +313,8 @@ class Delay(Module):
             raise KeyError(f'Does not find delay entry "{entry}".')
         delay_step = self._registered_entries[entry]
         if delay_step is None:
-            delay_step = 0
-        return self.retrieve_at_step(delay_step, *indices)
+            delay_step = (0,)
+        return self.retrieve_at_step(*delay_step)
 
     def retrieve_at_step(self, delay_step, *indices) -> PyTree:
         """
@@ -306,8 +337,10 @@ class Delay(Module):
 
         if environ.get(environ.JIT_ERROR_CHECK, False):
             def _check_delay(delay_len):
-                raise ValueError(f'The request delay length should be less than the '
-                                 f'maximum delay {self.max_length - 1}. But we got {delay_len}')
+                raise ValueError(
+                    f'The request delay length should be less than the '
+                    f'maximum delay {self.max_length - 1}. But we got {delay_len}'
+                )
 
             jit_error_if(delay_step >= self.max_length, _check_delay, delay_step)
 
@@ -363,13 +396,17 @@ class Delay(Module):
 
         if environ.get(environ.JIT_ERROR_CHECK, False):
             def _check_delay(t_now, t_delay):
-                raise ValueError(f'The request delay time should be within '
-                                 f'[{t_now - self.max_time - dt}, {t_now}], '
-                                 f'but we got {t_delay}')
+                raise ValueError(
+                    f'The request delay time should be within '
+                    f'[{t_now - self.max_time - dt}, {t_now}], '
+                    f'but we got {t_delay}'
+                )
 
             jit_error_if(
-                jnp.logical_or(delay_time > current_time,
-                               delay_time < current_time - self.max_time - dt),
+                jnp.logical_or(
+                    delay_time > current_time,
+                    delay_time < current_time - self.max_time - dt
+                ),
                 _check_delay,
                 current_time,
                 delay_time
@@ -385,10 +422,7 @@ class Delay(Module):
             return jax.tree.map(lambda a, b: a * (1 - t_diff) + b * t_diff, data_at_t0, data_at_t1)
 
         elif self.interp_method == _INTERP_ROUND:  # "round" interpolation
-            return self.retrieve_at_step(
-                jnp.asarray(jnp.round(float_time_step), dtype=jnp.int32),
-                *indices
-            )
+            return self.retrieve_at_step(jnp.asarray(jnp.round(float_time_step), dtype=jnp.int32), *indices)
 
         else:  # raise error
             raise ValueError(f'Un-supported interpolation method {self.interp_method}, '
@@ -429,8 +463,6 @@ class Delay(Module):
             raise ValueError(f'Unknown updating method "{self.delay_method}"')
 
 
-
-
 class StateWithDelay(Delay):
     """
     A ``State`` type that defines the state in a differential equation.
@@ -440,8 +472,8 @@ class StateWithDelay(Delay):
 
     state: State  # state
 
-    def __init__(self, target: Node, item: str):
-        super().__init__(None)
+    def __init__(self, target: Node, item: str, init: Callable = None):
+        super().__init__(None, init=init)
 
         self._target = target
         self._target_term = item
