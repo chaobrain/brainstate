@@ -49,21 +49,18 @@ def _get_delay(delay_time):
     return delay_time, delay_step
 
 
-def _formalize_delay_time(delay_time):
-    if isinstance(delay_time, (np.ndarray, jax.Array)):
-        assert delay_time.size == 1 and delay_time.ndim == 0
-        delay_time = delay_time.item()
-
-
 class DelayAccess(Node):
     """
-    The delay access class.
+    Accessor node for a registered entry in a Delay instance.
+
+    This node holds a reference to a Delay and a named entry that was
+    registered on that Delay. It is used by graphs to query delayed
+    values by delegating to the underlying Delay instance.
 
     Args:
-      delay: The delay instance.
-      time: The delay time.
-      indices: The indices of the delay data.
-      delay_entry: The delay entry.
+        delay: The delay instance.
+        time: The delay time.
+        delay_entry: The delay entry.
     """
 
     __module__ = 'brainstate.nn'
@@ -73,17 +70,15 @@ class DelayAccess(Node):
         delay: 'Delay',
         time: Union[None, int, float],
         delay_entry: str,
-        *indices,
     ):
         super().__init__()
         self.refs = {'delay': delay}
         assert isinstance(delay, Delay), 'The input delay should be an instance of Delay.'
         self._delay_entry = delay_entry
-        delay.register_entry(self._delay_entry, time)
-        self.indices = indices
+        self.delay_info = delay.register_entry(self._delay_entry, time)
 
     def update(self):
-        return self.refs['delay'].at(self._delay_entry, *self.indices)
+        return self.refs['delay'].at(self._delay_entry)
 
 
 class Delay(Module):
@@ -274,9 +269,9 @@ class Delay(Module):
         Register an entry to access the delay data.
 
         Args:
-          entry: str. The entry to access the delay data.
-          delay_time: The delay time of the entry, the first element is the delay time,
-            the second and later element is the index.
+            entry: str. The entry to access the delay data.
+            delay_time: The delay time of the entry, the first element is the delay time,
+                the second and later element is the index.
         """
         if entry in self._registered_entries:
             raise KeyError(
@@ -289,12 +284,18 @@ class Delay(Module):
         self._registered_entries[entry] = delay_info
         return delay_info
 
-    def access(
-        self,
-        entry: str = None,
-        time: Sequence = None,
-    ) -> DelayAccess:
-        return DelayAccess(self, time, delay_entry=entry)
+    def access(self, entry: str, delay_time: Sequence) -> DelayAccess:
+        """
+        Create a DelayAccess object for a specific delay entry and delay time.
+
+        Args:
+            entry (str): The name of the delay entry to access.
+            delay_time (Sequence): The delay time or parameters associated with the entry.
+
+        Returns:
+            DelayAccess: An object that provides access to the delay data for the specified entry and time.
+        """
+        return DelayAccess(self, delay_time, delay_entry=entry)
 
     def at(self, entry: str) -> ArrayLike:
         """
@@ -302,7 +303,6 @@ class Delay(Module):
 
         Args:
           entry: str. The entry to access the data.
-          *indices: The slicing indices. Not include the slice at the batch dimension.
 
         Returns:
           The data.
