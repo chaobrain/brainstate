@@ -18,3 +18,4 @@
    Training
    JointTypes
    OneOfTypes
+   ArrayOp

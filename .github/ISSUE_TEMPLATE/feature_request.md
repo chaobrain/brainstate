@@ -1,6 +1,6 @@
 ---
 name: 'Feature Request'
-about: 'Suggest a new idea or improvement for BrainPy'
+about: 'Suggest a new idea or improvement for BrainMass'
 labels: 'enhancement'
 ---
 
