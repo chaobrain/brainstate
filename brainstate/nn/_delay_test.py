@@ -182,3 +182,57 @@ class TestDelay(unittest.TestCase):
             self.assertTrue(jnp.allclose(rotation_delay.at('a'), concat_delay.at('a'), ))
             self.assertTrue(jnp.allclose(rotation_delay.at('b'), concat_delay.at('b'), ))
             self.assertTrue(jnp.allclose(rotation_delay.at('c'), concat_delay.at('c'), ))
+
+    def test_delay_2d(self):
+        with brainstate.environ.context(dt=0.1, i=0):
+            rotation_delay = brainstate.nn.Delay(jnp.arange(2))
+            index = (brainstate.random.uniform(0., 10., (2, 2)),
+                     brainstate.random.randint(0, 2, (2, 2)))
+            rotation_delay.register_entry('a', *index)
+            rotation_delay.init_state()
+            data = rotation_delay.at('a')
+            print(index[0])
+            print(index[1])
+            print(data)
+            assert data.shape == (2, 2)
+
+    def test_delay_time2(self):
+        with brainstate.environ.context(dt=0.1, i=0):
+            rotation_delay = brainstate.nn.Delay(jnp.arange(2))
+            index = (brainstate.random.uniform(0., 10., (2, 2)),
+                     1)
+            rotation_delay.register_entry('a', *index)
+            rotation_delay.init_state()
+            data = rotation_delay.at('a')
+            print(index[0])
+            print(index[1])
+            print(data)
+            assert data.shape == (2, 2)
+
+    def test_delay_time3(self):
+        with brainstate.environ.context(dt=0.1, i=0):
+            rotation_delay = brainstate.nn.Delay(jnp.zeros((2, 2)))
+            index = (brainstate.random.uniform(0., 10., (2, 2)),
+                     1,
+                     brainstate.random.randint(0, 2, (2, 2)))
+            rotation_delay.register_entry('a', *index)
+            rotation_delay.init_state()
+            data = rotation_delay.at('a')
+            print(index[0])
+            print(index[1])
+            print(data)
+            assert data.shape == (2, 2)
+
+    def test_delay_time4(self):
+        with brainstate.environ.context(dt=0.1, i=0):
+            rotation_delay = brainstate.nn.Delay(jnp.zeros((2, 2)))
+            index = (brainstate.random.uniform(0., 10., (2, 2)),
+                     1,
+                     brainstate.random.randint(0, 2, (2, 2)))
+            rotation_delay.register_entry('a', *index)
+            rotation_delay.init_state()
+            data = rotation_delay.at('a')
+            print(index[0])
+            print(index[1])
+            print(data)
+            assert data.shape == (2, 2)

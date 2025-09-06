@@ -45,6 +45,7 @@ def _get_delay(delay_time):
         if delay_time is None:
             return 0. * environ.get_dt(), 0
         delay_step = delay_time / environ.get_dt()
+        assert u.get_dim(delay_step) == u.DIMENSIONLESS
         delay_step = jnp.ceil(delay_step).astype(environ.ditype())
     return delay_time, delay_step
 
@@ -239,20 +240,20 @@ class Delay(Module):
             >>> delay_obj.register_delay(jnp.array([2.0, 3.0]), 0, 1)  # Vector delay with indices
         """
         assert len(delay_time) >= 1, 'You should provide at least one delay time.'
-        delay_size = u.math.size(delay_time[0])
         for dt in delay_time[1:]:
             assert jnp.issubdtype(u.math.get_dtype(dt), jnp.integer), f'The index should be integer. But got {dt}.'
-        for dt in delay_time:
-            if u.math.ndim(dt) == 0:
-                pass
-            elif u.math.ndim(dt) == 1:
-                if u.math.size(dt) != delay_size:
-                    raise ValueError(
-                        f'The delay time should be a scalar or a vector with the same size. '
-                        f'But got {delay_time}. The delay time {dt} has size {u.math.size(dt)}'
-                    )
-            else:
-                raise ValueError(f'The delay time should be a scalar/vector. But got {dt}.')
+        # delay_size = u.math.size(delay_time[0])
+        # for dt in delay_time:
+        #     if u.math.ndim(dt) == 0:
+        #         pass
+        #     elif u.math.ndim(dt) == 1:
+        #         if u.math.size(dt) != delay_size:
+        #             raise ValueError(
+        #                 f'The delay time should be a scalar or a vector with the same size. '
+        #                 f'But got {delay_time}. The delay time {dt} has size {u.math.size(dt)}'
+        #             )
+        #     else:
+        #         raise ValueError(f'The delay time should be a scalar/vector. But got {dt}.')
         if delay_time[0] is None:
             return None
         time, delay_step = _get_delay(delay_time[0])
