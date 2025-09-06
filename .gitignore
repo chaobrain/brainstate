@@ -226,3 +226,4 @@ cython_debug/
 /docs/apis/deprecated/generated/
 /dist-hist/
 /.VSCodeCounter/
+/.claude/
