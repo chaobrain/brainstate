@@ -16,15 +16,13 @@
 from __future__ import annotations
 
 import contextlib
-import dataclasses
 import threading
-from functools import wraps, partial
+from functools import partial
 from typing import (
     Any,
     Union,
     Callable,
     Generic,
-    Mapping,
     TypeVar,
     Optional,
     TYPE_CHECKING,
@@ -187,59 +185,6 @@ def check_state_jax_tracer(val: bool = True) -> Generator[None, None, None]:
         TRACE_CONTEXT.jax_tracer_check.pop()
 
 
-@dataclasses.dataclass
-class StateMetadata(Generic[A]):
-    """
-    A dataclass representing metadata for a state object.
-
-    This class encapsulates the raw value of a state along with associated metadata.
-    It is generic over the type of the raw value.
-
-    Attributes:
-        raw_value (A): The raw value of the state. The type A is a generic type parameter.
-        metadata (Mapping[str, Any]): A mapping of string keys to arbitrary values,
-                                      representing additional metadata for the state.
-                                      Defaults to an empty dictionary.
-    """
-    raw_value: A
-    metadata: Mapping[str, Any] = dataclasses.field(default_factory=dict)
-
-
-def with_metadata(initializer: F, **metadata: Any) -> F:
-    """
-    A decorator that adds metadata to a state initialization function.
-
-    This decorator wraps the given initializer function, allowing additional
-    metadata to be associated with the state it creates. The metadata is
-    incorporated into a StateMetadata object along with the state's value.
-
-    Args:
-        initializer (F): The original state initialization function to be wrapped.
-        **metadata (Any): Arbitrary keyword arguments representing metadata
-                          to be associated with the state.
-
-    Returns:
-        F: A wrapped version of the initializer function that returns a
-           StateMetadata object containing both the original state value
-           and the provided metadata.
-
-    Example::
-        @with_metadata(tag='model_param')
-        def init_weights(shape):
-            return np.zeros(shape)
-
-        state = init_weights((100, 100))
-        # state is now a StateMetadata object with the initialized weights
-        # and the 'tag' metadata
-    """
-
-    @wraps(initializer)
-    def wrapper(*args):
-        return StateMetadata(initializer(*args), metadata=metadata)
-
-    return wrapper  # type: ignore
-
-
 def _get_trace_stack_level() -> int:
     return len(TRACE_CONTEXT.state_stack)
 
@@ -305,7 +250,7 @@ class State(Generic[A], PrettyObject):
 
     def __init__(
         self,
-        value: Union[PyTree[ArrayLike], StateMetadata[PyTree[ArrayLike]]],
+        value: PyTree[ArrayLike],
         name: Optional[str] = None,
         **metadata: Any
     ):
@@ -331,9 +276,6 @@ class State(Generic[A], PrettyObject):
         tag = metadata.pop('tag', None)
 
         # set the value and metadata
-        if isinstance(value, StateMetadata):
-            metadata.update(dict(value.metadata))
-            value = value.raw_value
         if isinstance(value, State):
             value = value.value
 
@@ -585,8 +527,8 @@ class State(Generic[A], PrettyObject):
 
         return k, v
 
-    def __eq__(self, other: object) -> bool:
-        return type(self) is type(other) and vars(other) == vars(self)
+    # def __eq__(self, other: object) -> bool:
+    #     return type(self) is type(other) and vars(other) == vars(self)
 
     def __hash__(self):
         """

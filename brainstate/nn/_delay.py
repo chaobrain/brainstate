@@ -41,12 +41,11 @@ _INTERP_ROUND = 'round'
 
 
 def _get_delay(delay_time):
-    with jax.ensure_compile_time_eval():
-        if delay_time is None:
-            return 0. * environ.get_dt(), 0
-        delay_step = delay_time / environ.get_dt()
-        assert u.get_dim(delay_step) == u.DIMENSIONLESS
-        delay_step = jnp.ceil(delay_step).astype(environ.ditype())
+    if delay_time is None:
+        return 0. * environ.get_dt(), 0
+    delay_step = delay_time / environ.get_dt()
+    assert u.get_dim(delay_step) == u.DIMENSIONLESS
+    delay_step = jnp.ceil(delay_step).astype(environ.ditype())
     return delay_time, delay_step
 
 
@@ -146,8 +145,9 @@ class Delay(Module):
         self.interp_method = interp_method
 
         # delay length and time
-        self.max_time, delay_length = _get_delay(time)
-        self.max_length = delay_length + 1
+        with jax.ensure_compile_time_eval():
+            self.max_time, delay_length = _get_delay(time)
+            self.max_length = delay_length + 1
 
         super().__init__()
 
@@ -240,6 +240,7 @@ class Delay(Module):
             >>> delay_obj.register_delay(jnp.array([2.0, 3.0]), 0, 1)  # Vector delay with indices
         """
         assert len(delay_time) >= 1, 'You should provide at least one delay time.'
+        delay_size = u.math.size(delay_time[0])
         for dt in delay_time[1:]:
             assert jnp.issubdtype(u.math.get_dtype(dt), jnp.integer), f'The index should be integer. But got {dt}.'
         # delay_size = u.math.size(delay_time[0])
@@ -256,14 +257,15 @@ class Delay(Module):
         #         raise ValueError(f'The delay time should be a scalar/vector. But got {dt}.')
         if delay_time[0] is None:
             return None
-        time, delay_step = _get_delay(delay_time[0])
-        max_delay_step = jnp.max(delay_step)
-        self.max_time = u.math.max(time)
+        with jax.ensure_compile_time_eval():
+            time, delay_step = _get_delay(delay_time[0])
+            max_delay_step = jnp.max(delay_step)
+            self.max_time = u.math.max(time)
 
-        # delay variable
-        if self.max_length <= max_delay_step + 1:
-            self.max_length = max_delay_step + 1
-        return delay_step, *delay_time[1:]
+            # delay variable
+            if self.max_length <= max_delay_step + 1:
+                self.max_length = max_delay_step + 1
+            return delay_step, *delay_time[1:]
 
     def register_entry(self, entry: str, *delay_time) -> 'Delay':
         """
@@ -346,32 +348,33 @@ class Delay(Module):
             jit_error_if(delay_step >= self.max_length, _check_delay, delay_step)
 
         # rotation method
-        if self.delay_method == _DELAY_ROTATE:
-            i = environ.get(environ.I, desc='The time step index.')
-            di = i - delay_step
-            delay_idx = jnp.asarray(di % self.max_length, dtype=jnp.int32)
-            delay_idx = jax.lax.stop_gradient(delay_idx)
+        with jax.ensure_compile_time_eval():
+            if self.delay_method == _DELAY_ROTATE:
+                i = environ.get(environ.I, desc='The time step index.')
+                di = i - delay_step
+                delay_idx = jnp.asarray(di % self.max_length, dtype=jnp.int32)
+                delay_idx = jax.lax.stop_gradient(delay_idx)
 
-        elif self.delay_method == _DELAY_CONCAT:
-            delay_idx = delay_step
+            elif self.delay_method == _DELAY_CONCAT:
+                delay_idx = delay_step
 
-        else:
-            raise ValueError(f'Unknown delay updating method "{self.delay_method}"')
+            else:
+                raise ValueError(f'Unknown delay updating method "{self.delay_method}"')
 
-        # the delay index
-        if hasattr(delay_idx, 'dtype') and not jnp.issubdtype(delay_idx.dtype, jnp.integer):
-            raise ValueError(f'"delay_len" must be integer, but we got {delay_idx}')
-        indices = (delay_idx,) + indices
+            # the delay index
+            if hasattr(delay_idx, 'dtype') and not jnp.issubdtype(delay_idx.dtype, jnp.integer):
+                raise ValueError(f'"delay_len" must be integer, but we got {delay_idx}')
+            indices = (delay_idx,) + indices
 
-        # the delay data
-        if self._unit is None:
-            return jax.tree.map(lambda a: a[indices], self.history.value)
-        else:
-            return jax.tree.map(
-                lambda hist, unit: u.maybe_decimal(hist[indices] * unit),
-                self.history.value,
-                self._unit
-            )
+            # the delay data
+            if self._unit is None:
+                return jax.tree.map(lambda a: a[indices], self.history.value)
+            else:
+                return jax.tree.map(
+                    lambda hist, unit: u.maybe_decimal(hist[indices] * unit),
+                    self.history.value,
+                    self._unit
+                )
 
     def retrieve_at_time(self, delay_time, *indices) -> PyTree:
         """
@@ -413,55 +416,58 @@ class Delay(Module):
                 delay_time
             )
 
-        diff = current_time - delay_time
-        float_time_step = diff / dt
+        with jax.ensure_compile_time_eval():
+            diff = current_time - delay_time
+            float_time_step = diff / dt
 
-        if self.interp_method == _INTERP_LINEAR:  # "linear" interpolation
-            data_at_t0 = self.retrieve_at_step(jnp.asarray(jnp.floor(float_time_step), dtype=jnp.int32), *indices)
-            data_at_t1 = self.retrieve_at_step(jnp.asarray(jnp.ceil(float_time_step), dtype=jnp.int32), *indices)
-            t_diff = float_time_step - jnp.floor(float_time_step)
-            return jax.tree.map(lambda a, b: a * (1 - t_diff) + b * t_diff, data_at_t0, data_at_t1)
+            if self.interp_method == _INTERP_LINEAR:  # "linear" interpolation
+                data_at_t0 = self.retrieve_at_step(jnp.asarray(jnp.floor(float_time_step), dtype=jnp.int32), *indices)
+                data_at_t1 = self.retrieve_at_step(jnp.asarray(jnp.ceil(float_time_step), dtype=jnp.int32), *indices)
+                t_diff = float_time_step - jnp.floor(float_time_step)
+                return jax.tree.map(lambda a, b: a * (1 - t_diff) + b * t_diff, data_at_t0, data_at_t1)
 
-        elif self.interp_method == _INTERP_ROUND:  # "round" interpolation
-            return self.retrieve_at_step(jnp.asarray(jnp.round(float_time_step), dtype=jnp.int32), *indices)
+            elif self.interp_method == _INTERP_ROUND:  # "round" interpolation
+                return self.retrieve_at_step(jnp.asarray(jnp.round(float_time_step), dtype=jnp.int32), *indices)
 
-        else:  # raise error
-            raise ValueError(f'Un-supported interpolation method {self.interp_method}, '
-                             f'we only support: {[_INTERP_LINEAR, _INTERP_ROUND]}')
+            else:  # raise error
+                raise ValueError(f'Un-supported interpolation method {self.interp_method}, '
+                                 f'we only support: {[_INTERP_LINEAR, _INTERP_ROUND]}')
 
     def update(self, current: PyTree) -> None:
         """
         Update delay variable with the new data.
         """
-        assert self.history is not None, 'The delay history is not initialized.'
 
-        if self.take_aware_unit and self._unit is None:
-            self._unit = jax.tree.map(lambda x: u.get_unit(x), current, is_leaf=u.math.is_quantity)
+        with jax.ensure_compile_time_eval():
+            assert self.history is not None, 'The delay history is not initialized.'
 
-        # update the delay data at the rotation index
-        if self.delay_method == _DELAY_ROTATE:
-            i = environ.get(environ.I)
-            idx = jnp.asarray(i % self.max_length, dtype=environ.dutype())
-            idx = jax.lax.stop_gradient(idx)
-            self.history.value = jax.tree.map(
-                lambda hist, cur: hist.at[idx].set(cur),
-                self.history.value,
-                current
-            )
-        # update the delay data at the first position
-        elif self.delay_method == _DELAY_CONCAT:
-            current = jax.tree.map(lambda a: jnp.expand_dims(a, 0), current)
-            if self.max_length > 1:
+            if self.take_aware_unit and self._unit is None:
+                self._unit = jax.tree.map(lambda x: u.get_unit(x), current, is_leaf=u.math.is_quantity)
+
+            # update the delay data at the rotation index
+            if self.delay_method == _DELAY_ROTATE:
+                i = environ.get(environ.I)
+                idx = jnp.asarray(i % self.max_length, dtype=environ.dutype())
+                idx = jax.lax.stop_gradient(idx)
                 self.history.value = jax.tree.map(
-                    lambda hist, cur: jnp.concatenate([cur, hist[:-1]], axis=0),
+                    lambda hist, cur: hist.at[idx].set(cur),
                     self.history.value,
                     current
                 )
-            else:
-                self.history.value = current
+            # update the delay data at the first position
+            elif self.delay_method == _DELAY_CONCAT:
+                current = jax.tree.map(lambda a: jnp.expand_dims(a, 0), current)
+                if self.max_length > 1:
+                    self.history.value = jax.tree.map(
+                        lambda hist, cur: jnp.concatenate([cur, hist[:-1]], axis=0),
+                        self.history.value,
+                        current
+                    )
+                else:
+                    self.history.value = current
 
-        else:
-            raise ValueError(f'Unknown updating method "{self.delay_method}"')
+            else:
+                raise ValueError(f'Unknown updating method "{self.delay_method}"')
 
 
 class StateWithDelay(Delay):
