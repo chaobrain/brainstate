@@ -44,7 +44,7 @@ __all__ = [
     'JointMode',
     'Batching',
     'Training',
-    'ArrayOp',
+    'ArrayImpl',
 ]
 
 
@@ -370,7 +370,7 @@ class Training(Mode):
     pass
 
 
-class ArrayOp(Mixin):
+class ArrayImpl(Mixin):
     value: jax.typing.ArrayLike
 
     def __hash__(self):
