@@ -27,6 +27,7 @@ import jax.numpy as jnp
 import numpy as np
 
 T = TypeVar('T')
+ArrayLike = jax.typing.ArrayLike
 
 __all__ = [
     'Mixin',
@@ -139,7 +140,7 @@ class ParamDescriber(metaclass=NoSubclassMeta):
         return self._identifier
 
     @identifier.setter
-    def identifier(self, value):
+    def identifier(self, value: ArrayLike):
         raise AttributeError('Cannot set the identifier.')
 
 
@@ -371,7 +372,7 @@ class Training(Mode):
 
 
 class ArrayImpl(Mixin):
-    value: jax.typing.ArrayLike
+    value: ArrayLike
 
     def __hash__(self):
         return hash(self.value)
@@ -425,12 +426,12 @@ class ArrayImpl(Mixin):
             return self.value
         return self.value[index]
 
-    def __setitem__(self, index, value):
+    def __setitem__(self, index, value: ArrayLike):
         if isinstance(value, np.ndarray):
             value = u.math.asarray(value)
 
         # update
-        self_value = self.value
+        self_value = u.math.asarray(self.value)
         self.value = self_value.at[index].set(value)
 
     # ---------- #
@@ -647,7 +648,7 @@ class ArrayImpl(Mixin):
         """Return indices of the minimum values along the given axis."""
         return self.value.argmin(axis=axis)
 
-    def argpartition(self, kth, axis=-1, kind='introselect', order=None):
+    def argpartition(self, kth, axis: int = -1, kind: str = 'introselect', order=None):
         """Returns the indices that would partition this array."""
         return self.value.argpartition(kth=kth, axis=axis, kind=kind, order=order)
 
@@ -718,7 +719,7 @@ class ArrayImpl(Mixin):
         """Dot product of two arrays."""
         return self.value.dot(b)
 
-    def fill(self, value):
+    def fill(self, value: ArrayLike):
         """Fill the array with a scalar value."""
         self.value = u.math.ones_like(self.value) * value
 
@@ -836,9 +837,6 @@ class ArrayImpl(Mixin):
         """Return an array formed from the elements of a at the given indices."""
         return self.value.take(indices=indices, axis=axis, mode=mode)
 
-    def tobytes(self):
-        return self.value.tobytes()
-
     def tolist(self):
         return self.value.tolist()
 
@@ -927,7 +925,7 @@ class ArrayImpl(Mixin):
     # PyTorch compatibility
     # ----------------------
 
-    def unsqueeze(self, dim: int) -> 'Array':
+    def unsqueeze(self, dim: int) -> ArrayLike:
         """
         Array.unsqueeze(dim) -> Array, or so called Tensor
         equals
@@ -937,10 +935,10 @@ class ArrayImpl(Mixin):
         """
         return u.math.expand_dims(self.value, dim)
 
-    def expand_dims(self, axis: Union[int, Sequence[int]]) -> 'Array':
+    def expand_dims(self, axis: Union[int, Sequence[int]]) -> ArrayLike:
         return u.math.expand_dims(self.value, axis)
 
-    def expand_as(self, array: Union['Array', jax.Array, np.ndarray]) -> 'Array':
+    def expand_as(self, array: ArrayLike) -> ArrayLike:
         return u.math.broadcast_to(self.value, array)
 
     def pow(self, index: int):
@@ -948,19 +946,19 @@ class ArrayImpl(Mixin):
 
     def addr(
         self,
-        vec1: Union['Array', jax.Array, np.ndarray],
-        vec2: Union['Array', jax.Array, np.ndarray],
+        vec1: ArrayLike,
+        vec2: ArrayLike,
         *,
         beta: float = 1.0,
         alpha: float = 1.0,
-    ) -> Optional['Array']:
+    ) -> Optional[ArrayLike]:
         r = alpha * u.math.outer(vec1, vec2) + beta * self.value
         return r
 
     def addr_(
         self,
-        vec1: Union['Array', jax.Array, np.ndarray],
-        vec2: Union['Array', jax.Array, np.ndarray],
+        vec1: ArrayLike,
+        vec2: ArrayLike,
         *,
         beta: float = 1.0,
         alpha: float = 1.0
@@ -969,10 +967,10 @@ class ArrayImpl(Mixin):
         self.value = r
         return self
 
-    def outer(self, other: Union['Array', jax.Array, np.ndarray]) -> 'Array':
+    def outer(self, other: ArrayLike) -> ArrayLike:
         return u.math.outer(self.value, other.value)
 
-    def abs(self) -> Optional['Array']:
+    def abs(self) -> Optional[ArrayLike]:
         r = u.math.abs(self.value)
         return r
 
@@ -983,11 +981,11 @@ class ArrayImpl(Mixin):
         self.value = u.math.abs(self.value)
         return self
 
-    def add_(self, value):
+    def add_(self, value: ArrayLike):
         self.value += value
         return self
 
-    def absolute(self) -> Optional['Array']:
+    def absolute(self) -> Optional[ArrayLike]:
         """
         alias of Array.abs
         """
@@ -999,17 +997,17 @@ class ArrayImpl(Mixin):
         """
         return self.abs_()
 
-    def mul(self, value):
+    def mul(self, value: ArrayLike):
         return self.value * value
 
-    def mul_(self, value):
+    def mul_(self, value: ArrayLike):
         """
         In-place version of :meth:`~Array.mul`.
         """
         self.value *= value
         return self
 
-    def multiply(self, value):  # real signature unknown; restored from __doc__
+    def multiply(self, value: ArrayLike):  # real signature unknown; restored from __doc__
         """
         multiply(value) -> Tensor
 
@@ -1017,7 +1015,7 @@ class ArrayImpl(Mixin):
         """
         return self.value * value
 
-    def multiply_(self, value):  # real signature unknown; restored from __doc__
+    def multiply_(self, value: ArrayLike):  # real signature unknown; restored from __doc__
         """
         multiply_(value) -> Tensor
 
@@ -1026,7 +1024,7 @@ class ArrayImpl(Mixin):
         self.value *= value
         return self
 
-    def sin(self) -> Optional['Array']:
+    def sin(self) -> Optional[ArrayLike]:
         r = u.math.sin(self.value)
         return r
 
@@ -1038,7 +1036,7 @@ class ArrayImpl(Mixin):
         self.value = u.math.cos(self.value)
         return self
 
-    def cos(self) -> Optional['Array']:
+    def cos(self) -> Optional[ArrayLike]:
         r = u.math.cos(self.value)
         return r
 
@@ -1046,7 +1044,7 @@ class ArrayImpl(Mixin):
         self.value = u.math.tan(self.value)
         return self
 
-    def tan(self) -> Optional['Array']:
+    def tan(self) -> Optional[ArrayLike]:
         r = u.math.tan(self.value)
         return r
 
@@ -1054,7 +1052,7 @@ class ArrayImpl(Mixin):
         self.value = u.math.sinh(self.value)
         return self
 
-    def sinh(self) -> Optional['Array']:
+    def sinh(self) -> Optional[ArrayLike]:
         r = u.math.sinh(self.value)
         return r
 
@@ -1062,7 +1060,7 @@ class ArrayImpl(Mixin):
         self.value = u.math.cosh(self.value)
         return self
 
-    def cosh(self) -> Optional['Array']:
+    def cosh(self) -> Optional[ArrayLike]:
         r = u.math.cosh(self.value)
         return r
 
@@ -1070,7 +1068,7 @@ class ArrayImpl(Mixin):
         self.value = u.math.tanh(self.value)
         return self
 
-    def tanh(self) -> Optional['Array']:
+    def tanh(self) -> Optional[ArrayLike]:
         r = u.math.tanh(self.value)
         return r
 
@@ -1078,7 +1076,7 @@ class ArrayImpl(Mixin):
         self.value = u.math.arcsin(self.value)
         return self
 
-    def arcsin(self) -> Optional['Array']:
+    def arcsin(self) -> Optional[ArrayLike]:
         r = u.math.arcsin(self.value)
         return r
 
@@ -1086,7 +1084,7 @@ class ArrayImpl(Mixin):
         self.value = u.math.arccos(self.value)
         return self
 
-    def arccos(self) -> Optional['Array']:
+    def arccos(self) -> Optional[ArrayLike]:
         r = u.math.arccos(self.value)
         return r
 
@@ -1094,15 +1092,15 @@ class ArrayImpl(Mixin):
         self.value = u.math.arctan(self.value)
         return self
 
-    def arctan(self) -> Optional['Array']:
+    def arctan(self) -> Optional[ArrayLike]:
         r = u.math.arctan(self.value)
         return r
 
     def clamp(
         self,
-        min_value: Optional[Union['Array', jax.Array, np.ndarray]] = None,
-        max_value: Optional[Union['Array', jax.Array, np.ndarray]] = None,
-    ) -> Optional['Array']:
+        min_value: Optional[ArrayLike] = None,
+        max_value: Optional[ArrayLike] = None,
+    ) -> Optional[ArrayLike]:
         """
         return the value between min_value and max_value,
         if min_value is None, then no lower bound,
@@ -1113,8 +1111,8 @@ class ArrayImpl(Mixin):
 
     def clamp_(
         self,
-        min_value: Optional[Union['Array', jax.Array, np.ndarray]] = None,
-        max_value: Optional[Union['Array', jax.Array, np.ndarray]] = None
+        min_value: Optional[ArrayLike] = None,
+        max_value: Optional[ArrayLike] = None
     ):
         """
         return the value between min_value and max_value,
@@ -1126,8 +1124,8 @@ class ArrayImpl(Mixin):
 
     def clip_(
         self,
-        min_value: Optional[Union['Array', jax.Array, np.ndarray]] = None,
-        max_value: Optional[Union['Array', jax.Array, np.ndarray]] = None
+        min_value: Optional[ArrayLike] = None,
+        max_value: Optional[ArrayLike] = None
     ):
         """
         alias for clamp_
@@ -1135,10 +1133,10 @@ class ArrayImpl(Mixin):
         self.value = self.clip(min_value, max_value)
         return self
 
-    def clone(self) -> 'Array':
+    def clone(self) -> ArrayLike:
         return self.value.copy()
 
-    def expand(self, *sizes) -> 'Array':
+    def expand(self, *sizes) -> ArrayLike:
         """
         Expand an array to a new shape.
 
@@ -1178,7 +1176,7 @@ class ArrayImpl(Mixin):
         self.value = u.math.zeros_like(self.value)
         return self
 
-    def fill_(self, value):
+    def fill_(self, value: ArrayLike):
         self.fill(value)
         return self
 

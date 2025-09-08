@@ -527,8 +527,8 @@ class State(Generic[A], PrettyObject):
 
         return k, v
 
-    def __eq__(self, other: object) -> bool:
-        return type(self) is type(other) and vars(other) == vars(self)
+    # def __eq__(self, other: object) -> bool:
+    #     return type(self) is type(other) and vars(other) == vars(self)
 
     def __hash__(self):
         """
