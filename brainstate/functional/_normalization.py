@@ -53,6 +53,7 @@ def weight_standardization(
     ArrayLike
         The scaled weight tensor.
     """
+    w = u.maybe_custom_array(w)
     if out_axis < 0:
         out_axis = w.ndim + out_axis
     fan_in = 1  # get the fan-in of the weight tensor
