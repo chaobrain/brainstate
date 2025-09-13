@@ -1,5 +1,5 @@
 numpy
 jax
 jaxlib
-brainunit>=0.0.13
+brainunit>=0.1.0
 brainevent

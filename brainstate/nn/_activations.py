@@ -246,12 +246,6 @@ def hard_shrink(x, lambd=0.5):
                                      u.Quantity(0., unit=u.get_unit(x))))
 
 
-def _keep_unit(fun, x, **kwargs):
-    unit = u.get_unit(x)
-    x = fun(u.get_mantissa(x), **kwargs)
-    return x if unit.is_unitless else u.Quantity(x, unit=unit)
-
-
 def relu(x: ArrayLike) -> Union[jax.Array, u.Quantity]:
     r"""Rectified linear unit activation function.
 
@@ -283,7 +277,7 @@ def relu(x: ArrayLike) -> Union[jax.Array, u.Quantity]:
       :func:`relu6`
 
     """
-    return _keep_unit(jax.nn.relu, x)
+    return u.math.relu(x)
 
 
 def squareplus(x: ArrayLike, b: ArrayLike = 4) -> Union[jax.Array, u.Quantity]:
@@ -300,7 +294,7 @@ def squareplus(x: ArrayLike, b: ArrayLike = 4) -> Union[jax.Array, u.Quantity]:
       x : input array
       b : smoothness parameter
     """
-    return _keep_unit(jax.nn.squareplus, x, b=b)
+    return u.math.squareplus(x, b=b)
 
 
 def softplus(x: ArrayLike) -> Union[jax.Array, u.Quantity]:
@@ -314,7 +308,7 @@ def softplus(x: ArrayLike) -> Union[jax.Array, u.Quantity]:
     Args:
       x : input array
     """
-    return _keep_unit(jax.nn.softplus, x)
+    return u.math.softplus(x)
 
 
 def soft_sign(x: ArrayLike) -> Union[jax.Array, u.Quantity]:
@@ -328,7 +322,7 @@ def soft_sign(x: ArrayLike) -> Union[jax.Array, u.Quantity]:
     Args:
       x : input array
     """
-    return _keep_unit(jax.nn.soft_sign, x)
+    return u.math.soft_sign(x)
 
 
 def sigmoid(x: ArrayLike) -> Union[jax.Array, u.Quantity]:
@@ -349,7 +343,7 @@ def sigmoid(x: ArrayLike) -> Union[jax.Array, u.Quantity]:
       :func:`log_sigmoid`
 
     """
-    return _keep_unit(jax.nn.sigmoid, x)
+    return u.math.sigmoid(x)
 
 
 def silu(x: ArrayLike) -> Union[jax.Array, u.Quantity]:
@@ -371,7 +365,7 @@ def silu(x: ArrayLike) -> Union[jax.Array, u.Quantity]:
     See also:
       :func:`sigmoid`
     """
-    return _keep_unit(jax.nn.silu, x)
+    return u.math.silu(x)
 
 
 swish = silu
@@ -394,7 +388,7 @@ def log_sigmoid(x: ArrayLike) -> Union[jax.Array, u.Quantity]:
     See also:
       :func:`sigmoid`
     """
-    return _keep_unit(jax.nn.log_sigmoid, x)
+    return u.math.log_sigmoid(x)
 
 
 def elu(x: ArrayLike, alpha: ArrayLike = 1.0) -> Union[jax.Array, u.Quantity]:
@@ -418,7 +412,7 @@ def elu(x: ArrayLike, alpha: ArrayLike = 1.0) -> Union[jax.Array, u.Quantity]:
     See also:
       :func:`selu`
     """
-    return _keep_unit(jax.nn.elu, x)
+    return u.math.elu(x, alpha=alpha)
 
 
 def leaky_relu(x: ArrayLike, negative_slope: ArrayLike = 1e-2) -> Union[jax.Array, u.Quantity]:
@@ -444,7 +438,7 @@ def leaky_relu(x: ArrayLike, negative_slope: ArrayLike = 1e-2) -> Union[jax.Arra
     See also:
       :func:`relu`
     """
-    return _keep_unit(jax.nn.leaky_relu, x, negative_slope=negative_slope)
+    return u.math.leaky_relu(x, negative_slope=negative_slope)
 
 
 def _hard_tanh(x, min_val=- 1.0, max_val=1.0):
@@ -475,7 +469,10 @@ def hard_tanh(
     Returns:
       An array.
     """
-    return _keep_unit(_hard_tanh, x, min_val=min_val, max_val=max_val)
+    x = u.Quantity(x)
+    min_val = u.Quantity(min_val).to(x.unit).mantissa
+    max_val = u.Quantity(max_val).to(x.unit).mantissa
+    return u.maybe_decimal(_hard_tanh(x.mantissa, min_val=min_val, max_val=max_val) * x.unit)
 
 
 def celu(x: ArrayLike, alpha: ArrayLike = 1.0) -> Union[jax.Array, u.Quantity]:
@@ -500,7 +497,7 @@ def celu(x: ArrayLike, alpha: ArrayLike = 1.0) -> Union[jax.Array, u.Quantity]:
     Returns:
       An array.
     """
-    return _keep_unit(jax.nn.celu, x, alpha=alpha)
+    return u.math.celu(x, alpha=alpha)
 
 
 def selu(x: ArrayLike) -> Union[jax.Array, u.Quantity]:
@@ -530,7 +527,7 @@ def selu(x: ArrayLike) -> Union[jax.Array, u.Quantity]:
     See also:
       :func:`elu`
     """
-    return _keep_unit(jax.nn.selu, x)
+    return u.math.selu(x)
 
 
 def gelu(x: ArrayLike, approximate: bool = True) -> Union[jax.Array, u.Quantity]:
@@ -555,7 +552,7 @@ def gelu(x: ArrayLike, approximate: bool = True) -> Union[jax.Array, u.Quantity]
       x : input array
       approximate: whether to use the approximate or exact formulation.
     """
-    return _keep_unit(jax.nn.gelu, x, approximate=approximate)
+    return u.math.gelu(x, approximate=approximate)
 
 
 def glu(x: ArrayLike, axis: int = -1) -> Union[jax.Array, u.Quantity]:
@@ -581,7 +578,7 @@ def glu(x: ArrayLike, axis: int = -1) -> Union[jax.Array, u.Quantity]:
     See also:
       :func:`sigmoid`
     """
-    return _keep_unit(jax.nn.glu, x, axis=axis)
+    return u.math.glu(x, axis=axis)
 
 
 def log_softmax(x: ArrayLike,
@@ -608,7 +605,7 @@ def log_softmax(x: ArrayLike,
     See also:
       :func:`softmax`
     """
-    return _keep_unit(jax.nn.log_softmax, x, axis=axis, where=where)
+    return jax.nn.log_softmax(x, axis=axis, where=where)
 
 
 def softmax(x: ArrayLike,
@@ -637,7 +634,7 @@ def softmax(x: ArrayLike,
     See also:
       :func:`log_softmax`
     """
-    return _keep_unit(jax.nn.softmax, x, axis=axis, where=where)
+    return jax.nn.softmax(x, axis=axis, where=where)
 
 
 def standardize(x: ArrayLike,
@@ -646,7 +643,7 @@ def standardize(x: ArrayLike,
                 epsilon: ArrayLike = 1e-5,
                 where: ArrayLike | None = None) -> Union[jax.Array, u.Quantity]:
     r"""Normalizes an array by subtracting ``mean`` and dividing by :math:`\sqrt{\mathrm{variance}}`."""
-    return _keep_unit(jax.nn.standardize, x, axis=axis, where=where, variance=variance, epsilon=epsilon)
+    return jax.nn.standardize(x, axis=axis, where=where, variance=variance, epsilon=epsilon)
 
 
 def one_hot(x: Any,
@@ -676,7 +673,7 @@ def one_hot(x: Any,
       axis: the axis or axes along which the function should be
         computed.
     """
-    return _keep_unit(jax.nn.one_hot, x, axis=axis, num_classes=num_classes, dtype=dtype)
+    return jax.nn.one_hot(x, axis=axis, num_classes=num_classes, dtype=dtype)
 
 
 def relu6(x: ArrayLike) -> Union[jax.Array, u.Quantity]:
@@ -706,7 +703,7 @@ def relu6(x: ArrayLike) -> Union[jax.Array, u.Quantity]:
     See also:
       :func:`relu`
     """
-    return _keep_unit(jax.nn.relu6, x)
+    return u.math.relu6(x)
 
 
 def hard_sigmoid(x: ArrayLike) -> Union[jax.Array, u.Quantity]:
@@ -726,7 +723,7 @@ def hard_sigmoid(x: ArrayLike) -> Union[jax.Array, u.Quantity]:
     See also:
       :func:`relu6`
     """
-    return _keep_unit(jax.nn.hard_sigmoid, x)
+    return u.math.hard_sigmoid(x)
 
 
 def hard_silu(x: ArrayLike) -> Union[jax.Array, u.Quantity]:
@@ -749,9 +746,7 @@ def hard_silu(x: ArrayLike) -> Union[jax.Array, u.Quantity]:
     See also:
       :func:`hard_sigmoid`
     """
-    return _keep_unit(jax.nn.hard_silu, x)
-
-    return jax.nn.hard_silu(x)
+    return u.math.hard_silu(x)
 
 
 hard_swish = hard_silu
@@ -778,7 +773,7 @@ def sparse_plus(x: ArrayLike) -> Union[jax.Array, u.Quantity]:
     Args:
       x: input (float)
     """
-    return _keep_unit(jax.nn.sparse_plus, x)
+    return u.math.sparse_plus(x)
 
 
 def sparse_sigmoid(x: ArrayLike) -> Union[jax.Array, u.Quantity]:
@@ -810,4 +805,4 @@ def sparse_sigmoid(x: ArrayLike) -> Union[jax.Array, u.Quantity]:
     See also:
       :func:`sigmoid`
     """
-    return _keep_unit(jax.nn.sparse_sigmoid, x)
+    return u.math.sparse_sigmoid(x)

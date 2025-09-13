@@ -17,7 +17,7 @@
 A ``State``-based Transformation System for Program Compilation and Augmentation
 """
 
-__version__ = "0.1.8"
+__version__ = "0.1.9"
 
 from . import augment
 from . import compile
@@ -36,16 +36,23 @@ from . import util
 from ._state import *
 from ._state import __all__ as _state_all
 
-__all__ = (
-    [
-        'augment', 'compile', 'environ', 'functional',
-        'graph', 'init', 'mixin', 'nn', 'optim', 'random',
-        'surrogate', 'typing', 'util',
-        # deprecated
-        'transform',
-    ] +
-    _state_all
-)
+__all__ = [
+    'augment',
+    'compile',
+    'environ',
+    'functional',
+    'graph',
+    'init',
+    'mixin',
+    'nn',
+    'optim',
+    'random',
+    'surrogate',
+    'typing',
+    'util',
+    'transform',
+]
+__all__ = __all__ + _state_all
 
 # ----------------------- #
 del _state_all
