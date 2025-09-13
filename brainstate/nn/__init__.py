@@ -34,7 +34,7 @@ from ._embedding import __all__ as embed_all
 from ._exp_euler import *
 from ._exp_euler import __all__ as exp_euler_all
 from ._fixedprob import *
-from._fixedprob import __all__ as fixedprob_all
+from ._fixedprob import __all__ as fixedprob_all
 from ._inputs import *
 from ._inputs import __all__ as inputs_all
 from ._linear import *
@@ -49,6 +49,8 @@ from ._neuron import *
 from ._neuron import __all__ as dyn_neuron_all
 from ._normalizations import *
 from ._normalizations import __all__ as normalizations_all
+from ._others import *
+from ._others import __all__ as _others_all
 from ._poolings import *
 from ._poolings import __all__ as poolings_all
 from ._projection import *
@@ -99,6 +101,7 @@ __all__ = (
     + stp_all
     + ltp_all
     + _syn_proj_all
+    + _others_all
 )
 
 del (
@@ -128,4 +131,5 @@ del (
     stp_all,
     ltp_all,
     _syn_proj_all,
+    _others_all,
 )

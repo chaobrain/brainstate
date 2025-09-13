@@ -13,14 +13,15 @@
 # limitations under the License.
 # ==============================================================================
 
+from brainstate.nn._activations import *
+from brainstate.nn._activations import __all__ as act_all
+from brainstate.nn._normalizations import weight_standardization
+from brainstate.nn._others import clip_grad_norm
 
-from ._activations import *
-from ._activations import __all__ as __activations_all__
-from ._normalization import *
-from ._normalization import __all__ as __others_all__
-from ._others import *
-from ._others import __all__ as __others_all__
-from ._spikes import *
-from ._spikes import __all__ as __spikes_all__
+__all__ = ['weight_standardization', 'clip_grad_norm'] + act_all
+del act_all
 
-__all__ = __spikes_all__ + __others_all__ + __activations_all__ + __others_all__
+if __name__ == '__main__':
+    relu
+    clip_grad_norm
+    weight_standardization

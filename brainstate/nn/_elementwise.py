@@ -20,9 +20,9 @@ from typing import Optional
 import brainunit as u
 import jax.numpy as jnp
 
-from brainstate import functional as F
 from brainstate._state import ParamState
 from brainstate.typing import ArrayLike
+from . import _activations as F
 from ._module import ElementWiseBlock
 
 __all__ = [
