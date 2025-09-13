@@ -25,7 +25,6 @@ from . import environ
 from . import functional
 from . import graph
 from . import init
-from . import ing
 from . import mixin
 from . import nn
 from . import optim
@@ -37,26 +36,23 @@ from . import util
 from ._state import *
 from ._state import __all__ as _state_all
 
-__all__ = (
-    [
-        'augment',
-        'compile',
-        'environ',
-        'functional',
-        'graph',
-        'init',
-        'ing',
-        'mixin',
-        'nn',
-        'optim',
-        'random',
-        'surrogate',
-        'typing',
-        'util',
-        'transform',
-    ] +
-    _state_all
-)
+__all__ = [
+    'augment',
+    'compile',
+    'environ',
+    'functional',
+    'graph',
+    'init',
+    'mixin',
+    'nn',
+    'optim',
+    'random',
+    'surrogate',
+    'typing',
+    'util',
+    'transform',
+]
+__all__ = __all__ + _state_all
 
 # ----------------------- #
 del _state_all

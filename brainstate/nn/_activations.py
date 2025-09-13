@@ -441,6 +441,10 @@ def leaky_relu(x: ArrayLike, negative_slope: ArrayLike = 1e-2) -> Union[jax.Arra
     return u.math.leaky_relu(x, negative_slope=negative_slope)
 
 
+def _hard_tanh(x, min_val=- 1.0, max_val=1.0):
+    return jax.numpy.where(x > max_val, max_val, jax.numpy.where(x < min_val, min_val, x))
+
+
 def hard_tanh(
     x: ArrayLike,
     min_val: float = - 1.0,
@@ -465,7 +469,10 @@ def hard_tanh(
     Returns:
       An array.
     """
-    return u.math.hard_tanh(x, min_val=min_val, max_val=max_val)
+    x = u.Quantity(x)
+    min_val = u.Quantity(min_val).to(x.unit).mantissa
+    max_val = u.Quantity(max_val).to(x.unit).mantissa
+    return u.maybe_decimal(_hard_tanh(x.mantissa, min_val=min_val, max_val=max_val) * x.unit)
 
 
 def celu(x: ArrayLike, alpha: ArrayLike = 1.0) -> Union[jax.Array, u.Quantity]:

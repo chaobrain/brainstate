@@ -16,14 +16,20 @@
 
 from typing import Callable
 
-from brainstate.ing import ode_expeuler_step, sde_expeuler_step
+import brainunit as u
+import jax.numpy as jnp
+
+from brainstate import environ, random
+from brainstate.augment import vector_grad
 
 __all__ = [
     'exp_euler_step',
 ]
 
 
-def exp_euler_step(fn: Callable, *args):
+def exp_euler_step(
+    fn: Callable, *args, **kwargs
+):
     r"""
     One-step Exponential Euler method for solving ODEs.
 
@@ -53,6 +59,34 @@ def exp_euler_step(fn: Callable, *args):
     assert callable(fn), 'The input function should be callable.'
     assert len(args) > 0, 'The input arguments should not be empty.'
     if callable(args[0]):
-        return sde_expeuler_step(fn, args[0], args[1], 0., *args[2:])
+        diffusion = args[0]
+        args = args[1:]
     else:
-        return ode_expeuler_step(fn, args[0], 0., *args[1:])
+        diffusion = None
+    assert len(args) > 0, 'The input arguments should not be empty.'
+    if u.math.get_dtype(args[0]) not in [jnp.float32, jnp.float64, jnp.float16, jnp.bfloat16]:
+        raise ValueError(
+            f'The input data type should be float64, float32, float16, or bfloat16 '
+            f'when using Exponential Euler method. But we got {args[0].dtype}.'
+        )
+
+    # drift
+    dt = environ.get('dt')
+    linear, derivative = vector_grad(fn, argnums=0, return_value=True)(*args, **kwargs)
+    linear = u.Quantity(u.get_mantissa(linear), u.get_unit(derivative) / u.get_unit(linear))
+    phi = u.math.exprel(dt * linear)
+    x_next = args[0] + dt * phi * derivative
+
+    # diffusion
+    if diffusion is not None:
+        diffusion_part = diffusion(*args, **kwargs) * u.math.sqrt(dt) * random.randn_like(args[0])
+        if u.get_dim(x_next) != u.get_dim(diffusion_part):
+            drift_unit = u.get_unit(x_next)
+            time_unit = u.get_unit(dt)
+            raise ValueError(
+                f"Drift unit is {drift_unit}, "
+                f"expected diffusion unit is {drift_unit / time_unit ** 0.5}, "
+                f"but we got {u.get_unit(diffusion_part)}."
+            )
+        x_next += diffusion_part
+    return x_next
