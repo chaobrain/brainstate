@@ -1,17 +1,92 @@
 name: Publish to PyPI.org
+
 on:
   release:
     types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
 jobs:
-  pypi:
+  build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
-      - run: python setup.py bdist_wheel --python-tag=py3
-      - name: Publish package
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install build tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install build twine
+
+      - name: Verify tag matches version
+        if: github.event_name == 'release'
+        shell: bash
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          PKG_VERSION=$(python - <<'PY'
+          import re, pathlib
+          init = pathlib.Path('brainstate/__init__.py').read_text(encoding='utf-8')
+          m = re.search(r"__version__\s*=\s*['\"]([^'\"]+)['\"]", init)
+          print(m.group(1))
+          PY
+          )
+          echo "Package version: $PKG_VERSION"
+          echo "Tag: $TAG"
+          if [[ "$TAG" != "v$PKG_VERSION" && "$TAG" != "$PKG_VERSION" ]]; then
+            echo "Release tag must match package version" >&2; exit 1; fi
+
+      - name: Build sdist and wheel
+        run: python -m build --sdist --wheel --outdir dist
+
+      - name: Check distribution metadata
+        run: twine check dist/*
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/*
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/brainstate
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      - name: Publish to PyPI
+        if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'release' && !github.event.release.prerelease) }}
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
+          packages-dir: dist
           password: ${{ secrets.PYPI_API_TOKEN }}
+          skip-existing: true
+
+      - name: Publish to TestPyPI (for prereleases)
+        if: ${{ github.event_name == 'release' && github.event.release.prerelease }}
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
+          repository-url: https://test.pypi.org/legacy/
+          password: ${{ secrets.TEST_PYPI_API_TOKEN }}
+          skip-existing: true
