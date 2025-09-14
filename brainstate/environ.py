@@ -402,13 +402,13 @@ def _get_float(precision: int):
 
 @functools.lru_cache()
 def _get_complex(precision: int):
-    if precision == [64, '64']:
+    if precision in [64, '64']:
         return np.complex128
-    elif precision == [32, '32']:
+    elif precision in [32, '32']:
         return np.complex64
     elif precision in [16, '16', 'bf16']:
         return np.complex64
-    elif precision == [8, '8']:
+    elif precision in [8, '8']:
         return np.complex64
     else:
         raise ValueError(f'Unsupported precision: {precision}')
