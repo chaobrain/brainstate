@@ -472,15 +472,94 @@ class Delay(Module):
 
 class StateWithDelay(Delay):
     """
-    A ``State`` type that defines the state in a differential equation.
+    Delayed history buffer bound to a module state.
+
+    StateWithDelay is a specialized :py:class:`~.Delay` that attaches to a
+    concrete :py:class:`~brainstate._state.State` living on a target module
+    (for example a membrane potential ``V`` on a neuron). It automatically
+    maintains a rolling history of that state and exposes convenient helpers to
+    retrieve the value at a given delay either by step or by time.
+
+    In normal usage you rarely instantiate this class directly. It is created
+    implicitly when using the prefetch-delay helpers on a Dynamics module, e.g.:
+
+    - ``module.prefetch('V').delay.at(5.0 * u.ms)``
+    - ``module.prefetch_delay('V', 5.0 * u.ms)``
+
+    Both will construct a StateWithDelay bound to ``module.V`` under the hood
+    and register the requested delay, so you can retrieve the delayed value
+    inside your update rules.
+
+    Parameters
+    ----------
+    target : :py:class:`~brainstate.graph.Node`
+        The module object that owns the state to track.
+    item : str
+        The attribute name of the target state on ``target`` (must be a
+        :py:class:`~brainstate._state.State`).
+    init : Callable, optional
+        Optional initializer used to fill the history buffer before ``t0``
+        when delays request values from the past that hasn't been simulated yet.
+        The callable receives ``(shape, dtype)`` and must return an array.
+        If not provided, zeros are used. You may also pass a scalar/array
+        literal via the underlying Delay API when constructing manually.
+    delay_method : {"rotation", "concat"}, default "rotation"
+        Internal buffering strategy (inherits behavior from :py:class:`~.Delay`).
+        "rotation" keeps a ring buffer; "concat" shifts by concatenation.
+
+    Attributes
+    ----------
+    state : :py:class:`~brainstate._state.State`
+        The concrete state object being tracked.
+    history : :py:class:`~brainstate._state.ShortTermState`
+        Rolling time axis buffer with shape ``[length, *state.shape]``.
+    max_time : float
+        Maximum time span currently supported by the buffer.
+    max_length : int
+        Buffer length in steps (``ceil(max_time/dt)+1``).
+
+    Notes
+    -----
+    - This class inherits all retrieval utilities from :py:class:`~.Delay`:
+      use :py:meth:`retrieve_at_step` when you know the integer delay steps,
+      or :py:meth:`retrieve_at_time` for continuous-time queries with optional
+      linear/round interpolation.
+    - It is registered as an "after-update" hook on the owning Dynamics so the
+      buffer is updated automatically after each simulation step.
+
+    Examples
+    --------
+    Access a neuron's membrane potential 5 ms in the past:
+
+    >>> import brainunit as u
+    >>> import brainstate as bst
+    >>> lif = bst.nn.LIF(100)
+    >>> # Create a delayed accessor to V(t-5ms)
+    >>> v_delay = lif.prefetch_delay('V', 5.0 * u.ms)
+    >>> # Inside another module's update you can read the delayed value
+    >>> v_t_minus_5ms = v_delay()
+
+    Register multiple delay taps and index-specific delays:
+
+    >>> # Under the hood, a StateWithDelay is created and you can register
+    >>> # additional taps (in steps or time) via its Delay interface
+    >>> _ = lif.prefetch('V').delay.at(2.0 * u.ms)   # additional delay
+    >>> # Direct access to buffer by steps (advanced)
+    >>> # lif._get_after_update('V-prefetch-delay').retrieve_at_step(3)
     """
 
     __module__ = 'brainstate.nn'
 
     state: State  # state
 
-    def __init__(self, target: Node, item: str, init: Callable = None):
-        super().__init__(None, init=init)
+    def __init__(
+        self,
+        target: Node,
+        item: str,
+        init: Callable = None,
+        delay_method: Optional[str] = _DELAY_ROTATE,
+    ):
+        super().__init__(None, init=init, delay_method=delay_method)
 
         self._target = target
         self._target_term = item
