@@ -31,7 +31,6 @@ from brainstate import environ
 from brainstate._state import State
 from brainstate.compile._error_if import jit_error_if
 from brainstate.typing import DTypeLike, Size, SeedOrKey
-from ._random_for_unit import uniform_for_unit
 
 __all__ = ['RandomState', 'DEFAULT', ]
 
@@ -204,7 +203,7 @@ class RandomState(State):
     ):
         key = self.split_key() if key is None else _formalize_key(key)
         dtype = dtype or environ.dftype()
-        r = uniform_for_unit(key, shape=dn, minval=0., maxval=1., dtype=dtype)
+        r = jr.uniform(key, dn, dtype)
         return r
 
     def randint(
@@ -274,7 +273,7 @@ class RandomState(State):
     ):
         dtype = dtype or environ.dftype()
         key = self.split_key() if key is None else _formalize_key(key)
-        r = uniform_for_unit(key, shape=_size2shape(size), minval=0., maxval=1., dtype=dtype)
+        r = jr.uniform(key, _size2shape(size), dtype)
         return r
 
     def random_sample(
@@ -574,7 +573,7 @@ class RandomState(State):
             size = lax.broadcast_shapes(u.math.shape(low), u.math.shape(high))
         key = self.split_key() if key is None else _formalize_key(key)
         dtype = dtype or environ.dftype()
-        r = uniform_for_unit(key, shape=_size2shape(size), minval=low, maxval=high, dtype=dtype)
+        r = jr.uniform(key, _size2shape(size), dtype=dtype, minval=low, maxval=high)
         return u.maybe_decimal(r * unit)
 
     def __norm_cdf(
@@ -638,7 +637,7 @@ class RandomState(State):
         # Uniformly fill tensor with values from [l, u], then translate to
         # [2l-1, 2u-1].
         key = self.split_key() if key is None else _formalize_key(key)
-        out = uniform_for_unit(
+        out = jr.uniform(
             key, size, dtype,
             minval=lax.nextafter(2 * l - 1, np.array(np.inf, dtype=dtype)),
             maxval=lax.nextafter(2 * u_ - 1, np.array(-np.inf, dtype=dtype))
@@ -774,7 +773,7 @@ class RandomState(State):
             size = u.math.shape(p)
         key = self.split_key() if key is None else _formalize_key(key)
         dtype = dtype or environ.dftype()
-        u_ = uniform_for_unit(key, size, dtype=dtype)
+        u_ = jr.uniform(key, size, dtype)
         r = jnp.floor(jnp.log1p(-u_) / jnp.log1p(-p))
         return r
 
@@ -862,7 +861,7 @@ class RandomState(State):
             size = u.math.shape(scale)
         key = self.split_key() if key is None else _formalize_key(key)
         dtype = dtype or environ.dftype()
-        x = jnp.sqrt(-2. * jnp.log(uniform_for_unit(key, shape=_size2shape(size), minval=0, maxval=1, dtype=dtype)))
+        x = jnp.sqrt(-2. * jnp.log(jr.uniform(key, shape=_size2shape(size), dtype=dtype)))
         r = x * scale
         return r
 
@@ -912,7 +911,7 @@ class RandomState(State):
                 raise ValueError(f'"a" should be a scalar when "size" is provided. But we got {a}')
         size = _size2shape(size)
         dtype = dtype or environ.dftype()
-        random_uniform = uniform_for_unit(key=key, shape=size, minval=0, maxval=1, dtype=dtype)
+        random_uniform = jr.uniform(key=key, shape=size, dtype=dtype)
         r = jnp.power(-jnp.log1p(-random_uniform), 1.0 / a)
         return r
 
@@ -934,7 +933,7 @@ class RandomState(State):
                 raise ValueError(f'"a" should be a scalar when "size" is provided. But we got {a}')
         size = _size2shape(size)
         dtype = dtype or environ.dftype()
-        random_uniform = uniform_for_unit(key=key, shape=size, minval=0, maxval=1, dtype=dtype)
+        random_uniform = jr.uniform(key=key, shape=size, dtype=dtype)
         r = jnp.power(-jnp.log1p(-random_uniform), 1.0 / a)
         if scale is not None:
             r /= scale
