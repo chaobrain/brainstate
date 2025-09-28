@@ -5,8 +5,6 @@
 
 ``BrainState`` is specifically designed to work with models that have states, including rate-based recurrent neural networks, spiking neural networks, and other dynamical systems.
 
-``BrainState`` is the foundation of our establishing `Brain Dynamics Programming (BDP) ecosystem <https://ecosystem-for-brain-dynamics.readthedocs.io/>`_.
-
 ----
 
 Features

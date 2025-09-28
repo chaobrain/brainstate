@@ -47,7 +47,7 @@ shutil.copy('../changelog.md', './changelog.md')
 
 project = 'brainstate'
 copyright = '2024, brainstate'
-author = 'BDP Ecosystem'
+author = 'BrainState Developers'
 
 # The full version, including alpha/beta/rc tags
 release = brainstate.__version__

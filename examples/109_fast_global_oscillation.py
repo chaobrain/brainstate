@@ -49,7 +49,8 @@ class LIF(brainstate.nn.Neuron):
         # variables
         self.V = brainstate.HiddenState(brainstate.init.param(brainstate.init.Constant(Vr), self.varshape))
         self.t_last_spike = brainstate.ShortTermState(
-            brainstate.init.param(brainstate.init.Constant(-1e7 * u.ms), self.varshape))
+            brainstate.init.param(brainstate.init.Constant(-1e7 * u.ms), self.varshape)
+        )
 
     def update(self):
         # integrate membrane potential
