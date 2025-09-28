@@ -227,3 +227,4 @@ cython_debug/
 /dist-hist/
 /.VSCodeCounter/
 /.claude/
+/dev/

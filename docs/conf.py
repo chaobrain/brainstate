@@ -37,8 +37,11 @@ sys.path.insert(0, os.path.abspath('../'))
 
 import brainstate
 import shutil
-shutil.copy('../changelog.md', './changelog.md')
 
+shutil.rmtree('changelog.md', ignore_errors=True)
+shutil.rmtree('apis/generated', ignore_errors=True)
+shutil.rmtree('_build', ignore_errors=True)
+shutil.copy('../changelog.md', './changelog.md')
 
 # -- Project information -----------------------------------------------------
 
