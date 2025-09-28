@@ -26,6 +26,42 @@ def write_back_state_values(
     read_state_vals: Sequence[PyTree],
     write_state_vals: Sequence[PyTree],
 ):
+    """
+    Write back state values to their corresponding states after computation.
+
+    This function updates the state values based on whether they were written to
+    during the computation. If a state was written to, it gets the new written value.
+    If not, it restores its original read value.
+
+    Parameters
+    ----------
+    state_trace : StateTraceStack
+        The state trace stack containing states and write information.
+    read_state_vals : sequence of PyTree
+        The original state values that were read at the beginning.
+    write_state_vals : sequence of PyTree
+        The new state values that were written during computation.
+
+    Examples
+    --------
+    Basic usage in a compilation context:
+
+    .. code-block:: python
+
+        import brainstate
+        import jax.numpy as jnp
+
+        # Create states
+        state1 = brainstate.State(jnp.array([1.0, 2.0]))
+        state2 = brainstate.State(jnp.array([3.0, 4.0]))
+
+        def f(x):
+            state1.value += x  # This state will be written
+            return state1.value + state2.value  # state2 is only read
+
+        # During compilation, state values are collected and managed
+        # write_back_state_values ensures proper state management
+    """
     assert len(state_trace.states) == len(state_trace.been_writen) == len(read_state_vals) == len(write_state_vals)
     for st, write, val_r, val_w in zip(state_trace.states, state_trace.been_writen, read_state_vals, write_state_vals):
         if write:
@@ -40,6 +76,52 @@ def wrap_single_fun_in_multi_branches(
     read_state_vals: Sequence[PyTree | None],
     return_states: bool = True
 ):
+    """
+    Wrap a stateful function for use in multi-branch control flow.
+
+    This function creates a wrapper that allows a stateful function to be used
+    in control flow operations where multiple functions share state. It manages
+    state values by extracting only the states needed by this specific function
+    from a merged state trace.
+
+    Parameters
+    ----------
+    stateful_fun : StatefulFunction
+        The stateful function to be wrapped.
+    merged_state_trace : StateTraceStack
+        The merged state trace containing all states from multiple functions.
+    read_state_vals : sequence of PyTree or None
+        The original read state values for all states in the merged trace.
+    return_states : bool, default True
+        Whether to return updated state values along with the function output.
+
+    Returns
+    -------
+    callable
+        A wrapped function that can be used in multi-branch control flow.
+
+    Examples
+    --------
+    Usage in conditional execution:
+
+    .. code-block:: python
+
+        import brainstate
+        import jax.numpy as jnp
+
+        # Create states
+        state1 = brainstate.State(jnp.array([1.0]))
+        state2 = brainstate.State(jnp.array([2.0]))
+
+        def branch_fn(x):
+            state1.value *= x
+            return state1.value + state2.value
+
+        # During compilation, this wrapper allows the function
+        # to work with merged state traces from multiple branches
+        sf = brainstate.compile.StatefulFunction(branch_fn)
+        # wrapped_fn = wrap_single_fun_in_multi_branches(sf, merged_trace, read_vals)
+    """
     state_ids_belong_to_this_fun = {id(st): st for st in stateful_fun.get_states()}
 
     @wraps(stateful_fun.fun)
@@ -82,6 +164,58 @@ def wrap_single_fun_in_multi_branches_while_loop(
     read_state_vals: Sequence[PyTree | None],
     return_states: bool = True
 ):
+    """
+    Wrap a stateful function for use in while loop control flow.
+
+    This function creates a wrapper specifically designed for while loop operations
+    where multiple functions share state. It manages state values by extracting only
+    the states needed by this specific function from a merged state trace, with
+    special handling for the loop's init_val structure.
+
+    Parameters
+    ----------
+    stateful_fun : StatefulFunction
+        The stateful function to be wrapped.
+    merged_state_trace : StateTraceStack
+        The merged state trace containing all states from multiple functions.
+    read_state_vals : sequence of PyTree or None
+        The original read state values for all states in the merged trace.
+    return_states : bool, default True
+        Whether to return updated state values along with the function output.
+
+    Returns
+    -------
+    callable
+        A wrapped function that can be used in while loop control flow.
+
+    Examples
+    --------
+    Usage in while loop operations:
+
+    .. code-block:: python
+
+        import brainstate
+        import jax.numpy as jnp
+
+        # Create states
+        counter = brainstate.State(jnp.array([0]))
+        accumulator = brainstate.State(jnp.array([0.0]))
+
+        def cond_fn(val):
+            return counter.value < 10
+
+        def body_fn(val):
+            counter.value += 1
+            accumulator.value += val
+            return val * 2
+
+        # During compilation, this wrapper allows the functions
+        # to work with merged state traces in while loops
+        sf_cond = brainstate.compile.StatefulFunction(cond_fn)
+        sf_body = brainstate.compile.StatefulFunction(body_fn)
+        # wrapped_cond = wrap_single_fun_in_multi_branches_while_loop(sf_cond, ...)
+        # wrapped_body = wrap_single_fun_in_multi_branches_while_loop(sf_body, ...)
+    """
     state_ids_belong_to_this_fun = {id(st): st for st in stateful_fun.get_states()}
 
     @wraps(stateful_fun.fun)
@@ -124,6 +258,57 @@ def wrap_single_fun(
     been_writen: Tuple[bool],
     read_state_vals: Tuple[PyTree | None],
 ):
+    """
+    Wrap a stateful function for use in scan operations.
+
+    This function creates a wrapper specifically designed for scan operations.
+    It manages state values by combining written and read states, calls the
+    stateful function, and returns only the written states along with the
+    carry and output values.
+
+    Parameters
+    ----------
+    stateful_fun : StatefulFunction
+        The stateful function to be wrapped for scan operations.
+    been_writen : tuple of bool
+        Boolean flags indicating which states have been written to.
+    read_state_vals : tuple of PyTree or None
+        The original read state values for all states.
+
+    Returns
+    -------
+    callable
+        A wrapped function that can be used in scan operations with proper
+        state management.
+
+    Examples
+    --------
+    Usage in scan operations:
+
+    .. code-block:: python
+
+        import brainstate
+        import jax.numpy as jnp
+
+        # Create states
+        state1 = brainstate.State(jnp.array([0.0]))
+        state2 = brainstate.State(jnp.array([1.0]))
+
+        def scan_fn(carry, x):
+            state1.value += x  # This state will be written
+            result = carry + state1.value + state2.value  # state2 is only read
+            return result, result ** 2
+
+        # During compilation, this wrapper allows the function
+        # to work properly in scan operations
+        sf = brainstate.compile.StatefulFunction(scan_fn)
+        # wrapped_fn = wrap_single_fun(sf, been_written_flags, read_values)
+
+        # The wrapped function handles state management automatically
+        xs = jnp.arange(5.0)
+        init_carry = 0.0
+        final_carry, ys = brainstate.compile.scan(scan_fn, init_carry, xs)
+    """
     @wraps(stateful_fun.fun)
     def wrapped_fun(new_carry, inputs):
         writen_state_vals, carry = new_carry

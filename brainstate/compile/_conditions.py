@@ -35,34 +35,56 @@ def cond(pred, true_fun: Callable, false_fun: Callable, *operands):
     """
     Conditionally apply ``true_fun`` or ``false_fun``.
 
-    Provided arguments are correctly typed, ``cond()`` has equivalent
-    semantics to this Python implementation, where ``pred`` must be a
-    scalar type::
+    Parameters
+    ----------
+    pred : bool or array-like
+        Boolean scalar selecting which branch to execute. Numeric inputs are
+        treated as ``True`` when non-zero.
+    true_fun : Callable
+        Function that receives ``*operands`` when ``pred`` is ``True``.
+    false_fun : Callable
+        Function that receives ``*operands`` when ``pred`` is ``False``.
+    *operands : Any
+        Operands forwarded to either branch. May be any pytree of arrays,
+        scalars, or nested containers thereof.
 
-      def cond(pred, true_fun, false_fun, *operands):
-        if pred:
-          return true_fun(*operands)
-        else:
-          return false_fun(*operands)
+    Returns
+    -------
+    Any
+        Value returned by the selected branch with the same pytree structure
+        as produced by ``true_fun`` or ``false_fun``.
 
+    Notes
+    -----
+    Provided the arguments are correctly typed, :func:`cond` has semantics
+    that match the following Python implementation, where ``pred`` must be a
+    scalar:
 
-    In contrast with :func:`jax.lax.select`, using ``cond`` indicates that only one of
-    the two branches is executed (up to compiler rewrites and optimizations).
-    However, when transformed with :func:`~jax.vmap` to operate over a batch of
-    predicates, ``cond`` is converted to :func:`~jax.lax.select`.
+    .. code-block:: python
 
-    Args:
-      pred: Boolean scalar type, indicating which branch function to apply.
-      true_fun: Function (A -> B), to be applied if ``pred`` is True.
-      false_fun: Function (A -> B), to be applied if ``pred`` is False.
-      operands: Operands (A) input to either branch depending on ``pred``. The
-        type can be a scalar, array, or any pytree (nested Python tuple/list/dict)
-        thereof.
+        def cond(pred, true_fun, false_fun, *operands):
+            if pred:
+                return true_fun(*operands)
+            return false_fun(*operands)
 
-    Returns:
-      Value (B) of either ``true_fun(*operands)`` or ``false_fun(*operands)``,
-      depending on the value of ``pred``. The type can be a scalar, array, or any
-      pytree (nested Python tuple/list/dict) thereof.
+    In contrast with :func:`jax.lax.select`, using :func:`cond` indicates that only
+    one branch runs (subject to compiler rewrites and optimizations). When
+    transformed with :func:`~jax.vmap` over a batch of predicates, :func:`cond` is
+    converted to :func:`~jax.lax.select`.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        import brainstate
+
+        def branch_true(x):
+            return x + 1
+
+        def branch_false(x):
+            return x - 1
+
+        brainstate.transform.cond(True, branch_true, branch_false, 3)
     """
     if not (callable(true_fun) and callable(false_fun)):
         raise TypeError("true_fun and false_fun arguments should be callable.")
@@ -116,29 +138,52 @@ def cond(pred, true_fun: Callable, false_fun: Callable, *operands):
 @set_module_as('brainstate.compile')
 def switch(index, branches: Sequence[Callable], *operands):
     """
-    Apply exactly one of ``branches`` given by ``index``.
+    Apply exactly one branch from ``branches`` based on ``index``.
 
-    If ``index`` is out of bounds, it is clamped to within bounds.
+    Parameters
+    ----------
+    index : int or array-like
+        Scalar integer specifying which branch to execute.
+    branches : Sequence[Callable]
+        Sequence of callables; each receives ``*operands``.
+    *operands : Any
+        Operands forwarded to the selected branch. May be any pytree of arrays,
+        scalars, or nested containers thereof.
 
-    Has the semantics of the following Python::
+    Returns
+    -------
+    Any
+        Value returned by the selected branch with the same pytree structure
+        as the selected callable.
 
-      def switch(index, branches, *operands):
-        index = clamp(0, index, len(branches) - 1)
-        return branches[index](*operands)
+    Notes
+    -----
+    If ``index`` is out of bounds, it is clamped to ``[0, len(branches) - 1]``.
+    Conceptually, :func:`switch` behaves like:
 
-    Internally this wraps XLA's `Conditional
-    <https://www.tensorflow.org/xla/operation_semantics#conditional>`_
-    operator. However, when transformed with :func:`~jax.vmap` to operate over a
-    batch of predicates, ``cond`` is converted to :func:`~jax.lax.select`.
+    .. code-block:: python
 
-    Args:
-      index: Integer scalar type, indicating which branch function to apply.
-      branches: Sequence of functions (A -> B) to be applied based on ``index``.
-      operands: Operands (A) input to whichever branch is applied.
+        def switch(index, branches, *operands):
+            safe_index = clamp(0, index, len(branches) - 1)
+            return branches[safe_index](*operands)
 
-    Returns:
-      Value (B) of ``branch(*operands)`` for the branch that was selected based
-      on ``index``.
+    Internally this wraps XLA's `Conditional <https://www.tensorflow.org/xla/operation_semantics#conditional>`_
+    operator. When transformed with :func:`~jax.vmap` over a batch of predicates,
+    :func:`switch` is converted to :func:`~jax.lax.select`.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        import brainstate
+
+        branches = (
+            lambda x: x - 1,
+            lambda x: x,
+            lambda x: x + 1,
+        )
+
+        brainstate.transform.switch(2, branches, 3)
     """
     # check branches
     if not all(callable(branch) for branch in branches):
@@ -198,42 +243,51 @@ def switch(index, branches: Sequence[Callable], *operands):
 @set_module_as('brainstate.compile')
 def ifelse(conditions, branches, *operands, check_cond: bool = True):
     """
-    ``If-else`` control flows looks like native Pythonic programming.
-
-    Examples
-    --------
-
-    >>> import brainstate
-    >>> def f(a):
-    >>>    return brainstate.compile.ifelse(conditions=[a > 10, a > 5, a > 2, a > 0],
-    >>>                               branches=[lambda: 1,
-    >>>                                         lambda: 2,
-    >>>                                         lambda: 3,
-    >>>                                         lambda: 4,
-    >>>                                         lambda: 5])
-    >>> f(1)
-    4
-    >>> f(0)
-    5
+    Represent multi-way ``if``/``elif``/``else`` control flow.
 
     Parameters
     ----------
-    conditions: bool, sequence of bool, Array
-      The boolean conditions.
-    branches: Any
-      The branches, at least has two elements. Elements can be functions,
-      arrays, or numbers. The number of ``branches`` and ``conditions`` has
-      the relationship of `len(branches) == len(conditions) + 1`.
-      Each branch should receive one arguement for ``operands``.
-    *operands: optional, Any
-      The operands for each branch.
-    check_cond: bool
-      Whether to check the conditions. Default is True.
+    conditions : Sequence[bool] or Array
+        Sequence of mutually exclusive boolean predicates. When ``check_cond`` is
+        ``True``, exactly one entry must evaluate to ``True``.
+    branches : Sequence[Callable]
+        Sequence of branch callables evaluated lazily. Must have the same length as
+        ``conditions``, contain at least two callables, and each branch receives
+        ``*operands`` when selected.
+    *operands : Any
+        Operands forwarded to the selected branch as positional arguments.
+    check_cond : bool, default=True
+        Whether to verify that exactly one condition evaluates to ``True``.
 
     Returns
     -------
-    res: Any
-      The results of the control flow.
+    Any
+        Value produced by the branch corresponding to the active condition.
+
+    Notes
+    -----
+    When ``check_cond`` is ``True``, exactly one condition must evaluate to ``True``.
+    A common pattern is to make the final condition ``True`` to encode a default
+    branch.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        import brainstate
+
+        def describe(a):
+            return brainstate.transform.ifelse(
+                conditions=[a > 5, a > 0, True],
+                branches=[
+                    lambda: "greater than five",
+                    lambda: "positive",
+                    lambda: "non-positive",
+                ],
+            )
+
+        describe(7)
+        describe(-1)
     """
     # check branches
     if not all(callable(branch) for branch in branches):

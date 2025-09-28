@@ -80,17 +80,19 @@ def scan(
 
     When the type of ``xs`` (denoted `a` above) is an array type or None, and the type
     of ``ys`` (denoted `b` above) is an array type, the semantics of :func:`~scan` are
-    given roughly by this Python implementation::
+    given roughly by this Python implementation:
 
-      def scan(f, init, xs, length=None):
-        if xs is None:
-          xs = [None] * length
-        carry = init
-        ys = []
-        for x in xs:
-          carry, y = f(carry, x)
-          ys.append(y)
-        return carry, np.stack(ys)
+    .. code-block:: python
+
+        def scan(f, init, xs, length=None):
+            if xs is None:
+                xs = [None] * length
+            carry = init
+            ys = []
+            for x in xs:
+                carry, y = f(carry, x)
+                ys.append(y)
+            return carry, np.stack(ys)
 
     Unlike that Python version, both ``xs`` and ``ys`` may be arbitrary pytree
     values, and so multiple arrays can be scanned over at once and produce multiple
@@ -110,40 +112,75 @@ def scan(
     dtype (or a nested tuple/list/dict container data structure with a fixed
     structure and arrays with fixed shape and dtype at the leaves).
 
-    Args:
-      f: a Python function to be scanned of type ``c -> a -> (c, b)``, meaning
+    Parameters
+    ----------
+    f : callable
+        A Python function to be scanned of type ``c -> a -> (c, b)``, meaning
         that ``f`` accepts two arguments where the first is a value of the loop
         carry and the second is a slice of ``xs`` along its leading axis, and that
         ``f`` returns a pair where the first element represents a new value for
         the loop carry and the second represents a slice of the output.
-      init: an initial loop carry value of type ``c``, which can be a scalar,
+    init : Carry
+        An initial loop carry value of type ``c``, which can be a scalar,
         array, or any pytree (nested Python tuple/list/dict) thereof, representing
         the initial loop carry value. This value must have the same structure as
         the first element of the pair returned by ``f``.
-      xs: the value of type ``[a]`` over which to scan along the leading axis,
+    xs : X
+        The value of type ``[a]`` over which to scan along the leading axis,
         where ``[a]`` can be an array or any pytree (nested Python
         tuple/list/dict) thereof with consistent leading axis sizes.
-      length: optional integer specifying the number of loop iterations, which
+    length : int, optional
+        Optional integer specifying the number of loop iterations, which
         must agree with the sizes of leading axes of the arrays in ``xs`` (but can
         be used to perform scans where no input ``xs`` are needed).
-      reverse: optional boolean specifying whether to run the scan iteration
+    reverse : bool, default False
+        Optional boolean specifying whether to run the scan iteration
         forward (the default) or in reverse, equivalent to reversing the leading
         axes of the arrays in both ``xs`` and in ``ys``.
-      unroll: optional positive int or bool specifying, in the underlying
+    unroll : int or bool, default 1
+        Optional positive int or bool specifying, in the underlying
         operation of the scan primitive, how many scan iterations to unroll within
         a single iteration of a loop. If an integer is provided, it determines how
         many unrolled loop iterations to run within a single rolled iteration of
         the loop. If a boolean is provided, it will determine if the loop is
         completely unrolled (i.e. `unroll=True`) or left completely unrolled (i.e.
         `unroll=False`).
-      pbar: optional :class:`~.ProgressBar` instance to display the progress
+    pbar : ProgressBar or int, optional
+        Optional :class:`~.ProgressBar` instance to display the progress
         of the scan operation.
 
-    Returns:
-      A pair of type ``(c, [b])`` where the first element represents the final
-      loop carry value and the second element represents the stacked outputs of
-      the second output of ``f`` when scanned over the leading axis of the inputs.
+    Returns
+    -------
+    tuple of (Carry, Y)
+        A pair of type ``(c, [b])`` where the first element represents the final
+        loop carry value and the second element represents the stacked outputs of
+        the second output of ``f`` when scanned over the leading axis of the inputs.
 
+    Examples
+    --------
+    Basic scan operation:
+
+    .. code-block:: python
+
+        import brainstate
+        import jax.numpy as jnp
+
+        def step_fn(carry, x):
+            return carry + x, carry * x
+
+        init = 0.0
+        xs = jnp.array([1.0, 2.0, 3.0])
+        final_carry, ys = brainstate.transform.scan(step_fn, init, xs)
+
+    Scan with progress bar:
+
+    .. code-block:: python
+
+        pbar = bst.ProgressBar(freq=10)
+        final_carry, ys = brainstate.transform.scan(step_fn, init, xs, pbar=pbar)
+
+    References
+    ----------
     .. _Haskell-like type signature: https://wiki.haskell.org/Type_signature
     """
     # check "f"
@@ -249,30 +286,63 @@ def checkpointed_scan(
     Scan a function over leading array axes while carrying along state.
     This function is similar to :func:`~scan` but with a checkpointed version.
 
-    Args:
-      f: a Python function to be scanned of type ``c -> a -> (c, b)``, meaning
+    Parameters
+    ----------
+    f : callable
+        A Python function to be scanned of type ``c -> a -> (c, b)``, meaning
         that ``f`` accepts two arguments where the first is a value of the loop
         carry and the second is a slice of ``xs`` along its leading axis, and that
         ``f`` returns a pair where the first element represents a new value for
         the loop carry and the second represents a slice of the output.
-      init: an initial loop carry value of type ``c``, which can be a scalar,
+    init : Carry
+        An initial loop carry value of type ``c``, which can be a scalar,
         array, or any pytree (nested Python tuple/list/dict) thereof, representing
         the initial loop carry value. This value must have the same structure as
         the first element of the pair returned by ``f``.
-      xs: the value of type ``[a]`` over which to scan along the leading axis,
+    xs : X
+        The value of type ``[a]`` over which to scan along the leading axis,
         where ``[a]`` can be an array or any pytree (nested Python
         tuple/list/dict) thereof with consistent leading axis sizes.
-      length: optional integer specifying the number of loop iterations, which
+    length : int, optional
+        Optional integer specifying the number of loop iterations, which
         must agree with the sizes of leading axes of the arrays in ``xs`` (but can
         be used to perform scans where no input ``xs`` are needed).
-      base: optional integer specifying the base for the bounded scan loop.
-      pbar: optional :class:`~.ProgressBar` instance to display the progress
+    base : int, default 16
+        Optional integer specifying the base for the bounded scan loop.
+    pbar : ProgressBar or int, optional
+        Optional :class:`~.ProgressBar` instance to display the progress
         of the scan operation.
 
-    Returns:
-      A pair of type ``(c, [b])`` where the first element represents the final
-      loop carry value and the second element represents the stacked outputs of
-      the second output of ``f`` when scanned over the leading axis of the inputs.
+    Returns
+    -------
+    tuple of (Carry, Y)
+        A pair of type ``(c, [b])`` where the first element represents the final
+        loop carry value and the second element represents the stacked outputs of
+        the second output of ``f`` when scanned over the leading axis of the inputs.
+
+    Examples
+    --------
+    Basic checkpointed scan operation:
+
+    .. code-block:: python
+
+        import brainstate
+        import jax.numpy as jnp
+
+        def step_fn(carry, x):
+            return carry + x, carry * x
+
+        init = 0.0
+        xs = jnp.array([1.0, 2.0, 3.0])
+        final_carry, ys = brainstate.transform.checkpointed_scan(step_fn, init, xs)
+
+    Using custom base for checkpointing:
+
+    .. code-block:: python
+
+        final_carry, ys = brainstate.transform.checkpointed_scan(
+            step_fn, init, xs, base=8
+        )
     """
     # check "f"
     if not callable(f):
@@ -400,35 +470,69 @@ def for_loop(
     """
     ``for-loop`` control flow with :py:class:`~.State`.
 
-    Args:
-      f: a Python function to be scanned of type ``c -> a -> (c, b)``, meaning
-        that ``f`` accepts two arguments where the first is a value of the loop
-        carry and the second is a slice of ``xs`` along its leading axis, and that
-        ``f`` returns a pair where the first element represents a new value for
-        the loop carry and the second represents a slice of the output.
-      xs: the value of type ``[a]`` over which to scan along the leading axis,
-        where ``[a]`` can be an array or any pytree (nested Python
+    Parameters
+    ----------
+    f : callable
+        A Python function to be looped over that accepts variadic arguments
+        corresponding to slices of ``xs`` along their leading axes, and returns
+        the output for that iteration.
+    *xs
+        The values over which to loop along the leading axis,
+        where each can be an array or any pytree (nested Python
         tuple/list/dict) thereof with consistent leading axis sizes.
-      length: optional integer specifying the number of loop iterations, which
+    length : int, optional
+        Optional integer specifying the number of loop iterations, which
         must agree with the sizes of leading axes of the arrays in ``xs`` (but can
-        be used to perform scans where no input ``xs`` are needed).
-      reverse: optional boolean specifying whether to run the scan iteration
+        be used to perform loops where no input ``xs`` are needed).
+    reverse : bool, default False
+        Optional boolean specifying whether to run the loop iteration
         forward (the default) or in reverse, equivalent to reversing the leading
         axes of the arrays in both ``xs`` and in ``ys``.
-      unroll: optional positive int or bool specifying, in the underlying
-        operation of the scan primitive, how many scan iterations to unroll within
+    unroll : int or bool, default 1
+        Optional positive int or bool specifying, in the underlying
+        operation of the scan primitive, how many loop iterations to unroll within
         a single iteration of a loop. If an integer is provided, it determines how
         many unrolled loop iterations to run within a single rolled iteration of
         the loop. If a boolean is provided, it will determine if the loop is
         completely unrolled (i.e. `unroll=True`) or left completely unrolled (i.e.
         `unroll=False`).
-      pbar: optional :class:`~.ProgressBar` instance to display the progress
-        of the scan operation.
+    pbar : ProgressBar or int, optional
+        Optional :class:`~.ProgressBar` instance to display the progress
+        of the loop operation.
 
-    Returns:
-      The return represents the stacked outputs of the second output of ``f``
-      when scanned over the leading axis of the inputs.
+    Returns
+    -------
+    Y
+        The stacked outputs of ``f`` when looped over the leading axis of the inputs.
 
+    Examples
+    --------
+    Basic for-loop operation:
+
+    .. code-block:: python
+
+        import brainstate
+        import jax.numpy as jnp
+
+        def process_item(x, y):
+            return x * y + 1
+
+        xs = jnp.array([1.0, 2.0, 3.0])
+        ys = jnp.array([4.0, 5.0, 6.0])
+        results = brainstate.transform.for_loop(process_item, xs, ys)
+
+    For-loop with progress bar:
+
+    .. code-block:: python
+
+        pbar = bst.ProgressBar(freq=10)
+        results = brainstate.transform.for_loop(process_item, xs, ys, pbar=pbar)
+
+    For-loop with reverse iteration:
+
+    .. code-block:: python
+
+        results = brainstate.transform.for_loop(process_item, xs, ys, reverse=True)
     """
     _, ys = scan(
         _forloop_to_scan_fun(f),
@@ -452,25 +556,54 @@ def checkpointed_for_loop(
     """
     ``for-loop`` control flow with :py:class:`~.State` with a checkpointed version, similar to :py:func:`for_loop`.
 
-    Args:
-      f: a Python function to be scanned of type ``c -> a -> (c, b)``, meaning
-        that ``f`` accepts two arguments where the first is a value of the loop
-        carry and the second is a slice of ``xs`` along its leading axis, and that
-        ``f`` returns a pair where the first element represents a new value for
-        the loop carry and the second represents a slice of the output.
-      xs: the value of type ``[a]`` over which to scan along the leading axis,
-        where ``[a]`` can be an array or any pytree (nested Python
+    Parameters
+    ----------
+    f : callable
+        A Python function to be looped over that accepts variadic arguments
+        corresponding to slices of ``xs`` along their leading axes, and returns
+        the output for that iteration.
+    *xs : X
+        The values over which to loop along the leading axis,
+        where each can be an array or any pytree (nested Python
         tuple/list/dict) thereof with consistent leading axis sizes.
-      length: optional integer specifying the number of loop iterations, which
+    length : int, optional
+        Optional integer specifying the number of loop iterations, which
         must agree with the sizes of leading axes of the arrays in ``xs`` (but can
-        be used to perform scans where no input ``xs`` are needed).
-      base: optional integer specifying the base for the bounded scan loop.
-      pbar: optional :class:`~.ProgressBar` instance to display the progress
-        of the scan operation.
+        be used to perform loops where no input ``xs`` are needed).
+    base : int, default 16
+        Optional integer specifying the base for the bounded loop.
+    pbar : ProgressBar or int, optional
+        Optional :class:`~.ProgressBar` instance to display the progress
+        of the loop operation.
 
-    Returns:
-      The return represents the stacked outputs of the second output of ``f``
-      when scanned over the leading axis of the inputs.
+    Returns
+    -------
+    Y
+        The stacked outputs of ``f`` when looped over the leading axis of the inputs.
+
+    Examples
+    --------
+    Basic checkpointed for-loop operation:
+
+    .. code-block:: python
+
+        import brainstate
+        import jax.numpy as jnp
+
+        def process_item(x, y):
+            return x * y + 1
+
+        xs = jnp.array([1.0, 2.0, 3.0])
+        ys = jnp.array([4.0, 5.0, 6.0])
+        results = brainstate.transform.checkpointed_for_loop(process_item, xs, ys)
+
+    Using custom base for checkpointing:
+
+    .. code-block:: python
+
+        results = brainstate.transform.checkpointed_for_loop(
+            process_item, xs, ys, base=8
+        )
     """
     _, ys = checkpointed_scan(
         _forloop_to_scan_fun(f),
@@ -483,7 +616,8 @@ def checkpointed_for_loop(
     return ys
 
 
-# This function is adapted from ``while_loop`` in `equinox <https://github.com/patrick-kidger/equinox/blob/main/equinox/internal/_loop/loop.py>`_.
+# This function is adapted from ``while_loop`` in
+# `equinox <https://github.com/patrick-kidger/equinox/blob/main/equinox/internal/_loop/loop.py>`_.
 
 # There's several tricks happening here to work around various limitations of JAX.
 # (Also see https://github.com/google/jax/issues/2139#issuecomment-1039293633)

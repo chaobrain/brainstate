@@ -50,13 +50,15 @@ def while_loop(
 
       while_loop :: (a -> Bool) -> (a -> a) -> a -> a
 
-    The semantics of ``while_loop`` are given by this Python implementation::
+    The semantics of ``while_loop`` are given by this Python implementation:
 
-      def while_loop(cond_fun, body_fun, init_val):
-        val = init_val
-        while cond_fun(val):
-          val = body_fun(val)
-        return val
+    .. code-block:: python
+
+        def while_loop(cond_fun, body_fun, init_val):
+            val = init_val
+            while cond_fun(val):
+                val = body_fun(val)
+            return val
 
     Unlike that Python version, ``while_loop`` is a JAX primitive and is lowered
     to a single WhileOp. That makes it useful for reducing compilation times
@@ -75,16 +77,55 @@ def while_loop(
     ``while_loop`` is not reverse-mode differentiable because XLA computations
     require static bounds on memory requirements.
 
-    Args:
-      cond_fun: function of type ``a -> Bool``.
-      body_fun: function of type ``a -> a``.
-      init_val: value of type ``a``, a type that can be a scalar, array, or any
+    Parameters
+    ----------
+    cond_fun : callable
+        Function of type ``a -> Bool``.
+    body_fun : callable
+        Function of type ``a -> a``.
+    init_val : T
+        Value of type ``a``, a type that can be a scalar, array, or any
         pytree (nested Python tuple/list/dict) thereof, representing the initial
         loop carry value.
 
-    Returns:
-      The output from the final iteration of body_fun, of type ``a``.
+    Returns
+    -------
+    T
+        The output from the final iteration of body_fun, of type ``a``.
 
+    Examples
+    --------
+    Basic while loop operation:
+
+    .. code-block:: python
+
+        import brainstate
+        import jax.numpy as jnp
+
+        def cond_fn(val):
+            return val < 10
+
+        def body_fn(val):
+            return val + 1
+
+        result = brainstate.transform.while_loop(cond_fn, body_fn, 0)
+        # result will be 10
+
+    While loop with array state:
+
+    .. code-block:: python
+
+        def cond_fn(state):
+            return jnp.sum(state) < 100
+
+        def body_fn(state):
+            return state * 1.1
+
+        init_state = jnp.array([1.0, 2.0, 3.0])
+        final_state = brainstate.transform.while_loop(cond_fn, body_fn, init_state)
+
+    References
+    ----------
     .. _Haskell-like type signature: https://wiki.haskell.org/Type_signature
     """
     if not (callable(body_fun) and callable(cond_fun)):
@@ -138,18 +179,70 @@ def bounded_while_loop(
     even if the condition function is never false. The function is implemented
     using a scan operation, so it is reverse-mode differentiable.
 
-    Args:
-      cond_fun: A function of type ``a -> Bool``.
-      body_fun: A function of type ``a -> a``.
-      init_val: The initial value of type ``a``.
-      max_steps: A bound on the maximum number of steps, after which the loop
+    Parameters
+    ----------
+    cond_fun : callable
+        A function of type ``a -> Bool``.
+    body_fun : callable
+        A function of type ``a -> a``.
+    init_val : T
+        The initial value of type ``a``.
+    max_steps : int
+        A bound on the maximum number of steps, after which the loop
         terminates unconditionally.
-      base: Run time will increase slightly as `base` increases. Compilation time will
+    base : int, default 16
+        Run time will increase slightly as `base` increases. Compilation time will
         decrease substantially as `math.ceil(math.log(max_steps, base))` decreases.
         (Which happens as `base` increases.)
 
-    Returns:
-      The final value, as if computed by a `lax.while_loop`.
+    Returns
+    -------
+    T
+        The final value, as if computed by a `lax.while_loop`.
+
+    Examples
+    --------
+    Basic bounded while loop:
+
+    .. code-block:: python
+
+        import brainstate
+        import jax.numpy as jnp
+
+        def cond_fn(val):
+            return val < 1000  # This might never be false
+
+        def body_fn(val):
+            return val * 2
+
+        # Loop will terminate after at most 10 steps
+        result = brainstate.transform.bounded_while_loop(
+            cond_fn, body_fn, 1, max_steps=10
+        )
+
+    Bounded while loop with custom base:
+
+    .. code-block:: python
+
+        # Use a smaller base for potentially faster compilation
+        result = brainstate.transform.bounded_while_loop(
+            cond_fn, body_fn, 1, max_steps=100, base=8
+        )
+
+    Bounded while loop with array state:
+
+    .. code-block:: python
+
+        def cond_fn(state):
+            return jnp.max(state) < 100
+
+        def body_fn(state):
+            return state + jnp.array([1.0, 2.0, 3.0])
+
+        init_state = jnp.array([0.0, 0.0, 0.0])
+        final_state = brainstate.transform.bounded_while_loop(
+            cond_fn, body_fn, init_state, max_steps=50
+        )
     """
 
     # checking

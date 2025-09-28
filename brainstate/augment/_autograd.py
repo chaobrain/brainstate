@@ -153,13 +153,87 @@ class GradientTransform(PrettyRepr):
     It allows for flexible configuration of gradient computation with respect to specified states
     and function arguments.
 
-    Attributes:
-        target (Callable): The function to be transformed.
-        stateful_target (StatefulFunction): A wrapper around the target function for state management.
-        raw_argnums (Optional[Union[int, Sequence[int]]]): The original argnums specified by the user.
-        true_argnums (Union[int, Tuple[int, ...]]): The adjusted argnums used internally.
-        return_value (bool): Whether to return the function's value along with gradients.
-        has_aux (bool): Whether the function returns auxiliary data.
+    Parameters
+    ----------
+    target : callable
+        The function to be transformed.
+    transform : callable
+        The transformation function to apply.
+    grad_states : State, sequence of State, or dict of State, optional
+        States to compute gradients for.
+    argnums : int or sequence of int, optional
+        Indices of arguments to differentiate with respect to.
+    return_value : bool, default False
+        Whether to return the function's value along with gradients.
+    has_aux : bool, default False
+        Whether the function returns auxiliary data.
+    transform_params : dict, optional
+        Additional parameters for the transformation function.
+    check_states : bool, default True
+        Whether to check that all grad_states are found in the function.
+
+    Attributes
+    ----------
+    target : callable
+        The function to be transformed.
+    stateful_target : StatefulFunction
+        A wrapper around the target function for state management.
+    raw_argnums : int, sequence of int, or None
+        The original argnums specified by the user.
+    true_argnums : int or tuple of int
+        The adjusted argnums used internally.
+    return_value : bool
+        Whether to return the function's value along with gradients.
+    has_aux : bool
+        Whether the function returns auxiliary data.
+
+    Examples
+    --------
+    Basic gradient computation with states:
+
+    .. code-block:: python
+
+        import brainstate
+        import jax.numpy as jnp
+
+        # Create states
+        weight = brainstate.State(jnp.array([[1.0, 2.0], [3.0, 4.0]]))
+        bias = brainstate.State(jnp.array([0.5, -0.5]))
+
+        def loss_fn(x):
+            y = x @ weight.value + bias.value
+            return jnp.sum(y ** 2)
+
+        # Create gradient transform
+        grad_transform = brainstate.augment.GradientTransform(
+            target=loss_fn,
+            transform=jax.grad,
+            grad_states=[weight, bias]
+        )
+
+        # Compute gradients
+        x = jnp.array([1.0, 2.0])
+        grads = grad_transform(x)
+
+    With function arguments and auxiliary data:
+
+    .. code-block:: python
+
+        def loss_fn_with_aux(x, scale):
+            y = x @ weight.value + bias.value
+            loss = jnp.sum((y * scale) ** 2)
+            return loss, {"predictions": y, "scale": scale}
+
+        grad_transform = brainstate.augment.GradientTransform(
+            target=loss_fn_with_aux,
+            transform=jax.grad,
+            grad_states=[weight, bias],
+            argnums=[0, 1],  # gradient w.r.t x and scale
+            has_aux=True,
+            return_value=True
+        )
+
+        grads, loss_value, aux_data = grad_transform(x, 2.0)
     """
 
     __module__ = "brainstate.augment"
@@ -178,17 +252,29 @@ class GradientTransform(PrettyRepr):
         """
         Initialize a ``GradientTransform`` instance.
 
-        Args:
-            target (Callable): The function to be transformed.
-            transform (TransformFn): The transformation function to apply.
-            grad_states (Optional[Union[State, Sequence[State], Dict[str, State]]]): States to compute gradients for.
-            argnums (Optional[Union[int, Sequence[int]]]): Indices of arguments to differentiate with respect to.
-            return_value (bool): Whether to return the function's value along with gradients.
-            has_aux (bool): Whether the function returns auxiliary data.
-            transform_params (Optional[Dict[str, Any]]): Additional parameters for the transformation function.
+        Parameters
+        ----------
+        target : callable
+            The function to be transformed.
+        transform : callable
+            The transformation function to apply.
+        grad_states : State, sequence of State, or dict of State, optional
+            States to compute gradients for.
+        argnums : int or sequence of int, optional
+            Indices of arguments to differentiate with respect to.
+        return_value : bool, default False
+            Whether to return the function's value along with gradients.
+        has_aux : bool, default False
+            Whether the function returns auxiliary data.
+        transform_params : dict, optional
+            Additional parameters for the transformation function.
+        check_states : bool, default True
+            Whether to check that all grad_states are found in the function.
 
-        Raises:
-            TypeError: If any grad_states are not State instances.
+        Raises
+        ------
+        TypeError
+            If any grad_states are not State instances.
         """
         # gradient variables
         if isinstance(grad_states, dict):
@@ -403,12 +489,18 @@ class GradientTransform(PrettyRepr):
         """
         Compute gradients by calling the transformed function.
 
-        Args:
-            *args: Positional arguments to pass to the target function.
-            **kwargs: Keyword arguments to pass to the target function.
+        Parameters
+        ----------
+        *args
+            Positional arguments to pass to the target function.
+        **kwargs
+            Keyword arguments to pass to the target function.
 
-        Returns:
-            Union[Gradient, Tuple]: The computed gradients, potentially including function value and/or auxiliary data.
+        Returns
+        -------
+        Gradient or tuple
+            The computed gradients, potentially including function value and/or auxiliary data.
+            The exact return structure depends on the settings of return_value and has_aux.
         """
 
         # TODO: support jax.disable_jit()
@@ -463,34 +555,92 @@ def grad(
 
     %s
 
-    Args:
-        fun: callable. the scalar-valued function to be differentiated.
-        allow_int: (bool) optional. Whether to allow differentiating with respect to
-            integer valued inputs. The gradient of an integer input will have a trivial
-            vector-space dtype (float0). Default False.
-        holomorphic: (bool) optional. Whether fun is promised to be holomorphic.
-            Default False.
-        grad_states: (State, Sequence[State], Dict[str, State]) optional. The variables
-            in fun to take their gradients.
-        fun: the scalar-valued function to be differentiated.
-        argnums: (int or tuple of ints) optional. Specifies which positional
-            argument(s) to differentiate with respect to.
-        has_aux: (bool) optional. Indicates whether fun returns a pair where the
-            first element is considered the output of the mathematical function to be
-            differentiated and the second element is auxiliary data. Default False.
-        return_value: (bool) optional. Indicates whether to return the value of the
-            function along with the gradient. Default False.
-        unit_aware: (bool) optional. Whether to return the gradient in the unit-aware
-            mode. Default False.
+    Parameters
+    ----------
+    fun : callable, optional
+        The scalar-valued function to be differentiated.
+    grad_states : State, sequence of State, or dict of State, optional
+        The variables in fun to take their gradients.
+    argnums : int or sequence of int, optional
+        Specifies which positional argument(s) to differentiate with respect to.
+    holomorphic : bool, default False
+        Whether fun is promised to be holomorphic.
+    allow_int : bool, default False
+        Whether to allow differentiating with respect to
+        integer valued inputs. The gradient of an integer input will have a trivial
+        vector-space dtype (float0).
+    has_aux : bool, optional
+        Indicates whether fun returns a pair where the
+        first element is considered the output of the mathematical function to be
+        differentiated and the second element is auxiliary data.
+    return_value : bool, default False
+        Indicates whether to return the value of the
+        function along with the gradient.
+    unit_aware : bool, default False
+        Whether to return the gradient in the unit-aware mode.
+    check_states : bool, default True
+        Whether to check that all grad_states are found in the function.
 
-    Returns:
-      A function which computes the gradient of fun. The function takes the same
-      arguments as `fun`, but returns the gradient instead. If `has_aux` is True,
-      the function returns a pair where the first element is the gradient and the
-      second element is the auxiliary data. If `return_value` is True, the function
-      returns a pair where the first element is the gradient and the second element
-      is the value of the function.
+    Returns
+    -------
+    GradientTransform or callable
+        A function which computes the gradient of fun. The function takes the same
+        arguments as `fun`, but returns the gradient instead. If `has_aux` is True,
+        the function returns a pair where the first element is the gradient and the
+        second element is the auxiliary data. If `return_value` is True, the function
+        returns a pair where the first element is the gradient and the second element
+        is the value of the function.
 
+    Examples
+    --------
+    Basic gradient computation:
+
+    .. code-block:: python
+
+        import brainstate
+        import jax.numpy as jnp
+
+        # Simple function gradient
+        def f(x):
+            return jnp.sum(x ** 2)
+
+        grad_f = brainstate.augment.grad(f)
+        x = jnp.array([1.0, 2.0, 3.0])
+        gradient = grad_f(x)
+
+    Gradient with respect to states:
+
+    .. code-block:: python
+
+        # Create states
+        weight = brainstate.State(jnp.array([1.0, 2.0]))
+        bias = brainstate.State(jnp.array([0.5]))
+
+        def loss_fn(x):
+            prediction = jnp.dot(x, weight.value) + bias.value
+            return prediction ** 2
+
+        # Compute gradients with respect to states
+        grad_fn = brainstate.augment.grad(loss_fn, grad_states=[weight, bias])
+        x = jnp.array([1.0, 2.0])
+        state_grads = grad_fn(x)
+
+    With auxiliary data and return value:
+
+    .. code-block:: python
+
+        def loss_with_aux(x):
+            prediction = jnp.dot(x, weight.value) + bias.value
+            loss = prediction ** 2
+            return loss, {"prediction": prediction}
+
+        grad_fn = brainstate.augment.grad(
+            loss_with_aux,
+            grad_states=[weight, bias],
+            has_aux=True,
+            return_value=True
+        )
+        grads, loss_value, aux_data = grad_fn(x)
     """
     if isinstance(fun, Missing):
         def transform(fun) -> GradientTransform:
@@ -532,34 +682,72 @@ def vector_grad(
     unit_aware: bool = False,
     check_states: bool = True,
 ) -> GradientTransform | Callable[[Callable], GradientTransform]:
-    """Take vector-valued gradients for function ``func``.
+    """
+    Take vector-valued gradients for function ``func``.
 
-    Same as :py:func:`grad`, :py:func:`jacrev`, and :py:func:`jacfwd`, 
+    Same as :py:func:`grad`, :py:func:`jacrev`, and :py:func:`jacfwd`,
     the returns in this function are different for different argument settings.
 
     %s
 
     Parameters
     ----------
-    func: Callable
+    func : callable, optional
         Function whose gradient is to be computed.
-    grad_states : optional, ArrayType, sequence of ArrayType, dict
+    grad_states : State, sequence of State, or dict of State, optional
         The variables in ``func`` to take their gradients.
-    has_aux: optional, bool
+    argnums : int or sequence of int, optional
+        Specifies which positional argument(s) to differentiate with respect to.
+    return_value : bool, default False
+        Whether to return the loss value.
+    has_aux : bool, optional
         Indicates whether ``fun`` returns a pair where the
         first element is considered the output of the mathematical function to be
-        differentiated and the second element is auxiliary data. Default False.
-    return_value : bool
-        Whether return the loss value.
-    argnums: Optional, integer or sequence of integers. Specifies which
-        positional argument(s) to differentiate with respect to (default ``0``).
-    unit_aware: (bool) optional. Whether to return the gradient in the unit-aware
-        mode. Default False.
+        differentiated and the second element is auxiliary data.
+    unit_aware : bool, default False
+        Whether to return the gradient in the unit-aware mode.
+    check_states : bool, default True
+        Whether to check that all grad_states are found in the function.
 
     Returns
     -------
-    func : GradientTransform
+    GradientTransform or callable
         The vector gradient function.
+
+    Examples
+    --------
+    Basic vector gradient computation:
+
+    .. code-block:: python
+
+        import brainstate
+        import jax.numpy as jnp
+
+        # Vector-valued function
+        def f(x):
+            return jnp.array([x[0]**2, x[1]**3, x[0]*x[1]])
+
+        vector_grad_f = brainstate.augment.vector_grad(f)
+        x = jnp.array([2.0, 3.0])
+        gradients = vector_grad_f(x)  # Shape: (3, 2)
+
+    With states:
+
+    .. code-block:: python
+
+        params = brainstate.State(jnp.array([1.0, 2.0]))
+
+        def model(x):
+            return jnp.array([
+                x * params.value[0],
+                x**2 * params.value[1]
+            ])
+
+        vector_grad_fn = brainstate.augment.vector_grad(
+            model, grad_states=[params]
+        )
+        x = 3.0
+        param_grads = vector_grad_fn(x)
     """
 
     if isinstance(func, Missing):

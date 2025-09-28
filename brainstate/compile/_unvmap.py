@@ -29,6 +29,37 @@ __all__ = [
 
 @set_module_as('brainstate.augment')
 def unvmap(x, op: str = 'any'):
+    """
+    Remove a leading vmap dimension by aggregating batched values.
+
+    Parameters
+    ----------
+    x : Any
+        Value produced inside a :func:`jax.vmap`-transformed function.
+    op : {'all', 'any', 'none', 'max'}, default='any'
+        Reduction to apply across the vmapped axis. ``'none'`` returns ``x`` without
+        reduction, while ``'max'`` computes the maximum element.
+
+    Returns
+    -------
+    Any
+        Result of applying the requested reduction with vmap metadata removed.
+
+    Raises
+    ------
+    ValueError
+        If ``op`` is not one of ``'all'``, ``'any'``, ``'none'``, or ``'max'``.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        import jax.numpy as jnp
+        import brainstate
+
+        xs = jnp.array([[True, False], [True, True]])
+        brainstate.augment.unvmap(xs, op='all')
+    """
     if op == 'all':
         return unvmap_all(x)
     elif op == 'any':
@@ -47,7 +78,29 @@ unvmap_all_p = Primitive("unvmap_all")
 
 
 def unvmap_all(x):
-    """As `jnp.all`, but ignores batch dimensions."""
+    """
+    Evaluate :func:`jax.numpy.all` while ignoring vmapped batch dimensions.
+
+    Parameters
+    ----------
+    x : Any
+        Input array or pytree produced under :func:`jax.vmap`.
+
+    Returns
+    -------
+    jax.Array
+        Scalar boolean result of ``jnp.all(x)``.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        import jax.numpy as jnp
+        import brainstate
+
+        values = jnp.array([[True, False], [True, True]])
+        brainstate.augment.unvmap(values, op='all')
+    """
     return unvmap_all_p.bind(x)
 
 
@@ -78,7 +131,29 @@ unvmap_any_p = Primitive("unvmap_any")
 
 
 def unvmap_any(x):
-    """As `jnp.any`, but ignores batch dimensions."""
+    """
+    Evaluate :func:`jax.numpy.any` while ignoring vmapped batch dimensions.
+
+    Parameters
+    ----------
+    x : Any
+        Input array or pytree produced under :func:`jax.vmap`.
+
+    Returns
+    -------
+    jax.Array
+        Scalar boolean result of ``jnp.any(x)``.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        import jax.numpy as jnp
+        import brainstate
+
+        values = jnp.array([[False, False], [False, True]])
+        brainstate.augment.unvmap(values, op='any')
+    """
     return unvmap_any_p.bind(x)
 
 
@@ -109,7 +184,29 @@ unvmap_max_p = Primitive("unvmap_max")
 
 
 def unvmap_max(x):
-    """As `jnp.max`, but ignores batch dimensions."""
+    """
+    Evaluate :func:`jax.numpy.max` while ignoring vmapped batch dimensions.
+
+    Parameters
+    ----------
+    x : Any
+        Input array or pytree produced under :func:`jax.vmap`.
+
+    Returns
+    -------
+    jax.Array
+        Scalar containing the maximum value of ``x`` with the same dtype.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        import jax.numpy as jnp
+        import brainstate
+
+        values = jnp.array([[1.0, 2.0], [0.5, 3.5]])
+        brainstate.augment.unvmap(values, op='max')
+    """
     return unvmap_max_p.bind(x)
 
 

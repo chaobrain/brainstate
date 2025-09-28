@@ -177,42 +177,90 @@ default_cache_key = ((), ())
 
 class StatefulFunction(PrettyObject):
     """
-    A wrapper class for a function that collects the states that are read and written by the function. The states are
-    collected by the function and returned as a StateDictManager instance. The StateDictManager instance can be used to
-    manage the states in the JAX program. The class provides a function called `states` that returns the states
-    that are read and written by the function. The class provides a function called `to_state_manager` that returns
-    a StateDictManager instance that contains the states that are read and written by the function. The class provides
-    a function called `__call__` that wraps the function and returns the states that are read and written by the
-    function and the output of the function.
+    A wrapper class for a function that collects the states that are read and written by the function.
 
-    Args:
-      fun: The function whose ``jaxpr`` is to be computed. Its positional
+    The states are collected by the function and can be used to manage the states in the JAX program. The class provides
+    methods to access the states that are read and written by the function, and to call the function with proper state
+    management.
+
+    Parameters
+    ----------
+    fun : callable
+        The function whose ``jaxpr`` is to be computed. Its positional
         arguments and return value should be arrays, scalars, or standard Python
         containers (tuple/list/dict) thereof.
-      static_argnums: See the :py:func:`jax.jit` docstring.
-      static_argnames: See the :py:func:`jax.jit` docstring.
-      axis_env: Optional, a sequence of pairs where the first element is an axis
-          name and the second element is a positive integer representing the size of
-          the mapped axis with that name. This parameter is useful when lowering
-          functions that involve parallel communication collectives, and it
-          specifies the axis name/size environment that would be set up by
-          applications of :py:func:`jax.pmap`.
-      abstracted_axes: Optional, a pytree with the same structure as the input
-          arguments to ``fun``. The leaves of the pytree can be either None or a
-          dict with axis names as keys and integers as values. If the leaf is None,
-          then the corresponding axis is not abstracted. If the leaf is a dict, then
-          the corresponding axis is abstracted, and the dict specifies the axis name
-          and size. The abstracted axes are used to infer the input type of the
-          function. If None, then all axes are abstracted.
-      state_returns: Optional, a string or a tuple of strings. The default is
-          ``('read', 'write')``. The strings specify the categories of states to be
-          returned by the wrapped function. The categories are ``'read'`` and
-          ``'write'``. If the category is ``'read'``, then the wrapped function
-          returns the states that are read by the function. If the category is
-          ``'write'``, then the wrapped function returns the states that are written
-          by the function. If the category is ``'read'`` and ``'write'``, then the
-          wrapped function returns both the read and write states.
+    static_argnums : int or iterable of int, optional
+        See the :py:func:`jax.jit` docstring.
+    static_argnames : str or iterable of str, optional
+        See the :py:func:`jax.jit` docstring.
+    axis_env : sequence of tuple, optional
+        A sequence of pairs where the first element is an axis
+        name and the second element is a positive integer representing the size of
+        the mapped axis with that name. This parameter is useful when lowering
+        functions that involve parallel communication collectives, and it
+        specifies the axis name/size environment that would be set up by
+        applications of :py:func:`jax.pmap`.
+    abstracted_axes : pytree, optional
+        A pytree with the same structure as the input
+        arguments to ``fun``. The leaves of the pytree can be either None or a
+        dict with axis names as keys and integers as values. If the leaf is None,
+        then the corresponding axis is not abstracted. If the leaf is a dict, then
+        the corresponding axis is abstracted, and the dict specifies the axis name
+        and size. The abstracted axes are used to infer the input type of the
+        function. If None, then all axes are abstracted.
+    state_returns : str or tuple of str, default ('read', 'write')
+        The categories of states to be
+        returned by the wrapped function. The categories are ``'read'`` and
+        ``'write'``. If the category is ``'read'``, then the wrapped function
+        returns the states that are read by the function. If the category is
+        ``'write'``, then the wrapped function returns the states that are written
+        by the function. If the category is ``'read'`` and ``'write'``, then the
+        wrapped function returns both the read and write states.
+    cache_type : str, optional
+        The type of caching to use. Must be None or 'jit'.
+    name : str, optional
+        Name for the stateful function.
 
+    Examples
+    --------
+    Basic usage with state management:
+
+    .. code-block:: python
+
+        import brainstate
+        import jax.numpy as jnp
+
+        # Create a state
+        state = brainstate.State(jnp.array([1.0, 2.0]))
+
+        def f(x):
+            state.value += x
+            return state.value * 2
+
+        # Create a stateful function
+        sf = brainstate.compile.StatefulFunction(f)
+
+        # Compile and get jaxpr
+        x = jnp.array([0.5, 0.5])
+        sf.make_jaxpr(x)
+
+        # Get states that are read/written
+        states = sf.get_states()
+        read_states = sf.get_read_states()
+        write_states = sf.get_write_states()
+
+    Using with static arguments:
+
+    .. code-block:: python
+
+        def g(x, n):
+            state.value = state.value ** n
+            return state.value
+
+        sf_static = brainstate.compile.StatefulFunction(
+            g, static_argnums=(1,)
+        )
+        sf_static.make_jaxpr(x, 2)
     """
     __module__ = "brainstate.compile"
 
@@ -609,49 +657,6 @@ def make_jaxpr(
     """
     Creates a function that produces its jaxpr given example args.
 
-    Args:
-      fun: The function whose ``jaxpr`` is to be computed. Its positional
-        arguments and return value should be arrays, scalars, or standard Python
-        containers (tuple/list/dict) thereof.
-      static_argnums: See the :py:func:`jax.jit` docstring.
-      static_argnames: See the :py:func:`jax.jit` docstring.
-      axis_env: Optional, a sequence of pairs where the first element is an axis
-        name and the second element is a positive integer representing the size of
-        the mapped axis with that name. This parameter is useful when lowering
-        functions that involve parallel communication collectives, and it
-        specifies the axis name/size environment that would be set up by
-        applications of :py:func:`jax.pmap`.
-      return_shape: Optional boolean, defaults to ``False``. If ``True``, the
-        wrapped function returns a pair where the first element is the XLA
-        computation and the second element is a pytree with the same structure as
-        the output of ``fun`` and where the leaves are objects with ``shape``,
-        ``dtype``, and ``named_shape`` attributes representing the corresponding
-        types of the output leaves.
-      abstracted_axes: Optional, a pytree with the same structure as the input
-        arguments to ``fun``. The leaves of the pytree can be either None or a
-        dict with axis names as keys and integers as values. If the leaf is None,
-        then the corresponding axis is not abstracted. If the leaf is a dict, then
-        the corresponding axis is abstracted, and the dict specifies the axis name
-        and size. The abstracted axes are used to infer the input type of the
-        function. If None, then all axes are abstracted.
-      state_returns: Optional, a string or a tuple of strings. The default is
-        ``('read', 'write')``. The strings specify the categories of states to be
-        returned by the wrapped function. The categories are ``'read'`` and
-        ``'write'``. If the category is ``'read'``, then the wrapped function
-        returns the states that are read by the function. If the category is
-        ``'write'``, then the wrapped function returns the states that are written
-        by the function. If the category is ``'read'`` and ``'write'``, then the
-        wrapped function returns both the read and write states.
-
-
-    Returns:
-      A wrapped version of ``fun`` that when applied to example arguments returns
-      a ``ClosedJaxpr`` representation of ``fun`` on those arguments. If the
-      argument ``return_shape`` is ``True``, then the returned function instead
-      returns a pair where the first element is the ``ClosedJaxpr``
-      representation of ``fun`` and the second element is a pytree representing
-      the structure, shape, dtypes, and named shapes of the output of ``fun``.
-
     A ``jaxpr`` is JAX's intermediate representation for program traces. The
     ``jaxpr`` language is based on the simply-typed first-order lambda calculus
     with let-bindings. :py:func:`make_jaxpr` adapts a function to return its
@@ -659,29 +664,100 @@ def make_jaxpr(
     The ``jaxpr`` returned is a trace of ``fun`` abstracted to
     :py:class:`ShapedArray` level. Other levels of abstraction exist internally.
 
-    We do not describe the semantics of the ``jaxpr`` language in detail here, but
-    instead give a few examples.
+    Parameters
+    ----------
+    fun : callable
+        The function whose ``jaxpr`` is to be computed. Its positional
+        arguments and return value should be arrays, scalars, or standard Python
+        containers (tuple/list/dict) thereof.
+    static_argnums : int or iterable of int, optional
+        See the :py:func:`jax.jit` docstring.
+    static_argnames : str or iterable of str, optional
+        See the :py:func:`jax.jit` docstring.
+    axis_env : sequence of tuple, optional
+        A sequence of pairs where the first element is an axis
+        name and the second element is a positive integer representing the size of
+        the mapped axis with that name. This parameter is useful when lowering
+        functions that involve parallel communication collectives, and it
+        specifies the axis name/size environment that would be set up by
+        applications of :py:func:`jax.pmap`.
+    return_shape : bool, default False
+        If ``True``, the
+        wrapped function returns a pair where the first element is the XLA
+        computation and the second element is a pytree with the same structure as
+        the output of ``fun`` and where the leaves are objects with ``shape``,
+        ``dtype``, and ``named_shape`` attributes representing the corresponding
+        types of the output leaves.
+    abstracted_axes : pytree, optional
+        A pytree with the same structure as the input
+        arguments to ``fun``. The leaves of the pytree can be either None or a
+        dict with axis names as keys and integers as values. If the leaf is None,
+        then the corresponding axis is not abstracted. If the leaf is a dict, then
+        the corresponding axis is abstracted, and the dict specifies the axis name
+        and size. The abstracted axes are used to infer the input type of the
+        function. If None, then all axes are abstracted.
+    state_returns : str or tuple of str, default ('read', 'write')
+        The categories of states to be
+        returned by the wrapped function. The categories are ``'read'`` and
+        ``'write'``. If the category is ``'read'``, then the wrapped function
+        returns the states that are read by the function. If the category is
+        ``'write'``, then the wrapped function returns the states that are written
+        by the function. If the category is ``'read'`` and ``'write'``, then the
+        wrapped function returns both the read and write states.
 
-    >>> import jax
-    >>> import brainstate as brainstate
-    >>>
-    >>> def f(x): return jax.numpy.sin(jax.numpy.cos(x))
-    >>> print(f(3.0))
-    -0.83602
-    >>> jaxpr, states = brainstate.compile.make_jaxpr(f)(3.0)
-    >>> jaxpr
-    { lambda ; a:f32[]. let b:f32[] = cos a; c:f32[] = sin b in (c,) }
-    >>> jaxpr, states = brainstate.compile.make_jaxpr(jax.grad(f))(3.0)
-    >>> jaxpr
-    { lambda ; a:f32[]. let
-        b:f32[] = cos a
-        c:f32[] = sin a
-        _:f32[] = sin b
-        d:f32[] = cos b
-        e:f32[] = mul 1.0 d
-        f:f32[] = neg e
-        g:f32[] = mul f c
-      in (g,) }
+    Returns
+    -------
+    callable
+        A wrapped version of ``fun`` that when applied to example arguments returns
+        a ``ClosedJaxpr`` representation of ``fun`` on those arguments. If the
+        argument ``return_shape`` is ``True``, then the returned function instead
+        returns a pair where the first element is the ``ClosedJaxpr``
+        representation of ``fun`` and the second element is a pytree representing
+        the structure, shape, dtypes, and named shapes of the output of ``fun``.
+
+    Examples
+    --------
+    Basic usage:
+
+    .. code-block:: python
+
+        import jax
+        import brainstate
+        import jax.numpy as jnp
+
+        def f(x):
+            return jnp.sin(jnp.cos(x))
+
+        # Create jaxpr maker
+        jaxpr_maker = brainstate.compile.make_jaxpr(f)
+        jaxpr, states = jaxpr_maker(3.0)
+
+    With gradient:
+
+    .. code-block:: python
+
+        jaxpr_grad_maker = brainstate.compile.make_jaxpr(jax.grad(f))
+        jaxpr, states = jaxpr_grad_maker(3.0)
+
+    With shape information:
+
+    .. code-block:: python
+
+        jaxpr_maker_with_shape = brainstate.compile.make_jaxpr(f, return_shape=True)
+        jaxpr, states, shapes = jaxpr_maker_with_shape(3.0)
+
+    With stateful function:
+
+    .. code-block:: python
+
+        state = brainstate.State(jnp.array([1.0, 2.0]))
+
+        def stateful_f(x):
+            state.value += x
+            return state.value
+
+        jaxpr_maker = brainstate.compile.make_jaxpr(stateful_f)
+        jaxpr, states = jaxpr_maker(jnp.array([0.5, 0.5]))
     """
 
     stateful_fun = StatefulFunction(
@@ -881,14 +957,14 @@ def make_hashable(obj):
     elif isinstance(obj, set):
         return frozenset(make_hashable(item) for item in obj)
     else:
-        # # Use JAX's tree_util for any other pytree structures
-        # try:
-        #     leaves, treedef = jax.tree_util.tree_flatten(obj)
-        #     hashable_leaves = tuple(make_hashable(leaf) for leaf in leaves)
-        #     return (str(treedef), hashable_leaves)
-        # except:
-        #     # Assume obj is already hashable
-        return obj
+        # Use JAX's tree_util for any other pytree structures
+        try:
+            leaves, treedef = jax.tree_util.tree_flatten(obj)
+            hashable_leaves = tuple(make_hashable(leaf) for leaf in leaves)
+            return (str(treedef), hashable_leaves)
+        except:
+            # Assume obj is already hashable
+            return obj
 
 
 class IdentitySet(MutableSet):

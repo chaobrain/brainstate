@@ -27,47 +27,65 @@ __all__ = [
 
 class RngRestore(PrettyObject):
     """
-    Backup and restore the random state of a sequence of RandomState instances.
+    Manage backing up and restoring multiple random states.
 
-    This class provides functionality to save the current state of multiple
-    RandomState instances and later restore them to their saved states.
+    Parameters
+    ----------
+    rngs : Sequence[RandomState]
+        Sequence of :class:`~brainstate.random.RandomState` instances whose
+        states should be captured and restored.
 
-    Attributes:
-        rngs (Sequence[RandomState]): A sequence of RandomState instances to manage.
-        rng_keys (list): A list to store the backed up random keys.
+    Attributes
+    ----------
+    rngs : Sequence[RandomState]
+        Managed random-state instances.
+    rng_keys : list
+        Cached keys captured by :meth:`backup` until :meth:`restore` runs.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        import brainstate
+
+        rng = brainstate.random.RandomState(0)
+        restorer = brainstate.augment.RngRestore([rng])
+        restorer.backup()
+        _ = rng.random()
+        restorer.restore()
     """
 
     def __init__(self, rngs: Sequence[RandomState]):
         """
-        Initialize the RngRestore instance.
+        Initialize a restorer for the provided random states.
 
-        Args:
-            rngs (Sequence[RandomState]): A sequence of RandomState instances
-                whose states will be managed.
+        Parameters
+        ----------
+        rngs : Sequence[RandomState]
+            Random states that will be backed up and restored.
         """
         self.rngs: Sequence[RandomState] = rngs
         self.rng_keys = []
 
     def backup(self):
         """
-        Backup the current random key of the RandomState instances.
+        Cache the current key for each managed random state.
 
-        This method saves the current value (state) of each RandomState
-        instance in the rngs sequence.
+        Notes
+        -----
+        The cached keys persist until :meth:`restore` is called, after which the
+        internal cache is cleared.
         """
         self.rng_keys = [rng.value for rng in self.rngs]
 
     def restore(self):
         """
-        Restore the random key of the RandomState instances.
+        Restore each random state to the cached key.
 
-        This method restores each RandomState instance to its previously
-        saved state. It raises an error if the number of saved keys doesn't
-        match the number of RandomState instances.
-
-        Raises:
-            ValueError: If the number of saved random keys does not match
-                the number of RandomState instances.
+        Raises
+        ------
+        ValueError
+            Raised when the number of stored keys does not match ``rngs``.
         """
         if len(self.rng_keys) != len(self.rngs):
             raise ValueError('The number of random keys does not match the number of random states.')
@@ -100,45 +118,44 @@ def restore_rngs(
     rngs: Union[RandomState, Sequence[RandomState]] = DEFAULT,
 ) -> Callable:
     """
-    Decorator to backup and restore the random state before and after a function call.
-
-    This function can be used as a decorator or called directly. It ensures that the
-    random state of the specified RandomState instances is preserved across function calls,
-    which is useful for maintaining reproducibility in stochastic operations.
+    Decorate a function so specified random states are restored after execution.
 
     Parameters
     ----------
     fn : Callable, optional
-        The function to be wrapped. If not provided, the decorator can be used
-        with parameters.
+        Function to wrap. When omitted, :func:`restore_rngs` returns a decorator
+        preconfigured with ``rngs``.
     rngs : Union[RandomState, Sequence[RandomState]], optional
-        The random state(s) to be backed up and restored. This can be a single
-        RandomState instance or a sequence of RandomState instances. If not provided,
-        the default RandomState instance will be used.
+        Random states whose keys should be backed up before running ``fn`` and
+        restored afterwards. Defaults to :data:`brainstate.random.DEFAULT`.
 
     Returns
     -------
     Callable
-        If `fn` is provided, returns the wrapped function that will backup the
-        random state before execution and restore it afterwards.
-        If `fn` is not provided, returns a partial function that can be used as
-        a decorator with the specified `rngs`.
+        Wrapped callable that restores the random state or a partially applied
+        decorator depending on how :func:`restore_rngs` is used.
 
     Raises
     ------
     AssertionError
-        If `rngs` is not a RandomState instance or a sequence of RandomState instances.
+        If ``rngs`` is neither a :class:`~brainstate.random.RandomState` instance nor
+        a sequence of such instances.
 
     Examples
     --------
-    >>> @restore_rngs
-    ... def my_random_function():
-    ...     return random.random()
+    .. code-block:: python
 
-    >>> rng = RandomState(42)
-    >>> @restore_rngs(rngs=rng)
-    ... def another_random_function():
-    ...     return rng.random()
+        import brainstate
+
+        rng = brainstate.random.RandomState(0)
+
+        @brainstate.augment.restore_rngs(rngs=rng)
+        def sample_pair():
+            first = rng.random()
+            second = rng.random()
+            return first, second
+
+        assert sample_pair()[0] == sample_pair()[0]
     """
     if isinstance(fn, Missing):
         return functools.partial(restore_rngs, rngs=rngs)

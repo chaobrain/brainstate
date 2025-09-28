@@ -41,40 +41,93 @@ class ProgressBar(object):
 
     The message displayed in the progress bar can be customized by the following two methods:
 
-    1. By passing a string to the `desc` argument. For example:
-
-    .. code-block:: python
-
-            ProgressBar(desc="Running 1000 iterations")
-
+    1. By passing a string to the `desc` argument.
     2. By passing a tuple with a string and a callable function to the `desc` argument. The callable
        function should take a dictionary as input and return a dictionary. The returned dictionary
-       will be used to format the string. For example:
+       will be used to format the string.
+
+    In the second case, ``"i"`` denotes the iteration number and other keys can be computed from the
+    loop outputs and carry values.
+
+    Parameters
+    ----------
+    freq : int, optional
+        The frequency at which to print the progress bar. If not specified, the progress
+        bar will be printed every 5% of the total iterations.
+    count : int, optional
+        The number of times to print the progress bar. If not specified, the progress
+        bar will be printed every 5% of the total iterations. Cannot be used together with `freq`.
+    desc : str or tuple, optional
+        A description of the progress bar. If not specified, a default message will be
+        displayed. Can be either a string or a tuple of (format_string, format_function).
+    **kwargs
+        Additional keyword arguments to pass to the progress bar.
+
+    Examples
+    --------
+    Basic usage with default description:
 
     .. code-block:: python
 
-                a = brainstate.State(1.)
-                def loop_fn(x):
-                    a.value = x.value + 1.
-                    return jnp.sum(x ** 2)
+        import brainstate
+        import jax.numpy as jnp
 
-                pbar = ProgressBar(desc=("Running {i} iterations, loss = {loss}",
-                                         lambda i_carray_y: {"i": i_carray_y["i"], "loss": i_carray_y["y"]}))
+        def loop_fn(x):
+            return x ** 2
 
-                brainstate.compile.for_loop(loop_fn, xs, pbar=pbar)
+        xs = jnp.arange(100)
+        pbar = brainstate.compile.ProgressBar()
+        results = brainstate.compile.for_loop(loop_fn, xs, pbar=pbar)
 
-    In this example, ``"i"`` denotes the iteration number and ``"loss"`` is computed from the output,
-    the ``"carry"`` is the dynamic state in the loop, for example ``a.value`` in this case.
+    With custom description string:
 
+    .. code-block:: python
 
-    Args:
-        freq: The frequency at which to print the progress bar. If not specified, the progress
-            bar will be printed every 5% of the total iterations.
-        count: The number of times to print the progress bar. If not specified, the progress
-            bar will be printed every 5% of the total iterations.
-        desc: A description of the progress bar. If not specified, a default message will be
-            displayed.
-        kwargs: Additional keyword arguments to pass to the progress bar.
+        pbar = brainstate.compile.ProgressBar(desc="Running 1000 iterations")
+        results = brainstate.compile.for_loop(loop_fn, xs, pbar=pbar)
+
+    With frequency control:
+
+    .. code-block:: python
+
+        # Update every 10 iterations
+        pbar = brainstate.compile.ProgressBar(freq=10)
+        results = brainstate.compile.for_loop(loop_fn, xs, pbar=pbar)
+
+        # Update exactly 20 times during execution
+        pbar = brainstate.compile.ProgressBar(count=20)
+        results = brainstate.compile.for_loop(loop_fn, xs, pbar=pbar)
+
+    With dynamic description based on loop variables:
+
+    .. code-block:: python
+
+        state = brainstate.State(1.0)
+
+        def loop_fn(x):
+            state.value += x
+            loss = jnp.sum(x ** 2)
+            return loss
+
+        def format_desc(data):
+            return {"i": data["i"], "loss": data["y"], "state": data["carry"]}
+
+        pbar = brainstate.compile.ProgressBar(
+            desc=("Iteration {i}, loss = {loss:.4f}, state = {state:.2f}", format_desc)
+        )
+        results = brainstate.compile.for_loop(loop_fn, xs, pbar=pbar)
+
+    With scan function:
+
+    .. code-block:: python
+
+        def scan_fn(carry, x):
+            new_carry = carry + x
+            return new_carry, new_carry ** 2
+
+        init_carry = 0.0
+        pbar = brainstate.compile.ProgressBar(freq=5)
+        final_carry, ys = brainstate.compile.scan(scan_fn, init_carry, xs, pbar=pbar)
     """
     __module__ = "brainstate.compile"
 

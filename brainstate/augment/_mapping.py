@@ -643,29 +643,40 @@ def vmap(
         >>>     out_states=model.c
         >>> )()
 
-    Args:
-        fn: Function to be mapped over additional axes.
-        in_axes: An integer, None, or sequence of values specifying which input
-          array axes to map over.
-        out_axes: An integer, None, or (nested) standard Python container
-          (tuple/list/dict) thereof indicating where the mapped axis should appear
-          in the output.
-        axis_name: Optional, a hashable Python object used to identify the mapped
-          axis so that parallel collectives can be applied.
-        axis_size: Optional, an integer indicating the size of the axis to be
-          mapped. If not provided, the mapped axis size is inferred from arguments.
-        spmd_axis_name: Optional, a hashable Python object or tuple of hashable
-            Python objects used to identify the mapped axis so that parallel collectives
-            can be applied. This is used to specify multiple axes to be mapped over
-            in a nested :func:`vmap` call. The length of the tuple must match the
-            number of nested :func:`vmap` calls. The first element of the tuple
-            corresponds to the outermost :func:`vmap` call, the second element to
-            the next outermost, and so on. If the tuple is not provided, the
-            ``axis_name`` is used for all nested :func:`vmap` calls.
-        in_states: Optional, the :class:`State` objects to be mapped over in the inputs.
-        out_states: Optional, the :class:`State` objects to be mapped over in the outputs.
+    Parameters
+    ----------
+    fn : callable, optional
+        Function to be mapped over additional axes.
+    in_axes : int, None, or sequence, default 0
+        An integer, None, or sequence of values specifying which input
+        array axes to map over.
+    out_axes : int, None, or sequence, default 0
+        An integer, None, or (nested) standard Python container
+        (tuple/list/dict) thereof indicating where the mapped axis should appear
+        in the output.
+    axis_name : hashable, optional
+        A hashable Python object used to identify the mapped
+        axis so that parallel collectives can be applied.
+    axis_size : int, optional
+        An integer indicating the size of the axis to be
+        mapped. If not provided, the mapped axis size is inferred from arguments.
+    spmd_axis_name : hashable or tuple of hashable, optional
+        A hashable Python object or tuple of hashable
+        Python objects used to identify the mapped axis so that parallel collectives
+        can be applied. This is used to specify multiple axes to be mapped over
+        in a nested :func:`vmap` call. The length of the tuple must match the
+        number of nested :func:`vmap` calls. The first element of the tuple
+        corresponds to the outermost :func:`vmap` call, the second element to
+        the next outermost, and so on. If the tuple is not provided, the
+        ``axis_name`` is used for all nested :func:`vmap` calls.
+    in_states : dict or State objects, optional
+        The :class:`State` objects to be mapped over in the inputs.
+    out_states : dict or State objects, optional
+        The :class:`State` objects to be mapped over in the outputs.
 
-    Returns:
+    Returns
+    -------
+    callable
         Batched/vectorized version of ``fun`` with arguments that correspond to
         those of ``fun``, but with extra array axes at positions indicated by
         ``in_axes``, and a return value that corresponds to that of ``fun``, but

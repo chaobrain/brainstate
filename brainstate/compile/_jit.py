@@ -195,9 +195,12 @@ def jit(
     """
     Sets up ``fun`` for just-in-time compilation with XLA.
 
-    Args:
-      fun: Function to be jitted.
-      in_shardings: Pytree of structure matching that of arguments to ``fun``,
+    Parameters
+    ----------
+    fun : callable or Missing, optional
+        Function to be jitted.
+    in_shardings : pytree, optional
+        Pytree of structure matching that of arguments to ``fun``,
         with all actual arguments replaced by resource assignment specifications.
         It is also valid to specify a pytree prefix (e.g. one value in place of a
         whole subtree), in which case the leaves get broadcast to all values in
@@ -208,26 +211,29 @@ def jit(
         if the sharding cannot be inferred.
 
         The valid resource assignment specifications are:
-          - :py:class:`XLACompatibleSharding`, which will decide how the value
-              will be partitioned. With this, using a mesh context manager is not
-              required.
-          - :py:obj:`None`, will give JAX the freedom to choose whatever sharding
-            it wants.
-            For in_shardings, JAX will mark is as replicated but this behavior
-            can change in the future.
-            For out_shardings, we will rely on the XLA GSPMD partitioner to
-            determine the output shardings.
+
+        - :py:class:`XLACompatibleSharding`, which will decide how the value
+          will be partitioned. With this, using a mesh context manager is not
+          required.
+        - :py:obj:`None`, will give JAX the freedom to choose whatever sharding
+          it wants.
+          For in_shardings, JAX will mark is as replicated but this behavior
+          can change in the future.
+          For out_shardings, we will rely on the XLA GSPMD partitioner to
+          determine the output shardings.
 
         The size of every dimension has to be a multiple of the total number of
         resources assigned to it. This is similar to pjit's in_shardings.
-      out_shardings: Like ``in_shardings``, but specifies resource
+    out_shardings : pytree, optional
+        Like ``in_shardings``, but specifies resource
         assignment for function outputs. This is similar to pjit's
         out_shardings.
 
         The ``out_shardings`` argument is optional. If not specified, :py:func:`jax.jit`
         will use GSPMD's sharding propagation to figure out what the sharding of the
         output(s) should be.
-      static_argnums: An optional int or collection of ints that specify which
+    static_argnums : int or sequence of int, optional
+        An optional int or collection of ints that specify which
         positional arguments to treat as static (compile-time constant).
         Operations that only depend on static arguments will be constant-folded in
         Python (during tracing), and so the corresponding argument values can be
@@ -248,12 +254,8 @@ def jit(
         provided, ``inspect.signature`` is not used, and only actual
         parameters listed in either ``static_argnums`` or ``static_argnames`` will
         be treated as static.
-      static_argnames: An optional string or collection of strings specifying
-        which named arguments are treated as static (compile-time constant).
-        Operations that only depend on static arguments will be constant-folded in
-        Python (during tracing), and so the corresponding argument values can be
-        any Python object.
-      donate_argnums: Specify which positional argument buffers are "donated" to
+    donate_argnums : int or sequence of int, optional
+        Specify which positional argument buffers are "donated" to
         the computation. It is safe to donate argument buffers if you no longer
         need them once the computation has finished. In some cases XLA can make
         use of donated buffers to reduce the amount of memory needed to perform a
@@ -274,38 +276,88 @@ def jit(
 
         For more details on buffer donation see the
         `FAQ <https://jax.readthedocs.io/en/latest/faq.html#buffer-donation>`_.
-      donate_argnames: An optional string or collection of strings specifying
+    static_argnames : str or sequence of str, optional
+        An optional string or collection of strings specifying
+        which named arguments are treated as static (compile-time constant).
+        Operations that only depend on static arguments will be constant-folded in
+        Python (during tracing), and so the corresponding argument values can be
+        any Python object.
+    donate_argnames : str or iterable of str, optional
+        An optional string or collection of strings specifying
         which named arguments are donated to the computation. See the
         comment on ``donate_argnums`` for details. If not
         provided but ``donate_argnums`` is set, the default is based on calling
         ``inspect.signature(fun)`` to find corresponding named arguments.
-      keep_unused: If `False` (the default), arguments that JAX determines to be
+    keep_unused : bool, default False
+        If `False` (the default), arguments that JAX determines to be
         unused by `fun` *may* be dropped from resulting compiled XLA executables.
         Such arguments will not be transferred to the device nor provided to the
         underlying executable. If `True`, unused arguments will not be pruned.
-      device: This is an experimental feature and the API is likely to change.
+    device : Device, optional
+        This is an experimental feature and the API is likely to change.
         Optional, the Device the jitted function will run on. (Available devices
         can be retrieved via :py:func:`jax.devices`.) The default is inherited
         from XLA's DeviceAssignment logic and is usually to use
         ``jax.devices()[0]``.
-      backend: This is an experimental feature and the API is likely to change.
+    backend : str, optional
+        This is an experimental feature and the API is likely to change.
         Optional, a string representing the XLA backend: ``'cpu'``, ``'gpu'``, or
         ``'tpu'``.
-      inline: Specify whether this function should be inlined into enclosing
+    inline : bool, default False
+        Specify whether this function should be inlined into enclosing
         jaxprs (rather than being represented as an application of the xla_call
         primitive with its own subjaxpr). Default False.
-      abstracted_axes:
+    abstracted_axes : Any, optional
+        Abstracted axes specification.
+    **kwargs
+        Additional keyword arguments passed to the underlying JAX jit function.
 
-    Returns:
-      A wrapped version of ``fun``, set up for just-in-time compilation.
-      The returned object is a :py:class:`JittedFunction` that can be called with the same arguments
-      and has the following attributes and methods:
+    Returns
+    -------
+    JittedFunction or callable
+        A wrapped version of ``fun``, set up for just-in-time compilation.
+        The returned object is a :py:class:`JittedFunction` that can be called with the same arguments
+        and has the following attributes and methods:
 
-      - ``stateful_fun``: the stateful function for extracting states, an instance of :py:class:`StatefulFunction`.
-      - ``origin_fun(*args, **kwargs)``: the original function
-      - ``jitted_fun(*args, **kwargs)``: the jitted function
-      - ``clear_cache(*args, **kwargs)``: clear the cache of the jitted function
+        - ``stateful_fun`` : the stateful function for extracting states, an instance of :py:class:`StatefulFunction`.
+        - ``origin_fun(*args, **kwargs)`` : the original function
+        - ``jitted_fun(*args, **kwargs)`` : the jitted function
+        - ``clear_cache(*args, **kwargs)`` : clear the cache of the jitted function
 
+    Examples
+    --------
+    Basic usage with a simple function:
+
+    .. code-block:: python
+
+        import brainstate
+        import jax.numpy as jnp
+
+        @brainstate.transform.jit
+        def f(x):
+            return x ** 2
+
+        result = f(jnp.array([1, 2, 3]))
+
+    Using static arguments:
+
+    .. code-block:: python
+
+        @brainstate.transform.jit(static_argnums=(1,))
+        def g(x, n):
+            return x ** n
+
+        result = g(jnp.array([1, 2, 3]), 2)
+
+    Manual jitting:
+
+    .. code-block:: python
+
+        def h(x):
+            return x * 2
+
+        jitted_h = brainstate.transform.jit(h)
+        result = jitted_h(jnp.array([1, 2, 3]))
     """
 
     if isinstance(fun, Missing):

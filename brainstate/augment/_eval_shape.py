@@ -38,53 +38,97 @@ def abstract_init(
     """
     Compute the shape/dtype of ``fn`` without any FLOPs.
 
-    Here's an example::
+    This function evaluates the shape and dtype of the output of a function without
+    actually executing the computational operations. It's particularly useful for
+    initializing neural network models to understand their structure and parameter
+    shapes without performing expensive computations.
 
-        >>> import brainstate
-        >>> class MLP:
-        ...     def __init__(self, n_in, n_mid, n_out):
-        ...         self.dense1 = brainstate.nn.Linear(n_in, n_mid)
-        ...         self.dense2 = brainstate.nn.Linear(n_mid, n_out)
+    Parameters
+    ----------
+    fn : callable
+        The function whose output shape should be evaluated.
+    *args
+        Positional argument tuple of arrays, scalars, or (nested) standard
+        Python containers (tuples, lists, dicts, namedtuples, i.e. pytrees) of
+        those types. Since only the ``shape`` and ``dtype`` attributes are
+        accessed, one can use :class:`jax.ShapeDtypeStruct` or another container
+        that duck-types as ndarrays (note however that duck-typed objects cannot
+        be namedtuples because those are treated as standard Python containers).
+    rngs : RandomState or sequence of RandomState, default random.DEFAULT
+        A :class:`RandomState` or a sequence of :class:`RandomState` objects
+        representing the random number generators to use. If not provided, the
+        default random number generator will be used.
+    **kwargs
+        Keyword argument dict of arrays, scalars, or (nested) standard
+        Python containers (pytrees) of those types. As in ``args``, array values
+        need only be duck-typed to have ``shape`` and ``dtype`` attributes.
 
-        >>> r = brainstate.augment.abstract_init(lambda: MLP(1, 2, 3))
-        >>> r
-        MLP(
-          dense1=Linear(
-            in_size=(1,),
-            out_size=(2,),
-            w_mask=None,
-            weight=ParamState(
-              value={'bias': ShapeDtypeStruct(shape=(2,), dtype=float32), 'weight': ShapeDtypeStruct(shape=(1, 2), dtype=float32)}
-            )
-          ),
-          dense2=Linear(
-            in_size=(2,),
-            out_size=(3,),
-            w_mask=None,
-            weight=ParamState(
-              value={'bias': ShapeDtypeStruct(shape=(3,), dtype=float32), 'weight': ShapeDtypeStruct(shape=(2, 3), dtype=float32)}
-            )
-          )
+    Returns
+    -------
+    A
+        A nested PyTree containing :class:`jax.ShapeDtypeStruct` objects as leaves,
+        representing the structure and shape/dtype information of the function output.
+
+    Examples
+    --------
+    Basic usage with neural network initialization:
+
+    .. code-block:: python
+
+        import brainstate
+        import jax.numpy as jnp
+
+        class MLP:
+            def __init__(self, n_in, n_mid, n_out):
+                self.dense1 = brainstate.nn.Linear(n_in, n_mid)
+                self.dense2 = brainstate.nn.Linear(n_mid, n_out)
+
+        # Get shape information without actual computation
+        model_shape = brainstate.augment.abstract_init(lambda: MLP(1, 2, 3))
+
+    With function arguments:
+
+    .. code-block:: python
+
+        def create_model(input_size, hidden_size, output_size):
+            return brainstate.nn.Sequential([
+                brainstate.nn.Linear(input_size, hidden_size),
+                brainstate.nn.ReLU(),
+                brainstate.nn.Linear(hidden_size, output_size)
+            ])
+
+        # Abstract initialization with arguments
+        model_shape = brainstate.augment.abstract_init(
+            create_model, 784, 256, 10
         )
 
-    Args:
-        fn: The function whose output shape should be evaluated.
-        *args: a positional argument tuple of arrays, scalars, or (nested) standard
-              Python containers (tuples, lists, dicts, namedtuples, i.e. pytrees) of
-              those types. Since only the ``shape`` and ``dtype`` attributes are
-              accessed, one can use :class:`jax.ShapeDtypeStruct` or another container
-              that duck-types as ndarrays (note however that duck-typed objects cannot
-              be namedtuples because those are treated as standard Python containers).
-        **kwargs: a keyword argument dict of arrays, scalars, or (nested) standard
-              Python containers (pytrees) of those types. As in ``args``, array values
-              need only be duck-typed to have ``shape`` and ``dtype`` attributes.
-        rngs: a :class:`RandomState` or a sequence of :class:`RandomState` objects
-                representing the random number generators to use. If not provided, the
-                default random number generator will be used.
+    Using custom random number generators:
 
-    Returns:
-        out: a nested PyTree containing :class:`jax.ShapeDtypeStruct` objects as leaves.
+    .. code-block:: python
 
+        import brainstate.random as random
+
+        # Create custom RNG
+        rng = random.RandomState(42)
+
+        def init_with_custom_weights():
+            return brainstate.nn.Linear(10, 5)
+
+        model_shape = brainstate.augment.abstract_init(
+            init_with_custom_weights, rngs=rng
+        )
+
+    Evaluating function with array inputs:
+
+    .. code-block:: python
+
+        def model_forward(x):
+            layer = brainstate.nn.Linear(x.shape[-1], 128)
+            return layer(x)
+
+        # Use ShapeDtypeStruct to represent input without actual data
+        input_shape = jax.ShapeDtypeStruct((32, 784), jnp.float32)
+        output_shape = brainstate.augment.abstract_init(model_forward, input_shape)
     """
 
     @functools.wraps(fn)
