@@ -1,8 +1,9 @@
-``brainstate.compile`` for program compilation
-==============================================
+``brainstate.transform`` module
+===============================
 
-.. currentmodule:: brainstate.compile
-.. automodule:: brainstate.compile
+.. currentmodule:: brainstate.transform
+.. automodule:: brainstate.transform
+
 
 
 Condition
@@ -85,4 +86,58 @@ Compilation Tools
 
    make_jaxpr
    jit_error_if
+
+
+
+
+Gradient Computations
+---------------------
+
+.. autosummary::
+   :toctree: generated/
+
+   vector_grad
+   grad
+   jacrev
+   jacfwd
+   jacobian
+   hessian
+
+
+
+
+Batching and Parallelism
+------------------------
+
+.. autosummary::
+   :toctree: generated/
+
+   vmap
+   pmap
+   StateAxes
+
+
+
+Random State Processing
+-----------------------
+
+.. autosummary::
+   :toctree: generated/
+
+   restore_rngs
+
+
+
+Shape Evaluation
+----------------
+
+
+.. autosummary::
+   :toctree: generated/
+
+   eval_shape
+
+
+
+
 

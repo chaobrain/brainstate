@@ -5,8 +5,7 @@ API Documentation
    :maxdepth: 1
 
    apis/brainstate.rst
-   apis/augment.rst
-   apis/compile.rst
+   apis/transform.rst
    apis/graph.rst
    apis/nn.rst
    apis/init.rst
