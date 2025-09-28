@@ -31,7 +31,7 @@ from brainstate import environ
 from brainstate._state import State
 from brainstate.compile._error_if import jit_error_if
 from brainstate.typing import DTypeLike, Size, SeedOrKey
-from ._random_for_unit import uniform_for_unit, permutation_for_unit
+from ._random_for_unit import uniform_for_unit
 
 __all__ = ['RandomState', 'DEFAULT', ]
 
@@ -43,7 +43,10 @@ class RandomState(State):
 
     # __slots__ = ('_backup', '_value')
 
-    def __init__(self, seed_or_key: Optional[SeedOrKey] = None):
+    def __init__(
+        self,
+        seed_or_key: Optional[SeedOrKey] = None
+    ):
         """RandomState constructor.
 
         Parameters
@@ -69,10 +72,14 @@ class RandomState(State):
 
         self._backup = None
 
-    def __repr__(self):
+    def __repr__(
+        self
+    ):
         return f'{self.__class__.__name__}({self.value})'
 
-    def check_if_deleted(self):
+    def check_if_deleted(
+        self
+    ):
         if not use_prng_key and isinstance(self._value, np.ndarray):
             self._value = jr.key(np.random.randint(0, 10000))
 
@@ -104,7 +111,10 @@ class RandomState(State):
     def set_key(self, key: SeedOrKey):
         self.value = key
 
-    def seed(self, seed_or_key: Optional[SeedOrKey] = None):
+    def seed(
+        self,
+        seed_or_key: Optional[SeedOrKey] = None
+    ):
         """Sets a new random seed.
 
         Parameters
@@ -132,7 +142,11 @@ class RandomState(State):
                 raise ValueError(f'Invalid seed_or_key: {seed_or_key}')
         self.value = key
 
-    def split_key(self, n: Optional[int] = None, backup: bool = False) -> SeedOrKey:
+    def split_key(
+        self,
+        n: Optional[int] = None,
+        backup: bool = False
+    ) -> SeedOrKey:
         """
         Create a new seed from the current seed.
 
@@ -152,7 +166,7 @@ class RandomState(State):
             assert isinstance(n, int) and n >= 1, f'n should be an integer greater than 1, but we got {n}'
 
         if not isinstance(self.value, jax.Array):
-            self.value = jnp.asarray(self.value, dtype=jnp.uint32)
+            self.value = u.math.asarray(self.value, dtype=jnp.uint32)
         keys = jr.split(self.value, num=2 if n is None else n + 1)
         self.value = keys[0]
         if backup:
@@ -162,7 +176,11 @@ class RandomState(State):
         else:
             return keys[1:]
 
-    def self_assign_multi_keys(self, n: int, backup: bool = True):
+    def self_assign_multi_keys(
+        self,
+        n: int,
+        backup: bool = True
+    ):
         """
         Self-assign multiple keys to the current random state.
         """
@@ -178,7 +196,12 @@ class RandomState(State):
     # random functions #
     # ---------------- #
 
-    def rand(self, *dn, key: Optional[SeedOrKey] = None, dtype: DTypeLike = None):
+    def rand(
+        self,
+        *dn,
+        key: Optional[SeedOrKey] = None,
+        dtype: DTypeLike = None
+    ):
         key = self.split_key() if key is None else _formalize_key(key)
         dtype = dtype or environ.dftype()
         r = uniform_for_unit(key, shape=dn, minval=0., maxval=1., dtype=dtype)
@@ -198,8 +221,8 @@ class RandomState(State):
         high = _check_py_seq(high)
         low = _check_py_seq(low)
         if size is None:
-            size = lax.broadcast_shapes(jnp.shape(low),
-                                        jnp.shape(high))
+            size = lax.broadcast_shapes(u.math.shape(low),
+                                        u.math.shape(high))
         key = self.split_key() if key is None else _formalize_key(key)
         dtype = dtype or environ.ditype()
         r = jr.randint(key,
@@ -213,7 +236,7 @@ class RandomState(State):
         high=None,
         size: Optional[Size] = None,
         key: Optional[SeedOrKey] = None,
-        dtype: DTypeLike = None,
+        dtype: DTypeLike = None
     ):
         low = _check_py_seq(low)
         high = _check_py_seq(high)
@@ -222,7 +245,7 @@ class RandomState(State):
             low = 1
         high += 1
         if size is None:
-            size = lax.broadcast_shapes(jnp.shape(low), jnp.shape(high))
+            size = lax.broadcast_shapes(u.math.shape(low), u.math.shape(high))
         key = self.split_key() if key is None else _formalize_key(key)
         dtype = dtype or environ.ditype()
         r = jr.randint(key,
@@ -232,112 +255,137 @@ class RandomState(State):
                        dtype=dtype)
         return r
 
-    def randn(self, *dn, key: Optional[SeedOrKey] = None, dtype: DTypeLike = None):
+    def randn(
+        self,
+        *dn,
+        key: Optional[SeedOrKey] = None,
+        dtype: DTypeLike = None
+    ):
         key = self.split_key() if key is None else _formalize_key(key)
         dtype = dtype or environ.dftype()
         r = jr.normal(key, shape=dn, dtype=dtype)
         return r
 
-    def random(self,
-               size: Optional[Size] = None,
-               key: Optional[SeedOrKey] = None,
-               dtype: DTypeLike = None):
+    def random(
+        self,
+        size: Optional[Size] = None,
+        key: Optional[SeedOrKey] = None,
+        dtype: DTypeLike = None
+    ):
         dtype = dtype or environ.dftype()
         key = self.split_key() if key is None else _formalize_key(key)
         r = uniform_for_unit(key, shape=_size2shape(size), minval=0., maxval=1., dtype=dtype)
         return r
 
-    def random_sample(self,
-                      size: Optional[Size] = None,
-                      key: Optional[SeedOrKey] = None,
-                      dtype: DTypeLike = None):
+    def random_sample(
+        self,
+        size: Optional[Size] = None,
+        key: Optional[SeedOrKey] = None,
+        dtype: DTypeLike = None
+    ):
         r = self.random(size=size, key=key, dtype=dtype)
         return r
 
-    def ranf(self,
-             size: Optional[Size] = None,
-             key: Optional[SeedOrKey] = None,
-             dtype: DTypeLike = None):
+    def ranf(
+        self,
+        size: Optional[Size] = None,
+        key: Optional[SeedOrKey] = None,
+        dtype: DTypeLike = None
+    ):
         r = self.random(size=size, key=key, dtype=dtype)
         return r
 
-    def sample(self,
-               size: Optional[Size] = None,
-               key: Optional[SeedOrKey] = None,
-               dtype: DTypeLike = None):
+    def sample(
+        self,
+        size: Optional[Size] = None,
+        key: Optional[SeedOrKey] = None,
+        dtype: DTypeLike = None
+    ):
         r = self.random(size=size, key=key, dtype=dtype)
         return r
 
-    def choice(self,
-               a,
-               size: Optional[Size] = None,
-               replace=True,
-               p=None,
-               key: Optional[SeedOrKey] = None):
+    def choice(
+        self,
+        a,
+        size: Optional[Size] = None,
+        replace=True,
+        p=None,
+        key: Optional[SeedOrKey] = None
+    ):
         a = _check_py_seq(a)
+        a, unit = u.split_mantissa_unit(a)
         p = _check_py_seq(p)
         key = self.split_key() if key is None else _formalize_key(key)
         r = jr.choice(key, a=a, shape=_size2shape(size), replace=replace, p=p)
-        return r
+        return u.maybe_decimal(r * unit)
 
-    def permutation(self,
-                    x,
-                    axis: int = 0,
-                    independent: bool = False,
-                    key: Optional[SeedOrKey] = None):
+    def permutation(
+        self,
+        x,
+        axis: int = 0,
+        independent: bool = False,
+        key: Optional[SeedOrKey] = None
+    ):
         x = _check_py_seq(x)
+        x, unit = u.split_mantissa_unit(x)
         key = self.split_key() if key is None else _formalize_key(key)
-        r = permutation_for_unit(key, x, axis=axis, independent=independent)
-        return r
+        r = jr.permutation(key, x, axis, independent=independent)
+        return u.maybe_decimal(r * unit)
 
-    def shuffle(self,
-                x,
-                axis=0,
-                key: Optional[SeedOrKey] = None):
-        key = self.split_key() if key is None else _formalize_key(key)
-        x = permutation_for_unit(key, x, axis=axis)
-        return x
+    def shuffle(
+        self,
+        x,
+        axis=0,
+        key: Optional[SeedOrKey] = None
+    ):
+        return self.permutation(x, axis=axis, key=key, independent=False)
 
-    def beta(self,
-             a,
-             b,
-             size: Optional[Size] = None,
-             key: Optional[SeedOrKey] = None,
-             dtype: DTypeLike = None):
+    def beta(
+        self,
+        a,
+        b,
+        size: Optional[Size] = None,
+        key: Optional[SeedOrKey] = None,
+        dtype: DTypeLike = None
+    ):
         a = _check_py_seq(a)
         b = _check_py_seq(b)
         if size is None:
-            size = lax.broadcast_shapes(jnp.shape(a), jnp.shape(b))
+            size = lax.broadcast_shapes(u.math.shape(a), u.math.shape(b))
         key = self.split_key() if key is None else _formalize_key(key)
         dtype = dtype or environ.dftype()
         r = jr.beta(key, a=a, b=b, shape=_size2shape(size), dtype=dtype)
         return r
 
-    def exponential(self,
-                    scale=None,
-                    size: Optional[Size] = None,
-                    key: Optional[SeedOrKey] = None,
-                    dtype: DTypeLike = None):
+    def exponential(
+        self,
+        scale=None,
+        size: Optional[Size] = None,
+        key: Optional[SeedOrKey] = None,
+        dtype: DTypeLike = None
+    ):
         if size is None:
-            size = jnp.shape(scale)
+            size = u.math.shape(scale)
         key = self.split_key() if key is None else _formalize_key(key)
         dtype = dtype or environ.dftype()
-        scale = jnp.asarray(scale, dtype=dtype)
         r = jr.exponential(key, shape=_size2shape(size), dtype=dtype)
         if scale is not None:
+            scale = u.math.asarray(scale, dtype=dtype)
             r = r / scale
         return r
 
-    def gamma(self,
-              shape,
-              scale=None,
-              size: Optional[Size] = None,
-              key: Optional[SeedOrKey] = None,
-              dtype: DTypeLike = None):
+    def gamma(
+        self,
+        shape,
+        scale=None,
+        size: Optional[Size] = None,
+        key: Optional[SeedOrKey] = None,
+        dtype: DTypeLike = None
+    ):
         shape = _check_py_seq(shape)
         scale = _check_py_seq(scale)
         if size is None:
-            size = lax.broadcast_shapes(jnp.shape(shape), jnp.shape(scale))
+            size = lax.broadcast_shapes(u.math.shape(shape), u.math.shape(scale))
         key = self.split_key() if key is None else _formalize_key(key)
         dtype = dtype or environ.dftype()
         r = jr.gamma(key, a=shape, shape=_size2shape(size), dtype=dtype)
@@ -345,166 +393,196 @@ class RandomState(State):
             r = r * scale
         return r
 
-    def gumbel(self,
-               loc=None,
-               scale=None,
-               size: Optional[Size] = None,
-               key: Optional[SeedOrKey] = None,
-               dtype: DTypeLike = None):
+    def gumbel(
+        self,
+        loc=None,
+        scale=None,
+        size: Optional[Size] = None,
+        key: Optional[SeedOrKey] = None,
+        dtype: DTypeLike = None
+    ):
         loc = _check_py_seq(loc)
         scale = _check_py_seq(scale)
         if size is None:
-            size = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
+            size = lax.broadcast_shapes(u.math.shape(loc), u.math.shape(scale))
         key = self.split_key() if key is None else _formalize_key(key)
         dtype = dtype or environ.dftype()
         r = _loc_scale(loc, scale, jr.gumbel(key, shape=_size2shape(size), dtype=dtype))
         return r
 
-    def laplace(self,
-                loc=None,
-                scale=None,
-                size: Optional[Size] = None,
-                key: Optional[SeedOrKey] = None,
-                dtype: DTypeLike = None):
+    def laplace(
+        self,
+        loc=None,
+        scale=None,
+        size: Optional[Size] = None,
+        key: Optional[SeedOrKey] = None,
+        dtype: DTypeLike = None
+    ):
         loc = _check_py_seq(loc)
         scale = _check_py_seq(scale)
         if size is None:
-            size = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
+            size = lax.broadcast_shapes(u.math.shape(loc), u.math.shape(scale))
         key = self.split_key() if key is None else _formalize_key(key)
         dtype = dtype or environ.dftype()
         r = _loc_scale(loc, scale, jr.laplace(key, shape=_size2shape(size), dtype=dtype))
         return r
 
-    def logistic(self,
-                 loc=None,
-                 scale=None,
-                 size: Optional[Size] = None,
-                 key: Optional[SeedOrKey] = None,
-                 dtype: DTypeLike = None):
+    def logistic(
+        self,
+        loc=None,
+        scale=None,
+        size: Optional[Size] = None,
+        key: Optional[SeedOrKey] = None,
+        dtype: DTypeLike = None
+    ):
         loc = _check_py_seq(loc)
         scale = _check_py_seq(scale)
         if size is None:
             size = lax.broadcast_shapes(
-                jnp.shape(loc) if loc is not None else (),
-                jnp.shape(scale) if scale is not None else ()
+                u.math.shape(loc) if loc is not None else (),
+                u.math.shape(scale) if scale is not None else ()
             )
         key = self.split_key() if key is None else _formalize_key(key)
         dtype = dtype or environ.dftype()
         r = _loc_scale(loc, scale, jr.logistic(key, shape=_size2shape(size), dtype=dtype))
         return r
 
-    def normal(self,
-               loc=None,
-               scale=None,
-               size: Optional[Size] = None,
-               key: Optional[SeedOrKey] = None,
-               dtype: DTypeLike = None):
+    def normal(
+        self,
+        loc=None,
+        scale=None,
+        size: Optional[Size] = None,
+        key: Optional[SeedOrKey] = None,
+        dtype: DTypeLike = None
+    ):
         loc = _check_py_seq(loc)
         scale = _check_py_seq(scale)
         if size is None:
             size = lax.broadcast_shapes(
-                jnp.shape(scale) if scale is not None else (),
-                jnp.shape(loc) if loc is not None else ()
+                u.math.shape(scale) if scale is not None else (),
+                u.math.shape(loc) if loc is not None else ()
             )
         key = self.split_key() if key is None else _formalize_key(key)
         dtype = dtype or environ.dftype()
         r = _loc_scale(loc, scale, jr.normal(key, shape=_size2shape(size), dtype=dtype))
         return r
 
-    def pareto(self,
-               a,
-               size: Optional[Size] = None,
-               key: Optional[SeedOrKey] = None,
-               dtype: DTypeLike = None):
+    def pareto(
+        self,
+        a,
+        size: Optional[Size] = None,
+        key: Optional[SeedOrKey] = None,
+        dtype: DTypeLike = None
+    ):
         if size is None:
-            size = jnp.shape(a)
+            size = u.math.shape(a)
         key = self.split_key() if key is None else _formalize_key(key)
         dtype = dtype or environ.dftype()
-        a = jnp.asarray(a, dtype=dtype)
+        a = u.math.asarray(a, dtype=dtype)
         r = jr.pareto(key, b=a, shape=_size2shape(size), dtype=dtype)
         return r
 
-    def poisson(self,
-                lam=1.0,
-                size: Optional[Size] = None,
-                key: Optional[SeedOrKey] = None,
-                dtype: DTypeLike = None):
+    def poisson(
+        self,
+        lam=1.0,
+        size: Optional[Size] = None,
+        key: Optional[SeedOrKey] = None,
+        dtype: DTypeLike = None
+    ):
         lam = _check_py_seq(lam)
         if size is None:
-            size = jnp.shape(lam)
+            size = u.math.shape(lam)
         key = self.split_key() if key is None else _formalize_key(key)
         dtype = dtype or environ.ditype()
         r = jr.poisson(key, lam=lam, shape=_size2shape(size), dtype=dtype)
         return r
 
-    def standard_cauchy(self,
-                        size: Optional[Size] = None,
-                        key: Optional[SeedOrKey] = None,
-                        dtype: DTypeLike = None):
+    def standard_cauchy(
+        self,
+        size: Optional[Size] = None,
+        key: Optional[SeedOrKey] = None,
+        dtype: DTypeLike = None
+    ):
         key = self.split_key() if key is None else _formalize_key(key)
         dtype = dtype or environ.dftype()
         r = jr.cauchy(key, shape=_size2shape(size), dtype=dtype)
         return r
 
-    def standard_exponential(self,
-                             size: Optional[Size] = None,
-                             key: Optional[SeedOrKey] = None,
-                             dtype: DTypeLike = None):
+    def standard_exponential(
+        self,
+        size: Optional[Size] = None,
+        key: Optional[SeedOrKey] = None,
+        dtype: DTypeLike = None
+    ):
         key = self.split_key() if key is None else _formalize_key(key)
         dtype = dtype or environ.dftype()
         r = jr.exponential(key, shape=_size2shape(size), dtype=dtype)
         return r
 
-    def standard_gamma(self,
-                       shape,
-                       size: Optional[Size] = None,
-                       key: Optional[SeedOrKey] = None,
-                       dtype: DTypeLike = None):
+    def standard_gamma(
+        self,
+        shape,
+        size: Optional[Size] = None,
+        key: Optional[SeedOrKey] = None,
+        dtype: DTypeLike = None
+    ):
         shape = _check_py_seq(shape)
         if size is None:
-            size = jnp.shape(shape) if shape is not None else ()
+            size = u.math.shape(shape) if shape is not None else ()
         key = self.split_key() if key is None else _formalize_key(key)
         dtype = dtype or environ.dftype()
         r = jr.gamma(key, a=shape, shape=_size2shape(size), dtype=dtype)
         return r
 
-    def standard_normal(self,
-                        size: Optional[Size] = None,
-                        key: Optional[SeedOrKey] = None,
-                        dtype: DTypeLike = None):
+    def standard_normal(
+        self,
+        size: Optional[Size] = None,
+        key: Optional[SeedOrKey] = None,
+        dtype: DTypeLike = None
+    ):
         key = self.split_key() if key is None else _formalize_key(key)
         dtype = dtype or environ.dftype()
         r = jr.normal(key, shape=_size2shape(size), dtype=dtype)
         return r
 
-    def standard_t(self, df,
-                   size: Optional[Size] = None,
-                   key: Optional[SeedOrKey] = None,
-                   dtype: DTypeLike = None):
+    def standard_t(
+        self,
+        df,
+        size: Optional[Size] = None,
+        key: Optional[SeedOrKey] = None,
+        dtype: DTypeLike = None
+    ):
         df = _check_py_seq(df)
         if size is None:
-            size = jnp.shape(size) if size is not None else ()
+            size = u.math.shape(size) if size is not None else ()
         key = self.split_key() if key is None else _formalize_key(key)
         dtype = dtype or environ.dftype()
         r = jr.t(key, df=df, shape=_size2shape(size), dtype=dtype)
         return r
 
-    def uniform(self,
-                low=0.0,
-                high=1.0,
-                size: Optional[Size] = None,
-                key: Optional[SeedOrKey] = None,
-                dtype: DTypeLike = None):
-        low = _check_py_seq(low)
-        high = _check_py_seq(high)
+    def uniform(
+        self,
+        low=0.0,
+        high=1.0,
+        size: Optional[Size] = None,
+        key: Optional[SeedOrKey] = None,
+        dtype: DTypeLike = None
+    ):
+        low, unit = u.split_mantissa_unit(_check_py_seq(low))
+        high = u.Quantity(_check_py_seq(high)).to(unit).mantissa
         if size is None:
-            size = lax.broadcast_shapes(jnp.shape(low), jnp.shape(high))
+            size = lax.broadcast_shapes(u.math.shape(low), u.math.shape(high))
         key = self.split_key() if key is None else _formalize_key(key)
         dtype = dtype or environ.dftype()
         r = uniform_for_unit(key, shape=_size2shape(size), minval=low, maxval=high, dtype=dtype)
-        return r
+        return u.maybe_decimal(r * unit)
 
-    def __norm_cdf(self, x, sqrt2, dtype):
+    def __norm_cdf(
+        self,
+        x,
+        sqrt2,
+        dtype
+    ):
         # Computes standard normal cumulative distribution function
         return (np.asarray(1., dtype) + lax.erf(x / sqrt2)) / np.asarray(2., dtype)
 
@@ -513,10 +591,11 @@ class RandomState(State):
         lower,
         upper,
         size: Optional[Size] = None,
-        loc=0.,
-        scale=1.,
+        loc=0.0,
+        scale=1.0,
         key: Optional[SeedOrKey] = None,
-        dtype: DTypeLike = None
+        dtype: DTypeLike = None,
+        check_valid: bool = True
     ):
         lower = _check_py_seq(lower)
         upper = _check_py_seq(upper)
@@ -524,29 +603,30 @@ class RandomState(State):
         scale = _check_py_seq(scale)
         dtype = dtype or environ.dftype()
 
-        lower = u.math.asarray(lower, dtype=dtype)
+        lower, unit = u.split_mantissa_unit(u.math.asarray(lower, dtype=dtype))
         upper = u.math.asarray(upper, dtype=dtype)
         loc = u.math.asarray(loc, dtype=dtype)
         scale = u.math.asarray(scale, dtype=dtype)
-        unit = u.get_unit(lower)
-        lower, upper, loc, scale = (
-            lower.mantissa if isinstance(lower, u.Quantity) else lower,
+        upper, loc, scale = (
             u.Quantity(upper).in_unit(unit).mantissa,
             u.Quantity(loc).in_unit(unit).mantissa,
             u.Quantity(scale).in_unit(unit).mantissa
         )
 
-        jit_error_if(
-            u.math.any(u.math.logical_or(loc < lower - 2 * scale, loc > upper + 2 * scale)),
-            "mean is more than 2 std from [lower, upper] in truncated_normal. "
-            "The distribution of values may be incorrect."
-        )
+        if check_valid:
+            jit_error_if(
+                u.math.any(u.math.logical_or(loc < lower - 2 * scale, loc > upper + 2 * scale)),
+                "mean is more than 2 std from [lower, upper] in truncated_normal. "
+                "The distribution of values may be incorrect."
+            )
 
         if size is None:
-            size = u.math.broadcast_shapes(jnp.shape(lower),
-                                           jnp.shape(upper),
-                                           jnp.shape(loc),
-                                           jnp.shape(scale))
+            size = u.math.broadcast_shapes(
+                u.math.shape(lower),
+                u.math.shape(upper),
+                u.math.shape(loc),
+                u.math.shape(scale)
+            )
 
         # Values are generated by using a truncated uniform distribution and
         # then using the inverse CDF for the normal distribution.
@@ -577,19 +657,21 @@ class RandomState(State):
             lax.nextafter(lax.stop_gradient(lower), np.array(np.inf, dtype=dtype)),
             lax.nextafter(lax.stop_gradient(upper), np.array(-np.inf, dtype=dtype))
         )
-        return out if unit.is_unitless else u.Quantity(out, unit=unit)
+        return u.maybe_decimal(out * unit)
 
     def _check_p(self, *args, **kwargs):
         raise ValueError('Parameter p should be within [0, 1], but we got {p}')
 
-    def bernoulli(self,
-                  p,
-                  size: Optional[Size] = None,
-                  key: Optional[SeedOrKey] = None):
+    def bernoulli(
+        self,
+        p,
+        size: Optional[Size] = None,
+        key: Optional[SeedOrKey] = None
+    ):
         p = _check_py_seq(p)
         jit_error_if(jnp.any(jnp.logical_or(p < 0, p > 1)), self._check_p, p=p)
         if size is None:
-            size = jnp.shape(p)
+            size = u.math.shape(p)
         key = self.split_key() if key is None else _formalize_key(key)
         r = jr.bernoulli(key, p=p, shape=_size2shape(size))
         return r
@@ -606,21 +688,21 @@ class RandomState(State):
         sigma = _check_py_seq(sigma)
         mean = u.math.asarray(mean, dtype=dtype)
         sigma = u.math.asarray(sigma, dtype=dtype)
-        unit = mean.unit if isinstance(mean, u.Quantity) else u.Unit()
+        unit = mean.unit if isinstance(mean, u.Quantity) else u.UNITLESS
         mean = mean.mantissa if isinstance(mean, u.Quantity) else mean
         sigma = sigma.in_unit(unit).mantissa if isinstance(sigma, u.Quantity) else sigma
 
         if size is None:
             size = jnp.broadcast_shapes(
-                jnp.shape(mean) if mean is not None else (),
-                jnp.shape(sigma) if sigma is not None else ()
+                u.math.shape(mean) if mean is not None else (),
+                u.math.shape(sigma) if sigma is not None else ()
             )
         key = self.split_key() if key is None else _formalize_key(key)
         dtype = dtype or environ.dftype()
         samples = jr.normal(key, shape=_size2shape(size), dtype=dtype)
         samples = _loc_scale(mean, sigma, samples)
         samples = jnp.exp(samples)
-        return samples if unit.is_unitless else u.Quantity(samples, unit=unit)
+        return u.maybe_decimal(samples * unit)
 
     def binomial(
         self,
@@ -629,7 +711,7 @@ class RandomState(State):
         size: Optional[Size] = None,
         key: Optional[SeedOrKey] = None,
         dtype: DTypeLike = None,
-        check_valid: bool = True,
+        check_valid: bool = True
     ):
         n = _check_py_seq(n)
         p = _check_py_seq(p)
@@ -640,17 +722,19 @@ class RandomState(State):
                 p=p
             )
         if size is None:
-            size = jnp.broadcast_shapes(jnp.shape(n), jnp.shape(p))
+            size = jnp.broadcast_shapes(u.math.shape(n), u.math.shape(p))
         key = self.split_key() if key is None else _formalize_key(key)
         r = jr.binomial(key, n, p, shape=_size2shape(size))
         dtype = dtype or environ.ditype()
-        return jnp.asarray(r, dtype=dtype)
+        return u.math.asarray(r, dtype=dtype)
 
-    def chisquare(self,
-                  df,
-                  size: Optional[Size] = None,
-                  key: Optional[SeedOrKey] = None,
-                  dtype: DTypeLike = None):
+    def chisquare(
+        self,
+        df,
+        size: Optional[Size] = None,
+        key: Optional[SeedOrKey] = None,
+        dtype: DTypeLike = None
+    ):
         df = _check_py_seq(df)
         key = self.split_key() if key is None else _formalize_key(key)
         dtype = dtype or environ.dftype()
@@ -665,25 +749,29 @@ class RandomState(State):
             dist = dist.sum(axis=0)
         return dist
 
-    def dirichlet(self,
-                  alpha,
-                  size: Optional[Size] = None,
-                  key: Optional[SeedOrKey] = None,
-                  dtype: DTypeLike = None):
+    def dirichlet(
+        self,
+        alpha,
+        size: Optional[Size] = None,
+        key: Optional[SeedOrKey] = None,
+        dtype: DTypeLike = None
+    ):
         key = self.split_key() if key is None else _formalize_key(key)
         alpha = _check_py_seq(alpha)
         dtype = dtype or environ.dftype()
         r = jr.dirichlet(key, alpha=alpha, shape=_size2shape(size), dtype=dtype)
         return r
 
-    def geometric(self,
-                  p,
-                  size: Optional[Size] = None,
-                  key: Optional[SeedOrKey] = None,
-                  dtype: DTypeLike = None):
+    def geometric(
+        self,
+        p,
+        size: Optional[Size] = None,
+        key: Optional[SeedOrKey] = None,
+        dtype: DTypeLike = None
+    ):
         p = _check_py_seq(p)
         if size is None:
-            size = jnp.shape(p)
+            size = u.math.shape(p)
         key = self.split_key() if key is None else _formalize_key(key)
         dtype = dtype or environ.dftype()
         u_ = uniform_for_unit(key, size, dtype=dtype)
@@ -693,12 +781,14 @@ class RandomState(State):
     def _check_p2(self, p):
         raise ValueError(f'We require `sum(pvals[:-1]) <= 1`. But we got {p}')
 
-    def multinomial(self,
-                    n,
-                    pvals,
-                    size: Optional[Size] = None,
-                    key: Optional[SeedOrKey] = None,
-                    dtype: DTypeLike = None):
+    def multinomial(
+        self,
+        n,
+        pvals,
+        size: Optional[Size] = None,
+        key: Optional[SeedOrKey] = None,
+        dtype: DTypeLike = None
+    ):
         key = self.split_key() if key is None else _formalize_key(key)
         n = _check_py_seq(n)
         pvals = _check_py_seq(pvals)
@@ -707,10 +797,10 @@ class RandomState(State):
             raise ValueError("The total count parameter `n` should not be a jax abstract array.")
         size = _size2shape(size)
         n_max = int(np.max(jax.device_get(n)))
-        batch_shape = lax.broadcast_shapes(jnp.shape(pvals)[:-1], jnp.shape(n))
+        batch_shape = lax.broadcast_shapes(u.math.shape(pvals)[:-1], u.math.shape(n))
         r = _multinomial(key, pvals, n, n_max, batch_shape + size)
         dtype = dtype or environ.ditype()
-        return jnp.asarray(r, dtype=dtype)
+        return u.math.asarray(r, dtype=dtype)
 
     def multivariate_normal(
         self,
@@ -739,9 +829,9 @@ class RandomState(State):
         if not jnp.ndim(cov) >= 2:
             raise ValueError(f"multivariate_normal requires cov.ndim >= 2, got cov.ndim == {jnp.ndim(cov)}")
         n = mean.shape[-1]
-        if jnp.shape(cov)[-2:] != (n, n):
+        if u.math.shape(cov)[-2:] != (n, n):
             raise ValueError(f"multivariate_normal requires cov.shape == (..., n, n) for n={n}, "
-                             f"but got cov.shape == {jnp.shape(cov)}.")
+                             f"but got cov.shape == {u.math.shape(cov)}.")
         if size is None:
             size = lax.broadcast_shapes(mean.shape[:-1], cov.shape[:-2])
         else:
@@ -758,57 +848,65 @@ class RandomState(State):
             factor = jnp.linalg.cholesky(cov)
         normal_samples = jr.normal(key, size + mean.shape[-1:], dtype=dtype)
         r = mean + jnp.einsum('...ij,...j->...i', factor, normal_samples)
-        return r if unit.is_unitless else u.Quantity(r, unit=unit)
+        return u.maybe_decimal(r * unit)
 
-    def rayleigh(self,
-                 scale=1.0,
-                 size: Optional[Size] = None,
-                 key: Optional[SeedOrKey] = None,
-                 dtype: DTypeLike = None):
+    def rayleigh(
+        self,
+        scale=1.0,
+        size: Optional[Size] = None,
+        key: Optional[SeedOrKey] = None,
+        dtype: DTypeLike = None
+    ):
         scale = _check_py_seq(scale)
         if size is None:
-            size = jnp.shape(scale)
+            size = u.math.shape(scale)
         key = self.split_key() if key is None else _formalize_key(key)
         dtype = dtype or environ.dftype()
         x = jnp.sqrt(-2. * jnp.log(uniform_for_unit(key, shape=_size2shape(size), minval=0, maxval=1, dtype=dtype)))
         r = x * scale
         return r
 
-    def triangular(self,
-                   size: Optional[Size] = None,
-                   key: Optional[SeedOrKey] = None):
+    def triangular(
+        self,
+        size: Optional[Size] = None,
+        key: Optional[SeedOrKey] = None
+    ):
         key = self.split_key() if key is None else _formalize_key(key)
         bernoulli_samples = jr.bernoulli(key, p=0.5, shape=_size2shape(size))
         r = 2 * bernoulli_samples - 1
         return r
 
-    def vonmises(self,
-                 mu,
-                 kappa,
-                 size: Optional[Size] = None,
-                 key: Optional[SeedOrKey] = None,
-                 dtype: DTypeLike = None):
+    def vonmises(
+        self,
+        mu,
+        kappa,
+        size: Optional[Size] = None,
+        key: Optional[SeedOrKey] = None,
+        dtype: DTypeLike = None
+    ):
         key = self.split_key() if key is None else _formalize_key(key)
         dtype = dtype or environ.dftype()
-        mu = jnp.asarray(_check_py_seq(mu), dtype=dtype)
-        kappa = jnp.asarray(_check_py_seq(kappa), dtype=dtype)
+        mu = u.math.asarray(_check_py_seq(mu), dtype=dtype)
+        kappa = u.math.asarray(_check_py_seq(kappa), dtype=dtype)
         if size is None:
-            size = lax.broadcast_shapes(jnp.shape(mu), jnp.shape(kappa))
+            size = lax.broadcast_shapes(u.math.shape(mu), u.math.shape(kappa))
         size = _size2shape(size)
         samples = _von_mises_centered(key, kappa, size, dtype=dtype)
         samples = samples + mu
         samples = (samples + jnp.pi) % (2.0 * jnp.pi) - jnp.pi
         return samples
 
-    def weibull(self,
-                a,
-                size: Optional[Size] = None,
-                key: Optional[SeedOrKey] = None,
-                dtype: DTypeLike = None):
+    def weibull(
+        self,
+        a,
+        size: Optional[Size] = None,
+        key: Optional[SeedOrKey] = None,
+        dtype: DTypeLike = None
+    ):
         key = self.split_key() if key is None else _formalize_key(key)
         a = _check_py_seq(a)
         if size is None:
-            size = jnp.shape(a)
+            size = u.math.shape(a)
         else:
             if jnp.size(a) > 1:
                 raise ValueError(f'"a" should be a scalar when "size" is provided. But we got {a}')
@@ -818,17 +916,19 @@ class RandomState(State):
         r = jnp.power(-jnp.log1p(-random_uniform), 1.0 / a)
         return r
 
-    def weibull_min(self,
-                    a,
-                    scale=None,
-                    size: Optional[Size] = None,
-                    key: Optional[SeedOrKey] = None,
-                    dtype: DTypeLike = None):
+    def weibull_min(
+        self,
+        a,
+        scale=None,
+        size: Optional[Size] = None,
+        key: Optional[SeedOrKey] = None,
+        dtype: DTypeLike = None
+    ):
         key = self.split_key() if key is None else _formalize_key(key)
         a = _check_py_seq(a)
         scale = _check_py_seq(scale)
         if size is None:
-            size = jnp.broadcast_shapes(jnp.shape(a), jnp.shape(scale) if scale is not None else ())
+            size = jnp.broadcast_shapes(u.math.shape(a), u.math.shape(scale) if scale is not None else ())
         else:
             if jnp.size(a) > 1:
                 raise ValueError(f'"a" should be a scalar when "size" is provided. But we got {a}')
@@ -840,10 +940,12 @@ class RandomState(State):
             r /= scale
         return r
 
-    def maxwell(self,
-                size: Optional[Size] = None,
-                key: Optional[SeedOrKey] = None,
-                dtype: DTypeLike = None):
+    def maxwell(
+        self,
+        size: Optional[Size] = None,
+        key: Optional[SeedOrKey] = None,
+        dtype: DTypeLike = None
+    ):
         key = self.split_key() if key is None else _formalize_key(key)
         shape = _size2shape(size) + (3,)
         dtype = dtype or environ.dftype()
@@ -851,16 +953,18 @@ class RandomState(State):
         r = jnp.linalg.norm(norm_rvs, axis=-1)
         return r
 
-    def negative_binomial(self,
-                          n,
-                          p,
-                          size: Optional[Size] = None,
-                          key: Optional[SeedOrKey] = None,
-                          dtype: DTypeLike = None):
+    def negative_binomial(
+        self,
+        n,
+        p,
+        size: Optional[Size] = None,
+        key: Optional[SeedOrKey] = None,
+        dtype: DTypeLike = None
+    ):
         n = _check_py_seq(n)
         p = _check_py_seq(p)
         if size is None:
-            size = lax.broadcast_shapes(jnp.shape(n), jnp.shape(p))
+            size = lax.broadcast_shapes(u.math.shape(n), u.math.shape(p))
         size = _size2shape(size)
         logits = jnp.log(p) - jnp.log1p(-p)
         if key is None:
@@ -871,18 +975,20 @@ class RandomState(State):
         r = self.poisson(lam=rate, key=keys[1], dtype=dtype or environ.ditype())
         return r
 
-    def wald(self,
-             mean,
-             scale,
-             size: Optional[Size] = None,
-             key: Optional[SeedOrKey] = None,
-             dtype: DTypeLike = None):
+    def wald(
+        self,
+        mean,
+        scale,
+        size: Optional[Size] = None,
+        key: Optional[SeedOrKey] = None,
+        dtype: DTypeLike = None
+    ):
         dtype = dtype or environ.dftype()
         key = self.split_key() if key is None else _formalize_key(key)
-        mean = jnp.asarray(_check_py_seq(mean), dtype=dtype)
-        scale = jnp.asarray(_check_py_seq(scale), dtype=dtype)
+        mean = u.math.asarray(_check_py_seq(mean), dtype=dtype)
+        scale = u.math.asarray(_check_py_seq(scale), dtype=dtype)
         if size is None:
-            size = lax.broadcast_shapes(jnp.shape(mean), jnp.shape(scale))
+            size = lax.broadcast_shapes(u.math.shape(mean), u.math.shape(scale))
         size = _size2shape(size)
         sampled_chi2 = jnp.square(self.randn(*size))
         sampled_uniform = self.uniform(size=size, key=key, dtype=dtype)
@@ -917,13 +1023,15 @@ class RandomState(State):
                         jnp.square(mean) / sampled)
         return res
 
-    def t(self,
-          df,
-          size: Optional[Size] = None,
-          key: Optional[SeedOrKey] = None,
-          dtype: DTypeLike = None):
+    def t(
+        self,
+        df,
+        size: Optional[Size] = None,
+        key: Optional[SeedOrKey] = None,
+        dtype: DTypeLike = None
+    ):
         dtype = dtype or environ.dftype()
-        df = jnp.asarray(_check_py_seq(df), dtype=dtype)
+        df = u.math.asarray(_check_py_seq(df), dtype=dtype)
         if size is None:
             size = np.shape(df)
         else:
@@ -940,11 +1048,13 @@ class RandomState(State):
         r = n * jnp.sqrt(half_df / g)
         return r
 
-    def orthogonal(self,
-                   n: int,
-                   size: Optional[Size] = None,
-                   key: Optional[SeedOrKey] = None,
-                   dtype: DTypeLike = None):
+    def orthogonal(
+        self,
+        n: int,
+        size: Optional[Size] = None,
+        key: Optional[SeedOrKey] = None,
+        dtype: DTypeLike = None
+    ):
         dtype = dtype or environ.dftype()
         key = self.split_key() if key is None else _formalize_key(key)
         size = _size2shape(size)
@@ -956,17 +1066,19 @@ class RandomState(State):
         r = q * jnp.expand_dims(d / abs(d), -2)
         return r
 
-    def noncentral_chisquare(self,
-                             df,
-                             nonc,
-                             size: Optional[Size] = None,
-                             key: Optional[SeedOrKey] = None,
-                             dtype: DTypeLike = None):
+    def noncentral_chisquare(
+        self,
+        df,
+        nonc,
+        size: Optional[Size] = None,
+        key: Optional[SeedOrKey] = None,
+        dtype: DTypeLike = None
+    ):
         dtype = dtype or environ.dftype()
-        df = jnp.asarray(_check_py_seq(df), dtype=dtype)
-        nonc = jnp.asarray(_check_py_seq(nonc), dtype=dtype)
+        df = u.math.asarray(_check_py_seq(df), dtype=dtype)
+        nonc = u.math.asarray(_check_py_seq(nonc), dtype=dtype)
         if size is None:
-            size = lax.broadcast_shapes(jnp.shape(df), jnp.shape(nonc))
+            size = lax.broadcast_shapes(u.math.shape(df), u.math.shape(nonc))
         size = _size2shape(size)
         if key is None:
             keys = self.split_key(3)
@@ -980,54 +1092,62 @@ class RandomState(State):
         r = jnp.where(cond, chi2 + n * n, chi2)
         return r
 
-    def loggamma(self,
-                 a,
-                 size: Optional[Size] = None,
-                 key: Optional[SeedOrKey] = None,
-                 dtype: DTypeLike = None):
+    def loggamma(
+        self,
+        a,
+        size: Optional[Size] = None,
+        key: Optional[SeedOrKey] = None,
+        dtype: DTypeLike = None
+    ):
         dtype = dtype or environ.dftype()
         key = self.split_key() if key is None else _formalize_key(key)
         a = _check_py_seq(a)
         if size is None:
-            size = jnp.shape(a)
+            size = u.math.shape(a)
         r = jr.loggamma(key, a, shape=_size2shape(size), dtype=dtype)
         return r
 
-    def categorical(self,
-                    logits,
-                    axis: int = -1,
-                    size: Optional[Size] = None,
-                    key: Optional[SeedOrKey] = None):
+    def categorical(
+        self,
+        logits,
+        axis: int = -1,
+        size: Optional[Size] = None,
+        key: Optional[SeedOrKey] = None
+    ):
         key = self.split_key() if key is None else _formalize_key(key)
         logits = _check_py_seq(logits)
         if size is None:
-            size = list(jnp.shape(logits))
+            size = list(u.math.shape(logits))
             size.pop(axis)
         r = jr.categorical(key, logits, axis=axis, shape=_size2shape(size))
         return r
 
-    def zipf(self,
-             a,
-             size: Optional[Size] = None,
-             key: Optional[SeedOrKey] = None,
-             dtype: DTypeLike = None):
+    def zipf(
+        self,
+        a,
+        size: Optional[Size] = None,
+        key: Optional[SeedOrKey] = None,
+        dtype: DTypeLike = None
+    ):
         a = _check_py_seq(a)
         if size is None:
-            size = jnp.shape(a)
+            size = u.math.shape(a)
         dtype = dtype or environ.ditype()
         r = jax.pure_callback(lambda x: np.random.zipf(x, size).astype(dtype),
                               jax.ShapeDtypeStruct(size, dtype),
                               a)
         return r
 
-    def power(self,
-              a,
-              size: Optional[Size] = None,
-              key: Optional[SeedOrKey] = None,
-              dtype: DTypeLike = None):
+    def power(
+        self,
+        a,
+        size: Optional[Size] = None,
+        key: Optional[SeedOrKey] = None,
+        dtype: DTypeLike = None
+    ):
         a = _check_py_seq(a)
         if size is None:
-            size = jnp.shape(a)
+            size = u.math.shape(a)
         size = _size2shape(size)
         dtype = dtype or environ.dftype()
         r = jax.pure_callback(lambda a: np.random.power(a=a, size=size).astype(dtype),
@@ -1035,24 +1155,28 @@ class RandomState(State):
                               a)
         return r
 
-    def f(self,
-          dfnum,
-          dfden,
-          size: Optional[Size] = None,
-          key: Optional[SeedOrKey] = None,
-          dtype: DTypeLike = None):
+    def f(
+        self,
+        dfnum,
+        dfden,
+        size: Optional[Size] = None,
+        key: Optional[SeedOrKey] = None,
+        dtype: DTypeLike = None
+    ):
         dfnum = _check_py_seq(dfnum)
         dfden = _check_py_seq(dfden)
         if size is None:
-            size = jnp.broadcast_shapes(jnp.shape(dfnum), jnp.shape(dfden))
+            size = jnp.broadcast_shapes(u.math.shape(dfnum), u.math.shape(dfden))
         size = _size2shape(size)
         d = {'dfnum': dfnum, 'dfden': dfden}
         dtype = dtype or environ.dftype()
-        r = jax.pure_callback(lambda dfnum_, dfden_: np.random.f(dfnum=dfnum_,
-                                                                 dfden=dfden_,
-                                                                 size=size).astype(dtype),
-                              jax.ShapeDtypeStruct(size, dtype),
-                              dfnum, dfden)
+        r = jax.pure_callback(
+            lambda dfnum_, dfden_: np.random.f(dfnum=dfnum_,
+                                               dfden=dfden_,
+                                               size=size).astype(dtype),
+            jax.ShapeDtypeStruct(size, dtype),
+            dfnum, dfden
+        )
         return r
 
     def hypergeometric(
@@ -1069,64 +1193,82 @@ class RandomState(State):
         nsample = _check_py_seq(nsample)
 
         if size is None:
-            size = lax.broadcast_shapes(jnp.shape(ngood),
-                                        jnp.shape(nbad),
-                                        jnp.shape(nsample))
+            size = lax.broadcast_shapes(u.math.shape(ngood),
+                                        u.math.shape(nbad),
+                                        u.math.shape(nsample))
         size = _size2shape(size)
         dtype = dtype or environ.ditype()
         d = {'ngood': ngood, 'nbad': nbad, 'nsample': nsample}
-        r = jax.pure_callback(lambda d: np.random.hypergeometric(ngood=d['ngood'],
-                                                                 nbad=d['nbad'],
-                                                                 nsample=d['nsample'],
-                                                                 size=size).astype(dtype),
-                              jax.ShapeDtypeStruct(size, dtype),
-                              d)
+        r = jax.pure_callback(
+            lambda d: np.random.hypergeometric(
+                ngood=d['ngood'],
+                nbad=d['nbad'],
+                nsample=d['nsample'],
+                size=size
+            ).astype(dtype),
+            jax.ShapeDtypeStruct(size, dtype),
+            d
+        )
         return r
 
-    def logseries(self,
-                  p,
-                  size: Optional[Size] = None,
-                  key: Optional[SeedOrKey] = None,
-                  dtype: DTypeLike = None):
+    def logseries(
+        self,
+        p,
+        size: Optional[Size] = None,
+        key: Optional[SeedOrKey] = None,
+        dtype: DTypeLike = None
+    ):
         p = _check_py_seq(p)
         if size is None:
-            size = jnp.shape(p)
+            size = u.math.shape(p)
         size = _size2shape(size)
         dtype = dtype or environ.ditype()
-        r = jax.pure_callback(lambda p: np.random.logseries(p=p, size=size).astype(dtype),
-                              jax.ShapeDtypeStruct(size, dtype),
-                              p)
+        r = jax.pure_callback(
+            lambda p: np.random.logseries(p=p, size=size).astype(dtype),
+            jax.ShapeDtypeStruct(size, dtype),
+            p
+        )
         return r
 
-    def noncentral_f(self,
-                     dfnum,
-                     dfden,
-                     nonc,
-                     size: Optional[Size] = None,
-                     key: Optional[SeedOrKey] = None,
-                     dtype: DTypeLike = None):
+    def noncentral_f(
+        self,
+        dfnum,
+        dfden,
+        nonc,
+        size: Optional[Size] = None,
+        key: Optional[SeedOrKey] = None,
+        dtype: DTypeLike = None
+    ):
         dfnum = _check_py_seq(dfnum)
         dfden = _check_py_seq(dfden)
         nonc = _check_py_seq(nonc)
         if size is None:
-            size = lax.broadcast_shapes(jnp.shape(dfnum),
-                                        jnp.shape(dfden),
-                                        jnp.shape(nonc))
+            size = lax.broadcast_shapes(u.math.shape(dfnum),
+                                        u.math.shape(dfden),
+                                        u.math.shape(nonc))
         size = _size2shape(size)
         d = {'dfnum': dfnum, 'dfden': dfden, 'nonc': nonc}
         dtype = dtype or environ.dftype()
-        r = jax.pure_callback(lambda x: np.random.noncentral_f(dfnum=x['dfnum'],
-                                                               dfden=x['dfden'],
-                                                               nonc=x['nonc'],
-                                                               size=size).astype(dtype),
-                              jax.ShapeDtypeStruct(size, dtype),
-                              d)
+        r = jax.pure_callback(
+            lambda x: np.random.noncentral_f(dfnum=x['dfnum'],
+                                             dfden=x['dfden'],
+                                             nonc=x['nonc'],
+                                             size=size).astype(dtype),
+            jax.ShapeDtypeStruct(size, dtype),
+            d
+        )
         return r
 
     # PyTorch compatibility #
     # --------------------- #
 
-    def rand_like(self, input, *, dtype=None, key: Optional[SeedOrKey] = None):
+    def rand_like(
+        self,
+        input,
+        *,
+        dtype=None,
+        key: Optional[SeedOrKey] = None
+    ):
         """Returns a tensor with the same size as input that is filled with random
         numbers from a uniform distribution on the interval ``[0, 1)``.
 
@@ -1138,9 +1280,15 @@ class RandomState(State):
         Returns:
           The random data.
         """
-        return self.random(jnp.shape(input), key=key).astype(dtype)
+        return self.random(u.math.shape(input), key=key).astype(dtype)
 
-    def randn_like(self, input, *, dtype=None, key: Optional[SeedOrKey] = None):
+    def randn_like(
+        self,
+        input,
+        *,
+        dtype=None,
+        key: Optional[SeedOrKey] = None
+    ):
         """Returns a tensor with the same size as ``input`` that is filled with
         random numbers from a normal distribution with mean 0 and variance 1.
 
@@ -1152,12 +1300,20 @@ class RandomState(State):
         Returns:
           The random data.
         """
-        return self.randn(*jnp.shape(input), key=key).astype(dtype)
+        return self.randn(*u.math.shape(input), key=key).astype(dtype)
 
-    def randint_like(self, input, low=0, high=None, *, dtype=None, key: Optional[SeedOrKey] = None):
+    def randint_like(
+        self,
+        input,
+        low=0,
+        high=None,
+        *,
+        dtype=None,
+        key: Optional[SeedOrKey] = None
+    ):
         if high is None:
             high = max(input)
-        return self.randint(low, high=high, size=jnp.shape(input), dtype=dtype, key=key)
+        return self.randint(low, high=high, size=u.math.shape(input), dtype=dtype, key=key)
 
 
 # default random generator
@@ -1180,7 +1336,7 @@ def _formalize_key(key):
             raise TypeError('key must be a int or an array with two uint32.')
         if key.size != 2:
             raise TypeError('key must be a int or an array with two uint32.')
-        return jnp.asarray(key, dtype=jnp.uint32)
+        return u.math.asarray(key, dtype=jnp.uint32)
     else:
         raise TypeError('key must be a int or an array with two uint32.')
 
@@ -1194,7 +1350,11 @@ def _size2shape(size):
         return (size,)
 
 
-def _check_shape(name, shape, *param_shapes):
+def _check_shape(
+    name,
+    shape,
+    *param_shapes
+):
     if param_shapes:
         shape_ = lax.broadcast_shapes(shape, *param_shapes)
         if shape != shape_:
@@ -1223,7 +1383,11 @@ python_scalar_dtypes = {
 }
 
 
-def _dtype(x, *, canonicalize: bool = False):
+def _dtype(
+    x,
+    *,
+    canonicalize: bool = False
+):
     """Return the dtype object for a value or type, optionally canonicalized based on X64 mode."""
     if x is None:
         raise ValueError(f"Invalid argument to dtype: {x}.")
@@ -1238,7 +1402,10 @@ def _dtype(x, *, canonicalize: bool = False):
     return dtypes.canonicalize_dtype(dt) if canonicalize else dt
 
 
-def _const(example, val):
+def _const(
+    example,
+    val
+):
     if _is_python_scalar(example):
         dtype = dtypes.canonicalize_dtype(type(example))
         val = dtypes.scalar_type_of(example)(val)
@@ -1249,7 +1416,11 @@ def _const(example, val):
 
 
 @partial(jit, static_argnums=(2,))
-def _categorical(key, p, shape):
+def _categorical(
+    key,
+    p,
+    shape
+):
     # this implementation is fast when event shape is small, and slow otherwise
     # Ref: https://stackoverflow.com/a/34190035
     shape = shape or p.shape[:-1]
@@ -1258,7 +1429,11 @@ def _categorical(key, p, shape):
     return jnp.sum(s < r, axis=-1)
 
 
-def _scatter_add_one(operand, indices, updates):
+def _scatter_add_one(
+    operand,
+    indices,
+    updates
+):
     return lax.scatter_add(
         operand,
         indices,
@@ -1278,12 +1453,15 @@ def _reshape(x, shape):
         return jnp.reshape(x, shape)
 
 
-def _promote_shapes(*args, shape=()):
+def _promote_shapes(
+    *args,
+    shape=()
+):
     # adapted from lax.lax_numpy
     if len(args) < 2 and not shape:
         return args
     else:
-        shapes = [jnp.shape(arg) for arg in args]
+        shapes = [u.math.shape(arg) for arg in args]
         num_dims = len(lax.broadcast_shapes(shape, *shapes))
         return [
             _reshape(arg, (1,) * (num_dims - len(s)) + s) if len(s) < num_dims else arg
@@ -1292,11 +1470,17 @@ def _promote_shapes(*args, shape=()):
 
 
 @partial(jit, static_argnums=(3, 4))
-def _multinomial(key, p, n, n_max, shape=()):
-    if jnp.shape(n) != jnp.shape(p)[:-1]:
-        broadcast_shape = lax.broadcast_shapes(jnp.shape(n), jnp.shape(p)[:-1])
+def _multinomial(
+    key,
+    p,
+    n,
+    n_max,
+    shape=()
+):
+    if u.math.shape(n) != u.math.shape(p)[:-1]:
+        broadcast_shape = lax.broadcast_shapes(u.math.shape(n), u.math.shape(p)[:-1])
         n = jnp.broadcast_to(n, broadcast_shape)
-        p = jnp.broadcast_to(p, broadcast_shape + jnp.shape(p)[-1:])
+        p = jnp.broadcast_to(p, broadcast_shape + u.math.shape(p)[-1:])
     shape = shape or p.shape[:-1]
     if n_max == 0:
         return jnp.zeros(shape + p.shape[-1:], dtype=jnp.result_type(int))
@@ -1307,21 +1491,28 @@ def _multinomial(key, p, n, n_max, shape=()):
         mask = _promote_shapes(jnp.arange(n_max) < jnp.expand_dims(n, -1), shape=shape + (n_max,))[0]
         mask = jnp.moveaxis(mask, -1, 0).astype(indices.dtype)
         excess = jnp.concatenate([jnp.expand_dims(n_max - n, -1),
-                                  jnp.zeros(jnp.shape(n) + (p.shape[-1] - 1,))],
+                                  jnp.zeros(u.math.shape(n) + (p.shape[-1] - 1,))],
                                  -1)
     else:
         mask = 1
         excess = 0
     # NB: we transpose to move batch shape to the front
     indices_2D = (jnp.reshape(indices * mask, (n_max, -1))).T
-    samples_2D = vmap(_scatter_add_one)(jnp.zeros((indices_2D.shape[0], p.shape[-1]), dtype=indices.dtype),
-                                        jnp.expand_dims(indices_2D, axis=-1),
-                                        jnp.ones(indices_2D.shape, dtype=indices.dtype))
+    samples_2D = vmap(_scatter_add_one)(
+        jnp.zeros((indices_2D.shape[0], p.shape[-1]), dtype=indices.dtype),
+        jnp.expand_dims(indices_2D, axis=-1),
+        jnp.ones(indices_2D.shape, dtype=indices.dtype)
+    )
     return jnp.reshape(samples_2D, shape + p.shape[-1:]) - excess
 
 
 @partial(jit, static_argnums=(2, 3), static_argnames=['shape', 'dtype'])
-def _von_mises_centered(key, concentration, shape, dtype=None):
+def _von_mises_centered(
+    key,
+    concentration,
+    shape,
+    dtype=None
+):
     """Compute centered von Mises samples using rejection sampling from [1]_ with wrapped Cauchy proposal.
 
     Returns
@@ -1335,7 +1526,7 @@ def _von_mises_centered(key, concentration, shape, dtype=None):
            Chapter 9, p. 473-476. http://www.nrbook.com/devroye/Devroye_files/chapter_nine.pdf
 
     """
-    shape = shape or jnp.shape(concentration)
+    shape = shape or u.math.shape(concentration)
     dtype = dtype or environ.dftype()
     concentration = lax.convert_element_type(concentration, dtype)
     concentration = jnp.broadcast_to(concentration, shape)
@@ -1357,42 +1548,50 @@ def _von_mises_centered(key, concentration, shape, dtype=None):
 
     s = jnp.where(concentration > s_cutoff, s_exact, s_approximate)
 
-    def cond_fn(*args):
+    def cond_fn(
+        *args
+    ):
         """check if all are done or reached max number of iterations"""
         i, _, done, _, _ = args[0]
         return jnp.bitwise_and(i < 100, jnp.logical_not(jnp.all(done)))
 
-    def body_fn(*args):
+    def body_fn(
+        *args
+    ):
         i, key, done, _, w = args[0]
         uni_ukey, uni_vkey, key = jr.split(key, 3)
-        u = jr.uniform(
+        u_ = jr.uniform(
             key=uni_ukey,
             shape=shape,
             dtype=concentration.dtype,
             minval=-1.0,
             maxval=1.0,
         )
-        z = jnp.cos(jnp.pi * u)
+        z = jnp.cos(jnp.pi * u_)
         w = jnp.where(done, w, (1.0 + s * z) / (s + z))  # Update where not done
         y = concentration * (s - w)
         v = jr.uniform(key=uni_vkey, shape=shape, dtype=concentration.dtype)
         accept = (y * (2.0 - y) >= v) | (jnp.log(y / v) + 1.0 >= y)
-        return i + 1, key, accept | done, u, w
+        return i + 1, key, accept | done, u_, w
 
     init_done = jnp.zeros(shape, dtype=bool)
     init_u = jnp.zeros(shape)
     init_w = jnp.zeros(shape)
 
-    _, _, done, u, w = lax.while_loop(
+    _, _, done, uu, w = lax.while_loop(
         cond_fun=cond_fn,
         body_fun=body_fn,
         init_val=(jnp.array(0), key, init_done, init_u, init_w),
     )
 
-    return jnp.sign(u) * jnp.arccos(w)
+    return jnp.sign(uu) * jnp.arccos(w)
 
 
-def _loc_scale(loc, scale, value):
+def _loc_scale(
+    loc,
+    scale,
+    value
+):
     if loc is None:
         if scale is None:
             return value
@@ -1406,4 +1605,4 @@ def _loc_scale(loc, scale, value):
 
 
 def _check_py_seq(seq):
-    return jnp.asarray(seq) if isinstance(seq, (tuple, list)) else seq
+    return u.math.asarray(seq) if isinstance(seq, (tuple, list)) else seq

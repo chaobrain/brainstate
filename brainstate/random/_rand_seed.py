@@ -124,7 +124,7 @@ def set_key(seed_or_key: SeedOrKey):
     """
     if isinstance(seed_or_key, int):
         # key = jax.random.key(seed_or_key)
-        key = jax.random.PRNGKey(seed_or_key) if use_prng_key else jrjax.random.key(seed_or_key)
+        key = jax.random.PRNGKey(seed_or_key) if use_prng_key else jax.random.key(seed_or_key)
     elif isinstance(seed_or_key, (jax.numpy.ndarray, np.ndarray)):
         if jax.numpy.issubdtype(seed_or_key.dtype, jax.dtypes.prng_key):
             key = seed_or_key
