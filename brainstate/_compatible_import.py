@@ -21,6 +21,8 @@ from functools import partial
 from typing import Iterable, Hashable, TypeVar, Callable
 
 import jax
+from jax.core import get_aval, Tracer
+from saiunit._compatible_import import wrap_init
 
 __all__ = [
     'ClosedJaxpr',
@@ -36,16 +38,16 @@ __all__ = [
     'wraps',
     'Device',
     'wrap_init',
+    'Var',
+    'JaxprEqn',
+    'Jaxpr',
+    'Literal',
 ]
 
 T = TypeVar("T")
 T1 = TypeVar("T1")
 T2 = TypeVar("T2")
 T3 = TypeVar("T3")
-
-from saiunit._compatible_import import wrap_init
-
-from jax.core import get_aval, Tracer
 
 if jax.__version_info__ < (0, 5, 0):
     from jax.lib.xla_client import Device
@@ -54,8 +56,10 @@ else:
 
 if jax.__version_info__ < (0, 4, 38):
     from jax.core import ClosedJaxpr, extend_axis_env_nd, Primitive, jaxpr_as_fun
+    from jax.core import Primitive, Var, JaxprEqn, Jaxpr, ClosedJaxpr, Literal
 else:
     from jax.extend.core import ClosedJaxpr, Primitive, jaxpr_as_fun
+    from jax.extend.core import Primitive, Var, JaxprEqn, Jaxpr, ClosedJaxpr, Literal
     from jax.core import trace_ctx
 
 
@@ -145,4 +149,3 @@ def to_concrete_aval(aval):
     if isinstance(aval, Tracer):
         return aval.to_concrete_value()
     return aval
-

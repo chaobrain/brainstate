@@ -17,7 +17,8 @@
 A ``State``-based Transformation System for Program Compilation and Augmentation
 """
 
-__version__ = "0.1.10"
+__version__ = "0.1.11"
+__versio_info__ = (0, 1, 11)
 
 from . import augment
 from . import compile
@@ -53,6 +54,4 @@ __all__ = [
     'transform',
 ]
 __all__ = __all__ + _state_all
-
-# ----------------------- #
 del _state_all
