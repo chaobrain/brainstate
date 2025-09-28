@@ -24,18 +24,12 @@
 # - Vogels, T. P. and Abbott, L. F. (2005), Signal propagation and logic gating in networks of integrate-and-fire neurons., J. Neurosci., 25, 46, 10786–95
 #
 
-import os
-import sys
 
-sys.path.append('../')
-os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.99'
-os.environ['JAX_TRACEBACK_FILTERING'] = 'off'
-
-import jax
 import time
 
 import brainunit as u
-import brainevent
+import jax
+
 import brainstate
 
 

@@ -23,19 +23,14 @@
 #
 # - Vogels, T. P. and Abbott, L. F. (2005), Signal propagation and logic gating in networks of integrate-and-fire neurons., J. Neurosci., 25, 46, 10786–95
 #
-import os
-import sys
-
-sys.path.append('../')
-os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.99'
-os.environ['JAX_TRACEBACK_FILTERING'] = 'off'
 
 
-import jax
-import brainunit as u
 import time
+
+import brainunit as u
+import jax
+
 import brainstate
-import brainevent
 
 
 class EINet(brainstate.nn.DynamicsGroup):
@@ -44,9 +39,11 @@ class EINet(brainstate.nn.DynamicsGroup):
         self.n_exc = int(3200 * scale)
         self.n_inh = int(800 * scale)
         self.num = self.n_exc + self.n_inh
-        self.N = brainstate.nn.LIFRef(self.num, V_rest=-60. * u.mV, V_th=-50. * u.mV, V_reset=-60. * u.mV,
-                                      tau=20. * u.ms, tau_ref=5. * u.ms,
-                                      V_initializer=brainstate.init.Normal(-55., 2., unit=u.mV))
+        self.N = brainstate.nn.LIFRef(
+            self.num, V_rest=-60. * u.mV, V_th=-50. * u.mV, V_reset=-60. * u.mV,
+            tau=20. * u.ms, tau_ref=5. * u.ms,
+            V_initializer=brainstate.init.Normal(-55., 2., unit=u.mV)
+        )
         self.E = brainstate.nn.AlignPostProj(
             comm=brainstate.nn.EventFixedProb(self.n_exc, self.num, conn_num=80 / self.num, conn_weight=0.6 * u.mS),
             syn=brainstate.nn.Expon.desc(self.num, tau=5. * u.ms),
@@ -94,7 +91,6 @@ for s in [1, 2, 4, 6, 8, 10, 20, 40, 60, 80, 100]:
     n, rate = jax.block_until_ready(run(s))
     t1 = time.time()
     print(f'scale={s}, size={n}, time = {t1 - t0} s, firing rate = {rate} Hz')
-
 
 # A6000 NVIDIA GPU
 
