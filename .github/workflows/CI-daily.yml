@@ -9,7 +9,7 @@ on:
     # You can adjust the time. Use cron syntax (minute hour day month day-of-week).
     # See: https://crontab.guru for help with cron syntax.
     # Example: '0 3 * * *' runs at 3:00 AM UTC daily.
-    - cron: '0 0 * * *'
+    - cron: '0 2 * * *'
 
   # OPTIONAL: Add other triggers if you want tests to run more often
   # For example, run on pushes and pull requests to the main branch:
@@ -45,10 +45,6 @@ jobs:
         #     jax-version: "0.4.38"
 
     steps:
-      - name: Cancel Previous Runs
-        uses: styfle/cancel-workflow-action@0.12.1
-        with:
-          access_token: ${{ github.token }}
       - uses: actions/checkout@v5
       - name: Print concurrency group
         run: echo '${{ github.workflow }}-${{ github.ref }}'
@@ -59,7 +55,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip cache purge
-          python -m pip install --upgrade pip setuptools
+          python -m pip install --upgrade pip build
           python -m pip install -r requirements-dev.txt
           if [ "${{ matrix.jax-version }}" == "" ]; then
             python -m pip install jax || exit 1

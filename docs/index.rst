@@ -59,26 +59,27 @@ Installation
 
           pip install -U brainstate[cpu]
 
-    .. tab-item:: GPU (CUDA 12.0)
+    .. tab-item:: GPU
 
        .. code-block:: bash
 
           pip install -U brainstate[cuda12]
+          pip install -U brainstate[cuda13]
 
     .. tab-item:: TPU
 
        .. code-block:: bash
 
-          pip install -U brainstate[tpu] -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
+          pip install -U brainstate[tpu]
 
 ----
 
 
-See also the BDP ecosystem
-^^^^^^^^^^^^^^^^^^^^^^^^^^
+See also the ecosystem
+^^^^^^^^^^^^^^^^^^^^^^
 
 
-We are building the `Brain Dynamics Programming ecosystem <https://ecosystem-for-brain-dynamics.readthedocs.io/>`_.
+``brainstate`` is one part of our `brain simulation ecosystem <https://brainmodeling.readthedocs.io/>`_.
 
 
 .. toctree::
