@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/chaobrain/brainstate/security/policy
+    about: Please follow the security policy for privately reporting vulnerabilities.
+  - name: BrainState discussions
+    url: https://github.com/chaobrain/brainstate/discussions
+    about: For questions or ideas that need more discussion, start a thread in GitHub Discussions.

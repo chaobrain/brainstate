@@ -364,7 +364,7 @@ def piecewise_quadratic(
        >>> plt.legend()
        >>> plt.show()
 
-  Parameters
+    Parameters
     ----------
     x : jax.Array
         The input array representing the neuron's membrane potential.

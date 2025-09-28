@@ -33,10 +33,13 @@ from .mixin import Mode
 __all__ = [
     # functions for environment settings
     'set', 'context', 'get', 'all', 'set_host_device_count', 'set_platform',
+
     # functions for getting default behaviors
     'get_host_device_count', 'get_platform', 'get_dt', 'get_mode', 'get_precision',
+
     # functions for default data types
     'dftype', 'ditype', 'dutype', 'dctype',
+
     # others
     'tolerance', 'register_default_behavior',
 ]
