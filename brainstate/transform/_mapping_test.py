@@ -24,8 +24,8 @@ from jax.lax import psum, pmean, pmax
 
 import brainstate
 import brainstate.augment
-from brainstate.augment._mapping import BatchAxisError
-from brainstate.augment._mapping import _remove_axis
+from brainstate.transform._mapping import BatchAxisError
+from brainstate.transform._mapping import _remove_axis
 
 
 class TestVmap(unittest.TestCase):

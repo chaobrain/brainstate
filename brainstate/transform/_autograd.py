@@ -35,7 +35,7 @@ import jax
 
 from brainstate._state import State
 from brainstate._utils import set_module_as
-from brainstate.compile._make_jaxpr import StatefulFunction
+from brainstate.transform._make_jaxpr import StatefulFunction
 from brainstate.typing import PyTree, Missing
 from brainstate.util import PrettyType, PrettyAttr, PrettyRepr
 

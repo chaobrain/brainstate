@@ -19,7 +19,7 @@ from collections import defaultdict
 from typing import Any, Sequence, Hashable, Dict
 
 from brainstate import environ
-from brainstate.augment._mapping import vmap
+from brainstate.transform._mapping import vmap
 from brainstate.typing import Filter
 from ._module import Module
 

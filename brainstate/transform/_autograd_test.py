@@ -24,7 +24,7 @@ import jax.numpy as jnp
 import pytest
 
 import brainstate
-from brainstate.augment._autograd import _jacfwd
+from brainstate.transform._autograd import _jacfwd
 
 
 class TestPureFuncGrad(unittest.TestCase):

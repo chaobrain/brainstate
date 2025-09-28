@@ -17,10 +17,10 @@
 This module includes transformations for augmenting the functionalities of JAX code.
 """
 
-from ._autograd import GradientTransform, grad, vector_grad, hessian, jacobian, jacrev, jacfwd
-from ._eval_shape import abstract_init
-from ._mapping import vmap, pmap, map, vmap_new_states
-from ._random import restore_rngs
+from brainstate.transform._autograd import GradientTransform, grad, vector_grad, hessian, jacobian, jacrev, jacfwd
+from brainstate.transform._eval_shape import abstract_init
+from brainstate.transform._mapping import vmap, pmap, map, vmap_new_states
+from brainstate.transform._random import restore_rngs
 
 __all__ = [
     'GradientTransform', 'grad', 'vector_grad', 'hessian', 'jacobian', 'jacrev', 'jacfwd',

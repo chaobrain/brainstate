@@ -17,14 +17,14 @@
 This module contains the functions for the compilation of JAX code.
 """
 
-from ._ad_checkpoint import checkpoint, remat
-from ._conditions import cond, switch, ifelse
-from ._error_if import jit_error_if
-from ._jit import jit
-from ._loop_collect_return import scan, checkpointed_scan, for_loop, checkpointed_for_loop
-from ._loop_no_collection import while_loop, bounded_while_loop
-from ._make_jaxpr import StatefulFunction, make_jaxpr
-from ._progress_bar import ProgressBar
+from brainstate.transform._ad_checkpoint import checkpoint, remat
+from brainstate.transform._conditions import cond, switch, ifelse
+from brainstate.transform._error_if import jit_error_if
+from brainstate.transform._jit import jit
+from brainstate.transform._loop_collect_return import scan, checkpointed_scan, for_loop, checkpointed_for_loop
+from brainstate.transform._loop_no_collection import while_loop, bounded_while_loop
+from brainstate.transform._make_jaxpr import StatefulFunction, make_jaxpr
+from brainstate.transform._progress_bar import ProgressBar
 
 __all__ = [
     'checkpoint', 'remat',

@@ -29,7 +29,7 @@ from jax import lax, core, dtypes
 
 from brainstate import environ
 from brainstate._state import State
-from brainstate.compile._error_if import jit_error_if
+from brainstate.transform._error_if import jit_error_if
 from brainstate.typing import DTypeLike, Size, SeedOrKey
 
 __all__ = ['RandomState', 'DEFAULT', ]
