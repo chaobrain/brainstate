@@ -939,11 +939,15 @@ class PiecewiseLeakyRelu(Surrogate):
         self.w = w
 
     def surrogate_fun(self, x):
-        z = jnp.where(x < -self.w,
-                      self.c * x + self.c * self.w,
-                      jnp.where(x > self.w,
-                                self.c * x - self.c * self.w + 1,
-                                0.5 * x / self.w + 0.5))
+        z = jnp.where(
+            x < -self.w,
+            self.c * x + self.c * self.w,
+            jnp.where(
+                x > self.w,
+                self.c * x - self.c * self.w + 1,
+                0.5 * x / self.w + 0.5
+            )
+        )
         return z
 
     def surrogate_grad(self, x):
@@ -1156,9 +1160,11 @@ class S2NN(Surrogate):
         self.epsilon = epsilon
 
     def surrogate_fun(self, x):
-        z = jnp.where(x < 0.,
-                      sci.special.expit(x * self.alpha),
-                      self.beta * jnp.log(jnp.abs((x + 1.)) + self.epsilon) + 0.5)
+        z = jnp.where(
+            x < 0.,
+            sci.special.expit(x * self.alpha),
+            self.beta * jnp.log(jnp.abs((x + 1.)) + self.epsilon) + 0.5
+        )
         return z
 
     def surrogate_grad(self, x):
@@ -1266,9 +1272,11 @@ class QPseudoSpike(Surrogate):
         return dx
 
     def surrogate_fun(self, x):
-        z = jnp.where(x < 0.,
-                      0.5 * jnp.power(1 - 2 / (self.alpha - 1) * jnp.abs(x), 1 - self.alpha),
-                      1. - 0.5 * jnp.power(1 + 2 / (self.alpha - 1) * jnp.abs(x), 1 - self.alpha))
+        z = jnp.where(
+            x < 0.,
+            0.5 * jnp.power(1 - 2 / (self.alpha - 1) * jnp.abs(x), 1 - self.alpha),
+            1. - 0.5 * jnp.power(1 + 2 / (self.alpha - 1) * jnp.abs(x), 1 - self.alpha)
+        )
         return z
 
     def __repr__(self):
@@ -1452,11 +1460,15 @@ class LogTailedRelu(Surrogate):
         self.alpha = alpha
 
     def surrogate_fun(self, x):
-        z = jnp.where(x > 1,
-                      jnp.log(x),
-                      jnp.where(x > 0,
-                                x,
-                                self.alpha * x))
+        z = jnp.where(
+            x > 1,
+            jnp.log(x),
+            jnp.where(
+                x > 0,
+                x,
+                self.alpha * x
+            )
+        )
         return z
 
     def surrogate_grad(self, x):
@@ -1725,10 +1737,12 @@ class MultiGaussianGrad(Surrogate):
 
     def surrogate_grad(self, x):
         g1 = jnp.exp(-x ** 2 / (2 * jnp.power(self.sigma, 2))) / (jnp.sqrt(2 * jnp.pi) * self.sigma)
-        g2 = jnp.exp(-(x - self.sigma) ** 2 / (2 * jnp.power(self.s * self.sigma, 2))
-                     ) / (jnp.sqrt(2 * jnp.pi) * self.s * self.sigma)
-        g3 = jnp.exp(-(x + self.sigma) ** 2 / (2 * jnp.power(self.s * self.sigma, 2))
-                     ) / (jnp.sqrt(2 * jnp.pi) * self.s * self.sigma)
+        g2 = jnp.exp(
+            -(x - self.sigma) ** 2 / (2 * jnp.power(self.s * self.sigma, 2))
+        ) / (jnp.sqrt(2 * jnp.pi) * self.s * self.sigma)
+        g3 = jnp.exp(
+            -(x + self.sigma) ** 2 / (2 * jnp.power(self.s * self.sigma, 2))
+        ) / (jnp.sqrt(2 * jnp.pi) * self.s * self.sigma)
         dx = g1 * (1. + self.h) - g2 * self.h - g3 * self.h
         return self.scale * dx
 

@@ -158,11 +158,15 @@ def soft_shrink(x, lambd=0.5):
         - Input: :math:`(*)`, where :math:`*` means any number of dimensions.
         - Output: :math:`(*)`, same shape as the input.
     """
-    return u.math.where(x > lambd,
-                        x - lambd,
-                        u.math.where(x < -lambd,
-                                     x + lambd,
-                                     u.Quantity(0., unit=u.get_unit(lambd))))
+    return u.math.where(
+        x > lambd,
+        x - lambd,
+        u.math.where(
+            x < -lambd,
+            x + lambd,
+            u.Quantity(0., unit=u.get_unit(lambd))
+        )
+    )
 
 
 def mish(x):
@@ -239,11 +243,15 @@ def hard_shrink(x, lambd=0.5):
         - Output: :math:`(*)`, same shape as the input.
 
     """
-    return u.math.where(x > lambd,
-                        x,
-                        u.math.where(x < -lambd,
-                                     x,
-                                     u.Quantity(0., unit=u.get_unit(x))))
+    return u.math.where(
+        x > lambd,
+        x,
+        u.math.where(
+            x < -lambd,
+            x,
+            u.Quantity(0., unit=u.get_unit(x))
+        )
+    )
 
 
 def relu(x: ArrayLike) -> Union[jax.Array, u.Quantity]:
