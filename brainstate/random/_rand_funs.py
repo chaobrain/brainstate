@@ -49,12 +49,6 @@ def rand(
     r"""
     Random values in a given shape.
 
-    .. note::
-        This is a convenience function for users porting code from Matlab,
-        and wraps `random_sample`. That function takes a
-        tuple to specify the size of the output, which is consistent with
-        other NumPy functions like `numpy.zeros` and `numpy.ones`.
-
     Create an array of the given shape and populate it with
     random samples from a uniform distribution
     over ``[0, 1)``.
@@ -281,16 +275,6 @@ def randn(
     r"""
     Return a sample (or samples) from the "standard normal" distribution.
 
-    .. note::
-        This is a convenience function for users porting code from Matlab,
-        and wraps `standard_normal`. That function takes a
-        tuple to specify the size of the output, which is consistent with
-        other NumPy functions like `numpy.zeros` and `numpy.ones`.
-
-    .. note::
-        New code should use the ``standard_normal`` method of a ``default_rng()``
-        instance instead; please see the :ref:`random-quick-start`.
-
     If positive int_like arguments are provided, `randn` generates an array
     of shape ``(d0, d1, ..., dn)``, filled
     with random floats sampled from a univariate "normal" (Gaussian)
@@ -377,10 +361,6 @@ def random_sample(
     the output of `random_sample` by `(b-a)` and add `a`::
 
       (b - a) * random_sample() + a
-
-    .. note::
-        New code should use the ``random`` method of a ``default_rng()``
-        instance instead; please see the :ref:`random-quick-start`.
 
     Parameters
     ----------
@@ -3492,10 +3472,6 @@ def weibull(
     The more common 2-parameter Weibull, including a scale parameter
     :math:`\lambda` is just :math:`X = \lambda(-ln(U))^{1/a}`.
 
-    .. note::
-        New code should use the ``weibull`` method of a ``default_rng()``
-        instance instead; please see the :ref:`random-quick-start`.
-
     Parameters
     ----------
     a : float or array_like of floats
@@ -3613,10 +3589,6 @@ def zipf(
     discrete probability distribution that satisfies Zipf's law: the
     frequency of an item is inversely proportional to its rank in a
     frequency table.
-
-    .. note::
-        New code should use the ``zipf`` method of a ``default_rng()``
-        instance instead; please see the :ref:`random-quick-start`.
 
     Parameters
     ----------
