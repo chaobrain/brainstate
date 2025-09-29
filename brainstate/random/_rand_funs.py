@@ -1799,7 +1799,7 @@ def truncated_normal(
     scale=1.0,
     key: Optional[SeedOrKey] = None,
     dtype: DTypeLike = None,
-check_valid: bool = True
+    check_valid: bool = True
 ):
     r"""Sample truncated standard normal random values with given shape and dtype.
 
@@ -1874,7 +1874,8 @@ RandomState.truncated_normal.__doc__ = truncated_normal.__doc__
 def bernoulli(
     p=0.5,
     size: Optional[Size] = None,
-    key: Optional[SeedOrKey] = None
+    key: Optional[SeedOrKey] = None,
+    check_valid: bool = True,
 ):
     r"""Sample Bernoulli random values with given shape and mean.
 
@@ -1898,7 +1899,7 @@ def bernoulli(
       A random array with boolean dtype and shape given by ``shape`` if ``shape``
       is not None, or else ``p.shape``.
     """
-    return DEFAULT.bernoulli(p, size, key=key)
+    return DEFAULT.bernoulli(p, size, key=key, check_valid=check_valid)
 
 
 def lognormal(
@@ -2607,7 +2608,8 @@ def multinomial(
     pvals,
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
-    dtype: DTypeLike = None
+    dtype: DTypeLike = None,
+    check_valid: bool = True,
 ):
     r"""
     Draw samples from a multinomial distribution.
@@ -2682,7 +2684,7 @@ def multinomial(
         print(result.shape)  # (2,)
         print(result.sum())  # 100 (total throws)
     """
-    return DEFAULT.multinomial(n, pvals, size, key=key, dtype=dtype)
+    return DEFAULT.multinomial(n, pvals, size, key=key, dtype=dtype, check_valid=check_valid)
 
 
 def multivariate_normal(

@@ -20,10 +20,11 @@ from typing import Callable, Union, Optional
 import brainunit as u
 import jax.numpy as jnp
 
-from brainstate import init, functional
+from brainstate import init
 from brainstate._state import ParamState
 from brainstate.typing import ArrayLike, Size
 from ._module import Module
+from ._normalizations import weight_standardization
 
 __all__ = [
     'Linear',
@@ -185,7 +186,7 @@ class ScaledWSLinear(Module):
     def update(self, x):
         params = self.weight.value
         w = params['weight']
-        w = functional.weight_standardization(w, self.eps, params.get('gain', None))
+        w = weight_standardization(w, self.eps, params.get('gain', None))
         if self.w_mask is not None:
             w = w * self.w_mask
         y = u.linalg.dot(x, w)

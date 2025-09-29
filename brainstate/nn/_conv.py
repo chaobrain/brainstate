@@ -21,10 +21,11 @@ from typing import Callable, Tuple, Union, Sequence, Optional, TypeVar
 import jax
 import jax.numpy as jnp
 
-from brainstate import init, functional
+from brainstate import init
 from brainstate._state import ParamState
 from brainstate.typing import ArrayLike
 from ._module import Module
+from ._normalizations import weight_standardization
 
 T = TypeVar('T')
 
@@ -394,7 +395,7 @@ class _ScaledWSConv(_BaseConv):
 
     def _conv_op(self, x, params):
         w = params['weight']
-        w = functional.weight_standardization(w, self.eps, params.get('gain', None))
+        w = weight_standardization(w, self.eps, params.get('gain', None))
         if self.w_mask is not None:
             w = w * self.w_mask
         y = jax.lax.conv_general_dilated(

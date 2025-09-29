@@ -479,10 +479,7 @@ class TestPyTreeTypes(unittest.TestCase):
         # Valid structure names
         valid_structures = ["T", "S T", "... T", "T ...", "foo bar"]
         for structure in valid_structures:
-            try:
-                PyTree[float, structure]
-            except ValueError:
-                self.fail(f"Valid structure '{structure}' was rejected")
+            PyTree[float, structure]
 
         # Invalid structures
         with self.assertRaises(ValueError):

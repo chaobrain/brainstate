@@ -31,11 +31,26 @@ from . import surrogate
 from . import transform
 from . import typing
 from . import util
+from ._deprecation import create_deprecated_module_proxy
 
-# Deprecated modules - will be removed in a future version
-from . import augment  # deprecated: use transform instead
-from . import compile  # deprecated: use transform instead
-from . import functional  # deprecated: use nn instead
+# Create deprecated module proxies
+augment = create_deprecated_module_proxy(
+    deprecated_name='brainstate.augment',
+    replacement_module=transform,
+    replacement_name='brainstate.transform'
+)
+
+compile = create_deprecated_module_proxy(
+    deprecated_name='brainstate.compile',
+    replacement_module=transform,
+    replacement_name='brainstate.transform'
+)
+
+functional = create_deprecated_module_proxy(
+    deprecated_name='brainstate.functional',
+    replacement_module=nn,
+    replacement_name='brainstate.nn'
+)
 from ._state import *
 from ._state import __all__ as _state_all
 
@@ -57,4 +72,4 @@ __all__ = [
     'functional',
 ]
 __all__ = __all__ + _state_all
-del _state_all
+del _state_all, create_deprecated_module_proxy

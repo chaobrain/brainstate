@@ -114,7 +114,8 @@ Batching and Parallelism
 
    vmap
    pmap
-   StateAxes
+   map
+   vmap_new_states
 
 
 

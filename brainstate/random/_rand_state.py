@@ -29,7 +29,6 @@ from jax import lax, core, dtypes
 
 from brainstate import environ
 from brainstate._state import State
-from brainstate.transform._error_if import jit_error_if
 from brainstate.typing import DTypeLike, Size, SeedOrKey
 
 __all__ = ['RandomState', 'DEFAULT', ]
@@ -613,6 +612,7 @@ class RandomState(State):
         )
 
         if check_valid:
+            from brainstate.transform._error_if import jit_error_if
             jit_error_if(
                 u.math.any(u.math.logical_or(loc < lower - 2 * scale, loc > upper + 2 * scale)),
                 "mean is more than 2 std from [lower, upper] in truncated_normal. "
@@ -665,10 +665,13 @@ class RandomState(State):
         self,
         p,
         size: Optional[Size] = None,
-        key: Optional[SeedOrKey] = None
+        key: Optional[SeedOrKey] = None,
+        check_valid: bool = True
     ):
         p = _check_py_seq(p)
-        jit_error_if(jnp.any(jnp.logical_or(p < 0, p > 1)), self._check_p, p=p)
+        if check_valid:
+            from brainstate.transform._error_if import jit_error_if
+            jit_error_if(jnp.any(jnp.logical_or(p < 0, p > 1)), self._check_p, p=p)
         if size is None:
             size = u.math.shape(p)
         key = self.split_key() if key is None else _formalize_key(key)
@@ -715,6 +718,7 @@ class RandomState(State):
         n = _check_py_seq(n)
         p = _check_py_seq(p)
         if check_valid:
+            from brainstate.transform._error_if import jit_error_if
             jit_error_if(
                 jnp.any(jnp.logical_or(p < 0, p > 1)),
                 'Parameter p should be within [0, 1], but we got {p}',
@@ -786,12 +790,15 @@ class RandomState(State):
         pvals,
         size: Optional[Size] = None,
         key: Optional[SeedOrKey] = None,
-        dtype: DTypeLike = None
+        dtype: DTypeLike = None,
+        check_valid: bool = True
     ):
         key = self.split_key() if key is None else _formalize_key(key)
         n = _check_py_seq(n)
         pvals = _check_py_seq(pvals)
-        jit_error_if(jnp.sum(pvals[:-1]) > 1., self._check_p2, pvals)
+        if check_valid:
+            from brainstate.transform._error_if import jit_error_if
+            jit_error_if(jnp.sum(pvals[:-1]) > 1., self._check_p2, pvals)
         if isinstance(n, jax.core.Tracer):
             raise ValueError("The total count parameter `n` should not be a jax abstract array.")
         size = _size2shape(size)
