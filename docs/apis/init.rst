@@ -1,5 +1,5 @@
-``brainstate.init`` for weight initialization
-=============================================
+``brainstate.init`` module
+==========================
 
 .. currentmodule:: brainstate.init 
 .. automodule:: brainstate.init 

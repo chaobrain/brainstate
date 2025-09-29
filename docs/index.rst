@@ -142,5 +142,16 @@ See also the ecosystem
    :caption: API Reference
 
    changelog.md
-   api.rst
+   apis/brainstate.rst
+   apis/graph.rst
+   apis/init.rst
+   apis/nn.rst
+   apis/optim.rst
+   apis/random.rst
+   apis/transform.rst
+   apis/util.rst
+   apis/surrogate.rst
+   apis/typing.rst
+   apis/mixin.rst
+   apis/environ.rst
 

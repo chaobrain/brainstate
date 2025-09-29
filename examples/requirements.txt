@@ -1,5 +1,5 @@
 matplotlib
 datasets
-dendritex
+braincell
 optax
-brainscale>=0.1.0
+brainscale

@@ -1,5 +1,5 @@
-``brainstate.optim`` for optimization algorithms
-================================================
+``brainstate.optim`` module
+===========================
 
 .. currentmodule:: brainstate.optim 
 .. automodule:: brainstate.optim 

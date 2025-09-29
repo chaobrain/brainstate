@@ -1,5 +1,5 @@
-``brainstate.util`` for utility functions
-=========================================
+``brainstate.util`` module
+==========================
 
 .. currentmodule:: brainstate.util 
 .. automodule:: brainstate.util 
