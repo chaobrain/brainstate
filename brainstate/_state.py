@@ -112,7 +112,10 @@ def check_state_value_tree(val: bool = True) -> Generator[None, None, None]:
     If you want to check the tree structure of the value once the new value is assigned,
     you can use this context manager.
 
-    Example::
+    Examples
+    --------
+
+    .. code-block:: python
 
       >>> import brainstate as brainstate
       >>> import jax.numpy as jnp
@@ -158,7 +161,10 @@ def check_state_jax_tracer(val: bool = True) -> Generator[None, None, None]:
     """
     The context manager to check whether the state is valid to trace.
 
-    Example::
+    Example
+    -------
+
+    .. code-block:: python
 
       >>> import jax
       >>> import brainstate as brainstate
@@ -213,7 +219,11 @@ class State(Generic[A], PrettyObject):
         name (Optional[str]): An optional name for the state.
         **metadata: Additional metadata to be stored with the state.
 
-    Example:
+    Example
+    -------
+
+    .. code-block:: python
+
         >>> class MyState(State):
         ...     pass
         >>> state = MyState(jnp.zeros((3, 3)), name="my_matrix")
