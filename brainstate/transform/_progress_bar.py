@@ -69,65 +69,65 @@ class ProgressBar(object):
 
     .. code-block:: python
 
-        import brainstate
-        import jax.numpy as jnp
-
-        def loop_fn(x):
-            return x ** 2
-
-        xs = jnp.arange(100)
-        pbar = brainstate.compile.ProgressBar()
-        results = brainstate.compile.for_loop(loop_fn, xs, pbar=pbar)
+        >>> import brainstate
+        >>> import jax.numpy as jnp
+        >>>
+        >>> def loop_fn(x):
+        ...     return x ** 2
+        >>>
+        >>> xs = jnp.arange(100)
+        >>> pbar = brainstate.transform.ProgressBar()
+        >>> results = brainstate.transform.for_loop(loop_fn, xs, pbar=pbar)
 
     With custom description string:
 
     .. code-block:: python
 
-        pbar = brainstate.compile.ProgressBar(desc="Running 1000 iterations")
-        results = brainstate.compile.for_loop(loop_fn, xs, pbar=pbar)
+        >>> pbar = brainstate.transform.ProgressBar(desc="Running 1000 iterations")
+        >>> results = brainstate.transform.for_loop(loop_fn, xs, pbar=pbar)
 
     With frequency control:
 
     .. code-block:: python
 
-        # Update every 10 iterations
-        pbar = brainstate.compile.ProgressBar(freq=10)
-        results = brainstate.compile.for_loop(loop_fn, xs, pbar=pbar)
-
-        # Update exactly 20 times during execution
-        pbar = brainstate.compile.ProgressBar(count=20)
-        results = brainstate.compile.for_loop(loop_fn, xs, pbar=pbar)
+        >>> # Update every 10 iterations
+        >>> pbar = brainstate.transform.ProgressBar(freq=10)
+        >>> results = brainstate.transform.for_loop(loop_fn, xs, pbar=pbar)
+        >>>
+        >>> # Update exactly 20 times during execution
+        >>> pbar = brainstate.transform.ProgressBar(count=20)
+        >>> results = brainstate.transform.for_loop(loop_fn, xs, pbar=pbar)
 
     With dynamic description based on loop variables:
 
     .. code-block:: python
 
-        state = brainstate.State(1.0)
-
-        def loop_fn(x):
-            state.value += x
-            loss = jnp.sum(x ** 2)
-            return loss
-
-        def format_desc(data):
-            return {"i": data["i"], "loss": data["y"], "state": data["carry"]}
-
-        pbar = brainstate.compile.ProgressBar(
-            desc=("Iteration {i}, loss = {loss:.4f}, state = {state:.2f}", format_desc)
-        )
-        results = brainstate.compile.for_loop(loop_fn, xs, pbar=pbar)
+        >>> state = brainstate.State(1.0)
+        >>>
+        >>> def loop_fn(x):
+        ...     state.value += x
+        ...     loss = jnp.sum(x ** 2)
+        ...     return loss
+        >>>
+        >>> def format_desc(data):
+        ...     return {"i": data["i"], "loss": data["y"], "state": data["carry"]}
+        >>>
+        >>> pbar = brainstate.transform.ProgressBar(
+        ...     desc=("Iteration {i}, loss = {loss:.4f}, state = {state:.2f}", format_desc)
+        ... )
+        >>> results = brainstate.transform.for_loop(loop_fn, xs, pbar=pbar)
 
     With scan function:
 
     .. code-block:: python
 
-        def scan_fn(carry, x):
-            new_carry = carry + x
-            return new_carry, new_carry ** 2
-
-        init_carry = 0.0
-        pbar = brainstate.compile.ProgressBar(freq=5)
-        final_carry, ys = brainstate.compile.scan(scan_fn, init_carry, xs, pbar=pbar)
+        >>> def scan_fn(carry, x):
+        ...     new_carry = carry + x
+        ...     return new_carry, new_carry ** 2
+        >>>
+        >>> init_carry = 0.0
+        >>> pbar = brainstate.transform.ProgressBar(freq=5)
+        >>> final_carry, ys = brainstate.transform.scan(scan_fn, init_carry, xs, pbar=pbar)
     """
     __module__ = "brainstate.compile"
 

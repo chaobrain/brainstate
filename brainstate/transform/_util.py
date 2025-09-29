@@ -119,7 +119,7 @@ def wrap_single_fun_in_multi_branches(
 
         # During compilation, this wrapper allows the function
         # to work with merged state traces from multiple branches
-        sf = brainstate.compile.StatefulFunction(branch_fn)
+        sf = brainstate.transform.StatefulFunction(branch_fn)
         # wrapped_fn = wrap_single_fun_in_multi_branches(sf, merged_trace, read_vals)
     """
     state_ids_belong_to_this_fun = {id(st): st for st in stateful_fun.get_states()}
@@ -211,8 +211,8 @@ def wrap_single_fun_in_multi_branches_while_loop(
 
         # During compilation, this wrapper allows the functions
         # to work with merged state traces in while loops
-        sf_cond = brainstate.compile.StatefulFunction(cond_fn)
-        sf_body = brainstate.compile.StatefulFunction(body_fn)
+        sf_cond = brainstate.transform.StatefulFunction(cond_fn)
+        sf_body = brainstate.transform.StatefulFunction(body_fn)
         # wrapped_cond = wrap_single_fun_in_multi_branches_while_loop(sf_cond, ...)
         # wrapped_body = wrap_single_fun_in_multi_branches_while_loop(sf_body, ...)
     """
@@ -301,13 +301,13 @@ def wrap_single_fun(
 
         # During compilation, this wrapper allows the function
         # to work properly in scan operations
-        sf = brainstate.compile.StatefulFunction(scan_fn)
+        sf = brainstate.transform.StatefulFunction(scan_fn)
         # wrapped_fn = wrap_single_fun(sf, been_written_flags, read_values)
 
         # The wrapped function handles state management automatically
         xs = jnp.arange(5.0)
         init_carry = 0.0
-        final_carry, ys = brainstate.compile.scan(scan_fn, init_carry, xs)
+        final_carry, ys = brainstate.transform.scan(scan_fn, init_carry, xs)
     """
     @wraps(stateful_fun.fun)
     def wrapped_fun(new_carry, inputs):

@@ -227,40 +227,40 @@ class StatefulFunction(PrettyObject):
 
     .. code-block:: python
 
-        import brainstate
-        import jax.numpy as jnp
-
-        # Create a state
-        state = brainstate.State(jnp.array([1.0, 2.0]))
-
-        def f(x):
-            state.value += x
-            return state.value * 2
-
-        # Create a stateful function
-        sf = brainstate.compile.StatefulFunction(f)
-
-        # Compile and get jaxpr
-        x = jnp.array([0.5, 0.5])
-        sf.make_jaxpr(x)
-
-        # Get states that are read/written
-        states = sf.get_states()
-        read_states = sf.get_read_states()
-        write_states = sf.get_write_states()
+        >>> import brainstate
+        >>> import jax.numpy as jnp
+        >>>
+        >>> # Create a state
+        >>> state = brainstate.State(jnp.array([1.0, 2.0]))
+        >>>
+        >>> def f(x):
+        ...     state.value += x
+        ...     return state.value * 2
+        >>>
+        >>> # Create a stateful function
+        >>> sf = brainstate.transform.StatefulFunction(f)
+        >>>
+        >>> # Compile and get jaxpr
+        >>> x = jnp.array([0.5, 0.5])
+        >>> sf.make_jaxpr(x)
+        >>>
+        >>> # Get states that are read/written
+        >>> states = sf.get_states()
+        >>> read_states = sf.get_read_states()
+        >>> write_states = sf.get_write_states()
 
     Using with static arguments:
 
     .. code-block:: python
 
-        def g(x, n):
-            state.value = state.value ** n
-            return state.value
-
-        sf_static = brainstate.compile.StatefulFunction(
-            g, static_argnums=(1,)
-        )
-        sf_static.make_jaxpr(x, 2)
+        >>> def g(x, n):
+        ...     state.value = state.value ** n
+        ...     return state.value
+        >>>
+        >>> sf_static = brainstate.transform.StatefulFunction(
+        ...     g, static_argnums=(1,)
+        ... )
+        >>> sf_static.make_jaxpr(x, 2)
     """
     __module__ = "brainstate.compile"
 
@@ -721,43 +721,43 @@ def make_jaxpr(
 
     .. code-block:: python
 
-        import jax
-        import brainstate
-        import jax.numpy as jnp
-
-        def f(x):
-            return jnp.sin(jnp.cos(x))
-
-        # Create jaxpr maker
-        jaxpr_maker = brainstate.compile.make_jaxpr(f)
-        jaxpr, states = jaxpr_maker(3.0)
+        >>> import jax
+        >>> import brainstate
+        >>> import jax.numpy as jnp
+        >>>
+        >>> def f(x):
+        ...     return jnp.sin(jnp.cos(x))
+        >>>
+        >>> # Create jaxpr maker
+        >>> jaxpr_maker = brainstate.transform.make_jaxpr(f)
+        >>> jaxpr, states = jaxpr_maker(3.0)
 
     With gradient:
 
     .. code-block:: python
 
-        jaxpr_grad_maker = brainstate.compile.make_jaxpr(jax.grad(f))
-        jaxpr, states = jaxpr_grad_maker(3.0)
+        >>> jaxpr_grad_maker = brainstate.transform.make_jaxpr(jax.grad(f))
+        >>> jaxpr, states = jaxpr_grad_maker(3.0)
 
     With shape information:
 
     .. code-block:: python
 
-        jaxpr_maker_with_shape = brainstate.compile.make_jaxpr(f, return_shape=True)
-        jaxpr, states, shapes = jaxpr_maker_with_shape(3.0)
+        >>> jaxpr_maker_with_shape = brainstate.transform.make_jaxpr(f, return_shape=True)
+        >>> jaxpr, states, shapes = jaxpr_maker_with_shape(3.0)
 
     With stateful function:
 
     .. code-block:: python
 
-        state = brainstate.State(jnp.array([1.0, 2.0]))
-
-        def stateful_f(x):
-            state.value += x
-            return state.value
-
-        jaxpr_maker = brainstate.compile.make_jaxpr(stateful_f)
-        jaxpr, states = jaxpr_maker(jnp.array([0.5, 0.5]))
+        >>> state = brainstate.State(jnp.array([1.0, 2.0]))
+        >>>
+        >>> def stateful_f(x):
+        ...     state.value += x
+        ...     return state.value
+        >>>
+        >>> jaxpr_maker = brainstate.transform.make_jaxpr(stateful_f)
+        >>> jaxpr, states = jaxpr_maker(jnp.array([0.5, 0.5]))
     """
 
     stateful_fun = StatefulFunction(
@@ -916,7 +916,7 @@ def _make_jaxpr(
     @wraps(fun)
     @api_boundary
     def make_jaxpr_f(*args, **kwargs):
-        f = wrap_init(fun, (), {}, 'brainstate.compile.make_jaxpr')
+        f = wrap_init(fun, (), {}, 'brainstate.transform.make_jaxpr')
         if static_argnums:
             dyn_argnums = [i for i in range(len(args)) if i not in static_argnums]
             f, args = jax.api_util.argnums_partial(f, dyn_argnums, args)

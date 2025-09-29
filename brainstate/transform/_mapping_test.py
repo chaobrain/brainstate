@@ -197,7 +197,7 @@ class TestVmap(unittest.TestCase):
         def mul():
             foo()
 
-        @brainstate.compile.jit
+        @brainstate.transform.jit
         def mul_jit(inp):
             mul()
             foo.a.value += inp
@@ -235,7 +235,7 @@ class TestVmap(unittest.TestCase):
         def mul():
             foo()
 
-        @brainstate.compile.jit
+        @brainstate.transform.jit
         def mul_jit(inp):
             mul()
             foo.b.value += inp

@@ -46,13 +46,13 @@ class RngRestore(PrettyObject):
     --------
     .. code-block:: python
 
-        import brainstate
-
-        rng = brainstate.random.RandomState(0)
-        restorer = brainstate.augment.RngRestore([rng])
-        restorer.backup()
-        _ = rng.random()
-        restorer.restore()
+        >>> import brainstate
+        >>>
+        >>> rng = brainstate.random.RandomState(0)
+        >>> restorer = brainstate.augment.RngRestore([rng])
+        >>> restorer.backup()
+        >>> _ = rng.random()
+        >>> restorer.restore()
     """
 
     def __init__(self, rngs: Sequence[RandomState]):
@@ -145,17 +145,17 @@ def restore_rngs(
     --------
     .. code-block:: python
 
-        import brainstate
-
-        rng = brainstate.random.RandomState(0)
-
-        @brainstate.augment.restore_rngs(rngs=rng)
-        def sample_pair():
-            first = rng.random()
-            second = rng.random()
-            return first, second
-
-        assert sample_pair()[0] == sample_pair()[0]
+        >>> import brainstate
+        >>>
+        >>> rng = brainstate.random.RandomState(0)
+        >>>
+        >>> @brainstate.augment.restore_rngs(rngs=rng)
+        ... def sample_pair():
+        ...     first = rng.random()
+        ...     second = rng.random()
+        ...     return first, second
+        >>>
+        >>> assert sample_pair()[0] == sample_pair()[0]
     """
     if isinstance(fn, Missing):
         return functools.partial(restore_rngs, rngs=rngs)
