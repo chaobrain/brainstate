@@ -135,3 +135,6 @@ html_theme_options = {
 autodoc_default_options = {
     'exclude-members': '....,default_rng',
 }
+napoleon_google_docstring = True
+napoleon_numpy_docstring = True
+
