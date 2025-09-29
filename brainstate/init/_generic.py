@@ -17,7 +17,7 @@
 
 from typing import Union, Callable, Optional, Sequence
 
-import brainunit as bu
+import brainunit as u
 import jax
 import numpy as np
 
@@ -34,7 +34,7 @@ __all__ = [
 
 
 def _is_scalar(x):
-    return bu.math.isscalar(x)
+    return u.math.isscalar(x)
 
 
 def are_broadcastable_shapes(shape1, shape2):
@@ -79,7 +79,7 @@ def _expand_params_to_match_sizes(params, sizes):
 
     # Add new axes to params if it has fewer dimensions than sizes
     for _ in range(dim_diff):
-        params = bu.math.expand_dims(params, axis=0)  # Add new axis at the last dimension
+        params = u.math.expand_dims(params, axis=0)  # Add new axis at the last dimension
     return params
 
 
@@ -139,7 +139,7 @@ def param(
         if batch_size is not None:
             sizes = (batch_size,) + sizes
         return parameter(sizes)
-    elif isinstance(parameter, (np.ndarray, jax.Array, bu.Quantity, State)):
+    elif isinstance(parameter, (np.ndarray, jax.Array, u.Quantity, State)):
         parameter = parameter
     else:
         raise ValueError(f'Unknown parameter type: {type(parameter)}')
@@ -154,8 +154,8 @@ def param(
         if param_value.ndim <= len(sizes):
             # add a new axis to the params so that it matches the dimensionality of the given shape ``sizes``
             param_value = _expand_params_to_match_sizes(param_value, sizes)
-            param_value = bu.math.repeat(
-                bu.math.expand_dims(param_value, axis=0),
+            param_value = u.math.repeat(
+                u.math.expand_dims(param_value, axis=0),
                 batch_size,
                 axis=0
             )
@@ -186,13 +186,13 @@ def state(
 
     else:
         if sizes is not None:
-            if bu.math.shape(init) != sizes:
-                raise ValueError(f'The shape of "data" {bu.math.shape(init)} does not match with "var_shape" {sizes}')
+            if u.math.shape(init) != sizes:
+                raise ValueError(f'The shape of "data" {u.math.shape(init)} does not match with "var_shape" {sizes}')
         if isinstance(batch_size, int):
             batch_size = batch_size
             data = State(
-                bu.math.repeat(
-                    bu.math.expand_dims(init, axis=0),
+                u.math.repeat(
+                    u.math.expand_dims(init, axis=0),
                     batch_size,
                     axis=0
                 )

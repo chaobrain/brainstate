@@ -68,16 +68,16 @@ def hashable(x):
     --------
     .. code-block:: python
 
-        import brainstate
-
-        # Hashable objects
-        assert brainstate.mixin.hashable(42) == True
-        assert brainstate.mixin.hashable("string") == True
-        assert brainstate.mixin.hashable((1, 2, 3)) == True
-
-        # Non-hashable objects
-        assert brainstate.mixin.hashable([1, 2, 3]) == False
-        assert brainstate.mixin.hashable({"key": "value"}) == False
+        >>> import brainstate
+        >>>
+        >>> # Hashable objects
+        >>> assert brainstate.mixin.hashable(42) == True
+        >>> assert brainstate.mixin.hashable("string") == True
+        >>> assert brainstate.mixin.hashable((1, 2, 3)) == True
+        >>>
+        >>> # Non-hashable objects
+        >>> assert brainstate.mixin.hashable([1, 2, 3]) == False
+        >>> assert brainstate.mixin.hashable({"key": "value"}) == False
     """
     try:
         hash(x)
@@ -106,22 +106,22 @@ class Mixin(object):
 
     .. code-block:: python
 
-        import brainstate
+        >>> import brainstate
+        >>>
+        >>> class LoggingMixin(brainstate.mixin.Mixin):
+        ...     def log(self, message):
+        ...         print(f"[{self.__class__.__name__}] {message}")
 
-        class LoggingMixin(brainstate.mixin.Mixin):
-            def log(self, message):
-                print(f"[{self.__class__.__name__}] {message}")
-
-        class MyComponent(brainstate.nn.Module, LoggingMixin):
-            def __init__(self):
-                super().__init__()
-
-            def process(self):
-                self.log("Processing data...")
-                return "Done"
-
-        component = MyComponent()
-        component.process()  # Prints: [MyComponent] Processing data...
+        >>> class MyComponent(brainstate.nn.Module, LoggingMixin):
+        ...     def __init__(self):
+        ...         super().__init__()
+        ...
+        ...     def process(self):
+        ...         self.log("Processing data...")
+        ...         return "Done"
+        >>>
+        >>> component = MyComponent()
+        >>> component.process()  # Prints: [MyComponent] Processing data...
     """
     pass
 
@@ -150,36 +150,36 @@ class ParamDesc(Mixin):
 
     .. code-block:: python
 
-        import brainstate
-
-        class NeuronModel(brainstate.mixin.ParamDesc):
-            def __init__(self, size, tau=10.0, threshold=1.0):
-                self.size = size
-                self.tau = tau
-                self.threshold = threshold
-
-        # Create a parameter descriptor
-        neuron_desc = NeuronModel.desc(size=100, tau=20.0)
-
-        # Use the descriptor to create instances
-        neuron1 = neuron_desc(threshold=0.8)  # Creates with threshold=0.8
-        neuron2 = neuron_desc(threshold=1.2)  # Creates with threshold=1.2
-
-        # Both neurons share size=100, tau=20.0 but have different thresholds
+        >>> import brainstate
+        >>>
+        >>> class NeuronModel(brainstate.mixin.ParamDesc):
+        ...     def __init__(self, size, tau=10.0, threshold=1.0):
+        ...         self.size = size
+        ...         self.tau = tau
+        ...         self.threshold = threshold
+        >>>
+        >>> # Create a parameter descriptor
+        >>> neuron_desc = NeuronModel.desc(size=100, tau=20.0)
+        >>>
+        >>> # Use the descriptor to create instances
+        >>> neuron1 = neuron_desc(threshold=0.8)  # Creates with threshold=0.8
+        >>> neuron2 = neuron_desc(threshold=1.2)  # Creates with threshold=1.2
+        >>>
+        >>> # Both neurons share size=100, tau=20.0 but have different thresholds
 
     Creating reusable templates:
 
     .. code-block:: python
 
-        # Define a template for excitatory neurons
-        exc_neuron_template = NeuronModel.desc(size=1000, tau=10.0, threshold=1.0)
-
-        # Define a template for inhibitory neurons
-        inh_neuron_template = NeuronModel.desc(size=250, tau=5.0, threshold=0.5)
-
-        # Create multiple instances from templates
-        exc_population = [exc_neuron_template() for _ in range(5)]
-        inh_population = [inh_neuron_template() for _ in range(2)]
+        >>> # Define a template for excitatory neurons
+        >>> exc_neuron_template = NeuronModel.desc(size=1000, tau=10.0, threshold=1.0)
+        >>>
+        >>> # Define a template for inhibitory neurons
+        >>> inh_neuron_template = NeuronModel.desc(size=250, tau=5.0, threshold=0.5)
+        >>>
+        >>> # Create multiple instances from templates
+        >>> exc_population = [exc_neuron_template() for _ in range(5)]
+        >>> inh_population = [inh_neuron_template() for _ in range(2)]
     """
 
     # Optional list of parameter names that are not hashable
@@ -227,19 +227,19 @@ class HashableDict(dict):
     --------
     .. code-block:: python
 
-        import brainstate
-        import jax.numpy as jnp
-
-        # Regular dict with non-hashable values cannot be hashed
-        regular_dict = {"array": jnp.array([1, 2, 3]), "value": 42}
-        # hash(regular_dict)  # This would raise TypeError
-
-        # HashableDict can be hashed
-        hashable = brainstate.mixin.HashableDict(regular_dict)
-        key = hash(hashable)  # This works!
-
-        # Can be used in sets or as dict keys
-        cache = {hashable: "result"}
+        >>> import brainstate
+        >>> import jax.numpy as jnp
+        >>>
+        >>> # Regular dict with non-hashable values cannot be hashed
+        >>> regular_dict = {"array": jnp.array([1, 2, 3]), "value": 42}
+        >>> # hash(regular_dict)  # This would raise TypeError
+        >>>
+        >>> # HashableDict can be hashed
+        >>> hashable = brainstate.mixin.HashableDict(regular_dict)
+        >>> key = hash(hashable)  # This works!
+        >>>
+        >>> # Can be used in sets or as dict keys
+        >>> cache = {hashable: "result"}
     """
 
     def __init__(self, the_dict: dict):
@@ -320,34 +320,34 @@ class ParamDescriber(metaclass=NoSubclassMeta):
 
     .. code-block:: python
 
-        import brainstate
-
-        class Network:
-            def __init__(self, n_neurons, learning_rate=0.01):
-                self.n_neurons = n_neurons
-                self.learning_rate = learning_rate
-
-        # Create a descriptor
-        network_desc = brainstate.mixin.ParamDescriber(
-            Network, n_neurons=1000, learning_rate=0.001
-        )
-
-        # Use the descriptor to create instances with additional args
-        net1 = network_desc()
-        net2 = network_desc()  # Same configuration
+        >>> import brainstate
+        >>>
+        >>> class Network:
+        ...     def __init__(self, n_neurons, learning_rate=0.01):
+        ...         self.n_neurons = n_neurons
+        ...         self.learning_rate = learning_rate
+        >>>
+        >>> # Create a descriptor
+        >>> network_desc = brainstate.mixin.ParamDescriber(
+        ...     Network, n_neurons=1000, learning_rate=0.001
+        ... )
+        >>>
+        >>> # Use the descriptor to create instances with additional args
+        >>> net1 = network_desc()
+        >>> net2 = network_desc()  # Same configuration
 
     Using with ParamDesc mixin:
 
     .. code-block:: python
 
-        class Network(brainstate.mixin.ParamDesc):
-            def __init__(self, n_neurons, learning_rate=0.01):
-                self.n_neurons = n_neurons
-                self.learning_rate = learning_rate
-
-        # More concise syntax using the desc() classmethod
-        network_desc = Network.desc(n_neurons=1000)
-        net = network_desc(learning_rate=0.005)  # Override learning_rate
+        >>> class Network(brainstate.mixin.ParamDesc):
+        ...     def __init__(self, n_neurons, learning_rate=0.01):
+        ...         self.n_neurons = n_neurons
+        ...         self.learning_rate = learning_rate
+        >>>
+        >>> # More concise syntax using the desc() classmethod
+        >>> network_desc = Network.desc(n_neurons=1000)
+        >>> net = network_desc(learning_rate=0.005)  # Override learning_rate
     """
 
     def __init__(self, cls: T, *desc_tuple, **desc_dict):
@@ -486,39 +486,39 @@ class AlignPost(Mixin):
 
     .. code-block:: python
 
-        import brainstate
-        import jax.numpy as jnp
-
-        class Synapse(brainstate.mixin.AlignPost):
-            def __init__(self, weight):
-                self.weight = weight
-                self.post_current = brainstate.State(0.0)
-
-            def align_post_input_add(self, current):
-                # Accumulate the weighted current into post-synaptic target
-                self.post_current.value += current * self.weight
-
-        # Usage
-        synapse = Synapse(weight=0.5)
-        synapse.align_post_input_add(10.0)
-        print(synapse.post_current.value)  # Output: 5.0
+        >>> import brainstate
+        >>> import jax.numpy as jnp
+        >>>
+        >>> class Synapse(brainstate.mixin.AlignPost):
+        ...     def __init__(self, weight):
+        ...         self.weight = weight
+        ...         self.post_current = brainstate.State(0.0)
+        ...
+        ...     def align_post_input_add(self, current):
+        ...         # Accumulate the weighted current into post-synaptic target
+        ...         self.post_current.value += current * self.weight
+        >>>
+        >>> # Usage
+        >>> synapse = Synapse(weight=0.5)
+        >>> synapse.align_post_input_add(10.0)
+        >>> print(synapse.post_current.value)  # Output: 5.0
 
     Using with neural populations:
 
     .. code-block:: python
 
-        class NeuronGroup(brainstate.mixin.AlignPost):
-            def __init__(self, size):
-                self.size = size
-                self.input_current = brainstate.State(jnp.zeros(size))
-
-            def align_post_input_add(self, current):
-                # Add external current to neurons
-                self.input_current.value = self.input_current.value + current
-
-        neurons = NeuronGroup(100)
-        external_input = jnp.ones(100) * 0.5
-        neurons.align_post_input_add(external_input)
+        >>> class NeuronGroup(brainstate.mixin.AlignPost):
+        ...     def __init__(self, size):
+        ...         self.size = size
+        ...         self.input_current = brainstate.State(jnp.zeros(size))
+        ...
+        ...     def align_post_input_add(self, current):
+        ...         # Add external current to neurons
+        ...         self.input_current.value = self.input_current.value + current
+        >>>
+        >>> neurons = NeuronGroup(100)
+        >>> external_input = jnp.ones(100) * 0.5
+        >>> neurons.align_post_input_add(external_input)
     """
 
     def align_post_input_add(self, *args, **kwargs):
@@ -559,49 +559,49 @@ class BindCondData(Mixin):
 
     .. code-block:: python
 
-        import brainstate
-        import jax.numpy as jnp
-
-        class ConductanceBasedSynapse(brainstate.mixin.BindCondData):
-            def __init__(self):
-                self._conductance = None
-
-            def compute(self, pre_spike):
-                if pre_spike:
-                    # Bind conductance data temporarily
-                    self.bind_cond(0.5)
-
-                # Use conductance if available
-                if self._conductance is not None:
-                    current = self._conductance * (0.0 - (-70.0))
-                    # Clear after use
-                    self.unbind_cond()
-                    return current
-                return 0.0
-
-        synapse = ConductanceBasedSynapse()
-        current = synapse.compute(pre_spike=True)
+        >>> import brainstate
+        >>> import jax.numpy as jnp
+        >>>
+        >>> class ConductanceBasedSynapse(brainstate.mixin.BindCondData):
+        ...     def __init__(self):
+        ...         self._conductance = None
+        ...
+        ...     def compute(self, pre_spike):
+        ...         if pre_spike:
+        ...             # Bind conductance data temporarily
+        ...             self.bind_cond(0.5)
+        ...
+        ...         # Use conductance if available
+        ...         if self._conductance is not None:
+        ...             current = self._conductance * (0.0 - (-70.0))
+        ...             # Clear after use
+        ...             self.unbind_cond()
+        ...             return current
+        ...         return 0.0
+        >>>
+        >>> synapse = ConductanceBasedSynapse()
+        >>> current = synapse.compute(pre_spike=True)
 
     Managing conductance in a network:
 
     .. code-block:: python
 
-        class SynapticConnection(brainstate.mixin.BindCondData):
-            def __init__(self, g_max):
-                self.g_max = g_max
-                self._conductance = None
-
-            def prepare_conductance(self, activation):
-                # Bind conductance based on activation
-                g = self.g_max * activation
-                self.bind_cond(g)
-
-            def apply_conductance(self, voltage):
-                if self._conductance is not None:
-                    current = self._conductance * voltage
-                    self.unbind_cond()
-                    return current
-                return 0.0
+        >>> class SynapticConnection(brainstate.mixin.BindCondData):
+        ...     def __init__(self, g_max):
+        ...         self.g_max = g_max
+        ...         self._conductance = None
+        ...
+        ...     def prepare_conductance(self, activation):
+        ...         # Bind conductance based on activation
+        ...         g = self.g_max * activation
+        ...         self.bind_cond(g)
+        ...
+        ...     def apply_conductance(self, voltage):
+        ...         if self._conductance is not None:
+        ...             current = self._conductance * voltage
+        ...             self.unbind_cond()
+        ...             return current
+        ...         return 0.0
     """
     # Attribute to store temporary conductance data
     _conductance: Optional
@@ -645,18 +645,18 @@ def not_implemented(func):
     --------
     .. code-block:: python
 
-        import brainstate
-
-        class BaseModel:
-            @brainstate.mixin.not_implemented
-            def process(self, x):
-                pass
-
-        model = BaseModel()
-        # model.process(10)  # Raises: NotImplementedError: process is not implemented.
-
-        # Check if a method is not implemented
-        assert hasattr(BaseModel.process, 'not_implemented')
+        >>> import brainstate
+        >>>
+        >>> class BaseModel:
+        ...     @brainstate.mixin.not_implemented
+        ...     def process(self, x):
+        ...         pass
+        >>>
+        >>> model = BaseModel()
+        >>> # model.process(10)  # Raises: NotImplementedError: process is not implemented.
+        >>>
+        >>> # Check if a method is not implemented
+        >>> assert hasattr(BaseModel.process, 'not_implemented')
     """
 
     def wrapper(*args, **kwargs):
@@ -734,47 +734,47 @@ def JointTypes(*types):
 
     .. code-block:: python
 
-        import brainstate
-        from typing import Protocol
-
-        class Trainable(Protocol):
-            def train(self): ...
-
-        class Evaluable(Protocol):
-            def evaluate(self): ...
-
-        # A model that is both trainable and evaluable
-        TrainableEvaluableModel = brainstate.mixin.JointTypes(Trainable, Evaluable)
-
-        class NeuralNetwork(Trainable, Evaluable):
-            def train(self):
-                return "Training..."
-
-            def evaluate(self):
-                return "Evaluating..."
-
-        model = NeuralNetwork()
-        # model satisfies JointTypes(Trainable, Evaluable)
+        >>> import brainstate
+        >>> from typing import Protocol
+        >>>
+        >>> class Trainable(Protocol):
+        ...     def train(self): ...
+        >>>
+        >>> class Evaluable(Protocol):
+        ...     def evaluate(self): ...
+        >>>
+        >>> # A model that is both trainable and evaluable
+        >>> TrainableEvaluableModel = brainstate.mixin.JointTypes(Trainable, Evaluable)
+        >>>
+        >>> class NeuralNetwork(Trainable, Evaluable):
+        ...     def train(self):
+        ...         return "Training..."
+        ...
+        ...     def evaluate(self):
+        ...         return "Evaluating..."
+        >>>
+        >>> model = NeuralNetwork()
+        >>> # model satisfies JointTypes(Trainable, Evaluable)
 
     Using with mixin classes:
 
     .. code-block:: python
 
-        class Serializable:
-            def save(self): pass
-
-        class Visualizable:
-            def plot(self): pass
-
-        # Require both serialization and visualization
-        FullFeaturedModel = brainstate.mixin.JointTypes(Serializable, Visualizable)
-
-        class MyModel(Serializable, Visualizable):
-            def save(self):
-                return "Saved"
-
-            def plot(self):
-                return "Plotted"
+        >>> class Serializable:
+        ...     def save(self): pass
+        >>>
+        >>> class Visualizable:
+        ...     def plot(self): pass
+        >>>
+        >>> # Require both serialization and visualization
+        >>> FullFeaturedModel = brainstate.mixin.JointTypes(Serializable, Visualizable)
+        >>>
+        >>> class MyModel(Serializable, Visualizable):
+        ...     def save(self):
+        ...         return "Saved"
+        ...
+        ...     def plot(self):
+        ...         return "Plotted"
     """
     if len(types) == 0:
         raise TypeError("Cannot create a JointTypes of no types.")
@@ -832,48 +832,48 @@ def OneOfTypes(*types):
 
     .. code-block:: python
 
-        import brainstate
-
-        # A parameter that can be int or float
-        NumericType = brainstate.mixin.OneOfTypes(int, float)
-
-        def process_value(x: NumericType):
-            return x * 2
-
-        # Both work
-        result1 = process_value(5)      # int
-        result2 = process_value(3.14)   # float
+        >>> import brainstate
+        >>>
+        >>> # A parameter that can be int or float
+        >>> NumericType = brainstate.mixin.OneOfTypes(int, float)
+        >>>
+        >>> def process_value(x: NumericType):
+        ...     return x * 2
+        >>>
+        >>> # Both work
+        >>> result1 = process_value(5)      # int
+        >>> result2 = process_value(3.14)   # float
 
     Using with class types:
 
     .. code-block:: python
 
-        class NumpyArray:
-            pass
-
-        class JAXArray:
-            pass
-
-        # Accept either numpy or JAX arrays
-        ArrayType = brainstate.mixin.OneOfTypes(NumpyArray, JAXArray)
-
-        def compute(arr: ArrayType):
-            if isinstance(arr, NumpyArray):
-                return "Processing numpy array"
-            elif isinstance(arr, JAXArray):
-                return "Processing JAX array"
+        >>> class NumpyArray:
+        ...     pass
+        >>>
+        >>> class JAXArray:
+        ...     pass
+        >>>
+        >>> # Accept either numpy or JAX arrays
+        >>> ArrayType = brainstate.mixin.OneOfTypes(NumpyArray, JAXArray)
+        >>>
+        >>> def compute(arr: ArrayType):
+        ...     if isinstance(arr, NumpyArray):
+        ...         return "Processing numpy array"
+        ...     elif isinstance(arr, JAXArray):
+        ...         return "Processing JAX array"
 
     Combining with None for optional types:
 
     .. code-block:: python
 
-        # Optional string (equivalent to Optional[str])
-        MaybeString = brainstate.mixin.OneOfTypes(str, type(None))
-
-        def format_name(name: MaybeString) -> str:
-            if name is None:
-                return "Anonymous"
-            return name.title()
+        >>> # Optional string (equivalent to Optional[str])
+        >>> MaybeString = brainstate.mixin.OneOfTypes(str, type(None))
+        >>>
+        >>> def format_name(name: MaybeString) -> str:
+        ...     if name is None:
+        ...         return "Anonymous"
+        ...     return name.title()
     """
     if len(types) == 0:
         raise TypeError("Cannot create a OneOfTypes of no types.")
@@ -916,57 +916,57 @@ class Mode(Mixin):
 
     .. code-block:: python
 
-        import brainstate
-
-        class InferenceMode(brainstate.mixin.Mode):
-            def __init__(self, use_cache=True):
-                self.use_cache = use_cache
-
-        # Create mode instances
-        inference = InferenceMode(use_cache=True)
-        print(inference)  # Output: InferenceMode
+        >>> import brainstate
+        >>>
+        >>> class InferenceMode(brainstate.mixin.Mode):
+        ...     def __init__(self, use_cache=True):
+        ...         self.use_cache = use_cache
+        >>>
+        >>> # Create mode instances
+        >>> inference = InferenceMode(use_cache=True)
+        >>> print(inference)  # Output: InferenceMode
 
     Checking mode types:
 
     .. code-block:: python
 
-        class FastMode(brainstate.mixin.Mode):
-            pass
-
-        class SlowMode(brainstate.mixin.Mode):
-            pass
-
-        fast = FastMode()
-        slow = SlowMode()
-
-        # Check exact mode type
-        assert fast.is_a(FastMode)
-        assert not fast.is_a(SlowMode)
-
-        # Check if mode is an instance of a type
-        assert fast.has(brainstate.mixin.Mode)
+        >>> class FastMode(brainstate.mixin.Mode):
+        ...     pass
+        >>>
+        >>> class SlowMode(brainstate.mixin.Mode):
+        ...     pass
+        >>>
+        >>> fast = FastMode()
+        >>> slow = SlowMode()
+        >>>
+        >>> # Check exact mode type
+        >>> assert fast.is_a(FastMode)
+        >>> assert not fast.is_a(SlowMode)
+        >>>
+        >>> # Check if mode is an instance of a type
+        >>> assert fast.has(brainstate.mixin.Mode)
 
     Using modes in a model:
 
     .. code-block:: python
 
-        class Model:
-            def __init__(self):
-                self.mode = brainstate.mixin.Training()
-
-            def forward(self, x):
-                if self.mode.has(brainstate.mixin.Training):
-                    # Training-specific logic
-                    return self.train_forward(x)
-                else:
-                    # Inference logic
-                    return self.eval_forward(x)
-
-            def train_forward(self, x):
-                return x + 0.1  # Add noise during training
-
-            def eval_forward(self, x):
-                return x  # No noise during evaluation
+        >>> class Model:
+        ...     def __init__(self):
+        ...         self.mode = brainstate.mixin.Training()
+        ...
+        ...     def forward(self, x):
+        ...         if self.mode.has(brainstate.mixin.Training):
+        ...             # Training-specific logic
+        ...             return self.train_forward(x)
+        ...         else:
+        ...             # Inference logic
+        ...             return self.eval_forward(x)
+        ...
+        ...     def train_forward(self, x):
+        ...         return x + 0.1  # Add noise during training
+        ...
+        ...     def eval_forward(self, x):
+        ...         return x  # No noise during evaluation
     """
 
     def __repr__(self):
@@ -1017,11 +1017,11 @@ class Mode(Mixin):
         --------
         .. code-block:: python
 
-            import brainstate
-
-            training_mode = brainstate.mixin.Training()
-            assert training_mode.is_a(brainstate.mixin.Training)
-            assert not training_mode.is_a(brainstate.mixin.Batching)
+            >>> import brainstate
+            >>>
+            >>> training_mode = brainstate.mixin.Training()
+            >>> assert training_mode.is_a(brainstate.mixin.Training)
+            >>> assert not training_mode.is_a(brainstate.mixin.Batching)
         """
         assert isinstance(mode, type), 'Must be a type.'
         return self.__class__ == mode
@@ -1047,15 +1047,15 @@ class Mode(Mixin):
         --------
         .. code-block:: python
 
-            import brainstate
-
-            # Create a custom mode that extends Training
-            class AdvancedTraining(brainstate.mixin.Training):
-                pass
-
-            advanced = AdvancedTraining()
-            assert advanced.has(brainstate.mixin.Training)  # True (subclass)
-            assert advanced.has(brainstate.mixin.Mode)      # True (base class)
+            >>> import brainstate
+            >>>
+            >>> # Create a custom mode that extends Training
+            >>> class AdvancedTraining(brainstate.mixin.Training):
+            ...     pass
+            >>>
+            >>> advanced = AdvancedTraining()
+            >>> assert advanced.has(brainstate.mixin.Training)  # True (subclass)
+            >>> assert advanced.has(brainstate.mixin.Mode)      # True (base class)
         """
         assert isinstance(mode, type), 'Must be a type.'
         return isinstance(self, mode)
@@ -1092,50 +1092,50 @@ class JointMode(Mode):
 
     .. code-block:: python
 
-        import brainstate
-
-        # Create individual modes
-        training = brainstate.mixin.Training()
-        batching = brainstate.mixin.Batching(batch_size=32)
-
-        # Combine them
-        joint = brainstate.mixin.JointMode(training, batching)
-        print(joint)  # JointMode(Training, Batching(in_size=32, axis=0))
-
-        # Check if specific modes are present
-        assert joint.has(brainstate.mixin.Training)
-        assert joint.has(brainstate.mixin.Batching)
-
-        # Access attributes from combined modes
-        print(joint.batch_size)  # 32 (from Batching mode)
+        >>> import brainstate
+        >>>
+        >>> # Create individual modes
+        >>> training = brainstate.mixin.Training()
+        >>> batching = brainstate.mixin.Batching(batch_size=32)
+        >>>
+        >>> # Combine them
+        >>> joint = brainstate.mixin.JointMode(training, batching)
+        >>> print(joint)  # JointMode(Training, Batching(in_size=32, axis=0))
+        >>>
+        >>> # Check if specific modes are present
+        >>> assert joint.has(brainstate.mixin.Training)
+        >>> assert joint.has(brainstate.mixin.Batching)
+        >>>
+        >>> # Access attributes from combined modes
+        >>> print(joint.batch_size)  # 32 (from Batching mode)
 
     Using in model configuration:
 
     .. code-block:: python
 
-        class NeuralNetwork:
-            def __init__(self):
-                self.mode = None
-
-            def set_train_mode(self, batch_size=1):
-                # Set both training and batching modes
-                training = brainstate.mixin.Training()
-                batching = brainstate.mixin.Batching(batch_size=batch_size)
-                self.mode = brainstate.mixin.JointMode(training, batching)
-
-            def forward(self, x):
-                if self.mode.has(brainstate.mixin.Training):
-                    x = self.apply_dropout(x)
-
-                if self.mode.has(brainstate.mixin.Batching):
-                    # Process in batches
-                    batch_size = self.mode.batch_size
-                    return self.batch_process(x, batch_size)
-
-                return self.process(x)
-
-        model = NeuralNetwork()
-        model.set_train_mode(batch_size=64)
+        >>> class NeuralNetwork:
+        ...     def __init__(self):
+        ...         self.mode = None
+        ...
+        ...     def set_train_mode(self, batch_size=1):
+        ...         # Set both training and batching modes
+        ...         training = brainstate.mixin.Training()
+        ...         batching = brainstate.mixin.Batching(batch_size=batch_size)
+        ...         self.mode = brainstate.mixin.JointMode(training, batching)
+        ...
+        ...     def forward(self, x):
+        ...         if self.mode.has(brainstate.mixin.Training):
+        ...             x = self.apply_dropout(x)
+        ...
+        ...         if self.mode.has(brainstate.mixin.Batching):
+        ...             # Process in batches
+        ...             batch_size = self.mode.batch_size
+        ...             return self.batch_process(x, batch_size)
+        ...
+        ...         return self.process(x)
+        >>>
+        >>> model = NeuralNetwork()
+        >>> model.set_train_mode(batch_size=64)
     """
 
     def __init__(self, *modes: Mode):
@@ -1179,15 +1179,15 @@ class JointMode(Mode):
         --------
         .. code-block:: python
 
-            import brainstate
-
-            training = brainstate.mixin.Training()
-            batching = brainstate.mixin.Batching(batch_size=16)
-            joint = brainstate.mixin.JointMode(training, batching)
-
-            assert joint.has(brainstate.mixin.Training)
-            assert joint.has(brainstate.mixin.Batching)
-            assert joint.has(brainstate.mixin.Mode)  # Base class
+            >>> import brainstate
+            >>>
+            >>> training = brainstate.mixin.Training()
+            >>> batching = brainstate.mixin.Batching(batch_size=16)
+            >>> joint = brainstate.mixin.JointMode(training, batching)
+            >>>
+            >>> assert joint.has(brainstate.mixin.Training)
+            >>> assert joint.has(brainstate.mixin.Batching)
+            >>> assert joint.has(brainstate.mixin.Mode)  # Base class
         """
         assert isinstance(mode, type), 'Must be a type.'
         # Check if any of the combined mode types is a subclass of the target mode
@@ -1240,15 +1240,15 @@ class JointMode(Mode):
         --------
         .. code-block:: python
 
-            import brainstate
-
-            batching = brainstate.mixin.Batching(batch_size=32, batch_axis=1)
-            training = brainstate.mixin.Training()
-            joint = brainstate.mixin.JointMode(batching, training)
-
-            # Access batching attributes directly
-            print(joint.batch_size)  # 32
-            print(joint.batch_axis)  # 1
+            >>> import brainstate
+            >>>
+            >>> batching = brainstate.mixin.Batching(batch_size=32, batch_axis=1)
+            >>> training = brainstate.mixin.Training()
+            >>> joint = brainstate.mixin.JointMode(batching, training)
+            >>>
+            >>> # Access batching attributes directly
+            >>> print(joint.batch_size)  # 32
+            >>> print(joint.batch_axis)  # 1
         """
         # Don't interfere with accessing modes and types attributes
         if item in ['modes', 'types']:
@@ -1291,63 +1291,63 @@ class Batching(Mode):
 
     .. code-block:: python
 
-        import brainstate
-
-        # Create a batching mode
-        batching = brainstate.mixin.Batching(batch_size=32, batch_axis=0)
-        print(batching)  # Batching(in_size=32, axis=0)
-
-        # Access batch parameters
-        print(f"Processing {batching.batch_size} samples at once")
-        print(f"Batch dimension is axis {batching.batch_axis}")
+        >>> import brainstate
+        >>>
+        >>> # Create a batching mode
+        >>> batching = brainstate.mixin.Batching(batch_size=32, batch_axis=0)
+        >>> print(batching)  # Batching(in_size=32, axis=0)
+        >>>
+        >>> # Access batch parameters
+        >>> print(f"Processing {batching.batch_size} samples at once")
+        >>> print(f"Batch dimension is axis {batching.batch_axis}")
 
     Using in a model:
 
     .. code-block:: python
 
-        import jax.numpy as jnp
-
-        class BatchedModel:
-            def __init__(self):
-                self.mode = None
-
-            def set_batch_mode(self, batch_size, batch_axis=0):
-                self.mode = brainstate.mixin.Batching(batch_size, batch_axis)
-
-            def process(self, x):
-                if self.mode is not None and self.mode.has(brainstate.mixin.Batching):
-                    # Process in batches
-                    batch_size = self.mode.batch_size
-                    axis = self.mode.batch_axis
-                    return jnp.mean(x, axis=axis, keepdims=True)
-                return x
-
-        model = BatchedModel()
-        model.set_batch_mode(batch_size=64)
-
-        # Process batched data
-        data = jnp.random.randn(64, 100)  # 64 samples, 100 features
-        result = model.process(data)
+        >>> import jax.numpy as jnp
+        >>>
+        >>> class BatchedModel:
+        ...     def __init__(self):
+        ...         self.mode = None
+        ...
+        ...     def set_batch_mode(self, batch_size, batch_axis=0):
+        ...         self.mode = brainstate.mixin.Batching(batch_size, batch_axis)
+        ...
+        ...     def process(self, x):
+        ...         if self.mode is not None and self.mode.has(brainstate.mixin.Batching):
+        ...             # Process in batches
+        ...             batch_size = self.mode.batch_size
+        ...             axis = self.mode.batch_axis
+        ...             return jnp.mean(x, axis=axis, keepdims=True)
+        ...         return x
+        >>>
+        >>> model = BatchedModel()
+        >>> model.set_batch_mode(batch_size=64)
+        >>>
+        >>> # Process batched data
+        >>> data = jnp.random.randn(64, 100)  # 64 samples, 100 features
+        >>> result = model.process(data)
 
     Combining with other modes:
 
     .. code-block:: python
 
-        # Combine batching with training mode
-        training = brainstate.mixin.Training()
-        batching = brainstate.mixin.Batching(batch_size=128)
-        combined = brainstate.mixin.JointMode(training, batching)
-
-        # Use in a training loop
-        def train_step(model, data, mode):
-            if mode.has(brainstate.mixin.Batching):
-                # Split data into batches
-                batch_size = mode.batch_size
-                # ... batched processing ...
-            if mode.has(brainstate.mixin.Training):
-                # Apply training-specific operations
-                # ... training logic ...
-            pass
+        >>> # Combine batching with training mode
+        >>> training = brainstate.mixin.Training()
+        >>> batching = brainstate.mixin.Batching(batch_size=128)
+        >>> combined = brainstate.mixin.JointMode(training, batching)
+        >>>
+        >>> # Use in a training loop
+        >>> def train_step(model, data, mode):
+        ...     if mode.has(brainstate.mixin.Batching):
+        ...         # Split data into batches
+        ...         batch_size = mode.batch_size
+        ...         # ... batched processing ...
+        ...     if mode.has(brainstate.mixin.Training):
+        ...         # Apply training-specific operations
+        ...         # ... training logic ...
+        ...     pass
     """
 
     def __init__(self, batch_size: int = 1, batch_axis: int = 0):
@@ -1380,79 +1380,79 @@ class Training(Mode):
 
     .. code-block:: python
 
-        import brainstate
-
-        # Create training mode
-        training = brainstate.mixin.Training()
-        print(training)  # Training
-
-        # Check mode
-        assert training.is_a(brainstate.mixin.Training)
-        assert training.has(brainstate.mixin.Mode)
+        >>> import brainstate
+        >>>
+        >>> # Create training mode
+        >>> training = brainstate.mixin.Training()
+        >>> print(training)  # Training
+        >>>
+        >>> # Check mode
+        >>> assert training.is_a(brainstate.mixin.Training)
+        >>> assert training.has(brainstate.mixin.Mode)
 
     Using in a model with dropout:
 
     .. code-block:: python
 
-        import brainstate
-        import jax
-        import jax.numpy as jnp
-
-        class ModelWithDropout:
-            def __init__(self, dropout_rate=0.5):
-                self.dropout_rate = dropout_rate
-                self.mode = None
-
-            def set_training(self, is_training=True):
-                if is_training:
-                    self.mode = brainstate.mixin.Training()
-                else:
-                    self.mode = brainstate.mixin.Mode()  # Evaluation mode
-
-            def forward(self, x, rng_key):
-                # Apply dropout only during training
-                if self.mode is not None and self.mode.has(brainstate.mixin.Training):
-                    keep_prob = 1.0 - self.dropout_rate
-                    mask = jax.random.bernoulli(rng_key, keep_prob, x.shape)
-                    x = jnp.where(mask, x / keep_prob, 0)
-                return x
-
-        model = ModelWithDropout()
-
-        # Training mode
-        model.set_training(True)
-        key = jax.random.PRNGKey(0)
-        x_train = jnp.ones((10, 20))
-        out_train = model.forward(x_train, key)  # Dropout applied
-
-        # Evaluation mode
-        model.set_training(False)
-        out_eval = model.forward(x_train, key)  # No dropout
+        >>> import brainstate
+        >>> import jax
+        >>> import jax.numpy as jnp
+        >>>
+        >>> class ModelWithDropout:
+        ...     def __init__(self, dropout_rate=0.5):
+        ...         self.dropout_rate = dropout_rate
+        ...         self.mode = None
+        ...
+        ...     def set_training(self, is_training=True):
+        ...         if is_training:
+        ...             self.mode = brainstate.mixin.Training()
+        ...         else:
+        ...             self.mode = brainstate.mixin.Mode()  # Evaluation mode
+        ...
+        ...     def forward(self, x, rng_key):
+        ...         # Apply dropout only during training
+        ...         if self.mode is not None and self.mode.has(brainstate.mixin.Training):
+        ...             keep_prob = 1.0 - self.dropout_rate
+        ...             mask = jax.random.bernoulli(rng_key, keep_prob, x.shape)
+        ...             x = jnp.where(mask, x / keep_prob, 0)
+        ...         return x
+        >>>
+        >>> model = ModelWithDropout()
+        >>>
+        >>> # Training mode
+        >>> model.set_training(True)
+        >>> key = jax.random.PRNGKey(0)
+        >>> x_train = jnp.ones((10, 20))
+        >>> out_train = model.forward(x_train, key)  # Dropout applied
+        >>>
+        >>> # Evaluation mode
+        >>> model.set_training(False)
+        >>> out_eval = model.forward(x_train, key)  # No dropout
 
     Combining with batching:
 
     .. code-block:: python
 
-        # Create combined training and batching mode
-        training = brainstate.mixin.Training()
-        batching = brainstate.mixin.Batching(batch_size=32)
-        mode = brainstate.mixin.JointMode(training, batching)
-
-        # Use in training configuration
-        class Trainer:
-            def __init__(self, model, mode):
-                self.model = model
-                self.mode = mode
-
-            def train_epoch(self, data):
-                if self.mode.has(brainstate.mixin.Training):
-                    # Enable training-specific behaviors
-                    self.model.set_training(True)
-
-                if self.mode.has(brainstate.mixin.Batching):
-                    # Process in batches
-                    batch_size = self.mode.batch_size
-                    # ... batched training loop ...
-                pass
+        >>> # Create combined training and batching mode
+        >>> training = brainstate.mixin.Training()
+        >>> batching = brainstate.mixin.Batching(batch_size=32)
+        >>> mode = brainstate.mixin.JointMode(training, batching)
+        >>>
+        >>> # Use in training configuration
+        >>> class Trainer:
+        ...     def __init__(self, model, mode):
+        ...         self.model = model
+        ...         self.mode = mode
+        ...
+        ...     def train_epoch(self, data):
+        ...         if self.mode.has(brainstate.mixin.Training):
+        ...             # Enable training-specific behaviors
+        ...             self.model.set_training(True)
+        ...
+        ...         if self.mode.has(brainstate.mixin.Batching):
+        ...             # Process in batches
+        ...             batch_size = self.mode.batch_size
+        ...             # ... batched training loop ...
+        ...         pass
     """
     pass
