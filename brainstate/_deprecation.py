@@ -162,7 +162,7 @@ class DeprecatedModule:
 
         # Fallback to replacement module for non-scoped access
         try:
-            return getattr(self._replacement_module, name)
+            return getattr(self.replacement_module, name)
         except AttributeError:
             raise AttributeError(
                 f"Module '{self._deprecated_name}' has no attribute '{name}'. "

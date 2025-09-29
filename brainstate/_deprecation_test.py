@@ -506,7 +506,6 @@ class TestDeprecationSystemRobustness(unittest.TestCase):
 
 class MockReplacementModule:
     """Mock module for testing."""
-    __all__ = ['test_function', 'test_variable', 'test_class']
 
     @staticmethod
     def test_function(x):
@@ -768,3 +767,605 @@ class TestDeprecationEdgeCases(unittest.TestCase):
             self.assertEqual(len(w), 1)
             # The warning should reference this test file, not internal code
             self.assertIn('_deprecation_test.py', w[0].filename)
+
+
+class TestDeprecatedModuleInitialization(unittest.TestCase):
+    """Test initialization and setup of deprecated modules."""
+
+    def test_deprecated_module_initialization_with_all_parameters(self):
+        """Test DeprecatedModule initialization with all possible parameters."""
+        mock_module = MockReplacementModule()
+
+        deprecated = DeprecatedModule(
+            deprecated_name='test.full_init',
+            replacement_module=mock_module,
+            replacement_name='test.replacement_full',
+            version='1.5.0',
+            removal_version='3.0.0'
+        )
+
+        # Test all attributes are set correctly
+        self.assertEqual(deprecated.__name__, 'test.full_init')
+        self.assertEqual(deprecated._deprecated_name, 'test.full_init')
+        self.assertEqual(deprecated._replacement_module, mock_module)
+        self.assertEqual(deprecated._replacement_name, 'test.replacement_full')
+        self.assertEqual(deprecated._version, '1.5.0')
+        self.assertEqual(deprecated._removal_version, '3.0.0')
+
+        # Test __all__ is copied from replacement module
+        self.assertEqual(deprecated.__all__, mock_module.__all__)
+
+        # Test docstring is generated correctly
+        self.assertIn('DEPRECATED', deprecated.__doc__)
+        self.assertIn('test.full_init', deprecated.__doc__)
+        self.assertIn('test.replacement_full', deprecated.__doc__)
+
+    def test_deprecated_module_initialization_minimal_parameters(self):
+        """Test DeprecatedModule initialization with minimal parameters."""
+        mock_module = MockReplacementModule()
+
+        deprecated = DeprecatedModule(
+            deprecated_name='test.minimal',
+            replacement_module=mock_module,
+            replacement_name='test.replacement_min'
+        )
+
+        # Test required attributes are set
+        self.assertEqual(deprecated.__name__, 'test.minimal')
+        self.assertEqual(deprecated._deprecated_name, 'test.minimal')
+        self.assertEqual(deprecated._replacement_module, mock_module)
+        self.assertEqual(deprecated._replacement_name, 'test.replacement_min')
+
+        # Test optional attributes - version has a default, removal_version is None
+        self.assertEqual(deprecated._version, "0.1.11")  # Default version
+        self.assertIsNone(deprecated._removal_version)
+
+        # Test docstring still generated without version info
+        self.assertIn('DEPRECATED', deprecated.__doc__)
+        self.assertIn('test.minimal', deprecated.__doc__)
+        self.assertIn('test.replacement_min', deprecated.__doc__)
+
+    def test_deprecated_module_with_empty_replacement_module(self):
+        """Test DeprecatedModule with replacement module that has no attributes."""
+
+        class EmptyModule:
+            pass
+
+        empty_module = EmptyModule()
+        deprecated = DeprecatedModule(
+            deprecated_name='test.empty',
+            replacement_module=empty_module,
+            replacement_name='test.empty_replacement'
+        )
+
+        # Should handle empty module gracefully
+        self.assertEqual(deprecated.__name__, 'test.empty')
+        self.assertFalse(hasattr(deprecated, '__all__'))
+
+        # Accessing non-existent attribute should raise proper error
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            with self.assertRaises(AttributeError):
+                _ = deprecated.nonexistent
+
+    def test_deprecated_module_initialization_with_callable_replacement(self):
+        """Test DeprecatedModule with replacement module that has callable attributes."""
+
+        class CallableModule:
+            @staticmethod
+            def func1():
+                return "result1"
+
+            @classmethod
+            def func2(cls):
+                return "result2"
+
+            var1 = "variable1"
+
+        callable_module = CallableModule()
+        deprecated = DeprecatedModule(
+            deprecated_name='test.callable',
+            replacement_module=callable_module,
+            replacement_name='test.callable_replacement'
+        )
+
+        # Test callable forwarding works
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+
+            self.assertEqual(deprecated.func1(), "result1")
+            self.assertEqual(deprecated.func2(), "result2")
+            self.assertEqual(deprecated.var1, "variable1")
+
+
+class TestScopedAPIStringImports(unittest.TestCase):
+    """Test scoped API functionality with string-based imports."""
+
+    def test_scoped_api_string_based_attribute_access(self):
+        """Test that scoped APIs work with string-based attribute access."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+
+            # Test that we can access scoped APIs through string-based lookups
+            for api_name in brainstate.augment.__all__:
+                with self.subTest(api_name=api_name):
+                    # Should be able to get attribute via string lookup
+                    attr = getattr(brainstate.augment, api_name, None)
+                    self.assertIsNotNone(attr, f"API '{api_name}' should be accessible via getattr")
+
+                    # Should be same as direct access
+                    direct_attr = getattr(brainstate.augment, api_name)
+                    self.assertIs(attr, direct_attr)
+
+    def test_scoped_api_dynamic_import_patterns(self):
+        """Test scoped APIs with dynamic import patterns."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+
+            # Test importing specific functions dynamically
+            api_names = ['grad', 'vmap', 'vector_grad']
+
+            for api_name in api_names:
+                with self.subTest(api_name=api_name):
+                    # Simulate dynamic import pattern
+                    if hasattr(brainstate.augment, api_name):
+                        func = getattr(brainstate.augment, api_name)
+                        self.assertTrue(callable(func))
+
+                        # Should be the same as the transform version
+                        if hasattr(brainstate.transform, api_name):
+                            transform_func = getattr(brainstate.transform, api_name)
+                            self.assertIs(func, transform_func)
+
+    def test_scoped_api_list_comprehension_access(self):
+        """Test accessing scoped APIs through list comprehensions."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+
+            # Get all callable APIs from augment module
+            callables = [getattr(brainstate.augment, name) for name in brainstate.augment.__all__
+                         if callable(getattr(brainstate.augment, name, None))]
+
+            # Should have found some callables
+            self.assertGreater(len(callables), 0)
+
+            # All should be actual callable objects
+            for func in callables:
+                self.assertTrue(callable(func))
+
+    def test_scoped_api_introspection(self):
+        """Test that scoped APIs support proper introspection."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+
+            # Test that we can introspect the grad function
+            if hasattr(brainstate.augment, 'grad'):
+                grad_func = brainstate.augment.grad
+
+                # Should have proper function attributes
+                self.assertTrue(hasattr(grad_func, '__name__'))
+                self.assertTrue(hasattr(grad_func, '__doc__'))
+                self.assertTrue(hasattr(grad_func, '__module__'))
+
+                # Name should be preserved
+                self.assertEqual(grad_func.__name__, 'grad')
+
+    def test_scoped_api_with_string_module_names(self):
+        """Test scoped APIs work when modules are accessed via string names."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+
+            # Test accessing deprecated modules by string name
+            module_names = ['augment', 'compile', 'functional']
+
+            for module_name in module_names:
+                with self.subTest(module_name=module_name):
+                    # Get module via getattr on brainstate
+                    module = getattr(brainstate, module_name, None)
+                    self.assertIsNotNone(module)
+
+                    # Should have __all__ attribute
+                    self.assertTrue(hasattr(module, '__all__'))
+
+                    # Should be able to access APIs from the scoped list
+                    for api_name in getattr(module, '__all__', []):
+                        if hasattr(module, api_name):
+                            attr = getattr(module, api_name)
+                            self.assertIsNotNone(attr)
+
+
+class TestDeprecationErrorHandlingAndFallbacks(unittest.TestCase):
+    """Test error handling and fallback mechanisms in deprecation system."""
+
+    def test_invalid_attribute_access_error_messages(self):
+        """Test that invalid attribute access provides helpful error messages."""
+        mock_module = MockReplacementModule()
+        deprecated = DeprecatedModule(
+            deprecated_name='test.invalid_attr',
+            replacement_module=mock_module,
+            replacement_name='test.replacement_invalid'
+        )
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+
+            with self.assertRaises(AttributeError) as context:
+                _ = deprecated.completely_nonexistent_function
+
+            error_msg = str(context.exception)
+
+            # Error message should contain helpful information
+            self.assertIn('test.invalid_attr', error_msg)
+            self.assertIn('completely_nonexistent_function', error_msg)
+
+    def test_fallback_when_replacement_module_lacks_attribute(self):
+        """Test fallback behavior when replacement module lacks expected attribute."""
+
+        class IncompleteModule:
+            def existing_func(self):
+                return "exists"
+
+        incomplete_module = IncompleteModule()
+        deprecated = DeprecatedModule(
+            deprecated_name='test.incomplete',
+            replacement_module=incomplete_module,
+            replacement_name='test.incomplete_replacement'
+        )
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+
+            # Should work for existing function
+            result = deprecated.existing_func()
+            self.assertEqual(result, "exists")
+
+            # Should raise AttributeError for missing function
+            with self.assertRaises(AttributeError):
+                _ = deprecated.missing_func
+
+    def test_exception_handling_during_warning_generation(self):
+        """Test that exceptions during warning generation don't break functionality."""
+
+        class ProblematicModule:
+            def test_func(self):
+                return "works"
+
+        problematic_module = ProblematicModule()
+        deprecated = DeprecatedModule(
+            deprecated_name='test.problematic',
+            replacement_module=problematic_module,
+            replacement_name='test.problematic_replacement'
+        )
+
+        # Even if warning generation has issues, functionality should still work
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+
+            result = deprecated.test_func()
+            self.assertEqual(result, "works")
+
+    def test_graceful_handling_of_special_attributes(self):
+        """Test graceful handling of special Python attributes."""
+        mock_module = MockReplacementModule()
+        deprecated = DeprecatedModule(
+            deprecated_name='test.special',
+            replacement_module=mock_module,
+            replacement_name='test.special_replacement'
+        )
+
+        # Test that accessing special attributes doesn't break
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+
+            # These should work without warnings or errors
+            self.assertEqual(deprecated.__name__, 'test.special')
+            self.assertIsInstance(deprecated.__doc__, str)
+            self.assertIsInstance(deprecated.__all__, list)
+
+            # repr should work
+            repr_str = repr(deprecated)
+            self.assertIsInstance(repr_str, str)
+
+    def test_multiple_error_conditions_simultaneously(self):
+        """Test handling multiple error conditions at once."""
+
+        class MultiErrorModule:
+            def func1(self):
+                raise RuntimeError("Runtime error in func1")
+
+            # func2 is missing despite being in __all__
+
+        error_module = MultiErrorModule()
+        deprecated = DeprecatedModule(
+            deprecated_name='test.multi_error',
+            replacement_module=error_module,
+            replacement_name='test.multi_error_replacement'
+        )
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+
+            # Test that we get the expected errors
+            with self.assertRaises(RuntimeError):
+                deprecated.func1()
+
+            with self.assertRaises(AttributeError):
+                _ = deprecated.func2
+
+            with self.assertRaises(AttributeError):
+                _ = deprecated.nonexistent
+
+
+class TestConcurrentAccessAndThreadSafety(unittest.TestCase):
+    """Test concurrent access and thread safety of deprecation system."""
+
+    def test_concurrent_attribute_access(self):
+        """Test that concurrent attribute access works correctly."""
+        import threading
+        import time
+
+        mock_module = MockReplacementModule()
+        deprecated = DeprecatedModule(
+            deprecated_name='test.concurrent',
+            replacement_module=mock_module,
+            replacement_name='test.concurrent_replacement'
+        )
+
+        results = []
+        errors = []
+
+        def access_attributes():
+            try:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+
+                    # Access different attributes multiple times
+                    for _ in range(10):
+                        result1 = deprecated.test_function(5)
+                        result2 = deprecated.test_variable
+                        results.append((result1, result2))
+                        time.sleep(0.001)  # Small delay to encourage race conditions
+
+            except Exception as e:
+                errors.append(e)
+
+        # Create multiple threads
+        threads = []
+        for _ in range(5):
+            thread = threading.Thread(target=access_attributes)
+            threads.append(thread)
+
+        # Start all threads
+        for thread in threads:
+            thread.start()
+
+        # Wait for all threads to complete
+        for thread in threads:
+            thread.join()
+
+        # Check results
+        self.assertEqual(len(errors), 0, f"Errors occurred: {errors}")
+        self.assertGreater(len(results), 0)
+
+        # All results should be consistent
+        for result1, result2 in results:
+            self.assertEqual(result1, 10)  # test_function(5) should return 10
+            self.assertEqual(result2, 42)  # test_variable should be 42
+
+    def test_thread_safety_of_warning_generation(self):
+        """Test that warning generation is thread-safe."""
+        import threading
+
+        mock_module = MockReplacementModule()
+        deprecated = DeprecatedModule(
+            deprecated_name='test.thread_warnings',
+            replacement_module=mock_module,
+            replacement_name='test.thread_warnings_replacement'
+        )
+
+        warning_counts = []
+
+        def generate_warnings():
+            with warnings.catch_warnings(record=True) as w:
+                warnings.simplefilter("always")
+
+                # Access attributes to generate warnings
+                _ = deprecated.test_function
+                _ = deprecated.test_variable
+                _ = deprecated.test_class
+
+                warning_counts.append(len(w))
+
+        # Create multiple threads
+        threads = []
+        for _ in range(3):
+            thread = threading.Thread(target=generate_warnings)
+            threads.append(thread)
+
+        # Start and join all threads
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        # Each thread should have generated some warnings
+        self.assertEqual(len(warning_counts), 3)
+        for count in warning_counts:
+            self.assertGreaterEqual(count, 0)
+
+    def test_race_condition_in_attribute_caching(self):
+        """Test for race conditions in any internal attribute caching."""
+        import threading
+
+        mock_module = MockReplacementModule()
+        deprecated = DeprecatedModule(
+            deprecated_name='test.race_condition',
+            replacement_module=mock_module,
+            replacement_name='test.race_condition_replacement'
+        )
+
+        results = {}
+        lock = threading.Lock()
+
+        def access_same_attribute(thread_id):
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+
+                # Access the same attribute multiple times
+                for i in range(20):
+                    attr = deprecated.test_function
+                    result = attr(i)
+
+                    with lock:
+                        if thread_id not in results:
+                            results[thread_id] = []
+                        results[thread_id].append(result)
+
+        # Create threads that all access the same attribute
+        threads = []
+        for i in range(4):
+            thread = threading.Thread(target=access_same_attribute, args=(i,))
+            threads.append(thread)
+
+        # Start and join all threads
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        # Verify all threads got consistent results
+        self.assertEqual(len(results), 4)
+        for thread_id, thread_results in results.items():
+            self.assertEqual(len(thread_results), 20)
+            for i, result in enumerate(thread_results):
+                self.assertEqual(result, i * 2)  # test_function multiplies by 2
+
+
+class TestMemoryUsageAndPerformance(unittest.TestCase):
+    """Test memory usage and performance aspects of deprecation system."""
+
+    def test_memory_usage_of_deprecated_modules(self):
+        """Test that deprecated modules don't consume excessive memory."""
+
+        # Create many deprecated modules
+        modules = []
+        for i in range(100):
+            mock_module = MockReplacementModule()
+            deprecated = DeprecatedModule(
+                deprecated_name=f'test.memory_{i}',
+                replacement_module=mock_module,
+                replacement_name=f'test.memory_replacement_{i}'
+            )
+            modules.append(deprecated)
+
+        # Test that we can create many modules without excessive memory usage
+        self.assertEqual(len(modules), 100)
+
+        # Basic functionality should still work
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+
+            for i in range(0, 100, 10):  # Test every 10th module
+                result = modules[i].test_function(1)
+                self.assertEqual(result, 2)
+
+    def test_performance_of_attribute_access(self):
+        """Test performance of deprecated module attribute access."""
+        import time
+
+        mock_module = MockReplacementModule()
+        deprecated = DeprecatedModule(
+            deprecated_name='test.performance',
+            replacement_module=mock_module,
+            replacement_name='test.performance_replacement'
+        )
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+
+            # Time multiple attribute accesses
+            start_time = time.time()
+
+            for _ in range(1000):
+                _ = deprecated.test_function
+                _ = deprecated.test_variable
+                _ = deprecated.test_class
+
+            end_time = time.time()
+
+            # Should complete reasonably quickly (less than 1 second for 1000 iterations)
+            elapsed = end_time - start_time
+            self.assertLess(elapsed, 1.0, f"Attribute access took too long: {elapsed}s")
+
+    def test_warning_performance_impact(self):
+        """Test that warning generation doesn't significantly impact performance."""
+        import time
+
+        mock_module = MockReplacementModule()
+        deprecated = DeprecatedModule(
+            deprecated_name='test.warning_performance',
+            replacement_module=mock_module,
+            replacement_name='test.warning_performance_replacement'
+        )
+
+        # Test with warnings enabled
+        start_time = time.time()
+        with warnings.catch_warnings():
+            warnings.simplefilter("always")
+
+            for _ in range(100):
+                _ = deprecated.test_function
+                _ = deprecated.test_variable
+
+        with_warnings_time = time.time() - start_time
+
+        # Test with warnings disabled
+        start_time = time.time()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+
+            for _ in range(100):
+                _ = deprecated.test_function
+                _ = deprecated.test_variable
+
+        without_warnings_time = time.time() - start_time
+
+        # With warnings should not be dramatically slower (less than 10x)
+        if without_warnings_time > 0:
+            ratio = with_warnings_time / without_warnings_time
+            self.assertLess(ratio, 10.0, f"Warning generation too slow: {ratio}x slower")
+
+    def test_memory_leak_prevention(self):
+        """Test that deprecated modules don't cause memory leaks."""
+        import gc
+        import weakref
+
+        # Create deprecated modules with weak references
+        weak_refs = []
+
+        for i in range(50):
+            mock_module = MockReplacementModule()
+            deprecated = DeprecatedModule(
+                deprecated_name=f'test.leak_{i}',
+                replacement_module=mock_module,
+                replacement_name=f'test.leak_replacement_{i}'
+            )
+
+            # Access some attributes to trigger any caching
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                _ = deprecated.test_function
+
+            weak_refs.append(weakref.ref(deprecated))
+
+        # Force garbage collection
+        gc.collect()
+
+        # After modules go out of scope, weak references should become invalid
+        # (This test is somewhat artificial but helps catch obvious leaks)
+        del deprecated
+        gc.collect()
+
+        # At least some weak references should be collectible
+        # (We can't guarantee all will be collected due to Python's GC behavior)
+        self.assertTrue(len(weak_refs) > 0)

@@ -112,7 +112,7 @@ with brainstate.environ.context(dt=1.0 * u.ms):
 
 
     # gradient function
-    grad_fun = brainstate.augment.grad(loss_fun, net.states(brainstate.ParamState), has_aux=True, return_value=True)
+    grad_fun = brainstate.transform.grad(loss_fun, net.states(brainstate.ParamState), has_aux=True, return_value=True)
 
     # optimizer
     optimizer = brainstate.optim.Adam(lr=args.lr)
