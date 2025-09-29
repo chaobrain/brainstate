@@ -92,7 +92,9 @@ class AdEx(brainstate.nn.Neuron):
         # neuronal variables
         self.V = brainstate.HiddenState(brainstate.nn.param(self.V_initializer, self.varshape))
         self.w = brainstate.HiddenState(brainstate.nn.param(self.w_initializer, self.varshape))
-        self.t_last_spike = brainstate.HiddenState(brainstate.nn.param(brainstate.init.ConstantInit(-1e7 * u.ms), self.varshape))
+        self.t_last_spike = brainstate.HiddenState(
+            brainstate.nn.param(brainstate.nn.ConstantInit(-1e7 * u.ms), self.varshape)
+        )
         self.spike = brainstate.HiddenState(brainstate.nn.param(lambda s: u.math.zeros(s, bool), self.varshape))
 
         # synaptic parameters

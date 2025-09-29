@@ -47,8 +47,8 @@ class HH(brainstate.nn.Neuron):
     def init_state(self, *args, **kwargs):
         # variables
         self.V = brainstate.HiddenState(-70. * u.mV + brainstate.random.randn(*self.varshape) * 20 * u.mV)
-        self.h = brainstate.HiddenState(brainstate.init.param(brainstate.nn.ConstantInit(0.6), self.varshape))
-        self.n = brainstate.HiddenState(brainstate.init.param(brainstate.nn.ConstantInit(0.3), self.varshape))
+        self.h = brainstate.HiddenState(brainstate.nn.param(brainstate.nn.ConstantInit(0.6), self.varshape))
+        self.n = brainstate.HiddenState(brainstate.nn.param(brainstate.nn.ConstantInit(0.3), self.varshape))
         self.spike = brainstate.HiddenState(brainstate.nn.param(lambda s: u.math.zeros(s, dtype=bool), self.varshape))
 
     def dh(self, h, t, V):
@@ -92,7 +92,7 @@ class Synapse(brainstate.nn.Synapse):
         self.beta = beta
 
     def init_state(self, *args, **kwargs):
-        self.g = brainstate.HiddenState(brainstate.init.param(brainstate.init.ZeroInit(), self.varshape))
+        self.g = brainstate.HiddenState(brainstate.nn.param(brainstate.nn.ZeroInit(), self.varshape))
 
     def update(self, pre_V):
         f_v = lambda v: 1 / (1 + u.math.exp(-v / u.mV / 2))

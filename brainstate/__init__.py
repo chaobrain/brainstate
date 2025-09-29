@@ -165,4 +165,4 @@ __all__ = [
     'functional',
 ]
 __all__ = __all__ + _state_all
-del _state_all, create_deprecated_module_proxy, _augment_apis, _compile_apis, _functional_apis
+del _state_all, create_deprecated_module_proxy, _augment_apis, _compile_apis, _functional_apis, _init_apis

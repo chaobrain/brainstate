@@ -31,6 +31,7 @@ from brainstate.util import PrettyRepr, PrettyType, PrettyAttr
 
 __all__ = [
     'param',
+    'calculate_init_gain',
     'ZeroInit',
     'ConstantInit',
     'IdentityInit',
@@ -212,7 +213,7 @@ def param(
     return type(parameter)(param_value) if isinstance(parameter, State) else param_value
 
 
-def calculate_gain(nonlinearity, param=None):
+def calculate_init_gain(nonlinearity, param=None):
     r"""Return the recommended gain value for the given nonlinearity function.
     The values are as follows:
 

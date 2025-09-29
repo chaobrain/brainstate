@@ -30,14 +30,14 @@ class TestFixedProbCSR:
         y = m(x)
         print(y)
 
-        m2 = brainstate.nn.EventFixedProb(20, 40, 0.1, brainstate.init.KaimingUniformInit(), seed=123)
+        m2 = brainstate.nn.EventFixedProb(20, 40, 0.1, brainstate.nn.KaimingUniformInit(), seed=123)
         print(m2(x))
 
     def test_grad_bool(self):
         n_in = 20
         n_out = 30
         x = jax.numpy.asarray(brainstate.random.rand(n_in) < 0.3, dtype=float)
-        fn = brainstate.nn.EventFixedProb(n_in, n_out, 0.1, brainstate.init.KaimingUniformInit(), seed=123)
+        fn = brainstate.nn.EventFixedProb(n_in, n_out, 0.1, brainstate.nn.KaimingUniformInit(), seed=123)
 
         def f(x):
             return fn(x).sum()
@@ -53,7 +53,7 @@ class TestFixedProbCSR:
         if homo_w:
             fn = brainstate.nn.EventFixedProb(n_in, n_out, 0.1, 1.5, seed=123)
         else:
-            fn = brainstate.nn.EventFixedProb(n_in, n_out, 0.1, brainstate.init.KaimingUniformInit(), seed=123)
+            fn = brainstate.nn.EventFixedProb(n_in, n_out, 0.1, brainstate.nn.KaimingUniformInit(), seed=123)
         w = fn.weight.value
 
         def f(x, w):
@@ -85,7 +85,7 @@ class TestFixedProbCSR:
         x = jax.numpy.asarray(brainstate.random.rand(n_in) < 0.3, dtype=float)
 
         fn = brainstate.nn.EventFixedProb(
-            n_in, n_out, 0.1, 1.5 if homo_w else brainstate.init.KaimingUniformInit(),
+            n_in, n_out, 0.1, 1.5 if homo_w else brainstate.nn.KaimingUniformInit(),
             seed=123,
         )
         w = fn.weight.value

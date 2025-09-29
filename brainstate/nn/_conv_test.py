@@ -65,8 +65,8 @@ class TestConvTranspose1d(parameterized.TestCase):
                 out_channels=4,
                 kernel_size=(3,),
                 padding='VALID',
-                w_initializer=brainstate.init.ConstantInit(1.),
-                b_initializer=brainstate.init.ConstantInit(1.) if use_bias else None,
+                w_initializer=brainstate.nn.ConstantInit(1.),
+                b_initializer=brainstate.nn.ConstantInit(1.) if use_bias else None,
             )
             self.assertEqual(conv_transpose_module.w.shape, (3, 3, 4))
             y = conv_transpose_module(x)
@@ -95,8 +95,8 @@ class TestConvTranspose1d(parameterized.TestCase):
             kernel_size=(3,),
             padding='VALID',
             mask=m,
-            w_initializer=brainstate.init.ConstantInit(),
-            b_initializer=brainstate.init.ConstantInit(),
+            w_initializer=brainstate.nn.ConstantInit(),
+            b_initializer=brainstate.nn.ConstantInit(),
         )
         self.assertEqual(conv_transpose_module.w.shape, (3, 3, 4))
         y = conv_transpose_module(x)
@@ -124,7 +124,7 @@ class TestConvTranspose1d(parameterized.TestCase):
                 stride=1,
                 padding="SAME",
                 w_initializer=brainstate.nn.ConstantInit(),
-                b_initializer=brainstate.init.ConstantInit() if use_bias else None,
+                b_initializer=brainstate.nn.ConstantInit() if use_bias else None,
             )
             out = net(data)
             self.assertEqual(out.shape, (1, 3, 1))
@@ -146,8 +146,8 @@ class TestConvTranspose2d(parameterized.TestCase):
                 out_channels=4,
                 kernel_size=(3, 3),
                 padding='VALID',
-                w_initializer=brainstate.init.ConstantInit(),
-                b_initializer=brainstate.init.ConstantInit() if use_bias else None,
+                w_initializer=brainstate.nn.ConstantInit(),
+                b_initializer=brainstate.nn.ConstantInit() if use_bias else None,
             )
         self.assertEqual(conv_transpose_module.w.shape, (3, 3, 3, 4))
         y = conv_transpose_module(x)
@@ -163,7 +163,7 @@ class TestConvTranspose2d(parameterized.TestCase):
             kernel_size=(3, 3),
             padding='VALID',
             mask=m,
-            w_initializer=brainstate.init.ConstantInit(),
+            w_initializer=brainstate.nn.ConstantInit(),
         )
         y = conv_transpose_module(x)
         print(y.shape)
@@ -178,8 +178,8 @@ class TestConvTranspose2d(parameterized.TestCase):
                 kernel_size=(3, 3),
                 stride=1,
                 padding='SAME',
-                w_initializer=brainstate.init.ConstantInit(),
-                b_initializer=brainstate.init.ConstantInit() if use_bias else None,
+                w_initializer=brainstate.nn.ConstantInit(),
+                b_initializer=brainstate.nn.ConstantInit() if use_bias else None,
             )
         y = conv_transpose_module(x)
         print(y.shape)
@@ -196,8 +196,8 @@ class TestConvTranspose3d(parameterized.TestCase):
                 out_channels=4,
                 kernel_size=(3, 3, 3),
                 padding='VALID',
-                w_initializer=brainstate.init.ConstantInit(),
-                b_initializer=brainstate.init.ConstantInit() if use_bias else None,
+                w_initializer=brainstate.nn.ConstantInit(),
+                b_initializer=brainstate.nn.ConstantInit() if use_bias else None,
             )
         y = conv_transpose_module(x)
         print(y.shape)
@@ -212,7 +212,7 @@ class TestConvTranspose3d(parameterized.TestCase):
             kernel_size=(3, 3, 3),
             padding='VALID',
             mask=m,
-            w_initializer=brainstate.init.ConstantInit(),
+            w_initializer=brainstate.nn.ConstantInit(),
         )
         y = conv_transpose_module(x)
         print(y.shape)
@@ -227,8 +227,8 @@ class TestConvTranspose3d(parameterized.TestCase):
                 kernel_size=(3, 3, 3),
                 stride=1,
                 padding='SAME',
-                w_initializer=brainstate.init.ConstantInit(),
-                b_initializer=brainstate.init.ConstantInit() if use_bias else None,
+                w_initializer=brainstate.nn.ConstantInit(),
+                b_initializer=brainstate.nn.ConstantInit() if use_bias else None,
             )
         y = conv_transpose_module(x)
         print(y.shape)

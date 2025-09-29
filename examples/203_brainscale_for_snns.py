@@ -144,8 +144,8 @@ class GIF(brainstate.nn.Neuron):
         tau=20. * u.ms,
         tau_I2=50. * u.ms,
         A2=0. * u.mA,
-        V_initializer: Callable = brainstate.init.ZeroInit(unit=u.mV),
-        I2_initializer: Callable = brainstate.init.ZeroInit(unit=u.mA),
+        V_initializer: Callable = brainstate.nn.ZeroInit(unit=u.mV),
+        I2_initializer: Callable = brainstate.nn.ZeroInit(unit=u.mA),
         spike_fun: Callable = brainstate.surrogate.ReluGrad(),
         spk_reset: str = 'soft',
         name: str = None,
@@ -153,20 +153,20 @@ class GIF(brainstate.nn.Neuron):
         super().__init__(in_size, name=name, spk_fun=spike_fun, spk_reset=spk_reset)
 
         # params
-        self.V_rest = brainstate.init.param(V_rest, self.varshape, allow_none=False)
-        self.V_th_inf = brainstate.init.param(V_th_inf, self.varshape, allow_none=False)
-        self.R = brainstate.init.param(R, self.varshape, allow_none=False)
-        self.tau = brainstate.init.param(tau, self.varshape, allow_none=False)
-        self.tau_I2 = brainstate.init.param(tau_I2, self.varshape, allow_none=False)
-        self.A2 = brainstate.init.param(A2, self.varshape, allow_none=False)
+        self.V_rest = brainstate.nn.param(V_rest, self.varshape, allow_none=False)
+        self.V_th_inf = brainstate.nn.param(V_th_inf, self.varshape, allow_none=False)
+        self.R = brainstate.nn.param(R, self.varshape, allow_none=False)
+        self.tau = brainstate.nn.param(tau, self.varshape, allow_none=False)
+        self.tau_I2 = brainstate.nn.param(tau_I2, self.varshape, allow_none=False)
+        self.A2 = brainstate.nn.param(A2, self.varshape, allow_none=False)
 
         # initializers
         self._V_initializer = V_initializer
         self._I2_initializer = I2_initializer
 
     def init_state(self, batch_size=None):
-        self.V = brainscale.ETraceVar(brainstate.init.param(self._V_initializer, self.varshape, batch_size))
-        self.I2 = brainscale.ETraceVar(brainstate.init.param(self._I2_initializer, self.varshape, batch_size))
+        self.V = brainscale.ETraceState(brainstate.nn.param(self._V_initializer, self.varshape, batch_size))
+        self.I2 = brainscale.ETraceState(brainstate.nn.param(self._I2_initializer, self.varshape, batch_size))
 
     def update(self, x=0.):
         t = brainstate.environ.get('t')
@@ -211,8 +211,8 @@ class GifNet(brainstate.nn.Module):
         self.num_in = num_in
         self.num_rec = num_rec
         self.num_out = num_out
-        self.ir2r = brainscale.nn.Linear(num_in + num_rec, num_rec, w_init=w, b_init=brainstate.init.ZeroInit(unit=u.mA))
-        self.exp = brainscale.nn.Expon(num_rec, tau=args.tau_syn * u.ms, g_initializer=brainstate.init.ZeroInit(unit=u.mA))
+        self.ir2r = brainscale.nn.Linear(num_in + num_rec, num_rec, w_init=w, b_init=brainstate.nn.ZeroInit(unit=u.mA))
+        self.exp = brainscale.nn.Expon(num_rec, tau=args.tau_syn * u.ms, g_initializer=brainstate.nn.ZeroInit(unit=u.mA))
         tau_I2 = brainstate.random.uniform(100., args.tau_I2 * 1.5, num_rec)
         self.r = GIF(
             num_rec,

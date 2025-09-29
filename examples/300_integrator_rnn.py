@@ -52,9 +52,9 @@ class RNNCell(brainstate.nn.Module):
         self,
         num_in: int,
         num_out: int,
-        state_initializer: Callable = brainstate.init.ZeroInit(),
-        w_initializer: Callable = brainstate.init.XavierNormalInit(),
-        b_initializer: Callable = brainstate.init.ZeroInit(),
+        state_initializer: Callable = brainstate.nn.ZeroInit(),
+        w_initializer: Callable = brainstate.nn.XavierNormalInit(),
+        b_initializer: Callable = brainstate.nn.ZeroInit(),
         activation: Callable = brainstate.functional.relu,
         train_state: bool = False,
     ):
@@ -76,17 +76,17 @@ class RNNCell(brainstate.nn.Module):
         self.activation = activation
 
         # weights
-        W = brainstate.init.param(self._w_initializer, (num_in + num_out, self.num_out))
-        b = brainstate.init.param(self._b_initializer, (self.num_out,))
+        W = brainstate.nn.param(self._w_initializer, (num_in + num_out, self.num_out))
+        b = brainstate.nn.param(self._b_initializer, (self.num_out,))
         self.W = brainstate.ParamState(W)
         self.b = None if (b is None) else brainstate.ParamState(b)
 
         # state
         if train_state:
-            self.state2train = brainstate.ParamState(brainstate.init.param(brainstate.init.ZeroInit(), (self.num_out,), allow_none=False))
+            self.state2train = brainstate.ParamState(brainstate.nn.param(brainstate.nn.ZeroInit(), (self.num_out,), allow_none=False))
 
     def init_state(self, batch_size=None, **kwargs):
-        self.state = brainstate.HiddenState(brainstate.init.param(self._state_initializer, (self.num_out,), batch_size))
+        self.state = brainstate.HiddenState(brainstate.nn.param(self._state_initializer, (self.num_out,), batch_size))
         if self.train_state:
             self.state.value = jnp.repeat(jnp.expand_dims(self.state2train.value, axis=0), batch_size, axis=0)
 
