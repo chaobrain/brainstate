@@ -66,10 +66,7 @@ import re
 import threading
 import warnings
 from collections import defaultdict
-from typing import (
-    Any, Callable, Dict, Hashable, Optional, Union,
-    TypeVar, ContextManager, Tuple, List
-)
+from typing import Any, Callable, Dict, Hashable, Optional, Union, ContextManager, List
 
 import numpy as np
 from jax import config, devices, numpy as jnp
