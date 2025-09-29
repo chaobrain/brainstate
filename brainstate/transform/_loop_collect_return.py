@@ -84,15 +84,15 @@ def scan(
 
     .. code-block:: python
 
-        def scan(f, init, xs, length=None):
-            if xs is None:
-                xs = [None] * length
-            carry = init
-            ys = []
-            for x in xs:
-                carry, y = f(carry, x)
-                ys.append(y)
-            return carry, np.stack(ys)
+        >>> def scan(f, init, xs, length=None):
+        ...     if xs is None:
+        ...         xs = [None] * length
+        ...     carry = init
+        ...     ys = []
+        ...     for x in xs:
+        ...         carry, y = f(carry, x)
+        ...         ys.append(y)
+        ...     return carry, np.stack(ys)
 
     Unlike that Python version, both ``xs`` and ``ys`` may be arbitrary pytree
     values, and so multiple arrays can be scanned over at once and produce multiple
@@ -162,22 +162,22 @@ def scan(
 
     .. code-block:: python
 
-        import brainstate
-        import jax.numpy as jnp
-
-        def step_fn(carry, x):
-            return carry + x, carry * x
-
-        init = 0.0
-        xs = jnp.array([1.0, 2.0, 3.0])
-        final_carry, ys = brainstate.transform.scan(step_fn, init, xs)
+        >>> import brainstate
+        >>> import jax.numpy as jnp
+        >>>
+        >>> def step_fn(carry, x):
+        ...     return carry + x, carry * x
+        >>>
+        >>> init = 0.0
+        >>> xs = jnp.array([1.0, 2.0, 3.0])
+        >>> final_carry, ys = brainstate.transform.scan(step_fn, init, xs)
 
     Scan with progress bar:
 
     .. code-block:: python
 
-        pbar = bst.ProgressBar(freq=10)
-        final_carry, ys = brainstate.transform.scan(step_fn, init, xs, pbar=pbar)
+        >>> pbar = bst.ProgressBar(freq=10)
+        >>> final_carry, ys = brainstate.transform.scan(step_fn, init, xs, pbar=pbar)
 
     References
     ----------
@@ -326,23 +326,23 @@ def checkpointed_scan(
 
     .. code-block:: python
 
-        import brainstate
-        import jax.numpy as jnp
-
-        def step_fn(carry, x):
-            return carry + x, carry * x
-
-        init = 0.0
-        xs = jnp.array([1.0, 2.0, 3.0])
-        final_carry, ys = brainstate.transform.checkpointed_scan(step_fn, init, xs)
+        >>> import brainstate
+        >>> import jax.numpy as jnp
+        >>>
+        >>> def step_fn(carry, x):
+        ...     return carry + x, carry * x
+        >>>
+        >>> init = 0.0
+        >>> xs = jnp.array([1.0, 2.0, 3.0])
+        >>> final_carry, ys = brainstate.transform.checkpointed_scan(step_fn, init, xs)
 
     Using custom base for checkpointing:
 
     .. code-block:: python
 
-        final_carry, ys = brainstate.transform.checkpointed_scan(
-            step_fn, init, xs, base=8
-        )
+        >>> final_carry, ys = brainstate.transform.checkpointed_scan(
+        ...     step_fn, init, xs, base=8
+        ... )
     """
     # check "f"
     if not callable(f):
@@ -511,28 +511,28 @@ def for_loop(
 
     .. code-block:: python
 
-        import brainstate
-        import jax.numpy as jnp
-
-        def process_item(x, y):
-            return x * y + 1
-
-        xs = jnp.array([1.0, 2.0, 3.0])
-        ys = jnp.array([4.0, 5.0, 6.0])
-        results = brainstate.transform.for_loop(process_item, xs, ys)
+        >>> import brainstate
+        >>> import jax.numpy as jnp
+        >>>
+        >>> def process_item(x, y):
+        ...     return x * y + 1
+        >>>
+        >>> xs = jnp.array([1.0, 2.0, 3.0])
+        >>> ys = jnp.array([4.0, 5.0, 6.0])
+        >>> results = brainstate.transform.for_loop(process_item, xs, ys)
 
     For-loop with progress bar:
 
     .. code-block:: python
 
-        pbar = bst.ProgressBar(freq=10)
-        results = brainstate.transform.for_loop(process_item, xs, ys, pbar=pbar)
+        >>> pbar = bst.ProgressBar(freq=10)
+        >>> results = brainstate.transform.for_loop(process_item, xs, ys, pbar=pbar)
 
     For-loop with reverse iteration:
 
     .. code-block:: python
 
-        results = brainstate.transform.for_loop(process_item, xs, ys, reverse=True)
+        >>> results = brainstate.transform.for_loop(process_item, xs, ys, reverse=True)
     """
     _, ys = scan(
         _forloop_to_scan_fun(f),
@@ -587,23 +587,23 @@ def checkpointed_for_loop(
 
     .. code-block:: python
 
-        import brainstate
-        import jax.numpy as jnp
-
-        def process_item(x, y):
-            return x * y + 1
-
-        xs = jnp.array([1.0, 2.0, 3.0])
-        ys = jnp.array([4.0, 5.0, 6.0])
-        results = brainstate.transform.checkpointed_for_loop(process_item, xs, ys)
+        >>> import brainstate
+        >>> import jax.numpy as jnp
+        >>>
+        >>> def process_item(x, y):
+        ...     return x * y + 1
+        >>>
+        >>> xs = jnp.array([1.0, 2.0, 3.0])
+        >>> ys = jnp.array([4.0, 5.0, 6.0])
+        >>> results = brainstate.transform.checkpointed_for_loop(process_item, xs, ys)
 
     Using custom base for checkpointing:
 
     .. code-block:: python
 
-        results = brainstate.transform.checkpointed_for_loop(
-            process_item, xs, ys, base=8
-        )
+        >>> results = brainstate.transform.checkpointed_for_loop(
+        ...     process_item, xs, ys, base=8
+        ... )
     """
     _, ys = checkpointed_scan(
         _forloop_to_scan_fun(f),

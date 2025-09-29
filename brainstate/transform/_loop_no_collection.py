@@ -54,11 +54,11 @@ def while_loop(
 
     .. code-block:: python
 
-        def while_loop(cond_fun, body_fun, init_val):
-            val = init_val
-            while cond_fun(val):
-                val = body_fun(val)
-            return val
+        >>> def while_loop(cond_fun, body_fun, init_val):
+        ...     val = init_val
+        ...     while cond_fun(val):
+        ...         val = body_fun(val)
+        ...     return val
 
     Unlike that Python version, ``while_loop`` is a JAX primitive and is lowered
     to a single WhileOp. That makes it useful for reducing compilation times
@@ -99,30 +99,30 @@ def while_loop(
 
     .. code-block:: python
 
-        import brainstate
-        import jax.numpy as jnp
-
-        def cond_fn(val):
-            return val < 10
-
-        def body_fn(val):
-            return val + 1
-
-        result = brainstate.transform.while_loop(cond_fn, body_fn, 0)
-        # result will be 10
+        >>> import brainstate
+        >>> import jax.numpy as jnp
+        >>>
+        >>> def cond_fn(val):
+        ...     return val < 10
+        >>>
+        >>> def body_fn(val):
+        ...     return val + 1
+        >>>
+        >>> result = brainstate.transform.while_loop(cond_fn, body_fn, 0)
+        >>> # result will be 10
 
     While loop with array state:
 
     .. code-block:: python
 
-        def cond_fn(state):
-            return jnp.sum(state) < 100
-
-        def body_fn(state):
-            return state * 1.1
-
-        init_state = jnp.array([1.0, 2.0, 3.0])
-        final_state = brainstate.transform.while_loop(cond_fn, body_fn, init_state)
+        >>> def cond_fn(state):
+        ...     return jnp.sum(state) < 100
+        >>>
+        >>> def body_fn(state):
+        ...     return state * 1.1
+        >>>
+        >>> init_state = jnp.array([1.0, 2.0, 3.0])
+        >>> final_state = brainstate.transform.while_loop(cond_fn, body_fn, init_state)
 
     References
     ----------
@@ -206,43 +206,43 @@ def bounded_while_loop(
 
     .. code-block:: python
 
-        import brainstate
-        import jax.numpy as jnp
-
-        def cond_fn(val):
-            return val < 1000  # This might never be false
-
-        def body_fn(val):
-            return val * 2
-
-        # Loop will terminate after at most 10 steps
-        result = brainstate.transform.bounded_while_loop(
-            cond_fn, body_fn, 1, max_steps=10
-        )
+        >>> import brainstate
+        >>> import jax.numpy as jnp
+        >>>
+        >>> def cond_fn(val):
+        ...     return val < 1000  # This might never be false
+        >>>
+        >>> def body_fn(val):
+        ...     return val * 2
+        >>>
+        >>> # Loop will terminate after at most 10 steps
+        >>> result = brainstate.transform.bounded_while_loop(
+        ...     cond_fn, body_fn, 1, max_steps=10
+        ... )
 
     Bounded while loop with custom base:
 
     .. code-block:: python
 
-        # Use a smaller base for potentially faster compilation
-        result = brainstate.transform.bounded_while_loop(
-            cond_fn, body_fn, 1, max_steps=100, base=8
-        )
+        >>> # Use a smaller base for potentially faster compilation
+        >>> result = brainstate.transform.bounded_while_loop(
+        ...     cond_fn, body_fn, 1, max_steps=100, base=8
+        ... )
 
     Bounded while loop with array state:
 
     .. code-block:: python
 
-        def cond_fn(state):
-            return jnp.max(state) < 100
-
-        def body_fn(state):
-            return state + jnp.array([1.0, 2.0, 3.0])
-
-        init_state = jnp.array([0.0, 0.0, 0.0])
-        final_state = brainstate.transform.bounded_while_loop(
-            cond_fn, body_fn, init_state, max_steps=50
-        )
+        >>> def cond_fn(state):
+        ...     return jnp.max(state) < 100
+        >>>
+        >>> def body_fn(state):
+        ...     return state + jnp.array([1.0, 2.0, 3.0])
+        >>>
+        >>> init_state = jnp.array([0.0, 0.0, 0.0])
+        >>> final_state = brainstate.transform.bounded_while_loop(
+        ...     cond_fn, body_fn, init_state, max_steps=50
+        ... )
     """
 
     # checking
