@@ -27,7 +27,7 @@ __all__ = [
 ]
 
 
-@set_module_as('brainstate.augment')
+@set_module_as('brainstate.transform')
 def unvmap(x, op: str = 'any'):
     """
     Remove a leading vmap dimension by aggregating batched values.
@@ -54,11 +54,11 @@ def unvmap(x, op: str = 'any'):
     --------
     .. code-block:: python
 
-        import jax.numpy as jnp
-        import brainstate
-
-        xs = jnp.array([[True, False], [True, True]])
-        brainstate.augment.unvmap(xs, op='all')
+        >>> import jax.numpy as jnp
+        >>> import brainstate
+        >>>
+        >>> xs = jnp.array([[True, False], [True, True]])
+        >>> brainstate.transform.unvmap(xs, op='all')
     """
     if op == 'all':
         return unvmap_all(x)
@@ -95,11 +95,11 @@ def unvmap_all(x):
     --------
     .. code-block:: python
 
-        import jax.numpy as jnp
-        import brainstate
-
-        values = jnp.array([[True, False], [True, True]])
-        brainstate.augment.unvmap(values, op='all')
+        >>> import jax.numpy as jnp
+        >>> import brainstate
+        >>>
+        >>> values = jnp.array([[True, False], [True, True]])
+        >>> brainstate.transform.unvmap(values, op='all')
     """
     return unvmap_all_p.bind(x)
 
@@ -148,11 +148,11 @@ def unvmap_any(x):
     --------
     .. code-block:: python
 
-        import jax.numpy as jnp
-        import brainstate
-
-        values = jnp.array([[False, False], [False, True]])
-        brainstate.augment.unvmap(values, op='any')
+        >>> import jax.numpy as jnp
+        >>> import brainstate
+        >>>
+        >>> values = jnp.array([[False, False], [False, True]])
+        >>> brainstate.transform.unvmap(values, op='any')
     """
     return unvmap_any_p.bind(x)
 
@@ -201,11 +201,11 @@ def unvmap_max(x):
     --------
     .. code-block:: python
 
-        import jax.numpy as jnp
-        import brainstate
-
-        values = jnp.array([[1.0, 2.0], [0.5, 3.5]])
-        brainstate.augment.unvmap(values, op='max')
+        >>> import jax.numpy as jnp
+        >>> import brainstate
+        >>>
+        >>> values = jnp.array([[1.0, 2.0], [0.5, 3.5]])
+        >>> brainstate.transform.unvmap(values, op='max')
     """
     return unvmap_max_p.bind(x)
 

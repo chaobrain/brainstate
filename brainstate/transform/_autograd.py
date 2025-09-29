@@ -205,7 +205,7 @@ class GradientTransform(PrettyRepr):
         ...     return jnp.sum(y ** 2)
         >>>
         >>> # Create gradient transform
-        >>> grad_transform = brainstate.augment.GradientTransform(
+        >>> grad_transform = brainstate.transform.GradientTransform(
         ...     target=loss_fn,
         ...     transform=jax.grad,
         ...     grad_states=[weight, bias]
@@ -224,7 +224,7 @@ class GradientTransform(PrettyRepr):
         ...     loss = jnp.sum((y * scale) ** 2)
         ...     return loss, {"predictions": y, "scale": scale}
         >>>
-        >>> grad_transform = brainstate.augment.GradientTransform(
+        >>> grad_transform = brainstate.transform.GradientTransform(
         ...     target=loss_fn_with_aux,
         ...     transform=jax.grad,
         ...     grad_states=[weight, bias],
@@ -236,7 +236,7 @@ class GradientTransform(PrettyRepr):
         >>> grads, loss_value, aux_data = grad_transform(x, 2.0)
     """
 
-    __module__ = "brainstate.augment"
+    __module__ = "brainstate.transform"
 
     def __init__(
         self,
@@ -538,7 +538,7 @@ _doc_of_return = '''
 '''
 
 
-@set_module_as("brainstate.augment")
+@set_module_as("brainstate.transform")
 def grad(
     fun: Callable = Missing(),
     grad_states: Optional[Union[State, Sequence[State], Dict[str, State]]] = None,
@@ -604,7 +604,7 @@ def grad(
         >>> def f(x):
         ...     return jnp.sum(x ** 2)
         >>>
-        >>> grad_f = brainstate.augment.grad(f)
+        >>> grad_f = brainstate.transform.grad(f)
         >>> x = jnp.array([1.0, 2.0, 3.0])
         >>> gradient = grad_f(x)
 
@@ -621,7 +621,7 @@ def grad(
         ...     return prediction ** 2
         >>>
         >>> # Compute gradients with respect to states
-        >>> grad_fn = brainstate.augment.grad(loss_fn, grad_states=[weight, bias])
+        >>> grad_fn = brainstate.transform.grad(loss_fn, grad_states=[weight, bias])
         >>> x = jnp.array([1.0, 2.0])
         >>> state_grads = grad_fn(x)
 
@@ -634,7 +634,7 @@ def grad(
         ...     loss = prediction ** 2
         ...     return loss, {"prediction": prediction}
         >>>
-        >>> grad_fn = brainstate.augment.grad(
+        >>> grad_fn = brainstate.transform.grad(
         ...     loss_with_aux,
         ...     grad_states=[weight, bias],
         ...     has_aux=True,
@@ -672,7 +672,7 @@ def grad(
 grad.__doc__ = grad.__doc__ % _doc_of_return
 
 
-@set_module_as("brainstate.augment")
+@set_module_as("brainstate.transform")
 def vector_grad(
     func: Callable = Missing(),
     grad_states: Optional[Union[State, Sequence[State], Dict[str, State]]] = None,
@@ -727,7 +727,7 @@ def vector_grad(
         >>> def f(x):
         ...     return jnp.array([x[0]**2, x[1]**3, x[0]*x[1]])
         >>>
-        >>> vector_grad_f = brainstate.augment.vector_grad(f)
+        >>> vector_grad_f = brainstate.transform.vector_grad(f)
         >>> x = jnp.array([2.0, 3.0])
         >>> gradients = vector_grad_f(x)  # Shape: (3, 2)
 
@@ -743,7 +743,7 @@ def vector_grad(
         ...         x**2 * params.value[1]
         ...     ])
         >>>
-        >>> vector_grad_fn = brainstate.augment.vector_grad(
+        >>> vector_grad_fn = brainstate.transform.vector_grad(
         ...     model, grad_states=[params]
         ... )
         >>> x = 3.0
@@ -779,7 +779,7 @@ def vector_grad(
 vector_grad.__doc__ = vector_grad.__doc__ % _doc_of_return
 
 
-@set_module_as("brainstate.augment")
+@set_module_as("brainstate.transform")
 def jacrev(
     fun: Callable,
     grad_states: Optional[Union[State, Sequence[State], Dict[str, State]]] = None,
@@ -850,7 +850,7 @@ jacrev.__doc__ = jacrev.__doc__ % _doc_of_return
 jacobian = jacrev
 
 
-@set_module_as("brainstate.augment")
+@set_module_as("brainstate.transform")
 def jacfwd(
     func: Callable,
     grad_states: Optional[Union[State, Sequence[State], Dict[str, State]]] = None,
@@ -908,7 +908,7 @@ def jacfwd(
 jacfwd.__doc__ = jacfwd.__doc__ % _doc_of_return
 
 
-@set_module_as("brainstate.augment")
+@set_module_as("brainstate.transform")
 def hessian(
     func: Callable,
     grad_states: Optional[Union[State, Sequence[State], Dict[str, State]]] = None,

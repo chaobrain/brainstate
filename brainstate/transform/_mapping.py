@@ -506,7 +506,7 @@ def _vmap_transform(
         """
         if len(kwargs):
             raise NotImplementedError(
-                "Keyword arguments `f(**kwargs)` are not supported in brainstate.augment.vmap"
+                "Keyword arguments `f(**kwargs)` are not supported in brainstate.transform.vmap"
             )
 
         # in states values
@@ -638,7 +638,7 @@ def vmap(
 
         >>> model = Model()
 
-        >>> r = brainstate.augment.vmap(
+        >>> r = brainstate.transform.vmap(
         >>>     model,
         >>>     in_states=model.states(brainstate.ShortTermState),
         >>>     out_states=model.c

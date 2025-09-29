@@ -84,7 +84,7 @@ def abstract_init(
         ...         self.dense2 = brainstate.nn.Linear(n_mid, n_out)
         >>>
         >>> # Get shape information without actual computation
-        >>> model_shape = brainstate.augment.abstract_init(lambda: MLP(1, 2, 3))
+        >>> model_shape = brainstate.transform.abstract_init(lambda: MLP(1, 2, 3))
 
     With function arguments:
 
@@ -98,7 +98,7 @@ def abstract_init(
         ...     ])
         >>>
         >>> # Abstract initialization with arguments
-        >>> model_shape = brainstate.augment.abstract_init(
+        >>> model_shape = brainstate.transform.abstract_init(
         ...     create_model, 784, 256, 10
         ... )
 
@@ -114,7 +114,7 @@ def abstract_init(
         >>> def init_with_custom_weights():
         ...     return brainstate.nn.Linear(10, 5)
         >>>
-        >>> model_shape = brainstate.augment.abstract_init(
+        >>> model_shape = brainstate.transform.abstract_init(
         ...     init_with_custom_weights, rngs=rng
         ... )
 
@@ -128,7 +128,7 @@ def abstract_init(
         >>>
         >>> # Use ShapeDtypeStruct to represent input without actual data
         >>> input_shape = jax.ShapeDtypeStruct((32, 784), jnp.float32)
-        >>> output_shape = brainstate.augment.abstract_init(model_forward, input_shape)
+        >>> output_shape = brainstate.transform.abstract_init(model_forward, input_shape)
     """
 
     @functools.wraps(fn)
