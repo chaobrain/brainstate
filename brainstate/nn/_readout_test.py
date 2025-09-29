@@ -41,7 +41,7 @@ class TestReadoutModels(unittest.TestCase):
         with brainstate.environ.context(dt=0.1):
             model = brainstate.nn.LeakySpikeReadout(in_size=self.in_size, tau=self.tau, V_th=self.V_th,
                                                     V_initializer=brainstate.init.ZeroInit(),
-                                                    w_init=brainstate.init.KaimingNormal())
+                                                    w_init=brainstate.init.KaimingNormalInit())
             model.init_state(batch_size=self.batch_size)
             with brainstate.environ.context(t=0.):
                 output = model.update(self.x)

@@ -22,7 +22,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from brainstate import random, transform, environ, init
+from brainstate import random, transform, environ
+from . import _init as init
 from brainstate._state import ParamState, FakeState
 from brainstate.transform import for_loop
 from brainstate.typing import Size, ArrayLike

@@ -21,7 +21,7 @@ from typing import Callable, Tuple, Union, Sequence, Optional, TypeVar
 import jax
 import jax.numpy as jnp
 
-from brainstate import init
+from . import _init as init
 from brainstate._state import ParamState
 from brainstate.typing import ArrayLike
 from ._module import Module
@@ -186,7 +186,7 @@ class _Conv(_BaseConv):
         lhs_dilation: Union[int, Tuple[int, ...]] = 1,
         rhs_dilation: Union[int, Tuple[int, ...]] = 1,
         groups: int = 1,
-        w_init: Union[Callable, ArrayLike] = init.XavierNormal(),
+        w_init: Union[Callable, ArrayLike] = init.XavierNormalInit(),
         b_init: Optional[Union[Callable, ArrayLike]] = None,
         w_mask: Optional[Union[ArrayLike, Callable]] = None,
         name: str = None,
@@ -344,7 +344,7 @@ class _ScaledWSConv(_BaseConv):
         groups: int = 1,
         ws_gain: bool = True,
         eps: float = 1e-4,
-        w_init: Union[Callable, ArrayLike] = init.XavierNormal(),
+        w_init: Union[Callable, ArrayLike] = init.XavierNormalInit(),
         b_init: Optional[Union[Callable, ArrayLike]] = None,
         w_mask: Optional[Union[ArrayLike, Callable]] = None,
         name: str = None,

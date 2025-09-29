@@ -20,7 +20,8 @@ from typing import Callable, Optional
 import brainunit as u
 import jax
 
-from brainstate import init, surrogate, environ
+from . import _init as init
+from brainstate import surrogate, environ
 from brainstate._state import HiddenState, ShortTermState
 from brainstate.typing import ArrayLike, Size
 from ._dynamics import Dynamics
@@ -104,7 +105,7 @@ class IF(Neuron):
         Membrane time constant.
     V_th : ArrayLike, default=1. * u.mV
         Firing threshold voltage (should be positive).
-    V_initializer : Callable, default=init.Constant(0. * u.mV)
+    V_initializer : Callable
         Initializer for the membrane potential state.
     spk_fun : Callable, default=surrogate.ReluGrad()
         Surrogate gradient function for the non-differentiable spike generation.
@@ -178,7 +179,7 @@ class IF(Neuron):
         R: ArrayLike = 1. * u.ohm,
         tau: ArrayLike = 5. * u.ms,
         V_th: ArrayLike = 1. * u.mV,  # should be positive
-        V_initializer: Callable = init.Constant(0. * u.mV),
+        V_initializer: Callable = init.ConstantInit(0. * u.mV),
         spk_fun: Callable = surrogate.ReluGrad(),
         spk_reset: str = 'soft',
         name: str = None,
@@ -247,7 +248,7 @@ class LIF(Neuron):
         Reset voltage after spike.
     V_rest : ArrayLike, default=0. * u.mV
         Resting membrane potential.
-    V_initializer : Callable, default=init.Constant(0. * u.mV)
+    V_initializer : Callable
         Initializer for the membrane potential state.
     spk_fun : Callable, default=surrogate.ReluGrad()
         Surrogate gradient function for the non-differentiable spike generation.
@@ -314,7 +315,7 @@ class LIF(Neuron):
         V_th: ArrayLike = 1. * u.mV,
         V_reset: ArrayLike = 0. * u.mV,
         V_rest: ArrayLike = 0. * u.mV,
-        V_initializer: Callable = init.Constant(0. * u.mV),
+        V_initializer: Callable = init.ConstantInit(0. * u.mV),
         spk_fun: Callable = surrogate.ReluGrad(),
         spk_reset: str = 'soft',
         name: str = None,
@@ -392,7 +393,7 @@ class LIFRef(Neuron):
         Reset voltage after spike.
     V_rest : ArrayLike, default=0. * u.mV
         Resting membrane potential.
-    V_initializer : Callable, default=init.Constant(0. * u.mV)
+    V_initializer : Callable
         Initializer for the membrane potential state.
     spk_fun : Callable, default=surrogate.ReluGrad()
         Surrogate gradient function for the non-differentiable spike generation.
@@ -476,7 +477,7 @@ class LIFRef(Neuron):
         V_th: ArrayLike = 1. * u.mV,
         V_reset: ArrayLike = 0. * u.mV,
         V_rest: ArrayLike = 0. * u.mV,
-        V_initializer: Callable = init.Constant(0. * u.mV),
+        V_initializer: Callable = init.ConstantInit(0. * u.mV),
         spk_fun: Callable = surrogate.ReluGrad(),
         spk_reset: str = 'soft',
         name: str = None,
@@ -494,11 +495,11 @@ class LIFRef(Neuron):
 
     def init_state(self, batch_size: int = None, **kwargs):
         self.V = HiddenState(init.param(self.V_initializer, self.varshape, batch_size))
-        self.last_spike_time = ShortTermState(init.param(init.Constant(-1e7 * u.ms), self.varshape, batch_size))
+        self.last_spike_time = ShortTermState(init.param(init.ConstantInit(-1e7 * u.ms), self.varshape, batch_size))
 
     def reset_state(self, batch_size: int = None, **kwargs):
         self.V.value = init.param(self.V_initializer, self.varshape, batch_size)
-        self.last_spike_time.value = init.param(init.Constant(-1e7 * u.ms), self.varshape, batch_size)
+        self.last_spike_time.value = init.param(init.ConstantInit(-1e7 * u.ms), self.varshape, batch_size)
 
     def get_spike(self, V: ArrayLike = None):
         V = self.V.value if V is None else V
@@ -562,15 +563,15 @@ class ALIF(Neuron):
         Resting membrane potential.
     beta : ArrayLike, default=0.1 * u.mV
         Adaptation coupling parameter that scales the effect of the adaptation variable.
-    spk_fun : Callable, default=surrogate.ReluGrad()
+    spk_fun : Callable
         Surrogate gradient function for the non-differentiable spike generation.
     spk_reset : str, default='soft'
         Reset mechanism after spike generation:
         - 'soft': subtract threshold V = V - V_th
         - 'hard': strict reset using stop_gradient
-    V_initializer : Callable, default=init.Constant(0. * u.mV)
+    V_initializer : Callable
         Initializer for the membrane potential state.
-    a_initializer : Callable, default=init.Constant(0.)
+    a_initializer : Callable
         Initializer for the adaptation variable.
     name : str, optional
         Name of the neuron layer.
@@ -655,8 +656,8 @@ class ALIF(Neuron):
         beta: ArrayLike = 0.1 * u.mV,
         spk_fun: Callable = surrogate.ReluGrad(),
         spk_reset: str = 'soft',
-        V_initializer: Callable = init.Constant(0. * u.mV),
-        a_initializer: Callable = init.Constant(0.),
+        V_initializer: Callable = init.ConstantInit(0. * u.mV),
+        a_initializer: Callable = init.ConstantInit(0.),
         name: str = None,
     ):
         super().__init__(in_size, name=name, spk_fun=spk_fun, spk_reset=spk_reset)

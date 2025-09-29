@@ -42,7 +42,7 @@ class EINet(brainstate.nn.DynamicsGroup):
         self.N = brainstate.nn.LIFRef(
             self.num, V_rest=-60. * u.mV, V_th=-50. * u.mV, V_reset=-60. * u.mV,
             tau=20. * u.ms, tau_ref=5. * u.ms,
-            V_initializer=brainstate.init.Normal(-55., 2., unit=u.mV)
+            V_initializer=brainstate.nn.NormalInit(-55., 2., unit=u.mV)
         )
         self.E = brainstate.nn.AlignPostProj(
             comm=brainstate.nn.EventFixedProb(self.n_exc, self.num, conn_num=80 / self.num, conn_weight=0.6 * u.mS),

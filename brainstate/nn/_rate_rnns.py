@@ -20,7 +20,8 @@ from typing import Callable, Union
 
 import jax.numpy as jnp
 
-from brainstate import random, init
+from brainstate import random
+from . import _init as init
 from brainstate._state import HiddenState, ParamState
 from brainstate.typing import ArrayLike
 from . import _activations as functional
@@ -119,7 +120,7 @@ class ValinaRNNCell(RNNCell):
         num_in: int,
         num_out: int,
         state_init: Union[ArrayLike, Callable] = init.ZeroInit(),
-        w_init: Union[ArrayLike, Callable] = init.XavierNormal(),
+        w_init: Union[ArrayLike, Callable] = init.XavierNormalInit(),
         b_init: Union[ArrayLike, Callable] = init.ZeroInit(),
         activation: str | Callable = 'relu',
         name: str = None,
@@ -220,7 +221,7 @@ class GRUCell(RNNCell):
         self,
         num_in: int,
         num_out: int,
-        w_init: Union[ArrayLike, Callable] = init.Orthogonal(),
+        w_init: Union[ArrayLike, Callable] = init.OrthogonalInit(),
         b_init: Union[ArrayLike, Callable] = init.ZeroInit(),
         state_init: Union[ArrayLike, Callable] = init.ZeroInit(),
         activation: str | Callable = 'tanh',
@@ -326,7 +327,7 @@ class MGUCell(RNNCell):
         self,
         num_in: int,
         num_out: int,
-        w_init: Union[ArrayLike, Callable] = init.Orthogonal(),
+        w_init: Union[ArrayLike, Callable] = init.OrthogonalInit(),
         b_init: Union[ArrayLike, Callable] = init.ZeroInit(),
         state_init: Union[ArrayLike, Callable] = init.ZeroInit(),
         activation: str | Callable = 'tanh',
@@ -451,7 +452,7 @@ class LSTMCell(RNNCell):
         self,
         num_in: int,
         num_out: int,
-        w_init: Union[ArrayLike, Callable] = init.XavierNormal(),
+        w_init: Union[ArrayLike, Callable] = init.XavierNormalInit(),
         b_init: Union[ArrayLike, Callable] = init.ZeroInit(),
         state_init: Union[ArrayLike, Callable] = init.ZeroInit(),
         activation: str | Callable = 'tanh',
@@ -502,7 +503,7 @@ class URLSTMCell(RNNCell):
         self,
         num_in: int,
         num_out: int,
-        w_init: Union[ArrayLike, Callable] = init.XavierNormal(),
+        w_init: Union[ArrayLike, Callable] = init.XavierNormalInit(),
         state_init: Union[ArrayLike, Callable] = init.ZeroInit(),
         activation: str | Callable = 'tanh',
         name: str = None,

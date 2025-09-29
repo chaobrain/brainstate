@@ -19,7 +19,7 @@ from typing import Optional
 
 import brainunit as u
 
-from brainstate import init
+from . import _init as init
 from brainstate._state import HiddenState
 from brainstate.typing import ArrayLike, Size
 from ._exp_euler import exp_euler_step
@@ -119,12 +119,12 @@ class STP(ShortTermPlasticity):
         self.U = init.param(U, self.varshape)
 
     def init_state(self, batch_size: int = None, **kwargs):
-        self.x = HiddenState(init.param(init.Constant(1.), self.varshape, batch_size))
-        self.u = HiddenState(init.param(init.Constant(self.U), self.varshape, batch_size))
+        self.x = HiddenState(init.param(init.ConstantInit(1.), self.varshape, batch_size))
+        self.u = HiddenState(init.param(init.ConstantInit(self.U), self.varshape, batch_size))
 
     def reset_state(self, batch_size: int = None, **kwargs):
-        self.x.value = init.param(init.Constant(1.), self.varshape, batch_size)
-        self.u.value = init.param(init.Constant(self.U), self.varshape, batch_size)
+        self.x.value = init.param(init.ConstantInit(1.), self.varshape, batch_size)
+        self.u.value = init.param(init.ConstantInit(self.U), self.varshape, batch_size)
 
     def update(self, pre_spike):
         u = exp_euler_step(lambda u: - u / self.tau_f, self.u.value)
@@ -219,10 +219,10 @@ class STD(ShortTermPlasticity):
         self.U = init.param(U, self.varshape)
 
     def init_state(self, batch_size: int = None, **kwargs):
-        self.x = HiddenState(init.param(init.Constant(1.), self.varshape, batch_size))
+        self.x = HiddenState(init.param(init.ConstantInit(1.), self.varshape, batch_size))
 
     def reset_state(self, batch_size: int = None, **kwargs):
-        self.x.value = init.param(init.Constant(1.), self.varshape, batch_size)
+        self.x.value = init.param(init.ConstantInit(1.), self.varshape, batch_size)
 
     def update(self, pre_spike):
         x = exp_euler_step(lambda x: (1 - x) / self.tau, self.x.value)

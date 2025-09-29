@@ -15,7 +15,7 @@
 
 from typing import Optional, Callable, Union
 
-from brainstate import init
+from . import _init as init
 from brainstate._state import ParamState
 from brainstate.typing import ArrayLike
 from ._module import Module
@@ -39,7 +39,7 @@ class Embedding(Module):
         self,
         num_embeddings: int,
         embedding_size: int,
-        embedding_init: Union[Callable, ArrayLike] = init.LecunUniform(),
+        embedding_init: Union[Callable, ArrayLike] = init.LecunUniformInit(),
         name: Optional[str] = None,
     ):
         super().__init__(name=name)

@@ -56,10 +56,10 @@ class AdEx(brainstate.nn.Neuron):
         # synaptic parameters
         tau_e=1.5 * u.ms, tau_i=7.5 * u.ms, E_e=0. * u.mV, E_i=-80. * u.mV,
         # other parameters
-        V_initializer=brainstate.init.Uniform(-65., -50., unit=u.mV),
-        w_initializer=brainstate.init.Constant(0. * u.pA),
-        ge_initializer=brainstate.init.Constant(0. * u.nS),
-        gi_initializer=brainstate.init.Constant(0. * u.nS),
+        V_initializer=brainstate.nn.UniformInit(-65., -50., unit=u.mV),
+        w_initializer=brainstate.nn.ConstantInit(0. * u.pA),
+        ge_initializer=brainstate.nn.ConstantInit(0. * u.nS),
+        gi_initializer=brainstate.nn.ConstantInit(0. * u.nS),
     ):
         super().__init__(in_size=in_size)
 
@@ -90,14 +90,14 @@ class AdEx(brainstate.nn.Neuron):
 
     def init_state(self):
         # neuronal variables
-        self.V = brainstate.HiddenState(brainstate.init.param(self.V_initializer, self.varshape))
-        self.w = brainstate.HiddenState(brainstate.init.param(self.w_initializer, self.varshape))
-        self.t_last_spike = brainstate.HiddenState(brainstate.init.param(brainstate.init.Constant(-1e7 * u.ms), self.varshape))
-        self.spike = brainstate.HiddenState(brainstate.init.param(lambda s: u.math.zeros(s, bool), self.varshape))
+        self.V = brainstate.HiddenState(brainstate.nn.param(self.V_initializer, self.varshape))
+        self.w = brainstate.HiddenState(brainstate.nn.param(self.w_initializer, self.varshape))
+        self.t_last_spike = brainstate.HiddenState(brainstate.nn.param(brainstate.init.ConstantInit(-1e7 * u.ms), self.varshape))
+        self.spike = brainstate.HiddenState(brainstate.nn.param(lambda s: u.math.zeros(s, bool), self.varshape))
 
         # synaptic parameters
-        self.ge = brainstate.HiddenState(brainstate.init.param(self.ge_initializer, self.varshape))
-        self.gi = brainstate.HiddenState(brainstate.init.param(self.gi_initializer, self.varshape))
+        self.ge = brainstate.HiddenState(brainstate.nn.param(self.ge_initializer, self.varshape))
+        self.gi = brainstate.HiddenState(brainstate.nn.param(self.gi_initializer, self.varshape))
 
     def dV(self, V, w, ge, gi, Iext):
         I = ge * (self.E_e - V) + gi * (self.E_i - V)

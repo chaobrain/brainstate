@@ -20,7 +20,8 @@ from typing import Optional, Sequence
 import brainunit as u
 import jax.numpy as jnp
 
-from brainstate import random, environ, init
+from brainstate import random, environ
+from . import _init as init
 from brainstate._state import ShortTermState
 from brainstate.typing import Size
 from ._module import ElementWiseBlock

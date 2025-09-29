@@ -245,7 +245,7 @@ class TestGraphUtils(absltest.TestCase):
         class LinearTranspose(brainstate.nn.Module):
             def __init__(self, dout: int, din: int, ) -> None:
                 super().__init__()
-                self.kernel = brainstate.ParamState(brainstate.init.LecunNormal()((dout, din)))
+                self.kernel = brainstate.ParamState(brainstate.nn.LecunNormalInit()((dout, din)))
 
             def __call__(self, x):
                 return x @ self.kernel.value.T

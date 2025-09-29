@@ -64,15 +64,15 @@ class SNN(brainstate.nn.DynamicsGroup):
 
         # synapse: i->r
         self.i2r = brainstate.nn.Sequential(
-            brainstate.nn.Linear(num_in, num_rec, w_init=brainstate.init.KaimingNormal(scale=40.)),
-            brainstate.nn.Expon(num_rec, tau=10. * u.ms, g_initializer=brainstate.init.ZeroInit())
+            brainstate.nn.Linear(num_in, num_rec, w_init=brainstate.nn.KaimingNormalInit(scale=40.)),
+            brainstate.nn.Expon(num_rec, tau=10. * u.ms, g_initializer=brainstate.nn.ZeroInit())
         )
         # recurrent: r
         self.r = brainstate.nn.LIF(num_rec, tau=10 * u.ms, V_reset=0 * u.mV, V_rest=0 * u.mV, V_th=1. * u.mV)
         # synapse: r->o
         self.r2o = brainstate.nn.Sequential(
-            brainstate.nn.Linear(num_rec, num_out, w_init=brainstate.init.KaimingNormal(scale=2.)),
-            brainstate.nn.Expon(num_out, tau=10. * u.ms, g_initializer=brainstate.init.ZeroInit())
+            brainstate.nn.Linear(num_rec, num_out, w_init=brainstate.nn.KaimingNormalInit(scale=2.)),
+            brainstate.nn.Expon(num_out, tau=10. * u.ms, g_initializer=brainstate.nn.ZeroInit())
         )
 
     def update(self, spikes):

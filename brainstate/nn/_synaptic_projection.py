@@ -19,7 +19,7 @@ from typing import Callable, Union, Tuple
 
 import brainunit as u
 
-from brainstate import init
+from . import _init as init
 from brainstate._state import ParamState
 from brainstate.typing import ArrayLike
 from ._dynamics import Dynamics, Projection

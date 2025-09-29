@@ -46,10 +46,10 @@ class SNN(brainstate.nn.DynamicsGroup):
         self.i2r = brainstate.nn.Sequential(
             brainstate.nn.Linear(
                 num_in, num_rec,
-                w_init=brainstate.init.KaimingNormal(scale=scale, unit=u.mA),
-                b_init=brainstate.init.ZeroInit(unit=u.mA)
+                w_init=brainstate.nn.KaimingNormalInit(scale=scale, unit=u.mA),
+                b_init=brainstate.nn.ZeroInit(unit=u.mA)
             ),
-            brainstate.nn.Expon(num_rec, tau=5. * u.ms, g_initializer=brainstate.init.Constant(0. * u.mA))
+            brainstate.nn.Expon(num_rec, tau=5. * u.ms, g_initializer=brainstate.nn.ConstantInit(0. * u.mA))
         )
         # recurrent: r
         self.r = brainstate.nn.LIF(
@@ -58,9 +58,9 @@ class SNN(brainstate.nn.DynamicsGroup):
             spk_fun=brainstate.surrogate.ReluGrad()
         )
         # synapse: r->o
-        self.r2o = brainstate.nn.Linear(num_rec, num_out, w_init=brainstate.init.KaimingNormal())
+        self.r2o = brainstate.nn.Linear(num_rec, num_out, w_init=brainstate.nn.KaimingNormalInit())
         # # output: o
-        self.o = brainstate.nn.Expon(num_out, tau=10. * u.ms, g_initializer=brainstate.init.Constant(0.))
+        self.o = brainstate.nn.Expon(num_out, tau=10. * u.ms, g_initializer=brainstate.nn.ConstantInit(0.))
 
     def update(self, spike):
         return self.o(self.r2o(self.r(self.i2r(spike))))

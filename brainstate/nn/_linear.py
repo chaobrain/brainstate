@@ -20,7 +20,7 @@ from typing import Callable, Union, Optional
 import brainunit as u
 import jax.numpy as jnp
 
-from brainstate import init
+from . import _init as init
 from brainstate._state import ParamState
 from brainstate.typing import ArrayLike, Size
 from ._module import Module
@@ -47,7 +47,7 @@ class Linear(Module):
         self,
         in_size: Size,
         out_size: Size,
-        w_init: Union[Callable, ArrayLike] = init.KaimingNormal(),
+        w_init: Union[Callable, ArrayLike] = init.KaimingNormalInit(),
         b_init: Optional[Union[Callable, ArrayLike]] = init.ZeroInit(),
         w_mask: Optional[Union[ArrayLike, Callable]] = None,
         name: Optional[str] = None,
@@ -91,7 +91,7 @@ class SignedWLinear(Module):
         self,
         in_size: Size,
         out_size: Size,
-        w_init: Union[Callable, ArrayLike] = init.KaimingNormal(),
+        w_init: Union[Callable, ArrayLike] = init.KaimingNormalInit(),
         w_sign: Optional[ArrayLike] = None,
         name: Optional[str] = None,
         param_type: type = ParamState,
@@ -151,7 +151,7 @@ class ScaledWSLinear(Module):
         self,
         in_size: Size,
         out_size: Size,
-        w_init: Callable = init.KaimingNormal(),
+        w_init: Callable = init.KaimingNormalInit(),
         b_init: Callable = init.ZeroInit(),
         w_mask: Optional[Union[ArrayLike, Callable]] = None,
         ws_gain: bool = True,
@@ -259,7 +259,7 @@ class AllToAll(Module):
         self,
         in_size: Size,
         out_size: Size,
-        w_init: Union[Callable, ArrayLike] = init.KaimingNormal(),
+        w_init: Union[Callable, ArrayLike] = init.KaimingNormalInit(),
         b_init: Optional[Union[Callable, ArrayLike]] = None,
         include_self: bool = True,
         name: Optional[str] = None,
@@ -333,7 +333,7 @@ class OneToOne(Module):
     def __init__(
         self,
         in_size: Size,
-        w_init: Union[Callable, ArrayLike] = init.Normal(),
+        w_init: Union[Callable, ArrayLike] = init.NormalInit(),
         b_init: Optional[Union[Callable, ArrayLike]] = None,
         name: Optional[str] = None,
         param_type: type = ParamState,
@@ -395,7 +395,7 @@ class LoRA(Module):
         out_features: int,
         *,
         base_module: Optional[Module] = None,
-        kernel_init: Union[Callable, ArrayLike] = init.LecunNormal(),
+        kernel_init: Union[Callable, ArrayLike] = init.LecunNormalInit(),
         param_type: type = ParamState,
     ):
         super().__init__()

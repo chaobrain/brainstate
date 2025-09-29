@@ -19,7 +19,8 @@ import brainunit as u
 import jax
 import numpy as np
 
-from brainstate import environ, init, random
+from brainstate import environ, random
+from . import _init as init
 from brainstate._state import ShortTermState, State, maybe_state
 from brainstate.transform import while_loop
 from brainstate.typing import ArrayLike, Size, DTypeLike

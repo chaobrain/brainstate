@@ -22,7 +22,8 @@ from typing import Callable
 import brainunit as u
 import jax
 
-from brainstate import environ, init, surrogate
+from . import _init as init
+from brainstate import environ, surrogate
 from brainstate._state import HiddenState, ParamState
 from brainstate.typing import Size, ArrayLike
 from ._exp_euler import exp_euler_step
@@ -83,7 +84,7 @@ class LeakyRateReadout(Module):
         in_size: Size,
         out_size: Size,
         tau: ArrayLike = 5. * u.ms,
-        w_init: Callable = init.KaimingNormal(),
+        w_init: Callable = init.KaimingNormalInit(),
         name: str = None,
     ):
         super().__init__(name=name)
@@ -98,10 +99,10 @@ class LeakyRateReadout(Module):
         self.weight = ParamState(init.param(w_init, (self.in_size[0], self.out_size[0])))
 
     def init_state(self, batch_size=None, **kwargs):
-        self.r = HiddenState(init.param(init.Constant(0.), self.out_size, batch_size))
+        self.r = HiddenState(init.param(init.ConstantInit(0.), self.out_size, batch_size))
 
     def reset_state(self, batch_size=None, **kwargs):
-        self.r.value = init.param(init.Constant(0.), self.out_size, batch_size)
+        self.r.value = init.param(init.ConstantInit(0.), self.out_size, batch_size)
 
     def update(self, x):
         self.r.value = self.decay * self.r.value + x @ self.weight.value
@@ -165,7 +166,7 @@ class LeakySpikeReadout(Neuron):
         in_size: Size,
         tau: ArrayLike = 5. * u.ms,
         V_th: ArrayLike = 1. * u.mV,
-        w_init: Callable = init.KaimingNormal(unit=u.mV),
+        w_init: Callable = init.KaimingNormalInit(unit=u.mV),
         V_initializer: ArrayLike = init.ZeroInit(unit=u.mV),
         spk_fun: Callable = surrogate.ReluGrad(),
         spk_reset: str = 'soft',

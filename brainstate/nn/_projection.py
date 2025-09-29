@@ -127,7 +127,7 @@ class AlignPostProj(Projection):
     ...        num,
     ...        V_rest=-49. * u.mV, V_th=-50. * u.mV, V_reset=-60. * u.mV,
     ...        tau=20. * u.ms, tau_ref=5. * u.ms,
-    ...        V_initializer=brainstate.init.Normal(-55., 2., unit=u.mV)
+    ...        V_initializer=brainstate.init.NormalInit(-55., 2., unit=u.mV)
     ... )
     >>> pop.init_state()
     >>> E = brainstate.nn.AlignPostProj(

@@ -108,7 +108,7 @@ class LearningRateScheduler(Node):
 
 class ConstantLR(LearningRateScheduler):
     """
-    Constant learning rate scheduler.
+    ConstantInit learning rate scheduler.
     """
 
     def __call__(self, i=None):

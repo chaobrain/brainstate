@@ -1,4 +1,4 @@
-# Copyright 2024 BDP Ecosystem Limited. All Rights Reserved.
+# Copyright 2025 BrainSim Ecosystem Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,32 +13,203 @@
 # limitations under the License.
 # ==============================================================================
 
-# -*- coding: utf-8 -*-
-
 import math
+from typing import Optional, Tuple
+from typing import Union, Callable, Sequence
 
 import brainunit as u
+import jax
 import jax.numpy as jnp
 import numpy as np
 
 from brainstate import environ, random
-from brainstate.typing import ArrayLike, SeedOrKey, DTypeLike
-from ._base import Initializer, to_size
+from brainstate._state import State
+from brainstate._utils import set_module_as
+from brainstate.typing import ArrayLike
+from brainstate.typing import SeedOrKey, DTypeLike
+from brainstate.util import PrettyRepr, PrettyType, PrettyAttr
 
 __all__ = [
-    'Normal',
-    'TruncatedNormal',
-    'Uniform',
-    'VarianceScaling',
-    'KaimingUniform',
-    'KaimingNormal',
-    'XavierUniform',
-    'XavierNormal',
-    'LecunUniform',
-    'LecunNormal',
-    'Orthogonal',
-    'DeltaOrthogonal',
+    'param',
+    'ZeroInit',
+    'ConstantInit',
+    'IdentityInit',
+    'NormalInit',
+    'TruncatedNormalInit',
+    'UniformInit',
+    'VarianceScalingInit',
+    'KaimingUniformInit',
+    'KaimingNormalInit',
+    'XavierUniformInit',
+    'XavierNormalInit',
+    'LecunUniformInit',
+    'LecunNormalInit',
+    'OrthogonalInit',
+    'DeltaOrthogonalInit',
 ]
+
+
+class Initializer(PrettyRepr):
+    """
+    Base class for initializers.
+    """
+    __module__ = 'brainstate.init'
+
+    def __call__(self, *args, **kwargs):
+        raise NotImplementedError
+
+    def __pretty_repr__(self):
+        """
+        Pretty repr for the object.
+        """
+        yield PrettyType(type=type(self))
+        for name, value in vars(self).items():
+            if name.startswith('_'):
+                continue
+            yield PrettyAttr(name, repr(value))
+
+
+def to_size(x) -> Optional[Tuple[int]]:
+    if isinstance(x, (tuple, list)):
+        return tuple(x)
+    if isinstance(x, (int, np.integer)):
+        return (x,)
+    if x is None:
+        return x
+    raise ValueError(f'Cannot make a size for {x}')
+
+
+def _is_scalar(x):
+    return u.math.isscalar(x)
+
+
+def are_broadcastable_shapes(shape1, shape2):
+    """
+    Check if two shapes are broadcastable.
+
+    Parameters:
+    - shape1: Tuple[int], the shape of the first array.
+    - shape2: Tuple[int], the shape of the second array.
+
+    Returns:
+    - bool: True if shapes are broadcastable, False otherwise.
+    """
+    # Reverse the shapes to compare from the last dimension
+    shape1_reversed = shape1[::-1]
+    shape2_reversed = shape2[::-1]
+
+    # Iterate over the dimensions of the shorter shape
+    for dim1, dim2 in zip(shape1_reversed, shape2_reversed):
+        # Check if the dimensions are not equal and neither is 1
+        if dim1 != dim2 and 1 not in (dim1, dim2):
+            return False
+
+    # If all dimensions are compatible, the shapes are broadcastable
+    return True
+
+
+def _expand_params_to_match_sizes(params, sizes):
+    """
+    Expand the dimensions of params to match the dimensions of sizes.
+
+    Parameters:
+    - params: jax.Array or np.ndarray, the parameter array to be expanded.
+    - sizes: tuple[int] or list[int], the target shape dimensions.
+
+    Returns:
+    - Expanded params with dimensions matching sizes.
+    """
+    params_dim = params.ndim
+    sizes_dim = len(sizes)
+    dim_diff = sizes_dim - params_dim
+
+    # Add new axes to params if it has fewer dimensions than sizes
+    for _ in range(dim_diff):
+        params = u.math.expand_dims(params, axis=0)  # Add new axis at the last dimension
+    return params
+
+
+@set_module_as('brainstate.init')
+def param(
+    parameter: Union[Callable, ArrayLike, State],
+    sizes: Union[int, Sequence[int]],
+    batch_size: Optional[int] = None,
+    allow_none: bool = True,
+    allow_scalar: bool = True,
+):
+    """Initialize parameters.
+
+    Parameters
+    ----------
+    parameter: callable, ArrayLike, State
+      The initialization of the parameter.
+      - If it is None, the created parameter will be None.
+      - If it is a callable function :math:`f`, the ``f(size)`` will be returned.
+      - If it is an instance of :py:class:`init.Initializer``, the ``f(size)`` will be returned.
+      - If it is a tensor, then this function check whether ``tensor.shape`` is equal to the given ``size``.
+    sizes: int, sequence of int
+      The shape of the parameter.
+    batch_size: int
+      The batch size.
+    allow_none: bool
+      Whether allow the parameter is None.
+    allow_scalar: bool
+      Whether allow the parameter is a scalar value.
+
+    Returns
+    -------
+    param: ArrayType, float, int, bool, None
+      The initialized parameter.
+
+    See Also
+    --------
+    noise, state
+    """
+    # Check if the parameter is None
+    if parameter is None:
+        if allow_none:
+            return None
+        else:
+            raise ValueError(f'Expect a parameter with type of float, ArrayType, Initializer, or '
+                             f'Callable function, but we got None. ')
+
+    # Check if the parameter is a scalar value
+    if allow_scalar and _is_scalar(parameter):
+        return parameter
+
+    # Convert sizes to a tuple
+    sizes = tuple(to_size(sizes))
+
+    # Check if the parameter is a callable function
+    if callable(parameter):
+        if batch_size is not None:
+            sizes = (batch_size,) + sizes
+        return parameter(sizes)
+    elif isinstance(parameter, (np.ndarray, jax.Array, u.Quantity, State)):
+        parameter = parameter
+    else:
+        raise ValueError(f'Unknown parameter type: {type(parameter)}')
+
+    # Check if the shape of the parameter matches the given size
+    if not are_broadcastable_shapes(parameter.shape, sizes):
+        raise ValueError(f'The shape of the parameter {parameter.shape} does not match with the given size {sizes}')
+
+    # Expand the parameter to match the given batch size
+    param_value = parameter.value if isinstance(parameter, State) else parameter
+    if batch_size is not None:
+        if param_value.ndim <= len(sizes):
+            # add a new axis to the params so that it matches the dimensionality of the given shape ``sizes``
+            param_value = _expand_params_to_match_sizes(param_value, sizes)
+            param_value = u.math.repeat(
+                u.math.expand_dims(param_value, axis=0),
+                batch_size,
+                axis=0
+            )
+        else:
+            if param_value.shape[0] != batch_size:
+                raise ValueError(f'The batch size of the parameter {param_value.shape[0]} '
+                                 f'does not match with the given batch size {batch_size}')
+    return type(parameter)(param_value) if isinstance(parameter, State) else param_value
 
 
 def calculate_gain(nonlinearity, param=None):
@@ -114,7 +285,7 @@ def _compute_fans(shape, in_axis=-2, out_axis=-1):
     return fan_in, fan_out
 
 
-class Normal(Initializer):
+class NormalInit(Initializer):
     """Initialize weights with normal distribution.
 
     Parameters
@@ -145,7 +316,7 @@ class Normal(Initializer):
         return u.maybe_decimal(u.Quantity(weights, unit=self.unit))
 
 
-class TruncatedNormal(Initializer):
+class TruncatedNormalInit(Initializer):
     """Initialize weights with truncated normal distribution.
 
     Parameters
@@ -197,7 +368,7 @@ class TruncatedNormal(Initializer):
         return u.maybe_decimal(u.Quantity(weights, unit=self.unit))
 
 
-class Gamma(Initializer):
+class GammaInit(Initializer):
     """Initialize weights with Gamma distribution.
 
     Parameters
@@ -229,7 +400,7 @@ class Gamma(Initializer):
         return u.maybe_decimal(u.Quantity(weights, unit=self.unit))
 
 
-class Exponential(Initializer):
+class ExponentialInit(Initializer):
     """Initialize weights with Gamma distribution.
 
     Parameters
@@ -257,7 +428,7 @@ class Exponential(Initializer):
         return u.maybe_decimal(u.Quantity(weights, unit=self.unit))
 
 
-class Uniform(Initializer):
+class UniformInit(Initializer):
     """Initialize weights with uniform distribution.
 
     Parameters
@@ -276,7 +447,7 @@ class Uniform(Initializer):
         seed: SeedOrKey = None,
         unit: u.Unit = u.UNITLESS,
     ):
-        super(Uniform, self).__init__()
+        super(UniformInit, self).__init__()
         self.min_val = min_val
         self.max_val = max_val
         self.rng = random.default_rng(seed)
@@ -289,7 +460,7 @@ class Uniform(Initializer):
         return u.maybe_decimal(u.Quantity(weights, unit=self.unit))
 
 
-class VarianceScaling(Initializer):
+class VarianceScalingInit(Initializer):
     __module__ = 'brainstate.init'
 
     def __init__(
@@ -338,7 +509,7 @@ class VarianceScaling(Initializer):
         return u.maybe_decimal(u.Quantity(res, unit=self.unit))
 
 
-class KaimingUniform(VarianceScaling):
+class KaimingUniformInit(VarianceScalingInit):
     __module__ = 'brainstate.init'
 
     def __init__(
@@ -360,7 +531,7 @@ class KaimingUniform(VarianceScaling):
                          unit=unit)
 
 
-class KaimingNormal(VarianceScaling):
+class KaimingNormalInit(VarianceScalingInit):
     __module__ = 'brainstate.init'
 
     def __init__(
@@ -382,7 +553,7 @@ class KaimingNormal(VarianceScaling):
                          unit=unit)
 
 
-class XavierUniform(VarianceScaling):
+class XavierUniformInit(VarianceScalingInit):
     __module__ = 'brainstate.init'
 
     def __init__(
@@ -404,7 +575,7 @@ class XavierUniform(VarianceScaling):
                          unit=unit)
 
 
-class XavierNormal(VarianceScaling):
+class XavierNormalInit(VarianceScalingInit):
     __module__ = 'brainstate.init'
 
     def __init__(
@@ -426,7 +597,7 @@ class XavierNormal(VarianceScaling):
                          unit=unit)
 
 
-class LecunUniform(VarianceScaling):
+class LecunUniformInit(VarianceScalingInit):
     __module__ = 'brainstate.init'
 
     def __init__(
@@ -448,7 +619,7 @@ class LecunUniform(VarianceScaling):
                          unit=unit)
 
 
-class LecunNormal(VarianceScaling):
+class LecunNormalInit(VarianceScalingInit):
     __module__ = 'brainstate.init'
 
     def __init__(
@@ -470,7 +641,7 @@ class LecunNormal(VarianceScaling):
                          unit=unit)
 
 
-class Orthogonal(Initializer):
+class OrthogonalInit(Initializer):
     """
     Construct an initializer for uniformly distributed orthogonal matrices.
 
@@ -511,7 +682,7 @@ class Orthogonal(Initializer):
         return u.maybe_decimal(u.Quantity(r, unit=self.unit))
 
 
-class DeltaOrthogonal(Initializer):
+class DeltaOrthogonalInit(Initializer):
     """
     Construct an initializer for delta orthogonal kernels; see arXiv:1806.05393.
 
@@ -529,7 +700,7 @@ class DeltaOrthogonal(Initializer):
         super().__init__()
         self.scale = scale
         self.axis = axis
-        self.orghogonal = Orthogonal(scale=scale, axis=axis, seed=seed)
+        self.orghogonal = OrthogonalInit(scale=scale, axis=axis, seed=seed)
         self.unit = unit
 
     def __call__(self, shape, dtype: DTypeLike = None, ):
@@ -551,3 +722,81 @@ class DeltaOrthogonal(Initializer):
             k1, k2, k3 = shape[:3]
             W = W.at[(k1 - 1) // 2, (k2 - 1) // 2, (k3 - 1) // 2].set(ortho_matrix)
         return u.maybe_decimal(u.Quantity(W.mantissa, unit=self.unit))
+
+
+class ZeroInit(Initializer):
+    """Zero initializer.
+
+    Initialize the weights with zeros.
+    """
+    __module__ = 'brainstate.init'
+
+    def __init__(self, unit: u.Unit = u.UNITLESS):
+        super(ZeroInit, self).__init__()
+        self.unit = unit
+
+    def __call__(self, shape, dtype=None):
+        dtype = dtype or environ.dftype()
+        shape = to_size(shape)
+        return u.maybe_decimal(u.math.zeros(shape, dtype=dtype, unit=self.unit))
+
+
+class ConstantInit(Initializer):
+    """ConstantInit initializer.
+
+    Initialize the weights with the given values.
+
+    Parameters
+    ----------
+    value : float, int, bm.ndarray
+      The value to specify.
+    """
+    __module__ = 'brainstate.init'
+
+    def __init__(self, value=1., ):
+        super(ConstantInit, self).__init__()
+        self.value = value
+
+    def __call__(self, shape, dtype=None):
+        dtype = dtype or environ.dftype()
+        shape = to_size(shape)
+        return u.maybe_decimal(u.math.full(shape, self.value, dtype=dtype))
+
+
+class IdentityInit(Initializer):
+    """Returns the identity matrix.
+
+    This initializer was proposed in (Le, et al., 2015) [1]_.
+
+    Parameters
+    ----------
+    value : float
+      The optional scaling factor.
+
+    Returns
+    -------
+    shape: tuple of int
+      The weight shape/size.
+
+    References
+    ----------
+    .. [1] Le, Quoc V., Navdeep Jaitly, and Geoffrey E. Hinton. "A simple way to
+           initialize recurrent networks of rectified linear units." arXiv preprint
+           arXiv:1504.00941 (2015).
+    """
+    __module__ = 'brainstate.init'
+
+    def __init__(self, value=1., unit: u.Unit = u.UNITLESS):
+        super(IdentityInit, self).__init__()
+        self.value = value
+        self.unit = unit
+
+    def __call__(self, shape, dtype=None):
+        dtype = dtype or environ.dftype()
+        shape = to_size(shape)
+        if isinstance(shape, (tuple, list)):
+            if len(shape) > 2:
+                raise ValueError(f'Only support initialize 2D weights for {self.__class__.__name__}.')
+        r = u.math.eye(*shape, dtype=dtype)
+        r = u.math.fill_diagonal(r, self.value)
+        return u.maybe_decimal(u.Quantity(r, unit=self.unit))

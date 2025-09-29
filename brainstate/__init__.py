@@ -22,7 +22,6 @@ __versio_info__ = (0, 1, 11)
 
 from . import environ
 from . import graph
-from . import init
 from . import mixin
 from . import nn
 from . import optim
@@ -118,6 +117,33 @@ functional = create_deprecated_module_proxy(
     replacement_name='brainstate.nn',
     scoped_apis=_functional_apis
 )
+
+_init_apis = {
+    'param': 'brainstate.nn.param',
+    'ZeroInit': 'brainstate.nn.ZeroInitInit',
+    'ConstantInit': 'brainstate.nn.ConstantInit',
+    'Identity': 'brainstate.nn.IdentityInit',
+    'Normal': 'brainstate.nn.NormalInit',
+    'TruncatedNormal': 'brainstate.nn.TruncatedNormalInit',
+    'Uniform': 'brainstate.nn.UniformInit',
+    'VarianceScaling': 'brainstate.nn.VarianceScalingInit',
+    'KaimingUniform': 'brainstate.nn.KaimingUniformInit',
+    'KaimingNormal': 'brainstate.nn.KaimingNormalInit',
+    'XavierUniform': 'brainstate.nn.XavierUniformInit',
+    'XavierNormal': 'brainstate.nn.XavierNormalInit',
+    'LecunUniform': 'brainstate.nn.LecunUniformInit',
+    'LecunNormal': 'brainstate.nn.LecunNormalInit',
+    'Orthogonal': 'brainstate.nn.OrthogonalInit',
+    'DeltaOrthogonal': 'brainstate.nn.DeltaOrthogonalInit',
+}
+
+init = create_deprecated_module_proxy(
+    deprecated_name='brainstate.init',
+    replacement_module=nn,
+    replacement_name='brainstate.nn',
+    scoped_apis=_init_apis
+)
+
 from ._state import *
 from ._state import __all__ as _state_all
 

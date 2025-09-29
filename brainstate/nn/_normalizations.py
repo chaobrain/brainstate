@@ -21,7 +21,8 @@ import jax
 import jax.numpy as jnp
 
 import brainunit as u
-from brainstate import environ, init
+from brainstate import environ
+from . import _init as init
 from brainstate._state import ParamState, BatchState
 from brainstate.typing import DTypeLike, ArrayLike, Size, Axes
 from ._module import Module
@@ -307,8 +308,8 @@ class _BatchNorm(Module):
         epsilon: float = 1e-5,
         momentum: float = 0.99,
         affine: bool = True,
-        bias_initializer: Union[ArrayLike, Callable] = init.Constant(0.),
-        scale_initializer: Union[ArrayLike, Callable] = init.Constant(1.),
+        bias_initializer: Union[ArrayLike, Callable] = init.ConstantInit(0.),
+        scale_initializer: Union[ArrayLike, Callable] = init.ConstantInit(1.),
         axis_name: Optional[Union[str, Sequence[str]]] = None,
         axis_index_groups: Optional[Sequence[Sequence[int]]] = None,
         use_fast_variance: bool = True,
@@ -500,10 +501,8 @@ _bn_doc = r'''
     learnable affine parameters. Default: ``True``
   bias_initializer: ArrayLike, Callable
     An initializer generating the original translation matrix. If not ``None``, bias (beta) is added. 
-    Default: ``init.Constant(0.)``
   scale_initializer: ArrayLike, Callable
     An initializer generating the original scaling matrix. If not ``None``, multiply by scale (gamma).
-    Default: ``init.Constant(1.)``
   axis_name: optional, str, sequence of str
     If not ``None``, it should be a string (or sequence of
     strings) representing the axis name(s) over which this module is being
@@ -588,7 +587,7 @@ class LayerNorm(Module):
         use_bias: bool = True,
         use_scale: bool = True,
         bias_init: Callable = init.ZeroInit(),
-        scale_init: Callable = init.Constant(1.0),
+        scale_init: Callable = init.ConstantInit(1.0),
         axis_name: Optional[str] = None,
         axis_index_groups: Any = None,
         use_fast_variance: bool = True,
@@ -711,7 +710,7 @@ class RMSNorm(Module):
         epsilon: float = 1e-6,
         dtype: Optional[jax.typing.DTypeLike] = None,
         use_scale: bool = True,
-        scale_init: Callable = init.Constant(1.0),
+        scale_init: Callable = init.ConstantInit(1.0),
         reduction_axes: Axes = -1,
         feature_axes: Axes = -1,
         axis_name: Optional[str] = None,
@@ -854,7 +853,7 @@ class GroupNorm(Module):
         use_bias: bool = True,
         use_scale: bool = True,
         bias_init: Callable = init.ZeroInit(),
-        scale_init: Callable = init.Constant(1.),
+        scale_init: Callable = init.ConstantInit(1.),
         reduction_axes: Optional[Axes] = None,
         axis_name: Optional[str] = None,
         axis_index_groups: Any = None,
