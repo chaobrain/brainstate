@@ -202,7 +202,7 @@ Probability distributions for discrete random variables.
    zipf
 
 Special Distributions
-~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~
 
 Specialized distributions for statistical and scientific applications.
 

@@ -70,17 +70,17 @@ def jit_error_if(
 
     .. code-block:: python
 
-        def error(x):
-            raise ValueError(f'error {x}')
-        x = jax.random.uniform(jax.random.PRNGKey(0), (10,))
-        jit_error_if(x.sum() < 5., error, x)
+        >>> def error(x):
+        ...     raise ValueError(f'error {x}')
+        >>> x = jax.random.uniform(jax.random.PRNGKey(0), (10,))
+        >>> jit_error_if(x.sum() < 5., error, x)
 
     Or, it can be a simple string message.
 
     .. code-block:: python
 
-        x = jax.random.uniform(jax.random.PRNGKey(0), (10,))
-        jit_error_if(x.sum() < 5., "Error: the sum is less than 5. Got {s}", s=x.sum())
+        >>> x = jax.random.uniform(jax.random.PRNGKey(0), (10,))
+        >>> jit_error_if(x.sum() < 5., "Error: the sum is less than 5. Got {s}", s=x.sum())
     """
     if isinstance(error, str):
         error = partial(_error_msg, error)

@@ -62,10 +62,10 @@ def cond(pred, true_fun: Callable, false_fun: Callable, *operands):
 
     .. code-block:: python
 
-        def cond(pred, true_fun, false_fun, *operands):
-            if pred:
-                return true_fun(*operands)
-            return false_fun(*operands)
+        >>> def cond(pred, true_fun, false_fun, *operands):
+        ...     if pred:
+        ...         return true_fun(*operands)
+        ...     return false_fun(*operands)
 
     In contrast with :func:`jax.lax.select`, using :func:`cond` indicates that only
     one branch runs (subject to compiler rewrites and optimizations). When
@@ -76,15 +76,15 @@ def cond(pred, true_fun: Callable, false_fun: Callable, *operands):
     --------
     .. code-block:: python
 
-        import brainstate
-
-        def branch_true(x):
-            return x + 1
-
-        def branch_false(x):
-            return x - 1
-
-        brainstate.transform.cond(True, branch_true, branch_false, 3)
+        >>> import brainstate
+        >>>
+        >>> def branch_true(x):
+        ...     return x + 1
+        >>>
+        >>> def branch_false(x):
+        ...     return x - 1
+        >>>
+        >>> brainstate.transform.cond(True, branch_true, branch_false, 3)
     """
     if not (callable(true_fun) and callable(false_fun)):
         raise TypeError("true_fun and false_fun arguments should be callable.")
@@ -163,9 +163,9 @@ def switch(index, branches: Sequence[Callable], *operands):
 
     .. code-block:: python
 
-        def switch(index, branches, *operands):
-            safe_index = clamp(0, index, len(branches) - 1)
-            return branches[safe_index](*operands)
+        >>> def switch(index, branches, *operands):
+        ...     safe_index = clamp(0, index, len(branches) - 1)
+        ...     return branches[safe_index](*operands)
 
     Internally this wraps XLA's `Conditional <https://www.tensorflow.org/xla/operation_semantics#conditional>`_
     operator. When transformed with :func:`~jax.vmap` over a batch of predicates,
@@ -175,15 +175,15 @@ def switch(index, branches: Sequence[Callable], *operands):
     --------
     .. code-block:: python
 
-        import brainstate
-
-        branches = (
-            lambda x: x - 1,
-            lambda x: x,
-            lambda x: x + 1,
-        )
-
-        brainstate.transform.switch(2, branches, 3)
+        >>> import brainstate
+        >>>
+        >>> branches = (
+        ...     lambda x: x - 1,
+        ...     lambda x: x,
+        ...     lambda x: x + 1,
+        ... )
+        >>>
+        >>> brainstate.transform.switch(2, branches, 3)
     """
     # check branches
     if not all(callable(branch) for branch in branches):
@@ -274,20 +274,20 @@ def ifelse(conditions, branches, *operands, check_cond: bool = True):
     --------
     .. code-block:: python
 
-        import brainstate
-
-        def describe(a):
-            return brainstate.transform.ifelse(
-                conditions=[a > 5, a > 0, True],
-                branches=[
-                    lambda: "greater than five",
-                    lambda: "positive",
-                    lambda: "non-positive",
-                ],
-            )
-
-        describe(7)
-        describe(-1)
+        >>> import brainstate
+        >>>
+        >>> def describe(a):
+        ...     return brainstate.transform.ifelse(
+        ...         conditions=[a > 5, a > 0, True],
+        ...         branches=[
+        ...             lambda: "greater than five",
+        ...             lambda: "positive",
+        ...             lambda: "non-positive",
+        ...         ],
+        ...     )
+        >>>
+        >>> describe(7)
+        >>> describe(-1)
     """
     # check branches
     if not all(callable(branch) for branch in branches):

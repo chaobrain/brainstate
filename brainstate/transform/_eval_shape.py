@@ -75,60 +75,60 @@ def abstract_init(
 
     .. code-block:: python
 
-        import brainstate
-        import jax.numpy as jnp
-
-        class MLP:
-            def __init__(self, n_in, n_mid, n_out):
-                self.dense1 = brainstate.nn.Linear(n_in, n_mid)
-                self.dense2 = brainstate.nn.Linear(n_mid, n_out)
-
-        # Get shape information without actual computation
-        model_shape = brainstate.augment.abstract_init(lambda: MLP(1, 2, 3))
+        >>> import brainstate
+        >>> import jax.numpy as jnp
+        >>>
+        >>> class MLP:
+        ...     def __init__(self, n_in, n_mid, n_out):
+        ...         self.dense1 = brainstate.nn.Linear(n_in, n_mid)
+        ...         self.dense2 = brainstate.nn.Linear(n_mid, n_out)
+        >>>
+        >>> # Get shape information without actual computation
+        >>> model_shape = brainstate.augment.abstract_init(lambda: MLP(1, 2, 3))
 
     With function arguments:
 
     .. code-block:: python
 
-        def create_model(input_size, hidden_size, output_size):
-            return brainstate.nn.Sequential([
-                brainstate.nn.Linear(input_size, hidden_size),
-                brainstate.nn.ReLU(),
-                brainstate.nn.Linear(hidden_size, output_size)
-            ])
-
-        # Abstract initialization with arguments
-        model_shape = brainstate.augment.abstract_init(
-            create_model, 784, 256, 10
-        )
+        >>> def create_model(input_size, hidden_size, output_size):
+        ...     return brainstate.nn.Sequential([
+        ...         brainstate.nn.Linear(input_size, hidden_size),
+        ...         brainstate.nn.ReLU(),
+        ...         brainstate.nn.Linear(hidden_size, output_size)
+        ...     ])
+        >>>
+        >>> # Abstract initialization with arguments
+        >>> model_shape = brainstate.augment.abstract_init(
+        ...     create_model, 784, 256, 10
+        ... )
 
     Using custom random number generators:
 
     .. code-block:: python
 
-        import brainstate.random as random
-
-        # Create custom RNG
-        rng = random.RandomState(42)
-
-        def init_with_custom_weights():
-            return brainstate.nn.Linear(10, 5)
-
-        model_shape = brainstate.augment.abstract_init(
-            init_with_custom_weights, rngs=rng
-        )
+        >>> import brainstate.random as random
+        >>>
+        >>> # Create custom RNG
+        >>> rng = random.RandomState(42)
+        >>>
+        >>> def init_with_custom_weights():
+        ...     return brainstate.nn.Linear(10, 5)
+        >>>
+        >>> model_shape = brainstate.augment.abstract_init(
+        ...     init_with_custom_weights, rngs=rng
+        ... )
 
     Evaluating function with array inputs:
 
     .. code-block:: python
 
-        def model_forward(x):
-            layer = brainstate.nn.Linear(x.shape[-1], 128)
-            return layer(x)
-
-        # Use ShapeDtypeStruct to represent input without actual data
-        input_shape = jax.ShapeDtypeStruct((32, 784), jnp.float32)
-        output_shape = brainstate.augment.abstract_init(model_forward, input_shape)
+        >>> def model_forward(x):
+        ...     layer = brainstate.nn.Linear(x.shape[-1], 128)
+        ...     return layer(x)
+        >>>
+        >>> # Use ShapeDtypeStruct to represent input without actual data
+        >>> input_shape = jax.ShapeDtypeStruct((32, 784), jnp.float32)
+        >>> output_shape = brainstate.augment.abstract_init(model_forward, input_shape)
     """
 
     @functools.wraps(fn)

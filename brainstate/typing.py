@@ -507,14 +507,15 @@ else:
 PyTree.__doc__ = """Represents a PyTree.
 
 Annotations of the following sorts are supported:
-```python
-a: PyTree
-b: PyTree[LeafType]
-c: PyTree[LeafType, "T"]
-d: PyTree[LeafType, "S T"]
-e: PyTree[LeafType, "... T"]
-f: PyTree[LeafType, "T ..."]
-```
+
+.. code-block:: python
+
+    a: PyTree
+    b: PyTree[LeafType]
+    c: PyTree[LeafType, "T"]
+    d: PyTree[LeafType, "S T"]
+    e: PyTree[LeafType, "... T"]
+    f: PyTree[LeafType, "T ..."]
 
 These correspond to:
 
@@ -528,23 +529,26 @@ b. `PyTree[LeafType]` denotes a PyTree all of whose leaves match `LeafType`. For
 c. A structure name can also be passed. In this case
     `jax.tree_util.tree_structure(...)` will be called, and bound to the structure name.
     This can be used to mark that multiple PyTrees all have the same structure:
-    ```python
-    def f(x: PyTree[int, "T"], y: PyTree[int, "T"]):
+    
+    .. code-block:: python
+        
+        def f(x: PyTree[int, "T"], y: PyTree[int, "T"]):
         ...
-    ```
 
 d. A composite structure can be declared. In this case the variable must have a PyTree
     structure each to the composition of multiple previously-bound PyTree structures.
     For example:
-    ```python
-    def f(x: PyTree[int, "T"], y: PyTree[int, "S"], z: PyTree[int, "S T"]):
-        ...
-
-    x = (1, 2)
-    y = {"key": 3}
-    z = {"key": (4, 5)}  # structure is the composition of the structures of `y` and `z`
-    f(x, y, z)
-    ```
+    
+    .. code-block:: python
+        
+        def f(x: PyTree[int, "T"], y: PyTree[int, "S"], z: PyTree[int, "S T"]):
+            ...
+    
+        x = (1, 2)
+        y = {"key": 3}
+        z = {"key": (4, 5)}  # structure is the composition of the structures of `y` and `z`
+        f(x, y, z)
+    
     When performing runtime type-checking, all the individual pieces must have already
     been bound to structures, otherwise the composite structure check will throw an error.
 

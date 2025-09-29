@@ -193,47 +193,47 @@ class GradientTransform(PrettyRepr):
 
     .. code-block:: python
 
-        import brainstate
-        import jax.numpy as jnp
-
-        # Create states
-        weight = brainstate.State(jnp.array([[1.0, 2.0], [3.0, 4.0]]))
-        bias = brainstate.State(jnp.array([0.5, -0.5]))
-
-        def loss_fn(x):
-            y = x @ weight.value + bias.value
-            return jnp.sum(y ** 2)
-
-        # Create gradient transform
-        grad_transform = brainstate.augment.GradientTransform(
-            target=loss_fn,
-            transform=jax.grad,
-            grad_states=[weight, bias]
-        )
-
-        # Compute gradients
-        x = jnp.array([1.0, 2.0])
-        grads = grad_transform(x)
+        >>> import brainstate
+        >>> import jax.numpy as jnp
+        >>>
+        >>> # Create states
+        >>> weight = brainstate.State(jnp.array([[1.0, 2.0], [3.0, 4.0]]))
+        >>> bias = brainstate.State(jnp.array([0.5, -0.5]))
+        >>>
+        >>> def loss_fn(x):
+        ...     y = x @ weight.value + bias.value
+        ...     return jnp.sum(y ** 2)
+        >>>
+        >>> # Create gradient transform
+        >>> grad_transform = brainstate.augment.GradientTransform(
+        ...     target=loss_fn,
+        ...     transform=jax.grad,
+        ...     grad_states=[weight, bias]
+        ... )
+        >>>
+        >>> # Compute gradients
+        >>> x = jnp.array([1.0, 2.0])
+        >>> grads = grad_transform(x)
 
     With function arguments and auxiliary data:
 
     .. code-block:: python
 
-        def loss_fn_with_aux(x, scale):
-            y = x @ weight.value + bias.value
-            loss = jnp.sum((y * scale) ** 2)
-            return loss, {"predictions": y, "scale": scale}
-
-        grad_transform = brainstate.augment.GradientTransform(
-            target=loss_fn_with_aux,
-            transform=jax.grad,
-            grad_states=[weight, bias],
-            argnums=[0, 1],  # gradient w.r.t x and scale
-            has_aux=True,
-            return_value=True
-        )
-
-        grads, loss_value, aux_data = grad_transform(x, 2.0)
+        >>> def loss_fn_with_aux(x, scale):
+        ...     y = x @ weight.value + bias.value
+        ...     loss = jnp.sum((y * scale) ** 2)
+        ...     return loss, {"predictions": y, "scale": scale}
+        >>>
+        >>> grad_transform = brainstate.augment.GradientTransform(
+        ...     target=loss_fn_with_aux,
+        ...     transform=jax.grad,
+        ...     grad_states=[weight, bias],
+        ...     argnums=[0, 1],  # gradient w.r.t x and scale
+        ...     has_aux=True,
+        ...     return_value=True
+        ... )
+        >>>
+        >>> grads, loss_value, aux_data = grad_transform(x, 2.0)
     """
 
     __module__ = "brainstate.augment"
@@ -597,50 +597,50 @@ def grad(
 
     .. code-block:: python
 
-        import brainstate
-        import jax.numpy as jnp
-
-        # Simple function gradient
-        def f(x):
-            return jnp.sum(x ** 2)
-
-        grad_f = brainstate.augment.grad(f)
-        x = jnp.array([1.0, 2.0, 3.0])
-        gradient = grad_f(x)
+        >>> import brainstate
+        >>> import jax.numpy as jnp
+        >>>
+        >>> # Simple function gradient
+        >>> def f(x):
+        ...     return jnp.sum(x ** 2)
+        >>>
+        >>> grad_f = brainstate.augment.grad(f)
+        >>> x = jnp.array([1.0, 2.0, 3.0])
+        >>> gradient = grad_f(x)
 
     Gradient with respect to states:
 
     .. code-block:: python
 
-        # Create states
-        weight = brainstate.State(jnp.array([1.0, 2.0]))
-        bias = brainstate.State(jnp.array([0.5]))
-
-        def loss_fn(x):
-            prediction = jnp.dot(x, weight.value) + bias.value
-            return prediction ** 2
-
-        # Compute gradients with respect to states
-        grad_fn = brainstate.augment.grad(loss_fn, grad_states=[weight, bias])
-        x = jnp.array([1.0, 2.0])
-        state_grads = grad_fn(x)
+        >>> # Create states
+        >>> weight = brainstate.State(jnp.array([1.0, 2.0]))
+        >>> bias = brainstate.State(jnp.array([0.5]))
+        >>>
+        >>> def loss_fn(x):
+        ...     prediction = jnp.dot(x, weight.value) + bias.value
+        ...     return prediction ** 2
+        >>>
+        >>> # Compute gradients with respect to states
+        >>> grad_fn = brainstate.augment.grad(loss_fn, grad_states=[weight, bias])
+        >>> x = jnp.array([1.0, 2.0])
+        >>> state_grads = grad_fn(x)
 
     With auxiliary data and return value:
 
     .. code-block:: python
 
-        def loss_with_aux(x):
-            prediction = jnp.dot(x, weight.value) + bias.value
-            loss = prediction ** 2
-            return loss, {"prediction": prediction}
-
-        grad_fn = brainstate.augment.grad(
-            loss_with_aux,
-            grad_states=[weight, bias],
-            has_aux=True,
-            return_value=True
-        )
-        grads, loss_value, aux_data = grad_fn(x)
+        >>> def loss_with_aux(x):
+        ...     prediction = jnp.dot(x, weight.value) + bias.value
+        ...     loss = prediction ** 2
+        ...     return loss, {"prediction": prediction}
+        >>>
+        >>> grad_fn = brainstate.augment.grad(
+        ...     loss_with_aux,
+        ...     grad_states=[weight, bias],
+        ...     has_aux=True,
+        ...     return_value=True
+        ... )
+        >>> grads, loss_value, aux_data = grad_fn(x)
     """
     if isinstance(fun, Missing):
         def transform(fun) -> GradientTransform:
@@ -720,34 +720,34 @@ def vector_grad(
 
     .. code-block:: python
 
-        import brainstate
-        import jax.numpy as jnp
-
-        # Vector-valued function
-        def f(x):
-            return jnp.array([x[0]**2, x[1]**3, x[0]*x[1]])
-
-        vector_grad_f = brainstate.augment.vector_grad(f)
-        x = jnp.array([2.0, 3.0])
-        gradients = vector_grad_f(x)  # Shape: (3, 2)
+        >>> import brainstate
+        >>> import jax.numpy as jnp
+        >>>
+        >>> # Vector-valued function
+        >>> def f(x):
+        ...     return jnp.array([x[0]**2, x[1]**3, x[0]*x[1]])
+        >>>
+        >>> vector_grad_f = brainstate.augment.vector_grad(f)
+        >>> x = jnp.array([2.0, 3.0])
+        >>> gradients = vector_grad_f(x)  # Shape: (3, 2)
 
     With states:
 
     .. code-block:: python
 
-        params = brainstate.State(jnp.array([1.0, 2.0]))
-
-        def model(x):
-            return jnp.array([
-                x * params.value[0],
-                x**2 * params.value[1]
-            ])
-
-        vector_grad_fn = brainstate.augment.vector_grad(
-            model, grad_states=[params]
-        )
-        x = 3.0
-        param_grads = vector_grad_fn(x)
+        >>> params = brainstate.State(jnp.array([1.0, 2.0]))
+        >>>
+        >>> def model(x):
+        ...     return jnp.array([
+        ...         x * params.value[0],
+        ...         x**2 * params.value[1]
+        ...     ])
+        >>>
+        >>> vector_grad_fn = brainstate.augment.vector_grad(
+        ...     model, grad_states=[params]
+        ... )
+        >>> x = 3.0
+        >>> param_grads = vector_grad_fn(x)
     """
 
     if isinstance(func, Missing):

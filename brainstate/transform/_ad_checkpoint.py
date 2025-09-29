@@ -91,56 +91,56 @@ def checkpoint(
 
     .. code-block:: python
 
-       import jax
-       import jax.numpy as jnp
+       >>> import jax
+       >>> import jax.numpy as jnp
 
-       @jax.checkpoint
-       def g(x):
-           y = jnp.sin(x)
-           z = jnp.sin(y)
-           return z
+       >>> @jax.checkpoint
+       ... def g(x):
+       ...     y = jnp.sin(x)
+       ...     z = jnp.sin(y)
+       ...     return z
 
-       value, grad = jax.value_and_grad(g)(2.0)
+       >>> value, grad = jax.value_and_grad(g)(2.0)
 
     Compose checkpoints recursively to control the rematerialization granularity:
 
     .. code-block:: python
 
-       import jax
+       >>> import jax
 
-       def recursive_checkpoint(funs):
-           if len(funs) == 1:
-               return funs[0]
-           if len(funs) == 2:
-               f1, f2 = funs
-               return lambda x: f1(f2(x))
-           f1 = recursive_checkpoint(funs[: len(funs) // 2])
-           f2 = recursive_checkpoint(funs[len(funs) // 2 :])
-           return lambda x: f1(jax.checkpoint(f2)(x))
+       >>> def recursive_checkpoint(funs):
+       ...     if len(funs) == 1:
+       ...         return funs[0]
+       ...     if len(funs) == 2:
+       ...         f1, f2 = funs
+       ...         return lambda x: f1(f2(x))
+       ...     f1 = recursive_checkpoint(funs[: len(funs) // 2])
+       ...     f2 = recursive_checkpoint(funs[len(funs) // 2 :])
+       ...     return lambda x: f1(jax.checkpoint(f2)(x))
 
     When control flow depends on argument values, mark the relevant arguments as
     static:
 
     .. code-block:: python
 
-       from functools import partial
-       import jax
+       >>> from functools import partial
+       >>> import jax
 
-       @partial(jax.checkpoint, static_argnums=(1,))
-       def foo(x, is_training):
-           if is_training:
-               ...
-           else:
-               ...
+       >>> @partial(jax.checkpoint, static_argnums=(1,))
+       ... def foo(x, is_training):
+       ...     if is_training:
+       ...         ...
+       ...     else:
+       ...         ...
 
-       @partial(jax.checkpoint, static_argnums=(1,))
-       def foo_with_eval(x, y):
-           with jax.ensure_compile_time_eval():
-               y_pos = y > 0
-           if y_pos:
-               ...
-           else:
-               ...
+       >>> @partial(jax.checkpoint, static_argnums=(1,))
+       ... def foo_with_eval(x, y):
+       ...     with jax.ensure_compile_time_eval():
+       ...         y_pos = y > 0
+       ...     if y_pos:
+       ...         ...
+       ...     else:
+       ...         ...
 
     As an alternative to ``static_argnums``, compute values that drive control flow
     outside the decorated function and close over them in the JAX-traced callable.

@@ -330,34 +330,34 @@ def jit(
 
     .. code-block:: python
 
-        import brainstate
-        import jax.numpy as jnp
-
-        @brainstate.transform.jit
-        def f(x):
-            return x ** 2
-
-        result = f(jnp.array([1, 2, 3]))
+        >>> import brainstate
+        >>> import jax.numpy as jnp
+        >>>
+        >>> @brainstate.transform.jit
+        ... def f(x):
+        ...     return x ** 2
+        >>>
+        >>> result = f(jnp.array([1, 2, 3]))
 
     Using static arguments:
 
     .. code-block:: python
 
-        @brainstate.transform.jit(static_argnums=(1,))
-        def g(x, n):
-            return x ** n
-
-        result = g(jnp.array([1, 2, 3]), 2)
+        >>> @brainstate.transform.jit(static_argnums=(1,))
+        ... def g(x, n):
+        ...     return x ** n
+        >>>
+        >>> result = g(jnp.array([1, 2, 3]), 2)
 
     Manual jitting:
 
     .. code-block:: python
 
-        def h(x):
-            return x * 2
-
-        jitted_h = brainstate.transform.jit(h)
-        result = jitted_h(jnp.array([1, 2, 3]))
+        >>> def h(x):
+        ...     return x * 2
+        >>>
+        >>> jitted_h = brainstate.transform.jit(h)
+        >>> result = jitted_h(jnp.array([1, 2, 3]))
     """
 
     if isinstance(fun, Missing):
