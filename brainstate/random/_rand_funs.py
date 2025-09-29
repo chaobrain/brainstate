@@ -80,10 +80,10 @@ def rand(
 
     .. code-block:: python
 
-        import brainstate
-        arr = brainstate.random.rand(3, 2)
-        print(arr.shape)  # (3, 2)
-        print((arr >= 0).all() and (arr < 1).all())  # True
+        >>> import brainstate
+        >>> arr = brainstate.random.rand(3, 2)
+        >>> print(arr.shape)  # (3, 2)
+        >>> print((arr >= 0).all() and (arr < 1).all())  # True
     """
     return DEFAULT.rand(*dn, key=key, dtype=dtype)
 
@@ -141,33 +141,33 @@ def randint(
 
     .. code-block:: python
 
-        import brainstate
-        arr = brainstate.random.randint(2, size=10)
-        print(arr.shape)  # (10,)
-        print((arr >= 0).all() and (arr < 2).all())  # True
+        >>> import brainstate
+        >>> arr = brainstate.random.randint(2, size=10)
+        >>> print(arr.shape)  # (10,)
+        >>> print((arr >= 0).all() and (arr < 2).all())  # True
 
     Generate a 2x4 array of integers from 0 to 4 (exclusive):
 
     .. code-block:: python
 
-        arr = brainstate.random.randint(5, size=(2, 4))
-        print(arr.shape)  # (2, 4)
-        print((arr >= 0).all() and (arr < 5).all())  # True
+        >>> arr = brainstate.random.randint(5, size=(2, 4))
+        >>> print(arr.shape)  # (2, 4)
+        >>> print((arr >= 0).all() and (arr < 5).all())  # True
 
     Generate integers with different upper bounds using broadcasting:
 
     .. code-block:: python
 
-        arr = brainstate.random.randint(1, [3, 5, 10])
-        print(arr.shape)  # (3,)
+        >>> arr = brainstate.random.randint(1, [3, 5, 10])
+        >>> print(arr.shape)  # (3,)
 
     Generate integers with different lower bounds:
 
     .. code-block:: python
 
-        arr = brainstate.random.randint([1, 5, 7], 10)
-        print(arr.shape)  # (3,)
-        print((arr >= [1, 5, 7]).all())  # True
+        >>> arr = brainstate.random.randint([1, 5, 7], 10)
+        >>> print(arr.shape)  # (3,)
+        >>> print((arr >= [1, 5, 7]).all())  # True
     """
 
     return DEFAULT.randint(low, high=high, size=size, dtype=dtype, key=key)
@@ -231,18 +231,18 @@ def random_integers(
 
     .. code-block:: python
 
-        import brainstate
-        val = brainstate.random.random_integers(5)
-        print(type(val))  # <class 'numpy.int64'>
-        print(1 <= val <= 5)  # True
+        >>> import brainstate
+        >>> val = brainstate.random.random_integers(5)
+        >>> print(type(val))  # <class 'numpy.int64'>
+        >>> print(1 <= val <= 5)  # True
 
     Generate a 3x2 array of random integers from 1 to 5 (inclusive):
 
     .. code-block:: python
 
-        arr = brainstate.random.random_integers(5, size=(3, 2))
-        print(arr.shape)  # (3, 2)
-        print((arr >= 1).all() and (arr <= 5).all())  # True
+        >>> arr = brainstate.random.random_integers(5, size=(3, 2))
+        >>> print(arr.shape)  # (3, 2)
+        >>> print((arr >= 1).all() and (arr <= 5).all())  # True
 
     Choose five random numbers from the set of five evenly-spaced
     numbers between 0 and 2.5, inclusive (*i.e.*, from the set
@@ -250,18 +250,18 @@ def random_integers(
 
     .. code-block:: python
 
-        vals = 2.5 * (brainstate.random.random_integers(5, size=(5,)) - 1) / 4.
-        print(vals.shape)  # (5,)
+        >>> vals = 2.5 * (brainstate.random.random_integers(5, size=(5,)) - 1) / 4.
+        >>> print(vals.shape)  # (5,)
 
     Roll two six sided dice 1000 times and sum the results:
 
     .. code-block:: python
 
-        d1 = brainstate.random.random_integers(1, 6, 1000)
-        d2 = brainstate.random.random_integers(1, 6, 1000)
-        dsums = d1 + d2
-        print(dsums.shape)  # (1000,)
-        print((dsums >= 2).all() and (dsums <= 12).all())  # True
+        >>> d1 = brainstate.random.random_integers(1, 6, 1000)
+        >>> d2 = brainstate.random.random_integers(1, 6, 1000)
+        >>> dsums = d1 + d2
+        >>> print(dsums.shape)  # (1000,)
+        >>> print((dsums >= 2).all() and (dsums <= 12).all())  # True
     """
 
     return DEFAULT.random_integers(low, high=high, size=size, key=key, dtype=dtype)
@@ -314,23 +314,23 @@ def randn(
 
     .. code-block:: python
 
-        import brainstate
-        val = brainstate.random.randn()
-        print(type(val))  # <class 'numpy.float64'>
+        >>> import brainstate
+        >>> val = brainstate.random.randn()
+        >>> print(type(val))  # <class 'numpy.float64'>
 
     Generate a 2x4 array of standard normal samples:
 
     .. code-block:: python
 
-        arr = brainstate.random.randn(2, 4)
-        print(arr.shape)  # (2, 4)
+        >>> arr = brainstate.random.randn(2, 4)
+        >>> print(arr.shape)  # (2, 4)
 
     Two-by-four array of samples from N(3, 6.25):
 
     .. code-block:: python
 
-        arr = 3 + 2.5 * brainstate.random.randn(2, 4)
-        print(arr.shape)  # (2, 4)
+        >>> arr = 3 + 2.5 * brainstate.random.randn(2, 4)
+        >>> print(arr.shape)  # (2, 4)
     """
 
     return DEFAULT.randn(*dn, key=key, dtype=dtype)
@@ -388,25 +388,25 @@ def random_sample(
 
     .. code-block:: python
 
-        import brainstate
-        val = brainstate.random.random_sample()
-        print(type(val))  # <class 'float'>
-        print(0.0 <= val < 1.0)  # True
+        >>> import brainstate
+        >>> val = brainstate.random.random_sample()
+        >>> print(type(val))  # <class 'float'>
+        >>> print(0.0 <= val < 1.0)  # True
 
     Generate an array of 5 random floats:
 
     .. code-block:: python
 
-        arr = brainstate.random.random_sample((5,))
-        print(arr.shape)  # (5,)
-        print((arr >= 0.0).all() and (arr < 1.0).all())  # True
+        >>> arr = brainstate.random.random_sample((5,))
+        >>> print(arr.shape)  # (5,)
+        >>> print((arr >= 0.0).all() and (arr < 1.0).all())  # True
 
     Three-by-two array of random numbers from [-5, 0):
 
     .. code-block:: python
 
-        arr = 5 * brainstate.random.random_sample((3, 2)) - 5
-        print(arr.shape)  # (3, 2)
+        >>> arr = 5 * brainstate.random.random_sample((3, 2)) - 5
+        >>> print(arr.shape)  # (3, 2)
         print((arr >= -5.0).all() and (arr < 0.0).all())  # True
     """
     return DEFAULT.random_sample(size, key=key, dtype=dtype)
@@ -500,43 +500,43 @@ def choice(
 
     .. code-block:: python
 
-        import brainstate
-        result = brainstate.random.choice(5, 3)
-        print(result.shape)  # (3,)
-        print((result >= 0).all() and (result < 5).all())  # True
+        >>> import brainstate
+        >>> result = brainstate.random.choice(5, 3)
+        >>> print(result.shape)  # (3,)
+        >>> print((result >= 0).all() and (result < 5).all())  # True
 
     Generate a non-uniform random sample from np.arange(5) of size 3:
 
     .. code-block:: python
 
-        result = brainstate.random.choice(5, 3, p=[0.1, 0, 0.3, 0.6, 0])
-        print(result.shape)  # (3,)
-        print(set(result).issubset({0, 2, 3}))  # True (only non-zero prob elements)
+        >>> result = brainstate.random.choice(5, 3, p=[0.1, 0, 0.3, 0.6, 0])
+        >>> print(result.shape)  # (3,)
+        >>> print(set(result).issubset({0, 2, 3}))  # True (only non-zero prob elements)
 
     Generate a uniform random sample from np.arange(5) of size 3 without replacement:
 
     .. code-block:: python
 
-        result = brainstate.random.choice(5, 3, replace=False)
-        print(result.shape)  # (3,)
-        print(len(set(result)) == 3)  # True (all unique)
+        >>> result = brainstate.random.choice(5, 3, replace=False)
+        >>> print(result.shape)  # (3,)
+        >>> print(len(set(result)) == 3)  # True (all unique)
 
     Generate a non-uniform random sample from np.arange(5) of size 3 without replacement:
 
     .. code-block:: python
 
-        result = brainstate.random.choice(5, 3, replace=False, p=[0.1, 0, 0.3, 0.6, 0])
-        print(result.shape)  # (3,)
-        print(len(set(result)) == 3)  # True (all unique)
+        >>> result = brainstate.random.choice(5, 3, replace=False, p=[0.1, 0, 0.3, 0.6, 0])
+        >>> print(result.shape)  # (3,)
+        >>> print(len(set(result)) == 3)  # True (all unique)
 
     Any of the above can be repeated with an arbitrary array-like instead of just integers:
 
     .. code-block:: python
 
-        aa_milne_arr = ['pooh', 'rabbit', 'piglet', 'Christopher']
-        result = brainstate.random.choice(aa_milne_arr, 5, p=[0.5, 0.1, 0.1, 0.3])
-        print(result.shape)  # (5,)
-        print(result.dtype.kind)  # 'U' (unicode string)
+        >>> aa_milne_arr = ['pooh', 'rabbit', 'piglet', 'Christopher']
+        >>> result = brainstate.random.choice(aa_milne_arr, 5, p=[0.5, 0.1, 0.1, 0.3])
+        >>> print(result.shape)  # (5,)
+        >>> print(result.dtype.kind)  # 'U' (unicode string)
     """
     a = a
     return DEFAULT.choice(a=a, size=size, replace=replace, p=p, key=key)
@@ -582,29 +582,29 @@ def permutation(
 
     .. code-block:: python
 
-        import brainstate
-        result = brainstate.random.permutation(10)
-        print(result.shape)  # (10,)
-        print(sorted(result))  # [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+        >>> import brainstate
+        >>> result = brainstate.random.permutation(10)
+        >>> print(result.shape)  # (10,)
+        >>> print(sorted(result))  # [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
 
     Permute a given array:
 
     .. code-block:: python
 
-        arr = [1, 4, 9, 12, 15]
-        result = brainstate.random.permutation(arr)
-        print(result.shape)  # (5,)
-        print(sorted(result))  # [1, 4, 9, 12, 15]
+        >>> arr = [1, 4, 9, 12, 15]
+        >>> result = brainstate.random.permutation(arr)
+        >>> print(result.shape)  # (5,)
+        >>> print(sorted(result))  # [1, 4, 9, 12, 15]
 
     Permute rows of a 2D array:
 
     .. code-block:: python
 
-        import numpy as np
-        arr = np.arange(9).reshape((3, 3))
-        result = brainstate.random.permutation(arr)
-        print(result.shape)  # (3, 3)
-        print(result.flatten().sort() == np.arange(9).sort())  # True
+        >>> import numpy as np
+        >>> arr = np.arange(9).reshape((3, 3))
+        >>> result = brainstate.random.permutation(arr)
+        >>> print(result.shape)  # (3, 3)
+        >>> print(result.flatten().sort() == np.arange(9).sort())  # True
     """
     return DEFAULT.permutation(x, axis=axis, independent=independent, key=key)
 
@@ -639,22 +639,22 @@ def shuffle(
 
     .. code-block:: python
 
-        import brainstate
-        import numpy as np
-        arr = np.arange(10)
-        original_elements = set(arr)
-        brainstate.random.shuffle(arr)
-        print(set(arr) == original_elements)  # True (same elements)
+        >>> import brainstate
+        >>> import numpy as np
+        >>> arr = np.arange(10)
+        >>> original_elements = set(arr)
+        >>> brainstate.random.shuffle(arr)
+        >>> print(set(arr) == original_elements)  # True (same elements)
 
     Multi-dimensional arrays are only shuffled along the first axis:
 
     .. code-block:: python
 
-        arr = np.arange(9).reshape((3, 3))
-        original_shape = arr.shape
-        brainstate.random.shuffle(arr)
-        print(arr.shape == original_shape)  # True (shape preserved)
-        print(sorted(arr.flatten()) == list(range(9)))  # True (same elements)
+        >>> arr = np.arange(9).reshape((3, 3))
+        >>> original_shape = arr.shape
+        >>> brainstate.random.shuffle(arr)
+        >>> print(arr.shape == original_shape)  # True (shape preserved)
+        >>> print(sorted(arr.flatten()) == list(range(9)))  # True (same elements)
     """
     return DEFAULT.shuffle(x, axis, key=key)
 
@@ -1139,21 +1139,21 @@ def normal(
 
     .. code-block:: python
 
-        import brainstate
-        import numpy as np
-        mu, sigma = 0, 0.1  # mean and standard deviation
-        s = brainstate.random.normal(mu, sigma, 1000)
-        print(s.shape)  # (1000,)
-        print(abs(mu - np.mean(s)) < 0.1)  # True (approximately correct mean)
-        print(abs(sigma - np.std(s, ddof=1)) < 0.1)  # True (approximately correct std)
+        >>> import brainstate
+        >>> import numpy as np
+        >>> mu, sigma = 0, 0.1  # mean and standard deviation
+        >>> s = brainstate.random.normal(mu, sigma, 1000)
+        >>> print(s.shape)  # (1000,)
+        >>> print(abs(mu - np.mean(s)) < 0.1)  # True (approximately correct mean)
+        >>> print(abs(sigma - np.std(s, ddof=1)) < 0.1)  # True (approximately correct std)
 
     Two-by-four array of samples from the normal distribution with
     mean 3 and standard deviation 2.5:
 
     .. code-block:: python
 
-        samples = brainstate.random.normal(3, 2.5, size=(2, 4))
-        print(samples.shape)  # (2, 4)
+        >>> samples = brainstate.random.normal(3, 2.5, size=(2, 4))
+        >>> print(samples.shape)  # (2, 4)
     """
     return DEFAULT.normal(loc, scale, size, key=key, dtype=dtype)
 
@@ -1558,30 +1558,30 @@ def standard_normal(
 
     .. code-block:: python
 
-        import brainstate
-        val = brainstate.random.standard_normal()
-        print(type(val))  # <class 'numpy.float64'>
+        >>> import brainstate
+        >>> val = brainstate.random.standard_normal()
+        >>> print(type(val))  # <class 'numpy.float64'>
 
     Generate an array of 8000 standard normal samples:
 
     .. code-block:: python
 
-        s = brainstate.random.standard_normal(8000)
-        print(s.shape)  # (8000,)
+        >>> s = brainstate.random.standard_normal(8000)
+        >>> print(s.shape)  # (8000,)
 
     Generate a 3x4x2 array of standard normal samples:
 
     .. code-block:: python
 
-        s = brainstate.random.standard_normal(size=(3, 4, 2))
-        print(s.shape)  # (3, 4, 2)
+        >>> s = brainstate.random.standard_normal(size=(3, 4, 2))
+        >>> print(s.shape)  # (3, 4, 2)
 
     Two-by-four array of samples from the normal distribution with
     mean 3 and standard deviation 2.5:
 
     .. code-block:: python
 
-        samples = 3 + 2.5 * brainstate.random.standard_normal(size=(2, 4))
+        >>> samples = 3 + 2.5 * brainstate.random.standard_normal(size=(2, 4))
         print(samples.shape)  # (2, 4)
     """
     return DEFAULT.standard_normal(size, key=key, dtype=dtype)
@@ -2180,10 +2180,10 @@ def chisquare(
 
     .. code-block:: python
 
-        import brainstate
-        samples = brainstate.random.chisquare(2, 4)
-        print(samples.shape)  # (4,)
-        print((samples >= 0).all())  # True (chi-square is always non-negative)
+        >>> import brainstate
+        >>> samples = brainstate.random.chisquare(2, 4)
+        >>> print(samples.shape)  # (4,)
+        >>> print((samples >= 0).all())  # True (chi-square is always non-negative)
     """
     return DEFAULT.chisquare(df, size, key=key, dtype=dtype)
 
@@ -2262,6 +2262,7 @@ def dirichlet(
     average length, but allowing some variation in the relative sizes of
     the pieces.
 
+    >>> import brainstate
     >>> s = brainstate.random.dirichlet((10, 5, 3), 20).transpose()
 
     >>> import matplotlib.pyplot as plt  # noqa
@@ -2317,6 +2318,7 @@ def geometric(
     Draw ten thousand values from the geometric distribution,
     with the probability of an individual success equal to 0.35:
 
+    >>> import brainstate
     >>> z = brainstate.random.geometric(p=0.35, size=10000)
 
     How many trials succeeded after a single run?
@@ -2403,6 +2405,7 @@ def f(
 
     Draw samples from the distribution:
 
+    >>> import brainstate
     >>> dfnum = 1. # between group degrees of freedom
     >>> dfden = 48. # within groups degrees of freedom
     >>> s = brainstate.random.f(dfnum, dfden, 1000)
@@ -2502,6 +2505,7 @@ def hypergeometric(
     --------
     Draw samples from the distribution:
 
+    >>> import brainstate
     >>> ngood, nbad, nsamp = 100, 2, 10
     # number of good, number of bad, and number of samples
     >>> s = brainstate.random.hypergeometric(ngood, nbad, nsamp, 1000)
@@ -2587,6 +2591,7 @@ def logseries(
     --------
     Draw samples from the distribution:
 
+    >>> import brainstate
     >>> a = .6
     >>> s = brainstate.random.logseries(a, 10000)
     >>> import matplotlib.pyplot as plt  # noqa
@@ -2654,34 +2659,34 @@ def multinomial(
 
     .. code-block:: python
 
-        import brainstate
-        result = brainstate.random.multinomial(20, [1/6.]*6, size=1)
-        print(result.shape)  # (1, 6)
-        print(result.sum())  # 20 (total throws)
+        >>> import brainstate
+        >>> result = brainstate.random.multinomial(20, [1/6.]*6, size=1)
+        >>> print(result.shape)  # (1, 6)
+        >>> print(result.sum())  # 20 (total throws)
 
     Now, throw the dice 20 times, and 20 times again:
 
     .. code-block:: python
 
-        result = brainstate.random.multinomial(20, [1/6.]*6, size=2)
-        print(result.shape)  # (2, 6)
-        print(result.sum(axis=1))  # [20, 20] (total throws per experiment)
+        >>> result = brainstate.random.multinomial(20, [1/6.]*6, size=2)
+        >>> print(result.shape)  # (2, 6)
+        >>> print(result.sum(axis=1))  # [20, 20] (total throws per experiment)
 
     A loaded die is more likely to land on number 6:
 
     .. code-block:: python
 
-        result = brainstate.random.multinomial(100, [1/7.]*5 + [2/7.])
-        print(result.shape)  # (6,)
-        print(result.sum())  # 100 (total throws)
+        >>> result = brainstate.random.multinomial(100, [1/7.]*5 + [2/7.])
+        >>> print(result.shape)  # (6,)
+        >>> print(result.sum())  # 100 (total throws)
 
     The probability inputs should be normalized. A biased coin which has
     twice as much weight on one side as on the other should be sampled like so:
 
     .. code-block:: python
 
-        result = brainstate.random.multinomial(100, [1.0 / 3, 2.0 / 3])
-        print(result.shape)  # (2,)
+        >>> result = brainstate.random.multinomial(100, [1.0 / 3, 2.0 / 3])
+        >>> print(result.shape)  # (2,)
         print(result.sum())  # 100 (total throws)
     """
     return DEFAULT.multinomial(n, pvals, size, key=key, dtype=dtype, check_valid=check_valid)
@@ -2763,6 +2768,7 @@ def multivariate_normal(
 
     Diagonal covariance means that points are oriented along x or y-axis:
 
+    >>> import brainstate
     >>> import matplotlib.pyplot as plt  # noqa
     >>> x, y = brainstate.random.multivariate_normal(mean, cov, 5000).T
     >>> plt.plot(x, y, 'x')
@@ -2893,6 +2899,7 @@ def negative_binomial(
     for each successive well, that is what is the probability of a
     single success after drilling 5 wells, after 6 wells, etc.?
 
+    >>> import brainstate
     >>> s = brainstate.random.negative_binomial(1, 0.1, 100000)
     >>> for i in range(1, 11): # doctest: +SKIP
     ...    probability = sum(s<i) / 100000.
@@ -2954,6 +2961,7 @@ def noncentral_chisquare(
     --------
     Draw values from the distribution and plot the histogram
 
+    >>> import brainstate
     >>> import matplotlib.pyplot as plt  # noqa
     >>> values = plt.hist(brainstate.random.noncentral_chisquare(3, 20, 100000),
     ...                   bins=200, density=True)
@@ -3045,6 +3053,7 @@ def noncentral_f(
     distribution for the null hypothesis.  We'll plot the two probability
     distributions for comparison.
 
+    >>> import brainstate
     >>> dfnum = 3 # between group deg of freedom
     >>> dfden = 20 # within groups degrees of freedom
     >>> nonc = 3.0
@@ -3122,6 +3131,7 @@ def power(
     --------
     Draw samples from the distribution:
 
+    >>> import brainstate
     >>> a = 5. # shape
     >>> samples = 1000
     >>> s = brainstate.random.power(a, samples)
@@ -3215,6 +3225,7 @@ def rayleigh(
     --------
     Draw values from the distribution and plot the histogram
 
+    >>> import brainstate
     >>> from matplotlib.pyplot import hist  # noqa
     >>> values = hist(brainstate.random.rayleigh(3, 100000), bins=200, density=True)
 
@@ -3288,6 +3299,7 @@ def triangular(
     --------
     Draw values from the distribution and plot the histogram:
 
+    >>> import brainstate
     >>> import matplotlib.pyplot as plt  # noqa
     >>> h = plt.hist(brainstate.random.triangular(-3, 0, 8, 100000), bins=200,
     ...              density=True)
@@ -3366,6 +3378,7 @@ def vonmises(
     --------
     Draw samples from the distribution:
 
+    >>> import brainstate
     >>> mu, kappa = 0.0, 4.0 # mean and dispersion
     >>> s = brainstate.random.vonmises(mu, kappa, 1000)
 
@@ -3448,6 +3461,7 @@ def wald(
     --------
     Draw values from the distribution and plot the histogram:
 
+    >>> import brainstate
     >>> import matplotlib.pyplot as plt  # noqa
     >>> h = plt.hist(brainstate.random.wald(3, 2, 100000), bins=200, density=True)
     >>> plt.show()
@@ -3529,6 +3543,7 @@ def weibull(
     --------
     Draw samples from the distribution:
 
+    >>> import brainstate
     >>> a = 5. # shape
     >>> s = brainstate.random.weibull(a, 1000)
 
@@ -3638,6 +3653,7 @@ def zipf(
     --------
     Draw samples from the distribution:
 
+    >>> import brainstate
     >>> a = 4.0
     >>> n = 20000
     >>> s = brainstate.random.zipf(a, n)

@@ -48,19 +48,19 @@ def write_back_state_values(
 
     .. code-block:: python
 
-        import brainstate
-        import jax.numpy as jnp
-
-        # Create states
-        state1 = brainstate.State(jnp.array([1.0, 2.0]))
-        state2 = brainstate.State(jnp.array([3.0, 4.0]))
-
-        def f(x):
-            state1.value += x  # This state will be written
-            return state1.value + state2.value  # state2 is only read
-
-        # During compilation, state values are collected and managed
-        # write_back_state_values ensures proper state management
+        >>> import brainstate
+        >>> import jax.numpy as jnp
+        >>>
+        >>> # Create states
+        >>> state1 = brainstate.State(jnp.array([1.0, 2.0]))
+        >>> state2 = brainstate.State(jnp.array([3.0, 4.0]))
+        >>>
+        >>> def f(x):
+        ...     state1.value += x  # This state will be written
+        ...     return state1.value + state2.value  # state2 is only read
+        >>>
+        >>> # During compilation, state values are collected and managed
+        >>> # write_back_state_values ensures proper state management
     """
     assert len(state_trace.states) == len(state_trace.been_writen) == len(read_state_vals) == len(write_state_vals)
     for st, write, val_r, val_w in zip(state_trace.states, state_trace.been_writen, read_state_vals, write_state_vals):
@@ -106,21 +106,21 @@ def wrap_single_fun_in_multi_branches(
 
     .. code-block:: python
 
-        import brainstate
-        import jax.numpy as jnp
-
-        # Create states
-        state1 = brainstate.State(jnp.array([1.0]))
-        state2 = brainstate.State(jnp.array([2.0]))
-
-        def branch_fn(x):
-            state1.value *= x
-            return state1.value + state2.value
-
-        # During compilation, this wrapper allows the function
-        # to work with merged state traces from multiple branches
-        sf = brainstate.transform.StatefulFunction(branch_fn)
-        # wrapped_fn = wrap_single_fun_in_multi_branches(sf, merged_trace, read_vals)
+        >>> import brainstate
+        >>> import jax.numpy as jnp
+        >>>
+        >>> # Create states
+        >>> state1 = brainstate.State(jnp.array([1.0]))
+        >>> state2 = brainstate.State(jnp.array([2.0]))
+        >>>
+        >>> def branch_fn(x):
+        ...     state1.value *= x
+        ...     return state1.value + state2.value
+        >>>
+        >>> # During compilation, this wrapper allows the function
+        >>> # to work with merged state traces from multiple branches
+        >>> sf = brainstate.transform.StatefulFunction(branch_fn)
+        >>> # wrapped_fn = wrap_single_fun_in_multi_branches(sf, merged_trace, read_vals)
     """
     state_ids_belong_to_this_fun = {id(st): st for st in stateful_fun.get_states()}
 
@@ -194,27 +194,27 @@ def wrap_single_fun_in_multi_branches_while_loop(
 
     .. code-block:: python
 
-        import brainstate
-        import jax.numpy as jnp
-
-        # Create states
-        counter = brainstate.State(jnp.array([0]))
-        accumulator = brainstate.State(jnp.array([0.0]))
-
-        def cond_fn(val):
-            return counter.value < 10
-
-        def body_fn(val):
-            counter.value += 1
-            accumulator.value += val
-            return val * 2
-
-        # During compilation, this wrapper allows the functions
-        # to work with merged state traces in while loops
-        sf_cond = brainstate.transform.StatefulFunction(cond_fn)
-        sf_body = brainstate.transform.StatefulFunction(body_fn)
-        # wrapped_cond = wrap_single_fun_in_multi_branches_while_loop(sf_cond, ...)
-        # wrapped_body = wrap_single_fun_in_multi_branches_while_loop(sf_body, ...)
+        >>> import brainstate
+        >>> import jax.numpy as jnp
+        >>>
+        >>> # Create states
+        >>> counter = brainstate.State(jnp.array([0]))
+        >>> accumulator = brainstate.State(jnp.array([0.0]))
+        >>>
+        >>> def cond_fn(val):
+        ...     return counter.value < 10
+        >>>
+        >>> def body_fn(val):
+        ...     counter.value += 1
+        ...     accumulator.value += val
+        ...     return val * 2
+        >>>
+        >>> # During compilation, this wrapper allows the functions
+        >>> # to work with merged state traces in while loops
+        >>> sf_cond = brainstate.transform.StatefulFunction(cond_fn)
+        >>> sf_body = brainstate.transform.StatefulFunction(body_fn)
+        >>> # wrapped_cond = wrap_single_fun_in_multi_branches_while_loop(sf_cond, ...)
+        >>> # wrapped_body = wrap_single_fun_in_multi_branches_while_loop(sf_body, ...)
     """
     state_ids_belong_to_this_fun = {id(st): st for st in stateful_fun.get_states()}
 
@@ -287,26 +287,26 @@ def wrap_single_fun(
 
     .. code-block:: python
 
-        import brainstate
-        import jax.numpy as jnp
-
-        # Create states
-        state1 = brainstate.State(jnp.array([0.0]))
-        state2 = brainstate.State(jnp.array([1.0]))
-
-        def scan_fn(carry, x):
-            state1.value += x  # This state will be written
-            result = carry + state1.value + state2.value  # state2 is only read
-            return result, result ** 2
-
-        # During compilation, this wrapper allows the function
-        # to work properly in scan operations
-        sf = brainstate.transform.StatefulFunction(scan_fn)
-        # wrapped_fn = wrap_single_fun(sf, been_written_flags, read_values)
-
-        # The wrapped function handles state management automatically
-        xs = jnp.arange(5.0)
-        init_carry = 0.0
+        >>> import brainstate
+        >>> import jax.numpy as jnp
+        >>>
+        >>> # Create states
+        >>> state1 = brainstate.State(jnp.array([0.0]))
+        >>> state2 = brainstate.State(jnp.array([1.0]))
+        >>>
+        >>> def scan_fn(carry, x):
+        ...     state1.value += x  # This state will be written
+        ...     result = carry + state1.value + state2.value  # state2 is only read
+        ...     return result, result ** 2
+        >>>
+        >>> # During compilation, this wrapper allows the function
+        >>> # to work properly in scan operations
+        >>> sf = brainstate.transform.StatefulFunction(scan_fn)
+        >>> # wrapped_fn = wrap_single_fun(sf, been_written_flags, read_values)
+        >>>
+        >>> # The wrapped function handles state management automatically
+        >>> xs = jnp.arange(5.0)
+        >>> init_carry = 0.0
         final_carry, ys = brainstate.transform.scan(scan_fn, init_carry, xs)
     """
     @wraps(stateful_fun.fun)

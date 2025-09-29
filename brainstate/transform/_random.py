@@ -49,7 +49,7 @@ class RngRestore(PrettyObject):
         >>> import brainstate
         >>>
         >>> rng = brainstate.random.RandomState(0)
-        >>> restorer = brainstate.augment.RngRestore([rng])
+        >>> restorer = brainstate.transform.RngRestore([rng])
         >>> restorer.backup()
         >>> _ = rng.random()
         >>> restorer.restore()
@@ -149,7 +149,7 @@ def restore_rngs(
         >>>
         >>> rng = brainstate.random.RandomState(0)
         >>>
-        >>> @brainstate.augment.restore_rngs(rngs=rng)
+        >>> @brainstate.transform.restore_rngs(rngs=rng)
         ... def sample_pair():
         ...     first = rng.random()
         ...     second = rng.random()
