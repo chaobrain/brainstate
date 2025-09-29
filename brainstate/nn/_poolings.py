@@ -625,15 +625,17 @@ class AvgPool1d(_AvgPool):
         name: Optional[str] = None,
         in_size: Optional[Size] = None,
     ):
-        super().__init__(in_size=in_size,
-                         init_value=0.,
-                         computation=jax.lax.add,
-                         pool_dim=1,
-                         kernel_size=kernel_size,
-                         stride=stride,
-                         padding=padding,
-                         channel_axis=channel_axis,
-                         name=name)
+        super().__init__(
+            in_size=in_size,
+            init_value=0.,
+            computation=jax.lax.add,
+            pool_dim=1,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+            channel_axis=channel_axis,
+            name=name
+        )
 
 
 class AvgPool2d(_AvgPool):
@@ -704,15 +706,17 @@ class AvgPool2d(_AvgPool):
         name: Optional[str] = None,
         in_size: Optional[Size] = None,
     ):
-        super().__init__(in_size=in_size,
-                         init_value=0.,
-                         computation=jax.lax.add,
-                         pool_dim=2,
-                         kernel_size=kernel_size,
-                         stride=stride,
-                         padding=padding,
-                         channel_axis=channel_axis,
-                         name=name)
+        super().__init__(
+            in_size=in_size,
+            init_value=0.,
+            computation=jax.lax.add,
+            pool_dim=2,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+            channel_axis=channel_axis,
+            name=name
+        )
 
 
 class AvgPool3d(_AvgPool):
@@ -793,15 +797,17 @@ class AvgPool3d(_AvgPool):
         name: Optional[str] = None,
         in_size: Optional[Size] = None,
     ):
-        super().__init__(in_size=in_size,
-                         init_value=0.,
-                         computation=jax.lax.add,
-                         pool_dim=3,
-                         kernel_size=kernel_size,
-                         stride=stride,
-                         padding=padding,
-                         channel_axis=channel_axis,
-                         name=name)
+        super().__init__(
+            in_size=in_size,
+            init_value=0.,
+            computation=jax.lax.add,
+            pool_dim=3,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+            channel_axis=channel_axis,
+            name=name
+        )
 
 
 def _adaptive_pool1d(x, target_size: int, operation: Callable):
@@ -953,17 +959,21 @@ class AdaptiveAvgPool1d(_AdaptivePool):
     """
     __module__ = 'brainstate.nn'
 
-    def __init__(self,
-                 target_size: Union[int, Sequence[int]],
-                 channel_axis: Optional[int] = -1,
-                 name: Optional[str] = None,
-                 in_size: Optional[Sequence[int]] = None, ):
-        super().__init__(in_size=in_size,
-                         target_size=target_size,
-                         channel_axis=channel_axis,
-                         num_spatial_dims=1,
-                         operation=jnp.mean,
-                         name=name)
+    def __init__(
+        self,
+        target_size: Union[int, Sequence[int]],
+        channel_axis: Optional[int] = -1,
+        name: Optional[str] = None,
+        in_size: Optional[Sequence[int]] = None,
+    ):
+        super().__init__(
+            in_size=in_size,
+            target_size=target_size,
+            channel_axis=channel_axis,
+            num_spatial_dims=1,
+            operation=jnp.mean,
+            name=name
+        )
 
 
 class AdaptiveAvgPool2d(_AdaptivePool):
@@ -1013,18 +1023,21 @@ class AdaptiveAvgPool2d(_AdaptivePool):
     """
     __module__ = 'brainstate.nn'
 
-    def __init__(self,
-                 target_size: Union[int, Sequence[int]],
-                 channel_axis: Optional[int] = -1,
-                 name: Optional[str] = None,
-
-                 in_size: Optional[Sequence[int]] = None, ):
-        super().__init__(in_size=in_size,
-                         target_size=target_size,
-                         channel_axis=channel_axis,
-                         num_spatial_dims=2,
-                         operation=jnp.mean,
-                         name=name)
+    def __init__(
+        self,
+        target_size: Union[int, Sequence[int]],
+        channel_axis: Optional[int] = -1,
+        name: Optional[str] = None,
+        in_size: Optional[Sequence[int]] = None,
+    ):
+        super().__init__(
+            in_size=in_size,
+            target_size=target_size,
+            channel_axis=channel_axis,
+            num_spatial_dims=2,
+            operation=jnp.mean,
+            name=name
+        )
 
 
 class AdaptiveAvgPool3d(_AdaptivePool):
@@ -1074,17 +1087,21 @@ class AdaptiveAvgPool3d(_AdaptivePool):
     """
     __module__ = 'brainstate.nn'
 
-    def __init__(self,
-                 target_size: Union[int, Sequence[int]],
-                 channel_axis: Optional[int] = -1,
-                 name: Optional[str] = None,
-                 in_size: Optional[Sequence[int]] = None, ):
-        super().__init__(in_size=in_size,
-                         target_size=target_size,
-                         channel_axis=channel_axis,
-                         num_spatial_dims=3,
-                         operation=jnp.mean,
-                         name=name)
+    def __init__(
+        self,
+        target_size: Union[int, Sequence[int]],
+        channel_axis: Optional[int] = -1,
+        name: Optional[str] = None,
+        in_size: Optional[Sequence[int]] = None,
+    ):
+        super().__init__(
+            in_size=in_size,
+            target_size=target_size,
+            channel_axis=channel_axis,
+            num_spatial_dims=3,
+            operation=jnp.mean,
+            name=name
+        )
 
 
 class AdaptiveMaxPool1d(_AdaptivePool):
@@ -1104,17 +1121,21 @@ class AdaptiveMaxPool1d(_AdaptivePool):
     """
     __module__ = 'brainstate.nn'
 
-    def __init__(self,
-                 target_size: Union[int, Sequence[int]],
-                 channel_axis: Optional[int] = -1,
-                 name: Optional[str] = None,
-                 in_size: Optional[Sequence[int]] = None, ):
-        super().__init__(in_size=in_size,
-                         target_size=target_size,
-                         channel_axis=channel_axis,
-                         num_spatial_dims=1,
-                         operation=jnp.max,
-                         name=name)
+    def __init__(
+        self,
+        target_size: Union[int, Sequence[int]],
+        channel_axis: Optional[int] = -1,
+        name: Optional[str] = None,
+        in_size: Optional[Sequence[int]] = None,
+    ):
+        super().__init__(
+            in_size=in_size,
+            target_size=target_size,
+            channel_axis=channel_axis,
+            num_spatial_dims=1,
+            operation=jnp.max,
+            name=name
+        )
 
 
 class AdaptiveMaxPool2d(_AdaptivePool):
@@ -1134,17 +1155,21 @@ class AdaptiveMaxPool2d(_AdaptivePool):
     """
     __module__ = 'brainstate.nn'
 
-    def __init__(self,
-                 target_size: Union[int, Sequence[int]],
-                 channel_axis: Optional[int] = -1,
-                 name: Optional[str] = None,
-                 in_size: Optional[Sequence[int]] = None, ):
-        super().__init__(in_size=in_size,
-                         target_size=target_size,
-                         channel_axis=channel_axis,
-                         num_spatial_dims=2,
-                         operation=jnp.max,
-                         name=name)
+    def __init__(
+        self,
+        target_size: Union[int, Sequence[int]],
+        channel_axis: Optional[int] = -1,
+        name: Optional[str] = None,
+        in_size: Optional[Sequence[int]] = None,
+    ):
+        super().__init__(
+            in_size=in_size,
+            target_size=target_size,
+            channel_axis=channel_axis,
+            num_spatial_dims=2,
+            operation=jnp.max,
+            name=name
+        )
 
 
 class AdaptiveMaxPool3d(_AdaptivePool):
@@ -1164,14 +1189,18 @@ class AdaptiveMaxPool3d(_AdaptivePool):
     """
     __module__ = 'brainstate.nn'
 
-    def __init__(self,
-                 target_size: Union[int, Sequence[int]],
-                 channel_axis: Optional[int] = -1,
-                 name: Optional[str] = None,
-                 in_size: Optional[Sequence[int]] = None, ):
-        super().__init__(in_size=in_size,
-                         target_size=target_size,
-                         channel_axis=channel_axis,
-                         num_spatial_dims=3,
-                         operation=jnp.max,
-                         name=name)
+    def __init__(
+        self,
+        target_size: Union[int, Sequence[int]],
+        channel_axis: Optional[int] = -1,
+        name: Optional[str] = None,
+        in_size: Optional[Sequence[int]] = None,
+    ):
+        super().__init__(
+            in_size=in_size,
+            target_size=target_size,
+            channel_axis=channel_axis,
+            num_spatial_dims=3,
+            operation=jnp.max,
+            name=name
+        )

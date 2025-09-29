@@ -35,7 +35,8 @@ class DeprecatedModule:
         replacement_module,
         replacement_name,
         version="0.1.11",
-        removal_version=None
+        removal_version=None,
+        scoped_apis=None
     ):
         """
         Initialize a deprecated module proxy.
@@ -46,6 +47,7 @@ class DeprecatedModule:
             replacement_name: Name of the replacement module (e.g., 'brainstate.transform')
             version: Version when deprecation started
             removal_version: Version when module will be removed (optional)
+            scoped_apis: Dict mapping API names to their locations, or list of API names
         """
         self._deprecated_name = deprecated_name
         self._replacement_module = replacement_module
@@ -53,14 +55,26 @@ class DeprecatedModule:
         self._version = version
         self._removal_version = removal_version
         self._warned_attrs = {}
+        self._scoped_apis = scoped_apis or {}
 
         # Set module-like attributes
         self.__name__ = deprecated_name
         self.__doc__ = f"DEPRECATED: {deprecated_name} is deprecated. Use {replacement_name} instead."
 
-        # Copy __all__ from replacement module if it exists
-        if hasattr(replacement_module, '__all__'):
-            self.__all__ = replacement_module.__all__
+        # Handle scoped APIs
+        if isinstance(scoped_apis, dict):
+            # Dict mapping API names to their import locations
+            self._api_mapping = scoped_apis
+            self.__all__ = list(scoped_apis.keys())
+        elif isinstance(scoped_apis, (list, tuple)):
+            # List of API names to expose from replacement module
+            self._api_mapping = {name: replacement_module for name in scoped_apis}
+            self.__all__ = list(scoped_apis)
+        else:
+            # No scoping - use entire replacement module
+            self._api_mapping = {}
+            if hasattr(replacement_module, '__all__'):
+                self.__all__ = replacement_module.__all__
 
     def _warn_deprecation(self, attr_name=None):
         """Show deprecation warning for module or attribute access."""
@@ -92,6 +106,53 @@ class DeprecatedModule:
         """Forward attribute access to replacement module with deprecation warning."""
         self._warn_deprecation(name)
 
+        # Check if we have scoped APIs
+        if self._api_mapping:
+            if name in self._api_mapping:
+                # Get from specific location
+                source = self._api_mapping[name]
+
+                if isinstance(source, str):
+                    # Import from module path
+                    try:
+                        # Handle relative imports within brainstate
+                        if source.startswith('brainstate.'):
+                            # Import the module dynamically
+                            import importlib
+                            module = importlib.import_module(source)
+                            return getattr(module, name)
+                        else:
+                            # For other module paths, use standard import
+                            module_parts = source.split('.')
+                            module = __import__(source, fromlist=[name])
+                            return getattr(module, name)
+                    except (ImportError, AttributeError) as e:
+                        # Fallback to replacement module
+                        try:
+                            return getattr(self._replacement_module, name)
+                        except AttributeError:
+                            raise AttributeError(
+                                f"Module '{self._deprecated_name}' has no attribute '{name}'. "
+                                f"Failed to import from '{source}': {e}. "
+                                f"Check '{self._replacement_name}' for available attributes."
+                            )
+                else:
+                    # Source is a module object
+                    try:
+                        return getattr(source, name)
+                    except AttributeError:
+                        # Fallback to replacement module
+                        return getattr(self._replacement_module, name)
+            else:
+                # Attribute not in scoped APIs
+                available_apis = ', '.join(self.__all__ or [])
+                raise AttributeError(
+                    f"Module '{self._deprecated_name}' has no attribute '{name}'. "
+                    f"Available attributes: {available_apis}. "
+                    f"Check '{self._replacement_name}' for more attributes."
+                )
+
+        # Fallback to replacement module for non-scoped access
         try:
             return getattr(self._replacement_module, name)
         except AttributeError:
@@ -103,7 +164,13 @@ class DeprecatedModule:
     def __dir__(self):
         """Return attributes from replacement module."""
         self._warn_deprecation()
-        return dir(self._replacement_module)
+
+        if self._api_mapping:
+            # Return only scoped APIs plus standard module attributes
+            base_attrs = ['__name__', '__doc__', '__all__']
+            return base_attrs + list(self._api_mapping.keys())
+        else:
+            return dir(self._replacement_module)
 
     def __repr__(self):
         """Return a deprecation-aware repr."""
