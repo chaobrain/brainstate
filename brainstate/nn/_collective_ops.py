@@ -20,7 +20,7 @@ import jax
 
 from brainstate._state import catch_new_states
 from brainstate._utils import set_module_as
-from brainstate.augment import vmap, vmap_new_states
+from brainstate.transform import vmap, vmap_new_states
 from brainstate.graph import nodes
 from brainstate.random import set_key, split_key
 from brainstate.typing import Filter

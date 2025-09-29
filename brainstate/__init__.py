@@ -20,10 +20,7 @@ A ``State``-based Transformation System for Program Compilation and Augmentation
 __version__ = "0.1.11"
 __versio_info__ = (0, 1, 11)
 
-from . import augment
-from . import compile
 from . import environ
-from . import functional
 from . import graph
 from . import init
 from . import mixin
@@ -34,14 +31,16 @@ from . import surrogate
 from . import transform
 from . import typing
 from . import util
+
+# Deprecated modules - will be removed in a future version
+from . import augment  # deprecated: use transform instead
+from . import compile  # deprecated: use transform instead
+from . import functional  # deprecated: use nn instead
 from ._state import *
 from ._state import __all__ as _state_all
 
 __all__ = [
-    'augment',
-    'compile',
     'environ',
-    'functional',
     'graph',
     'init',
     'mixin',
@@ -49,9 +48,13 @@ __all__ = [
     'optim',
     'random',
     'surrogate',
+    'transform',
     'typing',
     'util',
-    'transform',
+    # Deprecated modules
+    'augment',
+    'compile',
+    'functional',
 ]
 __all__ = __all__ + _state_all
 del _state_all

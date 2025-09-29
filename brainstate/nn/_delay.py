@@ -24,7 +24,7 @@ import numpy as np
 
 from brainstate import environ
 from brainstate._state import ShortTermState, State
-from brainstate.compile import jit_error_if
+from brainstate.transform import jit_error_if
 from brainstate.graph import Node
 from brainstate.typing import ArrayLike, PyTree
 from ._collective_ops import call_order

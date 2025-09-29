@@ -20,7 +20,7 @@ import brainunit as u
 import jax.numpy as jnp
 
 from brainstate import environ, random
-from brainstate.augment import vector_grad
+from brainstate.transform import vector_grad
 
 __all__ = [
     'exp_euler_step',

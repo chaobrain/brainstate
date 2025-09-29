@@ -21,7 +21,7 @@ import numpy as np
 
 from brainstate import environ, init, random
 from brainstate._state import ShortTermState, State, maybe_state
-from brainstate.compile import while_loop
+from brainstate.transform import while_loop
 from brainstate.typing import ArrayLike, Size, DTypeLike
 from ._dynamics import Dynamics, Prefetch
 from ._module import Module

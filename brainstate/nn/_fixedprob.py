@@ -22,9 +22,9 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from brainstate import random, augment, environ, init
+from brainstate import random, transform, environ, init
 from brainstate._state import ParamState, FakeState
-from brainstate.compile import for_loop
+from brainstate.transform import for_loop
 from brainstate.typing import Size, ArrayLike
 from ._module import Module
 
@@ -45,7 +45,7 @@ def init_indices_without_replace(
     rng = random.default_rng(seed)
 
     if method == 'vmap':
-        @augment.vmap(axis_size=n_pre)
+        @transform.vmap(axis_size=n_pre)
         def rand_indices():
             return rng.choice(n_post, size=(conn_num,), replace=False)
 
