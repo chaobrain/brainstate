@@ -24,7 +24,6 @@ from . import environ
 from . import graph
 from . import mixin
 from . import nn
-from . import optim
 from . import random
 from . import surrogate
 from . import transform
@@ -139,8 +138,54 @@ _init_apis = {
 
 init = create_deprecated_module_proxy(
     deprecated_name='brainstate.init',
-    replacement_module=nn,
-    replacement_name='brainstate.nn',
+    replacement_module='braintools.init',
+    replacement_name='braintools.init',
+    scoped_apis=_init_apis
+)
+
+_optim_apis = {
+    'Optimizer': 'braintools.optim.Optimizer',
+
+    # learning rate schedulers
+    'LearningRateScheduler': 'braintools.optim.LearningRateScheduler',
+    'ConstantLR': 'braintools.optim.ConstantLR',
+    'StepLR': 'braintools.optim.StepLR',
+    'MultiStepLR': 'braintools.optim.MultiStepLR',
+    'CosineAnnealingLR': 'braintools.optim.CosineAnnealingLR',
+    'CosineAnnealingWarmRestarts': 'braintools.optim.CosineAnnealingWarmRestarts',
+    'ExponentialLR': 'braintools.optim.ExponentialLR',
+    'ExponentialDecayLR': 'braintools.optim.ExponentialDecayLR',
+    'InverseTimeDecayLR': 'braintools.optim.InverseTimeDecayLR',
+    'PolynomialDecayLR': 'braintools.optim.PolynomialDecayLR',
+    'PiecewiseConstantLR': 'braintools.optim.PiecewiseConstantLR',
+
+    # optax optimizer wrapper
+    'OptaxOptimizer': 'braintools.optim.OptaxOptimizer',
+    'LBFGS': 'braintools.optim.LBFGS',
+
+    # helper functions
+    'to_same_dict_tree': 'braintools.optim.to_same_dict_tree',
+
+    # new class of brainstate.State for optimizer
+    'OptimState': 'braintools.optim.OptimState',
+
+    # commonly used optimizers
+    'SGDOptimizer': 'braintools.optim.SGDOptimizer',
+    'SGD': 'braintools.optim.SGD',
+    'Momentum': 'braintools.optim.Momentum',
+    'MomentumNesterov': 'braintools.optim.MomentumNesterov',
+    'Adagrad': 'braintools.optim.Adagrad',
+    'Adadelta': 'braintools.optim.Adadelta',
+    'RMSProp': 'braintools.optim.RMSProp',
+    'Adam': 'braintools.optim.Adam',
+    'LARS': 'braintools.optim.LARS',
+    'Adan': 'braintools.optim.Adan',
+    'AdamW': 'braintools.optim.AdamW',
+}
+optim = create_deprecated_module_proxy(
+    deprecated_name='brainstate.optim',
+    replacement_module='braintools.optim',
+    replacement_name='braintools.optim',
     scoped_apis=_init_apis
 )
 
@@ -150,10 +195,8 @@ from ._state import __all__ as _state_all
 __all__ = [
     'environ',
     'graph',
-    'init',
     'mixin',
     'nn',
-    'optim',
     'random',
     'surrogate',
     'transform',
@@ -163,6 +206,8 @@ __all__ = [
     'augment',
     'compile',
     'functional',
+    'init',
+    'optim',
 ]
 __all__ = __all__ + _state_all
-del _state_all, create_deprecated_module_proxy, _augment_apis, _compile_apis, _functional_apis, _init_apis
+del _state_all, create_deprecated_module_proxy, _augment_apis, _compile_apis, _functional_apis, _init_apis, _optim_apis

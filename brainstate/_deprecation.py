@@ -76,6 +76,14 @@ class DeprecatedModule:
             if hasattr(replacement_module, '__all__'):
                 self.__all__ = replacement_module.__all__
 
+    @property
+    def replacement_module(self):
+        if isinstance(self._replacement_module, str):
+            # Lazy import of replacement module
+            import importlib
+            self._replacement_module = importlib.import_module(self._replacement_module)
+        return self._replacement_module
+
     def _warn_deprecation(self, attr_name=None):
         """Show deprecation warning for module or attribute access."""
         # Only warn once per attribute to avoid spam
@@ -170,7 +178,7 @@ class DeprecatedModule:
             base_attrs = ['__name__', '__doc__', '__all__']
             return base_attrs + list(self._api_mapping.keys())
         else:
-            return dir(self._replacement_module)
+            return dir(self.replacement_module)
 
     def __repr__(self):
         """Return a deprecation-aware repr."""
