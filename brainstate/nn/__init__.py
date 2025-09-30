@@ -15,6 +15,8 @@
 
 
 from . import metrics
+from ._activations import *
+from ._activations import __all__ as activation_all
 from ._collective_ops import *
 from ._collective_ops import __all__ as collective_ops_all
 from ._common import *
@@ -73,6 +75,7 @@ from ._utils import *
 from ._utils import __all__ as utils_all
 
 __all__ = ['metrics']
+__all__ = __all__ + activation_all
 __all__ = __all__ + collective_ops_all + common_all + elementwise_all + module_all + exp_euler_all
 __all__ = __all__ + utils_all + dyn_all + projection_all + state_delay_all + synouts_all + conv_all
 __all__ = __all__ + linear_all + normalizations_all + poolings_all + fixedprob_all + linear_mv_all
@@ -81,6 +84,7 @@ __all__ = __all__ + inputs_all + rate_rnns + readout_all + stp_all + ltp_all + _
 __all__ = __all__ + _others_all + init_all
 
 del (
+    activation_all,
     collective_ops_all,
     common_all,
     module_all,

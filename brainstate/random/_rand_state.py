@@ -31,7 +31,7 @@ from brainstate import environ
 from brainstate._state import State
 from brainstate.typing import DTypeLike, Size, SeedOrKey
 
-__all__ = ['RandomState', 'DEFAULT', ]
+__all__ = ['RandomState', 'DEFAULT']
 
 use_prng_key = True
 
