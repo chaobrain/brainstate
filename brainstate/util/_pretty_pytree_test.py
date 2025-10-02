@@ -34,7 +34,7 @@ import numpy as np
 from absl.testing import absltest
 
 import brainstate
-from brainstate.util.pretty_pytree import (
+from brainstate.util._pretty_pytree import (
     PrettyObject,
     PrettyDict,
     NestedDict,

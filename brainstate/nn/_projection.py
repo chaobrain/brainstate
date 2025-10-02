@@ -22,7 +22,7 @@ import brainunit as u
 from brainstate._state import State
 from brainstate.mixin import BindCondData, JointTypes
 from brainstate.mixin import ParamDescriber, AlignPost
-from brainstate.util.others import get_unique_name
+from brainstate.util._others import get_unique_name
 from ._collective_ops import call_order
 from ._dynamics import Dynamics, Projection, maybe_init_prefetch, Prefetch, PrefetchDelayAt
 from ._module import Module

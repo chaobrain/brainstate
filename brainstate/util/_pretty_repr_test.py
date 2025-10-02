@@ -20,7 +20,7 @@ import dataclasses
 import unittest
 from typing import Iterator, Union
 
-from brainstate.util.pretty_repr import (
+from brainstate.util._pretty_repr import (
     PrettyType,
     PrettyAttr,
     PrettyRepr,
@@ -446,7 +446,7 @@ class TestYieldUniquePrettyReprItems(unittest.TestCase):
         node2.next = node1
 
         # Test that within same context, circular reference is detected
-        from brainstate.util.pretty_repr import CONTEXT
+        from brainstate.util._pretty_repr import CONTEXT
 
         # Clean start
         CONTEXT.seen_modules_repr = None
@@ -470,7 +470,7 @@ class TestYieldUniquePrettyReprItems(unittest.TestCase):
 
     def test_context_cleanup(self):
         """Test that context is properly cleaned up."""
-        from brainstate.util.pretty_repr import CONTEXT
+        from brainstate.util._pretty_repr import CONTEXT
 
         # Clean up any previous state
         CONTEXT.seen_modules_repr = None
@@ -488,7 +488,7 @@ class TestYieldUniquePrettyReprItems(unittest.TestCase):
 
     def test_nested_calls(self):
         """Test nested calls don't recreate context."""
-        from brainstate.util.pretty_repr import CONTEXT
+        from brainstate.util._pretty_repr import CONTEXT
 
         # Clean up any previous state
         CONTEXT.seen_modules_repr = None

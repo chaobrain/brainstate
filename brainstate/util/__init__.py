@@ -15,14 +15,14 @@
 
 from brainstate._error import __all__ as _error_all
 from . import filter
-from .others import *
-from .others import __all__ as _others_all
-from .pretty_pytree import *
-from .pretty_pytree import __all__ as _mapping_all
-from .pretty_repr import *
-from .pretty_repr import __all__ as _pretty_repr_all
-from .pretty_table import *
-from .pretty_table import __all__ as _table_all
+from ._others import *
+from ._others import __all__ as _others_all
+from ._pretty_pytree import *
+from ._pretty_pytree import __all__ as _mapping_all
+from ._pretty_repr import *
+from ._pretty_repr import __all__ as _pretty_repr_all
+from ._pretty_table import *
+from ._pretty_table import __all__ as _table_all
 from .struct import *
 from .struct import __all__ as _struct_all
 

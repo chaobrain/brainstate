@@ -25,7 +25,7 @@ from unittest.mock import MagicMock, patch
 import jax
 import jax.numpy as jnp
 
-from brainstate.util.others import (
+from brainstate.util._others import (
     DictManager,
     DotDict,
     NameContext,
@@ -117,7 +117,7 @@ class TestNameContext(unittest.TestCase):
     def setUp(self):
         """Reset the global NAME context before each test."""
         global NAME
-        from brainstate.util.others import NAME
+        from brainstate.util._others import NAME
         NAME.typed_names.clear()
 
     def test_get_unique_name_basic(self):
