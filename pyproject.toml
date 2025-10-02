@@ -25,7 +25,7 @@ universal = true
 
 [project]
 name = "brainstate"
-description = "A State-based Transformation System for Program Compilation and Augmentation."
+description = "A State-based Transformation System for Brain Modeling."
 readme = 'README.md'
 license = { text = 'Apache-2.0 license' }
 requires-python = '>=3.10'
@@ -99,8 +99,9 @@ tpu = [
     'brainevent',
 ]
 testing = [
+    'absl-py',
     'pytest',
-    'jax[cpu]',
+    'jax',
     'brainunit',
     'brainevent',
 ]
