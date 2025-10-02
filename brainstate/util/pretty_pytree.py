@@ -21,9 +21,9 @@ from typing import TypeVar, Hashable, Union, Iterable, Any, Optional, Tuple, Dic
 import jax
 
 from brainstate.typing import Filter, PathParts
+from .filter import to_predicate
 from .pretty_repr import PrettyRepr, PrettyType, PrettyAttr, yield_unique_pretty_repr_items, pretty_repr_object
 from .struct import dataclass
-from .filter import to_predicate
 
 __all__ = [
     'PrettyDict',
@@ -53,12 +53,6 @@ class PrettyObject(PrettyRepr):
     structures. It utilizes custom functions to represent the object and
     its attributes in a structured and visually appealing format.
 
-    Methods
-    -------
-    __pretty_repr__: Generates a sequence of pretty representation items
-                     for the object.
-    __pretty_repr_item__: Returns a tuple of the key and value for pretty
-                          representation of an item in the data structure.
     """
 
     def __pretty_repr__(self):
@@ -833,9 +827,11 @@ def _nest_unflatten(
     return NestedDict(zip(static, leaves))
 
 
-jax.tree_util.register_pytree_with_keys(NestedDict,
-                                        _nest_flatten_with_keys,
-                                        _nest_unflatten)  # type: ignore[arg-type]
+jax.tree_util.register_pytree_with_keys(
+    NestedDict,
+    _nest_flatten_with_keys,
+    _nest_unflatten
+)  # type: ignore[arg-type]
 
 
 # register :class:`FlattedDict` as a pytree
@@ -847,9 +843,11 @@ def _flat_unflatten(
     return FlattedDict(zip(static, leaves))
 
 
-jax.tree_util.register_pytree_with_keys(FlattedDict,
-                                        _nest_flatten_with_keys,
-                                        _flat_unflatten)  # type: ignore[arg-type]
+jax.tree_util.register_pytree_with_keys(
+    FlattedDict,
+    _nest_flatten_with_keys,
+    _flat_unflatten
+)  # type: ignore[arg-type]
 
 
 @jax.tree_util.register_pytree_node_class
