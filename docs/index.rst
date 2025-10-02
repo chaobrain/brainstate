@@ -144,11 +144,9 @@ See also the ecosystem
    changelog.md
    apis/brainstate.rst
    apis/graph.rst
-   apis/init.rst
-   apis/nn.rst
-   apis/optim.rst
-   apis/random.rst
    apis/transform.rst
+   apis/nn.rst
+   apis/random.rst
    apis/util.rst
    apis/surrogate.rst
    apis/typing.rst
