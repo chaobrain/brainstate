@@ -28,4 +28,3 @@ class BrainStateError(Exception):
     BrainState exceptions.
     """
     pass
-

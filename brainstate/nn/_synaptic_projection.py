@@ -19,9 +19,9 @@ from typing import Callable, Union, Tuple
 
 import brainunit as u
 
-from . import _init as init
 from brainstate._state import ParamState
 from brainstate.typing import ArrayLike
+from . import _init as init
 from ._dynamics import Dynamics, Projection
 
 __all__ = [

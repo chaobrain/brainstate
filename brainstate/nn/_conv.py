@@ -21,9 +21,9 @@ from typing import Callable, Tuple, Union, Sequence, Optional, TypeVar
 import jax
 import jax.numpy as jnp
 
-from . import _init as init
 from brainstate._state import ParamState
 from brainstate.typing import ArrayLike
+from . import _init as init
 from ._module import Module
 from ._normalizations import weight_standardization
 

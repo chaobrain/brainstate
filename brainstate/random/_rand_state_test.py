@@ -14,13 +14,11 @@
 # ==============================================================================
 
 import unittest
-import numpy as np
-import jax
+
 import jax.numpy as jnp
 import jax.random as jr
-import pytest
+import numpy as np
 
-import brainstate
 from brainstate.random._rand_state import RandomState, DEFAULT, _formalize_key, _size2shape, _check_py_seq
 
 

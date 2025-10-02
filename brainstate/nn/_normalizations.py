@@ -17,14 +17,14 @@
 
 from typing import Callable, Union, Sequence, Optional, Any
 
+import brainunit as u
 import jax
 import jax.numpy as jnp
 
-import brainunit as u
 from brainstate import environ
-from . import _init as init
 from brainstate._state import ParamState, BatchState
 from brainstate.typing import DTypeLike, ArrayLike, Size, Axes
+from . import _init as init
 from ._module import Module
 
 __all__ = [
@@ -91,7 +91,6 @@ def weight_standardization(
         scale = gain * scale
     shift = mean * scale
     return w * scale - shift
-
 
 
 def canonicalize_dtype(

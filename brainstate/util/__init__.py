@@ -13,8 +13,8 @@
 # limitations under the License.
 # ==============================================================================
 
-from . import filter
 from brainstate._error import __all__ as _error_all
+from . import filter
 from .others import *
 from .others import __all__ as _others_all
 from .pretty_pytree import *

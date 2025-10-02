@@ -20,9 +20,9 @@ from typing import Callable, Union, Optional
 import brainunit as u
 import jax.numpy as jnp
 
-from . import _init as init
 from brainstate._state import ParamState
 from brainstate.typing import ArrayLike, Size
+from . import _init as init
 from ._module import Module
 from ._normalizations import weight_standardization
 

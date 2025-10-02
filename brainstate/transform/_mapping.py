@@ -32,13 +32,13 @@ import jax
 from jax.interpreters.batching import BatchTracer
 
 from brainstate._compatible_import import Device
+from brainstate._error import BrainStateError
 from brainstate._state import State, catch_new_states
-from ._loop_collect_return import scan
-from ._make_jaxpr import StatefulFunction
 from brainstate.random import RandomState, DEFAULT
 from brainstate.typing import Missing, Filter
 from brainstate.util import NestedDict
-from brainstate._error import BrainStateError
+from ._loop_collect_return import scan
+from ._make_jaxpr import StatefulFunction
 from ._random import restore_rngs
 
 __all__ = [

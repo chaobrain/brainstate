@@ -20,11 +20,11 @@ from typing import Optional, Callable
 
 import brainunit as u
 
-from . import _init as init
 from brainstate import environ
 from brainstate._state import ShortTermState, HiddenState
 from brainstate.mixin import AlignPost
 from brainstate.typing import ArrayLike, Size
+from . import _init as init
 from ._dynamics import Dynamics
 from ._exp_euler import exp_euler_step
 

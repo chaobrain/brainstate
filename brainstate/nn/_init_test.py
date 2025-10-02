@@ -73,7 +73,7 @@ class TestVarianceScaling(unittest.TestCase):
 
     def test_var_scaling3(self):
         init = brainstate.nn.VarianceScalingInit(scale=2 / 4, mode='fan_avg', in_axis=0, out_axis=1,
-                                                      distribution='uniform')
+                                                 distribution='uniform')
         for size in [(10, 20), (10, 20, 30)]:
             weights = init(size)
             assert weights.shape == size

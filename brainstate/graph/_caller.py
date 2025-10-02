@@ -25,7 +25,7 @@ until execution time.
 """
 
 import dataclasses
-from typing import Any, TypeVar, Protocol, Generic, Callable, Union, Optional
+from typing import Any, TypeVar, Protocol, Generic, Union, Optional
 
 import jax
 
@@ -147,6 +147,7 @@ jax.tree_util.register_static(DelayedAccessor)
 
 class _AccessorCall(Protocol):
     """Protocol for callable objects that accept a DelayedAccessor."""
+
     def __call__(self, accessor: DelayedAccessor, /, *args, **kwargs) -> Any:
         ...
 

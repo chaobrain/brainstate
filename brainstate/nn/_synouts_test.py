@@ -46,7 +46,8 @@ class TestSynOutModels(unittest.TestCase):
         self.assertTrue(u.math.allclose(output, expected_output))
 
     def test_MgBlock(self):
-        model = brainstate.nn.MgBlock(E=self.E, cc_Mg=self.cc_Mg, alpha=self.alpha, beta=self.beta, V_offset=self.V_offset)
+        model = brainstate.nn.MgBlock(E=self.E, cc_Mg=self.cc_Mg, alpha=self.alpha, beta=self.beta,
+                                      V_offset=self.V_offset)
         output = model.update(self.conductance, self.potential)
         norm = (1 + self.cc_Mg / self.beta * jnp.exp(self.alpha * (self.V_offset - self.potential)))
         expected_output = self.conductance * (self.E - self.potential) / norm

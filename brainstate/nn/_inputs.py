@@ -20,10 +20,10 @@ import jax
 import numpy as np
 
 from brainstate import environ, random
-from . import _init as init
 from brainstate._state import ShortTermState, State, maybe_state
 from brainstate.transform import while_loop
 from brainstate.typing import ArrayLike, Size, DTypeLike
+from . import _init as init
 from ._dynamics import Dynamics, Prefetch
 from ._module import Module
 

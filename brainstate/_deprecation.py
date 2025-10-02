@@ -18,7 +18,6 @@ Deprecation utilities for brainstate.
 """
 
 import warnings
-from types import ModuleType
 
 
 class DeprecatedModule:

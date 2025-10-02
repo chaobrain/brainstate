@@ -29,7 +29,7 @@ and context management functionality, including:
 import threading
 import unittest
 import warnings
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import jax.numpy as jnp
 import numpy as np
@@ -263,7 +263,6 @@ class TestEnvironmentCore(unittest.TestCase):
         # Pop precision
         popped = bst.environ.pop('precision')
         self.assertEqual(popped, 64)
-
 
 
 class TestEnvironmentContext(unittest.TestCase):
@@ -737,6 +736,7 @@ class TestCallbackBehavior(unittest.TestCase):
 
     def test_replace_callback(self):
         """Test replacing existing callbacks."""
+
         def callback1(value):
             self.callback_values.append(f'cb1:{value}')
 
@@ -759,6 +759,7 @@ class TestCallbackBehavior(unittest.TestCase):
 
     def test_unregister_callback(self):
         """Test unregistering callbacks."""
+
         def callback(value):
             self.callback_values.append(value)
 
@@ -795,6 +796,7 @@ class TestCallbackBehavior(unittest.TestCase):
 
     def test_callback_exception_handling(self):
         """Test that exceptions in callbacks are handled gracefully."""
+
         def failing_callback(value):
             raise RuntimeError(f"Intentional error: {value}")
 
@@ -822,6 +824,7 @@ class TestCallbackBehavior(unittest.TestCase):
 
     def test_callback_with_validation(self):
         """Test using callbacks for validation."""
+
         def validate_positive(value):
             if value <= 0:
                 raise ValueError(f"Value must be positive, got {value}")

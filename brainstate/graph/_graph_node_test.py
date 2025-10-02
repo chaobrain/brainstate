@@ -65,7 +65,8 @@ class TestStateRetrieve(unittest.TestCase):
         class Model(brainstate.graph.Node):
             def __init__(self):
                 self.a = [1, 2, 3]
-                self.b = [brainstate.nn.Linear(1, 2), [brainstate.nn.Linear(2, 3)], (brainstate.nn.Linear(3, 4), brainstate.nn.Linear(4, 5))]
+                self.b = [brainstate.nn.Linear(1, 2), [brainstate.nn.Linear(2, 3)],
+                          (brainstate.nn.Linear(3, 4), brainstate.nn.Linear(4, 5))]
 
         m = Model()
         graphdef, states = brainstate.graph.treefy_split(m)

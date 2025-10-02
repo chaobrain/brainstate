@@ -16,7 +16,7 @@
 
 from unittest import TestCase
 
-import brainstate 
+import brainstate
 
 
 class TestWhileLoop(TestCase):

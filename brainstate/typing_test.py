@@ -22,20 +22,17 @@ and BrainUnit integration.
 """
 
 import unittest
-import sys
 from typing import get_type_hints, Union, Any
-import inspect
 
-import numpy as np
+import brainunit as u
 import jax
 import jax.numpy as jnp
 import jax.random as jr
-import brainunit as u
+import numpy as np
 
-import brainstate
 from brainstate.typing import (
     # Key and path types
-    Key, PathParts, Predicate, FilterLiteral, Filter,
+    Key, PathParts, FilterLiteral, Filter,
 
     # Array types
     Array, ArrayLike, Shape, Size, Axes, DType, DTypeLike, SupportsDType,
@@ -86,6 +83,7 @@ class TestKeyProtocol(unittest.TestCase):
 
     def test_custom_key_class(self):
         """Test custom class implementing Key protocol."""
+
         class CustomKey:
             def __init__(self, name: str):
                 self.name = name
@@ -124,6 +122,7 @@ class TestKeyProtocol(unittest.TestCase):
 
     def test_predicate_functions(self):
         """Test Predicate function type."""
+
         def is_weight_matrix(path: PathParts, value: Any) -> bool:
             return len(path) > 0 and "weight" in str(path[-1]) and hasattr(value, 'ndim') and value.ndim == 2
 
@@ -174,6 +173,7 @@ class TestArrayAnnotations(unittest.TestCase):
 
     def test_array_basic_annotation(self):
         """Test basic Array type annotation."""
+
         def process_array(x: Array) -> Array:
             return x * 2
 
@@ -189,6 +189,7 @@ class TestArrayAnnotations(unittest.TestCase):
 
     def test_array_shape_annotation(self):
         """Test Array with shape annotations."""
+
         def matrix_multiply(a: Array["m, n"], b: Array["n, k"]) -> Array["m, k"]:
             return a @ b
 
@@ -308,6 +309,7 @@ class TestShapeAndSizeTypes(unittest.TestCase):
 
     def test_shape_operations(self):
         """Test operations using shape types."""
+
         def create_zeros(shape: Shape) -> jax.Array:
             return jnp.zeros(shape)
 
@@ -332,6 +334,7 @@ class TestArrayLikeAndDType(unittest.TestCase):
 
     def test_arraylike_variants(self):
         """Test different ArrayLike type variants."""
+
         def process_data(data: ArrayLike) -> jax.Array:
             return jnp.asarray(data)
 
@@ -378,6 +381,7 @@ class TestArrayLikeAndDType(unittest.TestCase):
 
     def test_dtype_variants(self):
         """Test DType and DTypeLike variants."""
+
         def cast_array(array: ArrayLike, dtype: DTypeLike) -> jax.Array:
             return jnp.asarray(array, dtype=dtype)
 
@@ -401,6 +405,7 @@ class TestArrayLikeAndDType(unittest.TestCase):
 
     def test_supports_dtype_protocol(self):
         """Test SupportsDType protocol."""
+
         def get_dtype(obj: SupportsDType) -> DType:
             return obj.dtype
 
@@ -416,6 +421,7 @@ class TestArrayLikeAndDType(unittest.TestCase):
 
     def test_dtype_alias(self):
         """Test DType alias."""
+
         def create_array(shape: Shape, dtype: DType) -> jax.Array:
             return jnp.zeros(shape, dtype=dtype)
 
@@ -429,6 +435,7 @@ class TestPyTreeTypes(unittest.TestCase):
 
     def test_pytree_basic_usage(self):
         """Test basic PyTree type usage."""
+
         def tree_function(tree: PyTree[float]) -> PyTree[float]:
             return jax.tree_util.tree_map(lambda x: x * 2, tree)
 
@@ -446,6 +453,7 @@ class TestPyTreeTypes(unittest.TestCase):
 
     def test_pytree_with_structure(self):
         """Test PyTree with structure annotations."""
+
         def structured_function(tree: PyTree[float, "T"]) -> PyTree[float, "T"]:
             return jax.tree_util.tree_map(lambda x: x + 1, tree)
 
@@ -509,6 +517,7 @@ class TestRandomTypes(unittest.TestCase):
 
     def test_seed_or_key_variants(self):
         """Test SeedOrKey type variants."""
+
         def generate_random(key: SeedOrKey, shape: Shape) -> jax.Array:
             if isinstance(key, int):
                 key = jr.PRNGKey(key)
@@ -530,6 +539,7 @@ class TestRandomTypes(unittest.TestCase):
 
     def test_reproducibility_with_seeds(self):
         """Test that same seeds produce same results."""
+
         def generate_data(seed: SeedOrKey) -> jax.Array:
             if isinstance(seed, int):
                 key = jr.PRNGKey(seed)
@@ -604,6 +614,7 @@ class TestRealWorldUsagePattterns(unittest.TestCase):
 
     def test_neural_network_typing(self):
         """Test typing patterns common in neural networks."""
+
         def linear_layer(
             x: Array["batch, in_features"],
             weight: Array["out_features, in_features"],
@@ -624,6 +635,7 @@ class TestRealWorldUsagePattterns(unittest.TestCase):
 
     def test_pytree_parameter_filtering(self):
         """Test PyTree filtering patterns."""
+
         def extract_weights(params: PyTree[ArrayLike]) -> PyTree[ArrayLike]:
             # Mock filtering - in real code this would use jax.tree_util
             return jax.tree_util.tree_map(lambda x: x, params)
@@ -641,6 +653,7 @@ class TestRealWorldUsagePattterns(unittest.TestCase):
 
     def test_mixed_type_operations(self):
         """Test operations mixing different typed inputs."""
+
         def process_mixed_data(
             arrays: ArrayLike,
             shape: Shape,
@@ -668,6 +681,7 @@ class TestRealWorldUsagePattterns(unittest.TestCase):
 
     def test_scientific_computing_pattern(self):
         """Test scientific computing usage patterns."""
+
         def numerical_integration(
             func: callable,
             bounds: ArrayLike,
@@ -684,7 +698,7 @@ class TestRealWorldUsagePattterns(unittest.TestCase):
         bounds_array = jnp.array([0.0, 1.0])
 
         result = numerical_integration(
-            lambda t: t**2,
+            lambda t: t ** 2,
             bounds_array,
             1000,
             jnp.float32
@@ -699,6 +713,7 @@ class TestTypeHintCompatibility(unittest.TestCase):
 
     def test_get_type_hints(self):
         """Test that type hints can be retrieved from annotated functions."""
+
         def annotated_function(
             arr: ArrayLike,
             shape: Shape,

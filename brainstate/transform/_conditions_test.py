@@ -172,10 +172,10 @@ class TestIfElse(unittest.TestCase):
                                                          a >= 5 and a < 10,
                                                          a >= 10],
                                              branches=[lambda: 1,
-                                                lambda: 2,
-                                                lambda: 3,
-                                                lambda: 4,
-                                                lambda: 5])
+                                                       lambda: 2,
+                                                       lambda: 3,
+                                                       lambda: 4,
+                                                       lambda: 5])
 
         self.assertTrue(f(3) == 3)
         self.assertTrue(f(1) == 2)
@@ -189,10 +189,10 @@ class TestIfElse(unittest.TestCase):
                                                      jnp.logical_and(a <= 2, a > 0),
                                                      a <= 0],
                                                     [lambda _: 1,
-                                              lambda _: 2,
-                                              lambda _: 3,
-                                              lambda _: 4,
-                                              lambda _: 5, ],
+                                                     lambda _: 2,
+                                                     lambda _: 3,
+                                                     lambda _: 4,
+                                                     lambda _: 5, ],
                                                     a)
             return jax.vmap(f)(operands)
 
@@ -212,8 +212,8 @@ class TestIfElse(unittest.TestCase):
         def F3(x):
             return brainstate.compile.ifelse((x >= 10, jnp.logical_and(x >= 0, x < 10), x < 0),
                                              [lambda x: x,
-                                       lambda x: x ** 2,
-                                       lambda x: x ** 4, ],
+                                              lambda x: x ** 2,
+                                              lambda x: x ** 4, ],
                                              x)
 
         self.assertTrue(jax.grad(F3)(9.0) == 18.)

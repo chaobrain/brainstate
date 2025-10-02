@@ -21,10 +21,10 @@ from typing import Callable, Union
 import jax.numpy as jnp
 
 from brainstate import random
-from . import _init as init
 from brainstate._state import HiddenState, ParamState
 from brainstate.typing import ArrayLike
 from . import _activations as functional
+from . import _init as init
 from ._linear import Linear
 from ._module import Module
 

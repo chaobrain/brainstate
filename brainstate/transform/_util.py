@@ -309,6 +309,7 @@ def wrap_single_fun(
         >>> init_carry = 0.0
         final_carry, ys = brainstate.transform.scan(scan_fn, init_carry, xs)
     """
+
     @wraps(stateful_fun.fun)
     def wrapped_fun(new_carry, inputs):
         writen_state_vals, carry = new_carry

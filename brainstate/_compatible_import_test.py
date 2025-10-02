@@ -25,11 +25,9 @@ functionality, including:
 - Edge cases and boundary conditions
 """
 
-import functools
 import unittest
 from functools import partial
-from typing import Callable, Any
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 import jax
 import jax.numpy as jnp
@@ -70,7 +68,7 @@ class TestJAXVersionCompatibility(unittest.TestCase):
 
         for type_name in core_types:
             self.assertTrue(hasattr(compat, type_name),
-                          f"{type_name} should be available")
+                            f"{type_name} should be available")
             self.assertIsNotNone(getattr(compat, type_name))
 
     def test_function_imports_availability(self):
@@ -82,9 +80,9 @@ class TestJAXVersionCompatibility(unittest.TestCase):
 
         for func_name in functions:
             self.assertTrue(hasattr(compat, func_name),
-                          f"{func_name} should be available")
+                            f"{func_name} should be available")
             self.assertTrue(callable(getattr(compat, func_name)),
-                          f"{func_name} should be callable")
+                            f"{func_name} should be callable")
 
     def test_extend_axis_env_nd_functionality(self):
         """Test extend_axis_env_nd context manager."""
@@ -253,6 +251,7 @@ class TestUtilityFunctions(unittest.TestCase):
 
     def test_unzip2_with_generator(self):
         """Test unzip2 with generator input."""
+
         def pair_generator():
             yield (1, 'a')
             yield (2, 'b')
@@ -276,6 +275,7 @@ class TestFunctionWrapping(unittest.TestCase):
 
     def test_fun_name_basic(self):
         """Test fun_name function with regular functions."""
+
         def test_function():
             """Test function docstring."""
             pass
@@ -291,6 +291,7 @@ class TestFunctionWrapping(unittest.TestCase):
 
     def test_fun_name_partial(self):
         """Test fun_name with partial functions."""
+
         def original_function(x, y):
             return x + y
 
@@ -300,6 +301,7 @@ class TestFunctionWrapping(unittest.TestCase):
 
     def test_fun_name_nested_partial(self):
         """Test fun_name with nested partial functions."""
+
         def base_function(x, y, z):
             return x + y + z
 
@@ -311,6 +313,7 @@ class TestFunctionWrapping(unittest.TestCase):
 
     def test_fun_name_no_name_attribute(self):
         """Test fun_name with objects without __name__."""
+
         class CallableClass:
             def __call__(self):
                 pass
@@ -321,6 +324,7 @@ class TestFunctionWrapping(unittest.TestCase):
 
     def test_wraps_basic(self):
         """Test basic wraps functionality."""
+
         def original_function():
             """Original function docstring."""
             return 42
@@ -335,6 +339,7 @@ class TestFunctionWrapping(unittest.TestCase):
 
     def test_wraps_with_namestr(self):
         """Test wraps with custom name string."""
+
         def original_function():
             pass
 
@@ -346,6 +351,7 @@ class TestFunctionWrapping(unittest.TestCase):
 
     def test_wraps_with_docstr(self):
         """Test wraps with custom docstring."""
+
         def original_function():
             """Original docstring."""
             pass
@@ -359,12 +365,13 @@ class TestFunctionWrapping(unittest.TestCase):
 
     def test_wraps_with_kwargs(self):
         """Test wraps with additional keyword arguments."""
+
         def original_function():
             pass
 
         @compat.wraps(original_function,
-                     docstr="Function {fun} version {version}",
-                     version="1.0")
+                      docstr="Function {fun} version {version}",
+                      version="1.0")
         def wrapper():
             pass
 
@@ -373,6 +380,7 @@ class TestFunctionWrapping(unittest.TestCase):
 
     def test_wraps_preserves_annotations(self):
         """Test wraps preserves function annotations."""
+
         def original_function(x: int, y: str) -> float:
             return float(x)
 
@@ -384,6 +392,7 @@ class TestFunctionWrapping(unittest.TestCase):
 
     def test_wraps_preserves_dict(self):
         """Test wraps preserves function __dict__."""
+
         def original_function():
             pass
 
@@ -412,6 +421,7 @@ class TestFunctionWrapping(unittest.TestCase):
 
     def test_wraps_with_missing_attributes(self):
         """Test wraps handles missing attributes gracefully."""
+
         class MinimalCallable:
             pass
 
@@ -440,7 +450,7 @@ class TestEdgeCases(unittest.TestCase):
         """Test safe_map behavior with None inputs."""
         # Function that handles None
         result = compat.safe_map(lambda x: x if x is not None else 'default',
-                               [1, None, 3])
+                                 [1, None, 3])
         self.assertEqual(result, [1, 'default', 3])
 
     def test_safe_map_with_zero_length(self):
@@ -515,6 +525,7 @@ class TestEdgeCases(unittest.TestCase):
         def outer():
             def inner():
                 pass
+
             return inner
 
         inner_func = outer()
@@ -524,7 +535,6 @@ class TestEdgeCases(unittest.TestCase):
     def test_concurrent_usage(self):
         """Test thread safety of utility functions."""
         import threading
-        import time
 
         results = []
         errors = []
@@ -618,6 +628,7 @@ class TestIntegration(unittest.TestCase):
 
     def test_with_jax_transformations(self):
         """Test compatibility with JAX transformations."""
+
         def test_function(x):
             # Use utility functions inside JAX-transformable code
             pairs = [(x, x + 1), (x + 2, x + 3)]
@@ -650,15 +661,15 @@ class TestModuleStructure(unittest.TestCase):
 
         for export in expected_exports:
             self.assertIn(export, compat.__all__,
-                         f"{export} should be in __all__")
+                          f"{export} should be in __all__")
             self.assertTrue(hasattr(compat, export),
-                          f"{export} should be available in module")
+                            f"{export} should be available in module")
 
     def test_no_unexpected_exports(self):
         """Test that no private functions are exported."""
         for name in compat.__all__:
             self.assertFalse(name.startswith('_'),
-                           f"Private name {name} should not be in __all__")
+                             f"Private name {name} should not be in __all__")
 
     def test_module_docstring(self):
         """Test module has proper docstring."""

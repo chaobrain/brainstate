@@ -25,6 +25,7 @@ This test suite covers all functionality in the mixin module including:
 """
 
 import unittest
+
 import jax.numpy as jnp
 
 import brainstate

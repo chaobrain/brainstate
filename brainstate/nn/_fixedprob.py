@@ -23,10 +23,10 @@ import jax.numpy as jnp
 import numpy as np
 
 from brainstate import random, transform, environ
-from . import _init as init
 from brainstate._state import ParamState, FakeState
 from brainstate.transform import for_loop
 from brainstate.typing import Size, ArrayLike
+from . import _init as init
 from ._module import Module
 
 __all__ = [

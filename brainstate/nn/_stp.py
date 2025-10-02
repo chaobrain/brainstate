@@ -19,9 +19,9 @@ from typing import Optional
 
 import brainunit as u
 
-from . import _init as init
 from brainstate._state import HiddenState
 from brainstate.typing import ArrayLike, Size
+from . import _init as init
 from ._exp_euler import exp_euler_step
 from ._synapse import Synapse
 

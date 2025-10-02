@@ -3,11 +3,12 @@ Comprehensive tests for the struct module.
 """
 
 import pickle
-import pytest
+from typing import Any
+
 import jax
 import jax.numpy as jnp
 import jax.tree_util
-from typing import Any
+import pytest
 
 # Import the modules to test
 from brainstate.util import (
@@ -54,6 +55,7 @@ class TestDataclass:
 
     def test_basic_dataclass(self):
         """Test basic dataclass creation."""
+
         @dataclass
         class Point:
             x: float
@@ -65,6 +67,7 @@ class TestDataclass:
 
     def test_dataclass_is_frozen(self):
         """Test that dataclasses are frozen by default."""
+
         @dataclass
         class Point:
             x: float
@@ -76,6 +79,7 @@ class TestDataclass:
 
     def test_dataclass_replace_method(self):
         """Test the replace method."""
+
         @dataclass
         class Point:
             x: float
@@ -89,6 +93,7 @@ class TestDataclass:
 
     def test_dataclass_with_defaults(self):
         """Test dataclass with default values."""
+
         @dataclass
         class Config:
             learning_rate: float = 0.001
@@ -105,6 +110,7 @@ class TestDataclass:
 
     def test_dataclass_pytree_behavior(self):
         """Test that dataclass works as JAX pytree."""
+
         @dataclass
         class Model:
             weights: jax.Array
@@ -127,6 +133,7 @@ class TestDataclass:
 
     def test_dataclass_with_jax_transformations(self):
         """Test dataclass with JAX transformations."""
+
         @dataclass
         class Linear:
             weight: jax.Array
@@ -157,6 +164,7 @@ class TestDataclass:
 
     def test_dataclass_no_double_decoration(self):
         """Test that dataclass decorator is idempotent."""
+
         @dataclass
         @dataclass  # Should not cause issues
         class Point:
@@ -173,6 +181,7 @@ class TestPyTreeNode:
 
     def test_pytreenode_subclass(self):
         """Test creating a PyTreeNode subclass."""
+
         class Layer(PyTreeNode):
             weights: jax.Array
             bias: jax.Array
@@ -187,6 +196,7 @@ class TestPyTreeNode:
 
     def test_pytreenode_is_frozen(self):
         """Test that PyTreeNode subclasses are frozen."""
+
         class Layer(PyTreeNode):
             weights: jax.Array
 
@@ -196,6 +206,7 @@ class TestPyTreeNode:
 
     def test_pytreenode_replace(self):
         """Test replace method on PyTreeNode."""
+
         class Layer(PyTreeNode):
             weights: jax.Array
             bias: jax.Array
@@ -207,6 +218,7 @@ class TestPyTreeNode:
 
     def test_pytreenode_with_jax(self):
         """Test PyTreeNode with JAX transformations."""
+
         class MLP(PyTreeNode):
             layer1: Any
             layer2: Any
@@ -514,6 +526,7 @@ class TestIntegration:
 
     def test_nested_structures(self):
         """Test complex nested structures."""
+
         @dataclass
         class Config:
             hyperparams: FrozenDict
@@ -540,6 +553,7 @@ class TestIntegration:
 
     def test_jax_transformations_integration(self):
         """Test integration with various JAX transformations."""
+
         @dataclass
         class State:
             params: FrozenDict

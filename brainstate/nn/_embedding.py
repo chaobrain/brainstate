@@ -15,9 +15,9 @@
 
 from typing import Optional, Callable, Union
 
-from . import _init as init
 from brainstate._state import ParamState
 from brainstate.typing import ArrayLike
+from . import _init as init
 from ._module import Module
 
 __all__ = [
