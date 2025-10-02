@@ -2,6 +2,7 @@
 optax
 tqdm
 numba
+braintools
 
 # test requirements
 pytest
