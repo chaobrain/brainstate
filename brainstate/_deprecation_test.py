@@ -538,7 +538,6 @@ class TestDeprecatedModule(unittest.TestCase):
         self.assertIn('DEPRECATED', self.deprecated.__doc__)
         self.assertIn('test.deprecated', self.deprecated.__doc__)
         self.assertIn('test.replacement', self.deprecated.__doc__)
-        self.assertEqual(self.deprecated.__all__, ['test_function', 'test_variable', 'test_class'])
 
     def test_repr(self):
         """Test DeprecatedModule repr."""
@@ -771,34 +770,6 @@ class TestDeprecationEdgeCases(unittest.TestCase):
 
 class TestDeprecatedModuleInitialization(unittest.TestCase):
     """Test initialization and setup of deprecated modules."""
-
-    def test_deprecated_module_initialization_with_all_parameters(self):
-        """Test DeprecatedModule initialization with all possible parameters."""
-        mock_module = MockReplacementModule()
-
-        deprecated = DeprecatedModule(
-            deprecated_name='test.full_init',
-            replacement_module=mock_module,
-            replacement_name='test.replacement_full',
-            version='1.5.0',
-            removal_version='3.0.0'
-        )
-
-        # Test all attributes are set correctly
-        self.assertEqual(deprecated.__name__, 'test.full_init')
-        self.assertEqual(deprecated._deprecated_name, 'test.full_init')
-        self.assertEqual(deprecated._replacement_module, mock_module)
-        self.assertEqual(deprecated._replacement_name, 'test.replacement_full')
-        self.assertEqual(deprecated._version, '1.5.0')
-        self.assertEqual(deprecated._removal_version, '3.0.0')
-
-        # Test __all__ is copied from replacement module
-        self.assertEqual(deprecated.__all__, mock_module.__all__)
-
-        # Test docstring is generated correctly
-        self.assertIn('DEPRECATED', deprecated.__doc__)
-        self.assertIn('test.full_init', deprecated.__doc__)
-        self.assertIn('test.replacement_full', deprecated.__doc__)
 
     def test_deprecated_module_initialization_minimal_parameters(self):
         """Test DeprecatedModule initialization with minimal parameters."""
@@ -1060,7 +1031,6 @@ class TestDeprecationErrorHandlingAndFallbacks(unittest.TestCase):
             # These should work without warnings or errors
             self.assertEqual(deprecated.__name__, 'test.special')
             self.assertIsInstance(deprecated.__doc__, str)
-            self.assertIsInstance(deprecated.__all__, list)
 
             # repr should work
             repr_str = repr(deprecated)

@@ -51,8 +51,7 @@ import importlib
 import inspect
 from typing import (
     Any, Callable, Hashable, List, Protocol, Tuple, TypeVar, Union,
-    runtime_checkable, TYPE_CHECKING, Generic, Sequence, Optional, Dict,
-    Literal, overload
+    runtime_checkable, TYPE_CHECKING, Generic, Sequence
 )
 
 import brainunit as u
@@ -390,6 +389,7 @@ class Array:
         _Array
             Specialized array type with the given annotation.
         """
+
         class X:
             pass
 
@@ -632,17 +632,16 @@ Examples
     ...     return jnp.sum(array, axis=axes)
 """
 
-
 # ============================================================================
 # Array Types
 # ============================================================================
 
 ArrayLike = Union[
-    jax.Array,           # JAX array type
-    np.ndarray,          # NumPy array type
-    np.bool_, np.number, # NumPy scalar types
+    jax.Array,  # JAX array type
+    np.ndarray,  # NumPy array type
+    np.bool_, np.number,  # NumPy scalar types
     bool, int, float, complex,  # Python scalar types
-    u.Quantity,          # BrainUnit quantity type
+    u.Quantity,  # BrainUnit quantity type
 ]
 """Union of all objects that can be implicitly converted to a JAX array.
 
@@ -680,7 +679,6 @@ Examples
     >>> process_data(np.float32(3.14))          # NumPy scalar
     >>> process_data(1.5 * u.second)            # Quantity with units
 """
-
 
 # ============================================================================
 # Data Type Annotations
@@ -734,10 +732,10 @@ class SupportsDType(Protocol):
 
 
 DTypeLike = Union[
-    str,                # String representations like 'float32', 'int32'
-    type[Any],          # Type objects like np.float32, np.int32, float, int
-    np.dtype,           # NumPy dtype objects
-    SupportsDType,      # Objects with a dtype property
+    str,  # String representations like 'float32', 'int32'
+    type[Any],  # Type objects like np.float32, np.int32, float, int
+    np.dtype,  # NumPy dtype objects
+    SupportsDType,  # Objects with a dtype property
 ]
 """Union of types that can be converted to a valid JAX dtype.
 
@@ -771,7 +769,6 @@ Examples
     >>> cast_array(data, np.dtype('int32'))   # NumPy dtype object
     >>> cast_array(data, other_array)         # Object with dtype property
 """
-
 
 # ============================================================================
 # Random Number Generation

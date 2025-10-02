@@ -119,21 +119,21 @@ functional = create_deprecated_module_proxy(
 
 _init_apis = {
     'param': 'brainstate.nn.param',
-    'ZeroInit': 'brainstate.nn.ZeroInitInit',
-    'ConstantInit': 'brainstate.nn.ConstantInit',
-    'Identity': 'brainstate.nn.IdentityInit',
-    'Normal': 'brainstate.nn.NormalInit',
-    'TruncatedNormal': 'brainstate.nn.TruncatedNormalInit',
-    'Uniform': 'brainstate.nn.UniformInit',
-    'VarianceScaling': 'brainstate.nn.VarianceScalingInit',
-    'KaimingUniform': 'brainstate.nn.KaimingUniformInit',
-    'KaimingNormal': 'brainstate.nn.KaimingNormalInit',
-    'XavierUniform': 'brainstate.nn.XavierUniformInit',
-    'XavierNormal': 'brainstate.nn.XavierNormalInit',
-    'LecunUniform': 'brainstate.nn.LecunUniformInit',
-    'LecunNormal': 'brainstate.nn.LecunNormalInit',
-    'Orthogonal': 'brainstate.nn.OrthogonalInit',
-    'DeltaOrthogonal': 'brainstate.nn.DeltaOrthogonalInit',
+    'ZeroInit': 'braintools.init.Constant',
+    'Constant': 'braintools.init.Constant',
+    'Identity': 'braintools.init.Identity',
+    'Normal': 'braintools.init.Normal',
+    'TruncatedNormal': 'braintools.init.TruncatedNormal',
+    'Uniform': 'braintools.init.Uniform',
+    'VarianceScaling': 'braintools.init.VarianceScaling',
+    'KaimingUniform': 'braintools.init.KaimingUniform',
+    'KaimingNormal': 'braintools.init.KaimingNormal',
+    'XavierUniform': 'braintools.init.XavierUniform',
+    'XavierNormal': 'braintools.init.XavierNormal',
+    'LecunUniform': 'braintools.init.LecunUniform',
+    'LecunNormal': 'braintools.init.LecunNormal',
+    'Orthogonal': 'braintools.init.Orthogonal',
+    'DeltaOrthogonal': 'braintools.init.DeltaOrthogonal',
 }
 
 init = create_deprecated_module_proxy(
@@ -178,8 +178,7 @@ _optim_apis = {
     'Adadelta': 'braintools.optim.Adadelta',
     'RMSProp': 'braintools.optim.RMSProp',
     'Adam': 'braintools.optim.Adam',
-    'LARS': 'braintools.optim.LARS',
-    'Adan': 'braintools.optim.Adan',
+    'LARS': 'braintools.optim.Lars',
     'AdamW': 'braintools.optim.AdamW',
 }
 optim = create_deprecated_module_proxy(
