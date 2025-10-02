@@ -117,7 +117,7 @@ def check_state_value_tree(val: bool = True) -> Generator[None, None, None]:
 
     .. code-block:: python
 
-      >>> import brainstate as brainstate
+      >>> import brainstate
       >>> import jax.numpy as jnp
       >>> state = brainstate.ShortTermState(jnp.zeros((2, 3)))
       >>> with brainstate.check_state_value_tree():
@@ -167,7 +167,7 @@ def check_state_jax_tracer(val: bool = True) -> Generator[None, None, None]:
     .. code-block:: python
 
       >>> import jax
-      >>> import brainstate as brainstate
+      >>> import brainstate
       >>> import jax.numpy as jnp
       >>>
       >>> a = brainstate.ShortTermState(jnp.zeros((2, 3)))

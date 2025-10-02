@@ -25,11 +25,8 @@ expressing complex type requirements.
 """
 
 from typing import Sequence, Optional, TypeVar, Union
-import jax
 
-# Type variable for generic typing
-T = TypeVar('T')
-ArrayLike = jax.typing.ArrayLike
+import jax
 
 __all__ = [
     'Mixin',
@@ -48,6 +45,9 @@ __all__ = [
     'Batching',
     'Training',
 ]
+
+T = TypeVar('T')
+ArrayLike = jax.typing.ArrayLike
 
 
 def hashable(x):
@@ -893,7 +893,6 @@ def OneOfTypes(*types):
     # Use standard Union from typing
     # We need to use eval to dynamically create Union with variable number of types
     # This avoids using internal APIs while maintaining functionality
-    import typing
     # Build the Union dynamically
     result = unique_types[0]
     for t in unique_types[1:]:

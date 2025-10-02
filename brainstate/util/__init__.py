@@ -14,8 +14,7 @@
 # ==============================================================================
 
 from . import filter
-from .error import *
-from .error import __all__ as _error_all
+from brainstate._error import __all__ as _error_all
 from .others import *
 from .others import __all__ as _others_all
 from .pretty_pytree import *

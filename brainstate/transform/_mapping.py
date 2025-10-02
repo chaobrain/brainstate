@@ -37,7 +37,8 @@ from ._loop_collect_return import scan
 from ._make_jaxpr import StatefulFunction
 from brainstate.random import RandomState, DEFAULT
 from brainstate.typing import Missing, Filter
-from brainstate.util import NestedDict, BrainStateError
+from brainstate.util import NestedDict
+from brainstate._error import BrainStateError
 from ._random import restore_rngs
 
 __all__ = [

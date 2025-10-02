@@ -35,7 +35,8 @@ from brainstate._state import State
 from brainstate.graph import Node, states, nodes, flatten
 from brainstate.mixin import ParamDescriber, ParamDesc
 from brainstate.typing import PathParts, Size
-from brainstate.util import FlattedDict, NestedDict, BrainStateError
+from brainstate.util import FlattedDict, NestedDict
+from brainstate._error import BrainStateError
 
 # maximum integer
 max_int = np.iinfo(np.int32).max

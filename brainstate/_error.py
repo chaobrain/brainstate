@@ -16,7 +16,6 @@
 
 __all__ = [
     'BrainStateError',
-    'TraceContextError',
 ]
 
 
@@ -27,29 +26,6 @@ class BrainStateError(Exception):
     This exception is raised when a BrainState-specific error occurs during
     the execution of the program. It serves as a base class for more specific
     BrainState exceptions.
-
-    Attributes:
-        Inherits all attributes from the built-in Exception class.
-
-    Usage::
-
-        raise BrainStateError("A BrainState-specific error occurred.")
     """
     pass
 
-
-class TraceContextError(BrainStateError):
-    """
-    A custom exception class for trace context-related errors in BrainState.
-
-    This exception is raised when an error occurs specifically related to
-    trace context operations or manipulations within the BrainState framework.
-
-    Attributes:
-        Inherits all attributes from the BrainStateError class.
-
-    Usage::
-
-        raise TraceContextError("An error occurred while handling trace context.")
-    """
-    pass

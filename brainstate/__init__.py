@@ -192,6 +192,8 @@ optim = create_deprecated_module_proxy(
     scoped_apis=_optim_apis
 )
 
+from ._error import *
+from ._error import __all__ as _error_all
 from ._state import *
 from ._state import __all__ as _state_all
 
@@ -212,5 +214,6 @@ __all__ = [
     'init',
     'optim',
 ]
-__all__ = __all__ + _state_all
+__all__ = __all__ + _state_all + _error_all
 del _state_all, create_deprecated_module_proxy, _augment_apis, _compile_apis, _functional_apis, _init_apis, _optim_apis
+del _error_all

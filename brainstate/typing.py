@@ -46,7 +46,7 @@ Using PyTree annotations:
 """
 
 import builtins
-import functools as ft
+import functools
 import importlib
 import inspect
 from typing import (
@@ -436,7 +436,7 @@ class _MetaPyTree(type):
     # isn't allowed.
     # Likewise we can't do types.new_class("PyTree", (Generic[_T],), {}) because that
     # has __module__ "types", e.g. we get types.PyTree[int].
-    @ft.lru_cache(maxsize=None)
+    @functools.lru_cache(maxsize=None)
     def __getitem__(cls, item):
         if isinstance(item, tuple):
             if len(item) == 2:
