@@ -20,16 +20,36 @@ from functools import partial
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import scipy.stats
-from absl.testing import parameterized
-from jax._src import test_util as jtu
+from absl.testing import absltest, parameterized
 from jax.test_util import check_grads
 
 import brainstate
 
 
-class NNFunctionsTest(jtu.JaxTestCase):
-    @jtu.skip_on_flag("jax_skip_slow_tests", True)
+class NNFunctionsTest(parameterized.TestCase):
+    def setUp(self):
+        super().setUp()
+        self.rng_key = jax.random.PRNGKey(0)
+
+    def assertAllClose(self, a, b, check_dtypes=True, atol=None, rtol=None):
+        """Helper method for backwards compatibility with JAX test utilities."""
+        a = np.asarray(a)
+        b = np.asarray(b)
+        kw = {}
+        if atol is not None:
+            kw['atol'] = atol
+        if rtol is not None:
+            kw['rtol'] = rtol
+        np.testing.assert_allclose(a, b, **kw)
+        if check_dtypes:
+            self.assertEqual(a.dtype, b.dtype)
+
+    def assertArraysEqual(self, a, b):
+        """Helper method for backwards compatibility with JAX test utilities."""
+        np.testing.assert_array_equal(np.asarray(a), np.asarray(b))
+
     def testSoftplusGrad(self):
         check_grads(brainstate.functional.softplus, (1e-8,), order=4, )
 
@@ -37,7 +57,7 @@ class NNFunctionsTest(jtu.JaxTestCase):
         check_grads(brainstate.functional.softplus, (0.,), order=1)
 
     def testSoftplusGradInf(self):
-        self.assertAllClose(1., jax.grad(brainstate.functional.softplus)(float('inf')))
+        self.assertAllClose(1., jax.grad(brainstate.functional.softplus)(float('inf')), check_dtypes=False)
 
     def testSoftplusGradNegInf(self):
         check_grads(brainstate.functional.softplus, (-float('inf'),), order=1)
@@ -45,7 +65,7 @@ class NNFunctionsTest(jtu.JaxTestCase):
     def testSoftplusGradNan(self):
         check_grads(brainstate.functional.softplus, (float('nan'),), order=1)
 
-    @parameterized.parameters([int, float] + jtu.dtypes.floating + jtu.dtypes.integer)
+    @parameterized.parameters([int, float, jnp.float32, jnp.float64, jnp.int32, jnp.int64])
     def testSoftplusZero(self, dtype):
         self.assertEqual(jnp.log(dtype(2)), brainstate.functional.softplus(dtype(0)))
 
@@ -85,7 +105,7 @@ class NNFunctionsTest(jtu.JaxTestCase):
     #     check_grads(brainstate.functional.squareplus, (float('nan'),), order=1,
     #                 )
 
-    #   @parameterized.parameters([float] + jtu.dtypes.floating)
+    #   @parameterized.parameters([float, jnp.float32, jnp.float64])
     #   def testSquareplusZero(self, dtype):
     #     self.assertEqual(dtype(1), brainstate.functional.squareplus(dtype(0), dtype(4)))
     #
@@ -105,7 +125,7 @@ class NNFunctionsTest(jtu.JaxTestCase):
     #   check_grads(brainstate.functional.mish, (float('nan'),), order=1,
     #               )
 
-    @parameterized.parameters([float] + jtu.dtypes.floating)
+    @parameterized.parameters([float, jnp.float32, jnp.float64])
     def testMishZero(self, dtype):
         self.assertEqual(dtype(0), brainstate.functional.mish(dtype(0)))
 
@@ -163,11 +183,10 @@ class NNFunctionsTest(jtu.JaxTestCase):
         def gelu_reference(x):
             return x * scipy.stats.norm.cdf(x)
 
-        rng = jtu.rand_default(self.rng())
-        args_maker = lambda: [rng((4, 5, 6), jnp.float32)]
-        self._CheckAgainstNumpy(
-            gelu_reference, partial(brainstate.functional.gelu, approximate=approximate), args_maker,
-            check_dtypes=False, tol=1e-3 if approximate else None)
+        x = jax.random.normal(self.rng_key, (4, 5, 6), dtype=jnp.float32)
+        expected = gelu_reference(x)
+        actual = brainstate.functional.gelu(x, approximate=approximate)
+        np.testing.assert_allclose(actual, expected, rtol=1e-2 if approximate else 1e-5, atol=1e-3 if approximate else 1e-5)
 
     @parameterized.parameters(*itertools.product(
         (jnp.float32, jnp.bfloat16, jnp.float16),
@@ -215,7 +234,7 @@ class NNFunctionsTest(jtu.JaxTestCase):
         self.assertAllClose(out[m], fn(x[m]))
 
         probs = out if fn is brainstate.functional.softmax else jnp.exp(out)
-        self.assertAllClose(probs.sum(), 1.0)
+        self.assertAllClose(probs.sum(), 1.0, check_dtypes=False)
 
     @parameterized.parameters([brainstate.functional.softmax, brainstate.functional.log_softmax])
     def testSoftmaxWhereGrad(self, fn):
@@ -229,7 +248,7 @@ class NNFunctionsTest(jtu.JaxTestCase):
 
     def testSoftmaxGrad(self):
         x = jnp.array([5.5, 1.3, -4.2, 0.9])
-        jtu.check_grads(brainstate.functional.softmax, (x,), order=2, atol=5e-3)
+        check_grads(brainstate.functional.softmax, (x,), order=2, atol=5e-3)
 
     def testStandardizeWhereMask(self):
         x = jnp.array([5.5, 1.3, -4.2, 0.9])
@@ -239,7 +258,7 @@ class NNFunctionsTest(jtu.JaxTestCase):
         out_masked = jnp.take(brainstate.functional.standardize(x, where=m), jnp.array([0, 2, 3]))
         out_filtered = brainstate.functional.standardize(x_filtered)
 
-        self.assertAllClose(out_masked, out_filtered)
+        self.assertAllClose(out_masked, out_filtered, rtol=1e-6, atol=1e-6)
 
     def testOneHot(self):
         actual = brainstate.functional.one_hot(jnp.array([0, 1, 2]), 3)
@@ -329,3 +348,7 @@ class NNFunctionsTest(jtu.JaxTestCase):
 
         with jax.checking_leaks():
             fwd()  # doesn't crash
+
+
+if __name__ == '__main__':
+    absltest.main()
