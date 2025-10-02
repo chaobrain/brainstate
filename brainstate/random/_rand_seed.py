@@ -57,8 +57,16 @@ from brainstate.typing import SeedOrKey
 from ._rand_state import RandomState, DEFAULT, use_prng_key
 
 __all__ = [
-    'seed', 'set_key', 'get_key', 'default_rng', 'split_key', 'split_keys', 'seed_context', 'restore_key',
-    'self_assign_multi_keys', 'clone_rng',
+    'seed',
+    'set_key',
+    'get_key',
+    'default_rng',
+    'split_key',
+    'split_keys',
+    'seed_context',
+    'restore_key',
+    'self_assign_multi_keys',
+    'clone_rng',
 ]
 
 
