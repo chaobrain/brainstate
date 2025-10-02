@@ -107,7 +107,20 @@ _functional_apis = {
     'logsumexp': 'brainstate.nn._activations',
     'log_softmax': 'brainstate.nn._activations',
     'softmax': 'brainstate.nn._activations',
-    'standardize': 'brainstate.nn._activations'
+    'standardize': 'brainstate.nn._activations',
+    'relu6': 'brainstate.nn._activations',
+    'hard_sigmoid': 'brainstate.nn._activations',
+    'sparse_plus': 'brainstate.nn._activations',
+    'hard_silu': 'brainstate.nn._activations',
+    'hard_swish': 'brainstate.nn._activations',
+    'hard_shrink': 'brainstate.nn._activations',
+    'rrelu': 'brainstate.nn._activations',
+    'mish': 'brainstate.nn._activations',
+    'soft_shrink': 'brainstate.nn._activations',
+    'prelu': 'brainstate.nn._activations',
+    'softmin': 'brainstate.nn._activations',
+    'one_hot': 'brainstate.nn._activations',
+    'sparse_sigmoid': 'brainstate.nn._activations',
 }
 
 functional = create_deprecated_module_proxy(

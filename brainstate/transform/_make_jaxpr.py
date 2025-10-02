@@ -957,6 +957,7 @@ def make_hashable(obj):
     elif isinstance(obj, set):
         return frozenset(make_hashable(item) for item in obj)
     else:
+        return obj
         # Use JAX's tree_util for any other pytree structures
         try:
             leaves, treedef = jax.tree_util.tree_flatten(obj)

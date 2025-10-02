@@ -47,17 +47,18 @@ class TestDropout(unittest.TestCase):
             np.testing.assert_almost_equal(non_zero_elements, expected_non_zero_elements)
 
     def test_DropoutFixed(self):
-        dropout_layer = brainstate.nn.DropoutFixed(in_size=(2, 3), prob=0.5)
-        dropout_layer.init_state(batch_size=2)
-        input_data = np.random.randn(2, 2, 3)
-        with brainstate.environ.context(fit=True):
-            output_data = dropout_layer.update(input_data)
-        self.assertEqual(input_data.shape, output_data.shape)
-        self.assertTrue(np.any(output_data == 0))
-        scale_factor = 1 / (1 - 0.5)
-        non_zero_elements = output_data[output_data != 0]
-        expected_non_zero_elements = input_data[output_data != 0] * scale_factor
-        np.testing.assert_almost_equal(non_zero_elements, expected_non_zero_elements)
+        with brainstate.random.seed_context(42):
+            dropout_layer = brainstate.nn.DropoutFixed(in_size=(2, 3), prob=0.5)
+            dropout_layer.init_state(batch_size=2)
+            input_data = np.random.randn(2, 2, 3)
+            with brainstate.environ.context(fit=True):
+                output_data = dropout_layer.update(input_data)
+            self.assertEqual(input_data.shape, output_data.shape)
+            self.assertTrue(np.any(output_data == 0))
+            scale_factor = 1 / (1 - 0.5)
+            non_zero_elements = output_data[output_data != 0]
+            expected_non_zero_elements = input_data[output_data != 0] * scale_factor
+            np.testing.assert_almost_equal(non_zero_elements, expected_non_zero_elements)
 
     # def test_Dropout1d(self):
     #     dropout_layer = brainstate.nn.Dropout1d(prob=0.5)

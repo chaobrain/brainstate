@@ -251,7 +251,7 @@ def init_all_states(
     *init_args,
     node_to_exclude: Filter = None,
     **init_kwargs,
-) -> T:
+):
     """
     Initialize all states for the given target module and its submodules.
 
@@ -271,17 +271,12 @@ def init_all_states(
     node_to_exclude : Filter, optional
         A filter function or predicate to exclude certain nodes from initialization.
 
-    Returns
-    -------
-    T
-        The target module with all states initialized.
-
     Raises
     ------
     AssertionError
         If init_kwargs is provided but is not a dictionary.
     """
-    return call_all_functions(target, 'init_state', init_args, init_kwargs, node_to_exclude)
+    call_all_functions(target, 'init_state', init_args, init_kwargs, node_to_exclude)
 
 
 @set_module_as('brainstate.nn')
@@ -293,7 +288,7 @@ def vmap_init_all_states(
     state_to_exclude: Filter = None,
     state_tag: str | None = None,
     **init_kwargs: Dict[str, Any] | None
-) -> T:
+):
     """
     Initialize all vmap states for the given target module.
 
@@ -314,11 +309,6 @@ def vmap_init_all_states(
         A filter to exclude certain nodes from initialization.
     state_tag : str | None, optional
         A tag to be used for catching new states.
-
-    Returns
-    --------
-    T
-        The target module with initialized states.
 
     Raises
     -------
@@ -347,7 +337,6 @@ def vmap_init_all_states(
         return
 
     vmap_new_states(init_fn, state_tag=state_tag, axis_size=axis_size, state_to_exclude=state_to_exclude)()
-    return target
 
 
 @set_module_as('brainstate.nn')
@@ -356,7 +345,7 @@ def reset_all_states(
     reset_args: Tuple[Any, ...] | Any = (),
     reset_kwargs: Dict[str, Any] | None = None,
     node_to_exclude: Filter = None,
-) -> T:
+):
     """
     Reset all states for the given target module and its submodules.
 
@@ -376,17 +365,12 @@ def reset_all_states(
     node_to_exclude : Filter, optional
         A filter function or predicate to exclude certain nodes from reset.
 
-    Returns
-    -------
-    T
-        The target module with all states reset.
-
     Raises
     ------
     AssertionError
         If init_kwargs is provided but is not a dictionary.
     """
-    return call_all_functions(
+    call_all_functions(
         target,
         fun_name='reset_state',
         args=reset_args,
@@ -402,7 +386,7 @@ def vmap_reset_all_states(
     axis_size: int = None,
     node_to_exclude: Filter = None,
     tag: str | None = None,
-) -> T:
+):
     """
     Reset all vmap states for the given target module.
 
@@ -424,18 +408,13 @@ def vmap_reset_all_states(
     tag : str | None, optional
         A tag to be used for catching new states.
 
-    Returns
-    --------
-    T
-        The target module with reset states.
-
     Raises
     -------
     AssertionError
         If axis_size is not specified or is not greater than 0.
         If reset_kwargs is not a dictionary.
     """
-    return vmap_call_all_functions(
+    vmap_call_all_functions(
         target,
         fun_name='reset_state',
         args=reset_args,
