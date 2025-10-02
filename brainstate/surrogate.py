@@ -130,10 +130,10 @@ Create custom surrogate gradients by inheriting from :class:`Surrogate`:
 
 .. code-block:: python
 
-    >>> import brainstate as bs
+    >>> import brainstate
     >>> import jax.numpy as jnp
     >>>
-    >>> class CustomSurrogate(bs.surrogate.Surrogate):
+    >>> class CustomSurrogate(brainstate.surrogate.Surrogate):
     ...     def __init__(self, param=1.0):
     ...         super().__init__()
     ...         self.param = param
@@ -154,18 +154,18 @@ Examples
 
 .. code-block:: python
 
-    >>> import brainstate as bs
+    >>> import brainstate
     >>> import brainstate.surrogate as surrogate
     >>> import jax
     >>> import jax.numpy as jnp
     >>>
     >>> # Define a simple LIF neuron with surrogate gradient
-    >>> class LIFNeuron(bs.Module):
+    >>> class LIFNeuron(brainstate.Module):
     ...     def __init__(self, n_neurons, tau=20.0):
     ...         super().__init__()
     ...         self.tau = tau
     ...         self.sg_fn = surrogate.Sigmoid(alpha=4.0)
-    ...         self.v = bs.State(jnp.zeros(n_neurons))
+    ...         self.v = brainstate.State(jnp.zeros(n_neurons))
     ...
     ...     def update(self, x):
     ...         # Membrane dynamics
@@ -323,19 +323,16 @@ class Surrogate(PrettyObject):
         Defines the smooth surrogate function used for visualization and analysis.
     surrogate_grad(x)
         Defines the gradient of the surrogate function used during backpropagation.
-    __call__(x)
-        Applies the Heaviside step function in forward pass with surrogate gradient
-        for backward pass.
 
     Examples
     --------
     .. code-block:: python
 
-        >>> import brainstate as bs
+        >>> import brainstate
         >>> import jax.numpy as jnp
         >>>
         >>> # Create a custom surrogate gradient function
-        >>> class MySurrogate(bs.surrogate.Surrogate):
+        >>> class MySurrogate(brainstate.surrogate.Surrogate):
         ...     def __init__(self, alpha=1.):
         ...         super().__init__()
         ...         self.alpha = alpha
@@ -398,11 +395,11 @@ class Sigmoid(Surrogate):
     --------
     .. code-block:: python
 
-        >>> import brainstate as bs
+        >>> import brainstate
         >>> import jax.numpy as jnp
         >>>
         >>> # Create a Sigmoid surrogate gradient function
-        >>> sigmoid = bs.surrogate.Sigmoid(alpha=4.0)
+        >>> sigmoid = brainstate.surrogate.Sigmoid(alpha=4.0)
         >>>
         >>> # Apply to input data
         >>> x = jnp.array([-1.0, 0.0, 1.0])
@@ -416,7 +413,7 @@ class Sigmoid(Surrogate):
         ...     def __init__(self, in_features, out_features):
         ...         super().__init__()
         ...         self.linear = nn.Linear(in_features, out_features)
-        ...         self.spike_fn = bs.surrogate.Sigmoid(alpha=4.0)
+        ...         self.spike_fn = brainstate.surrogate.Sigmoid(alpha=4.0)
         ...
         ...     def forward(self, x):
         ...         membrane = self.linear(x)
@@ -520,17 +517,17 @@ class PiecewiseQuadratic(Surrogate):
 
     See Also
     --------
-    piecewise_quadratic : Deprecated function version. Use PiecewiseQuadratic class instead.
+    piecewise_quadratic : Function version of this class.
 
     Examples
     --------
     .. code-block:: python
 
-        >>> import brainstate as bs
+        >>> import brainstate
         >>> import jax.numpy as jnp
         >>>
         >>> # Create a piecewise quadratic surrogate gradient function
-        >>> pq_fn = bs.surrogate.PiecewiseQuadratic(alpha=1.0)
+        >>> pq_fn = brainstate.surrogate.PiecewiseQuadratic(alpha=1.0)
         >>>
         >>> # Apply to membrane potentials
         >>> x = jnp.array([-2.0, -0.5, 0.0, 0.5, 2.0])
@@ -543,7 +540,7 @@ class PiecewiseQuadratic(Surrogate):
         >>> class SpikingNeuron(nn.Module):
         ...     def __init__(self):
         ...         super().__init__()
-        ...         self.spike_fn = bs.surrogate.PiecewiseQuadratic(alpha=2.0)
+        ...         self.spike_fn = brainstate.surrogate.PiecewiseQuadratic(alpha=2.0)
         ...         self.membrane = 0.0
         ...
         ...     def forward(self, input_current):
@@ -677,11 +674,11 @@ class PiecewiseExp(Surrogate):
     --------
     .. code-block:: python
 
-        >>> import brainstate as bs
+        >>> import brainstate
         >>> import jax.numpy as jnp
         >>>
         >>> # Create a piecewise exponential surrogate
-        >>> pe_fn = bs.surrogate.PiecewiseExp(alpha=1.0)
+        >>> pe_fn = brainstate.surrogate.PiecewiseExp(alpha=1.0)
         >>>
         >>> # Apply to membrane potentials
         >>> x = jnp.array([-1.0, 0.0, 1.0])
@@ -695,7 +692,7 @@ class PiecewiseExp(Surrogate):
         ...     def __init__(self, tau=20.0):
         ...         super().__init__()
         ...         self.tau = tau
-        ...         self.spike_fn = bs.surrogate.PiecewiseExp(alpha=2.0)
+        ...         self.spike_fn = brainstate.surrogate.PiecewiseExp(alpha=2.0)
         ...         self.v = 0.0
         ...
         ...     def forward(self, input_current, dt=1.0):
@@ -853,11 +850,11 @@ class SoftSign(Surrogate):
     --------
     .. code-block:: python
 
-        >>> import brainstate as bs
+        >>> import brainstate
         >>> import jax.numpy as jnp
         >>>
         >>> # Create a soft sign surrogate
-        >>> ss_fn = bs.surrogate.SoftSign(alpha=2.0)
+        >>> ss_fn = brainstate.surrogate.SoftSign(alpha=2.0)
         >>>
         >>> # Apply to input
         >>> x = jnp.array([-1.0, 0.0, 1.0])
@@ -865,11 +862,11 @@ class SoftSign(Surrogate):
         >>> print(spikes)  # Binary spike output
         >>>
         >>> # Use in a spiking layer with adaptive threshold
-        >>> class AdaptiveSpikingLayer(bs.nn.Module):
+        >>> class AdaptiveSpikingLayer(brainstate.nn.Module):
         ...     def __init__(self, n_neurons):
         ...         super().__init__()
         ...         self.n = n_neurons
-        ...         self.spike_fn = bs.surrogate.SoftSign(alpha=2.0)
+        ...         self.spike_fn = brainstate.surrogate.SoftSign(alpha=2.0)
         ...         self.threshold = jnp.ones(n_neurons)
         ...
         ...     def forward(self, membrane_potential):
@@ -980,11 +977,11 @@ class Arctan(Surrogate):
     --------
     .. code-block:: python
 
-        >>> import brainstate as bs
+        >>> import brainstate
         >>> import jax.numpy as jnp
         >>>
         >>> # Create an arctangent surrogate
-        >>> arctan_fn = bs.surrogate.Arctan(alpha=2.0)
+        >>> arctan_fn = brainstate.surrogate.Arctan(alpha=2.0)
         >>>
         >>> # Apply to membrane potentials
         >>> x = jnp.array([-1.0, 0.0, 1.0])
@@ -1093,11 +1090,11 @@ class NonzeroSignLog(Surrogate):
     --------
     .. code-block:: python
 
-        >>> import brainstate as bs
+        >>> import brainstate
         >>> import jax.numpy as jnp
         >>>
         >>> # Create a nonzero sign log surrogate
-        >>> nsl_fn = bs.surrogate.NonzeroSignLog(alpha=1.0)
+        >>> nsl_fn = brainstate.surrogate.NonzeroSignLog(alpha=1.0)
         >>>
         >>> # Apply to input
         >>> x = jnp.array([-1.0, 0.0, 1.0])
@@ -1191,11 +1188,11 @@ class ERF(Surrogate):
     --------
     .. code-block:: python
 
-        >>> import brainstate as bs
+        >>> import brainstate
         >>> import jax.numpy as jnp
         >>>
         >>> # Create an ERF surrogate
-        >>> erf_fn = bs.surrogate.ERF(alpha=1.0)
+        >>> erf_fn = brainstate.surrogate.ERF(alpha=1.0)
         >>>
         >>> # Apply to input
         >>> x = jnp.array([-1.0, 0.0, 1.0])
@@ -1302,11 +1299,11 @@ class PiecewiseLeakyRelu(Surrogate):
     --------
     .. code-block:: python
 
-        >>> import brainstate as bs
+        >>> import brainstate
         >>> import jax.numpy as jnp
         >>>
         >>> # Create a piecewise leaky ReLU surrogate
-        >>> plr_fn = bs.surrogate.PiecewiseLeakyRelu(c=0.01, w=1.0)
+        >>> plr_fn = brainstate.surrogate.PiecewiseLeakyRelu(c=0.01, w=1.0)
         >>>
         >>> # Apply to input
         >>> x = jnp.array([-2.0, -0.5, 0.0, 0.5, 2.0])
@@ -1427,11 +1424,11 @@ class SquarewaveFourierSeries(Surrogate):
     --------
     .. code-block:: python
 
-        >>> import brainstate as bs
+        >>> import brainstate
         >>> import jax.numpy as jnp
         >>>
         >>> # Create a squarewave Fourier series surrogate
-        >>> sfs_fn = bs.surrogate.SquarewaveFourierSeries(n=4, t_period=8.0)
+        >>> sfs_fn = brainstate.surrogate.SquarewaveFourierSeries(n=4, t_period=8.0)
         >>>
         >>> # Apply to input
         >>> x = jnp.array([-2.0, -1.0, 0.0, 1.0, 2.0])
@@ -1544,7 +1541,7 @@ class S2NN(Surrogate):
 
        >>> import jax
        >>> import jax.numpy as jnp
-       >>> import brainstate as bs
+       >>> import brainstate
        >>> import brainstate.surrogate as surrogate
        >>> import matplotlib.pyplot as plt
        >>>
@@ -1702,7 +1699,7 @@ class QPseudoSpike(Surrogate):
 
        >>> import jax
        >>> import jax.numpy as jnp
-       >>> import brainstate as bs
+       >>> import brainstate
        >>> import brainstate.surrogate as surrogate
        >>> import matplotlib.pyplot as plt
        >>>
@@ -1860,7 +1857,7 @@ class LeakyRelu(Surrogate):
 
        >>> import jax
        >>> import jax.numpy as jnp
-       >>> import brainstate as bs
+       >>> import brainstate
        >>> import brainstate.surrogate as surrogate
        >>> import matplotlib.pyplot as plt
        >>>
@@ -2010,7 +2007,7 @@ class LogTailedRelu(Surrogate):
 
        >>> import jax
        >>> import jax.numpy as jnp
-       >>> import brainstate as bs
+       >>> import brainstate
        >>> import brainstate.surrogate as surrogate
        >>> import matplotlib.pyplot as plt
        >>>
@@ -2167,7 +2164,7 @@ class ReluGrad(Surrogate):
 
        >>> import jax
        >>> import jax.numpy as jnp
-       >>> import brainstate as bs
+       >>> import brainstate
        >>> import brainstate.surrogate as surrogate
        >>> import matplotlib.pyplot as plt
        >>>
@@ -2309,7 +2306,7 @@ class GaussianGrad(Surrogate):
 
        >>> import jax
        >>> import jax.numpy as jnp
-       >>> import brainstate as bs
+       >>> import brainstate
        >>> import brainstate.surrogate as surrogate
        >>> import matplotlib.pyplot as plt
        >>>
@@ -2457,7 +2454,7 @@ class MultiGaussianGrad(Surrogate):
 
        >>> import jax
        >>> import jax.numpy as jnp
-       >>> import brainstate as bs
+       >>> import brainstate
        >>> import brainstate.surrogate as surrogate
        >>> import matplotlib.pyplot as plt
        >>>
@@ -2618,7 +2615,7 @@ class InvSquareGrad(Surrogate):
 
        >>> import jax
        >>> import jax.numpy as jnp
-       >>> import brainstate as bs
+       >>> import brainstate
        >>> import brainstate.surrogate as surrogate
        >>> import matplotlib.pyplot as plt
        >>>
@@ -2758,7 +2755,7 @@ class SlayerGrad(Surrogate):
 
        >>> import jax
        >>> import jax.numpy as jnp
-       >>> import brainstate as bs
+       >>> import brainstate
        >>> import brainstate.surrogate as surrogate
        >>> import matplotlib.pyplot as plt
        >>>
