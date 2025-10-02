@@ -121,11 +121,6 @@ def call_all_fns(
         The target module on which to call functions.
     fn_name : str
         The name of the method to call on each module node.
-    args : Sequence[Any] or Any, optional
-        Positional arguments to pass to the called method. A single non-tuple
-        argument will be automatically wrapped in a tuple. Default is ().
-    kwargs : Mapping[str, Any], optional
-        Keyword arguments to pass to the called method. Default is None.
     node_to_exclude : Filter, optional
         A filter to exclude certain nodes from the function call.
         Can be a type, predicate function, or any filter supported by the graph API.
@@ -135,6 +130,11 @@ def call_all_fns(
         - 'raise': Raise an AttributeError (default)
         - 'pass' or 'none': Skip the node silently
         - 'warn': Issue a warning and skip the node
+    args
+        Positional arguments to pass to the called method. A single non-tuple
+        argument will be automatically wrapped in a tuple. Default is ().
+    kwargs
+        Keyword arguments to pass to the called method. Default is None.
 
     Raises
     ------
@@ -152,7 +152,6 @@ def call_all_fns(
         >>> import brainstate
         >>>
         >>> net = brainstate.nn.Sequential(brainstate.nn.Linear(10, 20), brainstate.nn.ReLU())
-        >>> # Call init_state on all modules
         >>> brainstate.nn.call_all_fns(net, 'init_state')
     """
     if not isinstance(fn_name, str):
@@ -363,7 +362,7 @@ def vmap_init_all_states(
     ----------
     target : Module
         The target module whose states are to be initialized.
-    *init_args : tuple
+    *init_args
         Variable positional arguments to pass to each `init_state` method.
     axis_size : int
         The size of the batch dimension. Must be a positive integer.
@@ -374,7 +373,7 @@ def vmap_init_all_states(
         Excluded states will remain shared across all batched instances.
     state_tag : str, optional
         An optional tag to categorize newly created states.
-    **init_kwargs : dict
+    **init_kwargs
         Variable keyword arguments to pass to each `init_state` method.
 
     Raises
