@@ -163,6 +163,8 @@ _optim_apis = {
 
     # commonly used optimizers
     'SGD': 'braintools.optim',
+    'Momentum': 'braintools.optim',
+    'MomentumNesterov': 'braintools.optim',
     'Adagrad': 'braintools.optim',
     'Adadelta': 'braintools.optim',
     'RMSprop': 'braintools.optim',
