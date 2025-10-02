@@ -15,6 +15,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""
+Pretty representation utilities for creating human-readable string representations.
+
+This module provides utilities for creating customizable pretty representations of
+objects, with support for nested structures and circular reference detection.
+"""
+
 import dataclasses
 import threading
 from abc import ABC, abstractmethod
@@ -38,6 +45,21 @@ B = TypeVar('B')
 class PrettyType:
     """
     Configuration for pretty representation of objects.
+
+    Attributes
+    ----------
+    type : Union[str, type]
+        The type name or type object to display.
+    start : str, default='('
+        The opening delimiter for the representation.
+    end : str, default=')'
+        The closing delimiter for the representation.
+    value_sep : str, default='='
+        The separator between keys and values.
+    elem_indent : str, default='  '
+        The indentation for nested elements.
+    empty_repr : str, default=''
+        The representation for empty objects.
     """
     type: Union[str, type]
     start: str = '('
@@ -51,6 +73,17 @@ class PrettyType:
 class PrettyAttr:
     """
     Configuration for pretty representation of attributes.
+
+    Attributes
+    ----------
+    key : str
+        The attribute name or key.
+    value : Union[str, Any]
+        The attribute value.
+    start : str, default=''
+        Optional prefix for the attribute.
+    end : str, default=''
+        Optional suffix for the attribute.
     """
     key: str
     value: Union[str, Any]
@@ -62,23 +95,54 @@ class PrettyRepr(ABC):
     """
     Interface for pretty representation of objects.
 
-    Example::
+    This abstract base class provides a framework for creating custom
+    pretty representations of objects by yielding PrettyType and PrettyAttr
+    instances.
 
-      >>> class MyObject(PrettyRepr):
-      >>>   def __pretty_repr__(self):
-      >>>     yield PrettyType(type='MyObject', start='{', end='}')
-      >>>     yield PrettyAttr('key', self.key)
-      >>>     yield PrettyAttr('value', self.value)
+    Examples
+    --------
+    .. code-block:: python
 
+        >>> class MyObject(PrettyRepr):
+        ...     def __init__(self, key, value):
+        ...         self.key = key
+        ...         self.value = value
+        ...
+        ...     def __pretty_repr__(self):
+        ...         yield PrettyType(type='MyObject', start='{', end='}')
+        ...         yield PrettyAttr('key', self.key)
+        ...         yield PrettyAttr('value', self.value)
+        ...
+        >>> obj = MyObject('foo', 42)
+        >>> print(obj)
+        MyObject{
+          key=foo,
+          value=42
+        }
     """
     __slots__ = ()
 
     @abstractmethod
     def __pretty_repr__(self) -> Iterator[Union[PrettyType, PrettyAttr]]:
+        """
+        Generate the pretty representation of the object.
+
+        Yields
+        ------
+        Union[PrettyType, PrettyAttr]
+            First yield should be PrettyType, followed by PrettyAttr instances.
+        """
         raise NotImplementedError
 
     def __repr__(self) -> str:
-        # repr the individual object with the pretty representation
+        """
+        Generate string representation using pretty representation.
+
+        Returns
+        -------
+        str
+            The formatted string representation of the object.
+        """
         return pretty_repr_object(self)
 
 
@@ -174,9 +238,33 @@ def pretty_repr_object(obj: PrettyRepr) -> str:
 class MappingReprMixin(Mapping[A, B]):
     """
     Mapping mixin for pretty representation.
+
+    This mixin provides a default pretty representation for mapping-like objects.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> class MyMapping(dict, MappingReprMixin):
+        ...     pass
+        ...
+        >>> m = MyMapping({'a': 1, 'b': 2})
+        >>> print(m)
+        {
+          'a': 1,
+          'b': 2
+        }
     """
 
-    def __pretty_repr__(self):
+    def __pretty_repr__(self) -> Iterator[Union[PrettyType, PrettyAttr]]:
+        """
+        Generate pretty representation for mapping.
+
+        Yields
+        ------
+        Union[PrettyType, PrettyAttr]
+            PrettyType followed by PrettyAttr for each key-value pair.
+        """
         yield PrettyType(type='', value_sep=': ', start='{', end='}')
 
         for key, value in self.items():
@@ -187,11 +275,37 @@ class MappingReprMixin(Mapping[A, B]):
 class PrettyMapping(PrettyRepr):
     """
     Pretty representation of a mapping.
+
+    Attributes
+    ----------
+    mapping : Mapping
+        The mapping to represent.
+    type_name : str, default=''
+        Optional type name to display.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> m = PrettyMapping({'a': 1, 'b': 2}, type_name='MyDict')
+        >>> print(m)
+        MyDict{
+          'a': 1,
+          'b': 2
+        }
     """
     mapping: Mapping
     type_name: str = ''
 
-    def __pretty_repr__(self):
+    def __pretty_repr__(self) -> Iterator[Union[PrettyType, PrettyAttr]]:
+        """
+        Generate pretty representation for the mapping.
+
+        Yields
+        ------
+        Union[PrettyType, PrettyAttr]
+            PrettyType followed by PrettyAttr for each key-value pair.
+        """
         yield PrettyType(type=self.type_name, value_sep=': ', start='{', end='}')
 
         for key, value in self.mapping.items():
@@ -220,9 +334,9 @@ class PrettyReprContext(threading.local):
 CONTEXT = PrettyReprContext()
 
 
-def _default_repr_object(node):
+def _default_repr_object(node: Any) -> Iterator[PrettyType]:
     """
-    Generates a default pretty representation for an object.
+    Generate a default pretty representation for an object.
 
     This function yields a `PrettyType` instance that represents the type
     of the given object. It is used as a default method for representing
@@ -242,9 +356,9 @@ def _default_repr_object(node):
     yield PrettyType(type=type(node))
 
 
-def _default_repr_attr(node):
+def _default_repr_attr(node: Any) -> Iterator[PrettyAttr]:
     """
-    Generates a default pretty representation for the attributes of an object.
+    Generate a default pretty representation for the attributes of an object.
 
     This function iterates over the attributes of the given object and yields
     a `PrettyAttr` instance for each attribute that does not start with an
@@ -269,32 +383,52 @@ def _default_repr_attr(node):
 
 
 def yield_unique_pretty_repr_items(
-    node,
+    node: Any,
     repr_object: Optional[Callable] = None,
     repr_attr: Optional[Callable] = None
-):
+) -> Iterator[Union[PrettyType, PrettyAttr]]:
     """
-    Generates a pretty representation of an object while avoiding duplicate representations.
+    Generate a pretty representation of an object while avoiding duplicate representations.
 
-    This function is designed to yield a structured representation of an object, 
-    using custom or default methods for representing the object itself and its attributes. 
-    It ensures that each object is only represented once to prevent infinite recursion 
-    in cases of circular references.
+    This function yields a structured representation of an object, using custom or default
+    methods for representing the object itself and its attributes. It ensures that each
+    object is only represented once to prevent infinite recursion in cases of circular
+    references.
 
-    Parameters:
+    Parameters
+    ----------
     node : Any
         The object to be represented.
     repr_object : Optional[Callable], optional
-        A callable that yields the representation of the object itself. 
+        A callable that yields the representation of the object itself.
         If not provided, a default representation function is used.
     repr_attr : Optional[Callable], optional
-        A callable that yields the representation of the object's attributes. 
+        A callable that yields the representation of the object's attributes.
         If not provided, a default attribute representation function is used.
 
-    Yields:
+    Yields
+    ------
     Union[PrettyType, PrettyAttr]
-        The pretty representation of the object and its attributes, 
+        The pretty representation of the object and its attributes,
         avoiding duplicates by tracking seen objects.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> class Node:
+        ...     def __init__(self, value, next=None):
+        ...         self.value = value
+        ...         self.next = next
+        ...
+        >>> # Create circular reference
+        >>> node1 = Node(1)
+        >>> node2 = Node(2, node1)
+        >>> node1.next = node2
+        ...
+        >>> # This will handle circular reference gracefully
+        >>> for item in yield_unique_pretty_repr_items(node1):
+        ...     print(item)
     """
     if repr_object is None:
         repr_object = _default_repr_object
