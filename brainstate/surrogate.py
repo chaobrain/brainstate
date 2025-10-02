@@ -359,6 +359,7 @@ class Surrogate(PrettyObject):
     gradient-based training of spiking neural networks.
 
     """
+    __module__ = 'brainstate.surrogate'
 
     def __call__(self, x):
         dx = self.surrogate_grad(x)
@@ -446,6 +447,7 @@ class Sigmoid(Surrogate):
     where :math:`\\sigma` is the sigmoid function.
 
     """
+    __module__ = 'brainstate.surrogate'
 
     def __init__(self, alpha: float = 4.):
         super().__init__()
@@ -589,6 +591,7 @@ class PiecewiseQuadratic(Surrogate):
     .. [5] Panda P, Aketi S A, Roy K. Toward scalable, efficient, and accurate deep spiking neural networks with backward residual connections, stochastic softmax, and hybridization[J]. Frontiers in Neuroscience, 2020, 14.
 
     """
+    __module__ = 'brainstate.surrogate'
 
     def __init__(self, alpha: float = 1.):
         super().__init__()
@@ -734,6 +737,7 @@ class PiecewiseExp(Surrogate):
     .. [1] Neftci E O, Mostafa H, Zenke F. Surrogate gradient learning in spiking neural networks: Bringing the power of gradient-based optimization to spiking neural networks[J]. IEEE Signal Processing Magazine, 2019, 36(6): 51-63.
 
     """
+    __module__ = 'brainstate.surrogate'
 
     def __init__(self, alpha: float = 1.):
         super().__init__()
@@ -881,6 +885,7 @@ class SoftSign(Surrogate):
     exponential functions, which can be beneficial for learning in deep networks.
 
     """
+    __module__ = 'brainstate.surrogate'
 
     def __init__(self, alpha=1.):
         super().__init__()
@@ -1009,6 +1014,7 @@ class Arctan(Surrogate):
     the slow decay of linear functions.
 
     """
+    __module__ = 'brainstate.surrogate'
 
     def __init__(self, alpha=1.):
         super().__init__()
@@ -1115,6 +1121,7 @@ class NonzeroSignLog(Surrogate):
        >>> plt.show()
 
     """
+    __module__ = 'brainstate.surrogate'
 
     def __init__(self, alpha=1.):
         super().__init__()
@@ -1220,6 +1227,7 @@ class ERF(Surrogate):
     .. [3] Yin B, Corradi F, Bohté S M. Effective and efficient computation with multiple-timescale spiking recurrent neural networks[C]//International Conference on Neuromorphic Systems 2020. 2020: 1-8.
 
     """
+    __module__ = 'brainstate.surrogate'
 
     def __init__(self, alpha=1.):
         super().__init__()
@@ -1343,6 +1351,7 @@ class PiecewiseLeakyRelu(Surrogate):
     .. [8] Kaiser J, Mostafa H, Neftci E. Synaptic plasticity dynamics for deep continuous local learning (DECOLLE)[J]. Frontiers in Neuroscience, 2020, 14: 424.
 
     """
+    __module__ = 'brainstate.surrogate'
 
     def __init__(self, c=0.01, w=1.):
         super().__init__()
@@ -1456,6 +1465,7 @@ class SquarewaveFourierSeries(Surrogate):
     spiking neural networks.
 
     """
+    __module__ = 'brainstate.surrogate'
 
     def __init__(self, n=2, t_period=8.):
         super().__init__()
@@ -1620,6 +1630,7 @@ class S2NN(Surrogate):
            ArXiv abs/2201.10879 (2022): n. pag.
 
     """
+    __module__ = 'brainstate.surrogate'
 
     def __init__(self, alpha=4., beta=1., epsilon=1e-8):
         super().__init__()
@@ -1779,6 +1790,7 @@ class QPseudoSpike(Surrogate):
            ArXiv abs/2202.00282 (2022): n. pag.
 
     """
+    __module__ = 'brainstate.surrogate'
 
     def __init__(self, alpha=2.):
         super().__init__()
@@ -1929,6 +1941,7 @@ class LeakyRelu(Surrogate):
     PiecewiseLeakyRelu : Piecewise approximation with leaky ReLU.
 
     """
+    __module__ = 'brainstate.surrogate'
 
     def __init__(self, alpha=0.1, beta=1.):
         super().__init__()
@@ -2085,6 +2098,7 @@ class LogTailedRelu(Surrogate):
            Pattern Recognition (CVPR) (2017): 5406-5414.
 
     """
+    __module__ = 'brainstate.surrogate'
 
     def __init__(self, alpha=0.):
         super().__init__()
@@ -2241,6 +2255,7 @@ class ReluGrad(Surrogate):
            in spiking neural networks. IEEE Signal Process. Mag. 36, 61–63 (2019).
 
     """
+    __module__ = 'brainstate.surrogate'
 
     def __init__(self, alpha=0.3, width=1.):
         super().__init__()
@@ -2384,6 +2399,7 @@ class GaussianGrad(Surrogate):
            Nat Mach Intell 3, 905–913 (2021).
 
     """
+    __module__ = 'brainstate.surrogate'
 
     def __init__(self, sigma=0.5, alpha=0.5):
         super().__init__()
@@ -2540,6 +2556,7 @@ class MultiGaussianGrad(Surrogate):
            Nat Mach Intell 3, 905–913 (2021).
 
     """
+    __module__ = 'brainstate.surrogate'
 
     def __init__(self, h=0.15, s=6.0, sigma=0.5, scale=0.5):
         super().__init__()
@@ -2692,6 +2709,7 @@ class InvSquareGrad(Surrogate):
     SlayerGrad : Exponential decay surrogate gradient.
 
     """
+    __module__ = 'brainstate.surrogate'
 
     def __init__(self, alpha=100.):
         super().__init__()
@@ -2838,6 +2856,7 @@ class SlayerGrad(Surrogate):
            Vol. 31, 1412–1421 (NeurIPS, 2018).
 
     """
+    __module__ = 'brainstate.surrogate'
 
     def __init__(self, alpha=1.):
         super().__init__()
