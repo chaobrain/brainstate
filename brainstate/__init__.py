@@ -118,22 +118,22 @@ functional = create_deprecated_module_proxy(
 )
 
 _init_apis = {
-    'param': 'brainstate.nn.param',
-    'ZeroInit': 'braintools.init.Constant',
-    'Constant': 'braintools.init.Constant',
-    'Identity': 'braintools.init.Identity',
-    'Normal': 'braintools.init.Normal',
-    'TruncatedNormal': 'braintools.init.TruncatedNormal',
-    'Uniform': 'braintools.init.Uniform',
-    'VarianceScaling': 'braintools.init.VarianceScaling',
-    'KaimingUniform': 'braintools.init.KaimingUniform',
-    'KaimingNormal': 'braintools.init.KaimingNormal',
-    'XavierUniform': 'braintools.init.XavierUniform',
-    'XavierNormal': 'braintools.init.XavierNormal',
-    'LecunUniform': 'braintools.init.LecunUniform',
-    'LecunNormal': 'braintools.init.LecunNormal',
-    'Orthogonal': 'braintools.init.Orthogonal',
-    'DeltaOrthogonal': 'braintools.init.DeltaOrthogonal',
+    'param': 'brainstate.nn',
+    'Constant': 'braintools.init',
+    'ZeroInit': 'braintools.init',
+    'Identity': 'braintools.init',
+    'Normal': 'braintools.init',
+    'VarianceScaling': 'braintools.init',
+    'TruncatedNormal': 'braintools.init',
+    'Uniform': 'braintools.init',
+    'KaimingUniform': 'braintools.init',
+    'KaimingNormal': 'braintools.init',
+    'XavierUniform': 'braintools.init',
+    'XavierNormal': 'braintools.init',
+    'LecunUniform': 'braintools.init',
+    'LecunNormal': 'braintools.init',
+    'Orthogonal': 'braintools.init',
+    'DeltaOrthogonal': 'braintools.init',
 }
 
 init = create_deprecated_module_proxy(
@@ -144,48 +144,37 @@ init = create_deprecated_module_proxy(
 )
 
 _optim_apis = {
-    'Optimizer': 'braintools.optim.Optimizer',
+    'Optimizer': 'braintools.optim',
 
     # learning rate schedulers
-    'LearningRateScheduler': 'braintools.optim.LearningRateScheduler',
-    'ConstantLR': 'braintools.optim.ConstantLR',
-    'StepLR': 'braintools.optim.StepLR',
-    'MultiStepLR': 'braintools.optim.MultiStepLR',
-    'CosineAnnealingLR': 'braintools.optim.CosineAnnealingLR',
-    'CosineAnnealingWarmRestarts': 'braintools.optim.CosineAnnealingWarmRestarts',
-    'ExponentialLR': 'braintools.optim.ExponentialLR',
-    'ExponentialDecayLR': 'braintools.optim.ExponentialDecayLR',
-    'InverseTimeDecayLR': 'braintools.optim.InverseTimeDecayLR',
-    'PolynomialDecayLR': 'braintools.optim.PolynomialDecayLR',
-    'PiecewiseConstantLR': 'braintools.optim.PiecewiseConstantLR',
+    'LearningRateScheduler': 'braintools.optim',
+    'LRScheduler': 'braintools.optim',
+    'ConstantLR': 'braintools.optim',
+    'StepLR': 'braintools.optim',
+    'MultiStepLR': 'braintools.optim',
+    'CosineAnnealingLR': 'braintools.optim',
+    'CosineAnnealingWarmRestarts': 'braintools.optim',
+    'ExponentialLR': 'braintools.optim',
+    'PolynomialLR': 'braintools.optim',
 
     # optax optimizer wrapper
-    'OptaxOptimizer': 'braintools.optim.OptaxOptimizer',
-    'LBFGS': 'braintools.optim.LBFGS',
-
-    # helper functions
-    'to_same_dict_tree': 'braintools.optim.to_same_dict_tree',
-
-    # new class of brainstate.State for optimizer
-    'OptimState': 'braintools.optim.OptimState',
+    'OptaxOptimizer': 'braintools.optim',
+    'LBFGS': 'braintools.optim',
 
     # commonly used optimizers
-    'SGDOptimizer': 'braintools.optim.SGDOptimizer',
-    'SGD': 'braintools.optim.SGD',
-    'Momentum': 'braintools.optim.Momentum',
-    'MomentumNesterov': 'braintools.optim.MomentumNesterov',
-    'Adagrad': 'braintools.optim.Adagrad',
-    'Adadelta': 'braintools.optim.Adadelta',
-    'RMSProp': 'braintools.optim.RMSProp',
-    'Adam': 'braintools.optim.Adam',
-    'LARS': 'braintools.optim.Lars',
-    'AdamW': 'braintools.optim.AdamW',
+    'SGD': 'braintools.optim',
+    'Adagrad': 'braintools.optim',
+    'Adadelta': 'braintools.optim',
+    'RMSprop': 'braintools.optim',
+    'Adam': 'braintools.optim',
+    'Lars': 'braintools.optim',
+    'AdamW': 'braintools.optim',
 }
 optim = create_deprecated_module_proxy(
     deprecated_name='brainstate.optim',
     replacement_module='braintools.optim',
     replacement_name='braintools.optim',
-    scoped_apis=_init_apis
+    scoped_apis=_optim_apis
 )
 
 from ._state import *
