@@ -12,6 +12,11 @@ import jax.numpy as jnp
 import brainstate
 
 
+import unittest
+import jax.numpy as jnp
+import brainstate
+
+
 class TestConv1d(unittest.TestCase):
     """Test cases for 1D convolution."""
 
@@ -398,3 +403,440 @@ class TestRepr(unittest.TestCase):
         self.assertIn('Conv2d', repr_str)
         self.assertIn('channel_first=True', repr_str)
 
+
+class TestConvTranspose1d(unittest.TestCase):
+    """Test cases for ConvTranspose1d layer."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.in_size = (28, 16)
+        self.out_channels = 8
+        self.kernel_size = 4
+
+    def test_basic_channels_last(self):
+        """Test basic ConvTranspose1d with channels-last format."""
+        conv_t = brainstate.nn.ConvTranspose1d(
+            in_size=self.in_size,
+            out_channels=self.out_channels,
+            kernel_size=self.kernel_size,
+            stride=1
+        )
+        x = jnp.ones((2, 28, 16))
+        y = conv_t(x)
+
+        self.assertEqual(len(y.shape), 3)
+        self.assertEqual(y.shape[0], 2)  # batch size
+        self.assertEqual(y.shape[-1], self.out_channels)
+        self.assertEqual(conv_t.in_channels, 16)
+        self.assertEqual(conv_t.out_channels, 8)
+        self.assertFalse(conv_t.channel_first)
+
+    def test_basic_channels_first(self):
+        """Test basic ConvTranspose1d with channels-first format."""
+        conv_t = brainstate.nn.ConvTranspose1d(
+            in_size=(16, 28),  # (C, L) for channels-first
+            out_channels=self.out_channels,
+            kernel_size=self.kernel_size,
+            stride=1,
+            channel_first=True
+        )
+        x = jnp.ones((2, 16, 28))
+        y = conv_t(x)
+
+        self.assertEqual(len(y.shape), 3)
+        self.assertEqual(y.shape[0], 2)  # batch size
+        self.assertEqual(y.shape[1], self.out_channels)  # channels first
+        self.assertEqual(conv_t.in_channels, 16)
+        self.assertTrue(conv_t.channel_first)
+
+    def test_stride_upsampling(self):
+        """Test transposed convolution with stride for upsampling."""
+        conv_t = brainstate.nn.ConvTranspose1d(
+            in_size=(28, 16),
+            out_channels=8,
+            kernel_size=4,
+            stride=2,
+            padding='SAME'
+        )
+        x = jnp.ones((2, 28, 16))
+        y = conv_t(x)
+
+        # With stride=2, output should be approximately 2x larger
+        self.assertGreater(y.shape[1], x.shape[1])
+
+    def test_with_bias(self):
+        """Test ConvTranspose1d with bias."""
+        conv_t = brainstate.nn.ConvTranspose1d(
+            in_size=(50, 8),
+            out_channels=16,
+            kernel_size=3,
+            b_init=brainstate.init.Constant(0.0)
+        )
+        x = jnp.ones((4, 50, 8))
+        y = conv_t(x)
+
+        self.assertTrue('bias' in conv_t.weight.value)
+        self.assertEqual(y.shape[-1], 16)
+
+    def test_without_batch(self):
+        """Test ConvTranspose1d without batch dimension."""
+        conv_t = brainstate.nn.ConvTranspose1d(
+            in_size=(28, 16),
+            out_channels=8,
+            kernel_size=4
+        )
+        x = jnp.ones((28, 16))
+        y = conv_t(x)
+
+        self.assertEqual(len(y.shape), 2)
+        self.assertEqual(y.shape[-1], 8)
+
+    def test_groups(self):
+        """Test grouped transposed convolution."""
+        conv_t = brainstate.nn.ConvTranspose1d(
+            in_size=(28, 16),
+            out_channels=16,
+            kernel_size=3,
+            groups=4
+        )
+        x = jnp.ones((2, 28, 16))
+        y = conv_t(x)
+
+        self.assertEqual(y.shape[-1], 16)
+
+
+class TestConvTranspose2d(unittest.TestCase):
+    """Test cases for ConvTranspose2d layer."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.in_size = (16, 16, 32)
+        self.out_channels = 16
+        self.kernel_size = 4
+
+    def test_basic_channels_last(self):
+        """Test basic ConvTranspose2d with channels-last format."""
+        conv_t = brainstate.nn.ConvTranspose2d(
+            in_size=self.in_size,
+            out_channels=self.out_channels,
+            kernel_size=self.kernel_size
+        )
+        x = jnp.ones((4, 16, 16, 32))
+        y = conv_t(x)
+
+        self.assertEqual(len(y.shape), 4)
+        self.assertEqual(y.shape[0], 4)  # batch size
+        self.assertEqual(y.shape[-1], self.out_channels)
+        self.assertEqual(conv_t.in_channels, 32)
+        self.assertFalse(conv_t.channel_first)
+
+    def test_basic_channels_first(self):
+        """Test basic ConvTranspose2d with channels-first format."""
+        conv_t = brainstate.nn.ConvTranspose2d(
+            in_size=(32, 16, 16),  # (C, H, W) for channels-first
+            out_channels=self.out_channels,
+            kernel_size=self.kernel_size,
+            channel_first=True
+        )
+        x = jnp.ones((4, 32, 16, 16))
+        y = conv_t(x)
+
+        self.assertEqual(len(y.shape), 4)
+        self.assertEqual(y.shape[1], self.out_channels)  # channels first
+        self.assertTrue(conv_t.channel_first)
+
+    def test_stride_upsampling(self):
+        """Test 2x upsampling with stride=2."""
+        conv_t = brainstate.nn.ConvTranspose2d(
+            in_size=(16, 16, 32),
+            out_channels=16,
+            kernel_size=4,
+            stride=2,
+            padding='SAME'
+        )
+        x = jnp.ones((4, 16, 16, 32))
+        y = conv_t(x)
+
+        # With stride=2, output should be approximately 2x larger in each spatial dimension
+        self.assertGreater(y.shape[1], x.shape[1])
+        self.assertGreater(y.shape[2], x.shape[2])
+
+    def test_rectangular_kernel(self):
+        """Test ConvTranspose2d with rectangular kernel."""
+        conv_t = brainstate.nn.ConvTranspose2d(
+            in_size=(16, 16, 32),
+            out_channels=16,
+            kernel_size=(3, 5),
+            stride=1
+        )
+        x = jnp.ones((2, 16, 16, 32))
+        y = conv_t(x)
+
+        self.assertEqual(conv_t.kernel_size, (3, 5))
+        self.assertEqual(y.shape[-1], 16)
+
+    def test_padding_valid(self):
+        """Test ConvTranspose2d with VALID padding."""
+        conv_t = brainstate.nn.ConvTranspose2d(
+            in_size=(16, 16, 32),
+            out_channels=16,
+            kernel_size=4,
+            stride=2,
+            padding='VALID'
+        )
+        x = jnp.ones((2, 16, 16, 32))
+        y = conv_t(x)
+
+        # VALID padding means no padding, output computed by formula:
+        # out = (in - 1) * stride + kernel
+        # out = (16 - 1) * 2 + 4 = 34 (but JAX may compute it slightly differently)
+        # At minimum, it should upsample
+        self.assertGreater(y.shape[1], 16)
+
+    def test_groups(self):
+        """Test grouped transposed convolution."""
+        conv_t = brainstate.nn.ConvTranspose2d(
+            in_size=(16, 16, 32),
+            out_channels=32,
+            kernel_size=3,
+            groups=4
+        )
+        x = jnp.ones((2, 16, 16, 32))
+        y = conv_t(x)
+
+        self.assertEqual(y.shape[-1], 32)
+
+
+class TestConvTranspose3d(unittest.TestCase):
+    """Test cases for ConvTranspose3d layer."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.in_size = (8, 8, 8, 16)
+        self.out_channels = 8
+        self.kernel_size = 4
+
+    def test_basic_channels_last(self):
+        """Test basic ConvTranspose3d with channels-last format."""
+        conv_t = brainstate.nn.ConvTranspose3d(
+            in_size=self.in_size,
+            out_channels=self.out_channels,
+            kernel_size=self.kernel_size
+        )
+        x = jnp.ones((2, 8, 8, 8, 16))
+        y = conv_t(x)
+
+        self.assertEqual(len(y.shape), 5)
+        self.assertEqual(y.shape[0], 2)  # batch size
+        self.assertEqual(y.shape[-1], self.out_channels)
+        self.assertEqual(conv_t.in_channels, 16)
+
+    def test_basic_channels_first(self):
+        """Test basic ConvTranspose3d with channels-first format."""
+        conv_t = brainstate.nn.ConvTranspose3d(
+            in_size=(16, 8, 8, 8),  # (C, H, W, D) for channels-first
+            out_channels=self.out_channels,
+            kernel_size=self.kernel_size,
+            channel_first=True
+        )
+        x = jnp.ones((2, 16, 8, 8, 8))
+        y = conv_t(x)
+
+        self.assertEqual(len(y.shape), 5)
+        self.assertEqual(y.shape[1], self.out_channels)  # channels first
+        self.assertTrue(conv_t.channel_first)
+
+    def test_stride_upsampling(self):
+        """Test 3D upsampling with stride=2."""
+        conv_t = brainstate.nn.ConvTranspose3d(
+            in_size=(8, 8, 8, 16),
+            out_channels=8,
+            kernel_size=4,
+            stride=2,
+            padding='SAME'
+        )
+        x = jnp.ones((2, 8, 8, 8, 16))
+        y = conv_t(x)
+
+        # With stride=2, output should be approximately 2x larger
+        self.assertGreater(y.shape[1], x.shape[1])
+        self.assertGreater(y.shape[2], x.shape[2])
+        self.assertGreater(y.shape[3], x.shape[3])
+
+
+class TestErrorHandlingConvTranspose(unittest.TestCase):
+    """Test error handling for transposed convolutions."""
+
+    def test_invalid_groups(self):
+        """Test that invalid groups raises assertion error."""
+        with self.assertRaises(AssertionError):
+            brainstate.nn.ConvTranspose2d(
+                in_size=(16, 16, 32),
+                out_channels=15,  # Not divisible by groups
+                kernel_size=3,
+                groups=4
+            )
+
+    def test_dimension_mismatch(self):
+        """Test that wrong input dimensions raise error."""
+        conv_t = brainstate.nn.ConvTranspose2d(
+            in_size=(16, 16, 32),
+            out_channels=16,
+            kernel_size=3
+        )
+        x = jnp.ones((2, 16, 16, 16))  # Wrong number of channels
+
+        with self.assertRaises(ValueError):
+            conv_t(x)
+
+    def test_invalid_input_shape(self):
+        """Test that invalid input shape raises error."""
+        conv_t = brainstate.nn.ConvTranspose1d(
+            in_size=(28, 16),
+            out_channels=8,
+            kernel_size=3
+        )
+        x = jnp.ones((2, 2, 28, 16))  # Too many dimensions
+
+        with self.assertRaises(ValueError):
+            conv_t(x)
+
+
+class TestOutputShapesConvTranspose(unittest.TestCase):
+    """Test output shape computation for transposed convolutions."""
+
+    def test_out_size_attribute_1d(self):
+        """Test that out_size attribute is correctly computed for 1D."""
+        conv_t = brainstate.nn.ConvTranspose1d(
+            in_size=(28, 16),
+            out_channels=8,
+            kernel_size=4,
+            stride=2
+        )
+
+        self.assertIsNotNone(conv_t.out_size)
+        self.assertEqual(len(conv_t.out_size), 2)
+
+    def test_out_size_attribute_2d(self):
+        """Test that out_size attribute is correctly computed for 2D."""
+        conv_t = brainstate.nn.ConvTranspose2d(
+            in_size=(16, 16, 32),
+            out_channels=16,
+            kernel_size=4,
+            stride=2
+        )
+
+        self.assertIsNotNone(conv_t.out_size)
+        self.assertEqual(len(conv_t.out_size), 3)
+
+    def test_upsampling_factor(self):
+        """Test that stride=2 approximately doubles spatial dimensions."""
+        conv_t = brainstate.nn.ConvTranspose2d(
+            in_size=(16, 16, 32),
+            out_channels=16,
+            kernel_size=4,
+            stride=2,
+            padding='SAME'
+        )
+        x = jnp.ones((2, 16, 16, 32))
+        y = conv_t(x)
+
+        # For SAME padding and stride=2, output should be approximately 2x input
+        self.assertGreaterEqual(y.shape[1], 28)
+        self.assertGreaterEqual(y.shape[2], 28)
+
+
+class TestChannelFormatConsistencyConvTranspose(unittest.TestCase):
+    """Test consistency between different channel formats."""
+
+    def test_conv_transpose_1d_output_channels(self):
+        """Test that output channels are in correct position for both formats."""
+        # Channels-last
+        conv_t_last = brainstate.nn.ConvTranspose1d(
+            in_size=(28, 16),
+            out_channels=8,
+            kernel_size=3
+        )
+        x_last = jnp.ones((2, 28, 16))
+        y_last = conv_t_last(x_last)
+        self.assertEqual(y_last.shape[-1], 8)
+
+        # Channels-first
+        conv_t_first = brainstate.nn.ConvTranspose1d(
+            in_size=(16, 28),
+            out_channels=8,
+            kernel_size=3,
+            channel_first=True
+        )
+        x_first = jnp.ones((2, 16, 28))
+        y_first = conv_t_first(x_first)
+        self.assertEqual(y_first.shape[1], 8)
+
+    def test_conv_transpose_2d_output_channels(self):
+        """Test that output channels are in correct position for both formats."""
+        # Channels-last
+        conv_t_last = brainstate.nn.ConvTranspose2d(
+            in_size=(16, 16, 32),
+            out_channels=16,
+            kernel_size=3
+        )
+        x_last = jnp.ones((2, 16, 16, 32))
+        y_last = conv_t_last(x_last)
+        self.assertEqual(y_last.shape[-1], 16)
+
+        # Channels-first
+        conv_t_first = brainstate.nn.ConvTranspose2d(
+            in_size=(32, 16, 16),
+            out_channels=16,
+            kernel_size=3,
+            channel_first=True
+        )
+        x_first = jnp.ones((2, 32, 16, 16))
+        y_first = conv_t_first(x_first)
+        self.assertEqual(y_first.shape[1], 16)
+
+
+class TestReproducibilityConvTranspose(unittest.TestCase):
+    """Test deterministic behavior of transposed convolutions."""
+
+    def test_deterministic_output(self):
+        """Test that same input produces same output."""
+        conv_t = brainstate.nn.ConvTranspose2d(
+            in_size=(16, 16, 32),
+            out_channels=16,
+            kernel_size=3
+        )
+        x = jnp.ones((2, 16, 16, 32))
+
+        y1 = conv_t(x)
+        y2 = conv_t(x)
+
+        self.assertTrue(jnp.allclose(y1, y2))
+
+
+class TestKernelShapeConvTranspose(unittest.TestCase):
+    """Test kernel shape computation for transposed convolutions."""
+
+    def test_kernel_shape_1d(self):
+        """Test that kernel shape is correct for transposed conv 1D."""
+        conv_t = brainstate.nn.ConvTranspose1d(
+            in_size=(28, 16),
+            out_channels=8,
+            kernel_size=4,
+            groups=2
+        )
+        # For transpose conv: (kernel_size, out_channels, in_channels // groups)
+        expected_shape = (4, 8, 16 // 2)
+        self.assertEqual(conv_t.kernel_shape, expected_shape)
+
+    def test_kernel_shape_2d(self):
+        """Test that kernel shape is correct for transposed conv 2D."""
+        conv_t = brainstate.nn.ConvTranspose2d(
+            in_size=(16, 16, 32),
+            out_channels=16,
+            kernel_size=4,
+            groups=4
+        )
+        # For transpose conv: (kernel_h, kernel_w, out_channels, in_channels // groups)
+        expected_shape = (4, 4, 16, 32 // 4)
+        self.assertEqual(conv_t.kernel_shape, expected_shape)

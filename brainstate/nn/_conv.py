@@ -33,6 +33,7 @@ T = TypeVar('T')
 __all__ = [
     'Conv1d', 'Conv2d', 'Conv3d',
     'ScaledWSConv1d', 'ScaledWSConv2d', 'ScaledWSConv3d',
+    'ConvTranspose1d', 'ConvTranspose2d', 'ConvTranspose3d',
 ]
 
 
@@ -1375,6 +1376,635 @@ class ScaledWSConv3d(_ScaledWSConv):
     ----------
     .. [1] Qiao, S., Wang, H., Liu, C., Shen, W., & Yuille, A. (2019).
            Weight Standardization. arXiv preprint arXiv:1903.10520.
+    """
+    __module__ = 'brainstate.nn'
+    num_spatial_dims: int = 3
+
+
+class _ConvTranspose(_BaseConv):
+    """Base class for transposed convolution layers."""
+    num_spatial_dims: int = None
+
+    def __init__(
+        self,
+        in_size: Sequence[int],
+        out_channels: int,
+        kernel_size: Union[int, Tuple[int, ...]],
+        stride: Union[int, Tuple[int, ...]] = 1,
+        padding: Union[str, int, Tuple[int, int], Sequence[Tuple[int, int]]] = 'SAME',
+        lhs_dilation: Union[int, Tuple[int, ...]] = 1,
+        rhs_dilation: Union[int, Tuple[int, ...]] = 1,
+        groups: int = 1,
+        w_init: Union[Callable, ArrayLike] = init.XavierNormalInit(),
+        b_init: Optional[Union[Callable, ArrayLike]] = None,
+        w_mask: Optional[Union[ArrayLike, Callable]] = None,
+        channel_first: bool = False,
+        name: str = None,
+        param_type: type = ParamState,
+    ):
+        # Initialize with transpose=True for dimension numbers
+        Module.__init__(self, name=name)
+
+        # general parameters
+        assert self.num_spatial_dims + 1 == len(in_size)
+        self.in_size = tuple(in_size)
+        self.channel_first = channel_first
+        self.channels_last = not channel_first
+
+        # Determine in_channels based on channel_first
+        if self.channel_first:
+            self.in_channels = in_size[0]
+        else:
+            self.in_channels = in_size[-1]
+
+        self.out_channels = out_channels
+        self.stride = replicate(stride, self.num_spatial_dims, 'stride')
+        self.kernel_size = replicate(kernel_size, self.num_spatial_dims, 'kernel_size')
+        self.lhs_dilation = replicate(lhs_dilation, self.num_spatial_dims, 'lhs_dilation')
+        self.rhs_dilation = replicate(rhs_dilation, self.num_spatial_dims, 'rhs_dilation')
+        self.groups = groups
+        self.dimension_numbers = to_dimension_numbers(
+            self.num_spatial_dims,
+            channels_last=self.channels_last,
+            transpose=True  # Key difference from regular Conv
+        )
+
+        # the padding parameter
+        # For transposed convolution, string padding needs to be converted to explicit padding
+        # when using lhs_dilation (stride) > 1
+        if isinstance(padding, str):
+            assert padding in ['SAME', 'VALID']
+            self.padding_mode = padding
+            # Compute explicit padding for transposed convolution
+            if max(self.stride) > 1:
+                # For transposed conv with stride, compute padding to achieve desired output size
+                spatial_in_size = self.in_size[:-1] if not self.channel_first else self.in_size[1:]
+                if padding == 'SAME':
+                    # For SAME padding with transposed conv: output_size = input_size * stride
+                    # Compute required padding to achieve this
+                    explicit_padding = []
+                    for i, (k, s, in_dim) in enumerate(zip(self.kernel_size, self.stride, spatial_in_size)):
+                        # Desired output size
+                        out_dim = in_dim * s
+                        # Calculate total padding needed
+                        # For transposed conv: out = (in - 1) * stride + kernel - 2 * pad
+                        # Solving for pad: pad = (kernel + (in-1) * stride - out) // 2
+                        total_pad = max(k + (in_dim - 1) * s - out_dim, 0)
+                        pad_left = total_pad // 2
+                        pad_right = total_pad - pad_left
+                        explicit_padding.append((pad_left, pad_right))
+                    padding = tuple(explicit_padding)
+                else:  # 'VALID'
+                    # For VALID padding: no padding
+                    padding = tuple((0, 0) for _ in range(self.num_spatial_dims))
+            # If stride is 1, keep string padding
+        elif isinstance(padding, int):
+            self.padding_mode = 'explicit'
+            padding = tuple((padding, padding) for _ in range(self.num_spatial_dims))
+        elif isinstance(padding, (tuple, list)):
+            self.padding_mode = 'explicit'
+            if isinstance(padding[0], int):
+                padding = (padding,) * self.num_spatial_dims
+            elif isinstance(padding[0], (tuple, list)):
+                if len(padding) == 1:
+                    padding = tuple(padding) * self.num_spatial_dims
+                else:
+                    if len(padding) != self.num_spatial_dims:
+                        raise ValueError(
+                            f"Padding {padding} must be a Tuple[int, int], "
+                            f"or sequence of Tuple[int, int] with length 1, "
+                            f"or sequence of Tuple[int, int] with length {self.num_spatial_dims}."
+                        )
+                    padding = tuple(padding)
+        else:
+            raise ValueError
+        self.padding = padding
+
+        # the number of in-/out-channels
+        assert self.out_channels % self.groups == 0, '"out_channels" should be divisible by groups'
+        assert self.in_channels % self.groups == 0, '"in_channels" should be divisible by groups'
+
+        # kernel shape for transpose conv
+        # When transpose=True in dimension_numbers, kernel is (spatial..., out_channels, in_channels // groups)
+        # This matches JAX's expectation for transposed convolution
+        kernel_shape = tuple(self.kernel_size) + (self.out_channels, self.in_channels // self.groups)
+        self.kernel_shape = kernel_shape
+        self.w_mask = init.param(w_mask, kernel_shape, allow_none=True)
+
+        self.w_initializer = w_init
+        self.b_initializer = b_init
+
+        # --- weights --- #
+        weight = init.param(self.w_initializer, self.kernel_shape, allow_none=False)
+        params = dict(weight=weight)
+        if self.b_initializer is not None:
+            bias_shape = (1,) * len(self.kernel_size) + (self.out_channels,)
+            bias = init.param(self.b_initializer, bias_shape, allow_none=True)
+            params['bias'] = bias
+
+        # The weight operation
+        self.weight = param_type(params)
+
+        # Evaluate the output shape
+        test_input_shape = (128,) + self.in_size
+        abstract_y = jax.eval_shape(
+            self._conv_op,
+            jax.ShapeDtypeStruct(test_input_shape, weight.dtype),
+            params
+        )
+        y_shape = abstract_y.shape[1:]
+        self.out_size = y_shape
+
+    def _conv_op(self, x, params):
+        w = params['weight']
+        if self.w_mask is not None:
+            w = w * self.w_mask
+        # For transposed convolution:
+        # - window_strides should be (1,1,...) - no striding in the conv operation
+        # - lhs_dilation should be the stride - this creates the upsampling effect
+        window_strides = (1,) * self.num_spatial_dims
+        y = jax.lax.conv_general_dilated(
+            lhs=x,
+            rhs=w,
+            window_strides=window_strides,
+            padding=self.padding,
+            lhs_dilation=self.stride,  # For transpose conv, use stride as lhs_dilation
+            rhs_dilation=self.rhs_dilation,
+            feature_group_count=self.groups,
+            dimension_numbers=self.dimension_numbers
+        )
+        if 'bias' in params:
+            y = y + params['bias']
+        return y
+
+
+class ConvTranspose1d(_ConvTranspose):
+    """
+    One-dimensional transposed convolution layer (also known as deconvolution).
+
+    Applies a 1D transposed convolution over an input signal. Transposed convolution
+    is used for upsampling, reversing the spatial transformation of a regular convolution.
+    It's commonly used in autoencoders, GANs, and semantic segmentation networks.
+
+    The input should be a 3D array with the shape of ``[B, L, C]`` where B is batch size,
+    L is the sequence length, and C is the number of input channels (channels-last format).
+
+    Parameters
+    ----------
+    in_size : tuple of int
+        The input shape without the batch dimension. For ConvTranspose1d: (L, C) where L
+        is the sequence length and C is the number of input channels.
+    out_channels : int
+        The number of output channels (feature maps) produced by the transposed convolution.
+    kernel_size : int or tuple of int
+        The shape of the convolutional kernel. For 1D, can be an integer or a single-element tuple.
+    stride : int or tuple of int, optional
+        The stride of the transposed convolution. Larger strides produce larger output sizes,
+        which is the opposite behavior of regular convolution. Default: 1.
+    padding : {'SAME', 'VALID'} or int or tuple of int or sequence of tuple, optional
+        The padding strategy. Options:
+
+        - 'SAME': output length approximately equals input_length * stride
+        - 'VALID': no padding, maximum output size
+        - int: symmetric padding
+        - (pad_before, pad_after): explicit padding for the sequence dimension
+
+        Default: 'SAME'.
+    lhs_dilation : int or tuple of int, optional
+        The dilation factor for the input. For transposed convolution, this is typically
+        set equal to stride internally. Default: 1.
+    rhs_dilation : int or tuple of int, optional
+        The dilation factor for the kernel. Increases the receptive field without increasing
+        parameters by inserting zeros between kernel elements. Default: 1.
+    groups : int, optional
+        Number of groups for grouped transposed convolution. Both `in_channels` and
+        `out_channels` must be divisible by `groups`. Default: 1.
+    w_init : Callable or ArrayLike, optional
+        The initializer for the convolutional kernel weights. Default: XavierNormalInit().
+    b_init : Callable or ArrayLike or None, optional
+        The initializer for the bias. If None, no bias is added. Default: None.
+    w_mask : ArrayLike or Callable or None, optional
+        An optional mask applied to the weights during forward pass. Default: None.
+    channel_first : bool, optional
+        If True, uses channels-first format (e.g., [B, C, L]). If False, uses channels-last
+        format (e.g., [B, L, C]). Default: False (channels-last, JAX convention).
+    name : str, optional
+        The name of the module. Default: None.
+    param_type : type, optional
+        The type of parameter state to use. Default: ParamState.
+
+    Attributes
+    ----------
+    in_size : tuple of int
+        The input shape (L, C) without batch dimension.
+    out_size : tuple of int
+        The output shape (L_out, out_channels) without batch dimension.
+    in_channels : int
+        Number of input channels.
+    out_channels : int
+        Number of output channels.
+    kernel_size : tuple of int
+        Size of the convolving kernel.
+    weight : ParamState
+        The learnable weights (and bias if specified) of the module.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate as brainstate
+        >>> import jax.numpy as jnp
+        >>>
+        >>> # Create a 1D transposed convolution layer for upsampling
+        >>> conv_transpose = brainstate.nn.ConvTranspose1d(
+        ...     in_size=(28, 16),
+        ...     out_channels=8,
+        ...     kernel_size=4,
+        ...     stride=2
+        ... )
+        >>>
+        >>> # Apply to input: batch_size=2, length=28, channels=16
+        >>> x = jnp.ones((2, 28, 16))
+        >>> y = conv_transpose(x)
+        >>> print(y.shape)  # Output will be upsampled
+        >>>
+        >>> # Without batch dimension
+        >>> x_single = jnp.ones((28, 16))
+        >>> y_single = conv_transpose(x_single)
+        >>>
+        >>> # Channels-first format (PyTorch style)
+        >>> conv_transpose = brainstate.nn.ConvTranspose1d(
+        ...     in_size=(16, 28),
+        ...     out_channels=8,
+        ...     kernel_size=4,
+        ...     stride=2,
+        ...     channel_first=True
+        ... )
+        >>> x = jnp.ones((2, 16, 28))
+        >>> y = conv_transpose(x)
+
+    Notes
+    -----
+    **Output dimensions:**
+
+    Unlike regular convolution, transposed convolution increases spatial dimensions.
+    With stride > 1, the output is larger than the input:
+
+    - output_length ≈ input_length * stride (depends on padding and kernel size)
+
+    **Relationship to regular convolution:**
+
+    Transposed convolution performs the gradient computation of a regular convolution
+    with respect to its input. It's sometimes called "deconvolution" but this term
+    is mathematically imprecise.
+
+    **Common use cases:**
+
+    - Upsampling in encoder-decoder architectures
+    - Generative models (GANs, VAEs)
+    - Semantic segmentation (U-Net, FCN)
+    - Super-resolution networks
+
+    **Comparison with PyTorch:**
+
+    - PyTorch uses channels-first by default; BrainState uses channels-last
+    - Set `channel_first=True` for PyTorch-compatible format
+    - PyTorch's `output_padding` is handled through padding parameter
+    """
+    __module__ = 'brainstate.nn'
+    num_spatial_dims: int = 1
+
+
+class ConvTranspose2d(_ConvTranspose):
+    """
+    Two-dimensional transposed convolution layer (also known as deconvolution).
+
+    Applies a 2D transposed convolution over an input signal. Transposed convolution
+    is the gradient of a regular convolution with respect to its input, commonly used
+    for upsampling feature maps in encoder-decoder architectures, GANs, and segmentation.
+
+    The input should be a 4D array with the shape of ``[B, H, W, C]`` where B is batch size,
+    H is height, W is width, and C is the number of input channels (channels-last format).
+
+    Parameters
+    ----------
+    in_size : tuple of int
+        The input shape without the batch dimension. For ConvTranspose2d: (H, W, C) where
+        H is height, W is width, and C is the number of input channels.
+    out_channels : int
+        The number of output channels (feature maps) produced by the transposed convolution.
+    kernel_size : int or tuple of int
+        The shape of the convolutional kernel. Can be:
+
+        - An integer (e.g., 4): creates a square kernel (4, 4)
+        - A tuple of two integers (e.g., (4, 4)): creates a (height, width) kernel
+    stride : int or tuple of int, optional
+        The stride of the transposed convolution. Controls the upsampling factor.
+        Can be:
+
+        - An integer: same stride for both dimensions
+        - A tuple of two integers: (stride_height, stride_width)
+
+        Larger strides produce larger outputs. Default: 1.
+    padding : {'SAME', 'VALID'} or int or tuple of int or sequence of tuple, optional
+        The padding strategy. Options:
+
+        - 'SAME': output size approximately equals input_size * stride
+        - 'VALID': no padding, maximum output size
+        - int: same symmetric padding for all dimensions
+        - (pad_h, pad_w): different padding for each dimension
+        - [(pad_h_before, pad_h_after), (pad_w_before, pad_w_after)]: explicit padding
+
+        Default: 'SAME'.
+    lhs_dilation : int or tuple of int, optional
+        The dilation factor for the input. For transposed convolution, this is typically
+        set equal to stride internally. Default: 1.
+    rhs_dilation : int or tuple of int, optional
+        The dilation factor for the kernel. Increases the receptive field without increasing
+        parameters by inserting zeros between kernel elements. Default: 1.
+    groups : int, optional
+        Number of groups for grouped transposed convolution. Must divide both `in_channels`
+        and `out_channels`. Default: 1.
+    w_init : Callable or ArrayLike, optional
+        Weight initializer for the convolutional kernel. Default: XavierNormalInit().
+    b_init : Callable or ArrayLike or None, optional
+        Bias initializer. If None, no bias term is added. Default: None.
+    w_mask : ArrayLike or Callable or None, optional
+        Optional weight mask for structured sparsity. Default: None.
+    channel_first : bool, optional
+        If True, uses channels-first format (e.g., [B, C, H, W]). If False, uses channels-last
+        format (e.g., [B, H, W, C]). Default: False (channels-last, JAX convention).
+    name : str, optional
+        Name identifier for this module instance. Default: None.
+    param_type : type, optional
+        The parameter state class to use. Default: ParamState.
+
+    Attributes
+    ----------
+    in_size : tuple of int
+        The input shape (H, W, C) without batch dimension.
+    out_size : tuple of int
+        The output shape (H_out, W_out, out_channels) without batch dimension.
+    in_channels : int
+        Number of input channels.
+    out_channels : int
+        Number of output channels.
+    kernel_size : tuple of int
+        Size of the convolving kernel (height, width).
+    weight : ParamState
+        The learnable weights (and bias if specified) of the module.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate as brainstate
+        >>> import jax.numpy as jnp
+        >>>
+        >>> # Create a 2D transposed convolution for upsampling
+        >>> conv_transpose = brainstate.nn.ConvTranspose2d(
+        ...     in_size=(32, 32, 64),
+        ...     out_channels=32,
+        ...     kernel_size=4,
+        ...     stride=2
+        ... )
+        >>>
+        >>> # Apply to input: batch_size=8, height=32, width=32, channels=64
+        >>> x = jnp.ones((8, 32, 32, 64))
+        >>> y = conv_transpose(x)
+        >>> print(y.shape)  # Output will be approximately (8, 64, 64, 32)
+        >>>
+        >>> # Without batch dimension
+        >>> x_single = jnp.ones((32, 32, 64))
+        >>> y_single = conv_transpose(x_single)
+        >>>
+        >>> # Decoder in autoencoder (upsampling path)
+        >>> decoder = brainstate.nn.ConvTranspose2d(
+        ...     in_size=(16, 16, 128),
+        ...     out_channels=64,
+        ...     kernel_size=4,
+        ...     stride=2,
+        ...     padding='SAME',
+        ...     b_init=brainstate.init.Constant(0.0)
+        ... )
+        >>>
+        >>> # Channels-first format (PyTorch style)
+        >>> conv_transpose = brainstate.nn.ConvTranspose2d(
+        ...     in_size=(64, 32, 32),
+        ...     out_channels=32,
+        ...     kernel_size=4,
+        ...     stride=2,
+        ...     channel_first=True
+        ... )
+        >>> x = jnp.ones((8, 64, 32, 32))
+        >>> y = conv_transpose(x)
+
+    Notes
+    -----
+    **Output dimensions:**
+
+    Transposed convolution increases spatial dimensions, with the upsampling factor
+    primarily controlled by stride:
+
+    - output_size ≈ input_size * stride (exact size depends on padding and kernel size)
+    - 'SAME' padding: output_size = input_size * stride
+    - 'VALID' padding: output_size = input_size * stride + max(kernel_size - stride, 0)
+
+    **Relationship to regular convolution:**
+
+    Transposed convolution is the backward pass of a regular convolution. If a regular
+    convolution reduces spatial dimensions from X to Y, a transposed convolution with
+    the same parameters increases dimensions from Y back to approximately X.
+
+    **Common use cases:**
+
+    - Image segmentation (U-Net, SegNet, FCN)
+    - Image-to-image translation (pix2pix, CycleGAN)
+    - Generative models (DCGAN, VAE decoders)
+    - Super-resolution networks
+    - Autoencoders (decoder path)
+
+    **Comparison with PyTorch:**
+
+    - PyTorch uses channels-first by default; BrainState uses channels-last
+    - Set `channel_first=True` for PyTorch-compatible format
+    - Kernel shape convention: PyTorch stores (C_in, C_out, H, W), BrainState uses (H, W, C_out, C_in)
+    - PyTorch's `output_padding` parameter controls output size; use padding parameter here
+
+    **Tips:**
+
+    - Use kernel_size=stride*2 for smooth upsampling (e.g., kernel_size=4, stride=2)
+    - Initialize with bilinear upsampling weights for better convergence in segmentation
+    - Combine with batch normalization or group normalization for stable training
+    """
+    __module__ = 'brainstate.nn'
+    num_spatial_dims: int = 2
+
+
+class ConvTranspose3d(_ConvTranspose):
+    """
+    Three-dimensional transposed convolution layer (also known as deconvolution).
+
+    Applies a 3D transposed convolution over an input signal. Used for upsampling
+    3D feature maps in video generation, 3D segmentation, and volumetric reconstruction.
+
+    The input should be a 5D array with the shape of ``[B, H, W, D, C]`` where B is batch size,
+    H is height, W is width, D is depth, and C is the number of input channels (channels-last format).
+
+    Parameters
+    ----------
+    in_size : tuple of int
+        The input shape without the batch dimension. For ConvTranspose3d: (H, W, D, C) where
+        H is height, W is width, D is depth, and C is the number of input channels.
+    out_channels : int
+        The number of output channels (feature maps) produced by the transposed convolution.
+    kernel_size : int or tuple of int
+        The shape of the convolutional kernel. Can be:
+
+        - An integer (e.g., 4): creates a cubic kernel (4, 4, 4)
+        - A tuple of three integers (e.g., (4, 4, 4)): creates a (height, width, depth) kernel
+    stride : int or tuple of int, optional
+        The stride of the transposed convolution. Controls the upsampling factor.
+        Can be:
+
+        - An integer: same stride for all dimensions
+        - A tuple of three integers: (stride_h, stride_w, stride_d)
+
+        Larger strides produce larger outputs. Default: 1.
+    padding : {'SAME', 'VALID'} or int or tuple of int or sequence of tuple, optional
+        The padding strategy. Options:
+
+        - 'SAME': output size approximately equals input_size * stride
+        - 'VALID': no padding, maximum output size
+        - int: same symmetric padding for all dimensions
+        - (pad_h, pad_w, pad_d): different padding for each dimension
+        - [(pad_h_before, pad_h_after), (pad_w_before, pad_w_after), (pad_d_before, pad_d_after)]: explicit
+
+        Default: 'SAME'.
+    lhs_dilation : int or tuple of int, optional
+        The dilation factor for the input. For transposed convolution, this is typically
+        set equal to stride internally. Default: 1.
+    rhs_dilation : int or tuple of int, optional
+        The dilation factor for the kernel. Increases the receptive field without increasing
+        parameters. Default: 1.
+    groups : int, optional
+        Number of groups for grouped transposed convolution. Must divide both `in_channels`
+        and `out_channels`. Useful for reducing computational cost in 3D. Default: 1.
+    w_init : Callable or ArrayLike, optional
+        Weight initializer for the convolutional kernel. Default: XavierNormalInit().
+    b_init : Callable or ArrayLike or None, optional
+        Bias initializer. If None, no bias term is added. Default: None.
+    w_mask : ArrayLike or Callable or None, optional
+        Optional weight mask for structured sparsity. Default: None.
+    channel_first : bool, optional
+        If True, uses channels-first format (e.g., [B, C, H, W, D]). If False, uses channels-last
+        format (e.g., [B, H, W, D, C]). Default: False (channels-last, JAX convention).
+    name : str, optional
+        Name identifier for this module instance. Default: None.
+    param_type : type, optional
+        The parameter state class to use. Default: ParamState.
+
+    Attributes
+    ----------
+    in_size : tuple of int
+        The input shape (H, W, D, C) without batch dimension.
+    out_size : tuple of int
+        The output shape (H_out, W_out, D_out, out_channels) without batch dimension.
+    in_channels : int
+        Number of input channels.
+    out_channels : int
+        Number of output channels.
+    kernel_size : tuple of int
+        Size of the convolving kernel (height, width, depth).
+    weight : ParamState
+        The learnable weights (and bias if specified) of the module.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate as brainstate
+        >>> import jax.numpy as jnp
+        >>>
+        >>> # Create a 3D transposed convolution for video upsampling
+        >>> conv_transpose = brainstate.nn.ConvTranspose3d(
+        ...     in_size=(8, 16, 16, 64),
+        ...     out_channels=32,
+        ...     kernel_size=4,
+        ...     stride=2
+        ... )
+        >>>
+        >>> # Apply to input: batch_size=4, frames=8, height=16, width=16, channels=64
+        >>> x = jnp.ones((4, 8, 16, 16, 64))
+        >>> y = conv_transpose(x)
+        >>> print(y.shape)  # Output will be approximately (4, 16, 32, 32, 32)
+        >>>
+        >>> # Without batch dimension
+        >>> x_single = jnp.ones((8, 16, 16, 64))
+        >>> y_single = conv_transpose(x_single)
+        >>>
+        >>> # For medical imaging reconstruction
+        >>> decoder = brainstate.nn.ConvTranspose3d(
+        ...     in_size=(16, 16, 16, 128),
+        ...     out_channels=64,
+        ...     kernel_size=(4, 4, 4),
+        ...     stride=2,
+        ...     padding='SAME',
+        ...     b_init=brainstate.init.Constant(0.0)
+        ... )
+        >>>
+        >>> # Channels-first format (PyTorch style)
+        >>> conv_transpose = brainstate.nn.ConvTranspose3d(
+        ...     in_size=(64, 8, 16, 16),
+        ...     out_channels=32,
+        ...     kernel_size=4,
+        ...     stride=2,
+        ...     channel_first=True
+        ... )
+        >>> x = jnp.ones((4, 64, 8, 16, 16))
+        >>> y = conv_transpose(x)
+
+    Notes
+    -----
+    **Output dimensions:**
+
+    Transposed convolution increases spatial dimensions:
+
+    - output_size ≈ input_size * stride (exact size depends on padding and kernel size)
+    - 'SAME' padding: output_size = input_size * stride
+    - 'VALID' padding: output_size = input_size * stride + max(kernel_size - stride, 0)
+
+    **Computational considerations:**
+
+    3D transposed convolutions are very computationally expensive. Consider:
+
+    - Using grouped convolutions (groups > 1) to reduce parameters
+    - Smaller kernel sizes
+    - Progressive upsampling (multiple layers with stride=2)
+    - Separable convolutions for large-scale applications
+
+    **Common use cases:**
+
+    - Video generation and prediction
+    - 3D medical image segmentation (U-Net 3D)
+    - Volumetric reconstruction
+    - 3D super-resolution
+    - Video frame interpolation
+    - 3D VAE decoders
+
+    **Comparison with PyTorch:**
+
+    - PyTorch uses channels-first by default; BrainState uses channels-last
+    - Set `channel_first=True` for PyTorch-compatible format
+    - Kernel shape convention differs between frameworks
+    - PyTorch's `output_padding` parameter is handled through padding here
+
+    **Tips:**
+
+    - Use kernel_size=stride*2 for smooth upsampling (e.g., kernel_size=4, stride=2)
+    - Group normalization often works better than batch normalization for 3D
+    - Consider using smaller batch sizes due to memory constraints
+    - Progressive upsampling (2x at a time) is more stable than large strides
     """
     __module__ = 'brainstate.nn'
     num_spatial_dims: int = 3
