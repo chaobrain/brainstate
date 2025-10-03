@@ -365,24 +365,35 @@ class Embedding(Module):
     def _apply_max_norm(self, weight: jax.Array, indices: jax.Array) -> jax.Array:
         """Apply max_norm constraint to the embedding weights for the given indices."""
         flat_idx = jnp.ravel(indices)
-        if flat_idx.size == 0:
-            return weight
 
+        # Use a fixed-size approach instead of jnp.unique to be JIT-compatible
+        # We'll iterate through all embeddings and apply max_norm only to accessed ones
         flat_idx = jnp.asarray(flat_idx, dtype=jnp.int32)
+
+        # Create a mask for which embeddings are accessed
+        # Shape: (num_embeddings,)
+        accessed_mask = jnp.zeros(self.num_embeddings, dtype=jnp.bool_)
+        accessed_mask = accessed_mask.at[flat_idx].set(True)
+
+        # Exclude padding_idx if specified
         if self.padding_idx is not None:
-            pad_value = jnp.asarray(self.padding_idx, dtype=flat_idx.dtype)
-            flat_idx = flat_idx[flat_idx != pad_value]
+            pad_value = jnp.asarray(self.padding_idx, dtype=jnp.int32)
+            accessed_mask = accessed_mask.at[pad_value].set(False)
 
-        if flat_idx.size == 0:
-            return weight
+        # Compute norms for all embeddings
+        # Shape: (num_embeddings, prod(embedding_size))
+        weight_flat = weight.reshape(self.num_embeddings, -1)
+        norms = jnp.linalg.norm(weight_flat, ord=self.norm_type, axis=1, keepdims=True)
 
-        unique_idx = jnp.unique(flat_idx)
-        rows = weight[unique_idx]
-        rows_flat = rows.reshape((rows.shape[0], -1))
-
-        norms = jnp.linalg.norm(rows_flat, ord=self.norm_type, axis=1, keepdims=True)
-        max_norm = jnp.asarray(self.max_norm, dtype=rows_flat.dtype)
+        # Compute scaling factors
+        max_norm = jnp.asarray(self.max_norm, dtype=weight_flat.dtype)
         scale = jnp.where(norms > max_norm, max_norm / (norms + 1e-8), 1.0)
-        rows_scaled = (rows_flat * scale).reshape(rows.shape)
 
-        return weight.at[unique_idx].set(rows_scaled)
+        # Apply scaling only to accessed embeddings
+        # Shape: (num_embeddings, 1) - broadcast mask
+        scale = jnp.where(accessed_mask[:, None], scale, 1.0)
+
+        # Apply scaling and reshape back
+        weight_scaled = (weight_flat * scale).reshape(weight.shape)
+
+        return weight_scaled
