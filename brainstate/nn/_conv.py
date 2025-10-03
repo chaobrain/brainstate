@@ -346,11 +346,13 @@ class Conv1d(_Conv):
         the inter-window strides along each spatial dimension. Default: 1.
     padding : {'SAME', 'VALID'} or int or tuple of int or sequence of tuple, optional
         The padding strategy. Can be:
+
         - 'SAME': pads the input so the output has the same shape as input when stride=1
         - 'VALID': no padding
         - int: symmetric padding applied to all spatial dimensions
         - tuple of (low, high): padding for each dimension
         - sequence of tuples: explicit padding for each spatial dimension
+
         Default: 'SAME'.
     lhs_dilation : int or tuple of int, optional
         The dilation factor for the input. An integer or a sequence of `n` integers, giving
@@ -428,10 +430,14 @@ class Conv1d(_Conv):
 
     Notes
     -----
+    **Output dimensions:**
+
     The output shape depends on the padding mode:
 
     - 'SAME': output length = ceil(input_length / stride)
     - 'VALID': output length = ceil((input_length - kernel_size + 1) / stride)
+
+    **Grouped convolution:**
 
     When groups > 1, the convolution becomes a grouped convolution where input and
     output channels are divided into groups, reducing computational cost.
@@ -462,21 +468,26 @@ class Conv2d(_Conv):
         the depth of the output feature map.
     kernel_size : int or tuple of int
         The shape of the convolutional kernel. Can be:
+
         - An integer (e.g., 3): creates a square kernel (3, 3)
         - A tuple of two integers (e.g., (3, 5)): creates a (height, width) kernel
     stride : int or tuple of int, optional
         The stride of the convolution. Controls how much the kernel moves at each step.
         Can be:
+
         - An integer: same stride for both dimensions
         - A tuple of two integers: (stride_height, stride_width)
+
         Default: 1.
     padding : {'SAME', 'VALID'} or int or tuple of int or sequence of tuple, optional
         The padding strategy. Options:
+
         - 'SAME': output spatial size equals input size when stride=1
         - 'VALID': no padding, output size reduced by kernel size
         - int: same symmetric padding for all dimensions
         - (pad_h, pad_w): different padding for each dimension
         - [(pad_h_before, pad_h_after), (pad_w_before, pad_w_after)]: explicit padding
+
         Default: 'SAME'.
     lhs_dilation : int or tuple of int, optional
         The dilation factor for the input (left-hand side). Controls spacing between input elements.
@@ -489,15 +500,19 @@ class Conv2d(_Conv):
         Default: 1.
     groups : int, optional
         Number of groups for grouped convolution. Must divide both `in_channels` and `out_channels`.
+
         - groups=1: standard convolution (all-to-all connections)
         - groups>1: grouped convolution (reduces parameters by factor of groups)
         - groups=in_channels: depthwise convolution (each input channel convolved separately)
+
         Default: 1.
     w_init : Callable or ArrayLike, optional
         Weight initializer for the convolutional kernel. Can be:
+
         - An initializer instance (e.g., bst.init.XavierNormal())
         - A callable that returns an array given a shape
         - A direct array matching the kernel shape
+
         Default: XavierNormalInit().
     b_init : Callable or ArrayLike or None, optional
         Bias initializer. If None, no bias term is added to the output.
@@ -567,13 +582,17 @@ class Conv2d(_Conv):
 
     Notes
     -----
+    **Output dimensions:**
+
     The output spatial dimensions depend on the padding mode:
 
     - 'SAME': output_size = ceil(input_size / stride)
     - 'VALID': output_size = ceil((input_size - kernel_size + 1) / stride)
 
-    Grouped convolution: When groups > 1, the input and output channels are divided
-    into groups. Each group is convolved independently, which can significantly reduce
+    **Grouped convolution:**
+
+    When groups > 1, the input and output channels are divided into groups.
+    Each group is convolved independently, which can significantly reduce
     computational cost while maintaining representational power.
     """
     __module__ = 'brainstate.nn'
@@ -602,21 +621,25 @@ class Conv3d(_Conv):
         the depth of the output feature map.
     kernel_size : int or tuple of int
         The shape of the convolutional kernel. Can be:
+
         - An integer (e.g., 3): creates a cubic kernel (3, 3, 3)
         - A tuple of three integers (e.g., (3, 5, 5)): creates a (height, width, depth) kernel
     stride : int or tuple of int, optional
         The stride of the convolution. Controls how much the kernel moves at each step.
         Can be:
+
         - An integer: same stride for all dimensions
         - A tuple of three integers: (stride_h, stride_w, stride_d)
         Default: 1.
     padding : {'SAME', 'VALID'} or int or tuple of int or sequence of tuple, optional
         The padding strategy. Options:
+
         - 'SAME': output spatial size equals input size when stride=1
         - 'VALID': no padding, output size reduced by kernel size
         - int: same symmetric padding for all dimensions
         - (pad_h, pad_w, pad_d): different padding for each dimension
         - [(pad_h_before, pad_h_after), (pad_w_before, pad_w_after), (pad_d_before, pad_d_after)]: explicit padding
+
         Default: 'SAME'.
     lhs_dilation : int or tuple of int, optional
         The dilation factor for the input (left-hand side). Controls spacing between input elements.
@@ -630,15 +653,19 @@ class Conv3d(_Conv):
         Default: 1.
     groups : int, optional
         Number of groups for grouped convolution. Must divide both `in_channels` and `out_channels`.
+
         - groups=1: standard convolution (all-to-all connections)
         - groups>1: grouped convolution (significantly reduces parameters and computation for 3D)
         - groups=in_channels: depthwise convolution (each input channel convolved separately)
+
         Default: 1.
     w_init : Callable or ArrayLike, optional
         Weight initializer for the convolutional kernel. Can be:
+
         - An initializer instance (e.g., bst.init.XavierNormal())
         - A callable that returns an array given a shape
         - A direct array matching the kernel shape
+
         Default: XavierNormalInit().
     b_init : Callable or ArrayLike or None, optional
         Bias initializer. If None, no bias term is added to the output.
@@ -701,12 +728,17 @@ class Conv3d(_Conv):
 
     Notes
     -----
+    **Output dimensions:**
+
     The output spatial dimensions depend on the padding mode:
 
     - 'SAME': output_size = ceil(input_size / stride)
     - 'VALID': output_size = ceil((input_size - kernel_size + 1) / stride)
 
+    **Performance considerations:**
+
     3D convolutions are computationally expensive. Consider using:
+
     - Smaller kernel sizes
     - Grouped convolutions (groups > 1)
     - Separable convolutions for large-scale applications
@@ -822,6 +854,7 @@ class ScaledWSConv1d(_ScaledWSConv):
         the depth of the output feature map.
     kernel_size : int or tuple of int
         The shape of the convolutional kernel. For 1D convolution, can be:
+
         - An integer (e.g., 5): creates a kernel of size 5
         - A tuple with one integer (e.g., (5,)): equivalent to the above
     stride : int or tuple of int, optional
@@ -829,10 +862,12 @@ class ScaledWSConv1d(_ScaledWSConv):
         Default: 1.
     padding : {'SAME', 'VALID'} or int or tuple of int or sequence of tuple, optional
         The padding strategy. Options:
+
         - 'SAME': output length equals input length when stride=1
         - 'VALID': no padding, output length reduced by kernel size
         - int: symmetric padding
         - (pad_before, pad_after): explicit padding for the sequence dimension
+
         Default: 'SAME'.
     lhs_dilation : int or tuple of int, optional
         The dilation factor for the input (left-hand side). Controls spacing between input elements.
@@ -845,15 +880,19 @@ class ScaledWSConv1d(_ScaledWSConv):
         Default: 1.
     groups : int, optional
         Number of groups for grouped convolution. Must divide both `in_channels` and `out_channels`.
+
         - groups=1: standard convolution (all-to-all connections)
         - groups>1: grouped convolution (reduces parameters by factor of groups)
         - groups=in_channels: depthwise convolution (each input channel convolved separately)
+
         Default: 1.
     w_init : Callable or ArrayLike, optional
         Weight initializer for the convolutional kernel. Can be:
+
         - An initializer instance (e.g., bst.init.XavierNormal())
         - A callable that returns an array given a shape
         - A direct array matching the kernel shape
+
         Default: XavierNormalInit().
     b_init : Callable or ArrayLike or None, optional
         Bias initializer. If None, no bias term is added to the output.
@@ -925,6 +964,8 @@ class ScaledWSConv1d(_ScaledWSConv):
 
     Notes
     -----
+    **Weight standardization formula:**
+
     Weight standardization reparameterizes the convolutional weights as:
 
     .. math::
@@ -933,6 +974,8 @@ class ScaledWSConv1d(_ScaledWSConv):
     where :math:`\\mu_W` and :math:`\\sigma_W` are the mean and standard deviation
     of the weights, :math:`g` is a learnable gain parameter (if ws_gain=True),
     and :math:`\\epsilon` is a small constant for numerical stability.
+
+    **When to use:**
 
     This technique is particularly effective when used with Group Normalization
     instead of Batch Normalization, as it reduces the dependence on batch statistics.
@@ -969,21 +1012,26 @@ class ScaledWSConv2d(_ScaledWSConv):
         the depth of the output feature map.
     kernel_size : int or tuple of int
         The shape of the convolutional kernel. Can be:
+
         - An integer (e.g., 3): creates a square kernel (3, 3)
         - A tuple of two integers (e.g., (3, 5)): creates a (height, width) kernel
     stride : int or tuple of int, optional
         The stride of the convolution. Controls how much the kernel moves at each step.
         Can be:
+
         - An integer: same stride for both dimensions
         - A tuple of two integers: (stride_height, stride_width)
+
         Default: 1.
     padding : {'SAME', 'VALID'} or int or tuple of int or sequence of tuple, optional
         The padding strategy. Options:
+
         - 'SAME': output spatial size equals input size when stride=1
         - 'VALID': no padding, output size reduced by kernel size
         - int: same symmetric padding for all dimensions
         - (pad_h, pad_w): different padding for each dimension
         - [(pad_h_before, pad_h_after), (pad_w_before, pad_w_after)]: explicit padding
+
         Default: 'SAME'.
     lhs_dilation : int or tuple of int, optional
         The dilation factor for the input (left-hand side). Controls spacing between input elements.
@@ -997,15 +1045,19 @@ class ScaledWSConv2d(_ScaledWSConv):
         Default: 1.
     groups : int, optional
         Number of groups for grouped convolution. Must divide both `in_channels` and `out_channels`.
+
         - groups=1: standard convolution (all-to-all connections)
         - groups>1: grouped convolution (reduces parameters by factor of groups)
         - groups=in_channels: depthwise convolution (each input channel convolved separately)
+
         Default: 1.
     w_init : Callable or ArrayLike, optional
         Weight initializer for the convolutional kernel. Can be:
+
         - An initializer instance (e.g., bst.init.XavierNormal())
         - A callable that returns an array given a shape
         - A direct array matching the kernel shape
+
         Default: XavierNormalInit().
     b_init : Callable or ArrayLike or None, optional
         Bias initializer. If None, no bias term is added to the output.
@@ -1088,6 +1140,8 @@ class ScaledWSConv2d(_ScaledWSConv):
 
     Notes
     -----
+    **Weight standardization formula:**
+
     Weight standardization reparameterizes the convolutional weights as:
 
     .. math::
@@ -1097,7 +1151,8 @@ class ScaledWSConv2d(_ScaledWSConv):
     of the weights computed per output channel, :math:`g` is a learnable gain
     parameter (if ws_gain=True), and :math:`\\epsilon` is a small constant.
 
-    Benefits of weight standardization:
+    **Benefits:**
+
     - Reduces internal covariate shift
     - Smooths the loss landscape
     - Works well with Group Normalization
@@ -1136,21 +1191,26 @@ class ScaledWSConv3d(_ScaledWSConv):
         the depth of the output feature map.
     kernel_size : int or tuple of int
         The shape of the convolutional kernel. Can be:
+
         - An integer (e.g., 3): creates a cubic kernel (3, 3, 3)
         - A tuple of three integers (e.g., (3, 5, 5)): creates a (height, width, depth) kernel
     stride : int or tuple of int, optional
         The stride of the convolution. Controls how much the kernel moves at each step.
         Can be:
+
         - An integer: same stride for all dimensions
         - A tuple of three integers: (stride_h, stride_w, stride_d)
+
         Default: 1.
     padding : {'SAME', 'VALID'} or int or tuple of int or sequence of tuple, optional
         The padding strategy. Options:
+
         - 'SAME': output spatial size equals input size when stride=1
         - 'VALID': no padding, output size reduced by kernel size
         - int: same symmetric padding for all dimensions
         - (pad_h, pad_w, pad_d): different padding for each dimension
         - [(pad_h_before, pad_h_after), (pad_w_before, pad_w_after), (pad_d_before, pad_d_after)]: explicit padding
+
         Default: 'SAME'.
     lhs_dilation : int or tuple of int, optional
         The dilation factor for the input (left-hand side). Controls spacing between input elements.
@@ -1164,15 +1224,19 @@ class ScaledWSConv3d(_ScaledWSConv):
         Default: 1.
     groups : int, optional
         Number of groups for grouped convolution. Must divide both `in_channels` and `out_channels`.
+
         - groups=1: standard convolution (all-to-all connections)
         - groups>1: grouped convolution (critical for reducing 3D conv computational cost)
         - groups=in_channels: depthwise convolution (each input channel convolved separately)
+
         Default: 1.
     w_init : Callable or ArrayLike, optional
         Weight initializer for the convolutional kernel. Can be:
+
         - An initializer instance (e.g., bst.init.XavierNormal())
         - A callable that returns an array given a shape
         - A direct array matching the kernel shape
+
         Default: XavierNormalInit().
     b_init : Callable or ArrayLike or None, optional
         Bias initializer. If None, no bias term is added to the output.
@@ -1255,6 +1319,8 @@ class ScaledWSConv3d(_ScaledWSConv):
 
     Notes
     -----
+    **Weight standardization formula:**
+
     Weight standardization reparameterizes the convolutional weights as:
 
     .. math::
@@ -1264,15 +1330,20 @@ class ScaledWSConv3d(_ScaledWSConv):
     of the weights, :math:`g` is a learnable gain parameter (if ws_gain=True),
     and :math:`\\epsilon` is a small constant for numerical stability.
 
+    **Why weight standardization for 3D:**
+
     For 3D convolutions, weight standardization is particularly beneficial because:
+
     - 3D networks are typically much deeper and harder to train
     - Reduces sensitivity to weight initialization
     - Improves gradient flow through very deep networks
     - Works well with limited computational resources (small batches)
     - Compatible with Group Normalization for batch-independent normalization
 
-    Applications include video understanding, medical imaging (CT, MRI scans),
-    3D object recognition, and temporal sequence modeling.
+    **Applications:**
+
+    Video understanding, medical imaging (CT, MRI scans), 3D object recognition,
+    and temporal sequence modeling.
 
     References
     ----------
