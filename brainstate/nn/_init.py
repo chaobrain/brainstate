@@ -25,8 +25,7 @@ import numpy as np
 from brainstate import environ, random
 from brainstate._state import State
 from brainstate._utils import set_module_as
-from brainstate.typing import ArrayLike
-from brainstate.typing import SeedOrKey, DTypeLike
+from brainstate.typing import ArrayLike, SeedOrKey, DTypeLike
 from brainstate.util import PrettyRepr, PrettyType, PrettyAttr
 
 __all__ = [
