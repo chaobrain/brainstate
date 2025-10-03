@@ -61,10 +61,10 @@ class Dropout(ElementWiseBlock):
     --------
     .. code-block:: python
 
-        >>> import brainstate as bst
-        >>> layer = bst.nn.Dropout(prob=0.8)
-        >>> x = bst.random.randn(10, 20)
-        >>> with bst.environ.context(fit=True):
+        >>> import brainstate
+        >>> layer = brainstate.nn.Dropout(prob=0.8)
+        >>> x = brainstate.random.randn(10, 20)
+        >>> with brainstate.environ.context(fit=True):
         ...     output = layer(x)
         >>> output.shape
         (10, 20)
@@ -195,10 +195,10 @@ class Dropout1d(_DropoutNd):
     --------
     .. code-block:: python
 
-        >>> import brainstate as bst
-        >>> m = bst.nn.Dropout1d(prob=0.8)
-        >>> x = bst.random.randn(20, 32, 16)
-        >>> with bst.environ.context(fit=True):
+        >>> import brainstate
+        >>> m = brainstate.nn.Dropout1d(prob=0.8)
+        >>> x = brainstate.random.randn(20, 32, 16)
+        >>> with brainstate.environ.context(fit=True):
         ...     output = m(x)
         >>> output.shape
         (20, 32, 16)
@@ -255,10 +255,10 @@ class Dropout2d(_DropoutNd):
     --------
     .. code-block:: python
 
-        >>> import brainstate as bst
-        >>> m = bst.nn.Dropout2d(prob=0.8)
-        >>> x = bst.random.randn(20, 32, 32, 16)
-        >>> with bst.environ.context(fit=True):
+        >>> import brainstate
+        >>> m = brainstate.nn.Dropout2d(prob=0.8)
+        >>> x = brainstate.random.randn(20, 32, 32, 16)
+        >>> with brainstate.environ.context(fit=True):
         ...     output = m(x)
         >>> output.shape
         (20, 32, 32, 16)
@@ -315,10 +315,10 @@ class Dropout3d(_DropoutNd):
     --------
     .. code-block:: python
 
-        >>> import brainstate as bst
-        >>> m = bst.nn.Dropout3d(prob=0.8)
-        >>> x = bst.random.randn(20, 16, 4, 32, 32)
-        >>> with bst.environ.context(fit=True):
+        >>> import brainstate
+        >>> m = brainstate.nn.Dropout3d(prob=0.8)
+        >>> x = brainstate.random.randn(20, 16, 4, 32, 32)
+        >>> with brainstate.environ.context(fit=True):
         ...     output = m(x)
         >>> output.shape
         (20, 16, 4, 32, 32)
@@ -373,10 +373,10 @@ class AlphaDropout(_DropoutNd):
     --------
     .. code-block:: python
 
-        >>> import brainstate as bst
-        >>> m = bst.nn.AlphaDropout(prob=0.8)
-        >>> x = bst.random.randn(20, 16)
-        >>> with bst.environ.context(fit=True):
+        >>> import brainstate
+        >>> m = brainstate.nn.AlphaDropout(prob=0.8)
+        >>> x = brainstate.random.randn(20, 16)
+        >>> with brainstate.environ.context(fit=True):
         ...     output = m(x)
         >>> output.shape
         (20, 16)
@@ -465,10 +465,10 @@ class FeatureAlphaDropout(ElementWiseBlock):
     --------
     .. code-block:: python
 
-        >>> import brainstate as bst
-        >>> m = bst.nn.FeatureAlphaDropout(prob=0.8)
-        >>> x = bst.random.randn(20, 16, 4, 32, 32)
-        >>> with bst.environ.context(fit=True):
+        >>> import brainstate
+        >>> m = brainstate.nn.FeatureAlphaDropout(prob=0.8)
+        >>> x = brainstate.random.randn(20, 16, 4, 32, 32)
+        >>> with brainstate.environ.context(fit=True):
         ...     output = m(x)
         >>> output.shape
         (20, 16, 4, 32, 32)
@@ -572,11 +572,11 @@ class DropoutFixed(ElementWiseBlock):
     --------
     .. code-block:: python
 
-        >>> import brainstate as bst
-        >>> layer = bst.nn.DropoutFixed(in_size=(20,), prob=0.8)
+        >>> import brainstate
+        >>> layer = brainstate.nn.DropoutFixed(in_size=(20,), prob=0.8)
         >>> layer.init_state(batch_size=10)
-        >>> x = bst.random.randn(10, 20)
-        >>> with bst.environ.context(fit=True):
+        >>> x = brainstate.random.randn(10, 20)
+        >>> with brainstate.environ.context(fit=True):
         ...     output = layer.update(x)
         >>> output.shape
         (10, 20)
