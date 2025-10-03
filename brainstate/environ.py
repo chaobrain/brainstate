@@ -236,7 +236,7 @@ def context(**kwargs) -> ContextManager[Dict[str, Any]]:
 
     Parameters
     ----------
-    **kwargs :
+    **kwargs
         Environment settings to apply within the context.
         Common parameters include:
         - precision : int or str
@@ -679,7 +679,7 @@ def set(
         Computation mode instance.
     dt : float, optional
         Time step for numerical integration.
-    **kwargs : dict
+    **kwargs
         Additional custom environment parameters.
 
     Raises
