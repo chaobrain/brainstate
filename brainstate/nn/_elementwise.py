@@ -49,20 +49,26 @@ class Threshold(ElementWiseBlock):
         \text{value}, &\text{ otherwise }
         \end{cases}
 
-    Args:
-        threshold: The value to threshold at
-        value: The value to replace with
+    Parameters
+    ----------
+    threshold : float
+        The value to threshold at.
+    value : float
+        The value to replace with.
 
-    Shape:
-        - Input: :math:`(*)`, where :math:`*` means any number of dimensions.
-        - Output: :math:`(*)`, same shape as the input.
+    Shape
+    -----
+    - Input: :math:`(*)`, where :math:`*` means any number of dimensions.
+    - Output: :math:`(*)`, same shape as the input.
 
-    Examples::
+    Examples
+    --------
+    .. code-block:: python
 
         >>> import brainstate.nn as nn
         >>> import brainstate
         >>> m = nn.Threshold(0.1, 20)
-        >>> x = random.randn(2)
+        >>> x = brainstate.random.randn(2)
         >>> output = m(x)
     """
     __module__ = 'brainstate.nn'
@@ -85,30 +91,38 @@ class Threshold(ElementWiseBlock):
 
 
 class ReLU(ElementWiseBlock):
-    r"""Applies the rectified linear unit function element-wise:
+    r"""Applies the rectified linear unit function element-wise.
 
-    :math:`\text{ReLU}(x) = (x)^+ = \max(0, x)`
+    The ReLU function is defined as:
 
-    Shape:
-        - Input: :math:`(*)`, where :math:`*` means any number of dimensions.
-        - Output: :math:`(*)`, same shape as the input.
+    .. math::
+        \text{ReLU}(x) = (x)^+ = \max(0, x)
 
-    Examples::
+    Shape
+    -----
+    - Input: :math:`(*)`, where :math:`*` means any number of dimensions.
+    - Output: :math:`(*)`, same shape as the input.
+
+    Examples
+    --------
+    .. code-block:: python
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as brainstate
+        >>> import brainstate
         >>> m = nn.ReLU()
-        >>> x = random.randn(2)
+        >>> x = brainstate.random.randn(2)
         >>> output = m(x)
 
+    An implementation of CReLU - https://arxiv.org/abs/1603.05201
 
-      An implementation of CReLU - https://arxiv.org/abs/1603.05201
+    .. code-block:: python
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as brainstate
+        >>> import brainstate
+        >>> import jax.numpy as jnp
         >>> m = nn.ReLU()
-        >>> x = random.randn(2).unsqueeze(0)
-        >>> output = jax.numpy.concat((m(x), m(-x)))
+        >>> x = brainstate.random.randn(2).unsqueeze(0)
+        >>> output = jnp.concat((m(x), m(-x)))
     """
     __module__ = 'brainstate.nn'
 
@@ -120,10 +134,10 @@ class ReLU(ElementWiseBlock):
 
 
 class RReLU(ElementWiseBlock):
-    r"""Applies the randomized leaky rectified liner unit function, element-wise,
-    as described in the paper:
+    r"""Applies the randomized leaky rectified liner unit function, element-wise.
 
-    `Empirical Evaluation of Rectified Activations in Convolutional Network`_.
+    As described in the paper `Empirical Evaluation of Rectified Activations in
+    Convolutional Network`_.
 
     The function is defined as:
 
@@ -137,26 +151,32 @@ class RReLU(ElementWiseBlock):
     where :math:`a` is randomly sampled from uniform distribution
     :math:`\mathcal{U}(\text{lower}, \text{upper})`.
 
-     See: https://arxiv.org/pdf/1505.00853.pdf
+    Parameters
+    ----------
+    lower : float, optional
+        Lower bound of the uniform distribution. Default: :math:`\frac{1}{8}`
+    upper : float, optional
+        Upper bound of the uniform distribution. Default: :math:`\frac{1}{3}`
 
-    Args:
-        lower: lower bound of the uniform distribution. Default: :math:`\frac{1}{8}`
-        upper: upper bound of the uniform distribution. Default: :math:`\frac{1}{3}`
+    Shape
+    -----
+    - Input: :math:`(*)`, where :math:`*` means any number of dimensions.
+    - Output: :math:`(*)`, same shape as the input.
 
-    Shape:
-        - Input: :math:`(*)`, where :math:`*` means any number of dimensions.
-        - Output: :math:`(*)`, same shape as the input.
-
-    Examples::
-
-        >>> import brainstate.nn as nn
-        >>> import brainstate as brainstate
-        >>> m = nn.RReLU(0.1, 0.3)
-        >>> x = random.randn(2)
-        >>> output = m(x)
-
+    References
+    ----------
     .. _`Empirical Evaluation of Rectified Activations in Convolutional Network`:
         https://arxiv.org/abs/1505.00853
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate.nn as nn
+        >>> import brainstate
+        >>> m = nn.RReLU(0.1, 0.3)
+        >>> x = brainstate.random.randn(2)
+        >>> output = m(x)
     """
     __module__ = 'brainstate.nn'
     lower: float
@@ -190,23 +210,31 @@ class Hardtanh(ElementWiseBlock):
             x & \text{ otherwise } \\
         \end{cases}
 
-    Args:
-        min_val: minimum value of the linear region range. Default: -1
-        max_val: maximum value of the linear region range. Default: 1
+    Parameters
+    ----------
+    min_val : float, optional
+        Minimum value of the linear region range. Default: -1
+    max_val : float, optional
+        Maximum value of the linear region range. Default: 1
 
+    Notes
+    -----
     Keyword arguments :attr:`min_value` and :attr:`max_value`
     have been deprecated in favor of :attr:`min_val` and :attr:`max_val`.
 
-    Shape:
-        - Input: :math:`(*)`, where :math:`*` means any number of dimensions.
-        - Output: :math:`(*)`, same shape as the input.
+    Shape
+    -----
+    - Input: :math:`(*)`, where :math:`*` means any number of dimensions.
+    - Output: :math:`(*)`, same shape as the input.
 
-    Examples::
+    Examples
+    --------
+    .. code-block:: python
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as brainstate
+        >>> import brainstate
         >>> m = nn.Hardtanh(-2, 2)
-        >>> x = random.randn(2)
+        >>> x = brainstate.random.randn(2)
         >>> output = m(x)
     """
     __module__ = 'brainstate.nn'
@@ -231,21 +259,26 @@ class Hardtanh(ElementWiseBlock):
 
 
 class ReLU6(Hardtanh, ElementWiseBlock):
-    r"""Applies the element-wise function:
+    r"""Applies the element-wise function.
+
+    ReLU6 is defined as:
 
     .. math::
         \text{ReLU6}(x) = \min(\max(0,x), 6)
 
-    Shape:
-        - Input: :math:`(*)`, where :math:`*` means any number of dimensions.
-        - Output: :math:`(*)`, same shape as the input.
+    Shape
+    -----
+    - Input: :math:`(*)`, where :math:`*` means any number of dimensions.
+    - Output: :math:`(*)`, same shape as the input.
 
-    Examples::
+    Examples
+    --------
+    .. code-block:: python
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as brainstate
+        >>> import brainstate
         >>> m = nn.ReLU6()
-        >>> x = random.randn(2)
+        >>> x = brainstate.random.randn(2)
         >>> output = m(x)
     """
     __module__ = 'brainstate.nn'
@@ -255,22 +288,26 @@ class ReLU6(Hardtanh, ElementWiseBlock):
 
 
 class Sigmoid(ElementWiseBlock):
-    r"""Applies the element-wise function:
+    r"""Applies the element-wise function.
+
+    Sigmoid is defined as:
 
     .. math::
         \text{Sigmoid}(x) = \sigma(x) = \frac{1}{1 + \exp(-x)}
 
+    Shape
+    -----
+    - Input: :math:`(*)`, where :math:`*` means any number of dimensions.
+    - Output: :math:`(*)`, same shape as the input.
 
-    Shape:
-        - Input: :math:`(*)`, where :math:`*` means any number of dimensions.
-        - Output: :math:`(*)`, same shape as the input.
-
-    Examples::
+    Examples
+    --------
+    .. code-block:: python
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as brainstate
+        >>> import brainstate
         >>> m = nn.Sigmoid()
-        >>> x = random.randn(2)
+        >>> x = brainstate.random.randn(2)
         >>> output = m(x)
     """
     __module__ = 'brainstate.nn'
@@ -291,16 +328,19 @@ class Hardsigmoid(ElementWiseBlock):
             x / 6 + 1 / 2 & \text{otherwise}
         \end{cases}
 
-    Shape:
-        - Input: :math:`(*)`, where :math:`*` means any number of dimensions.
-        - Output: :math:`(*)`, same shape as the input.
+    Shape
+    -----
+    - Input: :math:`(*)`, where :math:`*` means any number of dimensions.
+    - Output: :math:`(*)`, same shape as the input.
 
-    Examples::
+    Examples
+    --------
+    .. code-block:: python
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as brainstate
+        >>> import brainstate
         >>> m = nn.Hardsigmoid()
-        >>> x = random.randn(2)
+        >>> x = brainstate.random.randn(2)
         >>> output = m(x)
     """
     __module__ = 'brainstate.nn'
@@ -317,16 +357,19 @@ class Tanh(ElementWiseBlock):
     .. math::
         \text{Tanh}(x) = \tanh(x) = \frac{\exp(x) - \exp(-x)} {\exp(x) + \exp(-x)}
 
-    Shape:
-        - Input: :math:`(*)`, where :math:`*` means any number of dimensions.
-        - Output: :math:`(*)`, same shape as the input.
+    Shape
+    -----
+    - Input: :math:`(*)`, where :math:`*` means any number of dimensions.
+    - Output: :math:`(*)`, same shape as the input.
 
-    Examples::
+    Examples
+    --------
+    .. code-block:: python
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as brainstate
+        >>> import brainstate
         >>> m = nn.Tanh()
-        >>> x = random.randn(2)
+        >>> x = brainstate.random.randn(2)
         >>> output = m(x)
     """
     __module__ = 'brainstate.nn'
@@ -337,28 +380,34 @@ class Tanh(ElementWiseBlock):
 
 class SiLU(ElementWiseBlock):
     r"""Applies the Sigmoid Linear Unit (SiLU) function, element-wise.
+
     The SiLU function is also known as the swish function.
 
     .. math::
         \text{silu}(x) = x * \sigma(x), \text{where } \sigma(x) \text{ is the logistic sigmoid.}
 
-    .. note::
-        See `Gaussian Error Linear Units (GELUs) <https://arxiv.org/abs/1606.08415>`_
-        where the SiLU (Sigmoid Linear Unit) was originally coined, and see
-        `Sigmoid-Weighted Linear Units for Neural Network Function Approximation
-        in Reinforcement Learning <https://arxiv.org/abs/1702.03118>`_ and `Swish:
-        a Self-Gated Activation Function <https://arxiv.org/abs/1710.05941v1>`_
-        where the SiLU was experimented with later.
+    Notes
+    -----
+    See `Gaussian Error Linear Units (GELUs) <https://arxiv.org/abs/1606.08415>`_
+    where the SiLU (Sigmoid Linear Unit) was originally coined, and see
+    `Sigmoid-Weighted Linear Units for Neural Network Function Approximation
+    in Reinforcement Learning <https://arxiv.org/abs/1702.03118>`_ and `Swish:
+    a Self-Gated Activation Function <https://arxiv.org/abs/1710.05941v1>`_
+    where the SiLU was experimented with later.
 
-    Shape:
-        - Input: :math:`(*)`, where :math:`*` means any number of dimensions.
-        - Output: :math:`(*)`, same shape as the input.
+    Shape
+    -----
+    - Input: :math:`(*)`, where :math:`*` means any number of dimensions.
+    - Output: :math:`(*)`, same shape as the input.
 
-    Examples::
+    Examples
+    --------
+    .. code-block:: python
 
         >>> import brainstate.nn as nn
+        >>> import brainstate
         >>> m = nn.SiLU()
-        >>> x = random.randn(2)
+        >>> x = brainstate.random.randn(2)
         >>> output = m(x)
     """
     __module__ = 'brainstate.nn'
@@ -369,25 +418,30 @@ class SiLU(ElementWiseBlock):
 
 class Mish(ElementWiseBlock):
     r"""Applies the Mish function, element-wise.
+
     Mish: A Self Regularized Non-Monotonic Neural Activation Function.
 
     .. math::
         \text{Mish}(x) = x * \text{Tanh}(\text{Softplus}(x))
 
-    .. note::
-        See `Mish: A Self Regularized Non-Monotonic Neural Activation Function <https://arxiv.org/abs/1908.08681>`_
+    Notes
+    -----
+    See `Mish: A Self Regularized Non-Monotonic Neural Activation Function
+    <https://arxiv.org/abs/1908.08681>`_
 
+    Shape
+    -----
+    - Input: :math:`(*)`, where :math:`*` means any number of dimensions.
+    - Output: :math:`(*)`, same shape as the input.
 
-    Shape:
-        - Input: :math:`(*)`, where :math:`*` means any number of dimensions.
-        - Output: :math:`(*)`, same shape as the input.
-
-    Examples::
+    Examples
+    --------
+    .. code-block:: python
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as brainstate
+        >>> import brainstate
         >>> m = nn.Mish()
-        >>> x = random.randn(2)
+        >>> x = brainstate.random.randn(2)
         >>> output = m(x)
     """
     __module__ = 'brainstate.nn'
@@ -397,8 +451,10 @@ class Mish(ElementWiseBlock):
 
 
 class Hardswish(ElementWiseBlock):
-    r"""Applies the Hardswish function, element-wise, as described in the paper:
-    `Searching for MobileNetV3 <https://arxiv.org/abs/1905.02244>`_.
+    r"""Applies the Hardswish function, element-wise.
+
+    As described in the paper `Searching for MobileNetV3
+    <https://arxiv.org/abs/1905.02244>`_.
 
     Hardswish is defined as:
 
@@ -409,17 +465,19 @@ class Hardswish(ElementWiseBlock):
             x \cdot (x + 3) /6 & \text{otherwise}
         \end{cases}
 
+    Shape
+    -----
+    - Input: :math:`(*)`, where :math:`*` means any number of dimensions.
+    - Output: :math:`(*)`, same shape as the input.
 
-    Shape:
-        - Input: :math:`(*)`, where :math:`*` means any number of dimensions.
-        - Output: :math:`(*)`, same shape as the input.
-
-    Examples::
+    Examples
+    --------
+    .. code-block:: python
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as brainstate
+        >>> import brainstate
         >>> m = nn.Hardswish()
-        >>> x = random.randn(2)
+        >>> x = brainstate.random.randn(2)
         >>> output = m(x)
     """
     __module__ = 'brainstate.nn'
@@ -429,9 +487,10 @@ class Hardswish(ElementWiseBlock):
 
 
 class ELU(ElementWiseBlock):
-    r"""Applies the Exponential Linear Unit (ELU) function, element-wise, as described
-    in the paper: `Fast and Accurate Deep Network Learning by Exponential Linear
-    Units (ELUs) <https://arxiv.org/abs/1511.07289>`__.
+    r"""Applies the Exponential Linear Unit (ELU) function, element-wise.
+
+    As described in the paper: `Fast and Accurate Deep Network Learning by
+    Exponential Linear Units (ELUs) <https://arxiv.org/abs/1511.07289>`__.
 
     ELU is defined as:
 
@@ -441,19 +500,24 @@ class ELU(ElementWiseBlock):
         \alpha * (\exp(x) - 1), & \text{ if } x \leq 0
         \end{cases}
 
-    Args:
-        alpha: the :math:`\alpha` value for the ELU formulation. Default: 1.0
+    Parameters
+    ----------
+    alpha : float, optional
+        The :math:`\alpha` value for the ELU formulation. Default: 1.0
 
-    Shape:
-        - Input: :math:`(*)`, where :math:`*` means any number of dimensions.
-        - Output: :math:`(*)`, same shape as the input.
+    Shape
+    -----
+    - Input: :math:`(*)`, where :math:`*` means any number of dimensions.
+    - Output: :math:`(*)`, same shape as the input.
 
-    Examples::
+    Examples
+    --------
+    .. code-block:: python
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as brainstate
+        >>> import brainstate
         >>> m = nn.ELU()
-        >>> x = random.randn(2)
+        >>> x = brainstate.random.randn(2)
         >>> output = m(x)
     """
     __module__ = 'brainstate.nn'
@@ -471,30 +535,38 @@ class ELU(ElementWiseBlock):
 
 
 class CELU(ElementWiseBlock):
-    r"""Applies the element-wise function:
+    r"""Applies the element-wise function.
 
     .. math::
         \text{CELU}(x) = \max(0,x) + \min(0, \alpha * (\exp(x/\alpha) - 1))
 
-    More details can be found in the paper `Continuously Differentiable Exponential Linear Units`_ .
+    More details can be found in the paper `Continuously Differentiable Exponential
+    Linear Units`_ .
 
-    Args:
-        alpha: the :math:`\alpha` value for the CELU formulation. Default: 1.0
+    Parameters
+    ----------
+    alpha : float, optional
+        The :math:`\alpha` value for the CELU formulation. Default: 1.0
 
-    Shape:
-        - Input: :math:`(*)`, where :math:`*` means any number of dimensions.
-        - Output: :math:`(*)`, same shape as the input.
+    Shape
+    -----
+    - Input: :math:`(*)`, where :math:`*` means any number of dimensions.
+    - Output: :math:`(*)`, same shape as the input.
 
-    Examples::
-
-        >>> import brainstate.nn as nn
-        >>> import brainstate as brainstate
-        >>> m = nn.CELU()
-        >>> x = random.randn(2)
-        >>> output = m(x)
-
+    References
+    ----------
     .. _`Continuously Differentiable Exponential Linear Units`:
         https://arxiv.org/abs/1704.07483
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate.nn as nn
+        >>> import brainstate
+        >>> m = nn.CELU()
+        >>> x = brainstate.random.randn(2)
+        >>> output = m(x)
     """
     __module__ = 'brainstate.nn'
     alpha: float
@@ -511,7 +583,7 @@ class CELU(ElementWiseBlock):
 
 
 class SELU(ElementWiseBlock):
-    r"""Applied element-wise, as:
+    r"""Applied element-wise.
 
     .. math::
         \text{SELU}(x) = \text{scale} * (\max(0,x) + \min(0, \alpha * (\exp(x) - 1)))
@@ -521,20 +593,24 @@ class SELU(ElementWiseBlock):
 
     More details can be found in the paper `Self-Normalizing Neural Networks`_ .
 
+    Shape
+    -----
+    - Input: :math:`(*)`, where :math:`*` means any number of dimensions.
+    - Output: :math:`(*)`, same shape as the input.
 
-    Shape:
-        - Input: :math:`(*)`, where :math:`*` means any number of dimensions.
-        - Output: :math:`(*)`, same shape as the input.
+    References
+    ----------
+    .. _Self-Normalizing Neural Networks: https://arxiv.org/abs/1706.02515
 
-    Examples::
+    Examples
+    --------
+    .. code-block:: python
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as brainstate
+        >>> import brainstate
         >>> m = nn.SELU()
-        >>> x = random.randn(2)
+        >>> x = brainstate.random.randn(2)
         >>> output = m(x)
-
-    .. _Self-Normalizing Neural Networks: https://arxiv.org/abs/1706.02515
     """
     __module__ = 'brainstate.nn'
 
@@ -543,24 +619,33 @@ class SELU(ElementWiseBlock):
 
 
 class GLU(ElementWiseBlock):
-    r"""Applies the gated linear unit function
-    :math:`{GLU}(a, b)= a \otimes \sigma(b)` where :math:`a` is the first half
-    of the input matrices and :math:`b` is the second half.
+    r"""Applies the gated linear unit function.
 
-    Args:
-        dim (int): the dimension on which to split the input. Default: -1
+    .. math::
+        {GLU}(a, b)= a \otimes \sigma(b)
 
-    Shape:
-        - Input: :math:`(\ast_1, N, \ast_2)` where `*` means, any number of additional
-          dimensions
-        - Output: :math:`(\ast_1, M, \ast_2)` where :math:`M=N/2`
+    where :math:`a` is the first half of the input matrices and :math:`b` is
+    the second half.
 
-    Examples::
+    Parameters
+    ----------
+    dim : int, optional
+        The dimension on which to split the input. Default: -1
+
+    Shape
+    -----
+    - Input: :math:`(\ast_1, N, \ast_2)` where `*` means, any number of additional
+      dimensions
+    - Output: :math:`(\ast_1, M, \ast_2)` where :math:`M=N/2`
+
+    Examples
+    --------
+    .. code-block:: python
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as brainstate
+        >>> import brainstate
         >>> m = nn.GLU()
-        >>> x = random.randn(4, 2)
+        >>> x = brainstate.random.randn(4, 2)
         >>> output = m(x)
     """
     __module__ = 'brainstate.nn'
@@ -578,30 +663,35 @@ class GLU(ElementWiseBlock):
 
 
 class GELU(ElementWiseBlock):
-    r"""Applies the Gaussian Error Linear Units function:
+    r"""Applies the Gaussian Error Linear Units function.
 
     .. math:: \text{GELU}(x) = x * \Phi(x)
 
-    where :math:`\Phi(x)` is the Cumulative Distribution Function for Gaussian Distribution.
+    where :math:`\Phi(x)` is the Cumulative Distribution Function for Gaussian
+    Distribution.
 
-    When the approximate argument is 'tanh', Gelu is estimated with:
+    When the approximate argument is True, Gelu is estimated with:
 
     .. math:: \text{GELU}(x) = 0.5 * x * (1 + \text{Tanh}(\sqrt(2 / \pi) * (x + 0.044715 * x^3)))
 
-    Args:
-        approximate (str, optional): the gelu approximation algorithm to use:
-            ``'none'`` | ``'tanh'``. Default: ``'none'``
+    Parameters
+    ----------
+    approximate : bool, optional
+        Whether to use the tanh approximation algorithm. Default: False
 
-    Shape:
-        - Input: :math:`(*)`, where :math:`*` means any number of dimensions.
-        - Output: :math:`(*)`, same shape as the input.
+    Shape
+    -----
+    - Input: :math:`(*)`, where :math:`*` means any number of dimensions.
+    - Output: :math:`(*)`, same shape as the input.
 
-    Examples::
+    Examples
+    --------
+    .. code-block:: python
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as brainstate
+        >>> import brainstate
         >>> m = nn.GELU()
-        >>> x = random.randn(2)
+        >>> x = brainstate.random.randn(2)
         >>> output = m(x)
     """
     __module__ = 'brainstate.nn'
@@ -631,19 +721,24 @@ class Hardshrink(ElementWiseBlock):
         0, & \text{ otherwise }
         \end{cases}
 
-    Args:
-        lambd: the :math:`\lambda` value for the Hardshrink formulation. Default: 0.5
+    Parameters
+    ----------
+    lambd : float, optional
+        The :math:`\lambda` value for the Hardshrink formulation. Default: 0.5
 
-    Shape:
-        - Input: :math:`(*)`, where :math:`*` means any number of dimensions.
-        - Output: :math:`(*)`, same shape as the input.
+    Shape
+    -----
+    - Input: :math:`(*)`, where :math:`*` means any number of dimensions.
+    - Output: :math:`(*)`, same shape as the input.
 
-    Examples::
+    Examples
+    --------
+    .. code-block:: python
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as brainstate
+        >>> import brainstate
         >>> m = nn.Hardshrink()
-        >>> x = random.randn(2)
+        >>> x = brainstate.random.randn(2)
         >>> output = m(x)
     """
     __module__ = 'brainstate.nn'
@@ -661,11 +756,10 @@ class Hardshrink(ElementWiseBlock):
 
 
 class LeakyReLU(ElementWiseBlock):
-    r"""Applies the element-wise function:
+    r"""Applies the element-wise function.
 
     .. math::
         \text{LeakyReLU}(x) = \max(0, x) + \text{negative\_slope} * \min(0, x)
-
 
     or
 
@@ -676,21 +770,26 @@ class LeakyReLU(ElementWiseBlock):
         \text{negative\_slope} \times x, & \text{ otherwise }
         \end{cases}
 
-    Args:
-        negative_slope: Controls the angle of the negative slope (which is used for
-          negative input values). Default: 1e-2
+    Parameters
+    ----------
+    negative_slope : float, optional
+        Controls the angle of the negative slope (which is used for
+        negative input values). Default: 1e-2
 
-    Shape:
-        - Input: :math:`(*)` where `*` means, any number of additional
-          dimensions
-        - Output: :math:`(*)`, same shape as the input
+    Shape
+    -----
+    - Input: :math:`(*)` where `*` means, any number of additional
+      dimensions
+    - Output: :math:`(*)`, same shape as the input
 
-    Examples::
+    Examples
+    --------
+    .. code-block:: python
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as brainstate
+        >>> import brainstate
         >>> m = nn.LeakyReLU(0.1)
-        >>> x = random.randn(2)
+        >>> x = brainstate.random.randn(2)
         >>> output = m(x)
     """
     __module__ = 'brainstate.nn'
@@ -708,21 +807,24 @@ class LeakyReLU(ElementWiseBlock):
 
 
 class LogSigmoid(ElementWiseBlock):
-    r"""Applies the element-wise function:
+    r"""Applies the element-wise function.
 
     .. math::
         \text{LogSigmoid}(x) = \log\left(\frac{ 1 }{ 1 + \exp(-x)}\right)
 
-    Shape:
-        - Input: :math:`(*)`, where :math:`*` means any number of dimensions.
-        - Output: :math:`(*)`, same shape as the input.
+    Shape
+    -----
+    - Input: :math:`(*)`, where :math:`*` means any number of dimensions.
+    - Output: :math:`(*)`, same shape as the input.
 
-    Examples::
+    Examples
+    --------
+    .. code-block:: python
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as brainstate
+        >>> import brainstate
         >>> m = nn.LogSigmoid()
-        >>> x = random.randn(2)
+        >>> x = brainstate.random.randn(2)
         >>> output = m(x)
     """
     __module__ = 'brainstate.nn'
@@ -732,8 +834,10 @@ class LogSigmoid(ElementWiseBlock):
 
 
 class Softplus(ElementWiseBlock):
-    r"""Applies the Softplus function :math:`\text{Softplus}(x) = \frac{1}{\beta} *
-    \log(1 + \exp(\beta * x))` element-wise.
+    r"""Applies the Softplus function element-wise.
+
+    .. math::
+        \text{Softplus}(x) = \frac{1}{\beta} * \log(1 + \exp(\beta * x))
 
     SoftPlus is a smooth approximation to the ReLU function and can be used
     to constrain the output of a machine to always be positive.
@@ -741,16 +845,19 @@ class Softplus(ElementWiseBlock):
     For numerical stability the implementation reverts to the linear function
     when :math:`input \times \beta > threshold`.
 
-    Shape:
-        - Input: :math:`(*)`, where :math:`*` means any number of dimensions.
-        - Output: :math:`(*)`, same shape as the input.
+    Shape
+    -----
+    - Input: :math:`(*)`, where :math:`*` means any number of dimensions.
+    - Output: :math:`(*)`, same shape as the input.
 
-    Examples::
+    Examples
+    --------
+    .. code-block:: python
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as brainstate
+        >>> import brainstate
         >>> m = nn.Softplus()
-        >>> x = random.randn(2)
+        >>> x = brainstate.random.randn(2)
         >>> output = m(x)
     """
     __module__ = 'brainstate.nn'
@@ -760,7 +867,7 @@ class Softplus(ElementWiseBlock):
 
 
 class Softshrink(ElementWiseBlock):
-    r"""Applies the soft shrinkage function elementwise:
+    r"""Applies the soft shrinkage function elementwise.
 
     .. math::
         \text{SoftShrinkage}(x) =
@@ -770,19 +877,25 @@ class Softshrink(ElementWiseBlock):
         0, & \text{ otherwise }
         \end{cases}
 
-    Args:
-        lambd: the :math:`\lambda` (must be no less than zero) value for the Softshrink formulation. Default: 0.5
+    Parameters
+    ----------
+    lambd : float, optional
+        The :math:`\lambda` (must be no less than zero) value for the
+        Softshrink formulation. Default: 0.5
 
-    Shape:
-        - Input: :math:`(*)`, where :math:`*` means any number of dimensions.
-        - Output: :math:`(*)`, same shape as the input.
+    Shape
+    -----
+    - Input: :math:`(*)`, where :math:`*` means any number of dimensions.
+    - Output: :math:`(*)`, same shape as the input.
 
-    Examples::
+    Examples
+    --------
+    .. code-block:: python
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as brainstate
+        >>> import brainstate
         >>> m = nn.Softshrink()
-        >>> x = random.randn(2)
+        >>> x = brainstate.random.randn(2)
         >>> output = m(x)
     """
     __module__ = 'brainstate.nn'
@@ -800,7 +913,7 @@ class Softshrink(ElementWiseBlock):
 
 
 class PReLU(ElementWiseBlock):
-    r"""Applies the element-wise function:
+    r"""Applies the element-wise function.
 
     .. math::
         \text{PReLU}(x) = \max(0,x) + a * \min(0,x)
@@ -814,35 +927,43 @@ class PReLU(ElementWiseBlock):
         ax, & \text{ otherwise }
         \end{cases}
 
-    Here :math:`a` is a learnable parameter. When called without arguments, `nn.PReLU()` uses a single
-    parameter :math:`a` across all input channels. If called with `nn.PReLU(nChannels)`,
-    a separate :math:`a` is used for each input channel.
+    Here :math:`a` is a learnable parameter. When called without arguments,
+    `nn.PReLU()` uses a single parameter :math:`a` across all input channels.
+    If called with `nn.PReLU(nChannels)`, a separate :math:`a` is used for
+    each input channel.
 
+    Parameters
+    ----------
+    num_parameters : int, optional
+        Number of :math:`a` to learn. Although it takes an int as input,
+        there is only two values are legitimate: 1, or the number of channels
+        at input. Default: 1
+    init : float, optional
+        The initial value of :math:`a`. Default: 0.25
+    dtype : optional
+        The data type for the weight parameter.
 
-    .. note::
-        weight decay should not be used when learning :math:`a` for good performance.
+    Shape
+    -----
+    - Input: :math:`( *)` where `*` means, any number of additional dimensions.
+    - Output: :math:`(*)`, same shape as the input.
 
-    .. note::
-        Channel dim is the 2nd dim of input. When input has dims < 2, then there is
-        no channel dim and the number of channels = 1.
+    Attributes
+    ----------
+    weight : Tensor
+        The learnable weights of shape (:attr:`num_parameters`).
 
-    Args:
-        num_parameters (int): number of :math:`a` to learn.
-            Although it takes an int as input, there is only two values are legitimate:
-            1, or the number of channels at input. Default: 1
-        init (float): the initial value of :math:`a`. Default: 0.25
+    Notes
+    -----
+    - Weight decay should not be used when learning :math:`a` for good performance.
+    - Channel dim is the 2nd dim of input. When input has dims < 2, then there is
+      no channel dim and the number of channels = 1.
 
-    Shape:
-        - Input: :math:`( *)` where `*` means, any number of additional
-          dimensions.
-        - Output: :math:`(*)`, same shape as the input.
+    Examples
+    --------
+    .. code-block:: python
 
-    Attributes:
-        weight (Tensor): the learnable weights of shape (:attr:`num_parameters`).
-
-    Examples::
-
-        >>> import brainstate as brainstate
+        >>> import brainstate
         >>> m = brainstate.nn.PReLU()
         >>> x = brainstate.random.randn(2)
         >>> output = m(x)
@@ -863,21 +984,24 @@ class PReLU(ElementWiseBlock):
 
 
 class Softsign(ElementWiseBlock):
-    r"""Applies the element-wise function:
+    r"""Applies the element-wise function.
 
     .. math::
         \text{SoftSign}(x) = \frac{x}{ 1 + |x|}
 
-    Shape:
-        - Input: :math:`(*)`, where :math:`*` means any number of dimensions.
-        - Output: :math:`(*)`, same shape as the input.
+    Shape
+    -----
+    - Input: :math:`(*)`, where :math:`*` means any number of dimensions.
+    - Output: :math:`(*)`, same shape as the input.
 
-    Examples::
+    Examples
+    --------
+    .. code-block:: python
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as brainstate
+        >>> import brainstate
         >>> m = nn.Softsign()
-        >>> x = random.randn(2)
+        >>> x = brainstate.random.randn(2)
         >>> output = m(x)
     """
     __module__ = 'brainstate.nn'
@@ -887,21 +1011,24 @@ class Softsign(ElementWiseBlock):
 
 
 class Tanhshrink(ElementWiseBlock):
-    r"""Applies the element-wise function:
+    r"""Applies the element-wise function.
 
     .. math::
         \text{Tanhshrink}(x) = x - \tanh(x)
 
-    Shape:
-        - Input: :math:`(*)`, where :math:`*` means any number of dimensions.
-        - Output: :math:`(*)`, same shape as the input.
+    Shape
+    -----
+    - Input: :math:`(*)`, where :math:`*` means any number of dimensions.
+    - Output: :math:`(*)`, same shape as the input.
 
-    Examples::
+    Examples
+    --------
+    .. code-block:: python
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as brainstate
+        >>> import brainstate
         >>> m = nn.Tanhshrink()
-        >>> x = random.randn(2)
+        >>> x = brainstate.random.randn(2)
         >>> output = m(x)
     """
     __module__ = 'brainstate.nn'
@@ -911,8 +1038,9 @@ class Tanhshrink(ElementWiseBlock):
 
 
 class Softmin(ElementWiseBlock):
-    r"""Applies the Softmin function to an n-dimensional input Tensor
-    rescaling them so that the elements of the n-dimensional output Tensor
+    r"""Applies the Softmin function to an n-dimensional input Tensor.
+
+    Rescales the input so that the elements of the n-dimensional output Tensor
     lie in the range `[0, 1]` and sum to 1.
 
     Softmin is defined as:
@@ -920,25 +1048,31 @@ class Softmin(ElementWiseBlock):
     .. math::
         \text{Softmin}(x_{i}) = \frac{\exp(-x_i)}{\sum_j \exp(-x_j)}
 
-    Shape:
-        - Input: :math:`(*)` where `*` means, any number of additional
-          dimensions
-        - Output: :math:`(*)`, same shape as the input
+    Parameters
+    ----------
+    dim : int, optional
+        A dimension along which Softmin will be computed (so every slice
+        along dim will sum to 1).
 
-    Args:
-        dim (int): A dimension along which Softmin will be computed (so every slice
-            along dim will sum to 1).
+    Shape
+    -----
+    - Input: :math:`(*)` where `*` means, any number of additional dimensions
+    - Output: :math:`(*)`, same shape as the input
 
-    Returns:
-        a Tensor of the same dimension and shape as the input, with
+    Returns
+    -------
+    Tensor
+        A Tensor of the same dimension and shape as the input, with
         values in the range [0, 1]
 
-    Examples::
+    Examples
+    --------
+    .. code-block:: python
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as brainstate
+        >>> import brainstate
         >>> m = nn.Softmin(dim=1)
-        >>> x = random.randn(2, 3)
+        >>> x = brainstate.random.randn(2, 3)
         >>> output = m(x)
     """
     __module__ = 'brainstate.nn'
@@ -956,8 +1090,9 @@ class Softmin(ElementWiseBlock):
 
 
 class Softmax(ElementWiseBlock):
-    r"""Applies the Softmax function to an n-dimensional input Tensor
-    rescaling them so that the elements of the n-dimensional output Tensor
+    r"""Applies the Softmax function to an n-dimensional input Tensor.
+
+    Rescales the input so that the elements of the n-dimensional output Tensor
     lie in the range [0,1] and sum to 1.
 
     Softmax is defined as:
@@ -968,32 +1103,38 @@ class Softmax(ElementWiseBlock):
     When the input Tensor is a sparse tensor then the unspecified
     values are treated as ``-inf``.
 
-    Shape:
-        - Input: :math:`(*)` where `*` means, any number of additional
-          dimensions
-        - Output: :math:`(*)`, same shape as the input
+    Parameters
+    ----------
+    dim : int, optional
+        A dimension along which Softmax will be computed (so every slice
+        along dim will sum to 1).
 
-    Returns:
-        a Tensor of the same dimension and shape as the input with
+    Shape
+    -----
+    - Input: :math:`(*)` where `*` means, any number of additional dimensions
+    - Output: :math:`(*)`, same shape as the input
+
+    Returns
+    -------
+    Tensor
+        A Tensor of the same dimension and shape as the input with
         values in the range [0, 1]
 
-    Args:
-        dim (int): A dimension along which Softmax will be computed (so every slice
-            along dim will sum to 1).
+    Notes
+    -----
+    This module doesn't work directly with NLLLoss, which expects the Log to be
+    computed between the Softmax and itself. Use `LogSoftmax` instead (it's
+    faster and has better numerical properties).
 
-    .. note::
-        This module doesn't work directly with NLLLoss,
-        which expects the Log to be computed between the Softmax and itself.
-        Use `LogSoftmax` instead (it's faster and has better numerical properties).
-
-    Examples::
+    Examples
+    --------
+    .. code-block:: python
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as brainstate
+        >>> import brainstate
         >>> m = nn.Softmax(dim=1)
-        >>> x = random.randn(2, 3)
+        >>> x = brainstate.random.randn(2, 3)
         >>> output = m(x)
-
     """
     __module__ = 'brainstate.nn'
     dim: Optional[int]
@@ -1015,21 +1156,26 @@ class Softmax2d(ElementWiseBlock):
     When given an image of ``Channels x Height x Width``, it will
     apply `Softmax` to each location :math:`(Channels, h_i, w_j)`
 
-    Shape:
-        - Input: :math:`(N, C, H, W)` or :math:`(C, H, W)`.
-        - Output: :math:`(N, C, H, W)` or :math:`(C, H, W)` (same shape as input)
+    Shape
+    -----
+    - Input: :math:`(N, C, H, W)` or :math:`(C, H, W)`.
+    - Output: :math:`(N, C, H, W)` or :math:`(C, H, W)` (same shape as input)
 
-    Returns:
-        a Tensor of the same dimension and shape as the input with
+    Returns
+    -------
+    Tensor
+        A Tensor of the same dimension and shape as the input with
         values in the range [0, 1]
 
-    Examples::
+    Examples
+    --------
+    .. code-block:: python
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as brainstate
+        >>> import brainstate
         >>> m = nn.Softmax2d()
         >>> # you softmax over the 2nd dimension
-        >>> x = random.randn(2, 3, 12, 13)
+        >>> x = brainstate.random.randn(2, 3, 12, 13)
         >>> output = m(x)
     """
     __module__ = 'brainstate.nn'
@@ -1040,30 +1186,37 @@ class Softmax2d(ElementWiseBlock):
 
 
 class LogSoftmax(ElementWiseBlock):
-    r"""Applies the :math:`\log(\text{Softmax}(x))` function to an n-dimensional
-    input Tensor. The LogSoftmax formulation can be simplified as:
+    r"""Applies the :math:`\log(\text{Softmax}(x))` function to an n-dimensional input Tensor.
+
+    The LogSoftmax formulation can be simplified as:
 
     .. math::
         \text{LogSoftmax}(x_{i}) = \log\left(\frac{\exp(x_i) }{ \sum_j \exp(x_j)} \right)
 
-    Shape:
-        - Input: :math:`(*)` where `*` means, any number of additional
-          dimensions
-        - Output: :math:`(*)`, same shape as the input
+    Parameters
+    ----------
+    dim : int, optional
+        A dimension along which LogSoftmax will be computed.
 
-    Args:
-        dim (int): A dimension along which LogSoftmax will be computed.
+    Shape
+    -----
+    - Input: :math:`(*)` where `*` means, any number of additional dimensions
+    - Output: :math:`(*)`, same shape as the input
 
-    Returns:
-        a Tensor of the same dimension and shape as the input with
+    Returns
+    -------
+    Tensor
+        A Tensor of the same dimension and shape as the input with
         values in the range [-inf, 0)
 
-    Examples::
+    Examples
+    --------
+    .. code-block:: python
 
         >>> import brainstate.nn as nn
-        >>> import brainstate as brainstate
+        >>> import brainstate
         >>> m = nn.LogSoftmax(dim=1)
-        >>> x = random.randn(2, 3)
+        >>> x = brainstate.random.randn(2, 3)
         >>> output = m(x)
     """
     __module__ = 'brainstate.nn'
@@ -1082,6 +1235,16 @@ class LogSoftmax(ElementWiseBlock):
 
 class Identity(ElementWiseBlock):
     r"""A placeholder identity operator that is argument-insensitive.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate.nn as nn
+        >>> m = nn.Identity()
+        >>> x = brainstate.random.randn(2, 3)
+        >>> output = m(x)
+        >>> assert (output == x).all()
     """
     __module__ = 'brainstate.nn'
 
@@ -1103,17 +1266,33 @@ class SpikeBitwise(ElementWiseBlock):
         \hline
         \end{array}
 
-    Args:
-      op: str. The bitwise operation.
-      name: str. The name of the dynamic system.
+    Parameters
+    ----------
+    op : str, optional
+        The bitwise operation. Default: 'add'
+    name : str, optional
+        The name of the dynamic system.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate.nn as nn
+        >>> m = nn.SpikeBitwise(op='and')
+        >>> x = brainstate.random.randn(2, 3) > 0
+        >>> y = brainstate.random.randn(2, 3) > 0
+        >>> output = m(x, y)
     """
     __module__ = 'brainstate.nn'
 
-    def __init__(self,
-                 op: str = 'add',
-                 name: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        op: str = 'add',
+        name: Optional[str] = None
+    ) -> None:
         super().__init__(name=name)
         self.op = op
 
     def __call__(self, x, y):
-        return F.spike_bitwise(x, y, self.op)
+        import braintools
+        return braintools.spike_bitwise(x, y, self.op)
