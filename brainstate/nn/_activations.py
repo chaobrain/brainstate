@@ -348,8 +348,8 @@ def relu(x: ArrayLike) -> Union[jax.Array, u.Quantity]:
     .. code-block:: python
 
         >>> import jax.numpy as jnp
-        >>> import brainstate as bst
-        >>> bst.nn.relu(jnp.array([-2., -1., -0.5, 0, 0.5, 1., 2.]))
+        >>> import brainstate 
+        >>> brainstate.nn.relu(jnp.array([-2., -1., -0.5, 0, 0.5, 1., 2.]))
         Array([0. , 0. , 0. , 0. , 0.5, 1. , 2. ], dtype=float32)
 
     See Also
@@ -910,14 +910,14 @@ def one_hot(x: Any,
     .. code-block:: python
 
         >>> import jax.numpy as jnp
-        >>> import brainstate as bst
-        >>> bst.nn.one_hot(jnp.array([0, 1, 2]), 3)
+        >>> import brainstate 
+        >>> brainstate.nn.one_hot(jnp.array([0, 1, 2]), 3)
         Array([[1., 0., 0.],
                [0., 1., 0.],
                [0., 0., 1.]], dtype=float32)
 
         >>> # Indices outside the range are encoded as zeros
-        >>> bst.nn.one_hot(jnp.array([-1, 3]), 3)
+        >>> brainstate.nn.one_hot(jnp.array([-1, 3]), 3)
         Array([[0., 0., 0.],
                [0., 0., 0.]], dtype=float32)
     """

@@ -703,14 +703,14 @@ class TestCallbackBehavior(unittest.TestCase):
     #     def callback(value):
     #         self.callback_values.append(value)
     #
-    #     bst.environ.register_default_behavior('test_param', callback)
+    #     brainstate.environ.register_default_behavior('test_param', callback)
     #
     #     # Callback should be triggered on set
-    #     bst.environ.set(test_param='value1')
+    #     brainstate.environ.set(test_param='value1')
     #     self.assertEqual(self.callback_values, ['value1'])
     #
     #     # Callback should be triggered on context enter/exit
-    #     with bst.environ.context(test_param='value2'):
+    #     with brainstate.environ.context(test_param='value2'):
     #         self.assertEqual(self.callback_values, ['value1', 'value2'])
     #
     #     # Should restore previous value
@@ -963,7 +963,7 @@ class TestThreadSafety(unittest.TestCase):
         #
         # # All values should be gone
         # for i in range(20):
-        #     result = bst.environ.get(f'pop_thread_{i}', default=None)
+        #     result = brainstate.environ.get(f'pop_thread_{i}', default=None)
         #     self.assertIsNone(result)
 
 

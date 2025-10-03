@@ -83,7 +83,7 @@ class DelayAccess(Node):
 
 class Delay(Module):
     """
-    Generate Delays for the given :py:class:`~.State` instance.
+    Delay variable for storing short-term history data.
 
     The data in this delay variable is arranged as::
 
@@ -240,21 +240,8 @@ class Delay(Module):
             >>> delay_obj.register_delay(jnp.array([2.0, 3.0]), 0, 1)  # Vector delay with indices
         """
         assert len(delay_time) >= 1, 'You should provide at least one delay time.'
-        delay_size = u.math.size(delay_time[0])
         for dt in delay_time[1:]:
             assert jnp.issubdtype(u.math.get_dtype(dt), jnp.integer), f'The index should be integer. But got {dt}.'
-        # delay_size = u.math.size(delay_time[0])
-        # for dt in delay_time:
-        #     if u.math.ndim(dt) == 0:
-        #         pass
-        #     elif u.math.ndim(dt) == 1:
-        #         if u.math.size(dt) != delay_size:
-        #             raise ValueError(
-        #                 f'The delay time should be a scalar or a vector with the same size. '
-        #                 f'But got {delay_time}. The delay time {dt} has size {u.math.size(dt)}'
-        #             )
-        #     else:
-        #         raise ValueError(f'The delay time should be a scalar/vector. But got {dt}.')
         if delay_time[0] is None:
             return None
         with jax.ensure_compile_time_eval():
@@ -532,8 +519,8 @@ class StateWithDelay(Delay):
     Access a neuron's membrane potential 5 ms in the past:
 
     >>> import brainunit as u
-    >>> import brainstate as bst
-    >>> lif = bst.nn.LIF(100)
+    >>> import brainstate as brainstate
+    >>> lif = brainstate.nn.LIF(100)
     >>> # Create a delayed accessor to V(t-5ms)
     >>> v_delay = lif.prefetch_delay('V', 5.0 * u.ms)
     >>> # Inside another module's update you can read the delayed value

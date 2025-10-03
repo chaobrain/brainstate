@@ -176,7 +176,7 @@ def scan(
 
     .. code-block:: python
 
-        >>> pbar = bst.ProgressBar(freq=10)
+        >>> pbar = brainstate.transform.ProgressBar(freq=10)
         >>> final_carry, ys = brainstate.transform.scan(step_fn, init, xs, pbar=pbar)
 
     References
@@ -525,7 +525,7 @@ def for_loop(
 
     .. code-block:: python
 
-        >>> pbar = bst.ProgressBar(freq=10)
+        >>> pbar = brainstate.ProgressBar(freq=10)
         >>> results = brainstate.transform.for_loop(process_item, xs, ys, pbar=pbar)
 
     For-loop with reverse iteration:

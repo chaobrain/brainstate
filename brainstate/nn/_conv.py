@@ -18,6 +18,7 @@
 import collections.abc
 from typing import Callable, Tuple, Union, Sequence, Optional, TypeVar
 
+import brainunit as u
 import jax
 import jax.numpy as jnp
 
@@ -51,11 +52,13 @@ def to_dimension_numbers(
     num_spatial_dims : int
         The number of spatial dimensions (e.g., 1 for Conv1d, 2 for Conv2d, 3 for Conv3d).
     channels_last : bool
-        If True, the input format is channels-last (e.g., [B, H, W, C] for 2D).
-        If False, the input format is channels-first (e.g., [B, C, H, W] for 2D).
+
+        - If True, the input format is channels-last (e.g., [B, H, W, C] for 2D).
+        - If False, the input format is channels-first (e.g., [B, C, H, W] for 2D).
     transpose : bool
-        If True, creates dimension numbers for transposed convolution.
-        If False, creates dimension numbers for standard convolution.
+
+        - If True, creates dimension numbers for transposed convolution.
+        - If False, creates dimension numbers for standard convolution.
 
     Returns
     -------
@@ -164,6 +167,7 @@ class _BaseConv(Module):
         rhs_dilation: Union[int, Tuple[int, ...]] = 1,
         groups: int = 1,
         w_mask: Optional[Union[ArrayLike, Callable]] = None,
+        channel_first: bool = False,
         name: str = None,
     ):
         super().__init__(name=name)
@@ -171,14 +175,26 @@ class _BaseConv(Module):
         # general parameters
         assert self.num_spatial_dims + 1 == len(in_size)
         self.in_size = tuple(in_size)
-        self.in_channels = in_size[-1]
+        self.channel_first = channel_first
+        self.channels_last = not channel_first
+
+        # Determine in_channels based on channel_first
+        if self.channel_first:
+            self.in_channels = in_size[0]
+        else:
+            self.in_channels = in_size[-1]
+
         self.out_channels = out_channels
         self.stride = replicate(stride, self.num_spatial_dims, 'stride')
         self.kernel_size = replicate(kernel_size, self.num_spatial_dims, 'kernel_size')
         self.lhs_dilation = replicate(lhs_dilation, self.num_spatial_dims, 'lhs_dilation')
         self.rhs_dilation = replicate(rhs_dilation, self.num_spatial_dims, 'rhs_dilation')
         self.groups = groups
-        self.dimension_numbers = to_dimension_numbers(self.num_spatial_dims, channels_last=True, transpose=False)
+        self.dimension_numbers = to_dimension_numbers(
+            self.num_spatial_dims,
+            channels_last=self.channels_last,
+            transpose=False
+        )
 
         # the padding parameter
         if isinstance(padding, str):
@@ -220,29 +236,29 @@ class _BaseConv(Module):
         else:
             raise ValueError(f"expected {self.num_spatial_dims + 2}D (with batch) or "
                              f"{self.num_spatial_dims + 1}D (without batch) input (got {x.ndim}D input, {x.shape})")
-        if self.in_size != x_shape:
-            raise ValueError(f"The expected input shape is {self.in_size}, while we got {x_shape}.")
+
+        # Check shape matches expected in_size
+        if self.channel_first:
+            # For channels-first, expected shape is already (C, spatial...)
+            expected_shape = self.in_size
+        else:
+            # For channels-last, expected shape is (spatial..., C)
+            expected_shape = self.in_size
+
+        if expected_shape != x_shape:
+            raise ValueError(f"The expected input shape is {expected_shape}, while we got {x_shape}.")
 
     def update(self, x):
         self._check_input_dim(x)
         non_batching = False
         if x.ndim == self.num_spatial_dims + 1:
-            x = jnp.expand_dims(x, 0)
+            x = u.math.expand_dims(x, 0)
             non_batching = True
         y = self._conv_op(x, self.weight.value)
-        return y[0] if non_batching else y
+        return u.math.squeeze(y, axis=0) if non_batching else y
 
     def _conv_op(self, x, params):
         raise NotImplementedError
-
-    def __repr__(self):
-        return (f'{self.__class__.__name__}('
-                f'in_channels={self.in_channels}, '
-                f'out_channels={self.out_channels}, '
-                f'kernel_size={self.kernel_size}, '
-                f'stride={self.stride}, '
-                f'padding={self.padding}, '
-                f'groups={self.groups})')
 
 
 class _Conv(_BaseConv):
@@ -261,6 +277,7 @@ class _Conv(_BaseConv):
         w_init: Union[Callable, ArrayLike] = init.XavierNormalInit(),
         b_init: Optional[Union[Callable, ArrayLike]] = None,
         w_mask: Optional[Union[ArrayLike, Callable]] = None,
+        channel_first: bool = False,
         name: str = None,
         param_type: type = ParamState,
     ):
@@ -274,6 +291,7 @@ class _Conv(_BaseConv):
             rhs_dilation=rhs_dilation,
             groups=groups,
             w_mask=w_mask,
+            channel_first=channel_first,
             name=name
         )
 
@@ -292,9 +310,10 @@ class _Conv(_BaseConv):
         self.weight = param_type(params)
 
         # Evaluate the output shape
+        test_input_shape = (128,) + self.in_size
         abstract_y = jax.eval_shape(
             self._conv_op,
-            jax.ShapeDtypeStruct((128,) + self.in_size, weight.dtype),
+            jax.ShapeDtypeStruct(test_input_shape, weight.dtype),
             params
         )
         y_shape = abstract_y.shape[1:]
@@ -402,11 +421,11 @@ class Conv1d(_Conv):
     --------
     .. code-block:: python
 
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> import jax.numpy as jnp
         >>>
         >>> # Create a 1D convolution layer
-        >>> conv = bst.nn.Conv1d(in_size=(28, 3), out_channels=16, kernel_size=5)
+        >>> conv = brainstate.nn.Conv1d(in_size=(28, 3), out_channels=16, kernel_size=5)
         >>>
         >>> # Apply to input: batch_size=2, length=28, channels=3
         >>> x = jnp.ones((2, 28, 3))
@@ -419,13 +438,13 @@ class Conv1d(_Conv):
         >>> print(y_single.shape)  # (28, 16)
         >>>
         >>> # With custom parameters
-        >>> conv = bst.nn.Conv1d(
+        >>> conv = brainstate.nn.Conv1d(
         ...     in_size=(100, 8),
         ...     out_channels=32,
         ...     kernel_size=3,
         ...     stride=2,
         ...     padding='VALID',
-        ...     b_init=bst.init.ZeroInit()
+        ...     b_init=brainstate.init.ZeroInit()
         ... )
 
     Notes
@@ -509,7 +528,7 @@ class Conv2d(_Conv):
     w_init : Callable or ArrayLike, optional
         Weight initializer for the convolutional kernel. Can be:
 
-        - An initializer instance (e.g., bst.init.XavierNormal())
+        - An initializer instance (e.g., brainstate.init.XavierNormal())
         - A callable that returns an array given a shape
         - A direct array matching the kernel shape
 
@@ -547,11 +566,11 @@ class Conv2d(_Conv):
     --------
     .. code-block:: python
 
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> import jax.numpy as jnp
         >>>
         >>> # Create a 2D convolution layer
-        >>> conv = bst.nn.Conv2d(in_size=(32, 32, 3), out_channels=64, kernel_size=3)
+        >>> conv = brainstate.nn.Conv2d(in_size=(32, 32, 3), out_channels=64, kernel_size=3)
         >>>
         >>> # Apply to input: batch_size=8, height=32, width=32, channels=3
         >>> x = jnp.ones((8, 32, 32, 3))
@@ -564,7 +583,7 @@ class Conv2d(_Conv):
         >>> print(y_single.shape)  # (32, 32, 64)
         >>>
         >>> # With custom kernel size and stride
-        >>> conv = bst.nn.Conv2d(
+        >>> conv = brainstate.nn.Conv2d(
         ...     in_size=(224, 224, 3),
         ...     out_channels=128,
         ...     kernel_size=(5, 5),
@@ -573,7 +592,7 @@ class Conv2d(_Conv):
         ... )
         >>>
         >>> # Depthwise convolution (groups = in_channels)
-        >>> conv = bst.nn.Conv2d(
+        >>> conv = brainstate.nn.Conv2d(
         ...     in_size=(64, 64, 32),
         ...     out_channels=32,
         ...     kernel_size=3,
@@ -662,7 +681,7 @@ class Conv3d(_Conv):
     w_init : Callable or ArrayLike, optional
         Weight initializer for the convolutional kernel. Can be:
 
-        - An initializer instance (e.g., bst.init.XavierNormal())
+        - An initializer instance (e.g., brainstate.init.XavierNormal())
         - A callable that returns an array given a shape
         - A direct array matching the kernel shape
 
@@ -700,11 +719,11 @@ class Conv3d(_Conv):
     --------
     .. code-block:: python
 
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> import jax.numpy as jnp
         >>>
         >>> # Create a 3D convolution layer for video data
-        >>> conv = bst.nn.Conv3d(in_size=(16, 64, 64, 3), out_channels=32, kernel_size=3)
+        >>> conv = brainstate.nn.Conv3d(in_size=(16, 64, 64, 3), out_channels=32, kernel_size=3)
         >>>
         >>> # Apply to input: batch_size=4, frames=16, height=64, width=64, channels=3
         >>> x = jnp.ones((4, 16, 64, 64, 3))
@@ -717,13 +736,13 @@ class Conv3d(_Conv):
         >>> print(y_single.shape)  # (16, 64, 64, 32)
         >>>
         >>> # For medical imaging with custom parameters
-        >>> conv = bst.nn.Conv3d(
+        >>> conv = brainstate.nn.Conv3d(
         ...     in_size=(32, 32, 32, 1),
         ...     out_channels=64,
         ...     kernel_size=(3, 3, 3),
         ...     stride=2,
         ...     padding='VALID',
-        ...     b_init=bst.init.Constant(0.1)
+        ...     b_init=brainstate.init.Constant(0.1)
         ... )
 
     Notes
@@ -763,6 +782,7 @@ class _ScaledWSConv(_BaseConv):
         w_init: Union[Callable, ArrayLike] = init.XavierNormalInit(),
         b_init: Optional[Union[Callable, ArrayLike]] = None,
         w_mask: Optional[Union[ArrayLike, Callable]] = None,
+        channel_first: bool = False,
         name: str = None,
         param_type: type = ParamState,
     ):
@@ -776,6 +796,7 @@ class _ScaledWSConv(_BaseConv):
             rhs_dilation=rhs_dilation,
             groups=groups,
             w_mask=w_mask,
+            channel_first=channel_first,
             name=name,
         )
 
@@ -803,9 +824,14 @@ class _ScaledWSConv(_BaseConv):
         self.weight = param_type(params)
 
         # Evaluate the output shape
+        if self.channel_first:
+            test_input_shape = (128,) + self.in_size
+        else:
+            test_input_shape = (128,) + self.in_size
+
         abstract_y = jax.eval_shape(
             self._conv_op,
-            jax.ShapeDtypeStruct((128,) + self.in_size, weight.dtype),
+            jax.ShapeDtypeStruct(test_input_shape, weight.dtype),
             params
         )
         y_shape = abstract_y.shape[1:]
@@ -889,7 +915,7 @@ class ScaledWSConv1d(_ScaledWSConv):
     w_init : Callable or ArrayLike, optional
         Weight initializer for the convolutional kernel. Can be:
 
-        - An initializer instance (e.g., bst.init.XavierNormal())
+        - An initializer instance (e.g., brainstate.init.XavierNormal())
         - A callable that returns an array given a shape
         - A direct array matching the kernel shape
 
@@ -938,11 +964,11 @@ class ScaledWSConv1d(_ScaledWSConv):
     --------
     .. code-block:: python
 
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> import jax.numpy as jnp
         >>>
         >>> # Create a 1D convolution with weight standardization
-        >>> conv = bst.nn.ScaledWSConv1d(
+        >>> conv = brainstate.nn.ScaledWSConv1d(
         ...     in_size=(100, 16),
         ...     out_channels=32,
         ...     kernel_size=5
@@ -954,7 +980,7 @@ class ScaledWSConv1d(_ScaledWSConv):
         >>> print(y.shape)  # (4, 100, 32)
         >>>
         >>> # With custom epsilon and no gain
-        >>> conv = bst.nn.ScaledWSConv1d(
+        >>> conv = brainstate.nn.ScaledWSConv1d(
         ...     in_size=(50, 8),
         ...     out_channels=16,
         ...     kernel_size=3,
@@ -1054,7 +1080,7 @@ class ScaledWSConv2d(_ScaledWSConv):
     w_init : Callable or ArrayLike, optional
         Weight initializer for the convolutional kernel. Can be:
 
-        - An initializer instance (e.g., bst.init.XavierNormal())
+        - An initializer instance (e.g., brainstate.init.XavierNormal())
         - A callable that returns an array given a shape
         - A direct array matching the kernel shape
 
@@ -1103,11 +1129,11 @@ class ScaledWSConv2d(_ScaledWSConv):
     --------
     .. code-block:: python
 
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> import jax.numpy as jnp
         >>>
         >>> # Create a 2D convolution with weight standardization
-        >>> conv = bst.nn.ScaledWSConv2d(
+        >>> conv = brainstate.nn.ScaledWSConv2d(
         ...     in_size=(64, 64, 3),
         ...     out_channels=32,
         ...     kernel_size=3
@@ -1119,18 +1145,18 @@ class ScaledWSConv2d(_ScaledWSConv):
         >>> print(y.shape)  # (8, 64, 64, 32)
         >>>
         >>> # Combine with custom settings for ResNet-style architecture
-        >>> conv = bst.nn.ScaledWSConv2d(
+        >>> conv = brainstate.nn.ScaledWSConv2d(
         ...     in_size=(224, 224, 3),
         ...     out_channels=64,
         ...     kernel_size=7,
         ...     stride=2,
         ...     padding='SAME',
         ...     ws_gain=True,
-        ...     b_init=bst.init.ZeroInit()
+        ...     b_init=brainstate.init.ZeroInit()
         ... )
         >>>
         >>> # Depthwise separable convolution with weight standardization
-        >>> conv = bst.nn.ScaledWSConv2d(
+        >>> conv = brainstate.nn.ScaledWSConv2d(
         ...     in_size=(32, 32, 128),
         ...     out_channels=128,
         ...     kernel_size=3,
@@ -1233,7 +1259,7 @@ class ScaledWSConv3d(_ScaledWSConv):
     w_init : Callable or ArrayLike, optional
         Weight initializer for the convolutional kernel. Can be:
 
-        - An initializer instance (e.g., bst.init.XavierNormal())
+        - An initializer instance (e.g., brainstate.init.XavierNormal())
         - A callable that returns an array given a shape
         - A direct array matching the kernel shape
 
@@ -1282,11 +1308,11 @@ class ScaledWSConv3d(_ScaledWSConv):
     --------
     .. code-block:: python
 
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> import jax.numpy as jnp
         >>>
         >>> # Create a 3D convolution with weight standardization for video
-        >>> conv = bst.nn.ScaledWSConv3d(
+        >>> conv = brainstate.nn.ScaledWSConv3d(
         ...     in_size=(16, 64, 64, 3),
         ...     out_channels=32,
         ...     kernel_size=3
@@ -1298,18 +1324,18 @@ class ScaledWSConv3d(_ScaledWSConv):
         >>> print(y.shape)  # (4, 16, 64, 64, 32)
         >>>
         >>> # For medical imaging with custom parameters
-        >>> conv = bst.nn.ScaledWSConv3d(
+        >>> conv = brainstate.nn.ScaledWSConv3d(
         ...     in_size=(32, 32, 32, 1),
         ...     out_channels=64,
         ...     kernel_size=(3, 3, 3),
         ...     stride=2,
         ...     ws_gain=True,
         ...     eps=1e-5,
-        ...     b_init=bst.init.Constant(0.01)
+        ...     b_init=brainstate.init.Constant(0.01)
         ... )
         >>>
         >>> # 3D grouped convolution with weight standardization
-        >>> conv = bst.nn.ScaledWSConv3d(
+        >>> conv = brainstate.nn.ScaledWSConv3d(
         ...     in_size=(8, 16, 16, 64),
         ...     out_channels=64,
         ...     kernel_size=3,
@@ -1352,4 +1378,3 @@ class ScaledWSConv3d(_ScaledWSConv):
     """
     __module__ = 'brainstate.nn'
     num_spatial_dims: int = 3
-
