@@ -14,15 +14,15 @@
 # ==============================================================================
 
 
-from ._graph_node import Node, Dict, List, Sequential
-from ._graph_operation import (
+from ._node import Node
+from ._operation import (
     pop_states, nodes, states, treefy_states, update_states, flatten, unflatten,
     treefy_split, treefy_merge, iter_leaf, iter_node, clone, graphdef,
     call, RefMap, GraphDef, NodeRef, NodeDef
 )
 
 __all__ = [
-    'Node', 'Dict', 'List', 'Sequential',
+    'Node',
     'pop_states', 'nodes', 'states', 'treefy_states', 'update_states', 'flatten', 'unflatten',
     'treefy_split', 'treefy_merge', 'iter_leaf', 'iter_node', 'clone', 'graphdef',
     'call', 'RefMap', 'GraphDef', 'NodeRef', 'NodeDef',

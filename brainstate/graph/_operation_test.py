@@ -154,31 +154,6 @@ class TestGraphUtils(absltest.TestCase):
         assert a['b'] in refmap
         assert g[3] in refmap
 
-    def test_unflatten_treey_state(self):
-        a = brainstate.graph.Dict(a=1, b=brainstate.ParamState(2))
-        g1 = brainstate.graph.List([a, 3, a, brainstate.ParamState(4)])
-
-        graphdef, references = brainstate.graph.flatten(g1, treefy_state=True)
-        g = brainstate.graph.unflatten(graphdef, references)
-
-        print(graphdef)
-        print(references)
-        assert g[0] is g[2]
-        assert g1[3] is not g[3]
-        assert g1[0]['b'] is not g[0]['b']
-
-    def test_unflatten(self):
-        a = brainstate.graph.Dict(a=1, b=brainstate.ParamState(2))
-        g1 = brainstate.graph.List([a, 3, a, brainstate.ParamState(4)])
-
-        graphdef, references = brainstate.graph.flatten(g1, treefy_state=False)
-        g = brainstate.graph.unflatten(graphdef, references)
-
-        print(graphdef)
-        print(references)
-        assert g[0] is g[2]
-        assert g1[3] is g[3]
-        assert g1[0]['b'] is g[0]['b']
 
     def test_unflatten_pytree(self):
         a = {'a': 1, 'b': brainstate.ParamState(2)}

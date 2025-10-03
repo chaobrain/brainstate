@@ -18,14 +18,6 @@ import unittest
 import brainstate
 
 
-class TestSequential(unittest.TestCase):
-    def test1(self):
-        s = brainstate.graph.Sequential(brainstate.nn.Linear(1, 2),
-                                        brainstate.nn.Linear(2, 3))
-        graphdef, states = brainstate.graph.treefy_split(s)
-        print(states)
-        self.assertTrue(len(states.to_flat()) == 2)
-
 
 class TestStateRetrieve(unittest.TestCase):
     def test_list_of_states_1(self):

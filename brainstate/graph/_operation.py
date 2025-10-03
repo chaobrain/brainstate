@@ -15,7 +15,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import annotations
 
 import dataclasses
 from typing import (
@@ -30,9 +29,9 @@ from typing_extensions import TypeGuard, Unpack
 from brainstate._state import State, TreefyState
 from brainstate._utils import set_module_as
 from brainstate.typing import PathParts, Filter, Predicate, Key
-from brainstate.util.filter import to_predicate
 from brainstate.util._pretty_pytree import NestedDict, FlattedDict, PrettyDict
 from brainstate.util._pretty_repr import PrettyRepr, PrettyType, PrettyAttr, PrettyMapping, MappingReprMixin
+from brainstate.util.filter import to_predicate
 from brainstate.util.struct import FrozenDict
 from ._caller import ApplyCaller, CallableProxy, DelayedAccessor
 
@@ -69,7 +68,6 @@ GraphStateMapping = NestedDict[Key, StateLeaf]
 
 
 # --------------------------------------------------------
-
 
 def _is_state_leaf(x: Any) -> TypeGuard[StateLeaf]:
     return isinstance(x, TreefyState)
@@ -450,14 +448,16 @@ def _graph_flatten(
             # The value is a static field.
             static_fields.append((key, value))
 
-    nodedef = NodeDef.create(type=node_impl.type,
-                             index=index,
-                             attributes=tuple(key for key, _ in values),
-                             subgraphs=subgraphs,
-                             static_fields=static_fields,
-                             leaves=leaves,
-                             metadata=metadata,
-                             index_mapping=None, )
+    nodedef = NodeDef.create(
+        type=node_impl.type,
+        index=index,
+        attributes=tuple(key for key, _ in values),
+        subgraphs=subgraphs,
+        static_fields=static_fields,
+        leaves=leaves,
+        metadata=metadata,
+        index_mapping=None,
+    )
     return nodedef
 
 
@@ -473,7 +473,7 @@ def flatten(
 
     Example::
 
-        >>> import brainstate as brainstate
+        >>> import brainstate 
         >>> node = brainstate.graph.Node()
         >>> graph_def, state_mapping = flatten(node)
         >>> print(graph_def)
@@ -534,8 +534,10 @@ def _get_children(graph_def, state_mapping, index_ref, index_ref_cache):
 
                 else:
                     # key for a variable is missing, raise an error
-                    raise ValueError(f'Expected key {key!r} in state while building node of type '
-                                     f'{graph_def.type.__name__}.')
+                    raise ValueError(
+                        f'Expected key {key!r} in state while building node of type '
+                        f'{graph_def.type.__name__}.'
+                    )
 
             else:
                 raise RuntimeError(f'Unknown static field: {key!r}')
@@ -709,7 +711,7 @@ def unflatten(
 
     Example::
 
-    >>> import brainstate as brainstate
+    >>> import brainstate 
     >>> class MyNode(brainstate.graph.Node):
     ...   def __init__(self):
     ...      self.a = brainstate.nn.Linear(2, 3)
@@ -942,7 +944,7 @@ def pop_states(
 
     Example usage::
 
-      >>> import brainstate as brainstate
+      >>> import brainstate 
       >>> import jax.numpy as jnp
 
       >>> class Model(brainstate.nn.Module):
@@ -1046,7 +1048,7 @@ def treefy_split(
 
     Example usage::
 
-      >>> from joblib.testing import param    >>> import brainstate as brainstate
+      >>> from joblib.testing import param    >>> import brainstate 
       >>> import jax, jax.numpy as jnp
       ...
       >>> class Foo(brainstate.graph.Node):
@@ -1119,7 +1121,7 @@ def treefy_merge(
 
     Example usage::
 
-      >>> import brainstate as brainstate
+      >>> import brainstate 
       >>> import jax, jax.numpy as jnp
       ...
       >>> class Foo(brainstate.graph.Node):
@@ -1302,7 +1304,7 @@ def treefy_states(
 
     Example usage::
 
-      >>> import brainstate as brainstate
+      >>> import brainstate 
       >>> class Model(brainstate.nn.Module):
       ...   def __init__(self):
       ...     super().__init__()
@@ -1403,7 +1405,7 @@ def graphdef(node: Any, /) -> GraphDef[Any]:
 
     Example usage::
 
-      >>> import brainstate as brainstate
+      >>> import brainstate 
 
       >>> model = brainstate.nn.Linear(2, 3)
       >>> graphdef, _ = brainstate.graph.treefy_split(model)
@@ -1426,7 +1428,7 @@ def clone(node: Node) -> Node:
 
     Example usage::
 
-      >>> import brainstate as brainstate
+      >>> import brainstate 
       >>> model = brainstate.nn.Linear(2, 3)
       >>> cloned_model = clone(model)
       >>> model.weight.value['bias'] += 1
@@ -1456,7 +1458,7 @@ def call(
 
     Example::
 
-      >>> import brainstate as brainstate
+      >>> import brainstate 
       >>> import jax
       >>> import jax.numpy as jnp
       ...
@@ -1544,7 +1546,7 @@ def iter_leaf(
     root. Repeated nodes are visited only once. Leaves include static values.
 
     Example::
-      >>> import brainstate as brainstate
+      >>> import brainstate 
       >>> import jax.numpy as jnp
       ...
       >>> class Linear(brainstate.nn.Module):
@@ -1616,7 +1618,7 @@ def iter_node(
     root. Repeated nodes are visited only once. Leaves include static values.
 
     Example::
-      >>> import brainstate as brainstate
+      >>> import brainstate 
       >>> import jax.numpy as jnp
       ...
       >>> class Model(brainstate.nn.Module):

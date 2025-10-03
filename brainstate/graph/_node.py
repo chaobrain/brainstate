@@ -17,7 +17,7 @@
 
 from abc import ABCMeta
 from copy import deepcopy
-from typing import Any, Callable, Type, TypeVar, Tuple, TYPE_CHECKING, Mapping, Iterator, Sequence
+from typing import Any, Type, TypeVar, Tuple, TYPE_CHECKING
 
 import brainunit as u
 import jax
@@ -26,10 +26,10 @@ import numpy as np
 from brainstate._state import State, TreefyState
 from brainstate.typing import Key
 from brainstate.util._pretty_pytree import PrettyObject
-from ._graph_operation import register_graph_node_type
+from ._operation import register_graph_node_type, treefy_split, treefy_merge
 
 __all__ = [
-    'Node', 'Dict', 'List', 'Sequential',
+    'Node',
 ]
 
 G = TypeVar('G', bound='Node')
@@ -49,6 +49,7 @@ class Node(PrettyObject, metaclass=GraphNodeMeta):
     Base class for all graph nodes.
 
     This class provides the following functionalities:
+
     - Register the node type with the graph tool.
     - Prevent mutation of the node from different trace level.
     - Provide a pretty repr for the node.
@@ -56,6 +57,7 @@ class Node(PrettyObject, metaclass=GraphNodeMeta):
     - Deepcopy the node.
 
     """
+    __module__ = 'brainstate.graph'
 
     graph_invisible_attrs = ()
 
@@ -72,11 +74,6 @@ class Node(PrettyObject, metaclass=GraphNodeMeta):
         )
 
     def __deepcopy__(self: G, memo=None) -> G:
-        """
-        Deepcopy the object.
-        """
-        from ._graph_operation import treefy_split, treefy_merge
-
         graphdef, state = treefy_split(self)
         graphdef = deepcopy(graphdef)
         state = deepcopy(state)
@@ -106,12 +103,9 @@ def _to_shape_dtype(value):
 # -------------------------------
 
 
-def _node_flatten(
-    node: Node
-) -> Tuple[Tuple[Tuple[str, Any], ...], Tuple[Type]]:
-    # graph_invisible_attrs = getattr(node, 'graph_invisible_attrs', ())
+def _node_flatten(node: Node) -> Tuple[Tuple[Tuple[str, Any], ...], Tuple[Type]]:
+    graph_invisible_attrs = getattr(node, 'graph_invisible_attrs', ())
     # graph_invisible_attrs = tuple(graph_invisible_attrs) + ('_trace_state',)
-    graph_invisible_attrs = ('_trace_state',)
     nodes = sorted(
         (key, value) for key, value in vars(node).items()
         if (key not in graph_invisible_attrs)
@@ -119,11 +113,7 @@ def _node_flatten(
     return nodes, (type(node),)
 
 
-def _node_set_key(
-    node: Node,
-    key: Key,
-    value: Any
-) -> None:
+def _node_set_key(node: Node, key: Key, value: Any) -> None:
     if not isinstance(key, str):
         raise KeyError(f'Invalid key: {key!r}')
     elif (
@@ -136,109 +126,18 @@ def _node_set_key(
         setattr(node, key, value)
 
 
-def _node_pop_key(
-    node: Node,
-    key: Key
-):
+def _node_pop_key(node: Node, key: Key):
     if not isinstance(key, str):
         raise KeyError(f'Invalid key: {key!r}')
     return vars(node).pop(key)
 
 
-def _node_create_empty(
-    static: tuple[Type[G],]
-) -> G:
+def _node_create_empty(static: tuple[Type[G],]) -> G:
     node_type, = static
     node = object.__new__(node_type)
     return node
 
 
 def _node_clear(node: Node):
-    module_state = node._trace_state
     module_vars = vars(node)
     module_vars.clear()
-    module_vars['_trace_state'] = module_state
-
-
-class Dict(Node, Mapping[str, A]):
-    """
-    A dictionary node.
-    """
-
-    def __init__(self, *args, **kwargs):
-        for name, value in dict(*args, **kwargs).items():
-            setattr(self, name, value)
-
-    def __getitem__(self, key) -> A:
-        return getattr(self, key)
-
-    def __setitem__(self, key, value):
-        setattr(self, key, value)
-
-    def __getattr__(self, key) -> A:
-        return super().__getattribute__(key)
-
-    def __setattr__(self, key, value):
-        super().__setattr__(key, value)
-
-    def __iter__(self) -> Iterator[str]:
-        return (k for k in vars(self) if k != '_object__state')
-
-    def __len__(self) -> int:
-        return len(vars(self))
-
-
-class List(Node):
-    """
-    A list node.
-    """
-
-    def __init__(self, seq=()):
-        vars(self).update({str(i): item for i, item in enumerate(seq)})
-
-    def __getitem__(self, idx):
-        return getattr(self, str(idx))
-
-    def __setitem__(self, idx, value):
-        setattr(self, str(idx), value)
-
-    def __iter__(self):
-        return iter(vars(self).values())
-
-    def __len__(self):
-        return len(vars(self))
-
-    def __add__(self, other: Sequence[A]) -> 'List[A]':
-        return List(list(self) + list(other))
-
-    def append(self, value):
-        self[len(vars(self))] = value
-
-    def extend(self, values):
-        for value in values:
-            self.append(value)
-
-
-class Sequential(Node):
-    def __init__(self, *fns: Callable[..., Any]):
-        self.layers = list(fns)
-
-    def __call__(self, *args, **kwargs) -> Any:
-        output: Any = None
-
-        for i, f in enumerate(self.layers):
-            if not callable(f):
-                raise TypeError(f'Sequence[{i}] is not callable: {f}')
-            if i > 0:
-                if isinstance(output, tuple):
-                    args = output
-                    kwargs = {}
-                elif isinstance(output, dict):
-                    args = ()
-                    kwargs = output
-                else:
-                    args = (output,)
-                    kwargs = {}
-            output = f(*args, **kwargs)
-
-        return output
