@@ -109,9 +109,6 @@ class Flatten(Module):
                 start_axis = x.ndim + self.start_axis
         return u.math.flatten(x, start_axis, self.end_axis)
 
-    def __repr__(self) -> str:
-        return f'{self.__class__.__name__}(start_axis={self.start_axis}, end_axis={self.end_axis})'
-
 
 class Unflatten(Module):
     r"""
@@ -170,9 +167,6 @@ class Unflatten(Module):
 
     def update(self, x):
         return u.math.unflatten(x, self.axis, self.sizes)
-
-    def __repr__(self):
-        return f'{self.__class__.__name__}(axis={self.axis}, sizes={self.sizes})'
 
 
 class _MaxPool(Module):
@@ -750,47 +744,60 @@ class _MaxUnpool(Module):
             output_shape = tuple(output_shape)
         else:
             # Use provided output size
-            if isinstance(output_size, int):
-                output_size = (output_size,) * self.pool_dim
-            output_shape = list(x.shape)
-            spatial_start = self._get_spatial_start_idx(x.ndim)
-            for i, size in enumerate(output_size):
-                output_shape[spatial_start + i] = size
-            output_shape = tuple(output_shape)
+            if isinstance(output_size, (list, tuple)):
+                if len(output_size) == x.ndim:
+                    # Full output shape provided
+                    output_shape = tuple(output_size)
+                else:
+                    # Only spatial dimensions provided
+                    if len(output_size) != self.pool_dim:
+                        raise ValueError(f"output_size must have {self.pool_dim} spatial dimensions, got {len(output_size)}")
+                    output_shape = list(x.shape)
+                    spatial_start = self._get_spatial_start_idx(x.ndim)
+                    for i, size in enumerate(output_size):
+                        output_shape[spatial_start + i] = size
+                    output_shape = tuple(output_shape)
+            else:
+                # Single integer provided, use for all spatial dims
+                output_shape = list(x.shape)
+                spatial_start = self._get_spatial_start_idx(x.ndim)
+                for i in range(self.pool_dim):
+                    output_shape[spatial_start + i] = output_size
+                output_shape = tuple(output_shape)
 
         # Create output array filled with zeros
         output = jnp.zeros(output_shape, dtype=x.dtype)
 
-        # Scatter input values to output using indices
-        # Flatten spatial dimensions for easier indexing
-        batch_dims = x.ndim - self.pool_dim - (0 if self.channel_axis is None else 1)
-
-        # Reshape for processing
-        if batch_dims > 0:
-            batch_shape = x.shape[:batch_dims]
-            if self.channel_axis is not None and self.channel_axis < batch_dims:
-                # Channel axis is before spatial dims
-                channel_idx = self.channel_axis
-                n_channels = x.shape[channel_idx]
-            elif self.channel_axis is not None:
-                # Channel axis is after spatial dims
-                if self.channel_axis < 0:
-                    channel_idx = x.ndim + self.channel_axis
-                else:
-                    channel_idx = self.channel_axis
-                n_channels = x.shape[channel_idx]
-            else:
-                n_channels = None
-        else:
-            batch_shape = ()
-            if self.channel_axis is not None:
-                if self.channel_axis < 0:
-                    channel_idx = x.ndim + self.channel_axis
-                else:
-                    channel_idx = self.channel_axis
-                n_channels = x.shape[channel_idx]
-            else:
-                n_channels = None
+        # # Scatter input values to output using indices
+        # # Flatten spatial dimensions for easier indexing
+        # batch_dims = x.ndim - self.pool_dim - (0 if self.channel_axis is None else 1)
+        #
+        # # Reshape for processing
+        # if batch_dims > 0:
+        #     batch_shape = x.shape[:batch_dims]
+        #     if self.channel_axis is not None and self.channel_axis < batch_dims:
+        #         # Channel axis is before spatial dims
+        #         channel_idx = self.channel_axis
+        #         n_channels = x.shape[channel_idx]
+        #     elif self.channel_axis is not None:
+        #         # Channel axis is after spatial dims
+        #         if self.channel_axis < 0:
+        #             channel_idx = x.ndim + self.channel_axis
+        #         else:
+        #             channel_idx = self.channel_axis
+        #         n_channels = x.shape[channel_idx]
+        #     else:
+        #         n_channels = None
+        # else:
+        #     batch_shape = ()
+        #     if self.channel_axis is not None:
+        #         if self.channel_axis < 0:
+        #             channel_idx = x.ndim + self.channel_axis
+        #         else:
+        #             channel_idx = self.channel_axis
+        #         n_channels = x.shape[channel_idx]
+        #     else:
+        #         n_channels = None
 
         # Use JAX's scatter operation
         # Flatten the indices to 1D for scatter
@@ -1810,39 +1817,52 @@ class _AdaptivePool(Module):
 
 
 class AdaptiveAvgPool1d(_AdaptivePool):
-    r"""Applies a 1D adaptive max pooling over an input signal composed of several input planes.
+    r"""Applies a 1D adaptive average pooling over an input signal composed of several input planes.
 
     The output size is :math:`L_{out}`, for any input size.
     The number of output features is equal to the number of input planes.
 
+    Adaptive pooling automatically computes the kernel size and stride to achieve the desired
+    output size, making it useful for creating fixed-size representations from variable-sized inputs.
+
     Shape:
         - Input: :math:`(N, L_{in}, C)` or :math:`(L_{in}, C)`.
         - Output: :math:`(N, L_{out}, C)` or :math:`(L_{out}, C)`, where
-          :math:`L_{out}=\text{output\_size}`.
+          :math:`L_{out}=\text{target\_size}`.
 
     Parameters
     ----------
     target_size : int or sequence of int
-        The target output shape.
+        The target output size. The number of output features for each channel.
     channel_axis : int, optional
         Axis of the spatial channels for which pooling is skipped.
         If ``None``, there is no channel axis. Default: -1
     name : str, optional
-        The class name.
+        The name of the module.
     in_size : Sequence of int, optional
-        The shape of the input tensor.
+        The shape of the input tensor for shape inference.
 
     Examples
     --------
     .. code-block:: python
 
         >>> import brainstate
-        >>> # target output size of 5
+        >>> # Target output size of 5
         >>> m = AdaptiveAvgPool1d(5)
         >>> input = brainstate.random.randn(1, 64, 8)
         >>> output = m(input)
         >>> output.shape
         (1, 5, 8)
+        >>> # Can handle variable input sizes
+        >>> input2 = brainstate.random.randn(1, 32, 8)
+        >>> output2 = m(input2)
+        >>> output2.shape
+        (1, 5, 8)  # Same output size regardless of input size
+
+    See Also
+    --------
+    AvgPool1d : Non-adaptive 1D average pooling.
+    AdaptiveMaxPool1d : Adaptive 1D max pooling.
     """
     __module__ = 'brainstate.nn'
 
@@ -1864,53 +1884,61 @@ class AdaptiveAvgPool1d(_AdaptivePool):
 
 
 class AdaptiveAvgPool2d(_AdaptivePool):
-    r"""Applies a 2D adaptive max pooling over an input signal composed of several input planes.
+    r"""Applies a 2D adaptive average pooling over an input signal composed of several input planes.
 
     The output is of size :math:`H_{out} \times W_{out}`, for any input size.
     The number of output features is equal to the number of input planes.
 
+    Adaptive pooling automatically computes the kernel size and stride to achieve the desired
+    output size, making it useful for creating fixed-size representations from variable-sized inputs.
+
     Shape:
         - Input: :math:`(N, H_{in}, W_{in}, C)` or :math:`(H_{in}, W_{in}, C)`.
         - Output: :math:`(N, H_{out}, W_{out}, C)` or :math:`(H_{out}, W_{out}, C)`, where
-          :math:`(H_{out}, W_{out})=\text{output\_size}`.
+          :math:`(H_{out}, W_{out})=\text{target\_size}`.
+
+    Parameters
+    ----------
+    target_size : int or tuple of int
+        The target output size. If a single integer is provided, the output will be a square
+        of that size. If a tuple is provided, it specifies (H_out, W_out).
+        Use None for dimensions that should not be pooled.
+    channel_axis : int, optional
+        Axis of the spatial channels for which pooling is skipped.
+        If ``None``, there is no channel axis. Default: -1
+    name : str, optional
+        The name of the module.
+    in_size : Sequence of int, optional
+        The shape of the input tensor for shape inference.
 
     Examples
     --------
     .. code-block:: python
 
-
-
         >>> import brainstate
-        >>> # target output size of 5x7
-        >>> m = AdaptiveMaxPool2d((5, 7))
+        >>> # Target output size of 5x7
+        >>> m = AdaptiveAvgPool2d((5, 7))
         >>> input = brainstate.random.randn(1, 8, 9, 64)
         >>> output = m(input)
         >>> output.shape
         (1, 5, 7, 64)
-        >>> # target output size of 7x7 (square)
-        >>> m = AdaptiveMaxPool2d(7)
+        >>> # Target output size of 7x7 (square)
+        >>> m = AdaptiveAvgPool2d(7)
         >>> input = brainstate.random.randn(1, 10, 9, 64)
         >>> output = m(input)
         >>> output.shape
         (1, 7, 7, 64)
-        >>> # target output size of 10x7
-        >>> m = AdaptiveMaxPool2d((None, 7))
+        >>> # Target output size of 10x7
+        >>> m = AdaptiveAvgPool2d((None, 7))
         >>> input = brainstate.random.randn(1, 10, 9, 64)
         >>> output = m(input)
         >>> output.shape
         (1, 10, 7, 64)
 
-    Parameters
-    ----------
-    in_size: Sequence of int
-      The shape of the input tensor.
-    target_size: int, sequence of int
-      The target output shape.
-    channel_axis: int, optional
-      Axis of the spatial channels for which pooling is skipped.
-      If ``None``, there is no channel axis.
-    name: str
-      The class name.
+    See Also
+    --------
+    AvgPool2d : Non-adaptive 2D average pooling.
+    AdaptiveMaxPool2d : Adaptive 2D max pooling.
     """
     __module__ = 'brainstate.nn'
 
@@ -1932,53 +1960,61 @@ class AdaptiveAvgPool2d(_AdaptivePool):
 
 
 class AdaptiveAvgPool3d(_AdaptivePool):
-    r"""Applies a 3D adaptive max pooling over an input signal composed of several input planes.
+    r"""Applies a 3D adaptive average pooling over an input signal composed of several input planes.
 
     The output is of size :math:`D_{out} \times H_{out} \times W_{out}`, for any input size.
     The number of output features is equal to the number of input planes.
 
+    Adaptive pooling automatically computes the kernel size and stride to achieve the desired
+    output size, making it useful for creating fixed-size representations from variable-sized inputs.
+
     Shape:
         - Input: :math:`(N, D_{in}, H_{in}, W_{in}, C)` or :math:`(D_{in}, H_{in}, W_{in}, C)`.
         - Output: :math:`(N, D_{out}, H_{out}, W_{out}, C)` or :math:`(D_{out}, H_{out}, W_{out}, C)`,
-          where :math:`(D_{out}, H_{out}, W_{out})=\text{output\_size}`.
+          where :math:`(D_{out}, H_{out}, W_{out})=\text{target\_size}`.
+
+    Parameters
+    ----------
+    target_size : int or tuple of int
+        The target output size. If a single integer is provided, the output will be a cube
+        of that size. If a tuple is provided, it specifies (D_out, H_out, W_out).
+        Use None for dimensions that should not be pooled.
+    channel_axis : int, optional
+        Axis of the spatial channels for which pooling is skipped.
+        If ``None``, there is no channel axis. Default: -1
+    name : str, optional
+        The name of the module.
+    in_size : Sequence of int, optional
+        The shape of the input tensor for shape inference.
 
     Examples
     --------
     .. code-block:: python
 
-
-
         >>> import brainstate
-        >>> # target output size of 5x7x9
-        >>> m = AdaptiveMaxPool3d((5, 7, 9))
+        >>> # Target output size of 5x7x9
+        >>> m = AdaptiveAvgPool3d((5, 7, 9))
         >>> input = brainstate.random.randn(1, 8, 9, 10, 64)
         >>> output = m(input)
         >>> output.shape
         (1, 5, 7, 9, 64)
-        >>> # target output size of 7x7x7 (cube)
-        >>> m = AdaptiveMaxPool3d(7)
+        >>> # Target output size of 7x7x7 (cube)
+        >>> m = AdaptiveAvgPool3d(7)
         >>> input = brainstate.random.randn(1, 10, 9, 8, 64)
         >>> output = m(input)
         >>> output.shape
         (1, 7, 7, 7, 64)
-        >>> # target output size of 7x9x8
-        >>> m = AdaptiveMaxPool3d((7, None, None))
+        >>> # Target output size of 7x9x8
+        >>> m = AdaptiveAvgPool3d((7, None, None))
         >>> input = brainstate.random.randn(1, 10, 9, 8, 64)
         >>> output = m(input)
         >>> output.shape
         (1, 7, 9, 8, 64)
 
-    Parameters
-    ----------
-    in_size: Sequence of int
-      The shape of the input tensor.
-    target_size: int, sequence of int
-      The target output shape.
-    channel_axis: int, optional
-      Axis of the spatial channels for which pooling is skipped.
-      If ``None``, there is no channel axis.
-    name: str
-      The class name.
+    See Also
+    --------
+    AvgPool3d : Non-adaptive 3D average pooling.
+    AdaptiveMaxPool3d : Adaptive 3D max pooling.
     """
     __module__ = 'brainstate.nn'
 
@@ -2000,19 +2036,52 @@ class AdaptiveAvgPool3d(_AdaptivePool):
 
 
 class AdaptiveMaxPool1d(_AdaptivePool):
-    """Adaptive one-dimensional maximum down-sampling.
+    r"""Applies a 1D adaptive max pooling over an input signal composed of several input planes.
+
+    The output size is :math:`L_{out}`, for any input size.
+    The number of output features is equal to the number of input planes.
+
+    Adaptive pooling automatically computes the kernel size and stride to achieve the desired
+    output size, making it useful for creating fixed-size representations from variable-sized inputs.
+
+    Shape:
+        - Input: :math:`(N, L_{in}, C)` or :math:`(L_{in}, C)`.
+        - Output: :math:`(N, L_{out}, C)` or :math:`(L_{out}, C)`, where
+          :math:`L_{out}=\text{target\_size}`.
 
     Parameters
     ----------
-    in_size: Sequence of int
-      The shape of the input tensor.
-    target_size: int, sequence of int
-      The target output shape.
-    channel_axis: int, optional
-      Axis of the spatial channels for which pooling is skipped.
-      If ``None``, there is no channel axis.
-    name: str
-      The class name.
+    target_size : int or sequence of int
+        The target output size. The number of output features for each channel.
+    channel_axis : int, optional
+        Axis of the spatial channels for which pooling is skipped.
+        If ``None``, there is no channel axis. Default: -1
+    name : str, optional
+        The name of the module.
+    in_size : Sequence of int, optional
+        The shape of the input tensor for shape inference.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate
+        >>> # Target output size of 5
+        >>> m = AdaptiveMaxPool1d(5)
+        >>> input = brainstate.random.randn(1, 64, 8)
+        >>> output = m(input)
+        >>> output.shape
+        (1, 5, 8)
+        >>> # Can handle variable input sizes
+        >>> input2 = brainstate.random.randn(1, 32, 8)
+        >>> output2 = m(input2)
+        >>> output2.shape
+        (1, 5, 8)  # Same output size regardless of input size
+
+    See Also
+    --------
+    MaxPool1d : Non-adaptive 1D max pooling.
+    AdaptiveAvgPool1d : Adaptive 1D average pooling.
     """
     __module__ = 'brainstate.nn'
 
@@ -2034,19 +2103,61 @@ class AdaptiveMaxPool1d(_AdaptivePool):
 
 
 class AdaptiveMaxPool2d(_AdaptivePool):
-    """Adaptive two-dimensional maximum down-sampling.
+    r"""Applies a 2D adaptive max pooling over an input signal composed of several input planes.
+
+    The output is of size :math:`H_{out} \times W_{out}`, for any input size.
+    The number of output features is equal to the number of input planes.
+
+    Adaptive pooling automatically computes the kernel size and stride to achieve the desired
+    output size, making it useful for creating fixed-size representations from variable-sized inputs.
+
+    Shape:
+        - Input: :math:`(N, H_{in}, W_{in}, C)` or :math:`(H_{in}, W_{in}, C)`.
+        - Output: :math:`(N, H_{out}, W_{out}, C)` or :math:`(H_{out}, W_{out}, C)`, where
+          :math:`(H_{out}, W_{out})=\text{target\_size}`.
 
     Parameters
     ----------
-    in_size: Sequence of int
-      The shape of the input tensor.
-    target_size: int, sequence of int
-      The target output shape.
-    channel_axis: int, optional
-      Axis of the spatial channels for which pooling is skipped.
-      If ``None``, there is no channel axis.
-    name: str
-      The class name.
+    target_size : int or tuple of int
+        The target output size. If a single integer is provided, the output will be a square
+        of that size. If a tuple is provided, it specifies (H_out, W_out).
+        Use None for dimensions that should not be pooled.
+    channel_axis : int, optional
+        Axis of the spatial channels for which pooling is skipped.
+        If ``None``, there is no channel axis. Default: -1
+    name : str, optional
+        The name of the module.
+    in_size : Sequence of int, optional
+        The shape of the input tensor for shape inference.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate
+        >>> # Target output size of 5x7
+        >>> m = AdaptiveMaxPool2d((5, 7))
+        >>> input = brainstate.random.randn(1, 8, 9, 64)
+        >>> output = m(input)
+        >>> output.shape
+        (1, 5, 7, 64)
+        >>> # Target output size of 7x7 (square)
+        >>> m = AdaptiveMaxPool2d(7)
+        >>> input = brainstate.random.randn(1, 10, 9, 64)
+        >>> output = m(input)
+        >>> output.shape
+        (1, 7, 7, 64)
+        >>> # Target output size of 10x7
+        >>> m = AdaptiveMaxPool2d((None, 7))
+        >>> input = brainstate.random.randn(1, 10, 9, 64)
+        >>> output = m(input)
+        >>> output.shape
+        (1, 10, 7, 64)
+
+    See Also
+    --------
+    MaxPool2d : Non-adaptive 2D max pooling.
+    AdaptiveAvgPool2d : Adaptive 2D average pooling.
     """
     __module__ = 'brainstate.nn'
 
@@ -2068,19 +2179,61 @@ class AdaptiveMaxPool2d(_AdaptivePool):
 
 
 class AdaptiveMaxPool3d(_AdaptivePool):
-    """Adaptive three-dimensional maximum down-sampling.
+    r"""Applies a 3D adaptive max pooling over an input signal composed of several input planes.
+
+    The output is of size :math:`D_{out} \times H_{out} \times W_{out}`, for any input size.
+    The number of output features is equal to the number of input planes.
+
+    Adaptive pooling automatically computes the kernel size and stride to achieve the desired
+    output size, making it useful for creating fixed-size representations from variable-sized inputs.
+
+    Shape:
+        - Input: :math:`(N, D_{in}, H_{in}, W_{in}, C)` or :math:`(D_{in}, H_{in}, W_{in}, C)`.
+        - Output: :math:`(N, D_{out}, H_{out}, W_{out}, C)` or :math:`(D_{out}, H_{out}, W_{out}, C)`,
+          where :math:`(D_{out}, H_{out}, W_{out})=\text{target\_size}`.
 
     Parameters
     ----------
-    in_size: Sequence of int
-      The shape of the input tensor.
-    target_size: int, sequence of int
-      The target output shape.
-    channel_axis: int, optional
-      Axis of the spatial channels for which pooling is skipped.
-      If ``None``, there is no channel axis.
-    name: str
-      The class name.
+    target_size : int or tuple of int
+        The target output size. If a single integer is provided, the output will be a cube
+        of that size. If a tuple is provided, it specifies (D_out, H_out, W_out).
+        Use None for dimensions that should not be pooled.
+    channel_axis : int, optional
+        Axis of the spatial channels for which pooling is skipped.
+        If ``None``, there is no channel axis. Default: -1
+    name : str, optional
+        The name of the module.
+    in_size : Sequence of int, optional
+        The shape of the input tensor for shape inference.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate
+        >>> # Target output size of 5x7x9
+        >>> m = AdaptiveMaxPool3d((5, 7, 9))
+        >>> input = brainstate.random.randn(1, 8, 9, 10, 64)
+        >>> output = m(input)
+        >>> output.shape
+        (1, 5, 7, 9, 64)
+        >>> # Target output size of 7x7x7 (cube)
+        >>> m = AdaptiveMaxPool3d(7)
+        >>> input = brainstate.random.randn(1, 10, 9, 8, 64)
+        >>> output = m(input)
+        >>> output.shape
+        (1, 7, 7, 7, 64)
+        >>> # Target output size of 7x9x8
+        >>> m = AdaptiveMaxPool3d((7, None, None))
+        >>> input = brainstate.random.randn(1, 10, 9, 8, 64)
+        >>> output = m(input)
+        >>> output.shape
+        (1, 7, 9, 8, 64)
+
+    See Also
+    --------
+    MaxPool3d : Non-adaptive 3D max pooling.
+    AdaptiveAvgPool3d : Adaptive 3D average pooling.
     """
     __module__ = 'brainstate.nn'
 
