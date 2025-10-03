@@ -338,14 +338,21 @@ class TestActivationFunctions(parameterized.TestCase):
         lambd = 0.5
         layer = nn.Hardshrink(lambd=lambd)
 
-        x = jnp.array([-1.0, -0.5, -0.3, 0.0, 0.3, 0.5, 1.0])
+        x = jnp.array([-1.0, -0.6, -0.5, -0.3, 0.0, 0.3, 0.5, 0.6, 1.0])
         output = layer(x)
 
-        # Values between -lambd and lambd should be zero
-        mask = (x > -lambd) & (x < lambd)
-        self.assertTrue(jnp.all(output[mask] == 0.0))
-        # Values outside should be preserved
-        self.assertTrue(jnp.all(output[~mask] == x[~mask]))
+        # Check each value according to hardshrink formula
+        expected = []
+        for xi in x:
+            if xi > lambd:
+                expected.append(xi)
+            elif xi < -lambd:
+                expected.append(xi)
+            else:
+                expected.append(0.0)
+        expected = jnp.array(expected)
+
+        np.testing.assert_allclose(output, expected, rtol=1e-5)
 
     # Test LeakyReLU
     def test_leaky_relu_functionality(self):
