@@ -118,7 +118,7 @@ class Projection(brainstate.nn.Synapse):
 # network model
 # ---------------
 
-class Net(brainstate.nn.DynamicsGroup):
+class Net(brainstate.nn.Module):
     def __init__(self, n_spike):
         super().__init__()
         times = brainstate.random.randn(n_spike) * spike_sigma + 20 * u.ms

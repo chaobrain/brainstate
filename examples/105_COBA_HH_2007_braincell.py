@@ -50,7 +50,7 @@ class HH(braincell.SingleCompartment):
         self.IL = braincell.channel.IL(in_size, E=-60. * u.mV, g_max=(5. * u.nS * u.cm ** -2) * area)
 
 
-class EINet(brainstate.nn.DynamicsGroup):
+class EINet(brainstate.nn.Module):
     def __init__(self):
         super().__init__()
         self.n_exc = 3200

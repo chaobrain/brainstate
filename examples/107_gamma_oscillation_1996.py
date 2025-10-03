@@ -104,7 +104,7 @@ class Synapse(brainstate.nn.Synapse):
         return self.g.value
 
 
-class GammaNet(brainstate.nn.DynamicsGroup):
+class GammaNet(brainstate.nn.Module):
     def __init__(self, num: int = 100):
         super().__init__()
         self.neu = HH(num)

@@ -71,7 +71,7 @@ class LIF(brainstate.nn.Neuron):
         return spike
 
 
-class Net(brainstate.nn.DynamicsGroup):
+class Net(brainstate.nn.Module):
     def __init__(self, num):
         super().__init__()
         self.group = LIF(num)

@@ -127,7 +127,7 @@ class HH(brainstate.nn.Dynamics):
         return self.spike.value
 
 
-class EINet(brainstate.nn.DynamicsGroup):
+class EINet(brainstate.nn.Module):
     def __init__(self):
         super().__init__()
         self.n_exc = 3200
