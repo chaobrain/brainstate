@@ -24,6 +24,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import optax
 import brainstate
+import braintools
 
 
 X = np.linspace(0, 1, 100)[:, None]
@@ -66,22 +67,22 @@ class MLP(brainstate.nn.Module):
 
 
 model = MLP(din=1, dhidden=32, dout=1)
-optimizer = brainstate.optim.OptaxOptimizer(optax.sgd(1e-3))
+optimizer = braintools.optim.SGD(1e-3)
 optimizer.register_trainable_weights(model.states(brainstate.ParamState))
 
 
-@brainstate.compile.jit
+@brainstate.transform.jit
 def train_step(batch):
     x, y = batch
 
     def loss_fn():
         return jnp.mean((y - model(x)) ** 2)
 
-    grads = brainstate.augment.grad(loss_fn, model.states(brainstate.ParamState))()
+    grads = brainstate.transform.grad(loss_fn, optimizer.param_states.to_dict())()
     optimizer.update(grads)
 
 
-@brainstate.compile.jit
+@brainstate.transform.jit
 def test_step(batch):
     x, y = batch
     y_pred = model(x)

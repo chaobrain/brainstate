@@ -40,13 +40,13 @@ class EINet(brainstate.nn.DynamicsGroup):
             self.n_exc,
             V_rest=-49. * u.mV, V_th=-50. * u.mV, V_reset=-60. * u.mV,
             tau=20. * u.ms, tau_ref=5. * u.ms,
-            V_initializer=brainstate.nn.NormalInit(-55., 2., unit=u.mV)
+            V_initializer=brainstate.nn.Normal(-55., 2., unit=u.mV)
         )
         self.I = brainstate.nn.LIFRef(
             self.n_inh,
             V_rest=-49. * u.mV, V_th=-50. * u.mV, V_reset=-60. * u.mV,
             tau=20. * u.ms, tau_ref=5. * u.ms,
-            V_initializer=brainstate.nn.NormalInit(-55., 2., unit=u.mV)
+            V_initializer=brainstate.nn.Normal(-55., 2., unit=u.mV)
         )
         self.E2E = brainstate.nn.AlignPostProj(
             self.E.prefetch('V'),

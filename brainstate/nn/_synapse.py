@@ -399,11 +399,11 @@ class AMPA(Synapse):
 
     def init_state(self, batch_size=None):
         self.g = HiddenState(init.param(self.g_initializer, self.varshape, batch_size))
-        self.spike_arrival_time = ShortTermState(init.param(init.ConstantInit(-1e7 * u.ms), self.varshape, batch_size))
+        self.spike_arrival_time = ShortTermState(init.param(init.Constant(-1e7 * u.ms), self.varshape, batch_size))
 
     def reset_state(self, batch_or_mode=None, **kwargs):
         self.g.value = init.param(self.g_initializer, self.varshape, batch_or_mode)
-        self.spike_arrival_time.value = init.param(init.ConstantInit(-1e7 * u.ms), self.varshape, batch_or_mode)
+        self.spike_arrival_time.value = init.param(init.Constant(-1e7 * u.ms), self.varshape, batch_or_mode)
 
     def update(self, pre_spike):
         t = environ.get('t')

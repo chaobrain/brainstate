@@ -53,7 +53,7 @@ class RNNCell(brainstate.nn.Module):
         num_in: int,
         num_out: int,
         state_initializer: Callable = brainstate.nn.ZeroInit(),
-        w_initializer: Callable = brainstate.nn.XavierNormalInit(),
+        w_initializer: Callable = brainstate.nn.XavierNormal(),
         b_initializer: Callable = brainstate.nn.ZeroInit(),
         activation: Callable = brainstate.functional.relu,
         train_state: bool = False,

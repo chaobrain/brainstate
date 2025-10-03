@@ -47,9 +47,9 @@ class LIF(brainstate.nn.Neuron):
 
     def init_state(self, *args, **kwargs):
         # variables
-        self.V = brainstate.HiddenState(brainstate.nn.param(brainstate.nn.ConstantInit(Vr), self.varshape))
+        self.V = brainstate.HiddenState(brainstate.nn.param(brainstate.nn.Constant(Vr), self.varshape))
         self.t_last_spike = brainstate.ShortTermState(
-            brainstate.nn.param(brainstate.nn.ConstantInit(-1e7 * u.ms), self.varshape)
+            brainstate.nn.param(brainstate.nn.Constant(-1e7 * u.ms), self.varshape)
         )
 
     def update(self):

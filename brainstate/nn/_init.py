@@ -33,20 +33,20 @@ __all__ = [
     'param',
     'calculate_init_gain',
     'ZeroInit',
-    'ConstantInit',
-    'IdentityInit',
-    'NormalInit',
-    'TruncatedNormalInit',
-    'UniformInit',
-    'VarianceScalingInit',
-    'KaimingUniformInit',
-    'KaimingNormalInit',
-    'XavierUniformInit',
-    'XavierNormalInit',
-    'LecunUniformInit',
-    'LecunNormalInit',
-    'OrthogonalInit',
-    'DeltaOrthogonalInit',
+    'Constant',
+    'Identity',
+    'Normal',
+    'TruncatedNormal',
+    'Uniform',
+    'VarianceScaling',
+    'KaimingUniform',
+    'KaimingNormal',
+    'XavierUniform',
+    'XavierNormal',
+    'LecunUniform',
+    'LecunNormal',
+    'Orthogonal',
+    'DeltaOrthogonal',
 ]
 
 
@@ -54,7 +54,7 @@ class Initializer(PrettyRepr):
     """
     Base class for initializers.
     """
-    __module__ = 'brainstate.init'
+    __module__ = 'brainstate.nn'
 
     def __call__(self, *args, **kwargs):
         raise NotImplementedError
@@ -130,7 +130,7 @@ def _expand_params_to_match_sizes(params, sizes):
     return params
 
 
-@set_module_as('brainstate.init')
+@set_module_as('brainstate.nn')
 def param(
     parameter: Union[Callable, ArrayLike, State],
     sizes: Union[int, Sequence[int]],
@@ -286,7 +286,7 @@ def _compute_fans(shape, in_axis=-2, out_axis=-1):
     return fan_in, fan_out
 
 
-class NormalInit(Initializer):
+class Normal(Initializer):
     """Initialize weights with normal distribution.
 
     Parameters
@@ -295,7 +295,7 @@ class NormalInit(Initializer):
       The gain of the derivation of the normal distribution.
 
     """
-    __module__ = 'brainstate.init'
+    __module__ = 'brainstate.nn'
 
     def __init__(
         self,
@@ -317,7 +317,7 @@ class NormalInit(Initializer):
         return u.maybe_decimal(u.Quantity(weights, unit=self.unit))
 
 
-class TruncatedNormalInit(Initializer):
+class TruncatedNormal(Initializer):
     """Initialize weights with truncated normal distribution.
 
     Parameters
@@ -336,7 +336,7 @@ class TruncatedNormalInit(Initializer):
       truncation. Must be broadcast-compatible with ``lower``.
 
     """
-    __module__ = 'brainstate.init'
+    __module__ = 'brainstate.nn'
 
     def __init__(
         self,
@@ -369,7 +369,7 @@ class TruncatedNormalInit(Initializer):
         return u.maybe_decimal(u.Quantity(weights, unit=self.unit))
 
 
-class GammaInit(Initializer):
+class Gamma(Initializer):
     """Initialize weights with Gamma distribution.
 
     Parameters
@@ -380,7 +380,7 @@ class GammaInit(Initializer):
       The gain of the derivation of the Gamma distribution.
 
     """
-    __module__ = 'brainstate.init'
+    __module__ = 'brainstate.nn'
 
     def __init__(
         self,
@@ -401,7 +401,7 @@ class GammaInit(Initializer):
         return u.maybe_decimal(u.Quantity(weights, unit=self.unit))
 
 
-class ExponentialInit(Initializer):
+class Exponential(Initializer):
     """Initialize weights with Gamma distribution.
 
     Parameters
@@ -410,7 +410,7 @@ class ExponentialInit(Initializer):
       The gain of the derivation of the Exponential distribution.
 
     """
-    __module__ = 'brainstate.init'
+    __module__ = 'brainstate.nn'
 
     def __init__(
         self,
@@ -429,7 +429,7 @@ class ExponentialInit(Initializer):
         return u.maybe_decimal(u.Quantity(weights, unit=self.unit))
 
 
-class UniformInit(Initializer):
+class Uniform(Initializer):
     """Initialize weights with uniform distribution.
 
     Parameters
@@ -439,7 +439,7 @@ class UniformInit(Initializer):
     max_val : float
       The upper limit of the uniform distribution.
     """
-    __module__ = 'brainstate.init'
+    __module__ = 'brainstate.nn'
 
     def __init__(
         self,
@@ -448,7 +448,7 @@ class UniformInit(Initializer):
         seed: SeedOrKey = None,
         unit: u.Unit = u.UNITLESS,
     ):
-        super(UniformInit, self).__init__()
+        super(Uniform, self).__init__()
         self.min_val = min_val
         self.max_val = max_val
         self.rng = random.default_rng(seed)
@@ -461,8 +461,8 @@ class UniformInit(Initializer):
         return u.maybe_decimal(u.Quantity(weights, unit=self.unit))
 
 
-class VarianceScalingInit(Initializer):
-    __module__ = 'brainstate.init'
+class VarianceScaling(Initializer):
+    __module__ = 'brainstate.nn'
 
     def __init__(
         self,
@@ -510,8 +510,8 @@ class VarianceScalingInit(Initializer):
         return u.maybe_decimal(u.Quantity(res, unit=self.unit))
 
 
-class KaimingUniformInit(VarianceScalingInit):
-    __module__ = 'brainstate.init'
+class KaimingUniform(VarianceScaling):
+    __module__ = 'brainstate.nn'
 
     def __init__(
         self,
@@ -532,8 +532,8 @@ class KaimingUniformInit(VarianceScalingInit):
                          unit=unit)
 
 
-class KaimingNormalInit(VarianceScalingInit):
-    __module__ = 'brainstate.init'
+class KaimingNormal(VarianceScaling):
+    __module__ = 'brainstate.nn'
 
     def __init__(
         self,
@@ -554,8 +554,8 @@ class KaimingNormalInit(VarianceScalingInit):
                          unit=unit)
 
 
-class XavierUniformInit(VarianceScalingInit):
-    __module__ = 'brainstate.init'
+class XavierUniform(VarianceScaling):
+    __module__ = 'brainstate.nn'
 
     def __init__(
         self,
@@ -576,8 +576,8 @@ class XavierUniformInit(VarianceScalingInit):
                          unit=unit)
 
 
-class XavierNormalInit(VarianceScalingInit):
-    __module__ = 'brainstate.init'
+class XavierNormal(VarianceScaling):
+    __module__ = 'brainstate.nn'
 
     def __init__(
         self,
@@ -598,8 +598,8 @@ class XavierNormalInit(VarianceScalingInit):
                          unit=unit)
 
 
-class LecunUniformInit(VarianceScalingInit):
-    __module__ = 'brainstate.init'
+class LecunUniform(VarianceScaling):
+    __module__ = 'brainstate.nn'
 
     def __init__(
         self,
@@ -620,8 +620,8 @@ class LecunUniformInit(VarianceScalingInit):
                          unit=unit)
 
 
-class LecunNormalInit(VarianceScalingInit):
-    __module__ = 'brainstate.init'
+class LecunNormal(VarianceScaling):
+    __module__ = 'brainstate.nn'
 
     def __init__(
         self,
@@ -642,14 +642,14 @@ class LecunNormalInit(VarianceScalingInit):
                          unit=unit)
 
 
-class OrthogonalInit(Initializer):
+class Orthogonal(Initializer):
     """
     Construct an initializer for uniformly distributed orthogonal matrices.
 
     If the shape is not square, the matrix will have orthonormal rows or columns
     depending on which side is smaller.
     """
-    __module__ = 'brainstate.init'
+    __module__ = 'brainstate.nn'
 
     def __init__(
         self,
@@ -683,13 +683,13 @@ class OrthogonalInit(Initializer):
         return u.maybe_decimal(u.Quantity(r, unit=self.unit))
 
 
-class DeltaOrthogonalInit(Initializer):
+class DeltaOrthogonal(Initializer):
     """
     Construct an initializer for delta orthogonal kernels; see arXiv:1806.05393.
 
     The shape must be 3D, 4D or 5D.
     """
-    __module__ = 'brainstate.init'
+    __module__ = 'brainstate.nn'
 
     def __init__(
         self,
@@ -701,7 +701,7 @@ class DeltaOrthogonalInit(Initializer):
         super().__init__()
         self.scale = scale
         self.axis = axis
-        self.orghogonal = OrthogonalInit(scale=scale, axis=axis, seed=seed)
+        self.orghogonal = Orthogonal(scale=scale, axis=axis, seed=seed)
         self.unit = unit
 
     def __call__(self, shape, dtype: DTypeLike = None, ):
@@ -730,7 +730,7 @@ class ZeroInit(Initializer):
 
     Initialize the weights with zeros.
     """
-    __module__ = 'brainstate.init'
+    __module__ = 'brainstate.nn'
 
     def __init__(self, unit: u.Unit = u.UNITLESS):
         super(ZeroInit, self).__init__()
@@ -742,8 +742,8 @@ class ZeroInit(Initializer):
         return u.maybe_decimal(u.math.zeros(shape, dtype=dtype, unit=self.unit))
 
 
-class ConstantInit(Initializer):
-    """ConstantInit initializer.
+class Constant(Initializer):
+    """Constant initializer.
 
     Initialize the weights with the given values.
 
@@ -752,10 +752,10 @@ class ConstantInit(Initializer):
     value : float, int, bm.ndarray
       The value to specify.
     """
-    __module__ = 'brainstate.init'
+    __module__ = 'brainstate.nn'
 
     def __init__(self, value=1., ):
-        super(ConstantInit, self).__init__()
+        super(Constant, self).__init__()
         self.value = value
 
     def __call__(self, shape, dtype=None):
@@ -764,7 +764,7 @@ class ConstantInit(Initializer):
         return u.maybe_decimal(u.math.full(shape, self.value, dtype=dtype))
 
 
-class IdentityInit(Initializer):
+class Identity(Initializer):
     """Returns the identity matrix.
 
     This initializer was proposed in (Le, et al., 2015) [1]_.
@@ -785,10 +785,10 @@ class IdentityInit(Initializer):
            initialize recurrent networks of rectified linear units." arXiv preprint
            arXiv:1504.00941 (2015).
     """
-    __module__ = 'brainstate.init'
+    __module__ = 'brainstate.nn'
 
     def __init__(self, value=1., unit: u.Unit = u.UNITLESS):
-        super(IdentityInit, self).__init__()
+        super(Identity, self).__init__()
         self.value = value
         self.unit = unit
 

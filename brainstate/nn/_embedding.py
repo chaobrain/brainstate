@@ -39,7 +39,7 @@ class Embedding(Module):
         self,
         num_embeddings: int,
         embedding_size: int,
-        embedding_init: Union[Callable, ArrayLike] = init.LecunUniformInit(),
+        embedding_init: Union[Callable, ArrayLike] = init.LecunUniform(),
         name: Optional[str] = None,
     ):
         super().__init__(name=name)

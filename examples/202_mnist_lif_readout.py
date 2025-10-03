@@ -40,7 +40,7 @@ print(args)
 class SNN(brainstate.nn.DynamicsGroup):
     def __init__(self, tau):
         super().__init__()
-        self.l1 = brainstate.nn.Linear(28 * 28, 10, b_init=None, w_init=brainstate.nn.LecunNormalInit(scale=10., unit=u.mA))
+        self.l1 = brainstate.nn.Linear(28 * 28, 10, b_init=None, w_init=brainstate.nn.LecunNormal(scale=10., unit=u.mA))
         self.l2 = brainstate.nn.LIF(10, V_rest=0. * u.mV, V_reset=0. * u.mV, V_th=1. * u.mV, tau=tau * u.ms)
 
     def update(self, x):

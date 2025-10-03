@@ -53,7 +53,7 @@ class EINet(brainstate.nn.DynamicsGroup):
         self.N = brainstate.nn.LIF(
             n_exc + n_inh,
             V_rest=-52. * u.mV, V_th=-50. * u.mV, V_reset=-60. * u.mV, tau=10. * u.ms,
-            V_initializer=brainstate.nn.NormalInit(-60., 10., unit=u.mV), spk_reset='soft'
+            V_initializer=brainstate.nn.Normal(-60., 10., unit=u.mV), spk_reset='soft'
         )
 
         # synapses

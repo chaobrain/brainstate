@@ -179,7 +179,7 @@ class IF(Neuron):
         R: ArrayLike = 1. * u.ohm,
         tau: ArrayLike = 5. * u.ms,
         V_th: ArrayLike = 1. * u.mV,  # should be positive
-        V_initializer: Callable = init.ConstantInit(0. * u.mV),
+        V_initializer: Callable = init.Constant(0. * u.mV),
         spk_fun: Callable = surrogate.ReluGrad(),
         spk_reset: str = 'soft',
         name: str = None,
@@ -315,7 +315,7 @@ class LIF(Neuron):
         V_th: ArrayLike = 1. * u.mV,
         V_reset: ArrayLike = 0. * u.mV,
         V_rest: ArrayLike = 0. * u.mV,
-        V_initializer: Callable = init.ConstantInit(0. * u.mV),
+        V_initializer: Callable = init.Constant(0. * u.mV),
         spk_fun: Callable = surrogate.ReluGrad(),
         spk_reset: str = 'soft',
         name: str = None,
@@ -477,7 +477,7 @@ class LIFRef(Neuron):
         V_th: ArrayLike = 1. * u.mV,
         V_reset: ArrayLike = 0. * u.mV,
         V_rest: ArrayLike = 0. * u.mV,
-        V_initializer: Callable = init.ConstantInit(0. * u.mV),
+        V_initializer: Callable = init.Constant(0. * u.mV),
         spk_fun: Callable = surrogate.ReluGrad(),
         spk_reset: str = 'soft',
         name: str = None,
@@ -495,11 +495,11 @@ class LIFRef(Neuron):
 
     def init_state(self, batch_size: int = None, **kwargs):
         self.V = HiddenState(init.param(self.V_initializer, self.varshape, batch_size))
-        self.last_spike_time = ShortTermState(init.param(init.ConstantInit(-1e7 * u.ms), self.varshape, batch_size))
+        self.last_spike_time = ShortTermState(init.param(init.Constant(-1e7 * u.ms), self.varshape, batch_size))
 
     def reset_state(self, batch_size: int = None, **kwargs):
         self.V.value = init.param(self.V_initializer, self.varshape, batch_size)
-        self.last_spike_time.value = init.param(init.ConstantInit(-1e7 * u.ms), self.varshape, batch_size)
+        self.last_spike_time.value = init.param(init.Constant(-1e7 * u.ms), self.varshape, batch_size)
 
     def get_spike(self, V: ArrayLike = None):
         V = self.V.value if V is None else V
@@ -656,8 +656,8 @@ class ALIF(Neuron):
         beta: ArrayLike = 0.1 * u.mV,
         spk_fun: Callable = surrogate.ReluGrad(),
         spk_reset: str = 'soft',
-        V_initializer: Callable = init.ConstantInit(0. * u.mV),
-        a_initializer: Callable = init.ConstantInit(0.),
+        V_initializer: Callable = init.Constant(0. * u.mV),
+        a_initializer: Callable = init.Constant(0.),
         name: str = None,
     ):
         super().__init__(in_size, name=name, spk_fun=spk_fun, spk_reset=spk_reset)

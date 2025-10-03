@@ -275,7 +275,7 @@ class _Conv(_BaseConv):
         lhs_dilation: Union[int, Tuple[int, ...]] = 1,
         rhs_dilation: Union[int, Tuple[int, ...]] = 1,
         groups: int = 1,
-        w_init: Union[Callable, ArrayLike] = init.XavierNormalInit(),
+        w_init: Union[Callable, ArrayLike] = init.XavierNormal(),
         b_init: Optional[Union[Callable, ArrayLike]] = None,
         w_mask: Optional[Union[ArrayLike, Callable]] = None,
         channel_first: bool = False,
@@ -392,7 +392,7 @@ class Conv1d(_Conv):
         When groups=in_channels, this becomes a depthwise convolution. Default: 1.
     w_init : Callable or ArrayLike, optional
         The initializer for the convolutional kernel weights. Can be an initializer instance
-        or a direct array. Default: XavierNormalInit().
+        or a direct array. Default: XavierNormal().
     b_init : Callable or ArrayLike or None, optional
         The initializer for the bias. If None, no bias is added. Default: None.
     w_mask : ArrayLike or Callable or None, optional
@@ -533,7 +533,7 @@ class Conv2d(_Conv):
         - A callable that returns an array given a shape
         - A direct array matching the kernel shape
 
-        Default: XavierNormalInit().
+        Default: XavierNormal().
     b_init : Callable or ArrayLike or None, optional
         Bias initializer. If None, no bias term is added to the output.
         Default: None.
@@ -686,7 +686,7 @@ class Conv3d(_Conv):
         - A callable that returns an array given a shape
         - A direct array matching the kernel shape
 
-        Default: XavierNormalInit().
+        Default: XavierNormal().
     b_init : Callable or ArrayLike or None, optional
         Bias initializer. If None, no bias term is added to the output.
         Default: None.
@@ -780,7 +780,7 @@ class _ScaledWSConv(_BaseConv):
         groups: int = 1,
         ws_gain: bool = True,
         eps: float = 1e-4,
-        w_init: Union[Callable, ArrayLike] = init.XavierNormalInit(),
+        w_init: Union[Callable, ArrayLike] = init.XavierNormal(),
         b_init: Optional[Union[Callable, ArrayLike]] = None,
         w_mask: Optional[Union[ArrayLike, Callable]] = None,
         channel_first: bool = False,
@@ -920,7 +920,7 @@ class ScaledWSConv1d(_ScaledWSConv):
         - A callable that returns an array given a shape
         - A direct array matching the kernel shape
 
-        Default: XavierNormalInit().
+        Default: XavierNormal().
     b_init : Callable or ArrayLike or None, optional
         Bias initializer. If None, no bias term is added to the output.
         Default: None.
@@ -1085,7 +1085,7 @@ class ScaledWSConv2d(_ScaledWSConv):
         - A callable that returns an array given a shape
         - A direct array matching the kernel shape
 
-        Default: XavierNormalInit().
+        Default: XavierNormal().
     b_init : Callable or ArrayLike or None, optional
         Bias initializer. If None, no bias term is added to the output.
         Default: None.
@@ -1264,7 +1264,7 @@ class ScaledWSConv3d(_ScaledWSConv):
         - A callable that returns an array given a shape
         - A direct array matching the kernel shape
 
-        Default: XavierNormalInit().
+        Default: XavierNormal().
     b_init : Callable or ArrayLike or None, optional
         Bias initializer. If None, no bias term is added to the output.
         Default: None.
@@ -1395,7 +1395,7 @@ class _ConvTranspose(_BaseConv):
         lhs_dilation: Union[int, Tuple[int, ...]] = 1,
         rhs_dilation: Union[int, Tuple[int, ...]] = 1,
         groups: int = 1,
-        w_init: Union[Callable, ArrayLike] = init.XavierNormalInit(),
+        w_init: Union[Callable, ArrayLike] = init.XavierNormal(),
         b_init: Optional[Union[Callable, ArrayLike]] = None,
         w_mask: Optional[Union[ArrayLike, Callable]] = None,
         channel_first: bool = False,
@@ -1580,7 +1580,7 @@ class ConvTranspose1d(_ConvTranspose):
         Number of groups for grouped transposed convolution. Both `in_channels` and
         `out_channels` must be divisible by `groups`. Default: 1.
     w_init : Callable or ArrayLike, optional
-        The initializer for the convolutional kernel weights. Default: XavierNormalInit().
+        The initializer for the convolutional kernel weights. Default: XavierNormal().
     b_init : Callable or ArrayLike or None, optional
         The initializer for the bias. If None, no bias is added. Default: None.
     w_mask : ArrayLike or Callable or None, optional
@@ -1726,7 +1726,7 @@ class ConvTranspose2d(_ConvTranspose):
         Number of groups for grouped transposed convolution. Must divide both `in_channels`
         and `out_channels`. Default: 1.
     w_init : Callable or ArrayLike, optional
-        Weight initializer for the convolutional kernel. Default: XavierNormalInit().
+        Weight initializer for the convolutional kernel. Default: XavierNormal().
     b_init : Callable or ArrayLike or None, optional
         Bias initializer. If None, no bias term is added. Default: None.
     w_mask : ArrayLike or Callable or None, optional
@@ -1891,7 +1891,7 @@ class ConvTranspose3d(_ConvTranspose):
         Number of groups for grouped transposed convolution. Must divide both `in_channels`
         and `out_channels`. Useful for reducing computational cost in 3D. Default: 1.
     w_init : Callable or ArrayLike, optional
-        Weight initializer for the convolutional kernel. Default: XavierNormalInit().
+        Weight initializer for the convolutional kernel. Default: XavierNormal().
     b_init : Callable or ArrayLike or None, optional
         Bias initializer. If None, no bias term is added. Default: None.
     w_mask : ArrayLike or Callable or None, optional

@@ -24,6 +24,7 @@ import numpy as np
 import optax
 from datasets import load_dataset
 import brainstate
+import braintools
 
 
 np.random.seed(42)
@@ -117,7 +118,7 @@ model = VAE(
     output_shape=image_shape,
 )
 
-optimizer = brainstate.optim.OptaxOptimizer(optax.adam(1e-3))
+optimizer = braintools.optim.Adam(1e-3)
 optimizer.register_trainable_weights(model.states(brainstate.ParamState))
 
 
@@ -132,7 +133,7 @@ def train_step(x: jax.Array):
         loss = reconstruction_loss + 0.1 * kl_loss
         return loss
 
-    grads, loss = brainstate.augment.grad(loss_fn, model.states(brainstate.ParamState), return_value=True)()
+    grads, loss = brainstate.augment.grad(loss_fn, optimizer.param_states.to_dict(), return_value=True)()
     optimizer.update(grads)
     return loss
 

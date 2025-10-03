@@ -20,8 +20,6 @@ import jax.numpy as jnp
 
 import brainstate
 
-brainstate.environ.set(dt=0.1)
-
 
 class TestDelay(unittest.TestCase):
     def setUp(self):

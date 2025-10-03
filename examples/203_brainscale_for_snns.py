@@ -203,8 +203,8 @@ class GifNet(brainstate.nn.Module):
 
         self.filepath = filepath
 
-        ff_init = brainstate.nn.KaimingNormalInit(scale=args.ff_scale, unit=u.mA)
-        rec_init = brainstate.nn.KaimingNormalInit(scale=args.rec_scale, unit=u.mA)
+        ff_init = brainstate.nn.KaimingNormal(scale=args.ff_scale, unit=u.mA)
+        rec_init = brainstate.nn.KaimingNormal(scale=args.rec_scale, unit=u.mA)
         w = u.math.concatenate([ff_init((num_in, num_rec)), rec_init((num_rec, num_rec))], axis=0)
 
         # parameters
@@ -227,7 +227,7 @@ class GifNet(brainstate.nn.Module):
             num_rec,
             num_out,
             tau=args.tau_o * u.ms,
-            w_init=brainstate.nn.KaimingNormalInit(scale=args.ff_scale)
+            w_init=brainstate.nn.KaimingNormal(scale=args.ff_scale)
         )
 
     def membrane_reg(self, mem_low: float, mem_high: float, factor: float = 0.):
