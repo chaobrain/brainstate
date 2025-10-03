@@ -50,9 +50,9 @@ class Linear(Module):
     out_size : int or tuple of int
         The output feature size.
     w_init : Callable or ArrayLike, optional
-        Weight initializer. Default is ``init.KaimingNormal()``.
+        Weight initializer. Default is ``KaimingNormal()``.
     b_init : Callable, ArrayLike, or None, optional
-        Bias initializer. If ``None``, no bias is added. Default is ``init.ZeroInit()``.
+        Bias initializer. If ``None``, no bias is added. Default is ``ZeroInit()``.
     w_mask : ArrayLike, Callable, or None, optional
         Optional mask for the weights. If provided, weights will be element-wise
         multiplied by this mask.
@@ -146,7 +146,7 @@ class SignedWLinear(Module):
     out_size : int or tuple of int
         The output feature size.
     w_init : Callable or ArrayLike, optional
-        Weight initializer. Default is ``init.KaimingNormal()``.
+        Weight initializer. Default is ``KaimingNormal()``.
     w_sign : ArrayLike or None, optional
         Sign matrix for the weights. If ``None``, all weights are positive
         (absolute values used). If provided, should have the same shape as
@@ -236,9 +236,9 @@ class ScaledWSLinear(Module):
     out_size : int or tuple of int
         The output feature size.
     w_init : Callable, optional
-        Weight initializer. Default is ``init.KaimingNormal()``.
+        Weight initializer. Default is ``KaimingNormal()``.
     b_init : Callable, optional
-        Bias initializer. Default is ``init.ZeroInit()``.
+        Bias initializer. Default is ``ZeroInit()``.
     w_mask : ArrayLike, Callable, or None, optional
         Optional mask for the weights.
     ws_gain : bool, optional
@@ -442,7 +442,7 @@ class AllToAll(Module):
     out_size : int or tuple of int
         The number of neurons in the post-synaptic group.
     w_init : Callable or ArrayLike, optional
-        Weight initializer. Default is ``init.KaimingNormal()``.
+        Weight initializer. Default is ``KaimingNormal()``.
     b_init : Callable, ArrayLike, or None, optional
         Bias initializer. If ``None``, no bias is added.
     include_self : bool, optional
@@ -563,7 +563,7 @@ class OneToOne(Module):
     in_size : int or tuple of int
         The number of neurons. Input and output sizes are the same.
     w_init : Callable or ArrayLike, optional
-        Weight initializer. Default is ``init.Normal()``.
+        Weight initializer. Default is ``Normal()``.
     b_init : Callable, ArrayLike, or None, optional
         Bias initializer. If ``None``, no bias is added.
     name : str, optional
@@ -648,7 +648,7 @@ class LoRA(Module):
         A base module to wrap. If provided, the LoRA output will be added to
         the base module's output. Default is ``None``.
     kernel_init : Callable or ArrayLike, optional
-        Initializer for the LoRA weight matrices. Default is ``init.LecunNormal()``.
+        Initializer for the LoRA weight matrices. Default is ``LecunNormal()``.
     param_type : type, optional
         Type of parameter state. Default is ``ParamState``.
 
