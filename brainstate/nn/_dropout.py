@@ -27,8 +27,12 @@ from . import _init as init
 from ._module import ElementWiseBlock
 
 __all__ = [
-    'Dropout', 'Dropout1d', 'Dropout2d', 'Dropout3d',
-    'AlphaDropout', 'FeatureAlphaDropout',
+    'Dropout',
+    'Dropout1d',
+    'Dropout2d',
+    'Dropout3d',
+    'AlphaDropout',
+    'FeatureAlphaDropout',
     'DropoutFixed',
 ]
 
