@@ -57,8 +57,8 @@ from ._poolings import *
 from ._poolings import __all__ as poolings_all
 from ._projection import *
 from ._projection import __all__ as projection_all
-from ._rate_rnns import *
-from ._rate_rnns import __all__ as rate_rnns
+from ._rnns import *
+from ._rnns import __all__ as rate_rnns
 from ._readout import *
 from ._readout import __all__ as readout_all
 from ._stp import *
