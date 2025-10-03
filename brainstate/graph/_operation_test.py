@@ -219,7 +219,7 @@ class TestGraphUtils(absltest.TestCase):
         class LinearTranspose(brainstate.nn.Module):
             def __init__(self, dout: int, din: int, ) -> None:
                 super().__init__()
-                self.kernel = brainstate.ParamState(brainstate.nn.LecunNormalInit()((dout, din)))
+                self.kernel = brainstate.ParamState(brainstate.nn.LecunNormal()((dout, din)))
 
             def __call__(self, x):
                 return x @ self.kernel.value.T
@@ -322,60 +322,6 @@ class TestGraphUtils(absltest.TestCase):
         assert m2.tree.b == 'a'
         assert m2.tree.a is not m.tree.a
         assert m2.tree is not m.tree
-
-    def test_call_jit_update(self):
-        class Counter(brainstate.graph.Node):
-            def __init__(self):
-                self.count = brainstate.ParamState(jnp.zeros(()))
-
-            def inc(self):
-                self.count.value += 1
-                return 1
-
-        graph_state = brainstate.graph.treefy_split(Counter())
-
-        @jax.jit
-        def update(graph_state):
-            out, graph_state = brainstate.graph.call(graph_state).inc()
-            self.assertEqual(out, 1)
-            return graph_state
-
-        graph_state = update(graph_state)
-        graph_state = update(graph_state)
-
-        counter = brainstate.graph.treefy_merge(*graph_state)
-
-        self.assertEqual(counter.count.value, 2)
-
-    def test_stateful_linear(self):
-        linear = StatefulLinear(3, 2)
-        linear_state = brainstate.graph.treefy_split(linear)
-
-        @jax.jit
-        def forward(x, pure_linear):
-            y, pure_linear = brainstate.graph.call(pure_linear)(x)
-            return y, pure_linear
-
-        x = jnp.ones((1, 3))
-        y, linear_state = forward(x, linear_state)
-        y, linear_state = forward(x, linear_state)
-
-        self.assertEqual(linear.count.value, 0)
-        new_linear = brainstate.graph.treefy_merge(*linear_state)
-        self.assertEqual(new_linear.count.value, 2)
-
-    def test_getitem(self):
-        nodes = dict(
-            a=StatefulLinear(3, 2),
-            b=StatefulLinear(2, 1),
-        )
-        node_state = brainstate.graph.treefy_split(nodes)
-        _, node_state = brainstate.graph.call(node_state)['b'].increment()
-
-        nodes = brainstate.graph.treefy_merge(*node_state)
-
-        self.assertEqual(nodes['a'].count.value, 0)
-        self.assertEqual(nodes['b'].count.value, 1)
 
 
 class SimpleModule(brainstate.nn.Module):
