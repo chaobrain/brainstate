@@ -421,11 +421,11 @@ class TestLoRA(parameterized.TestCase):
 
     def test_lora_size_attributes(self):
         """Test that size attributes are set correctly."""
-        layer = brainstate.nn.LoRA(10, 3, 5)
+        layer = brainstate.nn.LoRA(10, 3, 5, in_size=(10,))
         self.assertEqual(layer.in_features, 10)
         self.assertEqual(layer.out_features, 5)
-        self.assertEqual(layer.in_size, 10)
-        self.assertEqual(layer.out_size, 5)
+        self.assertEqual(layer.in_size[0], 10)
+        self.assertEqual(layer.out_size[0], 5)
 
     def test_lora_custom_initialization(self):
         """Test LoRA with custom initialization."""

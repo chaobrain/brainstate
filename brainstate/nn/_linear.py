@@ -710,6 +710,7 @@ class LoRA(Module):
         base_module: Optional[Module] = None,
         kernel_init: Union[Callable, ArrayLike] = init.LecunNormal(),
         param_type: type = ParamState,
+        in_size: Size = None,
     ):
         super().__init__()
 
@@ -728,6 +729,11 @@ class LoRA(Module):
             lora_b=kernel_init((lora_rank, out_features))
         )
         self.weight = param_type(param)
+
+        # in_size
+        if in_size is not None:
+            self.in_size = in_size
+            self.out_size = tuple(self.in_size[:-1]) + (out_features,)
 
     def __call__(self, x: ArrayLike):
         out = x @ self.weight.value['lora_a'] @ self.weight.value['lora_b']
