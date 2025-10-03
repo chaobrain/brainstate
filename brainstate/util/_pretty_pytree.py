@@ -49,8 +49,8 @@ from typing import TypeVar, Hashable, Union, Iterable, Any, Optional, Tuple, Dic
 import jax
 
 from brainstate.typing import Filter, PathParts
-from .filter import to_predicate
 from ._pretty_repr import PrettyRepr, PrettyType, PrettyAttr, yield_unique_pretty_repr_items, pretty_repr_object
+from .filter import to_predicate
 from .struct import dataclass
 
 __all__ = [
@@ -360,7 +360,7 @@ class PrettyDict(dict, PrettyRepr):
         """
         yield from yield_unique_pretty_repr_items(self, _default_repr_object, _default_repr_attr)
 
-    def split(self, *filters: Filter) -> Union['PrettyDict[K, V]', Tuple['PrettyDict[K, V]', ...]]:
+    def split(self, *filters: Filter) -> Union['PrettyDict', Tuple['PrettyDict', ...]]:
         """Split the dictionary based on filters (abstract method).
 
         This method must be implemented by subclasses.
@@ -373,7 +373,7 @@ class PrettyDict(dict, PrettyRepr):
         """
         raise NotImplementedError
 
-    def filter(self, *filters: Filter) -> Union['PrettyDict[K, V]', Tuple['PrettyDict[K, V]', ...]]:
+    def filter(self, *filters: Filter) -> Union['PrettyDict', Tuple['PrettyDict', ...]]:
         """Filter the dictionary based on filters (abstract method).
 
         This method must be implemented by subclasses.
@@ -386,7 +386,7 @@ class PrettyDict(dict, PrettyRepr):
         """
         raise NotImplementedError
 
-    def merge(self, *states: 'PrettyDict[K, V]') -> 'PrettyDict[K, V]':
+    def merge(self, *states: 'PrettyDict') -> 'PrettyDict':
         """Merge multiple dictionaries (abstract method).
 
         This method must be implemented by subclasses.
@@ -399,7 +399,7 @@ class PrettyDict(dict, PrettyRepr):
         """
         raise NotImplementedError
 
-    def subset(self, *filters: Filter) -> Union['PrettyDict[K, V]', Tuple['PrettyDict[K, V]', ...]]:
+    def subset(self, *filters: Filter) -> Union['PrettyDict', Tuple['PrettyDict', ...]]:
         """Subset a :class:`PrettyDict` into one or more :class:`PrettyDict` instances.
 
         The user must pass at least one :class:`Filter` (e.g., :class:`State`), and the
@@ -410,7 +410,7 @@ class PrettyDict(dict, PrettyRepr):
             *filters: Filter specifications for subsetting.
 
         Returns:
-            Union[PrettyDict[K, V], Tuple[PrettyDict[K, V], ...]]: One or more subsetted
+            Union[PrettyDict, Tuple[PrettyDict, ...]]: One or more subsetted
                 dictionaries.
         """
         return self.filter(*filters)
@@ -533,13 +533,13 @@ class NestedDict(PrettyDict):
     """
     __module__ = 'brainstate.util'
 
-    def __or__(self, other: 'NestedDict[K, V]') -> 'NestedDict[K, V]':
+    def __or__(self, other: 'NestedDict') -> 'NestedDict':
         if not other:
             return self
         assert isinstance(other, NestedDict), f'expected NestedDict; got {type(other).__qualname__}'
         return NestedDict.merge(self, other)
 
-    def __sub__(self, other: 'NestedDict[K, V]') -> 'NestedDict[K, V]':
+    def __sub__(self, other: 'NestedDict') -> 'NestedDict':
         if not other:
             return self
 
@@ -572,12 +572,7 @@ class NestedDict(PrettyDict):
         nested_state = nest_mapping(dict(flat_dict))
         return cls(nested_state)
 
-    def split(  # type: ignore[misc]
-        self,
-        first: Filter,
-        /,
-        *filters: Filter
-    ) -> Union['NestedDict[K, V]', Tuple['NestedDict[K, V]', ...]]:
+    def split(self, *filters: Filter) -> Union['NestedDict', Tuple['NestedDict', ...]]:
         """
         Split a :class:`NestedDict` into one or more :class:`NestedDict`'s. The
         user must pass at least one `:class:`Filter` (i.e. :class:`State`),
@@ -607,7 +602,6 @@ class NestedDict(PrettyDict):
         Returns:
           One or more ``States`` equal to the number of filters passed.
         """
-        filters = (first, *filters)
         *states_, rest = _split_nested_mapping(self, *filters)
         if rest:
             raise ValueError(f'Non-exhaustive filters, got a non-empty remainder: {rest}.\n'
@@ -620,12 +614,7 @@ class NestedDict(PrettyDict):
             states = tuple(states_)
         return states  # type: ignore[bad-return-type]
 
-    def filter(
-        self,
-        first: Filter,
-        /,
-        *filters: Filter,
-    ) -> Union['NestedDict[K, V]', Tuple['NestedDict[K, V]', ...]]:
+    def filter(self, *filters: Filter) -> Union['NestedDict', Tuple['NestedDict', ...]]:
         """
         Filter a :class:`NestedDict` into one or more :class:`NestedDict`'s. The
         user must pass at least one `:class:`Filter` (i.e. :class:`State`).
@@ -639,7 +628,7 @@ class NestedDict(PrettyDict):
         Returns:
           One or more ``States`` equal to the number of filters passed.
         """
-        *states_, _rest = _split_nested_mapping(self, first, *filters)
+        *states_, _rest = _split_nested_mapping(self, *filters)
         assert len(states_) == len(filters) + 1, f'Expected {len(filters) + 1} states, got {len(states_)}'
         if len(states_) == 1:
             states = states_[0]
@@ -648,11 +637,7 @@ class NestedDict(PrettyDict):
         return states  # type: ignore[bad-return-type]
 
     @staticmethod
-    def merge(
-        state: Union['NestedDict[K, V]', 'FlattedDict[K, V]'],
-        /,
-        *states: Union['NestedDict[K, V]', 'FlattedDict[K, V]']
-    ) -> 'NestedDict[K, V]':
+    def merge(*states) -> 'NestedDict':
         """
         The inverse of :meth:`split()`.
 
@@ -665,9 +650,6 @@ class NestedDict(PrettyDict):
         Returns:
           The merged :class:`PrettyDict`.
         """
-        if not states:
-            return state
-        states = (state, *states)
         new_state: FlattedDict = FlattedDict()
         for state in states:
             if isinstance(state, NestedDict):
@@ -818,13 +800,13 @@ class FlattedDict(PrettyDict):
     """
     __module__ = 'brainstate.util'
 
-    def __or__(self, other: 'FlattedDict[K, V]') -> 'FlattedDict[K, V]':
+    def __or__(self, other: 'FlattedDict') -> 'FlattedDict':
         if not other:
             return self
         assert isinstance(other, FlattedDict), f'expected NestedDict; got {type(other).__qualname__}'
         return FlattedDict.merge(self, other)
 
-    def __sub__(self, other: 'FlattedDict[K, V]') -> 'FlattedDict[K, V]':
+    def __sub__(self, other: 'FlattedDict') -> 'FlattedDict':
         if not other:
             return self
         assert isinstance(other, FlattedDict), f'expected NestedDict; got {type(other).__qualname__}'
@@ -860,7 +842,7 @@ class FlattedDict(PrettyDict):
         first: Filter,
         /,
         *filters: Filter
-    ) -> Union['FlattedDict[K, V]', tuple['FlattedDict[K, V]', ...]]:
+    ) -> Union['FlattedDict', tuple['FlattedDict', ...]]:
         """
         Split a :class:`FlattedDict` into one or more :class:`FlattedDict`'s. The
         user must pass at least one `:class:`Filter` (i.e. :class:`State`),
@@ -892,7 +874,7 @@ class FlattedDict(PrettyDict):
         first: Filter,
         /,
         *filters: Filter,
-    ) -> Union['FlattedDict[K, V]', Tuple['FlattedDict[K, V]', ...]]:
+    ) -> Union['FlattedDict', Tuple['FlattedDict', ...]]:
         """
         Filter a :class:`FlattedDict` into one or more :class:`FlattedDict`'s. The
         user must pass at least one `:class:`Filter` (i.e. :class:`State`).
@@ -915,11 +897,7 @@ class FlattedDict(PrettyDict):
         return states  # type: ignore[bad-return-type]
 
     @staticmethod
-    def merge(
-        state: Union['FlattedDict[K, V]', 'NestedDict[K, V]'],
-        /,
-        *states: Union['FlattedDict[K, V]', 'NestedDict[K, V]']
-    ) -> 'FlattedDict[K, V]':
+    def merge(*states: Union['FlattedDict', 'NestedDict']) -> 'FlattedDict':
         """
         The inverse of :meth:`split()`.
 
@@ -932,9 +910,6 @@ class FlattedDict(PrettyDict):
         Returns:
           The merged :class:`PrettyDict`.
         """
-        if not states:
-            return state
-        states = (state, *states)
         new_state: FlattedStateMapping[V] = {}
         for state in states:
             if isinstance(state, NestedDict):
@@ -1007,9 +982,9 @@ class FlattedDict(PrettyDict):
 
 
 def _split_nested_mapping(
-    mapping: 'NestedDict[K, V]',
+    mapping: 'NestedDict',
     *filters: Filter,
-) -> Tuple['NestedDict[K, V]', ...]:
+) -> Tuple['NestedDict', ...]:
     """Split a nested mapping into multiple nested mappings based on filters.
 
     This internal function partitions a NestedDict into multiple NestedDicts based on
@@ -1022,7 +997,7 @@ def _split_nested_mapping(
             only be used as the last filter.
 
     Returns:
-        Tuple[NestedDict[K, V], ...]: A tuple of n+1 NestedDicts, where n is the number
+        Tuple[NestedDict, ...]: A tuple of n+1 NestedDicts, where n is the number
             of filters. The last mapping contains items that didn't match any filter.
 
     Raises:
@@ -1059,9 +1034,9 @@ def _split_nested_mapping(
 
 
 def _split_flatted_mapping(
-    mapping: FlattedDict[K, V],
+    mapping: FlattedDict,
     *filters: Filter,
-) -> Tuple[FlattedDict[K, V], ...]:
+) -> Tuple[FlattedDict, ...]:
     """Split a flattened mapping into multiple flattened mappings based on filters.
 
     This internal function partitions a FlattedDict into multiple FlattedDicts based on
@@ -1074,7 +1049,7 @@ def _split_flatted_mapping(
             only be used as the last filter.
 
     Returns:
-        Tuple[FlattedDict[K, V], ...]: A tuple of n+1 FlattedDicts, where n is the number
+        Tuple[FlattedDict, ...]: A tuple of n+1 FlattedDicts, where n is the number
             of filters. The last mapping contains items that didn't match any filter.
 
     Raises:
@@ -1129,7 +1104,7 @@ def _nest_flatten_with_keys(x: NestedDict) -> Tuple[Tuple[Tuple[jax.tree_util.Di
 
 def _nest_unflatten(
     static: Tuple[K, ...],
-    leaves: Union[Tuple[V, ...], Tuple[Dict[K, V]]],
+    leaves: Union[Tuple[V, ...], Tuple[Dict]],
 ) -> NestedDict:
     """Unflatten a NestedDict from pytree components.
 
@@ -1154,7 +1129,7 @@ jax.tree_util.register_pytree_with_keys(
 
 def _flat_unflatten(
     static: Tuple[K, ...],
-    leaves: Union[Tuple[V, ...], Tuple[Dict[K, V]]],
+    leaves: Union[Tuple[V, ...], Tuple[Dict]],
 ) -> FlattedDict:
     """Unflatten a FlattedDict from pytree components.
 

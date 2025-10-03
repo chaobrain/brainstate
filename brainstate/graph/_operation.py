@@ -80,7 +80,7 @@ AuxData = TypeVar('AuxData')
 
 StateLeaf = TreefyState[Any]
 NodeLeaf = State[Any]
-GraphStateMapping = NestedDict[Key, StateLeaf]
+GraphStateMapping = NestedDict
 
 
 # --------------------------------------------------------
@@ -182,7 +182,7 @@ NodeImpl = Union[GraphNodeImpl[Node, Leaf, AuxData], PyTreeNodeImpl[Node, Leaf, 
 # Graph Node implementation: start
 # --------------------------------------------------------
 
-_node_impl_for_type: dict[type, NodeImpl[Any, Any, Any]] = {}
+_node_impl_for_type: dict[type, NodeImpl] = {}
 
 
 def register_graph_node_type(
@@ -278,7 +278,7 @@ def _is_node_type(x: Type[Any]) -> bool:
     return x in _node_impl_for_type or x is PytreeType
 
 
-def _get_node_impl(x: Any) -> NodeImpl[Any, Any, Any]:
+def _get_node_impl(x: Any) -> NodeImpl:
     if isinstance(x, State):
         raise ValueError(f'State is not a node: {x}')
 
@@ -292,7 +292,7 @@ def _get_node_impl(x: Any) -> NodeImpl[Any, Any, Any]:
     return _node_impl_for_type[node_type]
 
 
-def get_node_impl_for_type(x: Type[Any]) -> NodeImpl[Any, Any, Any]:
+def get_node_impl_for_type(x: Type[Any]) -> NodeImpl:
     if x is PytreeType:
         return PYTREE_NODE_IMPL
     return _node_impl_for_type[x]
@@ -363,7 +363,7 @@ class NodeDef(GraphDef[Node], PrettyRepr):
         Attributes for the node.
     subgraphs : HashableMapping[Key, NodeDef[Any] | NodeRef[Any]]
         Mapping of subgraph definitions.
-    static_fields : HashableMapping[Key, Any]
+    static_fields : HashableMapping
         Mapping of static fields.
     leaves : HashableMapping[Key, NodeRef[Any] | None]
         Mapping of leaf nodes.
@@ -378,7 +378,7 @@ class NodeDef(GraphDef[Node], PrettyRepr):
     index: int  # index of the node in the graph
     attributes: Tuple[Key, ...]  # attributes for the node
     subgraphs: HashableMapping[Key, NodeDef[Any] | NodeRef[Any]]
-    static_fields: HashableMapping[Key, Any]
+    static_fields: HashableMapping
     leaves: HashableMapping[Key, NodeRef[Any] | None]
     metadata: Hashable
     index_mapping: FrozenDict[Index, Index] | None
@@ -390,7 +390,7 @@ class NodeDef(GraphDef[Node], PrettyRepr):
         index: int,
         attributes: tuple[Key, ...],
         subgraphs: Iterable[tuple[Key, NodeDef[Any] | NodeRef[Any]]],
-        static_fields: Iterable[tuple[Key, Any]],
+        static_fields: Iterable[tuple],
         leaves: Iterable[tuple[Key, NodeRef[Any] | None]],
         metadata: Hashable,
         index_mapping: Mapping[Index, Index] | None,
@@ -508,7 +508,7 @@ def _graph_flatten(
         index = -1
 
     subgraphs: list[tuple[Key, Union[NodeDef[Any], NodeRef[Any]]]] = []
-    static_fields: list[tuple[Key, Any]] = []
+    static_fields: list[tuple] = []
     leaves: list[tuple[Key, Union[NodeRef[Any], None]]] = []
 
     # Flatten the node into a sequence of key-value pairs.
@@ -559,7 +559,7 @@ def flatten(
     /,
     ref_index: Optional[RefMap[Any, Index]] = None,
     treefy_state: bool = True,
-) -> Tuple[GraphDef[Any], NestedDict[Key, StateLeaf]]:
+) -> Tuple[GraphDef[Any], NestedDict]:
     """
     Flattens a graph node into a (graph_def, state_mapping) pair.
 
@@ -600,7 +600,7 @@ def flatten(
 
 def _get_children(
     graph_def: NodeDef[Any],
-    state_mapping: Mapping[Key, Any],
+    state_mapping: Mapping,
     index_ref: dict[Index, Any],
     index_ref_cache: Optional[dict[Index, Any]],
 ) -> dict[Key, Union[StateLeaf, Any]]:
@@ -616,8 +616,8 @@ def _get_children(
     #  - (3) the key can be a subgraph, a leaf, or a static attribute
     for key in graph_def.attributes:
         if key not in state_mapping:  # static field
-            # TODO(cgarcia): maybe we shouldn't support unflattening with missing keys?
-            # if key is not present, create an empty types
+            # Support unflattening with missing keys for static fields and subgraphs
+            # This allows partial state restoration and flexible graph reconstruction
             if key in graph_def.static_fields:
                 children[key] = graph_def.static_fields[key]
 
@@ -663,8 +663,11 @@ def _get_children(
             if key in graph_def.subgraphs:
                 # if _is_state_leaf(value):
                 if isinstance(value, (TreefyState, State)):
-                    raise ValueError(f'Expected value of type {graph_def.subgraphs[key]} '
-                                     f'for {key!r}, but got {value!r}')
+                    raise ValueError(
+                        f'Expected value of type {graph_def.subgraphs[key]} '
+                        f'for {key!r}, but got {value!r}'
+                    )
+
                 if not isinstance(value, dict):
                     raise TypeError(f'Expected a dict for {key!r}, but got {type(value)}.')
 
@@ -686,8 +689,8 @@ def _get_children(
                     # TreefyState presumbly created by modifying the NestedDict
                     if isinstance(value, TreefyState):
                         value = value.to_state()
-                    # elif isinstance(value, State):
-                    #     value = value
+                    elif isinstance(value, State):
+                        value = value
                     children[key] = value
 
                 elif noderef.index in index_ref:
@@ -697,7 +700,10 @@ def _get_children(
                 else:
                     # it is an unseen variable, create a new one
                     if not isinstance(value, (TreefyState, State)):
-                        raise ValueError(f'Expected a State type for {key!r}, but got {type(value)}.')
+                        raise ValueError(
+                            f'Expected a State type for {key!r}, but got {type(value)}.'
+                        )
+
                     # when idxmap is present, check if the Varable exists there
                     # and update existing variables if it does
                     if index_ref_cache is not None and noderef.index in index_ref_cache:
@@ -731,7 +737,7 @@ def _get_children(
 
 def _graph_unflatten(
     graph_def: Union[NodeDef[Any], NodeRef[Any]],
-    state_mapping: Mapping[Key, Union[StateLeaf, Mapping[Key, Any]]],
+    state_mapping: Mapping[Key, Union[StateLeaf, Mapping]],
     index_ref: dict[Index, Any],
     index_ref_cache: Optional[dict[Index, Any]],
 ) -> Any:
@@ -810,7 +816,7 @@ def _graph_unflatten(
 @set_module_as('brainstate.graph')
 def unflatten(
     graph_def: GraphDef[Any],
-    state_mapping: NestedDict[Key, StateLeaf],
+    state_mapping: NestedDict,
     /,
     *,
     index_ref: Optional[dict[Index, Any]] = None,
@@ -823,7 +829,7 @@ def unflatten(
     ----------
     graph_def : GraphDef
         A GraphDef instance.
-    state_mapping : NestedDict[Key, StateLeaf]
+    state_mapping : NestedDict
         A NestedDict instance containing the state mapping.
     index_ref : dict[Index, Any], optional
         A mapping from indexes to nodes references found during the graph
@@ -918,9 +924,8 @@ def _graph_pop(
 
 @set_module_as('brainstate.graph')
 def pop_states(
-    node: Any,
-    *filters: Any
-) -> Union[NestedDict[Key, StateLeaf], Tuple[NestedDict[Key, StateLeaf], ...]]:
+    node: Any,  *filters: Any
+) -> Union[NestedDict, Tuple[NestedDict, ...]]:
     """
     Pop one or more :class:`State` types from the graph node.
 
@@ -933,7 +938,7 @@ def pop_states(
 
     Returns
     -------
-    NestedDict[Key, State] or tuple[NestedDict[Key, State], ...]
+    NestedDict or tuple[NestedDict, ...]
         The popped :class:`NestedDict` containing the :class:`State`
         objects that were filtered for.
 
@@ -976,11 +981,13 @@ def pop_states(
     path_parts: PathParts = ()
     predicates = tuple(to_predicate(filter) for filter in filters)
     flatted_state_dicts: tuple[FlattedDict[PathParts, StateLeaf], ...] = tuple({} for _ in predicates)
-    _graph_pop(node=node,
-               id_to_index=id_to_index,
-               path_parts=path_parts,
-               flatted_state_dicts=flatted_state_dicts,
-               predicates=predicates, )
+    _graph_pop(
+        node=node,
+        id_to_index=id_to_index,
+        path_parts=path_parts,
+        flatted_state_dicts=flatted_state_dicts,
+        predicates=predicates,
+    )
     states = tuple(NestedDict.from_flat(flat_state) for flat_state in flatted_state_dicts)
 
     if len(states) == 1:
@@ -1004,8 +1011,7 @@ def _split_state(
 
 @set_module_as('brainstate.graph')
 def treefy_split(
-    node: A,
-    *filters: Filter
+    node: A, *filters: Filter
 ) -> Tuple[GraphDef[A], NestedDict, Unpack[Tuple[NestedDict, ...]]]:
     """
     Split a graph node into a :class:`GraphDef` and one or more :class:`NestedDict`s.
@@ -1053,12 +1059,7 @@ def treefy_split(
 
 
 @set_module_as('brainstate.graph')
-def treefy_merge(
-    graphdef: GraphDef[A],
-    state_mapping: GraphStateMapping,
-    /,
-    *state_mappings: GraphStateMapping,
-) -> A:
+def treefy_merge(graphdef: GraphDef[A], *state_mappings) -> A:
     """
     The inverse of :func:`split`.
 
@@ -1069,9 +1070,7 @@ def treefy_merge(
     ----------
     graphdef : GraphDef[A]
         A :class:`GraphDef` object.
-    state_mapping : GraphStateMapping
-        A :class:`NestedDict` object.
-    *state_mappings : GraphStateMapping
+    *state_mappings 
         Additional :class:`NestedDict` objects.
 
     Returns
@@ -1100,7 +1099,7 @@ def treefy_merge(
         >>> assert isinstance(new_node.b, brainstate.nn.BatchNorm1d)
         >>> assert isinstance(new_node.a, brainstate.nn.Linear)
     """
-    state_mapping = GraphStateMapping.merge(state_mapping, *state_mappings)
+    state_mapping = GraphStateMapping.merge(*state_mappings)
     node = unflatten(graphdef, state_mapping)
     return node
 
@@ -1140,10 +1139,8 @@ def _split_flatted(
 
 @set_module_as('brainstate.graph')
 def nodes(
-    node,
-    *filters: Filter,
-    allowed_hierarchy: Tuple[int, int] = (0, _max_int)
-) -> Union[FlattedDict[Key, Node], Tuple[FlattedDict[Key, Node], ...]]:
+    node, *filters: Filter, allowed_hierarchy: Tuple[int, int] = (0, _max_int)
+) -> Union[FlattedDict, Tuple[FlattedDict, ...]]:
     """
     Similar to :func:`split` but only returns the :class:`NestedDict`'s indicated by the filters.
 
@@ -1158,7 +1155,7 @@ def nodes(
 
     Returns
     -------
-    FlattedDict[Key, Node] or tuple[FlattedDict[Key, Node], ...]
+    FlattedDict or tuple[FlattedDict, ...]
         The filtered nodes.
 
     """
@@ -1184,10 +1181,8 @@ def _states_generator(node, allowed_hierarchy) -> Iterable[Tuple[PathParts, Stat
 
 @set_module_as('brainstate.graph')
 def states(
-    node,
-    *filters: Filter,
-    allowed_hierarchy: Tuple[int, int] = (0, _max_int)
-) -> Union[FlattedDict[Key, State], tuple[FlattedDict[Key, State], ...]]:
+    node, *filters: Filter, allowed_hierarchy: Tuple[int, int] = (0, _max_int)
+) -> Union[FlattedDict, tuple[FlattedDict, ...]]:
     """
     Similar to :func:`split` but only returns the :class:`NestedDict`'s indicated by the filters.
 
@@ -1202,7 +1197,7 @@ def states(
 
     Returns
     -------
-    FlattedDict[Key, State] or tuple[FlattedDict[Key, State], ...]
+    FlattedDict or tuple[FlattedDict, ...]
         The filtered states.
 
     """
@@ -1223,7 +1218,7 @@ def states(
 @set_module_as('brainstate.graph')
 def treefy_states(
     node, *filters,
-) -> NestedDict[Key, TreefyState] | tuple[NestedDict[Key, TreefyState], ...]:
+) -> NestedDict | Tuple[NestedDict, ...]:
     """
     Similar to :func:`split` but only returns the :class:`NestedDict`'s indicated by the filters.
 
@@ -1236,7 +1231,7 @@ def treefy_states(
 
     Returns
     -------
-    NestedDict[Key, TreefyState] or tuple[NestedDict[Key, TreefyState], ...]
+    NestedDict or tuple[NestedDict, ...]
         One or more :class:`NestedDict` mappings.
 
     Examples
@@ -1273,7 +1268,7 @@ def treefy_states(
     return state_mappings
 
 
-def _graph_update_dynamic(node: Any, state: Mapping[Key, Any]) -> None:
+def _graph_update_dynamic(node: Any, state: Mapping) -> None:
     if not _is_node(node):
         raise RuntimeError(f'Unsupported type: {type(node)}')
 
@@ -1286,7 +1281,8 @@ def _graph_update_dynamic(node: Any, state: Mapping[Key, Any]) -> None:
                 raise ValueError(f'Cannot set key {key!r} on immutable node of '
                                  f'type {type(node).__name__}')
             if isinstance(value, State):
-                value = value.copy()  # TODO: chenge it to state_ref
+                # TODO: here maybe error? we should check if the state already belongs to another node?
+                value = value.to_state_ref()  # Convert to state reference for proper state management
             node_impl.set_key(node, key, value)
             continue
 
@@ -1316,9 +1312,9 @@ def _graph_update_dynamic(node: Any, state: Mapping[Key, Any]) -> None:
 
 def update_states(
     node: Any,
-    state_dict: Union[NestedDict[Key, Any], FlattedDict[Key, Any]],
+    state_dict: Union[NestedDict, FlattedDict],
     /,
-    *state_dicts: Union[NestedDict[Key, Any], FlattedDict[Key, Any]]
+    *state_dicts: Union[NestedDict, FlattedDict]
 ) -> None:
     """
     Update the given graph node with a new :class:`NestedMapping` in-place.
@@ -1339,7 +1335,7 @@ def update_states(
 
 
 @set_module_as('brainstate.graph')
-def graphdef(node: Any, /) -> GraphDef[Any]:
+def graphdef(node: Any) -> GraphDef[Any]:
     """
     Get the :class:`GraphDef` of the given graph node.
 
@@ -1400,8 +1396,7 @@ def clone(node: A) -> A:
 
 @set_module_as('brainstate.graph')
 def iter_leaf(
-    node: Any,
-    allowed_hierarchy: Tuple[int, int] = (0, _max_int)
+    node: Any, allowed_hierarchy: Tuple[int, int] = (0, _max_int)
 ) -> Iterator[tuple[PathParts, Any]]:
     """
     Iterates over all nested leaves in the given graph node, including the current node.
@@ -1480,8 +1475,7 @@ def iter_leaf(
 
 @set_module_as('brainstate.graph')
 def iter_node(
-    node: Any,
-    allowed_hierarchy: Tuple[int, int] = (0, _max_int)
+    node: Any, allowed_hierarchy: Tuple[int, int] = (0, _max_int)
 ) -> Iterator[Tuple[PathParts, Any]]:
     """
     Iterates over all nested nodes of the given graph node, including the current node.
@@ -1612,14 +1606,14 @@ def _key_path_to_key(key: Any) -> Key:
         return str(key)
 
 
-def _flatten_pytree(pytree: Any) -> Tuple[Tuple[Tuple[Key, Any], ...], jax.tree_util.PyTreeDef]:
+def _flatten_pytree(pytree: Any) -> Tuple[Tuple[Tuple, ...], jax.tree_util.PyTreeDef]:
     leaves, treedef = jax.tree_util.tree_flatten_with_path(pytree, is_leaf=lambda x: x is not pytree)
     nodes = tuple((_key_path_to_key(path[0]), value) for path, value in leaves)
     return nodes, treedef
 
 
 def _unflatten_pytree(
-    nodes: tuple[tuple[Key, Any], ...],
+    nodes: tuple[tuple, ...],
     treedef: jax.tree_util.PyTreeDef
 ) -> Any:
     pytree = treedef.unflatten(value for _, value in nodes)
