@@ -53,6 +53,8 @@ from ._normalizations import *
 from ._normalizations import __all__ as normalizations_all
 from ._others import *
 from ._others import __all__ as _others_all
+from ._paddings import *
+from ._paddings import __all__ as paddings_all
 from ._poolings import *
 from ._poolings import __all__ as poolings_all
 from ._projection import *
@@ -76,7 +78,7 @@ __all__ = ['metrics']
 __all__ = __all__ + activation_all
 __all__ = __all__ + collective_ops_all + common_all + elementwise_all + module_all + exp_euler_all
 __all__ = __all__ + utils_all + dyn_all + projection_all + state_delay_all + synouts_all + conv_all
-__all__ = __all__ + linear_all + normalizations_all + poolings_all + fixedprob_all + linear_mv_all
+__all__ = __all__ + linear_all + normalizations_all + paddings_all + poolings_all + fixedprob_all + linear_mv_all
 __all__ = __all__ + embed_all + dropout_all + elementwise_all + dyn_neuron_all + dyn_synapse_all
 __all__ = __all__ + inputs_all + rate_rnns + readout_all + stp_all + _syn_proj_all
 __all__ = __all__ + _others_all + init_all
@@ -95,6 +97,7 @@ del (
     conv_all,
     linear_all,
     normalizations_all,
+    paddings_all,
     poolings_all,
     embed_all,
     fixedprob_all,
