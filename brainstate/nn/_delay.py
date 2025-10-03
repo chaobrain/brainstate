@@ -59,8 +59,8 @@ class DelayAccess(Node):
 
     Args:
         delay: The delay instance.
-        time: The delay time.
-        delay_entry: The delay entry.
+        *time: The delay time.
+        entry: The delay entry.
     """
 
     __module__ = 'brainstate.nn'
@@ -68,17 +68,17 @@ class DelayAccess(Node):
     def __init__(
         self,
         delay: 'Delay',
-        time: Union[None, int, float],
-        delay_entry: str,
+        *time,
+        entry: str,
     ):
         super().__init__()
-        self.refs = {'delay': delay}
+        self.delay = delay
         assert isinstance(delay, Delay), 'The input delay should be an instance of Delay.'
-        self._delay_entry = delay_entry
-        self.delay_info = delay.register_entry(self._delay_entry, time)
+        self._delay_entry = entry
+        self.delay_info = delay.register_entry(self._delay_entry, *time)
 
     def update(self):
-        return self.refs['delay'].at(self._delay_entry)
+        return self.delay.at(self._delay_entry)
 
 
 class Delay(Module):
@@ -274,7 +274,7 @@ class Delay(Module):
         self._registered_entries[entry] = delay_info
         return delay_info
 
-    def access(self, entry: str, delay_time: Sequence) -> DelayAccess:
+    def access(self, entry: str, *delay_time) -> DelayAccess:
         """
         Create a DelayAccess object for a specific delay entry and delay time.
 
@@ -285,7 +285,7 @@ class Delay(Module):
         Returns:
             DelayAccess: An object that provides access to the delay data for the specified entry and time.
         """
-        return DelayAccess(self, delay_time, delay_entry=entry)
+        return DelayAccess(self, delay_time, entry=entry)
 
     def at(self, entry: str) -> ArrayLike:
         """
