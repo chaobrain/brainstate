@@ -258,29 +258,18 @@ class _MaxPool(Module):
         x_dim = self.pool_dim + (0 if self.channel_axis is None else 1)
         if x.ndim < x_dim:
             raise ValueError(f'Excepted input with >= {x_dim} dimensions, but got {x.ndim}.')
-        window_shape = self._infer_shape(x.ndim, self.kernel_size, 1)
-        stride = self._infer_shape(x.ndim, self.stride, 1)
-        padding = (self.padding if isinstance(self.padding, str) else
-                   self._infer_shape(x.ndim, self.padding, element=(0, 0)))
+        window_shape = tuple(self._infer_shape(x.ndim, self.kernel_size, 1))
+        stride = tuple(self._infer_shape(x.ndim, self.stride, 1))
+        if isinstance(self.padding, str):
+            padding = tuple(jax.lax.padtype_to_pads(x.shape, window_shape, stride, self.padding))
+        else:
+            padding = tuple(self._infer_shape(x.ndim, self.padding, element=(0, 0)))
 
         if self.return_indices:
             # For returning indices, we need to use a custom implementation
             return self._pooling_with_indices(x, window_shape, stride, padding)
-        else:
-            r = jax.lax.reduce_window(
-                x,
-                init_value=self.init_value,
-                computation=self.computation,
-                window_dimensions=window_shape,
-                window_strides=stride,
-                padding=padding
-            )
-            return r
 
-    def _pooling_with_indices(self, x, window_shape, stride, padding):
-        """Perform max pooling and return both pooled values and indices."""
-        # First get the pooled values
-        pooled = jax.lax.reduce_window(
+        return jax.lax.reduce_window(
             x,
             init_value=self.init_value,
             computation=self.computation,
@@ -289,42 +278,38 @@ class _MaxPool(Module):
             padding=padding
         )
 
-        # For indices, we need to find which elements in the original input
-        # correspond to the max values in each pooling window
-        # We'll use a different approach: create an index array and reduce it
-        indices = jnp.arange(x.size, dtype=jnp.int32).reshape(x.shape)
+    def _pooling_with_indices(self, x, window_shape, stride, padding):
+        """Perform max pooling and return both pooled values and indices."""
+        total_size = x.size
+        flat_indices = jnp.arange(total_size, dtype=jnp.int32).reshape(x.shape)
 
-        # Use reduce_window with argmax-like behavior
-        # We'll track indices by using the fact that argmax gives us the position
-        def idx_at_max(idx_window, val_window):
-            """Return the index at the maximum value position."""
-            flat_vals = val_window.ravel()
-            flat_idxs = idx_window.ravel()
-            max_pos = jnp.argmax(flat_vals)
-            return flat_idxs[max_pos]
+        init_val = jnp.asarray(self.init_value, dtype=x.dtype)
+        init_idx = jnp.array(total_size, dtype=flat_indices.dtype)
 
-        # For now, let's use a simpler approach with im2col-like operation
-        # This is less efficient but works correctly
-        indices_out = jnp.zeros(pooled.shape, dtype=jnp.int32)
+        def reducer(acc, operand):
+            acc_val, acc_idx = acc
+            cur_val, cur_idx = operand
 
-        # Use JAX's built-in functions to extract patches and find argmax
-        # This approach works by extracting all windows and finding max indices
+            better = cur_val > acc_val
+            best_val = jnp.where(better, cur_val, acc_val)
+            best_idx = jnp.where(better, cur_idx, acc_idx)
+            tie = jnp.logical_and(cur_val == acc_val, cur_idx < acc_idx)
+            best_idx = jnp.where(tie, cur_idx, best_idx)
 
-        # Helper function to extract windows
-        def extract_windows_1d(arr, window_size, stride_size):
-            """Extract sliding windows from 1D array."""
-            n = arr.shape[0]
-            num_windows = (n - window_size) // stride_size + 1
-            windows = jnp.array([arr[i * stride_size:i * stride_size + window_size]
-                                 for i in range(num_windows)])
-            return windows
+            return best_val, best_idx
 
-        # For simplicity in this implementation, we'll return pooled values
-        # with indices set to sequential values (placeholder)
-        # A full implementation would require more complex window extraction
-        indices_result = jnp.arange(pooled.size).reshape(pooled.shape)
+        pooled, indices_result = jax.lax.reduce_window(
+            (x, flat_indices),
+            (init_val, init_idx),
+            reducer,
+            window_dimensions=window_shape,
+            window_strides=stride,
+            padding=padding
+        )
 
-        return pooled, indices_result
+        indices_result = jnp.where(indices_result == total_size, 0, indices_result)
+
+        return pooled, indices_result.astype(jnp.int32)
 
     def _infer_shape(self, x_dim, inputs, element):
         channel_axis = self.channel_axis
