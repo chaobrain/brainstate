@@ -21,17 +21,14 @@ from ._pretty_pytree import *
 from ._pretty_pytree import __all__ as _mapping_all
 from ._pretty_repr import *
 from ._pretty_repr import __all__ as _pretty_repr_all
-from ._pretty_table import *
-from ._pretty_table import __all__ as _table_all
 from .struct import *
 from .struct import __all__ as _struct_all
 
-__all__ = ['filter'] + _others_all + _pretty_repr_all + _struct_all + _error_all + _mapping_all + _table_all
+__all__ = ['filter'] + _others_all + _pretty_repr_all + _struct_all + _error_all + _mapping_all
 del (
     _others_all,
     _pretty_repr_all,
     _struct_all,
     _error_all,
     _mapping_all,
-    _table_all,
 )

@@ -45,8 +45,6 @@ from ._linear import *
 from ._linear import __all__ as linear_all
 from ._linear_mv import *
 from ._linear_mv import __all__ as linear_mv_all
-from ._ltp import *
-from ._ltp import __all__ as ltp_all
 from ._module import *
 from ._module import __all__ as module_all
 from ._neuron import *
@@ -80,7 +78,7 @@ __all__ = __all__ + collective_ops_all + common_all + elementwise_all + module_a
 __all__ = __all__ + utils_all + dyn_all + projection_all + state_delay_all + synouts_all + conv_all
 __all__ = __all__ + linear_all + normalizations_all + poolings_all + fixedprob_all + linear_mv_all
 __all__ = __all__ + embed_all + dropout_all + elementwise_all + dyn_neuron_all + dyn_synapse_all
-__all__ = __all__ + inputs_all + rate_rnns + readout_all + stp_all + ltp_all + _syn_proj_all
+__all__ = __all__ + inputs_all + rate_rnns + readout_all + stp_all + _syn_proj_all
 __all__ = __all__ + _others_all + init_all
 
 del (
@@ -109,7 +107,6 @@ del (
     readout_all,
     rate_rnns,
     stp_all,
-    ltp_all,
     _syn_proj_all,
     _others_all,
     init_all,

@@ -15,10 +15,7 @@
 
 # -*- coding: utf-8 -*-
 
-from typing import Union, Tuple
-
 from brainstate._state import ParamState
-from brainstate.util import PrettyTable
 from ._module import Module
 
 __all__ = [
@@ -52,7 +49,7 @@ def count_parameters(
     module: Module,
     precision: int = 2,
     return_table: bool = False,
-) -> Union[Tuple[PrettyTable, int], int]:
+):
     """
     Count and display the number of trainable parameters in a neural network model.
 
@@ -76,6 +73,7 @@ def count_parameters(
     followed by the total number of trainable parameters.
     """
     assert isinstance(module, Module), "Input must be a neural network module"  # noqa: E501
+    from prettytable import PrettyTable  # noqa: E501
     table = PrettyTable(["Modules", "Parameters"])
     total_params = 0
     for name, parameter in module.states(ParamState).items():
