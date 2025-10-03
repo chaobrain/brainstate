@@ -62,7 +62,7 @@ __all__ = [
     'NodeRef',
 ]
 
-_max_int = np.iinfo(np.int32).max
+MAX_INT = np.iinfo(np.int32).max
 
 A = TypeVar('A')
 B = TypeVar('B')
@@ -333,6 +333,7 @@ class GraphDef(Generic[Node]):
     - index: The index of the node in the graph.
 
     It has two concrete subclasses:
+
     - :class:`NodeRef`: A reference to a node in the graph.
     - :class:`NodeDef`: A dataclass that denotes the graph structure of a :class:`Node` or a :class:`State`.
 
@@ -1139,7 +1140,7 @@ def _split_flatted(
 
 @set_module_as('brainstate.graph')
 def nodes(
-    node, *filters: Filter, allowed_hierarchy: Tuple[int, int] = (0, _max_int)
+    node, *filters: Filter, allowed_hierarchy: Tuple[int, int] = (0, MAX_INT)
 ) -> Union[FlattedDict, Tuple[FlattedDict, ...]]:
     """
     Similar to :func:`split` but only returns the :class:`NestedDict`'s indicated by the filters.
@@ -1151,7 +1152,7 @@ def nodes(
     *filters : Filter
         Filters to apply to the nodes.
     allowed_hierarchy : tuple[int, int], optional
-        The allowed hierarchy levels, by default (0, _max_int).
+        The allowed hierarchy levels, by default (0, MAX_INT).
 
     Returns
     -------
@@ -1181,7 +1182,7 @@ def _states_generator(node, allowed_hierarchy) -> Iterable[Tuple[PathParts, Stat
 
 @set_module_as('brainstate.graph')
 def states(
-    node, *filters: Filter, allowed_hierarchy: Tuple[int, int] = (0, _max_int)
+    node, *filters: Filter, allowed_hierarchy: Tuple[int, int] = (0, MAX_INT)
 ) -> Union[FlattedDict, tuple[FlattedDict, ...]]:
     """
     Similar to :func:`split` but only returns the :class:`NestedDict`'s indicated by the filters.
@@ -1193,7 +1194,7 @@ def states(
     *filters : Filter
         Filters to apply to the states.
     allowed_hierarchy : tuple[int, int], optional
-        The allowed hierarchy levels, by default (0, _max_int).
+        The allowed hierarchy levels, by default (0, MAX_INT).
 
     Returns
     -------
@@ -1396,7 +1397,7 @@ def clone(node: A) -> A:
 
 @set_module_as('brainstate.graph')
 def iter_leaf(
-    node: Any, allowed_hierarchy: Tuple[int, int] = (0, _max_int)
+    node: Any, allowed_hierarchy: Tuple[int, int] = (0, MAX_INT)
 ) -> Iterator[tuple[PathParts, Any]]:
     """
     Iterates over all nested leaves in the given graph node, including the current node.
@@ -1410,7 +1411,7 @@ def iter_leaf(
     node : Any
         The node to iterate over.
     allowed_hierarchy : tuple[int, int], optional
-        The allowed hierarchy levels, by default (0, _max_int).
+        The allowed hierarchy levels, by default (0, MAX_INT).
 
     Yields
     ------
@@ -1475,7 +1476,7 @@ def iter_leaf(
 
 @set_module_as('brainstate.graph')
 def iter_node(
-    node: Any, allowed_hierarchy: Tuple[int, int] = (0, _max_int)
+    node: Any, allowed_hierarchy: Tuple[int, int] = (0, MAX_INT)
 ) -> Iterator[Tuple[PathParts, Any]]:
     """
     Iterates over all nested nodes of the given graph node, including the current node.
@@ -1489,7 +1490,7 @@ def iter_node(
     node : Any
         The node to iterate over.
     allowed_hierarchy : tuple[int, int], optional
-        The allowed hierarchy levels, by default (0, _max_int).
+        The allowed hierarchy levels, by default (0, MAX_INT).
 
     Yields
     ------
