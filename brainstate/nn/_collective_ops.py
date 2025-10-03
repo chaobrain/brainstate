@@ -309,12 +309,12 @@ def init_all_states(
     ----------
     target : Module
         The target module whose states are to be initialized.
-    *init_args : tuple
+    *init_args
         Variable positional arguments to pass to each `init_state` method.
     node_to_exclude : Filter, optional
         A filter to exclude certain nodes from initialization.
         Can be a type, predicate function, or any filter supported by the graph API.
-    **init_kwargs : dict
+    **init_kwargs
         Variable keyword arguments to pass to each `init_state` method.
 
     Examples
