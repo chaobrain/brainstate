@@ -40,7 +40,38 @@ def to_dimension_numbers(
     channels_last: bool,
     transpose: bool
 ) -> jax.lax.ConvDimensionNumbers:
-    """Create a `lax.ConvDimensionNumbers` for the given inputs."""
+    """
+    Create a `lax.ConvDimensionNumbers` for the given inputs.
+
+    This function generates the dimension specification needed for JAX's convolution
+    operations based on the number of spatial dimensions and data format.
+
+    Parameters
+    ----------
+    num_spatial_dims : int
+        The number of spatial dimensions (e.g., 1 for Conv1d, 2 for Conv2d, 3 for Conv3d).
+    channels_last : bool
+        If True, the input format is channels-last (e.g., [B, H, W, C] for 2D).
+        If False, the input format is channels-first (e.g., [B, C, H, W] for 2D).
+    transpose : bool
+        If True, creates dimension numbers for transposed convolution.
+        If False, creates dimension numbers for standard convolution.
+
+    Returns
+    -------
+    jax.lax.ConvDimensionNumbers
+        A named tuple specifying the dimension layout for lhs (input), rhs (kernel),
+        and output of the convolution operation.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> # For 2D convolution with channels-last format
+        >>> dim_nums = to_dimension_numbers(num_spatial_dims=2, channels_last=True, transpose=False)
+        >>> print(dim_nums.lhs_spec)  # Input layout: (batch, spatial_1, spatial_2, channel)
+        (0, 3, 1, 2)
+    """
     num_dims = num_spatial_dims + 2
     if channels_last:
         spatial_dims = tuple(range(1, num_dims - 1))
@@ -62,7 +93,48 @@ def replicate(
     num_replicate: int,
     name: str,
 ) -> Tuple[T, ...]:
-    """Replicates entry in `element` `num_replicate` if needed."""
+    """
+    Replicates entry in `element` `num_replicate` times if needed.
+
+    This utility function ensures that parameters like kernel_size, stride, etc.
+    are properly formatted as tuples with the correct length for multi-dimensional
+    convolutions.
+
+    Parameters
+    ----------
+    element : T or Sequence[T]
+        The element to replicate. Can be a scalar, string, or sequence.
+    num_replicate : int
+        The number of times to replicate the element.
+    name : str
+        The name of the parameter (used for error messages).
+
+    Returns
+    -------
+    tuple of T
+        A tuple containing the replicated elements.
+
+    Raises
+    ------
+    TypeError
+        If the element is a sequence with length not equal to 1 or `num_replicate`.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> # Replicate a scalar value
+        >>> replicate(3, 2, 'kernel_size')
+        (3, 3)
+        >>>
+        >>> # Keep a sequence as is if already correct length
+        >>> replicate((3, 5), 2, 'kernel_size')
+        (3, 5)
+        >>>
+        >>> # Replicate a single-element sequence
+        >>> replicate([3], 2, 'kernel_size')
+        (3, 3)
+    """
     if isinstance(element, (str, bytes)) or not isinstance(element, collections.abc.Sequence):
         return (element,) * num_replicate
     elif len(element) == 1:
@@ -248,87 +320,399 @@ class _Conv(_BaseConv):
 
 
 class Conv1d(_Conv):
-    """One-dimensional convolution.
+    """
+    One-dimensional convolution layer.
 
-    The input should be a 3d array with the shape of ``[B, H, C]``.
+    Applies a 1D convolution over an input signal composed of several input planes.
+    The input should be a 3D array with the shape of ``[B, L, C]`` where B is batch size,
+    L is the sequence length, and C is the number of input channels.
+
+    This layer creates a convolution kernel that is convolved with the layer input
+    over a single spatial dimension to produce a tensor of outputs.
 
     Parameters
     ----------
-    %s
+    in_size : tuple of int
+        The input shape without the batch dimension. This argument is important as it is
+        used to evaluate the output shape. For Conv1d: (L, C), Conv2d: (H, W, C), Conv3d: (H, W, D, C).
+    out_channels : int
+        The number of output channels (also called filters or feature maps).
+    kernel_size : int or tuple of int
+        The shape of the convolutional kernel. For 1D convolution, the kernel size can be
+        passed as an integer. For 2D and 3D convolutions, it should be a tuple of integers
+        or a single integer (which will be replicated for all spatial dimensions).
+    stride : int or tuple of int, optional
+        The stride of the convolution. An integer or a sequence of `n` integers, representing
+        the inter-window strides along each spatial dimension. Default: 1.
+    padding : {'SAME', 'VALID'} or int or tuple of int or sequence of tuple, optional
+        The padding strategy. Can be:
+        - 'SAME': pads the input so the output has the same shape as input when stride=1
+        - 'VALID': no padding
+        - int: symmetric padding applied to all spatial dimensions
+        - tuple of (low, high): padding for each dimension
+        - sequence of tuples: explicit padding for each spatial dimension
+        Default: 'SAME'.
+    lhs_dilation : int or tuple of int, optional
+        The dilation factor for the input. An integer or a sequence of `n` integers, giving
+        the dilation factor to apply in each spatial dimension of inputs. Convolution with
+        input dilation `d` is equivalent to transposed convolution with stride `d`.
+        Default: 1.
+    rhs_dilation : int or tuple of int, optional
+        The dilation factor for the kernel. An integer or a sequence of `n` integers, giving
+        the dilation factor to apply in each spatial dimension of the convolution kernel.
+        Convolution with kernel dilation is also known as 'atrous convolution', which increases
+        the receptive field without increasing the number of parameters. Default: 1.
+    groups : int, optional
+        Number of groups for grouped convolution. Controls the connections between inputs and
+        outputs. Both `in_channels` and `out_channels` must be divisible by `groups`. When
+        groups=1 (default), all inputs are convolved to all outputs. When groups>1, the input
+        and output channels are divided into groups, and each group is convolved independently.
+        When groups=in_channels, this becomes a depthwise convolution. Default: 1.
+    w_init : Callable or ArrayLike, optional
+        The initializer for the convolutional kernel weights. Can be an initializer instance
+        or a direct array. Default: XavierNormalInit().
+    b_init : Callable or ArrayLike or None, optional
+        The initializer for the bias. If None, no bias is added. Default: None.
+    w_mask : ArrayLike or Callable or None, optional
+        An optional mask applied to the weights during forward pass. Useful for implementing
+        structured sparsity or custom connectivity patterns. Default: None.
+    name : str, optional
+        The name of the module. Default: None.
+    param_type : type, optional
+        The type of parameter state to use. Default: ParamState.
+
+    Attributes
+    ----------
+    in_size : tuple of int
+        The input shape (L, C) without batch dimension.
+    out_size : tuple of int
+        The output shape (L_out, out_channels) without batch dimension.
+    in_channels : int
+        Number of input channels.
+    out_channels : int
+        Number of output channels.
+    kernel_size : tuple of int
+        Size of the convolving kernel.
+    weight : ParamState
+        The learnable weights (and bias if specified) of the module.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate as bst
+        >>> import jax.numpy as jnp
+        >>>
+        >>> # Create a 1D convolution layer
+        >>> conv = bst.nn.Conv1d(in_size=(28, 3), out_channels=16, kernel_size=5)
+        >>>
+        >>> # Apply to input: batch_size=2, length=28, channels=3
+        >>> x = jnp.ones((2, 28, 3))
+        >>> y = conv(x)
+        >>> print(y.shape)  # (2, 28, 16) with 'SAME' padding
+        >>>
+        >>> # Without batch dimension
+        >>> x_single = jnp.ones((28, 3))
+        >>> y_single = conv(x_single)
+        >>> print(y_single.shape)  # (28, 16)
+        >>>
+        >>> # With custom parameters
+        >>> conv = bst.nn.Conv1d(
+        ...     in_size=(100, 8),
+        ...     out_channels=32,
+        ...     kernel_size=3,
+        ...     stride=2,
+        ...     padding='VALID',
+        ...     b_init=bst.init.ZeroInit()
+        ... )
+
+    Notes
+    -----
+    The output shape depends on the padding mode:
+
+    - 'SAME': output length = ceil(input_length / stride)
+    - 'VALID': output length = ceil((input_length - kernel_size + 1) / stride)
+
+    When groups > 1, the convolution becomes a grouped convolution where input and
+    output channels are divided into groups, reducing computational cost.
     """
     __module__ = 'brainstate.nn'
     num_spatial_dims: int = 1
 
 
 class Conv2d(_Conv):
-    """Two-dimensional convolution.
+    """
+    Two-dimensional convolution layer.
 
-    The input should be a 4d array with the shape of ``[B, H, W, C]``.
+    Applies a 2D convolution over an input signal composed of several input planes.
+    The input should be a 4D array with the shape of ``[B, H, W, C]`` where B is batch size,
+    H is height, W is width, and C is the number of input channels (channels-last format).
+
+    This layer creates a convolution kernel that is convolved with the layer input
+    to produce a tensor of outputs. It is commonly used in computer vision tasks.
 
     Parameters
     ----------
-    %s
+    in_size : tuple of int
+        The input shape without the batch dimension. For Conv2d: (H, W, C) where H is height,
+        W is width, and C is the number of input channels. This argument is important as it is
+        used to evaluate the output shape.
+    out_channels : int
+        The number of output channels (also called filters or feature maps). These determine
+        the depth of the output feature map.
+    kernel_size : int or tuple of int
+        The shape of the convolutional kernel. Can be:
+        - An integer (e.g., 3): creates a square kernel (3, 3)
+        - A tuple of two integers (e.g., (3, 5)): creates a (height, width) kernel
+    stride : int or tuple of int, optional
+        The stride of the convolution. Controls how much the kernel moves at each step.
+        Can be:
+        - An integer: same stride for both dimensions
+        - A tuple of two integers: (stride_height, stride_width)
+        Default: 1.
+    padding : {'SAME', 'VALID'} or int or tuple of int or sequence of tuple, optional
+        The padding strategy. Options:
+        - 'SAME': output spatial size equals input size when stride=1
+        - 'VALID': no padding, output size reduced by kernel size
+        - int: same symmetric padding for all dimensions
+        - (pad_h, pad_w): different padding for each dimension
+        - [(pad_h_before, pad_h_after), (pad_w_before, pad_w_after)]: explicit padding
+        Default: 'SAME'.
+    lhs_dilation : int or tuple of int, optional
+        The dilation factor for the input (left-hand side). Controls spacing between input elements.
+        A value > 1 inserts zeros between input elements, equivalent to transposed convolution.
+        Default: 1.
+    rhs_dilation : int or tuple of int, optional
+        The dilation factor for the kernel (right-hand side). Also known as atrous convolution
+        or dilated convolution. Increases the receptive field without increasing parameters by
+        inserting zeros between kernel elements. Useful for capturing multi-scale context.
+        Default: 1.
+    groups : int, optional
+        Number of groups for grouped convolution. Must divide both `in_channels` and `out_channels`.
+        - groups=1: standard convolution (all-to-all connections)
+        - groups>1: grouped convolution (reduces parameters by factor of groups)
+        - groups=in_channels: depthwise convolution (each input channel convolved separately)
+        Default: 1.
+    w_init : Callable or ArrayLike, optional
+        Weight initializer for the convolutional kernel. Can be:
+        - An initializer instance (e.g., bst.init.XavierNormal())
+        - A callable that returns an array given a shape
+        - A direct array matching the kernel shape
+        Default: XavierNormalInit().
+    b_init : Callable or ArrayLike or None, optional
+        Bias initializer. If None, no bias term is added to the output.
+        Default: None.
+    w_mask : ArrayLike or Callable or None, optional
+        Optional weight mask for structured sparsity or custom connectivity. The mask is
+        element-wise multiplied with the kernel weights during the forward pass.
+        Default: None.
+    name : str, optional
+        Name identifier for this module instance.
+        Default: None.
+    param_type : type, optional
+        The parameter state class to use for managing learnable parameters.
+        Default: ParamState.
+
+    Attributes
+    ----------
+    in_size : tuple of int
+        The input shape (H, W, C) without batch dimension.
+    out_size : tuple of int
+        The output shape (H_out, W_out, out_channels) without batch dimension.
+    in_channels : int
+        Number of input channels.
+    out_channels : int
+        Number of output channels.
+    kernel_size : tuple of int
+        Size of the convolving kernel (height, width).
+    weight : ParamState
+        The learnable weights (and bias if specified) of the module.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate as bst
+        >>> import jax.numpy as jnp
+        >>>
+        >>> # Create a 2D convolution layer
+        >>> conv = bst.nn.Conv2d(in_size=(32, 32, 3), out_channels=64, kernel_size=3)
+        >>>
+        >>> # Apply to input: batch_size=8, height=32, width=32, channels=3
+        >>> x = jnp.ones((8, 32, 32, 3))
+        >>> y = conv(x)
+        >>> print(y.shape)  # (8, 32, 32, 64) with 'SAME' padding
+        >>>
+        >>> # Without batch dimension
+        >>> x_single = jnp.ones((32, 32, 3))
+        >>> y_single = conv(x_single)
+        >>> print(y_single.shape)  # (32, 32, 64)
+        >>>
+        >>> # With custom kernel size and stride
+        >>> conv = bst.nn.Conv2d(
+        ...     in_size=(224, 224, 3),
+        ...     out_channels=128,
+        ...     kernel_size=(5, 5),
+        ...     stride=2,
+        ...     padding='VALID'
+        ... )
+        >>>
+        >>> # Depthwise convolution (groups = in_channels)
+        >>> conv = bst.nn.Conv2d(
+        ...     in_size=(64, 64, 32),
+        ...     out_channels=32,
+        ...     kernel_size=3,
+        ...     groups=32
+        ... )
+
+    Notes
+    -----
+    The output spatial dimensions depend on the padding mode:
+
+    - 'SAME': output_size = ceil(input_size / stride)
+    - 'VALID': output_size = ceil((input_size - kernel_size + 1) / stride)
+
+    Grouped convolution: When groups > 1, the input and output channels are divided
+    into groups. Each group is convolved independently, which can significantly reduce
+    computational cost while maintaining representational power.
     """
     __module__ = 'brainstate.nn'
     num_spatial_dims: int = 2
 
 
 class Conv3d(_Conv):
-    """Three-dimensional convolution.
+    """
+    Three-dimensional convolution layer.
 
-    The input should be a 5d array with the shape of ``[B, H, W, D, C]``.
+    Applies a 3D convolution over an input signal composed of several input planes.
+    The input should be a 5D array with the shape of ``[B, H, W, D, C]`` where B is batch size,
+    H is height, W is width, D is depth, and C is the number of input channels (channels-last format).
+
+    This layer is commonly used for processing 3D data such as video sequences or
+    volumetric medical imaging data.
 
     Parameters
     ----------
-    %s
+    in_size : tuple of int
+        The input shape without the batch dimension. For Conv3d: (H, W, D, C) where H is height,
+        W is width, D is depth, and C is the number of input channels. This argument is important
+        as it is used to evaluate the output shape.
+    out_channels : int
+        The number of output channels (also called filters or feature maps). These determine
+        the depth of the output feature map.
+    kernel_size : int or tuple of int
+        The shape of the convolutional kernel. Can be:
+        - An integer (e.g., 3): creates a cubic kernel (3, 3, 3)
+        - A tuple of three integers (e.g., (3, 5, 5)): creates a (height, width, depth) kernel
+    stride : int or tuple of int, optional
+        The stride of the convolution. Controls how much the kernel moves at each step.
+        Can be:
+        - An integer: same stride for all dimensions
+        - A tuple of three integers: (stride_h, stride_w, stride_d)
+        Default: 1.
+    padding : {'SAME', 'VALID'} or int or tuple of int or sequence of tuple, optional
+        The padding strategy. Options:
+        - 'SAME': output spatial size equals input size when stride=1
+        - 'VALID': no padding, output size reduced by kernel size
+        - int: same symmetric padding for all dimensions
+        - (pad_h, pad_w, pad_d): different padding for each dimension
+        - [(pad_h_before, pad_h_after), (pad_w_before, pad_w_after), (pad_d_before, pad_d_after)]: explicit padding
+        Default: 'SAME'.
+    lhs_dilation : int or tuple of int, optional
+        The dilation factor for the input (left-hand side). Controls spacing between input elements.
+        A value > 1 inserts zeros between input elements, equivalent to transposed convolution.
+        Default: 1.
+    rhs_dilation : int or tuple of int, optional
+        The dilation factor for the kernel (right-hand side). Also known as atrous convolution
+        or dilated convolution. Increases the receptive field without increasing parameters by
+        inserting zeros between kernel elements. Particularly useful for 3D data to capture
+        larger temporal/spatial context.
+        Default: 1.
+    groups : int, optional
+        Number of groups for grouped convolution. Must divide both `in_channels` and `out_channels`.
+        - groups=1: standard convolution (all-to-all connections)
+        - groups>1: grouped convolution (significantly reduces parameters and computation for 3D)
+        - groups=in_channels: depthwise convolution (each input channel convolved separately)
+        Default: 1.
+    w_init : Callable or ArrayLike, optional
+        Weight initializer for the convolutional kernel. Can be:
+        - An initializer instance (e.g., bst.init.XavierNormal())
+        - A callable that returns an array given a shape
+        - A direct array matching the kernel shape
+        Default: XavierNormalInit().
+    b_init : Callable or ArrayLike or None, optional
+        Bias initializer. If None, no bias term is added to the output.
+        Default: None.
+    w_mask : ArrayLike or Callable or None, optional
+        Optional weight mask for structured sparsity or custom connectivity. The mask is
+        element-wise multiplied with the kernel weights during the forward pass.
+        Default: None.
+    name : str, optional
+        Name identifier for this module instance.
+        Default: None.
+    param_type : type, optional
+        The parameter state class to use for managing learnable parameters.
+        Default: ParamState.
+
+    Attributes
+    ----------
+    in_size : tuple of int
+        The input shape (H, W, D, C) without batch dimension.
+    out_size : tuple of int
+        The output shape (H_out, W_out, D_out, out_channels) without batch dimension.
+    in_channels : int
+        Number of input channels.
+    out_channels : int
+        Number of output channels.
+    kernel_size : tuple of int
+        Size of the convolving kernel (height, width, depth).
+    weight : ParamState
+        The learnable weights (and bias if specified) of the module.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate as bst
+        >>> import jax.numpy as jnp
+        >>>
+        >>> # Create a 3D convolution layer for video data
+        >>> conv = bst.nn.Conv3d(in_size=(16, 64, 64, 3), out_channels=32, kernel_size=3)
+        >>>
+        >>> # Apply to input: batch_size=4, frames=16, height=64, width=64, channels=3
+        >>> x = jnp.ones((4, 16, 64, 64, 3))
+        >>> y = conv(x)
+        >>> print(y.shape)  # (4, 16, 64, 64, 32) with 'SAME' padding
+        >>>
+        >>> # Without batch dimension
+        >>> x_single = jnp.ones((16, 64, 64, 3))
+        >>> y_single = conv(x_single)
+        >>> print(y_single.shape)  # (16, 64, 64, 32)
+        >>>
+        >>> # For medical imaging with custom parameters
+        >>> conv = bst.nn.Conv3d(
+        ...     in_size=(32, 32, 32, 1),
+        ...     out_channels=64,
+        ...     kernel_size=(3, 3, 3),
+        ...     stride=2,
+        ...     padding='VALID',
+        ...     b_init=bst.init.Constant(0.1)
+        ... )
+
+    Notes
+    -----
+    The output spatial dimensions depend on the padding mode:
+
+    - 'SAME': output_size = ceil(input_size / stride)
+    - 'VALID': output_size = ceil((input_size - kernel_size + 1) / stride)
+
+    3D convolutions are computationally expensive. Consider using:
+    - Smaller kernel sizes
+    - Grouped convolutions (groups > 1)
+    - Separable convolutions for large-scale applications
     """
     __module__ = 'brainstate.nn'
     num_spatial_dims: int = 3
-
-
-_conv_doc = '''
-  in_size: tuple of int
-    The input shape, without the batch size. This argument is important, since it is
-    used to evaluate the shape of the output.
-  out_channels: int
-    The number of output channels.
-  kernel_size: int, sequence of int
-    The shape of the convolutional kernel.
-    For 1D convolution, the kernel size can be passed as an integer.
-    For all other cases, it must be a sequence of integers.
-  stride: int, sequence of int
-    An integer or a sequence of `n` integers, representing the inter-window strides (default: 1).
-  padding: str, int, sequence of int, sequence of tuple
-    Either the string `'SAME'`, the string `'VALID'`, or a sequence of n `(low,
-    high)` integer pairs that give the padding to apply before and after each
-    spatial dimension.
-  lhs_dilation: int, sequence of int
-    An integer or a sequence of `n` integers, giving the
-    dilation factor to apply in each spatial dimension of `inputs`
-    (default: 1). Convolution with input dilation `d` is equivalent to
-    transposed convolution with stride `d`.
-  rhs_dilation: int, sequence of int
-    An integer or a sequence of `n` integers, giving the
-    dilation factor to apply in each spatial dimension of the convolution
-    kernel (default: 1). Convolution with kernel dilation
-    is also known as 'atrous convolution'.
-  groups: int
-    If specified, divides the input features into groups. default 1.
-  w_init: Callable, ArrayLike, Initializer
-    The initializer for the convolutional kernel.
-  b_init: Optional, Callable, ArrayLike, Initializer
-    The initializer for the bias.
-  w_mask: ArrayLike, Callable, Optional
-    The optional mask of the weights.
-  mode: Mode
-    The computation mode of the current object. Default it is `training`.
-  name: str, Optional
-    The name of the object.
-'''
-
-Conv1d.__doc__ = Conv1d.__doc__ % _conv_doc
-Conv2d.__doc__ = Conv2d.__doc__ % _conv_doc
-Conv3d.__doc__ = Conv3d.__doc__ % _conv_doc
 
 
 class _ScaledWSConv(_BaseConv):
@@ -350,16 +734,18 @@ class _ScaledWSConv(_BaseConv):
         name: str = None,
         param_type: type = ParamState,
     ):
-        super().__init__(in_size=in_size,
-                         out_channels=out_channels,
-                         kernel_size=kernel_size,
-                         stride=stride,
-                         padding=padding,
-                         lhs_dilation=lhs_dilation,
-                         rhs_dilation=rhs_dilation,
-                         groups=groups,
-                         w_mask=w_mask,
-                         name=name, )
+        super().__init__(
+            in_size=in_size,
+            out_channels=out_channels,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+            lhs_dilation=lhs_dilation,
+            rhs_dilation=rhs_dilation,
+            groups=groups,
+            w_mask=w_mask,
+            name=name,
+        )
 
         self.w_initializer = w_init
         self.b_initializer = b_init
@@ -414,89 +800,485 @@ class _ScaledWSConv(_BaseConv):
 
 
 class ScaledWSConv1d(_ScaledWSConv):
-    """One-dimensional convolution with weight standardization.
+    """
+    One-dimensional convolution with weight standardization.
 
-    The input should be a 3d array with the shape of ``[B, H, C]``.
+    This layer applies weight standardization to the convolutional kernel before
+    performing the convolution operation. Weight standardization normalizes the
+    weights to have zero mean and unit variance, which can accelerate training
+    and improve model performance, especially when combined with group normalization.
+
+    The input should be a 3D array with the shape of ``[B, L, C]`` where B is batch size,
+    L is the sequence length, and C is the number of input channels.
 
     Parameters
     ----------
-    %s
+    in_size : tuple of int
+        The input shape without the batch dimension. For Conv1d: (L, C) where L is the sequence
+        length and C is the number of input channels. This argument is important as it is used
+        to evaluate the output shape.
+    out_channels : int
+        The number of output channels (also called filters or feature maps). These determine
+        the depth of the output feature map.
+    kernel_size : int or tuple of int
+        The shape of the convolutional kernel. For 1D convolution, can be:
+        - An integer (e.g., 5): creates a kernel of size 5
+        - A tuple with one integer (e.g., (5,)): equivalent to the above
+    stride : int or tuple of int, optional
+        The stride of the convolution. Controls how much the kernel moves at each step.
+        Default: 1.
+    padding : {'SAME', 'VALID'} or int or tuple of int or sequence of tuple, optional
+        The padding strategy. Options:
+        - 'SAME': output length equals input length when stride=1
+        - 'VALID': no padding, output length reduced by kernel size
+        - int: symmetric padding
+        - (pad_before, pad_after): explicit padding for the sequence dimension
+        Default: 'SAME'.
+    lhs_dilation : int or tuple of int, optional
+        The dilation factor for the input (left-hand side). Controls spacing between input elements.
+        A value > 1 inserts zeros between input elements, equivalent to transposed convolution.
+        Default: 1.
+    rhs_dilation : int or tuple of int, optional
+        The dilation factor for the kernel (right-hand side). Also known as atrous convolution
+        or dilated convolution. Increases the receptive field without increasing parameters by
+        inserting zeros between kernel elements. Useful for capturing long-range dependencies.
+        Default: 1.
+    groups : int, optional
+        Number of groups for grouped convolution. Must divide both `in_channels` and `out_channels`.
+        - groups=1: standard convolution (all-to-all connections)
+        - groups>1: grouped convolution (reduces parameters by factor of groups)
+        - groups=in_channels: depthwise convolution (each input channel convolved separately)
+        Default: 1.
+    w_init : Callable or ArrayLike, optional
+        Weight initializer for the convolutional kernel. Can be:
+        - An initializer instance (e.g., bst.init.XavierNormal())
+        - A callable that returns an array given a shape
+        - A direct array matching the kernel shape
+        Default: XavierNormalInit().
+    b_init : Callable or ArrayLike or None, optional
+        Bias initializer. If None, no bias term is added to the output.
+        Default: None.
+    ws_gain : bool, optional
+        Whether to include a learnable per-channel gain parameter in weight standardization.
+        When True, adds a scaling factor that can be learned during training, improving
+        model expressiveness. Recommended for most applications.
+        Default: True.
+    eps : float, optional
+        Small constant for numerical stability in weight standardization. Prevents division
+        by zero when computing weight standard deviation. Typical values: 1e-4 to 1e-5.
+        Default: 1e-4.
+    w_mask : ArrayLike or Callable or None, optional
+        Optional weight mask for structured sparsity or custom connectivity. The mask is
+        element-wise multiplied with the standardized kernel weights during the forward pass.
+        Default: None.
+    name : str, optional
+        Name identifier for this module instance.
+        Default: None.
+    param_type : type, optional
+        The parameter state class to use for managing learnable parameters.
+        Default: ParamState.
+
+    Attributes
+    ----------
+    in_size : tuple of int
+        The input shape (L, C) without batch dimension.
+    out_size : tuple of int
+        The output shape (L_out, out_channels) without batch dimension.
+    in_channels : int
+        Number of input channels.
+    out_channels : int
+        Number of output channels.
+    kernel_size : tuple of int
+        Size of the convolving kernel.
+    weight : ParamState
+        The learnable weights (and bias if specified) of the module.
+    eps : float
+        Small constant for numerical stability in weight standardization.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate as bst
+        >>> import jax.numpy as jnp
+        >>>
+        >>> # Create a 1D convolution with weight standardization
+        >>> conv = bst.nn.ScaledWSConv1d(
+        ...     in_size=(100, 16),
+        ...     out_channels=32,
+        ...     kernel_size=5
+        ... )
+        >>>
+        >>> # Apply to input
+        >>> x = jnp.ones((4, 100, 16))
+        >>> y = conv(x)
+        >>> print(y.shape)  # (4, 100, 32)
+        >>>
+        >>> # With custom epsilon and no gain
+        >>> conv = bst.nn.ScaledWSConv1d(
+        ...     in_size=(50, 8),
+        ...     out_channels=16,
+        ...     kernel_size=3,
+        ...     ws_gain=False,
+        ...     eps=1e-5
+        ... )
+
+    Notes
+    -----
+    Weight standardization reparameterizes the convolutional weights as:
+
+    .. math::
+        \\hat{W} = g \\cdot \\frac{W - \\mu_W}{\\sigma_W + \\epsilon}
+
+    where :math:`\\mu_W` and :math:`\\sigma_W` are the mean and standard deviation
+    of the weights, :math:`g` is a learnable gain parameter (if ws_gain=True),
+    and :math:`\\epsilon` is a small constant for numerical stability.
+
+    This technique is particularly effective when used with Group Normalization
+    instead of Batch Normalization, as it reduces the dependence on batch statistics.
+
+    References
+    ----------
+    .. [1] Qiao, S., Wang, H., Liu, C., Shen, W., & Yuille, A. (2019).
+           Weight Standardization. arXiv preprint arXiv:1903.10520.
     """
     __module__ = 'brainstate.nn'
     num_spatial_dims: int = 1
 
 
 class ScaledWSConv2d(_ScaledWSConv):
-    """Two-dimensional convolution with weight standardization.
+    """
+    Two-dimensional convolution with weight standardization.
 
-    The input should be a 4d array with the shape of ``[B, H, W, C]``.
+    This layer applies weight standardization to the convolutional kernel before
+    performing the convolution operation. Weight standardization normalizes the
+    weights to have zero mean and unit variance, improving training dynamics and
+    model generalization, particularly in combination with group normalization.
+
+    The input should be a 4D array with the shape of ``[B, H, W, C]`` where B is batch size,
+    H is height, W is width, and C is the number of input channels (channels-last format).
 
     Parameters
     ----------
-    %s
+    in_size : tuple of int
+        The input shape without the batch dimension. For Conv2d: (H, W, C) where H is height,
+        W is width, and C is the number of input channels. This argument is important as it is
+        used to evaluate the output shape.
+    out_channels : int
+        The number of output channels (also called filters or feature maps). These determine
+        the depth of the output feature map.
+    kernel_size : int or tuple of int
+        The shape of the convolutional kernel. Can be:
+        - An integer (e.g., 3): creates a square kernel (3, 3)
+        - A tuple of two integers (e.g., (3, 5)): creates a (height, width) kernel
+    stride : int or tuple of int, optional
+        The stride of the convolution. Controls how much the kernel moves at each step.
+        Can be:
+        - An integer: same stride for both dimensions
+        - A tuple of two integers: (stride_height, stride_width)
+        Default: 1.
+    padding : {'SAME', 'VALID'} or int or tuple of int or sequence of tuple, optional
+        The padding strategy. Options:
+        - 'SAME': output spatial size equals input size when stride=1
+        - 'VALID': no padding, output size reduced by kernel size
+        - int: same symmetric padding for all dimensions
+        - (pad_h, pad_w): different padding for each dimension
+        - [(pad_h_before, pad_h_after), (pad_w_before, pad_w_after)]: explicit padding
+        Default: 'SAME'.
+    lhs_dilation : int or tuple of int, optional
+        The dilation factor for the input (left-hand side). Controls spacing between input elements.
+        A value > 1 inserts zeros between input elements, equivalent to transposed convolution.
+        Default: 1.
+    rhs_dilation : int or tuple of int, optional
+        The dilation factor for the kernel (right-hand side). Also known as atrous convolution
+        or dilated convolution. Increases the receptive field without increasing parameters by
+        inserting zeros between kernel elements. Useful for semantic segmentation and dense
+        prediction tasks.
+        Default: 1.
+    groups : int, optional
+        Number of groups for grouped convolution. Must divide both `in_channels` and `out_channels`.
+        - groups=1: standard convolution (all-to-all connections)
+        - groups>1: grouped convolution (reduces parameters by factor of groups)
+        - groups=in_channels: depthwise convolution (each input channel convolved separately)
+        Default: 1.
+    w_init : Callable or ArrayLike, optional
+        Weight initializer for the convolutional kernel. Can be:
+        - An initializer instance (e.g., bst.init.XavierNormal())
+        - A callable that returns an array given a shape
+        - A direct array matching the kernel shape
+        Default: XavierNormalInit().
+    b_init : Callable or ArrayLike or None, optional
+        Bias initializer. If None, no bias term is added to the output.
+        Default: None.
+    ws_gain : bool, optional
+        Whether to include a learnable per-channel gain parameter in weight standardization.
+        When True, adds a scaling factor that can be learned during training, improving
+        model expressiveness. Highly recommended when using with Group Normalization.
+        Default: True.
+    eps : float, optional
+        Small constant for numerical stability in weight standardization. Prevents division
+        by zero when computing weight standard deviation. Typical values: 1e-4 to 1e-5.
+        Default: 1e-4.
+    w_mask : ArrayLike or Callable or None, optional
+        Optional weight mask for structured sparsity or custom connectivity. The mask is
+        element-wise multiplied with the standardized kernel weights during the forward pass.
+        Default: None.
+    name : str, optional
+        Name identifier for this module instance.
+        Default: None.
+    param_type : type, optional
+        The parameter state class to use for managing learnable parameters.
+        Default: ParamState.
+
+    Attributes
+    ----------
+    in_size : tuple of int
+        The input shape (H, W, C) without batch dimension.
+    out_size : tuple of int
+        The output shape (H_out, W_out, out_channels) without batch dimension.
+    in_channels : int
+        Number of input channels.
+    out_channels : int
+        Number of output channels.
+    kernel_size : tuple of int
+        Size of the convolving kernel (height, width).
+    weight : ParamState
+        The learnable weights (and bias if specified) of the module.
+    eps : float
+        Small constant for numerical stability in weight standardization.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate as bst
+        >>> import jax.numpy as jnp
+        >>>
+        >>> # Create a 2D convolution with weight standardization
+        >>> conv = bst.nn.ScaledWSConv2d(
+        ...     in_size=(64, 64, 3),
+        ...     out_channels=32,
+        ...     kernel_size=3
+        ... )
+        >>>
+        >>> # Apply to input
+        >>> x = jnp.ones((8, 64, 64, 3))
+        >>> y = conv(x)
+        >>> print(y.shape)  # (8, 64, 64, 32)
+        >>>
+        >>> # Combine with custom settings for ResNet-style architecture
+        >>> conv = bst.nn.ScaledWSConv2d(
+        ...     in_size=(224, 224, 3),
+        ...     out_channels=64,
+        ...     kernel_size=7,
+        ...     stride=2,
+        ...     padding='SAME',
+        ...     ws_gain=True,
+        ...     b_init=bst.init.ZeroInit()
+        ... )
+        >>>
+        >>> # Depthwise separable convolution with weight standardization
+        >>> conv = bst.nn.ScaledWSConv2d(
+        ...     in_size=(32, 32, 128),
+        ...     out_channels=128,
+        ...     kernel_size=3,
+        ...     groups=128,
+        ...     ws_gain=False
+        ... )
+
+    Notes
+    -----
+    Weight standardization reparameterizes the convolutional weights as:
+
+    .. math::
+        \\hat{W} = g \\cdot \\frac{W - \\mu_W}{\\sigma_W + \\epsilon}
+
+    where :math:`\\mu_W` and :math:`\\sigma_W` are the mean and standard deviation
+    of the weights computed per output channel, :math:`g` is a learnable gain
+    parameter (if ws_gain=True), and :math:`\\epsilon` is a small constant.
+
+    Benefits of weight standardization:
+    - Reduces internal covariate shift
+    - Smooths the loss landscape
+    - Works well with Group Normalization
+    - Improves training stability with small batch sizes
+    - Enables training deeper networks more easily
+
+    References
+    ----------
+    .. [1] Qiao, S., Wang, H., Liu, C., Shen, W., & Yuille, A. (2019).
+           Weight Standardization. arXiv preprint arXiv:1903.10520.
     """
     __module__ = 'brainstate.nn'
     num_spatial_dims: int = 2
 
 
 class ScaledWSConv3d(_ScaledWSConv):
-    """Three-dimensional convolution with weight standardization.
+    """
+    Three-dimensional convolution with weight standardization.
 
-    The input should be a 5d array with the shape of ``[B, H, W, D, C]``.
+    This layer applies weight standardization to the convolutional kernel before
+    performing the 3D convolution operation. Weight standardization normalizes the
+    weights to have zero mean and unit variance, which improves training dynamics
+    especially for 3D networks that are typically deeper and more parameter-heavy.
+
+    The input should be a 5D array with the shape of ``[B, H, W, D, C]`` where B is batch size,
+    H is height, W is width, D is depth, and C is the number of input channels (channels-last format).
 
     Parameters
     ----------
-    %s
+    in_size : tuple of int
+        The input shape without the batch dimension. For Conv3d: (H, W, D, C) where H is height,
+        W is width, D is depth, and C is the number of input channels. This argument is important
+        as it is used to evaluate the output shape.
+    out_channels : int
+        The number of output channels (also called filters or feature maps). These determine
+        the depth of the output feature map.
+    kernel_size : int or tuple of int
+        The shape of the convolutional kernel. Can be:
+        - An integer (e.g., 3): creates a cubic kernel (3, 3, 3)
+        - A tuple of three integers (e.g., (3, 5, 5)): creates a (height, width, depth) kernel
+    stride : int or tuple of int, optional
+        The stride of the convolution. Controls how much the kernel moves at each step.
+        Can be:
+        - An integer: same stride for all dimensions
+        - A tuple of three integers: (stride_h, stride_w, stride_d)
+        Default: 1.
+    padding : {'SAME', 'VALID'} or int or tuple of int or sequence of tuple, optional
+        The padding strategy. Options:
+        - 'SAME': output spatial size equals input size when stride=1
+        - 'VALID': no padding, output size reduced by kernel size
+        - int: same symmetric padding for all dimensions
+        - (pad_h, pad_w, pad_d): different padding for each dimension
+        - [(pad_h_before, pad_h_after), (pad_w_before, pad_w_after), (pad_d_before, pad_d_after)]: explicit padding
+        Default: 'SAME'.
+    lhs_dilation : int or tuple of int, optional
+        The dilation factor for the input (left-hand side). Controls spacing between input elements.
+        A value > 1 inserts zeros between input elements, equivalent to transposed convolution.
+        Default: 1.
+    rhs_dilation : int or tuple of int, optional
+        The dilation factor for the kernel (right-hand side). Also known as atrous convolution
+        or dilated convolution. Increases the receptive field without increasing parameters by
+        inserting zeros between kernel elements. Particularly valuable for 3D to capture
+        multi-scale temporal/spatial context efficiently.
+        Default: 1.
+    groups : int, optional
+        Number of groups for grouped convolution. Must divide both `in_channels` and `out_channels`.
+        - groups=1: standard convolution (all-to-all connections)
+        - groups>1: grouped convolution (critical for reducing 3D conv computational cost)
+        - groups=in_channels: depthwise convolution (each input channel convolved separately)
+        Default: 1.
+    w_init : Callable or ArrayLike, optional
+        Weight initializer for the convolutional kernel. Can be:
+        - An initializer instance (e.g., bst.init.XavierNormal())
+        - A callable that returns an array given a shape
+        - A direct array matching the kernel shape
+        Default: XavierNormalInit().
+    b_init : Callable or ArrayLike or None, optional
+        Bias initializer. If None, no bias term is added to the output.
+        Default: None.
+    ws_gain : bool, optional
+        Whether to include a learnable per-channel gain parameter in weight standardization.
+        When True, adds a scaling factor that can be learned during training, improving
+        model expressiveness. Particularly beneficial for deep 3D networks.
+        Default: True.
+    eps : float, optional
+        Small constant for numerical stability in weight standardization. Prevents division
+        by zero when computing weight standard deviation. Typical values: 1e-4 to 1e-5.
+        Default: 1e-4.
+    w_mask : ArrayLike or Callable or None, optional
+        Optional weight mask for structured sparsity or custom connectivity. The mask is
+        element-wise multiplied with the standardized kernel weights during the forward pass.
+        Default: None.
+    name : str, optional
+        Name identifier for this module instance.
+        Default: None.
+    param_type : type, optional
+        The parameter state class to use for managing learnable parameters.
+        Default: ParamState.
+
+    Attributes
+    ----------
+    in_size : tuple of int
+        The input shape (H, W, D, C) without batch dimension.
+    out_size : tuple of int
+        The output shape (H_out, W_out, D_out, out_channels) without batch dimension.
+    in_channels : int
+        Number of input channels.
+    out_channels : int
+        Number of output channels.
+    kernel_size : tuple of int
+        Size of the convolving kernel (height, width, depth).
+    weight : ParamState
+        The learnable weights (and bias if specified) of the module.
+    eps : float
+        Small constant for numerical stability in weight standardization.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate as bst
+        >>> import jax.numpy as jnp
+        >>>
+        >>> # Create a 3D convolution with weight standardization for video
+        >>> conv = bst.nn.ScaledWSConv3d(
+        ...     in_size=(16, 64, 64, 3),
+        ...     out_channels=32,
+        ...     kernel_size=3
+        ... )
+        >>>
+        >>> # Apply to input
+        >>> x = jnp.ones((4, 16, 64, 64, 3))
+        >>> y = conv(x)
+        >>> print(y.shape)  # (4, 16, 64, 64, 32)
+        >>>
+        >>> # For medical imaging with custom parameters
+        >>> conv = bst.nn.ScaledWSConv3d(
+        ...     in_size=(32, 32, 32, 1),
+        ...     out_channels=64,
+        ...     kernel_size=(3, 3, 3),
+        ...     stride=2,
+        ...     ws_gain=True,
+        ...     eps=1e-5,
+        ...     b_init=bst.init.Constant(0.01)
+        ... )
+        >>>
+        >>> # 3D grouped convolution with weight standardization
+        >>> conv = bst.nn.ScaledWSConv3d(
+        ...     in_size=(8, 16, 16, 64),
+        ...     out_channels=64,
+        ...     kernel_size=3,
+        ...     groups=8,
+        ...     ws_gain=False
+        ... )
+
+    Notes
+    -----
+    Weight standardization reparameterizes the convolutional weights as:
+
+    .. math::
+        \\hat{W} = g \\cdot \\frac{W - \\mu_W}{\\sigma_W + \\epsilon}
+
+    where :math:`\\mu_W` and :math:`\\sigma_W` are the mean and standard deviation
+    of the weights, :math:`g` is a learnable gain parameter (if ws_gain=True),
+    and :math:`\\epsilon` is a small constant for numerical stability.
+
+    For 3D convolutions, weight standardization is particularly beneficial because:
+    - 3D networks are typically much deeper and harder to train
+    - Reduces sensitivity to weight initialization
+    - Improves gradient flow through very deep networks
+    - Works well with limited computational resources (small batches)
+    - Compatible with Group Normalization for batch-independent normalization
+
+    Applications include video understanding, medical imaging (CT, MRI scans),
+    3D object recognition, and temporal sequence modeling.
+
+    References
+    ----------
+    .. [1] Qiao, S., Wang, H., Liu, C., Shen, W., & Yuille, A. (2019).
+           Weight Standardization. arXiv preprint arXiv:1903.10520.
     """
     __module__ = 'brainstate.nn'
     num_spatial_dims: int = 3
 
-
-_ws_conv_doc = '''
-  in_size: tuple of int
-    The input shape, without the batch size. This argument is important, since it is
-    used to evaluate the shape of the output.
-  out_channels: int
-    The number of output channels.
-  kernel_size: int, sequence of int
-    The shape of the convolutional kernel.
-    For 1D convolution, the kernel size can be passed as an integer.
-    For all other cases, it must be a sequence of integers.
-  stride: int, sequence of int
-    An integer or a sequence of `n` integers, representing the inter-window strides (default: 1).
-  padding: str, int, sequence of int, sequence of tuple
-    Either the string `'SAME'`, the string `'VALID'`, or a sequence of n `(low,
-    high)` integer pairs that give the padding to apply before and after each
-    spatial dimension.
-  lhs_dilation: int, sequence of int
-    An integer or a sequence of `n` integers, giving the
-    dilation factor to apply in each spatial dimension of `inputs`
-    (default: 1). Convolution with input dilation `d` is equivalent to
-    transposed convolution with stride `d`.
-  rhs_dilation: int, sequence of int
-    An integer or a sequence of `n` integers, giving the
-    dilation factor to apply in each spatial dimension of the convolution
-    kernel (default: 1). Convolution with kernel dilation
-    is also known as 'atrous convolution'.
-  groups: int
-    If specified, divides the input features into groups. default 1.
-  w_init: Callable, ArrayLike, Initializer
-    The initializer for the convolutional kernel.
-  b_init: Optional, Callable, ArrayLike, Initializer
-    The initializer for the bias.
-  ws_gain: bool
-    Whether to add a gain term for the weight standarization. The default is `True`.
-  eps: float
-    The epsilon value for numerical stability.
-  w_mask: ArrayLike, Callable, Optional
-    The optional mask of the weights.
-  mode: Mode
-    The computation mode of the current object. Default it is `training`.
-  name: str, Optional
-    The name of the object.
-
-'''
-
-ScaledWSConv1d.__doc__ = ScaledWSConv1d.__doc__ % _ws_conv_doc
-ScaledWSConv2d.__doc__ = ScaledWSConv2d.__doc__ % _ws_conv_doc
-ScaledWSConv3d.__doc__ = ScaledWSConv3d.__doc__ % _ws_conv_doc
