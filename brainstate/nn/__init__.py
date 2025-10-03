@@ -51,8 +51,6 @@ from ._neuron import *
 from ._neuron import __all__ as dyn_neuron_all
 from ._normalizations import *
 from ._normalizations import __all__ as normalizations_all
-from ._others import *
-from ._others import __all__ as _others_all
 from ._paddings import *
 from ._paddings import __all__ as paddings_all
 from ._poolings import *
@@ -81,7 +79,7 @@ __all__ = __all__ + utils_all + dyn_all + projection_all + state_delay_all + syn
 __all__ = __all__ + linear_all + normalizations_all + paddings_all + poolings_all + fixedprob_all + linear_mv_all
 __all__ = __all__ + embed_all + dropout_all + elementwise_all + dyn_neuron_all + dyn_synapse_all
 __all__ = __all__ + inputs_all + rate_rnns + readout_all + stp_all + _syn_proj_all
-__all__ = __all__ + _others_all + init_all
+__all__ = __all__  + init_all
 
 del (
     activation_all,
@@ -111,6 +109,5 @@ del (
     rate_rnns,
     stp_all,
     _syn_proj_all,
-    _others_all,
     init_all,
 )
