@@ -258,7 +258,7 @@ class Hardtanh(ElementWiseBlock):
         return f'{self.__class__.__name__}(min_val={self.min_val}, max_val={self.max_val})'
 
 
-class ReLU6(Hardtanh, ElementWiseBlock):
+class ReLU6(Hardtanh):
     r"""Applies the element-wise function.
 
     ReLU6 is defined as:
