@@ -20,6 +20,7 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
+from brainstate import environ
 from brainstate._state import ParamState
 from brainstate.typing import ArrayLike, Size
 from . import _init as init
@@ -56,20 +57,21 @@ def _embedding_lookup_fn(
 
     def _lookup_fwd(weight: jax.Array, indices: jax.Array):
         indices = jnp.asarray(indices)
-        return weight[indices], (indices, weight.shape, weight.dtype)
+        return weight[indices], (indices, weight.shape)
 
     def _lookup_bwd(residual, grad_output: jax.Array):
-        indices, weight_shape, weight_dtype = residual
-        grad_output = jnp.asarray(grad_output, dtype=weight_dtype)
+        indices, weight_shape = residual
+        grad_output = jnp.asarray(grad_output)
         flat_idx = jnp.ravel(indices)
         if flat_idx.size == 0:
-            return jnp.zeros(weight_shape, dtype=weight_dtype), None
+            return jnp.zeros(weight_shape, dtype=grad_output.dtype), None
 
-        flat_idx = jnp.asarray(flat_idx, dtype=jnp.int64)
+        flat_idx = jnp.asarray(flat_idx, dtype=jnp.int32)
         grad_flat = grad_output.reshape((flat_idx.shape[0],) + weight_shape[1:])
 
         if scale_grad_by_freq:
-            counts = jnp.bincount(flat_idx, length=weight_shape[0], dtype=grad_flat.dtype)
+            counts = jnp.bincount(flat_idx, length=weight_shape[0])
+            counts = counts.astype(grad_flat.dtype)
             counts = jnp.where(counts == 0, 1.0, counts)
             scale = counts[flat_idx]
             grad_flat = grad_flat / scale.reshape((flat_idx.shape[0],) + (1,) * (grad_flat.ndim - 1))
@@ -80,7 +82,7 @@ def _embedding_lookup_fn(
             broadcast_shape = (flat_idx.shape[0],) + (1,) * (grad_flat.ndim - 1)
             grad_flat = grad_flat * mask.reshape(broadcast_shape).astype(grad_flat.dtype)
 
-        grad_weight = jnp.zeros(weight_shape, dtype=weight_dtype)
+        grad_weight = jnp.zeros(weight_shape, dtype=grad_output.dtype)
         grad_weight = grad_weight.at[flat_idx].add(grad_flat)
         return grad_weight, None
 
@@ -119,9 +121,6 @@ class Embedding(Module):
     scale_grad_by_freq : bool, optional
         If given, this scales gradients by the inverse frequency of the words in
         the mini-batch. Default is ``False``.
-    freeze : bool, optional
-        If ``True``, gradients are not propagated to the embedding weights. This is
-        useful for keeping pretrained embeddings fixed. Default is ``False``.
     name : str, optional
         The name of the module.
     param_type : type, optional
@@ -203,11 +202,12 @@ class Embedding(Module):
 
     .. code-block:: python
 
+        >>> import brainstate
         >>> import jax.numpy as jnp
         >>> pretrained = jnp.array([[1.0, 2.0, 3.0],
         ...                         [4.0, 5.0, 6.0],
         ...                         [7.0, 8.0, 9.0]])
-        >>> embedding = bst.nn.Embedding.from_pretrained(pretrained, freeze=True)
+        >>> embedding = bst.nn.Embedding.from_pretrained(pretrained, param_type=brainstate.FakeState)
         >>> embedding.weight.value.shape
         (3, 3)
     """
@@ -221,7 +221,6 @@ class Embedding(Module):
         max_norm: Optional[float] = None,
         norm_type: float = 2.0,
         scale_grad_by_freq: bool = False,
-        freeze: bool = False,
         name: Optional[str] = None,
         param_type: type = ParamState,
     ):
@@ -246,7 +245,6 @@ class Embedding(Module):
         self.max_norm = max_norm
         self.norm_type = norm_type
         self.scale_grad_by_freq = bool(scale_grad_by_freq)
-        self.freeze = bool(freeze)
 
         weight_shape = (self.num_embeddings, *self.out_size)
         weight = init.param(embedding_init, weight_shape)
@@ -265,7 +263,6 @@ class Embedding(Module):
         max_norm: Optional[float] = None,
         norm_type: float = 2.0,
         scale_grad_by_freq: bool = False,
-        freeze: bool = True,
         name: Optional[str] = None,
         param_type: type = ParamState,
     ):
@@ -286,8 +283,6 @@ class Embedding(Module):
             See module initialization documentation. Default is ``2.0``.
         scale_grad_by_freq : bool, optional
             See module initialization documentation. Default is ``False``.
-        freeze : bool, optional
-            If ``True``, the embeddings are frozen (no gradients). Default is ``True``.
         name : str, optional
             The name of the module.
 
@@ -329,7 +324,6 @@ class Embedding(Module):
             max_norm=max_norm,
             norm_type=norm_type,
             scale_grad_by_freq=scale_grad_by_freq,
-            freeze=freeze,
             name=name,
             param_type=param_type,
         )
@@ -358,14 +352,12 @@ class Embedding(Module):
 
         weight_value = self.weight.value
         effective_weight = weight_value
-
         if self.max_norm is not None:
             renormed_weight = self._apply_max_norm(weight_value, indices)
             self.weight.value = renormed_weight
-            effective_weight = weight_value + jax.lax.stop_gradient(renormed_weight - weight_value)
-
-        if self.freeze:
-            effective_weight = jax.lax.stop_gradient(effective_weight)
+            fit = environ.get('fit', desc='whether in training phase')
+            if fit:
+                effective_weight = weight_value + jax.lax.stop_gradient(renormed_weight - weight_value)
 
         embeddings = self._lookup(effective_weight, indices)
         return embeddings
@@ -376,7 +368,7 @@ class Embedding(Module):
         if flat_idx.size == 0:
             return weight
 
-        flat_idx = jnp.asarray(flat_idx, dtype=jnp.int64)
+        flat_idx = jnp.asarray(flat_idx, dtype=jnp.int32)
         if self.padding_idx is not None:
             pad_value = jnp.asarray(self.padding_idx, dtype=flat_idx.dtype)
             flat_idx = flat_idx[flat_idx != pad_value]
