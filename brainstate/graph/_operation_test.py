@@ -154,7 +154,6 @@ class TestGraphUtils(absltest.TestCase):
         assert a['b'] in refmap
         assert g[3] in refmap
 
-
     def test_unflatten_pytree(self):
         a = {'a': 1, 'b': brainstate.ParamState(2)}
         g = [a, 3, a, brainstate.ParamState(4)]

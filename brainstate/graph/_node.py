@@ -19,10 +19,6 @@ from abc import ABCMeta
 from copy import deepcopy
 from typing import Any, Type, TypeVar, Tuple, TYPE_CHECKING
 
-import brainunit as u
-import jax
-import numpy as np
-
 from brainstate._state import State, TreefyState
 from brainstate.typing import Key
 from brainstate.util._pretty_pytree import PrettyObject
@@ -78,24 +74,6 @@ class Node(PrettyObject, metaclass=GraphNodeMeta):
         graphdef = deepcopy(graphdef)
         state = deepcopy(state)
         return treefy_merge(graphdef, state)
-
-
-class String:
-    def __init__(self, msg):
-        self.msg = msg
-
-    def __repr__(self):
-        return self.msg
-
-
-def _to_shape_dtype(value):
-    if isinstance(value, State):
-        return value.replace(jax.tree.map(_to_shape_dtype, value.value))
-    elif isinstance(value, (np.ndarray, jax.Array)):
-        return String(f'Array(shape={value.shape}, dtype={value.dtype.name})')
-    elif isinstance(value, u.Quantity):
-        return String(f'Quantity(mantissa=Array(shape={value.shape}, dtype={value.dtype.name}), unit={value.unit})')
-    return value
 
 
 # -------------------------------
