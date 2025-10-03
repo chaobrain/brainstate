@@ -13,7 +13,6 @@
 # limitations under the License.
 # ==============================================================================
 
-from brainstate._error import __all__ as _error_all
 from . import filter
 from ._others import *
 from ._others import __all__ as _others_all
@@ -24,11 +23,5 @@ from ._pretty_repr import __all__ as _pretty_repr_all
 from .struct import *
 from .struct import __all__ as _struct_all
 
-__all__ = ['filter'] + _others_all + _pretty_repr_all + _struct_all + _error_all + _mapping_all
-del (
-    _others_all,
-    _pretty_repr_all,
-    _struct_all,
-    _error_all,
-    _mapping_all,
-)
+__all__ = ['filter'] + _others_all + _pretty_repr_all + _struct_all + _mapping_all
+del _others_all, _pretty_repr_all, _struct_all, _mapping_all
