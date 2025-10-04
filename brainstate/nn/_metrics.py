@@ -25,10 +25,10 @@ import numpy as np
 from brainstate._state import State
 
 __all__ = [
-    'Average',
+    'AverageMetric',
     'Statistics',
-    'Welford',
-    'Accuracy',
+    'WelfordMetric',
+    'AccuracyMetric',
     'MultiMetric',
 ]
 
@@ -55,18 +55,18 @@ class Metric(object):
         raise NotImplementedError('Must override `compute()` method.')
 
 
-class Average(Metric):
+class AverageMetric(Metric):
     """Average metric.
 
     Example usage::
 
       >>> import jax.numpy as jnp
-      >>> import brainstate as brainstate
+      >>> import brainstate
 
       >>> batch_loss = jnp.array([1, 2, 3, 4])
       >>> batch_loss2 = jnp.array([3, 2, 1, 0])
 
-      >>> metrics = brainstate.nn.metrics.Average()
+      >>> metrics = brainstate.nn.AverageMetric()
       >>> metrics.compute()
       Array(nan, dtype=float32)
       >>> metrics.update(values=batch_loss)
@@ -121,9 +121,11 @@ class Average(Metric):
         return self.total.value / self.count.value
 
 
-@partial(jax.tree_util.register_dataclass,
-         data_fields=['mean', 'standard_error_of_mean', 'standard_deviation'],
-         meta_fields=[])
+@partial(
+    jax.tree_util.register_dataclass,
+    data_fields=['mean', 'standard_error_of_mean', 'standard_deviation'],
+    meta_fields=[]
+)
 @dataclass
 class Statistics:
     mean: jnp.float32
@@ -131,18 +133,18 @@ class Statistics:
     standard_deviation: jnp.float32
 
 
-class Welford(Metric):
+class WelfordMetric(Metric):
     """Uses Welford's algorithm to compute the mean and variance of a stream of data.
 
     Example usage::
 
       >>> import jax.numpy as jnp
-      >>> from brainstate import nn
+      >>> import brainstate
 
       >>> batch_loss = jnp.array([1, 2, 3, 4])
       >>> batch_loss2 = jnp.array([3, 2, 1, 0])
 
-      >>> metrics = nn.metrics.Welford()
+      >>> metrics = brainstate.nn.WelfordMetric()
       >>> metrics.compute()
       Statistics(mean=Array(0., dtype=float32), standard_error_of_mean=Array(nan, dtype=float32), standard_deviation=Array(nan, dtype=float32))
       >>> metrics.update(values=batch_loss)
@@ -215,15 +217,15 @@ class Welford(Metric):
         )
 
 
-class Accuracy(Average):
+class AccuracyMetric(AverageMetric):
     """Accuracy metric. This metric subclasses :class:`Average`,
     and so they share the same ``reset`` and ``compute`` method
     implementations. Unlike :class:`Average`, no string needs to
-    be passed to ``Accuracy`` during construction.
+    be passed to ``AccuracyMetric`` during construction.
 
     Example usage::
 
-      >>> import brainstate as brainstate
+      >>> import brainstate
       >>> import jax, jax.numpy as jnp
 
       >>> logits = jax.random.normal(jax.random.key(0), (5, 2))
@@ -231,7 +233,7 @@ class Accuracy(Average):
       >>> logits2 = jax.random.normal(jax.random.key(1), (5, 2))
       >>> labels2 = jnp.array([0, 1, 1, 1, 1])
 
-      >>> metrics = brainstate.nn.metrics.Accuracy()
+      >>> metrics = brainstate.nn.AccuracyMetric()
       >>> metrics.compute()
       Array(nan, dtype=float32)
       >>> metrics.update(logits=logits, labels=labels)
@@ -271,12 +273,12 @@ class MultiMetric(Metric):
 
     Example usage::
 
-      >>> from brainstate import nn
+      >>> import brainstate
       >>> import jax, jax.numpy as jnp
 
-      >>> metrics = nn.metrics.MultiMetric(
-      ...   accuracy=nn.metrics.Accuracy(),
-      ...   loss=nn.metrics.Average(),
+      >>> metrics = brainstate.nn.MultiMetric(
+      ...   accuracy=brainstate.nn.AccuracyMetric(),
+      ...   loss=brainstate.nn.AverageMetric(),
       ... )
 
       >>> metrics

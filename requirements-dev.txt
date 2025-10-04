@@ -3,6 +3,7 @@ optax
 tqdm
 numba
 braintools>=0.1.0
+brainpy>=3.0.0
 
 # test requirements
 pytest

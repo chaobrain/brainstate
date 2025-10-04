@@ -14,7 +14,6 @@
 # ==============================================================================
 
 
-from . import metrics
 from ._activations import *
 from ._activations import __all__ as activation_all
 from ._collective_ops import *
@@ -41,6 +40,8 @@ from ._exp_euler import *
 from ._exp_euler import __all__ as exp_euler_all
 from ._linear import *
 from ._linear import __all__ as linear_all
+from ._metrics import *
+from ._metrics import __all__ as metrics_all
 from ._module import *
 from ._module import __all__ as module_all
 from ._normalizations import *
@@ -59,8 +60,8 @@ from ._utils import *
 from ._utils import __all__ as utils_all
 from .init import param
 
-__all__ = ['metrics', 'param']
-__all__ = __all__ + activation_all
+__all__ = ['param']
+__all__ = __all__ + activation_all + metrics_all
 __all__ = __all__ + collective_ops_all + common_all + elementwise_all + module_all + exp_euler_all
 __all__ = __all__ + utils_all + dyn_all + projection_all + state_delay_all + conv_all
 __all__ = __all__ + linear_all + normalizations_all + paddings_all + poolings_all + fixedprob_all + linear_mv_all
@@ -68,6 +69,7 @@ __all__ = __all__ + embed_all + dropout_all + elementwise_all
 __all__ = __all__ + rate_rnns + _syn_proj_all
 
 del (
+    metrics_all,
     activation_all,
     collective_ops_all,
     common_all,
@@ -90,7 +92,6 @@ del (
     rate_rnns,
     _syn_proj_all,
 )
-
 
 # Deprecated names that redirect to brainpy
 _DEPRECATED_NAMES = {
