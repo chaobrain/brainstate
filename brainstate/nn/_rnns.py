@@ -24,7 +24,7 @@ from brainstate import random
 from brainstate._state import HiddenState, ParamState
 from brainstate.typing import ArrayLike
 from . import _activations as functional
-from . import _init as init
+from . import init as init
 from ._linear import Linear
 from ._module import Module
 

@@ -21,17 +21,14 @@ import brainunit as u
 
 from brainstate._state import HiddenState
 from brainstate.typing import ArrayLike, Size
-from . import _init as init
+from . import init as init
 from ._exp_euler import exp_euler_step
 from ._synapse import Synapse
+from ._projection import ShortTermPlasticity
 
 __all__ = [
-    'ShortTermPlasticity', 'STP', 'STD',
+    'STP', 'STD',
 ]
-
-
-class ShortTermPlasticity(Synapse):
-    pass
 
 
 class STP(ShortTermPlasticity):

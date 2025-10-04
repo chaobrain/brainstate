@@ -37,8 +37,7 @@ from ._exp_euler import *
 from ._exp_euler import __all__ as exp_euler_all
 from ._fixedprob import *
 from ._fixedprob import __all__ as fixedprob_all
-from ._init import *
-from ._init import __all__ as init_all
+from .init import param
 from ._inputs import *
 from ._inputs import __all__ as inputs_all
 from ._linear import *
@@ -72,14 +71,13 @@ from ._synouts import __all__ as synouts_all
 from ._utils import *
 from ._utils import __all__ as utils_all
 
-__all__ = ['metrics']
+__all__ = ['metrics', 'param']
 __all__ = __all__ + activation_all
 __all__ = __all__ + collective_ops_all + common_all + elementwise_all + module_all + exp_euler_all
 __all__ = __all__ + utils_all + dyn_all + projection_all + state_delay_all + synouts_all + conv_all
 __all__ = __all__ + linear_all + normalizations_all + paddings_all + poolings_all + fixedprob_all + linear_mv_all
 __all__ = __all__ + embed_all + dropout_all + elementwise_all + dyn_neuron_all + dyn_synapse_all
 __all__ = __all__ + inputs_all + rate_rnns + readout_all + stp_all + _syn_proj_all
-__all__ = __all__  + init_all
 
 del (
     activation_all,
@@ -109,5 +107,4 @@ del (
     rate_rnns,
     stp_all,
     _syn_proj_all,
-    init_all,
 )

@@ -25,7 +25,7 @@ import jax
 from brainstate import environ, surrogate
 from brainstate._state import HiddenState, ParamState
 from brainstate.typing import Size, ArrayLike
-from . import _init as init
+from . import init as init
 from ._exp_euler import exp_euler_step
 from ._module import Module
 from ._neuron import Neuron

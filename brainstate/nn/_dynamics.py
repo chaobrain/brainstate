@@ -47,8 +47,13 @@ from ._delay import StateWithDelay, Delay
 from ._module import Module
 
 __all__ = [
-    'DynamicsGroup', 'Projection', 'Dynamics',
-    'Prefetch', 'PrefetchDelay', 'PrefetchDelayAt', 'OutputDelayAt',
+    'DynamicsGroup',
+    'Projection',
+    'Dynamics',
+    'Prefetch',
+    'PrefetchDelay',
+    'PrefetchDelayAt',
+    'OutputDelayAt',
 ]
 
 T = TypeVar('T')

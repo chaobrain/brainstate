@@ -21,7 +21,7 @@ import jax
 
 from brainstate._state import ParamState
 from brainstate.typing import Size, ArrayLike
-from . import _init as init
+from . import init as init
 from ._module import Module
 
 __all__ = [

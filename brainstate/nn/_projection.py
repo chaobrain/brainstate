@@ -20,17 +20,17 @@ import brainevent
 import brainunit as u
 
 from brainstate._state import State
-from brainstate.mixin import BindCondData, JointTypes
-from brainstate.mixin import ParamDescriber, AlignPost
+from brainstate.mixin import BindCondData, JointTypes, ParamDescriber, AlignPost
 from brainstate.util._others import get_unique_name
 from ._collective_ops import call_order
 from ._dynamics import Dynamics, Projection, maybe_init_prefetch, Prefetch, PrefetchDelayAt
 from ._module import Module
-from ._stp import ShortTermPlasticity
-from ._synapse import Synapse
-from ._synouts import SynOut
+
 
 __all__ = [
+    'ShortTermPlasticity',
+    'SynOut',
+
     'AlignPostProj',
     'DeltaProj',
     'CurrentProj',
@@ -39,6 +39,35 @@ __all__ = [
     'align_post_projection',
 ]
 
+
+class ShortTermPlasticity(Dynamics):
+    pass
+
+
+class SynOut(Module, BindCondData):
+    """
+    Base class for synaptic outputs.
+
+    :py:class:`~.SynOut` is also subclass of :py:class:`~.ParamDesc` and :py:class:`~.BindCondData`.
+    """
+
+    __module__ = 'brainstate.nn'
+
+    def __init__(self, ):
+        super().__init__()
+        self._conductance = None
+
+    def __call__(self, *args, **kwargs):
+        if self._conductance is None:
+            raise ValueError(
+                f'Please first pack conductance data at the current step using '
+                f'".{BindCondData.bind_cond.__name__}(data)". {self}'
+            )
+        ret = self.update(self._conductance, *args, **kwargs)
+        return ret
+
+    def update(self, conductance, potential):
+        raise NotImplementedError
 
 def _check_modules(*modules):
     # checking modules
@@ -387,14 +416,6 @@ class align_pre_projection(Projection):
     communication functions, synaptic outputs, post-synaptic dynamics, and
     short-term plasticity.
 
-    Attributes:
-        pre (Dynamics): The pre-synaptic dynamics object.
-        syn (Synapse): The synaptic object after pre-synaptic alignment.
-        delay (u.Quantity[u.second]): The output delay from the synapse.
-        projection (CurrentProj): The current projection object handling communication,
-            output, and post-synaptic dynamics.
-        stp (ShortTermPlasticity, optional): The short-term plasticity object,
-            defaults to None.
     """
 
     def __init__(
@@ -441,14 +462,6 @@ class align_post_projection(Projection):
     manage the post-synaptic alignment process in neural network simulations.
     It takes into account spike generators, communication functions, synaptic
     properties, synaptic outputs, post-synaptic dynamics, and short-term plasticity.
-
-    Args:
-        *spike_generator: Callable(s) that generate spike events or transform input spikes.
-        comm (Callable): Communication function for the projection.
-        syn (Union[AlignPost, ParamDescriber[AlignPost]]): The post-synaptic alignment object or its parameter describer.
-        out (Union[SynOut, ParamDescriber[SynOut]]): The synaptic output object or its parameter describer.
-        post (Dynamics): The post-synaptic dynamics object.
-        stp (ShortTermPlasticity, optional): The short-term plasticity object, defaults to None.
 
     """
 

@@ -23,7 +23,7 @@ import jax
 from brainstate import surrogate, environ
 from brainstate._state import HiddenState, ShortTermState
 from brainstate.typing import ArrayLike, Size
-from . import _init as init
+from . import init as init
 from ._dynamics import Dynamics
 from ._exp_euler import exp_euler_step
 

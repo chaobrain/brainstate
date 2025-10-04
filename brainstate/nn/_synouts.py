@@ -21,36 +21,13 @@ import jax.numpy as jnp
 from brainstate.mixin import BindCondData
 from brainstate.typing import ArrayLike
 from ._module import Module
+from ._projection import SynOut
+
 
 __all__ = [
-    'SynOut', 'COBA', 'CUBA', 'MgBlock',
+    'COBA', 'CUBA', 'MgBlock',
 ]
 
-
-class SynOut(Module, BindCondData):
-    """
-    Base class for synaptic outputs.
-
-    :py:class:`~.SynOut` is also subclass of :py:class:`~.ParamDesc` and :py:class:`~.BindCondData`.
-    """
-
-    __module__ = 'brainstate.nn'
-
-    def __init__(self, ):
-        super().__init__()
-        self._conductance = None
-
-    def __call__(self, *args, **kwargs):
-        if self._conductance is None:
-            raise ValueError(
-                f'Please first pack conductance data at the current step using '
-                f'".{BindCondData.bind_cond.__name__}(data)". {self}'
-            )
-        ret = self.update(self._conductance, *args, **kwargs)
-        return ret
-
-    def update(self, conductance, potential):
-        raise NotImplementedError
 
 
 class COBA(SynOut):

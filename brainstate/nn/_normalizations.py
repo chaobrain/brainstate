@@ -24,7 +24,7 @@ import jax.numpy as jnp
 from brainstate import environ
 from brainstate._state import ParamState, BatchState
 from brainstate.typing import DTypeLike, ArrayLike, Size, Axes
-from . import _init as init
+from . import init as init
 from ._module import Module
 
 __all__ = [

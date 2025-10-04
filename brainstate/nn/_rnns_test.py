@@ -25,7 +25,7 @@ import numpy as np
 import brainstate
 import brainstate.nn as nn
 from brainstate.nn import RNNCell, ValinaRNNCell, GRUCell, MGUCell, LSTMCell, URLSTMCell
-from brainstate.nn import _init as init
+from brainstate.nn import init as init
 from brainstate.nn import _activations as functional
 
 
