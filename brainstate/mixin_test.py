@@ -716,7 +716,341 @@ class TestIntegration(unittest.TestCase):
         self.assertEqual(batch_size, 32)
 
 
-class  TestJointTy:
+class TestJointTypesComprehensive(unittest.TestCase):
+    """Comprehensive tests for JointTypes special methods and functionality."""
+
+    def setUp(self):
+        """Set up test classes."""
+        class A:
+            pass
+
+        class B:
+            pass
+
+        class C:
+            pass
+
+        self.A = A
+        self.B = B
+        self.C = C
+
+    def test_repr(self):
+        """Test __repr__ method."""
+        JT = brainstate.mixin.JointTypes[self.A, self.B]
+        repr_str = repr(JT)
+        self.assertIn('JointTypes', repr_str)
+        self.assertIn('A', repr_str)
+        self.assertIn('B', repr_str)
+
+    def test_eq_same_order(self):
+        """Test equality with same type order."""
+        JT1 = brainstate.mixin.JointTypes[self.A, self.B]
+        JT2 = brainstate.mixin.JointTypes[self.A, self.B]
+        self.assertEqual(JT1, JT2)
+
+    def test_eq_different_order(self):
+        """Test equality with different type order."""
+        JT1 = brainstate.mixin.JointTypes[self.A, self.B]
+        JT2 = brainstate.mixin.JointTypes[self.B, self.A]
+        self.assertEqual(JT1, JT2)
+
+    def test_eq_different_types(self):
+        """Test inequality with different types."""
+        JT1 = brainstate.mixin.JointTypes[self.A, self.B]
+        JT2 = brainstate.mixin.JointTypes[self.A, self.C]
+        self.assertNotEqual(JT1, JT2)
+
+    def test_eq_with_non_jointtypes(self):
+        """Test equality with non-JointTypes object."""
+        JT = brainstate.mixin.JointTypes[self.A, self.B]
+        self.assertNotEqual(JT, "not a type")
+        self.assertNotEqual(JT, 42)
+        self.assertNotEqual(JT, self.A)
+
+    def test_hash_consistency(self):
+        """Test hash consistency."""
+        JT = brainstate.mixin.JointTypes[self.A, self.B]
+        hash1 = hash(JT)
+        hash2 = hash(JT)
+        self.assertEqual(hash1, hash2)
+
+    def test_hash_order_independent(self):
+        """Test hash is order-independent."""
+        JT1 = brainstate.mixin.JointTypes[self.A, self.B]
+        JT2 = brainstate.mixin.JointTypes[self.B, self.A]
+        self.assertEqual(hash(JT1), hash(JT2))
+
+    def test_hash_different_for_different_types(self):
+        """Test different types have different hashes."""
+        JT1 = brainstate.mixin.JointTypes[self.A, self.B]
+        JT2 = brainstate.mixin.JointTypes[self.A, self.C]
+        # Note: hash collision is possible but unlikely for different types
+        self.assertNotEqual(hash(JT1), hash(JT2))
+
+    def test_hashable_in_set(self):
+        """Test JointTypes can be used in sets."""
+        JT1 = brainstate.mixin.JointTypes[self.A, self.B]
+        JT2 = brainstate.mixin.JointTypes[self.B, self.A]
+        JT3 = brainstate.mixin.JointTypes[self.A, self.C]
+
+        type_set = {JT1, JT2, JT3}
+        # JT1 and JT2 are equal, so set should have 2 elements
+        self.assertEqual(len(type_set), 2)
+        self.assertIn(JT1, type_set)
+        self.assertIn(JT2, type_set)
+        self.assertIn(JT3, type_set)
+
+    def test_as_dict_key(self):
+        """Test JointTypes can be used as dict keys."""
+        JT1 = brainstate.mixin.JointTypes[self.A, self.B]
+        JT2 = brainstate.mixin.JointTypes[self.B, self.A]
+
+        type_dict = {JT1: "AB type"}
+        self.assertIn(JT1, type_dict)
+        # JT2 should work as key since it's equal to JT1
+        self.assertIn(JT2, type_dict)
+        self.assertEqual(type_dict[JT2], "AB type")
+
+    def test_pickle_roundtrip(self):
+        """Test pickling and unpickling with built-in types."""
+        import pickle
+        # Use built-in types since local classes can't be pickled
+        JT = brainstate.mixin.JointTypes[int, str]
+        pickled = pickle.dumps(JT)
+        unpickled = pickle.loads(pickled)
+        self.assertEqual(JT, unpickled)
+        self.assertEqual(hash(JT), hash(unpickled))
+
+    def test_pickle_preserves_isinstance(self):
+        """Test isinstance works after pickle with built-in types."""
+        import pickle
+
+        class IntStr(int):
+            """A class that inherits from int."""
+            pass
+
+        # Use built-in types for pickling
+        JT = brainstate.mixin.JointTypes[int, object]
+        pickled = pickle.dumps(JT)
+        unpickled = pickle.loads(pickled)
+
+        obj = 42
+        self.assertTrue(isinstance(obj, JT))
+        self.assertTrue(isinstance(obj, unpickled))
+
+    def test_multiple_types(self):
+        """Test JointTypes with more than 2 types."""
+        JT = brainstate.mixin.JointTypes[self.A, self.B, self.C]
+
+        class ABC(self.A, self.B, self.C):
+            pass
+
+        self.assertTrue(issubclass(ABC, JT))
+
+        class AB(self.A, self.B):
+            pass
+
+        self.assertFalse(issubclass(AB, JT))
+
+    def test_subscript_vs_call_syntax(self):
+        """Test subscript and call syntax produce equal results."""
+        JT_subscript = brainstate.mixin.JointTypes[self.A, self.B]
+        JT_call = brainstate.mixin.JointTypes(self.A, self.B)
+        self.assertEqual(JT_subscript, JT_call)
+        self.assertEqual(hash(JT_subscript), hash(JT_call))
+
+    def test_args_attribute(self):
+        """Test __args__ attribute contains correct types."""
+        JT = brainstate.mixin.JointTypes[self.A, self.B]
+        self.assertIn(self.A, JT.__args__)
+        self.assertIn(self.B, JT.__args__)
+        self.assertEqual(len(JT.__args__), 2)
+
+
+class TestOneOfTypesComprehensive(unittest.TestCase):
+    """Comprehensive tests for OneOfTypes special methods and functionality."""
+
+    def setUp(self):
+        """Set up test classes."""
+        class A:
+            pass
+
+        class B:
+            pass
+
+        class C:
+            pass
+
+        self.A = A
+        self.B = B
+        self.C = C
+
+    def test_repr(self):
+        """Test __repr__ method."""
+        OT = brainstate.mixin.OneOfTypes[self.A, self.B]
+        repr_str = repr(OT)
+        self.assertIn('OneOfTypes', repr_str)
+        self.assertIn('A', repr_str)
+        self.assertIn('B', repr_str)
+
+    def test_eq_same_order(self):
+        """Test equality with same type order."""
+        OT1 = brainstate.mixin.OneOfTypes[self.A, self.B]
+        OT2 = brainstate.mixin.OneOfTypes[self.A, self.B]
+        self.assertEqual(OT1, OT2)
+
+    def test_eq_different_order(self):
+        """Test equality with different type order."""
+        OT1 = brainstate.mixin.OneOfTypes[self.A, self.B]
+        OT2 = brainstate.mixin.OneOfTypes[self.B, self.A]
+        self.assertEqual(OT1, OT2)
+
+    def test_eq_different_types(self):
+        """Test inequality with different types."""
+        OT1 = brainstate.mixin.OneOfTypes[self.A, self.B]
+        OT2 = brainstate.mixin.OneOfTypes[self.A, self.C]
+        self.assertNotEqual(OT1, OT2)
+
+    def test_eq_with_non_oneoftypes(self):
+        """Test equality with non-OneOfTypes object."""
+        OT = brainstate.mixin.OneOfTypes[self.A, self.B]
+        self.assertNotEqual(OT, "not a type")
+        self.assertNotEqual(OT, 42)
+        self.assertNotEqual(OT, self.A)
+
+    def test_hash_consistency(self):
+        """Test hash consistency."""
+        OT = brainstate.mixin.OneOfTypes[self.A, self.B]
+        hash1 = hash(OT)
+        hash2 = hash(OT)
+        self.assertEqual(hash1, hash2)
+
+    def test_hash_order_independent(self):
+        """Test hash is order-independent."""
+        OT1 = brainstate.mixin.OneOfTypes[self.A, self.B]
+        OT2 = brainstate.mixin.OneOfTypes[self.B, self.A]
+        self.assertEqual(hash(OT1), hash(OT2))
+
+    def test_hash_different_for_different_types(self):
+        """Test different types have different hashes."""
+        OT1 = brainstate.mixin.OneOfTypes[self.A, self.B]
+        OT2 = brainstate.mixin.OneOfTypes[self.A, self.C]
+        self.assertNotEqual(hash(OT1), hash(OT2))
+
+    def test_hashable_in_set(self):
+        """Test OneOfTypes can be used in sets."""
+        OT1 = brainstate.mixin.OneOfTypes[self.A, self.B]
+        OT2 = brainstate.mixin.OneOfTypes[self.B, self.A]
+        OT3 = brainstate.mixin.OneOfTypes[self.A, self.C]
+
+        type_set = {OT1, OT2, OT3}
+        # OT1 and OT2 are equal, so set should have 2 elements
+        self.assertEqual(len(type_set), 2)
+        self.assertIn(OT1, type_set)
+        self.assertIn(OT2, type_set)
+        self.assertIn(OT3, type_set)
+
+    def test_as_dict_key(self):
+        """Test OneOfTypes can be used as dict keys."""
+        OT1 = brainstate.mixin.OneOfTypes[self.A, self.B]
+        OT2 = brainstate.mixin.OneOfTypes[self.B, self.A]
+
+        type_dict = {OT1: "A or B type"}
+        self.assertIn(OT1, type_dict)
+        self.assertIn(OT2, type_dict)
+        self.assertEqual(type_dict[OT2], "A or B type")
+
+    def test_pickle_roundtrip(self):
+        """Test pickling and unpickling with built-in types."""
+        import pickle
+        # Use built-in types since local classes can't be pickled
+        OT = brainstate.mixin.OneOfTypes[int, str]
+        pickled = pickle.dumps(OT)
+        unpickled = pickle.loads(pickled)
+        self.assertEqual(OT, unpickled)
+        self.assertEqual(hash(OT), hash(unpickled))
+
+    def test_pickle_preserves_isinstance(self):
+        """Test isinstance works after pickle with built-in types."""
+        import pickle
+        # Use built-in types for pickling
+        OT = brainstate.mixin.OneOfTypes[int, str]
+        pickled = pickle.dumps(OT)
+        unpickled = pickle.loads(pickled)
+
+        obj_a = 42
+        obj_b = "hello"
+
+        self.assertTrue(isinstance(obj_a, OT))
+        self.assertTrue(isinstance(obj_a, unpickled))
+        self.assertTrue(isinstance(obj_b, OT))
+        self.assertTrue(isinstance(obj_b, unpickled))
+
+    def test_isinstance_with_any_type(self):
+        """Test isinstance returns True if object is instance of any type."""
+        OT = brainstate.mixin.OneOfTypes[self.A, self.B]
+
+        obj_a = self.A()
+        obj_b = self.B()
+        obj_c = self.C()
+
+        self.assertTrue(isinstance(obj_a, OT))
+        self.assertTrue(isinstance(obj_b, OT))
+        self.assertFalse(isinstance(obj_c, OT))
+
+    def test_issubclass_with_any_type(self):
+        """Test issubclass returns True if class is subclass of any type."""
+        OT = brainstate.mixin.OneOfTypes[self.A, self.B]
+
+        class SubA(self.A):
+            pass
+
+        class SubB(self.B):
+            pass
+
+        self.assertTrue(issubclass(SubA, OT))
+        self.assertTrue(issubclass(SubB, OT))
+        self.assertTrue(issubclass(self.A, OT))
+        self.assertTrue(issubclass(self.B, OT))
+        self.assertFalse(issubclass(self.C, OT))
+
+    def test_multiple_types(self):
+        """Test OneOfTypes with more than 2 types."""
+        OT = brainstate.mixin.OneOfTypes[self.A, self.B, self.C]
+
+        obj_a = self.A()
+        obj_b = self.B()
+        obj_c = self.C()
+
+        self.assertTrue(isinstance(obj_a, OT))
+        self.assertTrue(isinstance(obj_b, OT))
+        self.assertTrue(isinstance(obj_c, OT))
+
+    def test_subscript_vs_call_syntax(self):
+        """Test subscript and call syntax produce equal results."""
+        OT_subscript = brainstate.mixin.OneOfTypes[self.A, self.B]
+        OT_call = brainstate.mixin.OneOfTypes(self.A, self.B)
+        self.assertEqual(OT_subscript, OT_call)
+        self.assertEqual(hash(OT_subscript), hash(OT_call))
+
+    def test_args_attribute(self):
+        """Test __args__ attribute contains correct types."""
+        OT = brainstate.mixin.OneOfTypes[self.A, self.B]
+        self.assertIn(self.A, OT.__args__)
+        self.assertIn(self.B, OT.__args__)
+        self.assertEqual(len(OT.__args__), 2)
+
+    def test_with_builtin_types(self):
+        """Test OneOfTypes with built-in types."""
+        OT = brainstate.mixin.OneOfTypes[int, float, str]
+
+        self.assertTrue(isinstance(42, OT))
+        self.assertTrue(isinstance(3.14, OT))
+        self.assertTrue(isinstance("hello", OT))
+        self.assertFalse(isinstance([], OT))
+
+
+class TestJointTy:
     def test1(self):
         class Potassium:
             pass

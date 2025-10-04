@@ -24,7 +24,7 @@ description mixins, alignment interfaces, and custom type definitions for
 expressing complex type requirements.
 """
 
-from typing import Sequence, Optional, TypeVar, Union
+from typing import Sequence, Optional, TypeVar, Union, _GenericAlias
 
 import jax
 
@@ -38,6 +38,8 @@ __all__ = [
     # types
     'JointTypes',
     'OneOfTypes',
+    '_JointGenericAlias',
+    '_OneOfGenericAlias',
 
     # behavior modes
     'Mode',
@@ -667,41 +669,134 @@ def not_implemented(func):
     return wrapper
 
 
-class _MetaUnionType(type):
+class _JointGenericAlias(_GenericAlias, _root=True):
     """
-    Metaclass for creating union types that require all base types.
+    Generic alias for JointTypes (intersection types).
 
-    This metaclass is used internally to create types that require instances
-    to be instances of all specified base types (similar to intersection types).
+    This class represents a type that requires all specified types to be satisfied.
+    Unlike _MetaUnionType which creates actual classes with metaclass conflicts,
+    this uses typing's generic alias system to avoid metaclass issues.
     """
 
-    def __new__(cls, name, bases, dct):
-        # Normalize bases to a tuple
-        if isinstance(bases, type):
-            bases = (bases,)
-        elif isinstance(bases, (list, tuple)):
-            bases = tuple(bases)
-            # Ensure all bases are types
-            for base in bases:
-                assert isinstance(base, type), f'Must be type. But got {base}'
-        else:
-            raise TypeError(f'Must be type. But got {bases}')
-        return super().__new__(cls, name, bases, dct)
-
-    def __instancecheck__(self, other):
+    def __instancecheck__(self, obj):
         """
-        Check if an instance is an instance of all base types.
+        Check if an instance is an instance of all component types.
         """
-        cls_of_other = other.__class__
-        # Must be instance of ALL base classes
-        return all([issubclass(cls_of_other, cls) for cls in self.__bases__])
+        return all(isinstance(obj, cls) for cls in self.__args__)
 
     def __subclasscheck__(self, subclass):
         """
-        Check if a class is a subclass of all base types.
+        Check if a class is a subclass of all component types.
         """
-        # Must be subclass of ALL base classes
-        return all([issubclass(subclass, cls) for cls in self.__bases__])
+        return all(issubclass(subclass, cls) for cls in self.__args__)
+
+    def __eq__(self, other):
+        """
+        Check equality with another type.
+
+        Two JointTypes are equal if they have the same component types,
+        regardless of order.
+        """
+        if not isinstance(other, _JointGenericAlias):
+            return NotImplemented
+        return set(self.__args__) == set(other.__args__)
+
+    def __hash__(self):
+        """
+        Return hash of the JointType.
+
+        The hash is based on the frozenset of component types to ensure
+        that JointTypes with the same types (regardless of order) have
+        the same hash.
+        """
+        return hash(frozenset(self.__args__))
+
+    def __repr__(self):
+        """
+        Return string representation of the JointType.
+
+        Returns a readable representation showing all component types.
+        """
+        args_str = ', '.join(
+            arg.__module__ + '.' + arg.__name__ if hasattr(arg, '__module__') and hasattr(arg, '__name__')
+            else str(arg)
+            for arg in self.__args__
+        )
+        return f'JointTypes[{args_str}]'
+
+    def __reduce__(self):
+        """
+        Support for pickling.
+
+        Returns the necessary information to reconstruct the JointType
+        when unpickling.
+        """
+        return (_JointGenericAlias, (self.__origin__, self.__args__))
+
+
+class _OneOfGenericAlias(_GenericAlias, _root=True):
+    """
+    Generic alias for OneOfTypes (union types).
+
+    This class represents a type that requires at least one of the specified
+    types to be satisfied. It's similar to typing.Union but provides a consistent
+    interface with JointTypes and avoids potential metaclass conflicts.
+    """
+
+    def __instancecheck__(self, obj):
+        """
+        Check if an instance is an instance of any component type.
+        """
+        return any(isinstance(obj, cls) for cls in self.__args__)
+
+    def __subclasscheck__(self, subclass):
+        """
+        Check if a class is a subclass of any component type.
+        """
+        return any(issubclass(subclass, cls) for cls in self.__args__)
+
+    def __eq__(self, other):
+        """
+        Check equality with another type.
+
+        Two OneOfTypes are equal if they have the same component types,
+        regardless of order.
+        """
+        if not isinstance(other, _OneOfGenericAlias):
+            return NotImplemented
+        return set(self.__args__) == set(other.__args__)
+
+    def __hash__(self):
+        """
+        Return hash of the OneOfType.
+
+        The hash is based on the frozenset of component types to ensure
+        that OneOfTypes with the same types (regardless of order) have
+        the same hash.
+        """
+        return hash(frozenset(self.__args__))
+
+    def __repr__(self):
+        """
+        Return string representation of the OneOfType.
+
+        Returns a readable representation showing all component types.
+        """
+        args_str = ', '.join(
+            arg.__module__ + '.' + arg.__name__ if hasattr(arg, '__module__') and hasattr(arg, '__name__')
+            else str(arg)
+            for arg in self.__args__
+        )
+        return f'OneOfTypes[{args_str}]'
+
+    def __reduce__(self):
+        """
+        Support for pickling.
+
+        Returns the necessary information to reconstruct the OneOfType
+        when unpickling.
+        """
+        return (_OneOfGenericAlias, (self.__origin__, self.__args__))
 
 
 class _JointTypesClass:
@@ -796,14 +891,9 @@ class _JointTypesClass:
         if len(unique_types) == 1:
             return unique_types[0]
 
-        # Create a new type dynamically using _MetaUnionType metaclass
-        # The metaclass ensures isinstance/issubclass checks work correctly
-        JointType = _MetaUnionType(
-            'JointType',
-            tuple(unique_types),
-            {'__doc__': 'A type that requires all specified types.'}
-        )
-        return JointType
+        # Create a generic alias for the joint type
+        # This avoids metaclass conflicts by using typing's generic alias system
+        return _JointGenericAlias(object, tuple(unique_types))
 
     def __getitem__(self, item):
         """Enable subscript syntax: JointTypes[Type1, Type2]."""
@@ -911,14 +1001,9 @@ class _OneOfTypesClass:
         if len(unique_types) == 1:
             return unique_types[0]
 
-        # Use standard Union from typing
-        # We need to use eval to dynamically create Union with variable number of types
-        # This avoids using internal APIs while maintaining functionality
-        # Build the Union dynamically
-        result = unique_types[0]
-        for t in unique_types[1:]:
-            result = Union[result, t]
-        return result
+        # Create a generic alias for the union type
+        # This provides consistency with JointTypes and avoids metaclass conflicts
+        return _OneOfGenericAlias(Union, tuple(unique_types))
 
     def __getitem__(self, item):
         """Enable subscript syntax: OneOfTypes[Type1, Type2]."""
