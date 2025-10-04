@@ -58,7 +58,7 @@ def field(pytree_node: bool = True, **kwargs) -> dataclasses.Field:
         If True (default), this field will be treated as part of the pytree.
         If False, it will be treated as metadata and not be touched
         by JAX transformations.
-    **kwargs : dict
+    **kwargs
         Additional arguments to pass to dataclasses.field().
 
     Returns
@@ -98,7 +98,7 @@ def dataclass(cls: type[T], **kwargs) -> type[T]:
     ----------
     cls : type
         The class to decorate.
-    **kwargs : dict
+    **kwargs
         Additional arguments for dataclasses.dataclass().
         If 'frozen' is not specified, it defaults to True.
 
@@ -270,7 +270,7 @@ class PyTreeNode:
 
         Parameters
         ----------
-        **updates : dict
+        **updates
             Field names and their new values.
 
         Returns
@@ -292,9 +292,9 @@ class FrozenDict(Mapping[K, V], Generic[K, V]):
 
     Parameters
     ----------
-    *args : tuple
+    *args
         Positional arguments for dict construction.
-    **kwargs : dict
+    **kwargs
         Keyword arguments for dict construction.
 
     Attributes

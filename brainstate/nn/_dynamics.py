@@ -450,12 +450,12 @@ class Dynamics(Module):
         ----------
         init : Any
             The initial value to which all current inputs will be added.
-        *args : tuple
+        *args
             Variable length argument list passed to each current input function.
         label : Optional[str], default=None
             If provided, only process current inputs with this label prefix.
             When None, process all current inputs regardless of label.
-        **kwargs : dict
+        **kwargs
             Arbitrary keyword arguments passed to each current input function.
 
         Returns
@@ -518,12 +518,12 @@ class Dynamics(Module):
         ----------
         init : Any
             The initial value to which all delta inputs will be added.
-        *args : tuple
+        *args
             Variable length argument list passed to each delta input function.
         label : Optional[str], default=None
             If provided, only process delta inputs with this label prefix.
             When None, process all delta inputs regardless of label.
-        **kwargs : dict
+        **kwargs
             Arbitrary keyword arguments passed to each delta input function.
 
         Returns

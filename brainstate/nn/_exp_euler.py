@@ -57,12 +57,12 @@ def exp_euler_step(
         The drift function :math:`f(x, t)` to be integrated. This function should
         take the state variable as the first argument, followed by optional time
         and other arguments. It should return the derivative :math:`dx/dt`.
-    *args : tuple
+    *args
         Variable arguments. If the first argument is callable, it is treated as
         the diffusion function for SDE integration. Otherwise, arguments are
         passed to the drift function. The first non-callable argument should be
         the state variable :math:`x`.
-    **kwargs : dict
+    **kwargs
         Additional keyword arguments passed to the drift and diffusion functions.
 
     Returns

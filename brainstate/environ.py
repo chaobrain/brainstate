@@ -239,11 +239,12 @@ def context(**kwargs) -> ContextManager[Dict[str, Any]]:
     **kwargs
         Environment settings to apply within the context.
         Common parameters include:
-        - precision : int or str
+
+        - precision : int or str.
             Numerical precision (8, 16, 32, 64, or 'bf16')
-        - dt : float
+        - dt : float.
             Time step for numerical integration
-        - mode : Mode
+        - mode : :class:`Mode`.
             Computation mode instance
         - Any custom parameters registered via register_default_behavior
 
