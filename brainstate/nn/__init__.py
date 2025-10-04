@@ -35,15 +35,15 @@ from ._embedding import *
 from ._embedding import __all__ as embed_all
 from ._exp_euler import *
 from ._exp_euler import __all__ as exp_euler_all
-from ._fixedprob import *
-from ._fixedprob import __all__ as fixedprob_all
+from ._event_fixedprob import *
+from ._event_fixedprob import __all__ as fixedprob_all
 from .init import param
 from ._inputs import *
 from ._inputs import __all__ as inputs_all
 from ._linear import *
 from ._linear import __all__ as linear_all
-from ._linear_mv import *
-from ._linear_mv import __all__ as linear_mv_all
+from ._event_linear import *
+from ._event_linear import __all__ as linear_mv_all
 from ._module import *
 from ._module import __all__ as module_all
 from ._neuron import *
