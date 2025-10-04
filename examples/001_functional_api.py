@@ -65,7 +65,9 @@ class MLP(brainstate.graph.Node):
         return x
 
 
-graphdef, params_, counts_ = brainstate.graph.treefy_split(MLP(din=1, dhidden=32, dout=1), brainstate.ParamState, Count)
+graphdef, params_, counts_ = brainstate.graph.treefy_split(
+    MLP(din=1, dhidden=32, dout=1), brainstate.ParamState, Count
+)
 
 
 @jax.jit
@@ -87,7 +89,7 @@ def train_step(params, counts, batch):
 
 
 @jax.jit
-def test_step(params, counts, batch):
+def eval_step(params, counts, batch):
     x, y = batch
     model = brainstate.graph.treefy_merge(graphdef, params, counts)
     y_pred = model(x)
@@ -100,7 +102,7 @@ for step, batch in enumerate(dataset(32)):
     params_, counts_ = train_step(params_, counts_, batch)
 
     if step % 1000 == 0:
-        logs = test_step(params_, counts_, (X, Y))
+        logs = eval_step(params_, counts_, (X, Y))
         print(f"step: {step}, loss: {logs['loss']}")
 
     if step >= total_steps - 1:

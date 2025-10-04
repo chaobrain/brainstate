@@ -68,6 +68,7 @@ import warnings
 from collections import defaultdict
 from typing import Any, Callable, Dict, Hashable, Optional, Union, ContextManager, List
 
+import brainunit as u
 import numpy as np
 from jax import config, devices, numpy as jnp
 from jax.typing import DTypeLike
@@ -762,8 +763,8 @@ def set(
         kwargs[MODE] = mode
 
     if dt is not None:
-        if not isinstance(dt, (int, float)) or dt <= 0:
-            raise ValueError(f"'{DT}' must be a positive number, got {dt}")
+        if not u.math.isscalar(dt):
+            raise TypeError(f"'{DT}' must be a scalar number, got {type(dt)}")
         kwargs[DT] = dt
 
     # Update global settings

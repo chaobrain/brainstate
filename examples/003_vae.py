@@ -26,7 +26,6 @@ from datasets import load_dataset
 import brainstate
 import braintools
 
-
 np.random.seed(42)
 latent_size = 32
 image_shape: tp.Sequence[int] = (28, 28)
@@ -95,9 +94,7 @@ class VAE(brainstate.nn.Module):
         super().__init__()
         self.output_shape = output_shape
         self.encoder = Encoder(din, hidden_size, latent_size)
-        self.decoder = Decoder(
-            latent_size, hidden_size, int(np.prod(output_shape))
-        )
+        self.decoder = Decoder(latent_size, hidden_size, int(np.prod(output_shape)))
 
     def __call__(self, x: jax.Array) -> jax.Array:
         z = self.encoder(x)
@@ -123,7 +120,7 @@ optimizer.register_trainable_weights(model.states(brainstate.ParamState))
 
 
 # %%
-@brainstate.compile.jit
+@brainstate.transform.jit
 def train_step(x: jax.Array):
     def loss_fn():
         logits = model(x)
@@ -133,17 +130,17 @@ def train_step(x: jax.Array):
         loss = reconstruction_loss + 0.1 * kl_loss
         return loss
 
-    grads, loss = brainstate.augment.grad(loss_fn, optimizer.param_states.to_dict(), return_value=True)()
+    grads, loss = brainstate.transform.grad(loss_fn, optimizer.param_states.to_pytree(), return_value=True)()
     optimizer.update(grads)
     return loss
 
 
-@brainstate.compile.jit
+@brainstate.transform.jit
 def forward(x: jax.Array) -> jax.Array:
     return jax.nn.sigmoid(model(x))
 
 
-@brainstate.compile.jit
+@brainstate.transform.jit
 def sample(z: jax.Array) -> jax.Array:
     return model.generate(z)
 

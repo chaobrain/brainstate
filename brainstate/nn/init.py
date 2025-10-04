@@ -25,7 +25,7 @@ import numpy as np
 from brainstate import environ, random
 from brainstate._state import State
 from brainstate._utils import set_module_as
-from brainstate.typing import ArrayLike, SeedOrKey, DTypeLike
+from brainstate.typing import ArrayLike, SeedOrKey
 from brainstate.util import PrettyRepr, PrettyType, PrettyAttr
 
 __all__ = [
@@ -309,10 +309,11 @@ class Normal(Initializer):
         self.rng = random.default_rng(seed)
         self.unit = unit
 
-    def __call__(self, shape, dtype: DTypeLike = None):
+    def __call__(self, shape, **kwargs):
         shape = to_size(shape)
-        dtype = dtype or environ.dftype()
-        weights = self.rng.normal(size=shape, loc=self.mean, scale=self.scale, dtype=dtype)
+        dtype = kwargs.get('dtype', environ.dftype())
+        rng = kwargs.get('rng', self.rng)
+        weights = rng.normal(size=shape, loc=self.mean, scale=self.scale, dtype=dtype)
         return u.maybe_decimal(u.Quantity(weights, unit=self.unit))
 
 
@@ -355,9 +356,10 @@ class TruncatedNormal(Initializer):
         self.rng = random.default_rng(seed)
         self.unit = unit
 
-    def __call__(self, shape, dtype: DTypeLike = None, ):
-        dtype = dtype or environ.dftype()
-        weights = self.rng.truncated_normal(
+    def __call__(self, shape, **kwargs):
+        dtype = kwargs.get('dtype', environ.dftype())
+        rng = kwargs.get('rng', self.rng)
+        weights = rng.truncated_normal(
             size=shape,
             scale=self.scale,
             lower=self.lower,
@@ -393,10 +395,11 @@ class Gamma(Initializer):
         self.rng = random.default_rng(seed)
         self.unit = unit
 
-    def __call__(self, shape, dtype: DTypeLike = None, ):
+    def __call__(self, shape, **kwargs):
         shape = to_size(shape)
-        dtype = dtype or environ.dftype()
-        weights = self.rng.gamma(self.shape, scale=self.scale, size=shape, dtype=dtype)
+        dtype = kwargs.get('dtype', environ.dftype())
+        rng = kwargs.get('rng', self.rng)
+        weights = rng.gamma(self.shape, scale=self.scale, size=shape, dtype=dtype)
         return u.maybe_decimal(u.Quantity(weights, unit=self.unit))
 
 
@@ -421,10 +424,11 @@ class Exponential(Initializer):
         self.rng = random.default_rng(seed)
         self.unit = unit
 
-    def __call__(self, shape, dtype: DTypeLike = None, ):
+    def __call__(self, shape, **kwargs):
         shape = to_size(shape)
-        dtype = dtype or environ.dftype()
-        weights = self.rng.exponential(scale=self.scale, size=shape, dtype=dtype)
+        dtype = kwargs.get('dtype', environ.dftype())
+        rng = kwargs.get('rng', self.rng)
+        weights = rng.exponential(scale=self.scale, size=shape, dtype=dtype)
         return u.maybe_decimal(u.Quantity(weights, unit=self.unit))
 
 
@@ -453,10 +457,11 @@ class Uniform(Initializer):
         self.rng = random.default_rng(seed)
         self.unit = unit
 
-    def __call__(self, shape, dtype: DTypeLike = None, ):
+    def __call__(self, shape, **kwargs):
         shape = to_size(shape)
-        dtype = dtype or environ.dftype()
-        weights = self.rng.uniform(low=self.min_val, high=self.max_val, size=shape, dtype=dtype)
+        dtype = kwargs.get('dtype', environ.dftype())
+        rng = kwargs.get('rng', self.rng)
+        weights = rng.uniform(low=self.min_val, high=self.max_val, size=shape, dtype=dtype)
         return u.maybe_decimal(u.Quantity(weights, unit=self.unit))
 
 
@@ -483,9 +488,10 @@ class VarianceScaling(Initializer):
         self.rng = random.default_rng(seed)
         self.unit = unit
 
-    def __call__(self, shape, dtype: DTypeLike = None, ):
+    def __call__(self, shape, **kwargs):
         shape = to_size(shape)
-        dtype = dtype or environ.dftype()
+        dtype = kwargs.get('dtype', environ.dftype())
+        rng = kwargs.get('rng', self.rng)
         fan_in, fan_out = _compute_fans(shape, in_axis=self.in_axis, out_axis=self.out_axis)
         if self.mode == "fan_in":
             denominator = fan_in
@@ -498,11 +504,11 @@ class VarianceScaling(Initializer):
         variance = (self.scale / denominator).astype(dtype)
         if self.distribution == "truncated_normal":
             stddev = (jnp.sqrt(variance) / .87962566103423978).astype(dtype)
-            res = self.rng.truncated_normal(-2, 2, shape, dtype=dtype) * stddev
+            res = rng.truncated_normal(-2, 2, shape, dtype=dtype) * stddev
         elif self.distribution == "normal":
-            res = self.rng.randn(*shape, dtype=dtype) * jnp.sqrt(variance).astype(dtype)
+            res = rng.randn(*shape, dtype=dtype) * jnp.sqrt(variance).astype(dtype)
         elif self.distribution == "uniform":
-            res = (self.rng.uniform(low=-1, high=1, size=shape, dtype=dtype) *
+            res = (rng.uniform(low=-1, high=1, size=shape, dtype=dtype) *
                    jnp.sqrt(3 * variance).astype(dtype))
         else:
             raise ValueError("invalid distribution for variance scaling initializer")
@@ -663,13 +669,14 @@ class Orthogonal(Initializer):
         self.rng = random.default_rng(seed)
         self.unit = unit
 
-    def __call__(self, shape, dtype: DTypeLike = None, ):
-        dtype = dtype or environ.dftype()
+    def __call__(self, shape, **kwargs):
+        dtype = kwargs.get('dtype', environ.dftype())
+        rng = kwargs.get('rng', self.rng)
         shape = to_size(shape)
         n_rows = shape[self.axis]
         n_cols = np.prod(shape) // n_rows
         matrix_shape = (n_rows, n_cols) if n_rows > n_cols else (n_cols, n_rows)
-        norm_dst = self.rng.normal(size=matrix_shape, dtype=dtype)
+        norm_dst = rng.normal(size=matrix_shape, dtype=dtype)
 
         q_mat, r_mat = jnp.linalg.qr(norm_dst)
         # Enforce Q is uniformly distributed
@@ -703,9 +710,9 @@ class DeltaOrthogonal(Initializer):
         self.orghogonal = Orthogonal(scale=scale, axis=axis, seed=seed)
         self.unit = unit
 
-    def __call__(self, shape, dtype: DTypeLike = None, ):
+    def __call__(self, shape, **kwargs):
         shape = to_size(shape)
-        dtype = dtype or environ.dftype()
+        dtype = kwargs.get('dtype', environ.dftype())
         if len(shape) not in [3, 4, 5]:
             raise ValueError("Delta orthogonal initializer requires a 3D, 4D or 5D shape.")
         if shape[-1] < shape[-2]:
@@ -735,8 +742,8 @@ class ZeroInit(Initializer):
         super(ZeroInit, self).__init__()
         self.unit = unit
 
-    def __call__(self, shape, dtype=None):
-        dtype = dtype or environ.dftype()
+    def __call__(self, shape, **kwargs):
+        dtype = kwargs.get('dtype', environ.dftype())
         shape = to_size(shape)
         return u.maybe_decimal(u.math.zeros(shape, dtype=dtype, unit=self.unit))
 
@@ -757,8 +764,8 @@ class Constant(Initializer):
         super(Constant, self).__init__()
         self.value = value
 
-    def __call__(self, shape, dtype=None):
-        dtype = dtype or environ.dftype()
+    def __call__(self, shape, **kwargs):
+        dtype = kwargs.get('dtype', environ.dftype())
         shape = to_size(shape)
         return u.maybe_decimal(u.math.full(shape, self.value, dtype=dtype))
 
@@ -791,8 +798,8 @@ class Identity(Initializer):
         self.value = value
         self.unit = unit
 
-    def __call__(self, shape, dtype=None):
-        dtype = dtype or environ.dftype()
+    def __call__(self, shape, **kwargs):
+        dtype = kwargs.get('dtype', environ.dftype())
         shape = to_size(shape)
         if isinstance(shape, (tuple, list)):
             if len(shape) > 2:

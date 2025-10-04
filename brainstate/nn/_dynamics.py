@@ -48,7 +48,6 @@ from ._module import Module
 
 __all__ = [
     'DynamicsGroup',
-    'Projection',
     'Dynamics',
     'Prefetch',
     'PrefetchDelay',
@@ -58,51 +57,6 @@ __all__ = [
 
 T = TypeVar('T')
 _max_order = 10
-
-
-class Projection(Module):
-    """
-    Base class for synaptic projection modules in neural network modeling.
-
-    This class defines the interface for modules that handle projections between
-    neural populations. Projections process input signals and transform them
-    before they reach the target neurons, implementing the connectivity patterns
-    in neural networks.
-
-    In the BrainState execution order, Projection modules are updated before
-    Dynamics modules, following the natural information flow in neural systems:
-    1. Projections process inputs (synaptic transmission)
-    2. Dynamics update neuron states (neural integration)
-
-    The Projection class does not implement the update logic directly but delegates
-    to its child nodes. If no child nodes exist, it raises a ValueError.
-
-    Parameters
-    ----------
-    *args : Any
-        Arguments passed to the parent Module class.
-    **kwargs : Any
-        Keyword arguments passed to the parent Module class.
-
-    Raises
-    ------
-    ValueError
-        If the update() method is called but no child nodes are defined.
-
-    Notes
-    -----
-    Derived classes should implement specific projection behaviors, such as
-    dense connectivity, sparse connectivity, or specific weight update rules.
-    """
-    __module__ = 'brainstate.nn'
-
-    def update(self, *args, **kwargs):
-        sub_nodes = tuple(self.nodes(allowed_hierarchy=(1, 1)).values())
-        if len(sub_nodes):
-            for node in sub_nodes:
-                node(*args, **kwargs)
-        else:
-            raise ValueError('Do not implement the update() function.')
 
 
 class Dynamics(Module):
@@ -486,7 +440,7 @@ class Dynamics(Module):
                         init = init + out(*args, **kwargs)
                     except Exception as e:
                         raise ValueError(
-                            f'Error in delta input value {key}: {out}\n'
+                            f'Error in current input value {key}: {out}\n'
                             f'Error: {e}'
                         ) from e
                 else:
@@ -494,7 +448,7 @@ class Dynamics(Module):
                         init = init + out
                     except Exception as e:
                         raise ValueError(
-                            f'Error in delta input value {key}: {out}\n'
+                            f'Error in current input value {key}: {out}\n'
                             f'Error: {e}'
                         ) from e
                     self._current_inputs.pop(key)
@@ -1233,42 +1187,7 @@ def maybe_init_prefetch(target, *args, **kwargs):
         # delay.register_delay(*target.delay_time)
 
 
-class DynamicsGroup(Module):
-    """
-    A group of :py:class:`~.Module` in which the updating order does not matter.
-
-    Args:
-      children_as_tuple: The children objects.
-      children_as_dict: The children objects.
-    """
-
-    __module__ = 'brainstate.nn'
-
-    if not TYPE_CHECKING:
-        def __init__(self, *children_as_tuple, **children_as_dict):
-            super().__init__()
-            self.layers_tuple = tuple(children_as_tuple)
-            self.layers_dict = dict(children_as_dict)
-
-    def update(self, *args, **kwargs):
-        """
-        Update function of a network.
-
-        In this update function, the update functions in children systems are iteratively called.
-        """
-        projs, dyns, others = self.nodes(allowed_hierarchy=(1, 1)).split(Projection, Dynamics)
-
-        # update nodes of projections
-        for node in projs.values():
-            node()
-
-        # update nodes of dynamics
-        for node in dyns.values():
-            node()
-
-        # update nodes with other types, including delays, ...
-        for node in others.values():
-            node()
+DynamicsGroup = Module
 
 
 def receive_update_output(cls: object):

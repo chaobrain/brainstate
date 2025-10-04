@@ -131,7 +131,7 @@ functional = create_deprecated_module_proxy(
 )
 
 _init_apis = {
-    'param': 'brainstate.nn',
+    'param': 'braintools.init',
     'Constant': 'braintools.init',
     'ZeroInit': 'braintools.init',
     'Identity': 'braintools.init',
@@ -169,6 +169,7 @@ _optim_apis = {
     'CosineAnnealingWarmRestarts': 'braintools.optim',
     'ExponentialLR': 'braintools.optim',
     'PolynomialLR': 'braintools.optim',
+    'ExponentialDecayLR': 'braintools.optim',
 
     # optax optimizer wrapper
     'OptaxOptimizer': 'braintools.optim',

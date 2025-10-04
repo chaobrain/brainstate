@@ -78,12 +78,12 @@ def train_step(batch):
     def loss_fn():
         return jnp.mean((y - model(x)) ** 2)
 
-    grads = brainstate.transform.grad(loss_fn, optimizer.param_states.to_dict())()
+    grads = brainstate.transform.grad(loss_fn, optimizer.param_states.to_pytree())()
     optimizer.update(grads)
 
 
 @brainstate.transform.jit
-def test_step(batch):
+def eval_step(batch):
     x, y = batch
     y_pred = model(x)
     loss = jnp.mean((y - y_pred) ** 2)
@@ -95,7 +95,7 @@ for step, batch in enumerate(dataset(32)):
     train_step(batch)
 
     if step % 1000 == 0:
-        logs = test_step((X, Y))
+        logs = eval_step((X, Y))
         print(f"step: {step}, loss: {logs['loss']}")
 
     if step >= total_steps - 1:

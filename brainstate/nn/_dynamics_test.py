@@ -29,17 +29,6 @@ class TestModuleGroup(unittest.TestCase):
         self.assertIsInstance(group, brainstate.nn.DynamicsGroup)
 
 
-class TestProjection(unittest.TestCase):
-    def test_initialization(self):
-        proj = brainstate.nn.Projection()
-        self.assertIsInstance(proj, brainstate.nn.Projection)
-
-    def test_update_not_implemented(self):
-        proj = brainstate.nn.Projection()
-        with self.assertRaises(ValueError):
-            proj.update()
-
-
 class TestDynamics(unittest.TestCase):
     def test_initialization(self):
         dyn = brainstate.nn.Dynamics(in_size=10)

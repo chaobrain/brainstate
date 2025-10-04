@@ -628,7 +628,7 @@ class NestedDict(PrettyDict):
         Returns:
           One or more ``States`` equal to the number of filters passed.
         """
-        *states_, _rest = _split_nested_mapping(self, *filters)
+        states_ = _split_nested_mapping(self, *filters)
         assert len(states_) == len(filters) + 1, f'Expected {len(filters) + 1} states, got {len(states_)}'
         if len(states_) == 1:
             states = states_[0]
@@ -644,7 +644,6 @@ class NestedDict(PrettyDict):
         ``merge`` takes one or more :class:`PrettyDict`'s and creates a new :class:`PrettyDict`.
 
         Args:
-          state: A :class:`PrettyDict` object.
           *states: Additional :class:`PrettyDict` objects.
 
         Returns:

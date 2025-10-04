@@ -50,23 +50,17 @@ from ._paddings import *
 from ._paddings import __all__ as paddings_all
 from ._poolings import *
 from ._poolings import __all__ as poolings_all
-from ._projection import *
-from ._projection import __all__ as projection_all
 from ._rnns import *
 from ._rnns import __all__ as rate_rnns
-from ._synaptic_projection import *
-from ._synaptic_projection import __all__ as _syn_proj_all
 from ._utils import *
 from ._utils import __all__ as utils_all
-from .init import param
 
-__all__ = ['param']
-__all__ = __all__ + activation_all + metrics_all
+__all__ = activation_all + metrics_all
 __all__ = __all__ + collective_ops_all + common_all + elementwise_all + module_all + exp_euler_all
-__all__ = __all__ + utils_all + dyn_all + projection_all + state_delay_all + conv_all
+__all__ = __all__ + utils_all + dyn_all + state_delay_all + conv_all
 __all__ = __all__ + linear_all + normalizations_all + paddings_all + poolings_all + fixedprob_all + linear_mv_all
 __all__ = __all__ + embed_all + dropout_all + elementwise_all
-__all__ = __all__ + rate_rnns + _syn_proj_all
+__all__ = __all__ + rate_rnns
 
 del (
     metrics_all,
@@ -77,7 +71,6 @@ del (
     exp_euler_all,
     utils_all,
     dyn_all,
-    projection_all,
     state_delay_all,
     conv_all,
     linear_all,
@@ -90,7 +83,6 @@ del (
     dropout_all,
     elementwise_all,
     rate_rnns,
-    _syn_proj_all,
 )
 
 # Deprecated names that redirect to brainpy
@@ -118,6 +110,14 @@ _DEPRECATED_NAMES = {
     'COBA': 'brainpy.COBA',
     'CUBA': 'brainpy.CUBA',
     'MgBlock': 'brainpy.MgBlock',
+    'SynOut': 'brainpy.SynOut',
+    'AlignPostProj': 'brainpy.AlignPostProj',
+    'DeltaProj': 'brainpy.DeltaProj',
+    'CurrentProj': 'brainpy.CurrentProj',
+    'align_pre_projection': 'brainpy.align_pre_projection',
+    'Projection': 'brainpy.Projection',
+    'SymmetryGapJunction': 'brainpy.SymmetryGapJunction',
+    'AsymmetryGapJunction': 'brainpy.AsymmetryGapJunction',
 }
 
 

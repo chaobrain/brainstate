@@ -22,6 +22,8 @@ import jax.numpy as jnp
 from absl.testing import absltest, parameterized
 
 import brainstate
+import braintools
+import brainpy
 
 
 class TestIter(unittest.TestCase):
@@ -33,7 +35,7 @@ class TestIter(unittest.TestCase):
                 self.b = brainstate.nn.Linear(2, 3)
                 self.c = [brainstate.nn.Linear(3, 4), brainstate.nn.Linear(4, 5)]
                 self.d = {'x': brainstate.nn.Linear(5, 6), 'y': brainstate.nn.Linear(6, 7)}
-                self.b.a = brainstate.nn.LIF(2)
+                self.b.a = brainpy.LIF(2)
 
         for path, node in brainstate.graph.iter_leaf(Model()):
             print(path, node)
@@ -70,7 +72,7 @@ class TestIter(unittest.TestCase):
                 self.b = brainstate.nn.Linear(2, 3)
                 self.c = [brainstate.nn.Linear(3, 4), brainstate.nn.Linear(4, 5)]
                 self.d = {'x': brainstate.nn.Linear(5, 6), 'y': brainstate.nn.Linear(6, 7)}
-                self.b.a = brainstate.nn.LIF(2)
+                self.b.a = brainpy.LIF(2)
 
         model = Model()
 
@@ -219,7 +221,7 @@ class TestGraphUtils(absltest.TestCase):
         class LinearTranspose(brainstate.nn.Module):
             def __init__(self, dout: int, din: int, ) -> None:
                 super().__init__()
-                self.kernel = brainstate.ParamState(brainstate.nn.LecunNormal()((dout, din)))
+                self.kernel = brainstate.ParamState(braintools.init.LecunNormal()((dout, din)))
 
             def __call__(self, x):
                 return x @ self.kernel.value.T
@@ -418,7 +420,7 @@ class TestGraphOperation(unittest.TestCase):
             def __init__(self):
                 super().__init__()
                 self.a = brainstate.nn.Linear(2, 3)
-                self.b = brainstate.nn.LIF([10, 2])
+                self.b = brainpy.LIF([10, 2])
 
         model = Model()
         with brainstate.catch_new_states('new'):
@@ -460,7 +462,7 @@ class TestGraphOperation(unittest.TestCase):
             def __init__(self, din: int, dmid: int, dout: int, n_layer: int = 3):
                 self.input = brainstate.nn.Linear(din, dmid)
                 self.layers = [brainstate.nn.Linear(dmid, dmid) for _ in range(n_layer)]
-                self.output = brainstate.nn.LIF(dout)
+                self.output = brainpy.LIF(dout)
 
             def __call__(self, x):
                 x = brainstate.functional.relu(self.input(x))
@@ -858,6 +860,7 @@ class TestGraphDefAndClone(unittest.TestCase):
 
     def test_clone_with_shared_variables(self):
         """Test cloning preserves shared variable structure."""
+
         class SharedModel(brainstate.nn.Module):
             def __init__(self):
                 super().__init__()
@@ -881,6 +884,7 @@ class TestNodesFunction(unittest.TestCase):
 
     def test_nodes_without_filters(self):
         """Test nodes function without filters."""
+
         class Model(brainstate.nn.Module):
             def __init__(self):
                 super().__init__()
@@ -901,6 +905,7 @@ class TestNodesFunction(unittest.TestCase):
 
     def test_nodes_with_filter(self):
         """Test nodes function with a single filter."""
+
         class CustomModule(brainstate.nn.Module):
             pass
 
@@ -926,6 +931,7 @@ class TestNodesFunction(unittest.TestCase):
 
     def test_nodes_with_hierarchy(self):
         """Test nodes function with hierarchy limits."""
+
         class Model(brainstate.nn.Module):
             def __init__(self):
                 super().__init__()
@@ -1070,6 +1076,7 @@ class TestIntegration(unittest.TestCase):
 
     def test_complex_graph_operations(self):
         """Test complex graph with multiple levels and shared references."""
+
         class SubModule(brainstate.nn.Module):
             def __init__(self):
                 super().__init__()
@@ -1109,6 +1116,7 @@ class TestIntegration(unittest.TestCase):
 
     def test_recursive_structure(self):
         """Test handling of recursive/circular references."""
+
         class RecursiveModule(brainstate.nn.Module):
             def __init__(self):
                 super().__init__()

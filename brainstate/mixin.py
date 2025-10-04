@@ -709,7 +709,7 @@ def JointTypes(*types):
     Create a type that requires all specified types (intersection type).
 
     This function creates a type hint that indicates a value must satisfy all
-    of the specified types simultaneously. It's useful for expressing complex
+    the specified types simultaneously. It's useful for expressing complex
     type requirements where a single object must implement multiple interfaces.
 
     Parameters

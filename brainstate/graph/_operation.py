@@ -934,7 +934,7 @@ def pop_states(
     ----------
     node : Node
         A graph node object.
-    *filters : Any
+    *filters
         One or more :class:`State` objects to filter by.
 
     Returns
@@ -1013,7 +1013,7 @@ def _split_state(
 @set_module_as('brainstate.graph')
 def treefy_split(
     node: A, *filters: Filter
-) -> Tuple[GraphDef[A], NestedDict, Unpack[Tuple[NestedDict, ...]]]:
+):
     """
     Split a graph node into a :class:`GraphDef` and one or more :class:`NestedDict`s.
 
@@ -1026,7 +1026,7 @@ def treefy_split(
     ----------
     node : A
         Graph node to split.
-    *filters : Filter
+    *filters
         Optional filters to group the state into mutually exclusive substates.
 
     Returns
@@ -1141,7 +1141,7 @@ def _split_flatted(
 @set_module_as('brainstate.graph')
 def nodes(
     node, *filters: Filter, allowed_hierarchy: Tuple[int, int] = (0, MAX_INT)
-) -> Union[FlattedDict, Tuple[FlattedDict, ...]]:
+):
     """
     Similar to :func:`split` but only returns the :class:`NestedDict`'s indicated by the filters.
 
@@ -1149,7 +1149,7 @@ def nodes(
     ----------
     node : Node
         The node to get nodes from.
-    *filters : Filter
+    *filters
         Filters to apply to the nodes.
     allowed_hierarchy : tuple[int, int], optional
         The allowed hierarchy levels, by default (0, MAX_INT).
@@ -1191,7 +1191,7 @@ def states(
     ----------
     node : Node
         The node to get states from.
-    *filters : Filter
+    *filters
         Filters to apply to the states.
     allowed_hierarchy : tuple[int, int], optional
         The allowed hierarchy levels, by default (0, MAX_INT).
@@ -1219,7 +1219,7 @@ def states(
 @set_module_as('brainstate.graph')
 def treefy_states(
     node, *filters,
-) -> NestedDict | Tuple[NestedDict, ...]:
+):
     """
     Similar to :func:`split` but only returns the :class:`NestedDict`'s indicated by the filters.
 
@@ -1227,12 +1227,12 @@ def treefy_states(
     ----------
     node : Node
         A graph node object.
-    *filters : Filter
+    *filters
         One or more :class:`State` objects to filter by.
 
     Returns
     -------
-    NestedDict or tuple[NestedDict, ...]
+    NestedDict or tuple of NestedDict
         One or more :class:`NestedDict` mappings.
 
     Examples
@@ -1259,14 +1259,14 @@ def treefy_states(
         >>> states = brainstate.graph.treefy_states(model)
     """
     _, state_mapping = flatten(node)
-    state_mappings: GraphStateMapping | tuple[GraphStateMapping, ...]
     if len(filters) == 0:
-        state_mappings = state_mapping
-    elif len(filters) == 1:
-        state_mappings = state_mapping.filter(filters[0])
+        return state_mapping
     else:
-        state_mappings = state_mapping.filter(filters[0], filters[1], *filters[2:])
-    return state_mappings
+        state_mappings = state_mapping.filter(*filters)
+        if len(filters) == 1:
+            return state_mappings[0]
+        else:
+            return state_mappings
 
 
 def _graph_update_dynamic(node: Any, state: Mapping) -> None:

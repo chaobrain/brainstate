@@ -143,5 +143,5 @@ def run_step(t):
 final_pos = cann.a / cann.tau_v * 0.6 * dur2
 
 times = u.math.arange(0, dur1 + dur2 + dur3, brainstate.environ.get_dt())
-us, vs = brainstate.compile.for_loop(run_step, times)
+us, vs = brainstate.transform.for_loop(run_step, times)
 animate_1d(us, vs, frame_step=30, frame_delay=5)

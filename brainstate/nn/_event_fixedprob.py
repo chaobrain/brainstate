@@ -177,15 +177,14 @@ class FixedNumConn(Module):
             conn_weight = u.math.asarray(init.param(conn_weight, (), allow_none=False))
             self.weight = FakeState(conn_weight)
 
-    def update(self, x: jax.Array) -> Union[jax.Array, u.Quantity]:
+    def update(self, x) -> Union[jax.Array, u.Quantity]:
         if self.conn_num >= 1:
             csr = self.conn.with_data(self.weight.value)
             return x @ csr
         else:
             weight = self.weight.value
             r = u.math.zeros(x.shape[:-1] + (self.out_size[-1],), dtype=weight.dtype)
-            r = u.maybe_decimal(u.Quantity(r, unit=u.get_unit(weight)))
-            return u.math.asarray(r, dtype=environ.dftype())
+            return u.maybe_decimal(u.Quantity(r, unit=u.get_unit(weight), dtype=environ.dftype()))
 
 
 class EventFixedNumConn(FixedNumConn):
@@ -226,15 +225,9 @@ class EventFixedNumConn(FixedNumConn):
     __module__ = 'brainstate.nn'
 
     def update(self, spk: jax.Array) -> Union[jax.Array, u.Quantity]:
-        if self.conn_num >= 1:
-            csr = self.conn.with_data(self.weight.value)
-            return brainevent.EventArray(spk) @ csr
-        else:
-            weight = self.weight.value
-            unit = u.get_unit(weight)
-            r = jnp.zeros(spk.shape[:-1] + (self.out_size[-1],), dtype=weight.dtype)
-            r = u.maybe_decimal(u.Quantity(r, unit=unit))
-            return u.math.asarray(r, dtype=environ.dftype())
+        return super().update(
+            brainevent.EventArray(spk)
+        )
 
 
 EventFixedProb = EventFixedNumConn

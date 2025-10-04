@@ -144,8 +144,8 @@ class GIF(brainstate.nn.Neuron):
         tau=20. * u.ms,
         tau_I2=50. * u.ms,
         A2=0. * u.mA,
-        V_initializer: Callable = brainstate.nn.ZeroInit(unit=u.mV),
-        I2_initializer: Callable = brainstate.nn.ZeroInit(unit=u.mA),
+        V_initializer: Callable = braintools.init.ZeroInit(unit=u.mV),
+        I2_initializer: Callable = braintools.init.ZeroInit(unit=u.mA),
         spike_fun: Callable = brainstate.surrogate.ReluGrad(),
         spk_reset: str = 'soft',
         name: str = None,
@@ -203,16 +203,16 @@ class GifNet(brainstate.nn.Module):
 
         self.filepath = filepath
 
-        ff_init = brainstate.nn.KaimingNormal(scale=args.ff_scale, unit=u.mA)
-        rec_init = brainstate.nn.KaimingNormal(scale=args.rec_scale, unit=u.mA)
+        ff_init = braintools.init.KaimingNormal(scale=args.ff_scale * u.mA)
+        rec_init = braintools.init.KaimingNormal(scale=args.rec_scale * u.mA)
         w = u.math.concatenate([ff_init((num_in, num_rec)), rec_init((num_rec, num_rec))], axis=0)
 
         # parameters
         self.num_in = num_in
         self.num_rec = num_rec
         self.num_out = num_out
-        self.ir2r = brainscale.nn.Linear(num_in + num_rec, num_rec, w_init=w, b_init=brainstate.nn.ZeroInit(unit=u.mA))
-        self.exp = brainscale.nn.Expon(num_rec, tau=args.tau_syn * u.ms, g_initializer=brainstate.nn.ZeroInit(unit=u.mA))
+        self.ir2r = brainscale.nn.Linear(num_in + num_rec, num_rec, w_init=w, b_init=braintools.init.ZeroInit(unit=u.mA))
+        self.exp = brainscale.nn.Expon(num_rec, tau=args.tau_syn * u.ms, g_initializer=braintools.init.ZeroInit(unit=u.mA))
         tau_I2 = brainstate.random.uniform(100., args.tau_I2 * 1.5, num_rec)
         self.r = GIF(
             num_rec,
@@ -227,7 +227,7 @@ class GifNet(brainstate.nn.Module):
             num_rec,
             num_out,
             tau=args.tau_o * u.ms,
-            w_init=brainstate.nn.KaimingNormal(scale=args.ff_scale)
+            w_init=braintools.init.KaimingNormal(scale=args.ff_scale)
         )
 
     def membrane_reg(self, mem_low: float, mem_high: float, factor: float = 0.):

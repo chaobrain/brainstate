@@ -44,33 +44,17 @@ class ScanMLP(brainstate.nn.Module):
         super().__init__()
         self.n_layers = n_layers
 
-        @brainstate.augment.vmap
-        def create_block(key):
-            brainstate.random.set_key(key)
-            return Block(dim)
-
-        self.layers = create_block(brainstate.random.split_key(n_layers))
+        self.layers = [Block(dim) for _ in range(n_layers)]
 
     def __call__(self, x: jax.Array) -> jax.Array:
-        activation = brainstate.ShortTermState(x)
-
-        def loop_fn(block_tree):
-            # Feed the output of the previous layer to the next layer
-            block: Block = brainstate.graph.treefy_merge(graphdef, block_tree)
-            activation.value = block(activation.value)
-            return brainstate.graph.treefy_split(block)[1]
-
-        # Loop over each layer in the block tree
-        graphdef, statetree = brainstate.graph.treefy_split(self.layers)
-        block_trees = brainstate.compile.for_loop(loop_fn, statetree)
-        brainstate.graph.update_states(self.layers, block_trees)
-        return activation.value
+        for layer in self.layers:
+            x = layer(x)
+        return x
 
 
-model = ScanMLP(10, n_layers=5)
 
 x = jnp.ones((3, 10))
-
+model = ScanMLP(10, n_layers=5)
 with brainstate.environ.context(fit=True):
     y = model(x)
 

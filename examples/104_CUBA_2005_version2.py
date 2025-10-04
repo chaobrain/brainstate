@@ -29,6 +29,8 @@ import brainunit as u
 import matplotlib.pyplot as plt
 
 import brainstate
+import brainpy
+import braintools
 
 
 class EINet(brainstate.nn.Module):
@@ -36,48 +38,48 @@ class EINet(brainstate.nn.Module):
         super().__init__()
         self.n_exc = 3200
         self.n_inh = 800
-        self.E = brainstate.nn.LIFRef(
+        self.E = brainpy.LIFRef(
             self.n_exc,
             V_rest=-49. * u.mV, V_th=-50. * u.mV, V_reset=-60. * u.mV,
             tau=20. * u.ms, tau_ref=5. * u.ms,
-            V_initializer=brainstate.nn.Normal(-55., 2., unit=u.mV)
+            V_initializer=braintools.init.Normal(-55. * u.mV, 2. * u.mV)
         )
-        self.I = brainstate.nn.LIFRef(
+        self.I = brainpy.LIFRef(
             self.n_inh,
             V_rest=-49. * u.mV, V_th=-50. * u.mV, V_reset=-60. * u.mV,
             tau=20. * u.ms, tau_ref=5. * u.ms,
-            V_initializer=brainstate.nn.Normal(-55., 2., unit=u.mV)
+            V_initializer=braintools.init.Normal(-55. * u.mV, 2. * u.mV)
         )
-        self.E2E = brainstate.nn.AlignPostProj(
+        self.E2E = brainpy.AlignPostProj(
             self.E.prefetch('V'),
             lambda x: self.E.get_spike(x) != 0.,
             comm=brainstate.nn.EventFixedProb(self.n_exc, self.n_exc, conn_num=0.02, conn_weight=1.62 * u.mS),
-            syn=brainstate.nn.Expon.desc(self.n_exc, tau=5. * u.ms),
-            out=brainstate.nn.CUBA.desc(scale=u.volt),
+            syn=brainpy.Expon.desc(self.n_exc, tau=5. * u.ms),
+            out=brainpy.CUBA.desc(scale=u.volt),
             post=self.E
         )
-        self.E2I = brainstate.nn.AlignPostProj(
+        self.E2I = brainpy.AlignPostProj(
             self.E.prefetch('V'),
             lambda x: self.E.get_spike(x) != 0.,
             comm=brainstate.nn.EventFixedProb(self.n_exc, self.n_inh, conn_num=0.02, conn_weight=1.62 * u.mS),
-            syn=brainstate.nn.Expon.desc(self.n_inh, tau=5. * u.ms),
-            out=brainstate.nn.CUBA.desc(scale=u.volt),
+            syn=brainpy.Expon.desc(self.n_inh, tau=5. * u.ms),
+            out=brainpy.CUBA.desc(scale=u.volt),
             post=self.I
         )
-        self.I2E = brainstate.nn.AlignPostProj(
+        self.I2E = brainpy.AlignPostProj(
             self.I.prefetch('V'),
             lambda x: self.I.get_spike(x) != 0.,
             comm=brainstate.nn.EventFixedProb(self.n_inh, self.n_exc, conn_num=0.02, conn_weight=-9.0 * u.mS),
-            syn=brainstate.nn.Expon.desc(self.n_exc, tau=10. * u.ms),
-            out=brainstate.nn.CUBA.desc(scale=u.volt),
+            syn=brainpy.Expon.desc(self.n_exc, tau=10. * u.ms),
+            out=brainpy.CUBA.desc(scale=u.volt),
             post=self.E
         )
-        self.I2I = brainstate.nn.AlignPostProj(
+        self.I2I = brainpy.AlignPostProj(
             self.I.prefetch('V'),
             lambda x: self.I.get_spike(x) != 0.,
             comm=brainstate.nn.EventFixedProb(self.n_inh, self.n_inh, conn_num=0.02, conn_weight=-9.0 * u.mS),
-            syn=brainstate.nn.Expon.desc(self.n_inh, tau=10. * u.ms),
-            out=brainstate.nn.CUBA.desc(scale=u.volt),
+            syn=brainpy.Expon.desc(self.n_inh, tau=10. * u.ms),
+            out=brainpy.CUBA.desc(scale=u.volt),
             post=self.I
         )
 
@@ -99,10 +101,10 @@ brainstate.nn.init_all_states(net)
 # simulation
 with brainstate.environ.context(dt=0.1 * u.ms):
     times = u.math.arange(0. * u.ms, 1000. * u.ms, brainstate.environ.get_dt())
-    spikes = brainstate.compile.for_loop(
+    spikes = brainstate.transform.for_loop(
         net.update,
         times,
-        pbar=brainstate.compile.ProgressBar(10)
+        pbar=brainstate.transform.ProgressBar(10)
     )
 
 # visualization

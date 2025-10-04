@@ -40,6 +40,8 @@ import brainunit as u
 import matplotlib.pyplot as plt
 
 import brainstate
+import brainpy
+import braintools
 
 
 class EINet(brainstate.nn.Module):
@@ -50,23 +52,23 @@ class EINet(brainstate.nn.Module):
         self.num = n_exc + n_inh
 
         # neurons
-        self.N = brainstate.nn.LIF(
+        self.N = brainpy.LIF(
             n_exc + n_inh,
             V_rest=-52. * u.mV, V_th=-50. * u.mV, V_reset=-60. * u.mV, tau=10. * u.ms,
-            V_initializer=brainstate.nn.Normal(-60., 10., unit=u.mV), spk_reset='soft'
+            V_initializer=braintools.init.Normal(-60., 10., unit=u.mV), spk_reset='soft'
         )
 
         # synapses
-        self.E = brainstate.nn.AlignPostProj(
+        self.E = brainpy.AlignPostProj(
             comm=brainstate.nn.EventFixedProb(n_exc, self.num, prob, JE),
-            syn=brainstate.nn.Expon.desc(self.num, tau=2. * u.ms),
-            out=brainstate.nn.CUBA.desc(),
+            syn=brainpy.Expon.desc(self.num, tau=2. * u.ms),
+            out=brainpy.CUBA.desc(),
             post=self.N,
         )
-        self.I = brainstate.nn.AlignPostProj(
+        self.I = brainpy.AlignPostProj(
             comm=brainstate.nn.EventFixedProb(n_inh, self.num, prob, JI),
-            syn=brainstate.nn.Expon.desc(self.num, tau=2. * u.ms),
-            out=brainstate.nn.CUBA.desc(),
+            syn=brainpy.Expon.desc(self.num, tau=2. * u.ms),
+            out=brainpy.CUBA.desc(),
             post=self.N,
         )
 
@@ -95,7 +97,7 @@ brainstate.nn.init_all_states(net)
 
 # simulation
 times = u.math.arange(0. * u.ms, 1000. * u.ms, brainstate.environ.get_dt())
-spikes = brainstate.compile.for_loop(lambda t: net.update(Ib), times, pbar=brainstate.compile.ProgressBar(10))
+spikes = brainstate.transform.for_loop(lambda t: net.update(Ib), times, pbar=brainstate.transform.ProgressBar(10))
 
 # visualization
 t_indices, n_indices = u.math.where(spikes)
