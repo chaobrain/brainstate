@@ -33,21 +33,16 @@ from ._elementwise import *
 from ._elementwise import __all__ as elementwise_all
 from ._embedding import *
 from ._embedding import __all__ as embed_all
-from ._exp_euler import *
-from ._exp_euler import __all__ as exp_euler_all
 from ._event_fixedprob import *
 from ._event_fixedprob import __all__ as fixedprob_all
-from .init import param
-from ._inputs import *
-from ._inputs import __all__ as inputs_all
-from ._linear import *
-from ._linear import __all__ as linear_all
 from ._event_linear import *
 from ._event_linear import __all__ as linear_mv_all
+from ._exp_euler import *
+from ._exp_euler import __all__ as exp_euler_all
+from ._linear import *
+from ._linear import __all__ as linear_all
 from ._module import *
 from ._module import __all__ as module_all
-from ._neuron import *
-from ._neuron import __all__ as dyn_neuron_all
 from ._normalizations import *
 from ._normalizations import __all__ as normalizations_all
 from ._paddings import *
@@ -58,26 +53,19 @@ from ._projection import *
 from ._projection import __all__ as projection_all
 from ._rnns import *
 from ._rnns import __all__ as rate_rnns
-from ._readout import *
-from ._readout import __all__ as readout_all
-from ._stp import *
-from ._stp import __all__ as stp_all
-from ._synapse import *
-from ._synapse import __all__ as dyn_synapse_all
 from ._synaptic_projection import *
 from ._synaptic_projection import __all__ as _syn_proj_all
-from ._synouts import *
-from ._synouts import __all__ as synouts_all
 from ._utils import *
 from ._utils import __all__ as utils_all
+from .init import param
 
 __all__ = ['metrics', 'param']
 __all__ = __all__ + activation_all
 __all__ = __all__ + collective_ops_all + common_all + elementwise_all + module_all + exp_euler_all
-__all__ = __all__ + utils_all + dyn_all + projection_all + state_delay_all + synouts_all + conv_all
+__all__ = __all__ + utils_all + dyn_all + projection_all + state_delay_all + conv_all
 __all__ = __all__ + linear_all + normalizations_all + paddings_all + poolings_all + fixedprob_all + linear_mv_all
-__all__ = __all__ + embed_all + dropout_all + elementwise_all + dyn_neuron_all + dyn_synapse_all
-__all__ = __all__ + inputs_all + rate_rnns + readout_all + stp_all + _syn_proj_all
+__all__ = __all__ + embed_all + dropout_all + elementwise_all
+__all__ = __all__ + rate_rnns + _syn_proj_all
 
 del (
     activation_all,
@@ -89,7 +77,6 @@ del (
     dyn_all,
     projection_all,
     state_delay_all,
-    synouts_all,
     conv_all,
     linear_all,
     normalizations_all,
@@ -100,11 +87,50 @@ del (
     linear_mv_all,
     dropout_all,
     elementwise_all,
-    dyn_neuron_all,
-    dyn_synapse_all,
-    inputs_all,
-    readout_all,
     rate_rnns,
-    stp_all,
     _syn_proj_all,
 )
+
+
+# Deprecated names that redirect to brainpy
+_DEPRECATED_NAMES = {
+    'SpikeTime': 'brainpy.SpikeTime',
+    'PoissonSpike': 'brainpy.PoissonSpike',
+    'PoissonEncoder': 'brainpy.PoissonEncoder',
+    'PoissonInput': 'brainpy.PoissonInput',
+    'poisson_input': 'brainpy.poisson_input',
+    'Neuron': 'brainpy.Neuron',
+    'IF': 'brainpy.IF',
+    'LIF': 'brainpy.LIF',
+    'LIFRef': 'brainpy.LIFRef',
+    'ALIF': 'brainpy.ALIF',
+    'LeakyRateReadout': 'brainpy.LeakyRateReadout',
+    'LeakySpikeReadout': 'brainpy.LeakySpikeReadout',
+    'STP': 'brainpy.STP',
+    'STD': 'brainpy.STD',
+    'Synapse': 'brainpy.Synapse',
+    'Expon': 'brainpy.Expon',
+    'DualExpon': 'brainpy.DualExpon',
+    'Alpha': 'brainpy.Alpha',
+    'AMPA': 'brainpy.AMPA',
+    'GABAa': 'brainpy.GABAa',
+    'COBA': 'brainpy.COBA',
+    'CUBA': 'brainpy.CUBA',
+    'MgBlock': 'brainpy.MgBlock',
+}
+
+
+def __getattr__(name: str):
+    if name in _DEPRECATED_NAMES:
+        import warnings
+        new_name = _DEPRECATED_NAMES[name]
+        warnings.warn(
+            f"'brainstate.nn.{name}' is deprecated and will be removed in a future version. "
+            f"Please use '{new_name}' instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        # Import and return the actual brainpy object
+        import brainpy
+        return getattr(brainpy, name)
+    raise AttributeError(f"module 'brainstate.nn' has no attribute '{name}'")
