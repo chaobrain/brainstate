@@ -716,5 +716,28 @@ class TestIntegration(unittest.TestCase):
         self.assertEqual(batch_size, 32)
 
 
+class  TestJointTy:
+    def test1(self):
+        class Potassium:
+            pass
+
+        class Calcium:
+            pass
+
+        # Test JointTypes
+        result1 = brainstate.mixin.JointTypes(Potassium, Calcium)
+        result2 = brainstate.mixin.JointTypes[Potassium, Calcium]
+        print(f'Function call: {result1}')
+        print(f'Subscript: {result2}')
+        print(f'Same? {result1 == result2}')
+
+        # Test OneOfTypes
+        result3 = brainstate.mixin.OneOfTypes(Potassium, Calcium)
+        result4 = brainstate.mixin.OneOfTypes[Potassium, Calcium]
+        print(f'\nOneOfTypes Function call: {result3}')
+        print(f'OneOfTypes Subscript: {result4}')
+        print(f'Same? {result3 == result4}')
+
+
 if __name__ == '__main__':
     unittest.main()

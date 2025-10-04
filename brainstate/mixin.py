@@ -704,200 +704,232 @@ class _MetaUnionType(type):
         return all([issubclass(subclass, cls) for cls in self.__bases__])
 
 
-def JointTypes(*types):
-    """
-    Create a type that requires all specified types (intersection type).
+class _JointTypesClass:
+    """Helper class to enable subscript syntax for JointTypes."""
 
-    This function creates a type hint that indicates a value must satisfy all
-    the specified types simultaneously. It's useful for expressing complex
-    type requirements where a single object must implement multiple interfaces.
+    def __call__(self, *types):
+        """
+        Create a type that requires all specified types (intersection type).
 
-    Parameters
-    ----------
-    *types : type
-        The types that must all be satisfied.
+        This function creates a type hint that indicates a value must satisfy all
+        the specified types simultaneously. It's useful for expressing complex
+        type requirements where a single object must implement multiple interfaces.
 
-    Returns
-    -------
-    type
-        A type that checks for all specified types.
+        Parameters
+        ----------
+        *types : type
+            The types that must all be satisfied.
 
-    Notes
-    -----
-    - If only one type is provided, that type is returned directly.
-    - Redundant types are automatically removed.
-    - The order of types doesn't matter for equality checks.
+        Returns
+        -------
+        type
+            A type that checks for all specified types.
 
-    Examples
-    --------
-    Basic usage with interfaces:
+        Notes
+        -----
+        - If only one type is provided, that type is returned directly.
+        - Redundant types are automatically removed.
+        - The order of types doesn't matter for equality checks.
 
-    .. code-block:: python
+        Examples
+        --------
+        Basic usage with interfaces:
 
-        >>> import brainstate
-        >>> from typing import Protocol
-        >>>
-        >>> class Trainable(Protocol):
-        ...     def train(self): ...
-        >>>
-        >>> class Evaluable(Protocol):
-        ...     def evaluate(self): ...
-        >>>
-        >>> # A model that is both trainable and evaluable
-        >>> TrainableEvaluableModel = brainstate.mixin.JointTypes(Trainable, Evaluable)
-        >>>
-        >>> class NeuralNetwork(Trainable, Evaluable):
-        ...     def train(self):
-        ...         return "Training..."
-        ...
-        ...     def evaluate(self):
-        ...         return "Evaluating..."
-        >>>
-        >>> model = NeuralNetwork()
-        >>> # model satisfies JointTypes(Trainable, Evaluable)
+        .. code-block:: python
 
-    Using with mixin classes:
+            >>> import brainstate
+            >>> from typing import Protocol
+            >>>
+            >>> class Trainable(Protocol):
+            ...     def train(self): ...
+            >>>
+            >>> class Evaluable(Protocol):
+            ...     def evaluate(self): ...
+            >>>
+            >>> # A model that is both trainable and evaluable
+            >>> TrainableEvaluableModel = brainstate.mixin.JointTypes(Trainable, Evaluable)
+            >>> # Or using subscript syntax
+            >>> TrainableEvaluableModel = brainstate.mixin.JointTypes[Trainable, Evaluable]
+            >>>
+            >>> class NeuralNetwork(Trainable, Evaluable):
+            ...     def train(self):
+            ...         return "Training..."
+            ...
+            ...     def evaluate(self):
+            ...         return "Evaluating..."
+            >>>
+            >>> model = NeuralNetwork()
+            >>> # model satisfies JointTypes(Trainable, Evaluable)
 
-    .. code-block:: python
+        Using with mixin classes:
 
-        >>> class Serializable:
-        ...     def save(self): pass
-        >>>
-        >>> class Visualizable:
-        ...     def plot(self): pass
-        >>>
-        >>> # Require both serialization and visualization
-        >>> FullFeaturedModel = brainstate.mixin.JointTypes(Serializable, Visualizable)
-        >>>
-        >>> class MyModel(Serializable, Visualizable):
-        ...     def save(self):
-        ...         return "Saved"
-        ...
-        ...     def plot(self):
-        ...         return "Plotted"
-    """
-    if len(types) == 0:
-        raise TypeError("Cannot create a JointTypes of no types.")
+        .. code-block:: python
 
-    # Remove duplicates while preserving some order
-    seen = set()
-    unique_types = []
-    for t in types:
-        if t not in seen:
-            seen.add(t)
-            unique_types.append(t)
+            >>> class Serializable:
+            ...     def save(self): pass
+            >>>
+            >>> class Visualizable:
+            ...     def plot(self): pass
+            >>>
+            >>> # Require both serialization and visualization
+            >>> FullFeaturedModel = brainstate.mixin.JointTypes[Serializable, Visualizable]
+            >>>
+            >>> class MyModel(Serializable, Visualizable):
+            ...     def save(self):
+            ...         return "Saved"
+            ...
+            ...     def plot(self):
+            ...         return "Plotted"
+        """
+        if len(types) == 0:
+            raise TypeError("Cannot create a JointTypes of no types.")
 
-    # If only one type, return it directly
-    if len(unique_types) == 1:
-        return unique_types[0]
+        # Remove duplicates while preserving some order
+        seen = set()
+        unique_types = []
+        for t in types:
+            if t not in seen:
+                seen.add(t)
+                unique_types.append(t)
 
-    # Create a new type dynamically using _MetaUnionType metaclass
-    # The metaclass ensures isinstance/issubclass checks work correctly
-    JointType = _MetaUnionType(
-        'JointType',
-        tuple(unique_types),
-        {'__doc__': 'A type that requires all specified types.'}
-    )
-    return JointType
+        # If only one type, return it directly
+        if len(unique_types) == 1:
+            return unique_types[0]
+
+        # Create a new type dynamically using _MetaUnionType metaclass
+        # The metaclass ensures isinstance/issubclass checks work correctly
+        JointType = _MetaUnionType(
+            'JointType',
+            tuple(unique_types),
+            {'__doc__': 'A type that requires all specified types.'}
+        )
+        return JointType
+
+    def __getitem__(self, item):
+        """Enable subscript syntax: JointTypes[Type1, Type2]."""
+        if isinstance(item, tuple):
+            return self(*item)
+        else:
+            return self(item)
 
 
-def OneOfTypes(*types):
-    """
-    Create a type that requires one of the specified types (union type).
+# Create singleton instance that acts as both a callable and supports subscript
+JointTypes = _JointTypesClass()
 
-    This is similar to typing.Union but provides a more intuitive name and
-    consistent behavior with JointTypes. It indicates that a value must satisfy
-    at least one of the specified types.
 
-    Parameters
-    ----------
-    *types : type
-        The types, one of which must be satisfied.
+class _OneOfTypesClass:
+    """Helper class to enable subscript syntax for OneOfTypes."""
 
-    Returns
-    -------
-    Union type
-        A union type of the specified types.
+    def __call__(self, *types):
+        """
+        Create a type that requires one of the specified types (union type).
 
-    Notes
-    -----
-    - If only one type is provided, that type is returned directly.
-    - Redundant types are automatically removed.
-    - The order of types doesn't matter for equality checks.
-    - This is equivalent to typing.Union[...].
+        This is similar to typing.Union but provides a more intuitive name and
+        consistent behavior with JointTypes. It indicates that a value must satisfy
+        at least one of the specified types.
 
-    Examples
-    --------
-    Basic usage with different types:
+        Parameters
+        ----------
+        *types : type
+            The types, one of which must be satisfied.
 
-    .. code-block:: python
+        Returns
+        -------
+        Union type
+            A union type of the specified types.
 
-        >>> import brainstate
-        >>>
-        >>> # A parameter that can be int or float
-        >>> NumericType = brainstate.mixin.OneOfTypes(int, float)
-        >>>
-        >>> def process_value(x: NumericType):
-        ...     return x * 2
-        >>>
-        >>> # Both work
-        >>> result1 = process_value(5)      # int
-        >>> result2 = process_value(3.14)   # float
+        Notes
+        -----
+        - If only one type is provided, that type is returned directly.
+        - Redundant types are automatically removed.
+        - The order of types doesn't matter for equality checks.
+        - This is equivalent to typing.Union[...].
 
-    Using with class types:
+        Examples
+        --------
+        Basic usage with different types:
 
-    .. code-block:: python
+        .. code-block:: python
 
-        >>> class NumpyArray:
-        ...     pass
-        >>>
-        >>> class JAXArray:
-        ...     pass
-        >>>
-        >>> # Accept either numpy or JAX arrays
-        >>> ArrayType = brainstate.mixin.OneOfTypes(NumpyArray, JAXArray)
-        >>>
-        >>> def compute(arr: ArrayType):
-        ...     if isinstance(arr, NumpyArray):
-        ...         return "Processing numpy array"
-        ...     elif isinstance(arr, JAXArray):
-        ...         return "Processing JAX array"
+            >>> import brainstate
+            >>>
+            >>> # A parameter that can be int or float
+            >>> NumericType = brainstate.mixin.OneOfTypes(int, float)
+            >>> # Or using subscript syntax
+            >>> NumericType = brainstate.mixin.OneOfTypes[int, float]
+            >>>
+            >>> def process_value(x: NumericType):
+            ...     return x * 2
+            >>>
+            >>> # Both work
+            >>> result1 = process_value(5)      # int
+            >>> result2 = process_value(3.14)   # float
 
-    Combining with None for optional types:
+        Using with class types:
 
-    .. code-block:: python
+        .. code-block:: python
 
-        >>> # Optional string (equivalent to Optional[str])
-        >>> MaybeString = brainstate.mixin.OneOfTypes(str, type(None))
-        >>>
-        >>> def format_name(name: MaybeString) -> str:
-        ...     if name is None:
-        ...         return "Anonymous"
-        ...     return name.title()
-    """
-    if len(types) == 0:
-        raise TypeError("Cannot create a OneOfTypes of no types.")
+            >>> class NumpyArray:
+            ...     pass
+            >>>
+            >>> class JAXArray:
+            ...     pass
+            >>>
+            >>> # Accept either numpy or JAX arrays
+            >>> ArrayType = brainstate.mixin.OneOfTypes[NumpyArray, JAXArray]
+            >>>
+            >>> def compute(arr: ArrayType):
+            ...     if isinstance(arr, NumpyArray):
+            ...         return "Processing numpy array"
+            ...     elif isinstance(arr, JAXArray):
+            ...         return "Processing JAX array"
 
-    # Remove duplicates
-    seen = set()
-    unique_types = []
-    for t in types:
-        if t not in seen:
-            seen.add(t)
-            unique_types.append(t)
+        Combining with None for optional types:
 
-    # If only one type, return it directly
-    if len(unique_types) == 1:
-        return unique_types[0]
+        .. code-block:: python
 
-    # Use standard Union from typing
-    # We need to use eval to dynamically create Union with variable number of types
-    # This avoids using internal APIs while maintaining functionality
-    # Build the Union dynamically
-    result = unique_types[0]
-    for t in unique_types[1:]:
-        result = Union[result, t]
-    return result
+            >>> # Optional string (equivalent to Optional[str])
+            >>> MaybeString = brainstate.mixin.OneOfTypes[str, type(None)]
+            >>>
+            >>> def format_name(name: MaybeString) -> str:
+            ...     if name is None:
+            ...         return "Anonymous"
+            ...     return name.title()
+        """
+        if len(types) == 0:
+            raise TypeError("Cannot create a OneOfTypes of no types.")
+
+        # Remove duplicates
+        seen = set()
+        unique_types = []
+        for t in types:
+            if t not in seen:
+                seen.add(t)
+                unique_types.append(t)
+
+        # If only one type, return it directly
+        if len(unique_types) == 1:
+            return unique_types[0]
+
+        # Use standard Union from typing
+        # We need to use eval to dynamically create Union with variable number of types
+        # This avoids using internal APIs while maintaining functionality
+        # Build the Union dynamically
+        result = unique_types[0]
+        for t in unique_types[1:]:
+            result = Union[result, t]
+        return result
+
+    def __getitem__(self, item):
+        """Enable subscript syntax: OneOfTypes[Type1, Type2]."""
+        if isinstance(item, tuple):
+            return self(*item)
+        else:
+            return self(item)
+
+
+# Create singleton instance that acts as both a callable and supports subscript
+OneOfTypes = _OneOfTypesClass()
 
 
 class Mode(Mixin):
