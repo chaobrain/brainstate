@@ -117,6 +117,7 @@ Different surrogate functions have different trade-offs:
 - **Exponential/SLAYER**: Good gradient flow, proven in large networks
 
 Selection criteria:
+
 1. **Gradient flow**: Functions with heavier tails (InvSquareGrad, SlayerGrad)
    maintain gradients far from threshold
 2. **Sharpness**: Higher α/steeper gradients for more precise spike timing
@@ -218,8 +219,6 @@ References
 See Also
 --------
 brainstate.nn : Neural network components and layers
-brainstate.neurons : Spiking neuron models
-brainstate.synapse : Synaptic models and connections
 
 """
 
@@ -390,7 +389,7 @@ class Sigmoid(Surrogate):
 
     See Also
     --------
-    sigmoid : Deprecated function version of this class. Use Sigmoid class instead.
+    sigmoid : Function version of this class.
 
     Examples
     --------
@@ -671,7 +670,7 @@ class PiecewiseExp(Surrogate):
 
     See Also
     --------
-    piecewise_exp : Deprecated function version. Use PiecewiseExp class instead.
+    piecewise_exp : Function version of this class.
 
     Examples
     --------
@@ -976,7 +975,7 @@ class Arctan(Surrogate):
 
     See Also
     --------
-    arctan : Deprecated function version. Use Arctan class instead.
+    arctan : Function version of this class.
 
     Examples
     --------
@@ -1090,7 +1089,7 @@ class NonzeroSignLog(Surrogate):
 
     See Also
     --------
-    nonzero_sign_log : Deprecated function version. Use NonzeroSignLog class instead.
+    nonzero_sign_log : Function version of this class.
 
     Examples
     --------
@@ -1189,7 +1188,7 @@ class ERF(Surrogate):
 
     See Also
     --------
-    erf : Deprecated function version. Use ERF class instead.
+    erf : Function version of this class.
 
     Examples
     --------
@@ -1301,7 +1300,7 @@ class PiecewiseLeakyRelu(Surrogate):
 
     See Also
     --------
-    piecewise_leaky_relu : Deprecated function version. Use PiecewiseLeakyRelu class instead.
+    piecewise_leaky_relu : Function version of this class.
 
     Examples
     --------
@@ -1427,7 +1426,7 @@ class SquarewaveFourierSeries(Surrogate):
 
     See Also
     --------
-    squarewave_fourier_series : Deprecated function version. Use SquarewaveFourierSeries class instead.
+    squarewave_fourier_series : Function version of this class.
 
     Examples
     --------
