@@ -19,8 +19,9 @@ from typing import Callable, Optional, Tuple, Union
 import numpy as np
 import jax
 import jax.numpy as jnp
+import jax.tree_util as jtu
+from jax import core as jax_core
 
-from brainstate import environ
 from brainstate._state import ParamState
 from brainstate.typing import ArrayLike, Size
 from . import _init as init
@@ -88,6 +89,12 @@ def _embedding_lookup_fn(
 
     _lookup.defvjp(_lookup_fwd, _lookup_bwd)
     return _lookup
+
+
+def _contains_tracer(tree) -> bool:
+    """Return True if the pytree contains any JAX tracer values."""
+    return any(isinstance(leaf, jax_core.Tracer) for leaf in jtu.tree_leaves(tree))
+
 
 
 class Embedding(Module):
@@ -221,6 +228,7 @@ class Embedding(Module):
         max_norm: Optional[float] = None,
         norm_type: float = 2.0,
         scale_grad_by_freq: bool = False,
+        freeze: bool = False,
         name: Optional[str] = None,
         param_type: type = ParamState,
     ):
@@ -245,6 +253,7 @@ class Embedding(Module):
         self.max_norm = max_norm
         self.norm_type = norm_type
         self.scale_grad_by_freq = bool(scale_grad_by_freq)
+        self.freeze = bool(freeze)
 
         weight_shape = (self.num_embeddings, *self.out_size)
         weight = init.param(embedding_init, weight_shape)
@@ -263,6 +272,7 @@ class Embedding(Module):
         max_norm: Optional[float] = None,
         norm_type: float = 2.0,
         scale_grad_by_freq: bool = False,
+        freeze: bool = True,
         name: Optional[str] = None,
         param_type: type = ParamState,
     ):
@@ -283,6 +293,8 @@ class Embedding(Module):
             See module initialization documentation. Default is ``2.0``.
         scale_grad_by_freq : bool, optional
             See module initialization documentation. Default is ``False``.
+        freeze : bool, optional
+            If ``True``, embeddings are frozen (no gradients). Default is ``True``.
         name : str, optional
             The name of the module.
 
@@ -324,6 +336,7 @@ class Embedding(Module):
             max_norm=max_norm,
             norm_type=norm_type,
             scale_grad_by_freq=scale_grad_by_freq,
+            freeze=freeze,
             name=name,
             param_type=param_type,
         )
@@ -352,12 +365,15 @@ class Embedding(Module):
 
         weight_value = self.weight.value
         effective_weight = weight_value
+
         if self.max_norm is not None:
             renormed_weight = self._apply_max_norm(weight_value, indices)
-            self.weight.value = renormed_weight
-            fit = environ.get('fit', desc='whether in training phase')
-            if fit:
-                effective_weight = weight_value + jax.lax.stop_gradient(renormed_weight - weight_value)
+            effective_weight = weight_value + jax.lax.stop_gradient(renormed_weight - weight_value)
+            if not _contains_tracer(renormed_weight):
+                self.weight.value = renormed_weight
+
+        if self.freeze:
+            effective_weight = jax.lax.stop_gradient(effective_weight)
 
         embeddings = self._lookup(effective_weight, indices)
         return embeddings
@@ -365,35 +381,28 @@ class Embedding(Module):
     def _apply_max_norm(self, weight: jax.Array, indices: jax.Array) -> jax.Array:
         """Apply max_norm constraint to the embedding weights for the given indices."""
         flat_idx = jnp.ravel(indices)
+        if flat_idx.size == 0:
+            return weight
 
-        # Use a fixed-size approach instead of jnp.unique to be JIT-compatible
-        # We'll iterate through all embeddings and apply max_norm only to accessed ones
         flat_idx = jnp.asarray(flat_idx, dtype=jnp.int32)
-
-        # Create a mask for which embeddings are accessed
-        # Shape: (num_embeddings,)
-        accessed_mask = jnp.zeros(self.num_embeddings, dtype=jnp.bool_)
-        accessed_mask = accessed_mask.at[flat_idx].set(True)
-
-        # Exclude padding_idx if specified
         if self.padding_idx is not None:
-            pad_value = jnp.asarray(self.padding_idx, dtype=jnp.int32)
-            accessed_mask = accessed_mask.at[pad_value].set(False)
+            pad_value = jnp.asarray(self.padding_idx, dtype=flat_idx.dtype)
+            flat_idx = flat_idx[flat_idx != pad_value]
 
-        # Compute norms for all embeddings
-        # Shape: (num_embeddings, prod(embedding_size))
-        weight_flat = weight.reshape(self.num_embeddings, -1)
-        norms = jnp.linalg.norm(weight_flat, ord=self.norm_type, axis=1, keepdims=True)
+        if flat_idx.size == 0:
+            return weight
 
-        # Compute scaling factors
-        max_norm = jnp.asarray(self.max_norm, dtype=weight_flat.dtype)
-        scale = jnp.where(norms > max_norm, max_norm / (norms + 1e-8), 1.0)
+        rows = weight[flat_idx]
+        rows_flat = rows.reshape((rows.shape[0], -1))
+        row_dtype = rows_flat.dtype
 
-        # Apply scaling only to accessed embeddings
-        # Shape: (num_embeddings, 1) - broadcast mask
-        scale = jnp.where(accessed_mask[:, None], scale, 1.0)
+        norms = jnp.linalg.norm(rows_flat, ord=self.norm_type, axis=1, keepdims=True)
+        max_norm = jnp.asarray(self.max_norm, dtype=row_dtype)
+        eps = jnp.asarray(1e-8, dtype=row_dtype)
+        one = jnp.asarray(1.0, dtype=row_dtype)
+        scale = jnp.minimum(one, max_norm / (norms + eps))
+        rows_scaled = (rows_flat * scale).reshape(rows.shape)
 
-        # Apply scaling and reshape back
-        weight_scaled = (weight_flat * scale).reshape(weight.shape)
+        return weight.at[flat_idx].set(rows_scaled)
 
-        return weight_scaled
+
