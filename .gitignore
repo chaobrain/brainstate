@@ -228,3 +228,4 @@ cython_debug/
 /.VSCodeCounter/
 /.claude/
 /dev/
+/examples/figs/
