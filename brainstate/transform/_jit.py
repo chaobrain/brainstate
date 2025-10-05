@@ -33,6 +33,8 @@ class JittedFunction(Callable):
     """
     A wrapped version of ``fun``, set up for just-in-time compilation.
     """
+    __module__ = 'brainstate.transform'
+
     origin_fun: Callable  # the original function
     stateful_fun: StatefulFunction  # the stateful function for extracting states
     jitted_fun: jax.stages.Wrapped  # the jitted function
@@ -67,8 +69,8 @@ def _get_jitted_fun(
         static_argnums=static_argnums,
         static_argnames=static_argnames,
         abstracted_axes=abstracted_axes,
-        cache_type='jit',
-        name='jit'
+        name='jit',
+        return_only_write=True
     )
     jit_fun = jax.jit(
         fun.jaxpr_call,
@@ -92,7 +94,7 @@ def _get_jitted_fun(
             return fun.fun(*args, **params)
 
         # compile the function and get the state trace
-        state_trace = fun.compile_function_and_get_state_trace(*args, **params, return_only_write=True)
+        state_trace = fun.get_state_trace_by_call(*args, **params)
         read_state_vals = state_trace.get_read_state_values(True)
 
         # call the jitted function
@@ -139,7 +141,7 @@ def _get_jitted_fun(
           A ``Lowered`` instance representing the lowering.
         """
         # compile the function and get the state trace
-        state_trace = fun.compile_function_and_get_state_trace(*args, **params, return_only_write=True)
+        state_trace = fun.get_state_trace_by_call(*args, **params)
         read_state_vals = state_trace.get_read_state_values(replace_writen=True)
         write_state_vals = state_trace.get_write_state_values(replace_read=True)
 
@@ -176,7 +178,7 @@ def _get_jitted_fun(
     return jitted_fun
 
 
-@set_module_as('brainstate.compile')
+@set_module_as('brainstate.transform')
 def jit(
     fun: Callable | Missing = Missing(),
     in_shardings=sharding_impls.UNSPECIFIED,

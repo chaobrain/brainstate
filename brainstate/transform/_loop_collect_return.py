@@ -54,7 +54,7 @@ def _wrap_fun_with_pbar(
     return new_fun
 
 
-@set_module_as('brainstate.compile')
+@set_module_as('brainstate.transform')
 def scan(
     f: Callable[[Carry, X], Tuple[Carry, Y]],
     init: Carry,
@@ -244,8 +244,9 @@ def scan(
     # ------------------------------ #
     xs_avals = [jax.core.get_aval(x) for x in xs_flat]
     x_avals = [jax.core.mapped_aval(length, 0, aval) for aval in xs_avals]
-    stateful_fun = StatefulFunction(f, name='scan').make_jaxpr(init, xs_tree.unflatten(x_avals))
-    state_trace = stateful_fun.get_state_trace()
+    args = [init, xs_tree.unflatten(x_avals)]
+    stateful_fun = StatefulFunction(f, name='scan').make_jaxpr(*args)
+    state_trace = stateful_fun.get_state_trace_by_call(*args)
     all_writen_state_vals = state_trace.get_write_state_values(True)
     all_read_state_vals = state_trace.get_read_state_values(True)
     wrapped_f = wrap_single_fun(stateful_fun, state_trace.been_writen, all_read_state_vals)
@@ -274,6 +275,7 @@ def scan(
     return carry, ys
 
 
+@set_module_as('brainstate.transform')
 def checkpointed_scan(
     f: Callable[[Carry, X], Tuple[Carry, Y]],
     init: Carry,
@@ -381,15 +383,17 @@ def checkpointed_scan(
     # evaluate jaxpr
     xs_avals = [jax.core.get_aval(x) for x in xs_flat]
     x_avals = [jax.core.mapped_aval(length, 0, aval) for aval in xs_avals]
-    stateful_fun = StatefulFunction(f, name='checkpoint_scan').make_jaxpr(init, xs_tree.unflatten(x_avals))
-    state_trace = stateful_fun.get_state_trace()
+    args = (init, xs_tree.unflatten(x_avals))
+    stateful_fun = StatefulFunction(f, name='checkpoint_scan').make_jaxpr(*args)
+    state_trace = stateful_fun.get_state_trace_by_call(*args)
+    cache_key = stateful_fun.get_arg_cache_key(*args)
     # get all states
     been_written = state_trace.been_writen
     read_state_vals = state_trace.get_read_state_values(True)
     write_state_vals = state_trace.get_write_state_values(True)
 
     # initialize the collected values/dataa
-    out_info = stateful_fun.get_out_shapes()[0]
+    out_info = stateful_fun.get_out_shapes(cache_key)[0]
     assert len(out_info) == 2, "function in checkpointed_scan should return two data: carray and out."
     data2collection = jax.tree.map(lambda x: jnp.zeros((length,) + x.shape, x.dtype), out_info[1])
     del out_info
@@ -458,7 +462,7 @@ def _forloop_to_scan_fun(f: Callable):
     return scan_fun
 
 
-@set_module_as('brainstate.compile')
+@set_module_as('brainstate.transform')
 def for_loop(
     f: Callable[..., Y],
     *xs,
@@ -546,6 +550,7 @@ def for_loop(
     return ys
 
 
+@set_module_as('brainstate.transform')
 def checkpointed_for_loop(
     f: Callable[..., Y],
     *xs: X,

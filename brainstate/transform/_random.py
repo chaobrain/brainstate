@@ -16,6 +16,7 @@
 import functools
 from typing import Callable, Sequence, Union
 
+from brainstate._utils import set_module_as
 from brainstate.random import DEFAULT, RandomState
 from brainstate.typing import Missing
 from brainstate.util import PrettyObject
@@ -54,7 +55,7 @@ class RngRestore(PrettyObject):
         >>> _ = rng.random()
         >>> restorer.restore()
     """
-
+    __module__ = 'brainstate.transform'
     def __init__(self, rngs: Sequence[RandomState]):
         """
         Initialize a restorer for the provided random states.
@@ -112,7 +113,7 @@ def _rng_backup(
 
     return wrapper
 
-
+@set_module_as('brainstate.transform')
 def restore_rngs(
     fn: Callable = Missing(),
     rngs: Union[RandomState, Sequence[RandomState]] = DEFAULT,

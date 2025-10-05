@@ -34,6 +34,7 @@ from jax.interpreters.batching import BatchTracer
 from brainstate._compatible_import import Device
 from brainstate._error import BrainStateError
 from brainstate._state import State, catch_new_states
+from brainstate._utils import set_module_as
 from brainstate.random import RandomState, DEFAULT
 from brainstate.typing import Missing, Filter
 from brainstate.util import NestedDict
@@ -65,7 +66,7 @@ class BatchAxisError(BrainStateError):
     Inherits from:
         BrainStateError: The base error class for BrainState-related exceptions.
     """
-    pass
+    __module__ = 'brainstate.transform'
 
 
 def _flatten_in_out_states(
@@ -598,6 +599,7 @@ def _vmap_transform(
     return vmapped_fn
 
 
+@set_module_as('brainstate.transform')
 def vmap(
     fn: F | Missing = Missing(),
     *,
@@ -710,6 +712,7 @@ def vmap(
     )
 
 
+@set_module_as('brainstate.transform')
 def pmap(
     fn: Callable[[NestedDict, ...], Any] | Missing = Missing(),
     axis_name: Optional[AxisName] = None,
@@ -876,6 +879,7 @@ def _batch_and_remainder(x, batch_size: int):
         return scan_tree, None
 
 
+@set_module_as('brainstate.transform')
 def map(
     f,
     *xs,
@@ -1010,6 +1014,7 @@ def _vmap_new_states_transform(
     return vmapped_fn
 
 
+@set_module_as('brainstate.transform')
 def vmap_new_states(
     fun: Callable = Missing(),
     *,

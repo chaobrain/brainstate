@@ -35,7 +35,7 @@ __all__ = [
 ]
 
 
-@set_module_as('brainstate.compile')
+@set_module_as('brainstate.transform')
 def while_loop(
     cond_fun: Callable[[T], BooleanNumeric],
     body_fun: Callable[[T], T],
@@ -143,16 +143,19 @@ def while_loop(
 
     # evaluate jaxpr
     stateful_cond = StatefulFunction(cond_fun, name='while:cond').make_jaxpr(init_val)
+    cond_cache_key = stateful_cond.get_arg_cache_key(init_val)
     stateful_body = StatefulFunction(body_fun, name='while:body').make_jaxpr(init_val)
-    if len(stateful_cond.get_write_states()) != 0:
+    body_cache_key = stateful_body.get_arg_cache_key(init_val)
+    if len(stateful_cond.get_write_states(cond_cache_key)) != 0:
         raise ValueError("while_loop: cond_fun should not have any write states.")
 
     # state trace and state values
-    state_trace = stateful_cond.get_state_trace() + stateful_body.get_state_trace()
+    state_trace = (stateful_cond.get_state_trace(cond_cache_key) +
+                   stateful_body.get_state_trace(body_cache_key))
     read_state_vals = state_trace.get_read_state_values(True)
     write_state_vals = state_trace.get_write_state_values(True)
-    new_cond_fn = wrap_fn(stateful_cond, state_trace, read_state_vals, False)
-    new_body_fn = wrap_fn(stateful_body, state_trace, read_state_vals, True)
+    new_cond_fn = wrap_fn(stateful_cond, state_trace, read_state_vals, False, cond_cache_key)
+    new_body_fn = wrap_fn(stateful_body, state_trace, read_state_vals, True, body_cache_key)
 
     # while_loop
     state_vals, final_val = jax.lax.while_loop(new_cond_fn, new_body_fn, (write_state_vals, init_val))
@@ -162,6 +165,7 @@ def while_loop(
     return final_val
 
 
+@set_module_as('brainstate.transform')
 def bounded_while_loop(
     cond_fun: Callable[[T], BooleanNumeric],
     body_fun: Callable[[T], T],
@@ -259,11 +263,12 @@ def bounded_while_loop(
         raise ValueError("while_loop: cond_fun should not have any write states.")
 
     # state trace and state values
-    state_trace = stateful_cond.get_state_trace() + stateful_body.get_state_trace()
+    state_trace = (stateful_cond.get_state_trace_by_call(init_val) +
+                   stateful_body.get_state_trace_by_call(init_val))
     read_state_vals = state_trace.get_read_state_values(True)
     write_state_vals = state_trace.get_write_state_values(True)
-    new_cond_fn = wrap_fn(stateful_cond, state_trace, read_state_vals, False)
-    new_body_fn = wrap_fn(stateful_body, state_trace, read_state_vals, True)
+    new_cond_fn = wrap_fn(stateful_cond, state_trace, read_state_vals, False, stateful_cond.get_arg_cache_key(init_val))
+    new_body_fn = wrap_fn(stateful_body, state_trace, read_state_vals, True, stateful_body.get_arg_cache_key(init_val))
 
     # initial value
     init_val = (write_state_vals, init_val)

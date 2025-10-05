@@ -30,7 +30,7 @@ __all__ = [
 ]
 
 
-@set_module_as('brainstate.compile')
+@set_module_as('brainstate.transform')
 def cond(pred, true_fun: Callable, false_fun: Callable, *operands):
     """
     Conditionally apply ``true_fun`` or ``false_fun``.
@@ -119,13 +119,16 @@ def cond(pred, true_fun: Callable, false_fun: Callable, *operands):
     stateful_false = StatefulFunction(false_fun, name='conda:false').make_jaxpr(*operands)
 
     # state trace and state values
-    state_trace = stateful_true.get_state_trace() + stateful_false.get_state_trace()
+    state_trace = (stateful_true.get_state_trace_by_call(*operands) +
+                   stateful_false.get_state_trace_by_call(*operands))
     read_state_vals = state_trace.get_read_state_values(True)
     write_state_vals = state_trace.get_write_state_values(True)
 
     # wrap the functions
-    true_fun = wrap_single_fun_in_multi_branches(stateful_true, state_trace, read_state_vals, True)
-    false_fun = wrap_single_fun_in_multi_branches(stateful_false, state_trace, read_state_vals, True)
+    true_fun = wrap_single_fun_in_multi_branches(stateful_true, state_trace, read_state_vals, True,
+                                                 stateful_true.get_arg_cache_key(*operands))
+    false_fun = wrap_single_fun_in_multi_branches(stateful_false, state_trace, read_state_vals, True,
+                                                  stateful_false.get_arg_cache_key(*operands))
 
     # cond
     write_state_vals, out = jax.lax.cond(pred, true_fun, false_fun, write_state_vals, *operands)
@@ -135,7 +138,7 @@ def cond(pred, true_fun: Callable, false_fun: Callable, *operands):
     return out
 
 
-@set_module_as('brainstate.compile')
+@set_module_as('brainstate.transform')
 def switch(index, branches: Sequence[Callable], *operands):
     """
     Apply exactly one branch from ``branches`` based on ``index``.
@@ -223,12 +226,15 @@ def switch(index, branches: Sequence[Callable], *operands):
         wrapped_branch.make_jaxpr(*operands)
 
     # wrap the functions
-    state_trace = wrapped_branches[0].get_state_trace() + wrapped_branches[1].get_state_trace()
-    state_trace.merge(*[wrapped_branch.get_state_trace() for wrapped_branch in wrapped_branches[2:]])
+    state_trace = (wrapped_branches[0].get_state_trace_by_call(*operands) +
+                   wrapped_branches[1].get_state_trace_by_call(*operands))
+    state_trace.merge(*[wrapped_branch.get_state_trace_by_call(*operands)
+                        for wrapped_branch in wrapped_branches[2:]])
     read_state_vals = state_trace.get_read_state_values(True)
     write_state_vals = state_trace.get_write_state_values(True)
     branches = [
-        wrap_single_fun_in_multi_branches(wrapped_branch, state_trace, read_state_vals, True)
+        wrap_single_fun_in_multi_branches(wrapped_branch, state_trace, read_state_vals, True,
+                                          wrapped_branch.get_arg_cache_key(*operands))
         for wrapped_branch in wrapped_branches
     ]
 
@@ -240,7 +246,7 @@ def switch(index, branches: Sequence[Callable], *operands):
     return out
 
 
-@set_module_as('brainstate.compile')
+@set_module_as('brainstate.transform')
 def ifelse(conditions, branches, *operands, check_cond: bool = True):
     """
     Represent multi-way ``if``/``elif``/``else`` control flow.

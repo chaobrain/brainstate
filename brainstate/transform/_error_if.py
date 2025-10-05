@@ -43,7 +43,7 @@ def _error_msg(msg, *arg, **kwargs):
     raise ValueError(msg)
 
 
-@set_module_as('brainstate.compile')
+@set_module_as('brainstate.transform')
 def jit_error_if(
     pred,
     error: Union[Callable, str],

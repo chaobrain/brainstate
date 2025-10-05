@@ -129,7 +129,7 @@ class ProgressBar(object):
         >>> pbar = brainstate.transform.ProgressBar(freq=5)
         >>> final_carry, ys = brainstate.transform.scan(scan_fn, init_carry, xs, pbar=pbar)
     """
-    __module__ = "brainstate.compile"
+    __module__ = "brainstate.transform"
 
     def __init__(
         self,
@@ -194,7 +194,7 @@ class ProgressBar(object):
 
 
 class ProgressBarRunner(object):
-    __module__ = "brainstate.compile"
+    __module__ = "brainstate.transform"
 
     def __init__(
         self,

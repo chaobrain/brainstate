@@ -19,6 +19,7 @@ from typing import Any, TypeVar, Callable, Sequence, Union
 import jax
 
 from brainstate import random
+from brainstate._utils import set_module_as
 from brainstate.graph import Node, flatten, unflatten
 from ._random import restore_rngs
 
@@ -28,7 +29,7 @@ __all__ = [
 
 A = TypeVar('A')
 
-
+@set_module_as('brainstate.transform')
 def abstract_init(
     fn: Callable[..., A],
     *args: Any,

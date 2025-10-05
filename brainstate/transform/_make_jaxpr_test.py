@@ -56,8 +56,9 @@ class TestMakeJaxpr(unittest.TestCase):
             return jnp.sum(temp + c)
 
         fun = brainstate.transform.StatefulFunction(func4).make_jaxpr((jnp.zeros(8), jnp.ones(8)))
-        print(fun.get_states())
-        print(fun.get_jaxpr())
+        cache_key = fun.get_arg_cache_key((jnp.zeros(8), jnp.ones(8)))
+        print(fun.get_states(cache_key))
+        print(fun.get_jaxpr(cache_key))
 
     def test_StatefulFunction_2(self):
         st1 = brainstate.State(jnp.ones(10))

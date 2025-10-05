@@ -14,7 +14,7 @@
 # ==============================================================================
 
 from functools import wraps
-from typing import Sequence, Tuple
+from typing import Sequence, Tuple, Hashable
 
 from brainstate._state import StateTraceStack
 from brainstate.typing import PyTree
@@ -74,7 +74,8 @@ def wrap_single_fun_in_multi_branches(
     stateful_fun: StatefulFunction,
     merged_state_trace: StateTraceStack,
     read_state_vals: Sequence[PyTree | None],
-    return_states: bool = True
+    return_states: bool = True,
+    cache_key: Hashable = None,
 ):
     """
     Wrap a stateful function for use in multi-branch control flow.
@@ -122,7 +123,7 @@ def wrap_single_fun_in_multi_branches(
         >>> sf = brainstate.transform.StatefulFunction(branch_fn)
         >>> # wrapped_fn = wrap_single_fun_in_multi_branches(sf, merged_trace, read_vals)
     """
-    state_ids_belong_to_this_fun = {id(st): st for st in stateful_fun.get_states()}
+    state_ids_belong_to_this_fun = {id(st): st for st in stateful_fun.get_states(cache_key)}
 
     @wraps(stateful_fun.fun)
     def wrapped_branch(write_state_vals, *operands):
@@ -144,7 +145,7 @@ def wrap_single_fun_in_multi_branches(
 
         if return_states:
             # get all written state values
-            new_state_vals = {id(st): val for st, val in zip(stateful_fun.get_states(), new_state_vals)}
+            new_state_vals = {id(st): val for st, val in zip(stateful_fun.get_states(cache_key), new_state_vals)}
             write_state_vals = tuple([
                 (new_state_vals[id(st)] if id(st) in state_ids_belong_to_this_fun else w_val)
                 if write else None
@@ -162,7 +163,8 @@ def wrap_single_fun_in_multi_branches_while_loop(
     stateful_fun: StatefulFunction,
     merged_state_trace: StateTraceStack,
     read_state_vals: Sequence[PyTree | None],
-    return_states: bool = True
+    return_states: bool = True,
+    cache_key: Hashable = None,
 ):
     """
     Wrap a stateful function for use in while loop control flow.
@@ -216,7 +218,7 @@ def wrap_single_fun_in_multi_branches_while_loop(
         >>> # wrapped_cond = wrap_single_fun_in_multi_branches_while_loop(sf_cond, ...)
         >>> # wrapped_body = wrap_single_fun_in_multi_branches_while_loop(sf_body, ...)
     """
-    state_ids_belong_to_this_fun = {id(st): st for st in stateful_fun.get_states()}
+    state_ids_belong_to_this_fun = {id(st): st for st in stateful_fun.get_states(cache_key)}
 
     @wraps(stateful_fun.fun)
     def wrapped_branch(init_val):
@@ -239,7 +241,7 @@ def wrap_single_fun_in_multi_branches_while_loop(
 
         if return_states:
             # get all written state values
-            new_state_vals = {id(st): val for st, val in zip(stateful_fun.get_states(), new_state_vals)}
+            new_state_vals = {id(st): val for st, val in zip(stateful_fun.get_states(cache_key), new_state_vals)}
             write_state_vals = tuple([
                 (new_state_vals[id(st)] if id(st) in state_ids_belong_to_this_fun else w_val)
                 if write else None
