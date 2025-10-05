@@ -54,6 +54,8 @@ function.
 import functools
 import inspect
 import operator
+import threading
+from collections import OrderedDict
 from collections.abc import Hashable, Iterable, Sequence, MutableSet
 from contextlib import ExitStack
 from typing import Any, Callable, Tuple, Union, Dict, Optional
@@ -89,6 +91,148 @@ __all__ = [
     "StatefulFunction",
     "make_jaxpr",
 ]
+
+
+class _BoundedCache:
+    """
+    A thread-safe LRU cache with bounded size.
+
+    This cache stores a limited number of items and evicts the least recently used item
+    when the cache reaches its maximum size. All operations are thread-safe.
+
+    Parameters
+    ----------
+    maxsize : int, default 128
+        Maximum number of items to store in the cache.
+    """
+
+    def __init__(self, maxsize: int = 128):
+        self._cache = OrderedDict()
+        self._maxsize = maxsize
+        self._lock = threading.RLock()
+        self._hits = 0
+        self._misses = 0
+
+    def get(self, key: Any, default: Any = None) -> Any:
+        """
+        Get an item from the cache.
+
+        Parameters
+        ----------
+        key : Any
+            The cache key.
+        default : Any, optional
+            The default value to return if the key is not found.
+
+        Returns
+        -------
+        Any
+            The cached value or the default value.
+        """
+        with self._lock:
+            if key in self._cache:
+                self._cache.move_to_end(key)
+                self._hits += 1
+                return self._cache[key]
+            self._misses += 1
+            return default
+
+    def set(self, key: Any, value: Any) -> None:
+        """
+        Set an item in the cache.
+
+        Parameters
+        ----------
+        key : Any
+            The cache key.
+        value : Any
+            The value to cache.
+        """
+        with self._lock:
+            if key in self._cache:
+                self._cache.move_to_end(key)
+            else:
+                if len(self._cache) >= self._maxsize:
+                    self._cache.popitem(last=False)
+            self._cache[key] = value
+
+    def __contains__(self, key: Any) -> bool:
+        """
+        Check if a key exists in the cache.
+
+        Parameters
+        ----------
+        key : Any
+            The cache key to check.
+
+        Returns
+        -------
+        bool
+            True if the key exists in the cache, False otherwise.
+        """
+        with self._lock:
+            return key in self._cache
+
+    def __len__(self) -> int:
+        """
+        Get the number of items in the cache.
+
+        Returns
+        -------
+        int
+            The number of items currently in the cache.
+        """
+        with self._lock:
+            return len(self._cache)
+
+    def clear(self) -> None:
+        """
+        Clear all items from the cache and reset statistics.
+
+        This method removes all cached items and resets hit/miss counters to zero.
+        """
+        with self._lock:
+            self._cache.clear()
+            self._hits = 0
+            self._misses = 0
+
+    def keys(self):
+        """
+        Return all keys in the cache.
+
+        Returns
+        -------
+        list
+            A list of all keys currently in the cache.
+        """
+        with self._lock:
+            return list(self._cache.keys())
+
+    def get_stats(self) -> Dict[str, Any]:
+        """
+        Get cache statistics.
+
+        Returns
+        -------
+        dict
+            A dictionary with cache statistics including:
+
+            - 'size': Current number of items in cache
+            - 'maxsize': Maximum cache size
+            - 'hits': Number of cache hits
+            - 'misses': Number of cache misses
+            - 'hit_rate': Hit rate percentage (0-100)
+        """
+        with self._lock:
+            total = self._hits + self._misses
+            hit_rate = (self._hits / total * 100) if total > 0 else 0.0
+            return {
+                'size': len(self._cache),
+                'maxsize': self._maxsize,
+                'hits': self._hits,
+                'misses': self._misses,
+                'hit_rate': hit_rate,
+            }
 
 
 def _ensure_str(x: str) -> str:
@@ -163,6 +307,20 @@ def _jax_new_version_new_arg():
 
 
 def _init_state_trace_stack(name) -> StateTraceStack:
+    """
+    Initialize a state trace stack for tracking state during jaxpr creation.
+
+    Parameters
+    ----------
+    name : str
+        Name identifier for the state trace stack.
+
+    Returns
+    -------
+    StateTraceStack
+        Initialized state trace stack with appropriate new_arg handler for
+        the current JAX version.
+    """
     state_trace: StateTraceStack = StateTraceStack(name=name)
 
     if jax.__version_info__ < (0, 4, 36):
@@ -205,16 +363,10 @@ class StatefulFunction(PrettyObject):
         the corresponding axis is abstracted, and the dict specifies the axis name
         and size. The abstracted axes are used to infer the input type of the
         function. If None, then all axes are abstracted.
-    state_returns : str or tuple of str, default ('read', 'write')
-        The categories of states to be
-        returned by the wrapped function. The categories are ``'read'`` and
-        ``'write'``. If the category is ``'read'``, then the wrapped function
-        returns the states that are read by the function. If the category is
-        ``'write'``, then the wrapped function returns the states that are written
-        by the function. If the category is ``'read'`` and ``'write'``, then the
-        wrapped function returns both the read and write states.
-    cache_type : str, optional
-        The type of caching to use. Must be None or 'jit'.
+    return_only_write : bool, default False
+        If True, only return states that were written to during execution
+        (not just read). This can reduce memory usage when you only care
+        about modified states.
     name : str, optional
         Name for the stateful function.
 
@@ -268,7 +420,6 @@ class StatefulFunction(PrettyObject):
         static_argnames: Union[str, Iterable[str]] = (),
         axis_env: Optional[Sequence[tuple[Hashable, int]]] = None,
         abstracted_axes: Optional[Any] = None,
-        state_returns: Union[str, Tuple[str, ...]] = ('read', 'write'),
         name: Optional[str] = None,
         return_only_write: bool = False,
     ):
@@ -278,16 +429,15 @@ class StatefulFunction(PrettyObject):
         self.static_argnames = tuple() if static_argnames is None else _ensure_str_tuple(static_argnames)
         self.axis_env = axis_env
         self.abstracted_axes = abstracted_axes
-        self.state_returns = tuple(state_returns) if isinstance(state_returns, (tuple, list)) else (state_returns,)
         self.name = name
-
         self.return_only_write = return_only_write
 
-        # implicit parameters
-        self._cached_jaxpr: Dict[Any, ClosedJaxpr] = dict()
-        self._cached_out_shapes: Dict[Any, PyTree] = dict()
-        self._cached_jaxpr_out_tree: Dict[Any, PyTree] = dict()
-        self._cached_state_trace: Dict[Any, StateTraceStack] = dict()
+        # implicit parameters - thread-safe bounded caches
+        self._cached_jaxpr = _BoundedCache(maxsize=128)
+        self._cached_out_shapes = _BoundedCache(maxsize=128)
+        self._cached_jaxpr_out_tree = _BoundedCache(maxsize=128)
+        self._cached_state_trace = _BoundedCache(maxsize=128)
+        self._cache_lock = threading.RLock()
 
     def __pretty_repr_item__(self, k, v):
         if k.startswith('_'):
@@ -298,39 +448,76 @@ class StatefulFunction(PrettyObject):
         """
         Read the JAX Jaxpr representation of the function.
 
-        Args:
-          cache_key: The hashable key.
+        Parameters
+        ----------
+        cache_key : Hashable
+            The hashable cache key for retrieving the compiled jaxpr.
 
-        Returns:
-          The JAX Jaxpr representation of the function.
+        Returns
+        -------
+        ClosedJaxpr
+            The JAX Jaxpr representation of the function.
+
+        Raises
+        ------
+        ValueError
+            If the function has not been compiled for the given cache key.
         """
-        if cache_key not in self._cached_jaxpr:
-            raise ValueError(f"the function is not called with the static arguments: {cache_key}")
-        return self._cached_jaxpr[cache_key]
+        result = self._cached_jaxpr.get(cache_key)
+        if result is None:
+            raise ValueError(
+                f"Function not compiled for cache key: {cache_key}. "
+                f"Available keys: {len(self._cached_jaxpr)}. "
+                f"Call make_jaxpr() first with matching arguments."
+            )
+        return result
 
     def get_jaxpr_by_call(self, *args, **kwargs) -> ClosedJaxpr:
         """
-        Read the JAX Jaxpr representation of the function.
+        Read the JAX Jaxpr representation of the function by calling with args.
 
-        Returns:
-          The JAX Jaxpr representation of the function.
+        Parameters
+        ----------
+        *args
+            The arguments to the function.
+        **kwargs
+            The keyword arguments to the function.
+
+        Returns
+        -------
+        ClosedJaxpr
+            The JAX Jaxpr representation of the function.
         """
-        cache_key = self.get_arg_cache_key(*args, **kwargs, compile_if_not_exist=True)
+        cache_key = self.get_arg_cache_key(*args, **kwargs, compile_if_miss=True)
         return self.get_jaxpr(cache_key)
 
     def get_out_shapes(self, cache_key: Hashable) -> PyTree:
         """
         Read the output shapes of the function.
 
-        Args:
-          cache_key: The hashable key.
+        Parameters
+        ----------
+        cache_key : Hashable
+            The hashable cache key.
 
-        Returns:
-          The output shapes of the function.
+        Returns
+        -------
+        PyTree
+            The output shapes of the function.
+
+        Raises
+        ------
+        ValueError
+            If the function has not been compiled for the given cache key.
         """
-        if cache_key not in self._cached_out_shapes:
-            raise ValueError(f"the function is not called with the static arguments: {cache_key}")
-        return self._cached_out_shapes[cache_key]
+        result = self._cached_out_shapes.get(cache_key)
+        if result is None:
+            raise ValueError(
+                f"Function not compiled for cache key: {cache_key}. "
+                f"Available keys: {len(self._cached_out_shapes)}. "
+                f"Call make_jaxpr() first with matching arguments."
+            )
+        return result
 
     def get_out_shapes_by_call(self, *args, **kwargs) -> PyTree:
         """
@@ -339,7 +526,7 @@ class StatefulFunction(PrettyObject):
         Returns:
           The output shapes of the function.
         """
-        cache_key = self.get_arg_cache_key(*args, **kwargs, compile_if_not_exist=True)
+        cache_key = self.get_arg_cache_key(*args, **kwargs, compile_if_miss=True)
         return self.get_out_shapes(cache_key)
 
     def get_out_treedef(self, cache_key: Hashable) -> PyTree:
@@ -352,9 +539,14 @@ class StatefulFunction(PrettyObject):
         Returns:
           The output tree of the function.
         """
-        if cache_key not in self._cached_jaxpr_out_tree:
-            raise ValueError(f"the function is not called with the static arguments: {cache_key}")
-        return self._cached_jaxpr_out_tree[cache_key]
+        result = self._cached_jaxpr_out_tree.get(cache_key)
+        if result is None:
+            raise ValueError(
+                f"Function not compiled for cache key: {cache_key}. "
+                f"Available keys: {len(self._cached_jaxpr_out_tree)}. "
+                f"Call make_jaxpr() first with matching arguments."
+            )
+        return result
 
     def get_out_treedef_by_call(self, *args, **kwargs) -> PyTree:
         """
@@ -363,7 +555,7 @@ class StatefulFunction(PrettyObject):
         Returns:
           The output tree of the function.
         """
-        cache_key = self.get_arg_cache_key(*args, **kwargs, compile_if_not_exist=True)
+        cache_key = self.get_arg_cache_key(*args, **kwargs, compile_if_miss=True)
         return self.get_out_treedef(cache_key)
 
     def get_state_trace(self, cache_key: Hashable) -> StateTraceStack:
@@ -376,9 +568,14 @@ class StatefulFunction(PrettyObject):
         Returns:
           The state trace of the function.
         """
-        if cache_key not in self._cached_state_trace:
-            raise ValueError(f"the function is not called with the static arguments: {cache_key}")
-        return self._cached_state_trace[cache_key]
+        result = self._cached_state_trace.get(cache_key)
+        if result is None:
+            raise ValueError(
+                f"Function not compiled for cache key: {cache_key}. "
+                f"Available keys: {len(self._cached_state_trace)}. "
+                f"Call make_jaxpr() first with matching arguments."
+            )
+        return result
 
     def get_state_trace_by_call(self, *args, **kwargs) -> StateTraceStack:
         """
@@ -387,7 +584,7 @@ class StatefulFunction(PrettyObject):
         Returns:
           The state trace of the function.
         """
-        cache_key = self.get_arg_cache_key(*args, **kwargs, compile_if_not_exist=True)
+        cache_key = self.get_arg_cache_key(*args, **kwargs, compile_if_miss=True)
         return self.get_state_trace(cache_key)
 
     def get_states(self, cache_key: Hashable) -> Tuple[State, ...]:
@@ -413,7 +610,7 @@ class StatefulFunction(PrettyObject):
         Returns:
           The states that are read and written by the function.
         """
-        cache_key = self.get_arg_cache_key(*args, **kwargs, compile_if_not_exist=True)
+        cache_key = self.get_arg_cache_key(*args, **kwargs, compile_if_miss=True)
         return self.get_states(cache_key)
 
     def get_read_states(self, cache_key: Hashable) -> Tuple[State, ...]:
@@ -438,7 +635,7 @@ class StatefulFunction(PrettyObject):
         Returns:
             The states that are read by the function.
         """
-        cache_key = self.get_arg_cache_key(*args, **kwargs, compile_if_not_exist=True)
+        cache_key = self.get_arg_cache_key(*args, **kwargs, compile_if_miss=True)
         return self.get_read_states(cache_key)
 
     def get_write_states(self, cache_key: Hashable) -> Tuple[State, ...]:
@@ -463,7 +660,7 @@ class StatefulFunction(PrettyObject):
         Returns:
             The states that are written by the function.
         """
-        cache_key = self.get_arg_cache_key(*args, **kwargs, compile_if_not_exist=True)
+        cache_key = self.get_arg_cache_key(*args, **kwargs, compile_if_miss=True)
         return self.get_write_states(cache_key)
 
     def _check_input_ouput(self, x):
@@ -475,12 +672,12 @@ class StatefulFunction(PrettyObject):
                 )
             )
 
-    def get_arg_cache_key(self, *args, compile_if_not_exist: bool = False, **kwargs) -> Tuple:
+    def get_arg_cache_key(self, *args, compile_if_miss: bool = False, **kwargs) -> Tuple:
         """
         Get the static arguments from the arguments.
 
         Args:
-            compile_if_not_exist: Whether to compile the function if the cache key does not exist.
+            compile_if_miss: Whether to compile the function if the cache key does not exist.
             *args: The arguments to the function.
             **kwargs: The keyword arguments to the function.
 
@@ -508,7 +705,7 @@ class StatefulFunction(PrettyObject):
 
         cache_key = (static_args, dyn_args, static_kwargs, dyn_kwargs)
 
-        if cache_key not in self._cached_state_trace and compile_if_not_exist:
+        if cache_key not in self._cached_state_trace and compile_if_miss:
             self.make_jaxpr(*args, **kwargs)
 
         return cache_key
@@ -542,7 +739,7 @@ class StatefulFunction(PrettyObject):
         """
         # state trace
         state_trace = _init_state_trace_stack(self.name)
-        self._cached_state_trace[cache_key] = state_trace
+        self._cached_state_trace.set(cache_key, state_trace)
         with state_trace:
             out = self.fun(*args, **dyn_kwargs, **static_kwargs)
             state_values = (
@@ -558,17 +755,28 @@ class StatefulFunction(PrettyObject):
         return out, state_values
 
     def make_jaxpr(self, *args, **kwargs):
-        """Creates a function that produces its jaxpr given example args.
+        """
+        Create the JAX Jaxpr representation given example arguments.
 
-        A ``ClosedJaxpr`` representation of ``fun`` on those arguments. If the
-        argument ``return_shape`` is ``True``, then the returned function instead
-        returns a pair where the first element is the ``ClosedJaxpr``
-        representation of ``fun`` and the second element is a pytree representing
-        the structure, shape, dtypes, and named shapes of the output of ``fun``.
+        This method compiles the function with the given arguments and caches
+        the resulting Jaxpr, output shapes, and state trace for later use.
 
-        Args:
-            *args: The arguments to the function.
-            **kwargs: The keyword arguments to the function.
+        Parameters
+        ----------
+        *args
+            The arguments to the function.
+        **kwargs
+            The keyword arguments to the function.
+
+        Returns
+        -------
+        StatefulFunction
+            Returns self for method chaining.
+
+        Raises
+        ------
+        TypeError
+            If State objects are passed as arguments or returned from the function.
         """
 
         # check input types
@@ -600,15 +808,14 @@ class StatefulFunction(PrettyObject):
                     abstracted_axes=self.abstracted_axes,
                 )(*args, **dyn_kwargs)
                 # returns
-                self._cached_jaxpr_out_tree[cache_key] = jax.tree.structure((out_shapes, state_shapes))
-                self._cached_out_shapes[cache_key] = (out_shapes, state_shapes)
-                self._cached_jaxpr[cache_key] = jaxpr
+                self._cached_jaxpr_out_tree.set(cache_key, jax.tree.structure((out_shapes, state_shapes)))
+                self._cached_out_shapes.set(cache_key, (out_shapes, state_shapes))
+                self._cached_jaxpr.set(cache_key, jaxpr)
 
             except Exception as e:
-                try:
-                    self._cached_state_trace.pop(cache_key)
-                except KeyError:
-                    pass
+                # Clean up partial cache entries on error
+                if cache_key in self._cached_state_trace:
+                    self._cached_state_trace.set(cache_key, None)
                 raise e
 
         return self
@@ -617,13 +824,28 @@ class StatefulFunction(PrettyObject):
         """
         Call the function at the JAX Jaxpr level.
 
-        Args:
-          state_vals: The state values.
-          *args: The arguments to the function.
-          **kwargs: The keyword arguments to the function.
+        This method evaluates the compiled Jaxpr with the provided state values
+        and arguments, returning updated state values and function outputs.
 
-        Returns:
-          State values and the function output.
+        Parameters
+        ----------
+        state_vals : Sequence
+            The current state values.
+        *args
+            The arguments to the function.
+        **kwargs
+            The keyword arguments to the function.
+
+        Returns
+        -------
+        tuple
+            A tuple of (new_state_vals, out) where new_state_vals are the
+            updated state values and out is the function output.
+
+        Raises
+        ------
+        ValueError
+            If the number of state values doesn't match the expected number.
         """
         # state checking
         cache_key = self.get_arg_cache_key(*args, **kwargs)
@@ -650,6 +872,75 @@ class StatefulFunction(PrettyObject):
                              f'{len(state_vals)} states, got {len(new_state_vals)}')
         return new_state_vals, out
 
+    def get_cache_stats(self) -> Dict[str, Any]:
+        """
+        Get comprehensive cache statistics for all internal caches.
+
+        Returns
+        -------
+        dict
+            A dictionary with statistics for each cache including size, hits,
+            misses, and hit rates. Keys are 'jaxpr_cache', 'out_shapes_cache',
+            'jaxpr_out_tree_cache', and 'state_trace_cache'.
+        """
+        return {
+            'jaxpr_cache': self._cached_jaxpr.get_stats(),
+            'out_shapes_cache': self._cached_out_shapes.get_stats(),
+            'jaxpr_out_tree_cache': self._cached_jaxpr_out_tree.get_stats(),
+            'state_trace_cache': self._cached_state_trace.get_stats(),
+        }
+
+    def validate_states(self, cache_key: Hashable) -> bool:
+        """
+        Validate that all tracked states for a given cache key are still valid.
+
+        Parameters
+        ----------
+        cache_key : Hashable
+            The cache key to validate states for.
+
+        Returns
+        -------
+        bool
+            True if all states are valid.
+
+        Raises
+        ------
+        ValueError
+            If any states are invalid or missing required attributes.
+        """
+        state_trace = self.get_state_trace(cache_key)
+        invalid_states = []
+        for i, state in enumerate(state_trace.states):
+            if not hasattr(state, 'value'):
+                invalid_states.append((i, state))
+
+        if invalid_states:
+            raise ValueError(
+                f"Found {len(invalid_states)} invalid states at indices: "
+                f"{[idx for idx, _ in invalid_states]}. "
+                f"States must have a 'value' attribute."
+            )
+        return True
+
+    def validate_all_states(self) -> Dict[Any, bool]:
+        """
+        Validate states for all cached compilations.
+
+        Returns
+        -------
+        dict
+            A dictionary mapping cache keys to validation results. Each value
+            is either True (valid) or an error message string (invalid).
+        """
+        results = {}
+        for cache_key in self._cached_state_trace.keys():
+            try:
+                results[cache_key] = self.validate_states(cache_key)
+            except ValueError as e:
+                results[cache_key] = str(e)
+        return results
+
     def jaxpr_call_auto(self, *args, **kwargs) -> Any:
         """
         Call the function at the JAX Jaxpr level with automatic state management.
@@ -675,7 +966,7 @@ def make_jaxpr(
     axis_env: Optional[Sequence[tuple[Hashable, int]]] = None,
     return_shape: bool = False,
     abstracted_axes: Optional[Any] = None,
-    state_returns: Union[str, Tuple[str, ...]] = ('read', 'write')
+    return_only_write: bool = False,
 ) -> Callable[
     ...,
     (Tuple[ClosedJaxpr, Tuple[State, ...]] |
@@ -723,14 +1014,10 @@ def make_jaxpr(
         the corresponding axis is abstracted, and the dict specifies the axis name
         and size. The abstracted axes are used to infer the input type of the
         function. If None, then all axes are abstracted.
-    state_returns : str or tuple of str, default ('read', 'write')
-        The categories of states to be
-        returned by the wrapped function. The categories are ``'read'`` and
-        ``'write'``. If the category is ``'read'``, then the wrapped function
-        returns the states that are read by the function. If the category is
-        ``'write'``, then the wrapped function returns the states that are written
-        by the function. If the category is ``'read'`` and ``'write'``, then the
-        wrapped function returns both the read and write states.
+    return_only_write : bool, default False
+        If True, only return states that were written to during execution
+        (not just read). This can reduce memory usage when you only care
+        about modified states.
 
     Returns
     -------
@@ -793,7 +1080,7 @@ def make_jaxpr(
         static_argnames=static_argnames,
         axis_env=axis_env,
         abstracted_axes=abstracted_axes,
-        state_returns=state_returns,
+        return_only_write=return_only_write,
         name='make_jaxpr'
     )
 
@@ -802,12 +1089,16 @@ def make_jaxpr(
         stateful_fun.make_jaxpr(*args, **kwargs)
         cache_key = stateful_fun.get_arg_cache_key(*args, **kwargs)
         if return_shape:
-            return (stateful_fun.get_jaxpr(cache_key),
-                    stateful_fun.get_states(cache_key),
-                    stateful_fun.get_out_shapes(cache_key)[0])
+            return (
+                stateful_fun.get_jaxpr(cache_key),
+                stateful_fun.get_states(cache_key),
+                stateful_fun.get_out_shapes(cache_key)[0]
+            )
         else:
-            return (stateful_fun.get_jaxpr(cache_key),
-                    stateful_fun.get_states(cache_key))
+            return (
+                stateful_fun.get_jaxpr(cache_key),
+                stateful_fun.get_states(cache_key)
+            )
 
     # wrapped jaxpr builder function
     make_jaxpr_f.__module__ = "brainstate.transform"
@@ -871,61 +1162,76 @@ def _make_jaxpr(
     return_shape: bool = False,
     abstracted_axes: Any | None = None,
 ) -> Callable[..., (ClosedJaxpr | tuple[ClosedJaxpr, Any])]:
-    """Creates a function that produces its jaxpr given example args.
+    """
+    Create a function that produces its jaxpr given example args (internal implementation).
 
-    Args:
-      fun: The function whose ``jaxpr`` is to be computed. Its positional
+    This is an internal implementation function. Users should use the public
+    ``make_jaxpr`` function instead.
+
+    Parameters
+    ----------
+    fun : Callable
+        The function whose ``jaxpr`` is to be computed. Its positional
         arguments and return value should be arrays, scalars, or standard Python
         containers (tuple/list/dict) thereof.
-      static_argnums: See the :py:func:`jax.jit` docstring.
-      axis_env: Optional, a sequence of pairs where the first element is an axis
+    static_argnums : int or iterable of int, optional
+        See the :py:func:`jax.jit` docstring.
+    axis_env : sequence of tuple, optional
+        A sequence of pairs where the first element is an axis
         name and the second element is a positive integer representing the size of
         the mapped axis with that name. This parameter is useful when lowering
         functions that involve parallel communication collectives, and it
         specifies the axis name/size environment that would be set up by
         applications of :py:func:`jax.pmap`.
-      return_shape: Optional boolean, defaults to ``False``. If ``True``, the
-        wrapped function returns a pair where the first element is the
-        ``ClosedJaxpr`` representation of ``fun`` and the second element is a
-        pytree with the same structure as the output of ``fun`` and where the
-        leaves are objects with ``shape``, ``dtype``, and ``named_shape``
+    return_shape : bool, default False
+        If ``True``, the wrapped function returns a pair where the first element
+        is the ``ClosedJaxpr`` representation of ``fun`` and the second element
+        is a pytree with the same structure as the output of ``fun`` and where
+        the leaves are objects with ``shape``, ``dtype``, and ``named_shape``
         attributes representing the corresponding types of the output leaves.
+    abstracted_axes : Any, optional
+        Axes specifications for abstract interpretation.
 
-    Returns:
-      A wrapped version of ``fun`` that when applied to example arguments returns
-      a ``ClosedJaxpr`` representation of ``fun`` on those arguments. If the
-      argument ``return_shape`` is ``True``, then the returned function instead
-      returns a pair where the first element is the ``ClosedJaxpr``
-      representation of ``fun`` and the second element is a pytree representing
-      the structure, shape, dtypes, and named shapes of the output of ``fun``.
+    Returns
+    -------
+    Callable
+        A wrapped version of ``fun`` that when applied to example arguments returns
+        a ``ClosedJaxpr`` representation of ``fun`` on those arguments. If the
+        argument ``return_shape`` is ``True``, then the returned function instead
+        returns a pair where the first element is the ``ClosedJaxpr``
+        representation of ``fun`` and the second element is a pytree representing
+        the structure, shape, dtypes, and named shapes of the output of ``fun``.
 
+    Notes
+    -----
     A ``jaxpr`` is JAX's intermediate representation for program traces. The
     ``jaxpr`` language is based on the simply-typed first-order lambda calculus
-    with let-bindings. :py:func:`make_jaxpr` adapts a function to return its
+    with let-bindings. This function adapts a function to return its
     ``jaxpr``, which we can inspect to understand what JAX is doing internally.
     The ``jaxpr`` returned is a trace of ``fun`` abstracted to
     :py:class:`ShapedArray` level. Other levels of abstraction exist internally.
 
-    We do not describe the semantics of the ``jaxpr`` language in detail here, but
-    instead give a few examples.
+    Examples
+    --------
+    .. code-block:: python
 
-    >>> import jax
-    >>>
-    >>> def f(x): return jax.numpy.sin(jax.numpy.cos(x))
-    >>> print(f(3.0))
-    -0.83602
-    >>> _make_jaxpr(f)(3.0)
-    { lambda ; a:f32[]. let b:f32[] = cos a; c:f32[] = sin b in (c,) }
-    >>> _make_jaxpr(jax.grad(f))(3.0)
-    { lambda ; a:f32[]. let
-        b:f32[] = cos a
-        c:f32[] = sin a
-        _:f32[] = sin b
-        d:f32[] = cos b
-        e:f32[] = mul 1.0 d
-        f:f32[] = neg e
-        g:f32[] = mul f c
-      in (g,) }
+        >>> import jax
+        >>>
+        >>> def f(x): return jax.numpy.sin(jax.numpy.cos(x))
+        >>> print(f(3.0))
+        -0.83602
+        >>> _make_jaxpr(f)(3.0)
+        { lambda ; a:f32[]. let b:f32[] = cos a; c:f32[] = sin b in (c,) }
+        >>> _make_jaxpr(jax.grad(f))(3.0)
+        { lambda ; a:f32[]. let
+            b:f32[] = cos a
+            c:f32[] = sin a
+            _:f32[] = sin b
+            d:f32[] = cos b
+            e:f32[] = mul 1.0 d
+            f:f32[] = neg e
+            g:f32[] = mul f c
+          in (g,) }
     """
     _check_callable(fun)
     static_argnums = _ensure_index_tuple(static_argnums)
@@ -976,7 +1282,21 @@ def _make_jaxpr(
 
 
 def make_hashable(obj):
-    """Convert a pytree into a hashable representation."""
+    """
+    Convert a pytree into a hashable representation.
+
+    Parameters
+    ----------
+    obj : Any
+        A pytree object (list, tuple, dict, set, or JAX pytree structure).
+
+    Returns
+    -------
+    Hashable
+        A hashable representation of the input object. Lists become tuples,
+        dicts become sorted tuples of key-value pairs, sets become frozensets,
+        and other pytrees are flattened using JAX's tree utilities.
+    """
     if isinstance(obj, (list, tuple)):
         return tuple(make_hashable(item) for item in obj)
     elif isinstance(obj, dict):
@@ -988,7 +1308,7 @@ def make_hashable(obj):
         try:
             leaves, treedef = jax.tree.flatten(obj)
             return treedef, tuple(leaves)
-        except:
+        except (TypeError, ValueError):
             # Assume obj is already hashable
             return obj
 
