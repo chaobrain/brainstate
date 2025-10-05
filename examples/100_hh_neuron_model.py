@@ -15,9 +15,10 @@
 
 
 import brainunit as u
-import brainstate
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
+
+import brainstate
 
 
 class HH(brainstate.nn.Dynamics):

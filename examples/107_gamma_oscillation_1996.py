@@ -20,11 +20,12 @@
 # - Wang X J, Buzsáki G. Gamma oscillation by synaptic inhibition in a hippocampal interneuronal network model[J]. Journal of neuroscience, 1996, 16(20): 6402-6413.
 #
 
-import braintools
-import brainstate
-import brainpy
 import brainunit as u
 import matplotlib.pyplot as plt
+
+import brainpy
+import brainstate
+import braintools
 
 
 class HH(brainpy.Neuron):

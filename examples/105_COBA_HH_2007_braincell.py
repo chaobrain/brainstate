@@ -20,11 +20,11 @@
 #   Simulation of networks of spiking neurons: a review of tools and strategies., J. Comput. Neurosci., 23, 3, 349–98
 #
 
+import braincell
 import brainunit as u
 import matplotlib.pyplot as plt
 
 import brainpy
-import braincell
 import brainstate
 
 assert braincell.__version__ >= '0.0.2'

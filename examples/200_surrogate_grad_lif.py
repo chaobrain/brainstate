@@ -23,14 +23,14 @@ Reproduce the results of the``spytorch`` tutorial 1:
 
 import time
 
-import brainpy
-import braintools
 import brainunit as u
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
 
+import brainpy
 import brainstate
+import braintools
 
 
 class SNN(brainstate.nn.DynamicsGroup):

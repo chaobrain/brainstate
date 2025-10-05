@@ -23,12 +23,12 @@
 #  Asynchronous Network
 
 
-import brainpy
-import brainstate
-import braintools
 import brainunit as u
 import matplotlib.pyplot as plt
 
+import brainpy
+import brainstate
+import braintools
 from Susin_Destexhe_2021_gamma_oscillation import (
     get_inputs, visualize_simulation_results,
     RS_par, FS_par, Ch_par, AdEx

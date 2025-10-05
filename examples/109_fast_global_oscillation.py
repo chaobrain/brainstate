@@ -26,8 +26,8 @@ import jax
 import matplotlib.pyplot as plt
 
 import brainpy
-import braintools
 import brainstate
+import braintools
 
 Vr = 10. * u.mV
 theta = 20. * u.mV

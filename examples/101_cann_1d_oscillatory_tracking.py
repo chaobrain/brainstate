@@ -23,11 +23,11 @@
 import brainunit as u
 import jax
 import matplotlib.pyplot as plt
-import brainstate
 import numpy as np
 from matplotlib import animation
 from matplotlib.gridspec import GridSpec
 
+import brainstate
 
 
 class CANN1D(brainstate.nn.Dynamics):

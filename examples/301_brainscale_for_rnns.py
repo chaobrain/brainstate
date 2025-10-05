@@ -19,18 +19,18 @@ import time
 from functools import partial, reduce
 from typing import Union, Iterator, Optional, Any, Dict
 
-import brainscale
-import braintools
 import jax
 import jax.numpy as jnp
 import numpy as np
 import orbax.checkpoint
-from braintools import metric
 from torch.utils.data import DataLoader
 from torch.utils.data import IterableDataset
 from tqdm import tqdm
 
+import brainscale
 import brainstate
+import braintools
+from braintools import metric
 
 # --------------------------------------------------------------
 # The parameters for the training

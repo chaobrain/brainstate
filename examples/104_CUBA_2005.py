@@ -28,9 +28,9 @@
 import brainunit as u
 import matplotlib.pyplot as plt
 
+import brainpy
 import brainstate
 import braintools
-import brainpy
 
 
 class EINet(brainstate.nn.Module):
@@ -74,7 +74,7 @@ brainstate.nn.init_all_states(net)
 with brainstate.environ.context(dt=0.1 * u.ms):
     times = u.math.arange(0. * u.ms, 1000. * u.ms, brainstate.environ.get_dt())
     spikes = brainstate.transform.for_loop(lambda t: net.update(t, 20. * u.mA), times,
-                                         pbar=brainstate.transform.ProgressBar(10))
+                                           pbar=brainstate.transform.ProgressBar(10))
 
 # visualization
 t_indices, n_indices = u.math.where(spikes)

@@ -24,8 +24,8 @@ import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
-import brainstate
 
+import brainstate
 
 X = np.linspace(0, 1, 100)[:, None]
 Y = 0.8 * X ** 2 + 0.1 + np.random.normal(0, 0.1, size=X.shape)

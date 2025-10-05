@@ -23,15 +23,15 @@ Reproduce the results of the``spytorch`` tutorial 2 & 3:
 
 import time
 
-import brainpy
-import braintools
 import brainunit as u
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
 from datasets import load_dataset
 
+import brainpy
 import brainstate
+import braintools
 
 dataset = load_dataset("zalando-datasets/fashion_mnist")
 

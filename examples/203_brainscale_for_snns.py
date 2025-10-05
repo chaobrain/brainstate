@@ -21,10 +21,6 @@ import time
 from functools import reduce
 from typing import Any, Callable, Union
 
-import brainpy
-import brainscale
-import braintools
-import brainstate
 import brainunit as u
 import jax
 import jax.numpy as jnp
@@ -33,6 +29,10 @@ import numpy as np
 from numba import njit
 from torch.utils.data import DataLoader, IterableDataset
 
+import brainpy
+import brainscale
+import brainstate
+import braintools
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--method", type=str, default='diag', choices=['diag', 'expsm_diag', 'bptt'])

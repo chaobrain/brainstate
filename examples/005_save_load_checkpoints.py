@@ -17,12 +17,13 @@
 # ==============================================================================
 
 
-from tempfile import TemporaryDirectory
 import os
+from tempfile import TemporaryDirectory
 
 import jax
 import jax.numpy as jnp
 import orbax.checkpoint as orbax
+
 import brainstate
 
 
