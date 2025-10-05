@@ -25,6 +25,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 import brainstate
+import brainpy
 
 # brainstate.environ.set(precision='bf16')
 
@@ -135,16 +136,16 @@ class EINet(brainstate.nn.Module):
         self.varshape = self.n_exc + self.n_inh
         self.N = HH(self.varshape)
 
-        self.E = brainstate.nn.AlignPostProj(
+        self.E = brainpy.AlignPostProj(
             comm=brainstate.nn.EventFixedProb(self.n_exc, self.varshape, conn_num=0.02, conn_weight=we),
-            syn=brainstate.nn.Expon(self.varshape, tau=taue),
-            out=brainstate.nn.COBA(E=Ee),
+            syn=brainpy.Expon(self.varshape, tau=taue),
+            out=brainpy.COBA(E=Ee),
             post=self.N
         )
-        self.I = brainstate.nn.AlignPostProj(
+        self.I = brainpy.AlignPostProj(
             comm=brainstate.nn.EventFixedProb(self.n_inh, self.varshape, conn_num=0.02, conn_weight=wi),
-            syn=brainstate.nn.Expon(self.varshape, tau=taui),
-            out=brainstate.nn.COBA(E=Ei),
+            syn=brainpy.Expon(self.varshape, tau=taui),
+            out=brainpy.COBA(E=Ei),
             post=self.N
         )
 
@@ -165,7 +166,7 @@ brainstate.nn.init_all_states(net)
 with brainstate.environ.context(dt=0.04 * u.ms):
     times = u.math.arange(0. * u.ms, 300. * u.ms, brainstate.environ.get_dt())
     times = u.math.asarray(times, dtype=brainstate.environ.dftype())
-    spikes = brainstate.compile.for_loop(net.update, times, pbar=brainstate.compile.ProgressBar(100))
+    spikes = brainstate.transform.for_loop(net.update, times, pbar=brainstate.transform.ProgressBar(100))
 
 # visualization
 t_indices, n_indices = u.math.where(spikes)

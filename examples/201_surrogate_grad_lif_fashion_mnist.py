@@ -23,6 +23,7 @@ Reproduce the results of the``spytorch`` tutorial 2 & 3:
 
 import time
 
+import brainpy
 import braintools
 import brainunit as u
 import jax.numpy as jnp
@@ -64,15 +65,15 @@ class SNN(brainstate.nn.DynamicsGroup):
 
         # synapse: i->r
         self.i2r = brainstate.nn.Sequential(
-            brainstate.nn.Linear(num_in, num_rec, w_init=brainstate.nn.KaimingNormal(scale=40.)),
-            brainstate.nn.Expon(num_rec, tau=10. * u.ms, g_initializer=brainstate.nn.ZeroInit())
+            brainstate.nn.Linear(num_in, num_rec, w_init=braintools.init.KaimingNormal(scale=40.)),
+            brainpy.Expon(num_rec, tau=10. * u.ms, g_initializer=braintools.init.ZeroInit())
         )
         # recurrent: r
-        self.r = brainstate.nn.LIF(num_rec, tau=10 * u.ms, V_reset=0 * u.mV, V_rest=0 * u.mV, V_th=1. * u.mV)
+        self.r = brainpy.LIF(num_rec, tau=10 * u.ms, V_reset=0 * u.mV, V_rest=0 * u.mV, V_th=1. * u.mV)
         # synapse: r->o
         self.r2o = brainstate.nn.Sequential(
-            brainstate.nn.Linear(num_rec, num_out, w_init=brainstate.nn.KaimingNormal(scale=2.)),
-            brainstate.nn.Expon(num_out, tau=10. * u.ms, g_initializer=brainstate.nn.ZeroInit())
+            brainstate.nn.Linear(num_rec, num_out, w_init=braintools.init.KaimingNormal(scale=2.)),
+            brainpy.Expon(num_out, tau=10. * u.ms, g_initializer=braintools.init.ZeroInit())
         )
 
     def update(self, spikes):
@@ -97,11 +98,11 @@ with brainstate.environ.context(dt=1.0 * u.ms):
     encoder = braintools.LatencyEncoder(tau=100 * u.ms)
 
 
-    @brainstate.compile.jit
+    @brainstate.transform.jit
     def predict(xs):
         brainstate.nn.init_all_states(net, xs.shape[0])
         xs = encoder(xs)
-        outs, spikes, vs = brainstate.compile.for_loop(net.predict, xs)
+        outs, spikes, vs = brainstate.transform.for_loop(net.predict, xs)
         return outs, spikes, vs
 
 
@@ -134,7 +135,7 @@ with brainstate.environ.context(dt=1.0 * u.ms):
     visualize(X_test[:4])
 
     # optimizer
-    optimizer = brainstate.optim.Adam(lr=1e-3)
+    optimizer = braintools.optim.Adam(lr=1e-3)
     optimizer.register_trainable_weights(net.states(brainstate.ParamState))
 
 
@@ -146,7 +147,7 @@ with brainstate.environ.context(dt=1.0 * u.ms):
         xs = encoder(xs)
 
         # predictions
-        outs, r_spikes = brainstate.compile.for_loop(net.update, xs)
+        outs, r_spikes = brainstate.transform.for_loop(net.update, xs)
 
         # Here we set up our regularize loss
         # The strength parameters here are merely a guess and there should be ample
@@ -162,10 +163,10 @@ with brainstate.environ.context(dt=1.0 * u.ms):
         return loss + l2_loss + l1_loss, correct_n
 
 
-    @brainstate.compile.jit
+    @brainstate.transform.jit
     def train_fn(xs, ys):
-        grads, loss, correct_n = brainstate.augment.grad(loss_fun, net.states(brainstate.ParamState), has_aux=True,
-                                                         return_value=True)(xs, ys)
+        grads, loss, correct_n = brainstate.transform.grad(
+            loss_fun, net.states(brainstate.ParamState), has_aux=True, return_value=True)(xs, ys)
         optimizer.update(grads)
         return loss, correct_n
 

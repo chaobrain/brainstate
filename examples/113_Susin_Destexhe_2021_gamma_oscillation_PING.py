@@ -25,6 +25,7 @@
 
 import brainunit as u
 
+import brainpy
 import brainstate
 from Susin_Destexhe_2021_gamma_oscillation import (
     get_inputs, visualize_simulation_results, RS_par, FS_par, AdEx
@@ -51,40 +52,40 @@ class PINGNet(brainstate.nn.DynamicsGroup):
         FS_par_.update(Vth=-50 * u.mV, V_sp_th=-40 * u.mV)
         self.rs_pop = AdEx(self.num_exc, tau_e=self.exc_syn_tau, tau_i=self.inh_syn_tau, **RS_par_)
         self.fs_pop = AdEx(self.num_inh, tau_e=self.exc_syn_tau, tau_i=self.inh_syn_tau, **FS_par_)
-        self.ext_pop = brainstate.nn.PoissonEncoder(self.num_exc)
+        self.ext_pop = brainpy.PoissonEncoder(self.num_exc)
 
         # Poisson inputs
-        self.ext_to_FS = brainstate.nn.DeltaProj(
+        self.ext_to_FS = brainpy.DeltaProj(
             comm=brainstate.nn.EventFixedProb(self.num_exc, self.num_inh, 0.02, self.ext_weight),
             post=self.fs_pop,
             label='ge'
         )
-        self.ext_to_RS = brainstate.nn.DeltaProj(
+        self.ext_to_RS = brainpy.DeltaProj(
             comm=brainstate.nn.EventFixedProb(self.num_exc, self.num_exc, 0.02, self.ext_weight),
             post=self.rs_pop,
             label='ge'
         )
 
         # synaptic projections
-        self.RS_to_FS = brainstate.nn.DeltaProj(
+        self.RS_to_FS = brainpy.DeltaProj(
             self.rs_pop.prefetch('spike').delay.at(self.delay),
             comm=brainstate.nn.EventFixedProb(self.num_exc, self.num_inh, 0.02, self.exc_syn_weight),
             post=self.fs_pop,
             label='ge'
         )
-        self.RS_to_RS = brainstate.nn.DeltaProj(
+        self.RS_to_RS = brainpy.DeltaProj(
             self.rs_pop.prefetch('spike').delay.at(self.delay),
             comm=brainstate.nn.EventFixedProb(self.num_exc, self.num_exc, 0.02, self.exc_syn_weight),
             post=self.rs_pop,
             label='ge'
         )
-        self.FS_to_RS = brainstate.nn.DeltaProj(
+        self.FS_to_RS = brainpy.DeltaProj(
             self.fs_pop.prefetch('spike').delay.at(self.delay),
             comm=brainstate.nn.EventFixedProb(self.num_inh, self.num_exc, 0.02, self.inh_syn_weight),
             post=self.rs_pop,
             label='gi'
         )
-        self.FS_to_FS = brainstate.nn.DeltaProj(
+        self.FS_to_FS = brainpy.DeltaProj(
             self.fs_pop.prefetch('spike').delay.at(self.delay),
             comm=brainstate.nn.EventFixedProb(self.num_inh, self.num_inh, 0.02, self.inh_syn_weight),
             post=self.fs_pop,
@@ -126,8 +127,8 @@ def simulate_ping_net():
         # simulation
         times = u.math.arange(0. * u.ms, duration, brainstate.environ.get_dt())
         indices = u.math.arange(0, len(times))
-        returns = brainstate.compile.for_loop(net.update, indices, times, varied_rates,
-                                              pbar=brainstate.compile.ProgressBar(100))
+        returns = brainstate.transform.for_loop(net.update, indices, times, varied_rates,
+                                              pbar=brainstate.transform.ProgressBar(100))
 
         # visualization
         visualize_simulation_results(

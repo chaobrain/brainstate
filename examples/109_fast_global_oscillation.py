@@ -25,6 +25,8 @@ import brainunit as u
 import jax
 import matplotlib.pyplot as plt
 
+import brainpy
+import braintools
 import brainstate
 
 Vr = 10. * u.mV
@@ -41,15 +43,15 @@ N = 5000
 sparseness = C / N
 
 
-class LIF(brainstate.nn.Neuron):
+class LIF(brainpy.Neuron):
     def __init__(self, in_size, **kwargs):
         super().__init__(in_size, **kwargs)
 
     def init_state(self, *args, **kwargs):
         # variables
-        self.V = brainstate.HiddenState(brainstate.nn.param(brainstate.nn.Constant(Vr), self.varshape))
+        self.V = brainstate.HiddenState(braintools.init.param(braintools.init.Constant(Vr), self.varshape))
         self.t_last_spike = brainstate.ShortTermState(
-            brainstate.nn.param(brainstate.nn.Constant(-1e7 * u.ms), self.varshape)
+            braintools.init.param(braintools.init.Constant(-1e7 * u.ms), self.varshape)
         )
 
     def update(self):
@@ -76,7 +78,7 @@ class Net(brainstate.nn.Module):
         super().__init__()
         self.group = LIF(num)
         self.delay = brainstate.nn.Delay(jax.ShapeDtypeStruct((num,), bool), delta)
-        self.syn = brainstate.nn.DeltaProj(
+        self.syn = brainpy.DeltaProj(
             comm=brainstate.nn.EventFixedProb(num, num, sparseness, -J),
             post=self.group
         )
@@ -91,12 +93,13 @@ class Net(brainstate.nn.Module):
 
 with brainstate.environ.context(dt=0.1 * u.ms):
     # initialize network
-    net = brainstate.nn.init_all_states(Net(N))
+    net = Net(N)
+    brainstate.nn.init_all_states(net)
 
     # simulation
     times = u.math.arange(0. * u.ms, duration, brainstate.environ.get_dt())
     indices = u.math.arange(times.size)
-    spikes = brainstate.compile.for_loop(net.update, times, indices, pbar=brainstate.compile.ProgressBar(10))
+    spikes = brainstate.transform.for_loop(net.update, times, indices, pbar=brainstate.transform.ProgressBar(10))
 
 # visualization
 times = times.to_decimal(u.ms)

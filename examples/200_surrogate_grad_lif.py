@@ -23,6 +23,7 @@ Reproduce the results of the``spytorch`` tutorial 1:
 
 import time
 
+import brainpy
 import braintools
 import brainunit as u
 import jax.numpy as jnp
@@ -46,21 +47,21 @@ class SNN(brainstate.nn.DynamicsGroup):
         self.i2r = brainstate.nn.Sequential(
             brainstate.nn.Linear(
                 num_in, num_rec,
-                w_init=brainstate.nn.KaimingNormal(scale=scale, unit=u.mA),
-                b_init=brainstate.nn.ZeroInit(unit=u.mA)
+                w_init=braintools.init.KaimingNormal(scale=scale, unit=u.mA),
+                b_init=braintools.init.ZeroInit(unit=u.mA)
             ),
-            brainstate.nn.Expon(num_rec, tau=5. * u.ms, g_initializer=brainstate.nn.Constant(0. * u.mA))
+            brainpy.Expon(num_rec, tau=5. * u.ms, g_initializer=braintools.init.Constant(0. * u.mA))
         )
         # recurrent: r
-        self.r = brainstate.nn.LIF(
+        self.r = brainpy.LIF(
             num_rec, tau=20 * u.ms, V_reset=0 * u.mV,
             V_rest=0 * u.mV, V_th=1. * u.mV,
             spk_fun=brainstate.surrogate.ReluGrad()
         )
         # synapse: r->o
-        self.r2o = brainstate.nn.Linear(num_rec, num_out, w_init=brainstate.nn.KaimingNormal())
+        self.r2o = brainstate.nn.Linear(num_rec, num_out, w_init=braintools.init.KaimingNormal())
         # # output: o
-        self.o = brainstate.nn.Expon(num_out, tau=10. * u.ms, g_initializer=brainstate.nn.Constant(0.))
+        self.o = brainpy.Expon(num_out, tau=10. * u.ms, g_initializer=braintools.init.Constant(0.))
 
     def update(self, spike):
         return self.o(self.r2o(self.r(self.i2r(spike))))
@@ -97,7 +98,7 @@ def print_classification_accuracy(output, target):
 
 def predict_and_visualize_net_activity(net):
     brainstate.nn.init_all_states(net, batch_size=num_sample)
-    vs, spikes, outs = brainstate.compile.for_loop(net.predict, x_data, pbar=brainstate.compile.ProgressBar(10))
+    vs, spikes, outs = brainstate.transform.for_loop(net.predict, x_data, pbar=brainstate.transform.ProgressBar(10))
     plot_voltage_traces(vs, spikes, spike_height=5 * u.mV, show=False)
     plot_voltage_traces(outs)
     print_classification_accuracy(outs, y_data)
@@ -130,7 +131,7 @@ with brainstate.environ.context(dt=1.0 * u.ms):
     @brainstate.compile.jit
     def train_fn():
         brainstate.nn.init_all_states(net, batch_size=num_sample)
-        grads, l = brainstate.augment.grad(loss_fn, net.states(brainstate.ParamState), return_value=True)()
+        grads, l = brainstate.transform.grad(loss_fn, net.states(brainstate.ParamState), return_value=True)()
         optimizer.update(grads)
         return l
 

@@ -20,6 +20,7 @@
 #
 
 import braintools
+import brainpy
 import brainstate
 import brainunit as u
 import jax
@@ -50,7 +51,7 @@ delay = 5.0 * u.ms  # ms
 # ------------
 
 
-class Population(brainstate.nn.Neuron):
+class Population(brainpy.Neuron):
     def __init__(self, in_size, **kwargs):
         super().__init__(in_size, **kwargs)
 
@@ -84,7 +85,7 @@ class Population(brainstate.nn.Neuron):
 # synaptic  model
 # ---------------
 
-class Projection(brainstate.nn.Synapse):
+class Projection(brainpy.Synapse):
     def __init__(self, group, **kwargs):
         super().__init__(group.varshape, **kwargs)
 
@@ -122,7 +123,7 @@ class Net(brainstate.nn.Module):
     def __init__(self, n_spike):
         super().__init__()
         times = brainstate.random.randn(n_spike) * spike_sigma + 20 * u.ms
-        self.ext = brainstate.nn.SpikeTime(n_spike, times=times, indices=u.math.arange(n_spike), need_sort=False)
+        self.ext = brainpy.SpikeTime(n_spike, times=times, indices=u.math.arange(n_spike), need_sort=False)
         self.pop = Population(in_size=n_groups * group_size)
         self.syn = Projection(self.pop)
 
@@ -140,12 +141,13 @@ def run_network(spike_num: int, ax):
 
     with brainstate.environ.context(dt=0.1 * u.ms):
         # initialization
-        net = brainstate.nn.init_all_states(Net(spike_num))
+        net = Net(spike_num)
+        brainstate.nn.init_all_states(net)
 
         # simulation
         times = u.math.arange(0. * u.ms, duration, brainstate.environ.get_dt())
         indices = u.math.arange(times.size)
-        spikes = brainstate.compile.for_loop(net.update, times, indices, pbar=brainstate.compile.ProgressBar(10))
+        spikes = brainstate.transform.for_loop(net.update, times, indices, pbar=brainstate.transform.ProgressBar(10))
 
     # visualization
     times = times.to_decimal(u.ms)

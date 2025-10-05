@@ -13,9 +13,13 @@
 # limitations under the License.
 # ==============================================================================
 
+
+import os
+os.environ['JAX_TRACEBACK_FILTERING'] = 'off'
 import argparse
 import time
 
+import brainpy
 import braintools
 import brainstate
 import brainunit as u
@@ -37,11 +41,12 @@ args = parser.parse_args()
 print(args)
 
 
-class SNN(brainstate.nn.DynamicsGroup):
+class SNN(brainstate.nn.Module):
     def __init__(self, tau):
         super().__init__()
-        self.l1 = brainstate.nn.Linear(28 * 28, 10, b_init=None, w_init=brainstate.nn.LecunNormal(scale=10., unit=u.mA))
-        self.l2 = brainstate.nn.LIF(10, V_rest=0. * u.mV, V_reset=0. * u.mV, V_th=1. * u.mV, tau=tau * u.ms)
+        self.l1 = brainstate.nn.Linear(
+            28 * 28, 10, b_init=None, w_init=braintools.init.LecunNormal(scale=10., unit=u.mA))
+        self.l2 = brainpy.LIF(10, V_rest=0. * u.mV, V_reset=0. * u.mV, V_th=1. * u.mV, tau=tau * u.ms)
 
     def update(self, x):
         return self.l2(self.l1(x))
@@ -65,12 +70,12 @@ with brainstate.environ.context(dt=1.0 * u.ms):
     Y_test = np.array(dataset['test']['label'], dtype=np.int32)
 
 
-    @brainstate.compile.jit
+    @brainstate.transform.jit
     def predict(xs):
         brainstate.nn.init_all_states(net, xs.shape[0])
         xs = (xs + 0.02)
         xs = brainstate.random.rand(args.T, *xs.shape) < xs
-        vs, outs = brainstate.compile.for_loop(net.predict, xs)
+        vs, outs = brainstate.transform.for_loop(net.predict, xs)
         return vs, outs
 
 
@@ -94,7 +99,7 @@ with brainstate.environ.context(dt=1.0 * u.ms):
     visualize(X_test[:4])
 
 
-    @brainstate.compile.jit
+    @brainstate.transform.jit
     def loss_fun(xs, ys):
         # initialize states
         brainstate.nn.init_all_states(net, xs.shape[0])
@@ -103,25 +108,25 @@ with brainstate.environ.context(dt=1.0 * u.ms):
         xs = brainstate.random.rand(args.T, *xs.shape) < xs
 
         # shared arguments for looping over time
-        outs = brainstate.compile.for_loop(net.update, xs)
+        outs = brainstate.transform.for_loop(net.update, xs)
         out_fr = u.math.mean(outs, axis=0)  # [T, B, C] -> [B, C]
-        ys_onehot = brainstate.functional.one_hot(ys, 10, dtype=float)
+        ys_onehot = brainstate.nn.one_hot(ys, 10, dtype=float)
         l = braintools.metric.squared_error(out_fr, ys_onehot).mean()
         n = u.math.sum(out_fr.argmax(1) == ys)
         return l, n
-
 
     # gradient function
     grad_fun = brainstate.transform.grad(loss_fun, net.states(brainstate.ParamState), has_aux=True, return_value=True)
 
     # optimizer
-    optimizer = brainstate.optim.Adam(lr=args.lr)
+    optimizer = braintools.optim.Adam(lr=args.lr)
     optimizer.register_trainable_weights(net.states(brainstate.ParamState))
 
-
     # train
-    @brainstate.compile.jit
+    @brainstate.transform.jit
     def train(xs, ys):
+        print('compiling...')
+
         grads, l, n = grad_fun(xs, ys)
         optimizer.update(grads)
         return l, n

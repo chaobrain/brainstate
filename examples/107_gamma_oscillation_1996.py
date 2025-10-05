@@ -22,12 +22,12 @@
 
 import braintools
 import brainstate
+import brainpy
 import brainunit as u
 import matplotlib.pyplot as plt
 
 
-
-class HH(brainstate.nn.Neuron):
+class HH(brainpy.Neuron):
     def __init__(
         self, in_size, ENa=55. * u.mV, EK=-90. * u.mV, EL=-65 * u.mV, C=1.0 * u.uF,
         gNa=35. * u.msiemens, gK=9. * u.msiemens, gL=0.1 * u.msiemens, V_th=20. * u.mV, phi=5.0
@@ -48,9 +48,10 @@ class HH(brainstate.nn.Neuron):
     def init_state(self, *args, **kwargs):
         # variables
         self.V = brainstate.HiddenState(-70. * u.mV + brainstate.random.randn(*self.varshape) * 20 * u.mV)
-        self.h = brainstate.HiddenState(brainstate.nn.param(braintools.init.Constant(0.6), self.varshape))
-        self.n = brainstate.HiddenState(brainstate.nn.param(braintools.init.Constant(0.3), self.varshape))
-        self.spike = brainstate.HiddenState(brainstate.nn.param(lambda s: u.math.zeros(s, dtype=bool), self.varshape))
+        self.h = brainstate.HiddenState(braintools.init.param(braintools.init.Constant(0.6), self.varshape))
+        self.n = brainstate.HiddenState(braintools.init.param(braintools.init.Constant(0.3), self.varshape))
+        self.spike = brainstate.HiddenState(
+            braintools.init.param(lambda s: u.math.zeros(s, dtype=bool), self.varshape))
 
     def dh(self, h, t, V):
         alpha = 0.07 * u.math.exp(-(V / u.mV + 58) / 20)
@@ -86,7 +87,7 @@ class HH(brainstate.nn.Neuron):
         return self.V.value
 
 
-class Synapse(brainstate.nn.Synapse):
+class Synapse(brainpy.Synapse):
     def __init__(self, in_size, alpha=12 / u.ms, beta=0.1 / u.ms):
         super().__init__(in_size=in_size)
         self.alpha = alpha
@@ -94,7 +95,7 @@ class Synapse(brainstate.nn.Synapse):
 
     def init_state(self, *args, **kwargs):
         self.g = brainstate.HiddenState(
-            brainstate.nn.param(brainstate.nn.ZeroInit(), self.varshape)
+            braintools.init.param(braintools.init.ZeroInit(), self.varshape)
         )
 
     def update(self, pre_V):
@@ -110,11 +111,12 @@ class GammaNet(brainstate.nn.Module):
         self.neu = HH(num)
         # self.syn = brainstate.nn.GABAa(num, alpha=12 / (u.ms * u.mM), beta=0.1 / u.ms)
         self.syn = Synapse(num)
-        self.proj = brainstate.nn.CurrentProj(
+        self.proj = brainpy.CurrentProj(
             self.syn.prefetch('g'),
-            comm=brainstate.nn.AllToAll(self.neu.varshape, self.neu.varshape, include_self=False,
-                                        w_init=0.1 * u.msiemens / num),
-            out=brainstate.nn.COBA(E=-75. * u.mV),
+            comm=brainstate.nn.AllToAll(
+                self.neu.varshape, self.neu.varshape, include_self=False, w_init=0.1 * u.msiemens / num
+            ),
+            out=brainpy.COBA(E=-75. * u.mV),
             post=self.neu
         )
 
@@ -136,7 +138,7 @@ brainstate.nn.init_all_states(net)
 # simulation
 with brainstate.environ.context(dt=0.01 * u.ms):
     times = u.math.arange(0. * u.ms, 500. * u.ms, brainstate.environ.get_dt())
-    spikes, vs = brainstate.compile.for_loop(net.update, times, pbar=brainstate.compile.ProgressBar(10))
+    spikes, vs = brainstate.transform.for_loop(net.update, times, pbar=brainstate.transform.ProgressBar(10))
 
 # visualization
 fig, gs = braintools.visualize.get_figure(1, 2, 4, 4)
