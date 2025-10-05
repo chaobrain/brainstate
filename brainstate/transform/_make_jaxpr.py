@@ -628,7 +628,8 @@ class StatefulFunction(PrettyObject):
         # state checking
         cache_key = self.get_arg_cache_key(*args, **kwargs)
         states: Sequence[State] = self.get_states(cache_key)
-        assert len(state_vals) == len(states), 'State length mismatch.'
+        if len(state_vals) != len(states):
+            raise ValueError(f'State length mismatch: expected {len(states)} states, got {len(state_vals)}')
 
         # parameters
         kwargs = {k: v for k, v in kwargs.items() if k not in self.static_argnames}  # remove static kwargs
@@ -644,7 +645,9 @@ class StatefulFunction(PrettyObject):
 
         # output processing
         out, new_state_vals = out_treedef.unflatten(jaxpr_outs)
-        assert len(new_state_vals) == len(state_vals), 'State length mismatch.'
+        if len(new_state_vals) != len(state_vals):
+            raise ValueError(f'State length mismatch in output: expected '
+                             f'{len(state_vals)} states, got {len(new_state_vals)}')
         return new_state_vals, out
 
     def jaxpr_call_auto(self, *args, **kwargs) -> Any:
@@ -981,12 +984,10 @@ def make_hashable(obj):
     elif isinstance(obj, set):
         return frozenset(make_hashable(item) for item in obj)
     else:
-        return obj
         # Use JAX's tree_util for any other pytree structures
         try:
-            leaves, treedef = jax.tree_util.tree_flatten(obj)
-            hashable_leaves = tuple(make_hashable(leaf) for leaf in leaves)
-            return (str(treedef), hashable_leaves)
+            leaves, treedef = jax.tree.flatten(obj)
+            return treedef, tuple(leaves)
         except:
             # Assume obj is already hashable
             return obj
