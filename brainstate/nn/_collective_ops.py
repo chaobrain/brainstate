@@ -107,7 +107,7 @@ def call_all_fns(
     kwargs: Mapping[str, Any] | None = None,
     node_to_exclude: Filter = None,
     fn_if_not_exist: str = 'raise',
-) -> None:
+) -> T:
     """
     Call a specified function on all module nodes within a target, respecting call order.
 
@@ -201,6 +201,7 @@ def call_all_fns(
     # Execute nodes with call_order in sorted order
     for node in sorted(nodes_with_order, key=lambda x: getattr(x, fn_name).call_order):
         getattr(node, fn_name)(*args, **kwargs)
+    return target
 
 
 def vmap_call_all_fns(
@@ -212,7 +213,7 @@ def vmap_call_all_fns(
     node_to_exclude: Filter = None,
     state_tag: str | None = None,
     fn_if_not_exist: str = 'raise',
-) -> None:
+) -> T:
     """
     Apply vectorized mapping to call a function on all module nodes with batched state handling.
 
@@ -289,6 +290,7 @@ def vmap_call_all_fns(
         states = outer_catcher.get_states()
     for state, value in zip(states, values):
         state.value = value
+    return target
 
 
 @set_module_as('brainstate.nn')
@@ -297,7 +299,7 @@ def init_all_states(
     *init_args,
     node_to_exclude: Filter = None,
     **init_kwargs,
-) -> None:
+) -> T:
     """
     Initialize states for all module nodes within the target.
 
@@ -339,6 +341,7 @@ def init_all_states(
     vmap_init_all_states : Vectorized version for batched initialization.
     """
     call_all_fns(target, 'init_state', init_args, init_kwargs, node_to_exclude)
+    return target
 
 
 @set_module_as('brainstate.nn')
@@ -350,7 +353,7 @@ def vmap_init_all_states(
     state_to_exclude: Filter = None,
     state_tag: str | None = None,
     **init_kwargs
-) -> None:
+) -> T:
     """
     Initialize states with vectorized mapping for creating batched module instances.
 
@@ -420,6 +423,7 @@ def vmap_init_all_states(
         return
 
     vmap_new_states(init_fn, state_tag=state_tag, axis_size=axis_size, state_to_exclude=state_to_exclude)()
+    return target
 
 
 @set_module_as('brainstate.nn')
@@ -428,7 +432,7 @@ def reset_all_states(
     *reset_args,
     node_to_exclude: Filter = None,
     **reset_kwargs,
-) -> None:
+) -> T:
     """
     Reset states for all module nodes within the target.
 
@@ -480,6 +484,7 @@ def reset_all_states(
         kwargs=reset_kwargs,
         node_to_exclude=node_to_exclude
     )
+    return target
 
 
 def vmap_reset_all_states(
@@ -489,7 +494,7 @@ def vmap_reset_all_states(
     node_to_exclude: Filter = None,
     state_tag: str | None = None,
     **reset_kwargs,
-) -> None:
+) -> T:
     """
     Reset states with vectorized mapping across batched module instances.
 
@@ -552,6 +557,7 @@ def vmap_reset_all_states(
         node_to_exclude=node_to_exclude,
         state_tag=state_tag,
     )
+    return target
 
 
 @set_module_as('brainstate.nn')
