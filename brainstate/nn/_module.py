@@ -95,7 +95,10 @@ class Module(Node, ParamDesc):
     def in_size(self, in_size: Sequence[int] | int):
         if isinstance(in_size, int):
             in_size = (in_size,)
-        assert isinstance(in_size, (tuple, list)), f"Invalid type of in_size: {type(in_size)}"
+        elif isinstance(in_size, np.generic):
+            if np.issubdtype(in_size, np.integer) and in_size.ndim == 0:
+                in_size = (int(in_size),)
+        assert isinstance(in_size, (tuple, list)), f"Invalid type of in_size: {in_size} {type(in_size)}"
         self._in_size = tuple(in_size)
 
     @property
@@ -106,6 +109,9 @@ class Module(Node, ParamDesc):
     def out_size(self, out_size: Sequence[int] | int):
         if isinstance(out_size, int):
             out_size = (out_size,)
+        elif isinstance(out_size, np.ndarray):
+            if np.issubdtype(out_size, np.integer) and out_size.ndim == 0:
+                out_size = (int(out_size),)
         assert isinstance(out_size, (tuple, list)), f"Invalid type of out_size: {type(out_size)}"
         self._out_size = tuple(out_size)
 
