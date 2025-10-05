@@ -93,10 +93,10 @@ def checkpoint(
 
     .. code-block:: python
 
-       >>> import jax
+       >>> import brainstate
        >>> import jax.numpy as jnp
 
-       >>> @jax.checkpoint
+       >>> @brainstate.transform.checkpoint
        ... def g(x):
        ...     y = jnp.sin(x)
        ...     z = jnp.sin(y)
@@ -127,15 +127,16 @@ def checkpoint(
 
        >>> from functools import partial
        >>> import jax
+       >>> import brainstate
 
-       >>> @partial(jax.checkpoint, static_argnums=(1,))
+       >>> @brainstate.transform.checkpoint(static_argnums=(1,))
        ... def foo(x, is_training):
        ...     if is_training:
        ...         ...
        ...     else:
        ...         ...
 
-       >>> @partial(jax.checkpoint, static_argnums=(1,))
+       >>> @brainstate.transform.checkpoint(static_argnums=(1,))
        ... def foo_with_eval(x, y):
        ...     with jax.ensure_compile_time_eval():
        ...         y_pos = y > 0

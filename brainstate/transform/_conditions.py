@@ -93,8 +93,7 @@ def cond(pred, true_fun: Callable, false_fun: Callable, *operands):
         raise TypeError("cond predicate is None")
     if isinstance(pred, Sequence) or np.ndim(pred) != 0:
         raise TypeError(f"Pred must be a scalar, got {pred} of " +
-                        (f"type {type(pred)}" if isinstance(pred, Sequence)
-                         else f"shape {np.shape(pred)}."))
+                        (f"type {type(pred)}" if isinstance(pred, Sequence) else f"shape {np.shape(pred)}."))
 
     # check pred
     try:
@@ -221,9 +220,7 @@ def switch(index, branches: Sequence[Callable], *operands):
         return branches[int(index)](*operands)
 
     # evaluate jaxpr
-    wrapped_branches = [StatefulFunction(branch, name='switch') for branch in branches]
-    for wrapped_branch in wrapped_branches:
-        wrapped_branch.make_jaxpr(*operands)
+    wrapped_branches = [StatefulFunction(branch, name='switch').make_jaxpr(*operands) for branch in branches]
 
     # wrap the functions
     state_trace = (wrapped_branches[0].get_state_trace_by_call(*operands) +
@@ -233,8 +230,9 @@ def switch(index, branches: Sequence[Callable], *operands):
     read_state_vals = state_trace.get_read_state_values(True)
     write_state_vals = state_trace.get_write_state_values(True)
     branches = [
-        wrap_single_fun_in_multi_branches(wrapped_branch, state_trace, read_state_vals, True,
-                                          wrapped_branch.get_arg_cache_key(*operands))
+        wrap_single_fun_in_multi_branches(
+            wrapped_branch, state_trace, read_state_vals, True, wrapped_branch.get_arg_cache_key(*operands)
+        )
         for wrapped_branch in wrapped_branches
     ]
 

@@ -529,7 +529,7 @@ def for_loop(
 
     .. code-block:: python
 
-        >>> pbar = brainstate.ProgressBar(freq=10)
+        >>> pbar = brainstate.transform.ProgressBar(freq=10)
         >>> results = brainstate.transform.for_loop(process_item, xs, ys, pbar=pbar)
 
     For-loop with reverse iteration:

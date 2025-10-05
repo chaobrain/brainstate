@@ -29,6 +29,7 @@ __all__ = [
 
 A = TypeVar('A')
 
+
 @set_module_as('brainstate.transform')
 def abstract_init(
     fn: Callable[..., A],
