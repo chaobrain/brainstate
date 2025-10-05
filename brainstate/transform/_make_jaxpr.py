@@ -93,6 +93,11 @@ __all__ = [
 ]
 
 
+class hashabledict(dict):
+    def __hash__(self):
+        return hash(tuple(sorted(self.items())))
+
+
 class _BoundedCache:
     """
     A thread-safe LRU cache with bounded size.
@@ -113,7 +118,13 @@ class _BoundedCache:
         self._hits = 0
         self._misses = 0
 
-    def get(self, key: Any, default: Any = None) -> Any:
+    def get(
+        self,
+        key: Any,
+        default: Any = None,
+        raise_on_miss: bool = False,
+        error_context: str = "item"
+    ) -> Any:
         """
         Get an item from the cache.
 
@@ -123,11 +134,20 @@ class _BoundedCache:
             The cache key.
         default : Any, optional
             The default value to return if the key is not found.
+        raise_on_miss : bool, optional
+            If True, raise a detailed ValueError when the key is not found.
+        error_context : str, optional
+            Context description for the error message (e.g., "Function", "JAX expression").
 
         Returns
         -------
         Any
             The cached value or the default value.
+
+        Raises
+        ------
+        ValueError
+            If raise_on_miss is True and the key is not found.
         """
         with self._lock:
             if key in self._cache:
@@ -135,6 +155,26 @@ class _BoundedCache:
                 self._hits += 1
                 return self._cache[key]
             self._misses += 1
+
+            if raise_on_miss:
+                available_keys = list(self._cache.keys())
+                error_msg = [
+                    f"{error_context} not compiled for the requested cache key.",
+                    f"",
+                    f"Requested key:",
+                    f"  {key}",
+                    f"",
+                    f"Available {{len(available_keys)}} keys:",
+                ]
+                if available_keys:
+                    for i, k in enumerate(available_keys, 1):
+                        error_msg.append(f"  [{i}] {k}")
+                else:
+                    error_msg.append("  (none - not compiled yet)")
+                error_msg.append("")
+                error_msg.append("Call make_jaxpr() first with matching arguments.")
+                raise ValueError("\n".join(error_msg))
+
             return default
 
     def set(self, key: Any, value: Any) -> None:
@@ -147,14 +187,69 @@ class _BoundedCache:
             The cache key.
         value : Any
             The value to cache.
+
+        Raises
+        ------
+        ValueError
+            If the key already exists in the cache.
         """
         with self._lock:
             if key in self._cache:
-                self._cache.move_to_end(key)
-            else:
-                if len(self._cache) >= self._maxsize:
-                    self._cache.popitem(last=False)
+                raise ValueError(
+                    f"Cache key already exists: {key}. "
+                    f"Cannot overwrite existing cached value. "
+                    f"Clear the cache first if you need to recompile."
+                )
+            if len(self._cache) >= self._maxsize:
+                self._cache.popitem(last=False)
             self._cache[key] = value
+
+    def pop(self, key: Any, default: Any = None) -> Any:
+        """
+        Remove and return an item from the cache.
+
+        Parameters
+        ----------
+        key : Any
+            The cache key to remove.
+        default : Any, optional
+            The default value to return if the key is not found.
+
+        Returns
+        -------
+        Any
+            The cached value or the default value if the key is not found.
+        """
+        with self._lock:
+            if key in self._cache:
+                return self._cache.pop(key)
+            return default
+
+    def replace(self, key: Any, value: Any) -> None:
+        """
+        Replace an existing item in the cache.
+
+        Parameters
+        ----------
+        key : Any
+            The cache key to replace.
+        value : Any
+            The new value to cache.
+
+        Raises
+        ------
+        KeyError
+            If the key does not exist in the cache.
+        """
+        with self._lock:
+            if key not in self._cache:
+                raise KeyError(
+                    f"Cache key does not exist: {key}. "
+                    f"Cannot replace non-existent cached value. "
+                    f"Use set() to add a new cache entry."
+                )
+            self._cache[key] = value
+            self._cache.move_to_end(key)
 
     def __contains__(self, key: Any) -> bool:
         """
@@ -463,16 +558,9 @@ class StatefulFunction(PrettyObject):
         ValueError
             If the function has not been compiled for the given cache key.
         """
-        result = self._cached_jaxpr.get(cache_key)
-        if result is None:
-            raise ValueError(
-                f"Function not compiled for cache key: {cache_key}. "
-                f"Available keys: {len(self._cached_jaxpr)}. "
-                f"Call make_jaxpr() first with matching arguments."
-            )
-        return result
+        return self._cached_jaxpr.get(cache_key, raise_on_miss=True, error_context="JAX expression")
 
-    def get_jaxpr_by_call(self, *args, **kwargs) -> ClosedJaxpr:
+    def get_jaxpr_by_call(self, *args, compile_if_miss: bool = True, **kwargs) -> ClosedJaxpr:
         """
         Read the JAX Jaxpr representation of the function by calling with args.
 
@@ -480,6 +568,8 @@ class StatefulFunction(PrettyObject):
         ----------
         *args
             The arguments to the function.
+        compile_if_miss : bool, optional
+            Whether to compile the function if the cache key is not found. Default is True.
         **kwargs
             The keyword arguments to the function.
 
@@ -488,7 +578,7 @@ class StatefulFunction(PrettyObject):
         ClosedJaxpr
             The JAX Jaxpr representation of the function.
         """
-        cache_key = self.get_arg_cache_key(*args, **kwargs, compile_if_miss=True)
+        cache_key = self.get_arg_cache_key(*args, **kwargs, compile_if_miss=compile_if_miss)
         return self.get_jaxpr(cache_key)
 
     def get_out_shapes(self, cache_key: Hashable) -> PyTree:
@@ -510,23 +600,27 @@ class StatefulFunction(PrettyObject):
         ValueError
             If the function has not been compiled for the given cache key.
         """
-        result = self._cached_out_shapes.get(cache_key)
-        if result is None:
-            raise ValueError(
-                f"Function not compiled for cache key: {cache_key}. "
-                f"Available keys: {len(self._cached_out_shapes)}. "
-                f"Call make_jaxpr() first with matching arguments."
-            )
-        return result
+        return self._cached_out_shapes.get(cache_key, raise_on_miss=True, error_context="Output shapes")
 
-    def get_out_shapes_by_call(self, *args, **kwargs) -> PyTree:
+    def get_out_shapes_by_call(self, *args, compile_if_miss: bool = True, **kwargs) -> PyTree:
         """
         Read the output shapes of the function.
 
-        Returns:
-          The output shapes of the function.
+        Parameters
+        ----------
+        *args
+            The arguments to the function.
+        compile_if_miss : bool, optional
+            Whether to compile the function if the cache key is not found. Default is True.
+        **kwargs
+            The keyword arguments to the function.
+
+        Returns
+        -------
+        PyTree
+            The output shapes of the function.
         """
-        cache_key = self.get_arg_cache_key(*args, **kwargs, compile_if_miss=True)
+        cache_key = self.get_arg_cache_key(*args, **kwargs, compile_if_miss=compile_if_miss)
         return self.get_out_shapes(cache_key)
 
     def get_out_treedef(self, cache_key: Hashable) -> PyTree:
@@ -539,23 +633,27 @@ class StatefulFunction(PrettyObject):
         Returns:
           The output tree of the function.
         """
-        result = self._cached_jaxpr_out_tree.get(cache_key)
-        if result is None:
-            raise ValueError(
-                f"Function not compiled for cache key: {cache_key}. "
-                f"Available keys: {len(self._cached_jaxpr_out_tree)}. "
-                f"Call make_jaxpr() first with matching arguments."
-            )
-        return result
+        return self._cached_jaxpr_out_tree.get(cache_key, raise_on_miss=True, error_context="Output tree")
 
-    def get_out_treedef_by_call(self, *args, **kwargs) -> PyTree:
+    def get_out_treedef_by_call(self, *args, compile_if_miss: bool = True, **kwargs) -> PyTree:
         """
         Read the output tree of the function.
 
-        Returns:
-          The output tree of the function.
+        Parameters
+        ----------
+        *args
+            The arguments to the function.
+        compile_if_miss : bool, optional
+            Whether to compile the function if the cache key is not found. Default is True.
+        **kwargs
+            The keyword arguments to the function.
+
+        Returns
+        -------
+        PyTree
+            The output tree of the function.
         """
-        cache_key = self.get_arg_cache_key(*args, **kwargs, compile_if_miss=True)
+        cache_key = self.get_arg_cache_key(*args, **kwargs, compile_if_miss=compile_if_miss)
         return self.get_out_treedef(cache_key)
 
     def get_state_trace(self, cache_key: Hashable) -> StateTraceStack:
@@ -568,23 +666,27 @@ class StatefulFunction(PrettyObject):
         Returns:
           The state trace of the function.
         """
-        result = self._cached_state_trace.get(cache_key)
-        if result is None:
-            raise ValueError(
-                f"Function not compiled for cache key: {cache_key}. "
-                f"Available keys: {len(self._cached_state_trace)}. "
-                f"Call make_jaxpr() first with matching arguments."
-            )
-        return result
+        return self._cached_state_trace.get(cache_key, raise_on_miss=True, error_context="State trace")
 
-    def get_state_trace_by_call(self, *args, **kwargs) -> StateTraceStack:
+    def get_state_trace_by_call(self, *args, compile_if_miss: bool = True, **kwargs) -> StateTraceStack:
         """
         Read the state trace of the function.
 
-        Returns:
-          The state trace of the function.
+        Parameters
+        ----------
+        *args
+            The arguments to the function.
+        compile_if_miss : bool, optional
+            Whether to compile the function if the cache key is not found. Default is True.
+        **kwargs
+            The keyword arguments to the function.
+
+        Returns
+        -------
+        StateTraceStack
+            The state trace of the function.
         """
-        cache_key = self.get_arg_cache_key(*args, **kwargs, compile_if_miss=True)
+        cache_key = self.get_arg_cache_key(*args, **kwargs, compile_if_miss=compile_if_miss)
         return self.get_state_trace(cache_key)
 
     def get_states(self, cache_key: Hashable) -> Tuple[State, ...]:
@@ -599,18 +701,25 @@ class StatefulFunction(PrettyObject):
         """
         return tuple(self.get_state_trace(cache_key).states)
 
-    def get_states_by_call(self, *args, **kwargs) -> Tuple[State, ...]:
+    def get_states_by_call(self, *args, compile_if_miss: bool = True, **kwargs) -> Tuple[State, ...]:
         """
         Compile the function, and get the states that are read and written by this function.
 
-        Args:
-          *args: The arguments to the function.
-          **kwargs: The keyword arguments to the function.
+        Parameters
+        ----------
+        *args
+            The arguments to the function.
+        compile_if_miss : bool, optional
+            Whether to compile the function if the cache key is not found. Default is True.
+        **kwargs
+            The keyword arguments to the function.
 
-        Returns:
-          The states that are read and written by the function.
+        Returns
+        -------
+        Tuple[State, ...]
+            The states that are read and written by the function.
         """
-        cache_key = self.get_arg_cache_key(*args, **kwargs, compile_if_miss=True)
+        cache_key = self.get_arg_cache_key(*args, **kwargs, compile_if_miss=compile_if_miss)
         return self.get_states(cache_key)
 
     def get_read_states(self, cache_key: Hashable) -> Tuple[State, ...]:
@@ -625,17 +734,25 @@ class StatefulFunction(PrettyObject):
         """
         return self.get_state_trace(cache_key).get_read_states()
 
-    def get_read_states_by_call(self, *args, **kwargs) -> Tuple[State, ...]:
+    def get_read_states_by_call(self, *args, compile_if_miss: bool = True, **kwargs) -> Tuple[State, ...]:
         """
         Compile the function, and get the states that are read by this function.
 
-        Args:
-          *args: The arguments to the function.
-          **kwargs: The keyword arguments to the function.
-        Returns:
+        Parameters
+        ----------
+        *args
+            The arguments to the function.
+        compile_if_miss : bool, optional
+            Whether to compile the function if the cache key is not found. Default is True.
+        **kwargs
+            The keyword arguments to the function.
+
+        Returns
+        -------
+        Tuple[State, ...]
             The states that are read by the function.
         """
-        cache_key = self.get_arg_cache_key(*args, **kwargs, compile_if_miss=True)
+        cache_key = self.get_arg_cache_key(*args, **kwargs, compile_if_miss=compile_if_miss)
         return self.get_read_states(cache_key)
 
     def get_write_states(self, cache_key: Hashable) -> Tuple[State, ...]:
@@ -650,17 +767,25 @@ class StatefulFunction(PrettyObject):
         """
         return self.get_state_trace(cache_key).get_write_states()
 
-    def get_write_states_by_call(self, *args, **kwargs) -> Tuple[State, ...]:
+    def get_write_states_by_call(self, *args, compile_if_miss: bool = True, **kwargs) -> Tuple[State, ...]:
         """
         Compile the function, and get the states that are written by this function.
 
-        Args:
-          *args: The arguments to the function.
-          **kwargs: The keyword arguments to the function.
-        Returns:
+        Parameters
+        ----------
+        *args
+            The arguments to the function.
+        compile_if_miss : bool, optional
+            Whether to compile the function if the cache key is not found. Default is True.
+        **kwargs
+            The keyword arguments to the function.
+
+        Returns
+        -------
+        Tuple[State, ...]
             The states that are written by the function.
         """
-        cache_key = self.get_arg_cache_key(*args, **kwargs, compile_if_miss=True)
+        cache_key = self.get_arg_cache_key(*args, **kwargs, compile_if_miss=compile_if_miss)
         return self.get_write_states(cache_key)
 
     def _check_input_ouput(self, x):
@@ -672,7 +797,7 @@ class StatefulFunction(PrettyObject):
                 )
             )
 
-    def get_arg_cache_key(self, *args, compile_if_miss: bool = False, **kwargs) -> Tuple:
+    def get_arg_cache_key(self, *args, compile_if_miss: bool = False, **kwargs) -> hashabledict:
         """
         Get the static arguments from the arguments.
 
@@ -682,7 +807,7 @@ class StatefulFunction(PrettyObject):
             **kwargs: The keyword arguments to the function.
 
         Returns:
-          The static arguments and keyword arguments as a tuple.
+          The static arguments and keyword arguments as a dict.
         """
         static_args, dyn_args = [], []
         for i, arg in enumerate(args):
@@ -692,7 +817,7 @@ class StatefulFunction(PrettyObject):
                 dyn_args.append(arg)
         dyn_args = jax.tree.map(shaped_abstractify, dyn_args)
         static_kwargs, dyn_kwargs = [], []
-        for k, v in kwargs.items():
+        for k, v in sorted(kwargs.items()):
             if k in self.static_argnames:
                 static_kwargs.append((k, v))
             else:
@@ -703,7 +828,12 @@ class StatefulFunction(PrettyObject):
         static_kwargs = make_hashable(static_kwargs)
         dyn_kwargs = make_hashable(dyn_kwargs)
 
-        cache_key = (static_args, dyn_args, static_kwargs, dyn_kwargs)
+        cache_key = hashabledict(
+            static_args=static_args,
+            dyn_args=dyn_args,
+            static_kwargs=static_kwargs,
+            dyn_kwargs=dyn_kwargs,
+        )
 
         if cache_key not in self._cached_state_trace and compile_if_miss:
             self.make_jaxpr(*args, **kwargs)
@@ -814,8 +944,9 @@ class StatefulFunction(PrettyObject):
 
             except Exception as e:
                 # Clean up partial cache entries on error
-                if cache_key in self._cached_state_trace:
-                    self._cached_state_trace.set(cache_key, None)
+                self._cached_state_trace.pop(cache_key, None)
+                self._cached_out_shapes.pop(cache_key, None)
+                self._cached_jaxpr.pop(cache_key, None)
                 raise e
 
         return self
@@ -1304,6 +1435,7 @@ def make_hashable(obj):
     elif isinstance(obj, set):
         return frozenset(make_hashable(item) for item in obj)
     else:
+        # return obj
         # Use JAX's tree_util for any other pytree structures
         try:
             leaves, treedef = jax.tree.flatten(obj)

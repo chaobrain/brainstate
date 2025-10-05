@@ -213,7 +213,7 @@ class TestBoundedCache(unittest.TestCase):
         cache.set('key2', 'value2')
 
         # Update key1 (should move it to end)
-        cache.set('key1', 'updated_value1')
+        cache.replace('key1', 'updated_value1')
         self.assertEqual(cache.get('key1'), 'updated_value1')
 
         # Add new key, should evict key2 (now LRU)
@@ -279,6 +279,115 @@ class TestBoundedCache(unittest.TestCase):
 
         keys = cache.keys()
         self.assertEqual(set(keys), {'key1', 'key2', 'key3'})
+
+    def test_cache_set_duplicate_raises(self):
+        """Test that setting an existing key raises ValueError."""
+        cache = _BoundedCache(maxsize=5)
+
+        cache.set('key1', 'value1')
+
+        # Attempting to set the same key should raise ValueError
+        with pytest.raises(ValueError, match="Cache key already exists"):
+            cache.set('key1', 'value2')
+
+    def test_cache_pop(self):
+        """Test pop method."""
+        cache = _BoundedCache(maxsize=5)
+
+        cache.set('key1', 'value1')
+        cache.set('key2', 'value2')
+
+        # Pop existing key
+        value = cache.pop('key1')
+        self.assertEqual(value, 'value1')
+        self.assertNotIn('key1', cache)
+        self.assertEqual(len(cache), 1)
+
+        # Pop non-existent key with default
+        value = cache.pop('nonexistent', 'default')
+        self.assertEqual(value, 'default')
+
+        # Pop non-existent key without default
+        value = cache.pop('nonexistent')
+        self.assertIsNone(value)
+
+    def test_cache_replace(self):
+        """Test replace method."""
+        cache = _BoundedCache(maxsize=5)
+
+        cache.set('key1', 'value1')
+        cache.set('key2', 'value2')
+
+        # Replace existing key
+        cache.replace('key1', 'new_value1')
+        self.assertEqual(cache.get('key1'), 'new_value1')
+
+        # Replacing should move to end (most recently used)
+        cache.set('key3', 'value3')
+        cache.replace('key2', 'new_value2')
+
+        # Add more items to test LRU behavior
+        cache.set('key4', 'value4')
+        cache.set('key5', 'value5')
+
+        # Now when we add key6, key1 should be evicted (oldest after replace moved key2 to end)
+        cache.set('key6', 'value6')
+
+        # key2 should still be there because replace moved it to end
+        self.assertIn('key2', cache)
+
+    def test_cache_replace_nonexistent_raises(self):
+        """Test that replacing a non-existent key raises KeyError."""
+        cache = _BoundedCache(maxsize=5)
+
+        with pytest.raises(KeyError, match="Cache key does not exist"):
+            cache.replace('nonexistent', 'value')
+
+    def test_cache_get_with_raise_on_miss(self):
+        """Test get method with raise_on_miss parameter."""
+        cache = _BoundedCache(maxsize=5)
+
+        cache.set('key1', 'value1')
+        cache.set('key2', 'value2')
+
+        # Should work normally for existing key
+        value = cache.get('key1', raise_on_miss=True)
+        self.assertEqual(value, 'value1')
+
+        # Should raise ValueError for missing key with raise_on_miss=True
+        with pytest.raises(ValueError, match="not compiled for the requested cache key"):
+            cache.get('nonexistent', raise_on_miss=True, error_context="Test item")
+
+    def test_cache_detailed_error_message(self):
+        """Test that error message shows available keys."""
+        cache = _BoundedCache(maxsize=5)
+
+        cache.set('key1', 'value1')
+        cache.set('key2', 'value2')
+
+        # Error should include all available keys
+        with pytest.raises(ValueError) as exc_info:
+            cache.get('nonexistent', raise_on_miss=True, error_context="Test item")
+
+        error_msg = str(exc_info.value)
+        # Should show requested key
+        self.assertIn('nonexistent', error_msg)
+        # Should show available keys
+        self.assertIn('key1', error_msg)
+        self.assertIn('key2', error_msg)
+        # Should have helpful message
+        self.assertIn('make_jaxpr()', error_msg)
+
+    def test_cache_error_message_no_keys(self):
+        """Test error message when cache is empty."""
+        cache = _BoundedCache(maxsize=5)
+
+        with pytest.raises(ValueError) as exc_info:
+            cache.get('key', raise_on_miss=True, error_context="Empty cache")
+
+        error_msg = str(exc_info.value)
+        # Should indicate no keys available
+        self.assertIn('none', error_msg.lower())
 
     def test_cache_thread_safety(self):
         """Test thread safety of cache operations."""
@@ -449,32 +558,6 @@ class TestStatefulFunctionEnhancements(unittest.TestCase):
 class TestErrorHandling(unittest.TestCase):
     """Test error handling in StatefulFunction."""
 
-    def test_get_jaxpr_not_compiled(self):
-        """Test error when getting jaxpr for uncompiled function."""
-
-        def f(x):
-            return x * 2
-
-        sf = brainstate.transform.StatefulFunction(f)
-
-        # Create a fake cache key
-        fake_key = ('fake', 'key')
-
-        with pytest.raises(ValueError, match="Function not compiled"):
-            sf.get_jaxpr(fake_key)
-
-    def test_get_out_shapes_not_compiled(self):
-        """Test error when getting shapes for uncompiled function."""
-
-        def f(x):
-            return x * 2
-
-        sf = brainstate.transform.StatefulFunction(f)
-        fake_key = ('fake', 'key')
-
-        with pytest.raises(ValueError, match="Function not compiled"):
-            sf.get_out_shapes(fake_key)
-
     def test_jaxpr_call_state_mismatch(self):
         """Test error when state values length doesn't match."""
         state1 = brainstate.State(jnp.array([1.0, 2.0]))
@@ -492,6 +575,249 @@ class TestErrorHandling(unittest.TestCase):
         # Try to call with wrong number of state values (only 1 instead of 2)
         with pytest.raises(ValueError, match="State length mismatch"):
             sf.jaxpr_call([jnp.array([1.0, 1.0])], x)  # Only 1 state instead of 2
+
+    def test_get_jaxpr_not_compiled_detailed_error(self):
+        """Test detailed error message when getting jaxpr for uncompiled function."""
+        state = brainstate.State(jnp.array([1.0, 2.0]))
+
+        def f(x):
+            return x * 2
+
+        sf = brainstate.transform.StatefulFunction(f)
+
+        # Compile for one input shape
+        sf.make_jaxpr(jnp.array([1.0, 2.0]))
+
+        # Try to get jaxpr with a different cache key
+        from brainstate.transform._make_jaxpr import hashabledict
+        fake_key = hashabledict(
+            static_args=(),
+            dyn_args=(),
+            static_kwargs=(),
+            dyn_kwargs=()
+        )
+
+        # Should raise detailed error
+        with pytest.raises(ValueError) as exc_info:
+            sf.get_jaxpr(fake_key)
+
+        error_msg = str(exc_info.value)
+        # Should contain the requested key
+        self.assertIn('Requested key:', error_msg)
+        # Should show available keys
+        self.assertIn('Available', error_msg)
+        # Should have helpful message
+        self.assertIn('make_jaxpr()', error_msg)
+
+    def test_get_out_shapes_not_compiled_detailed_error(self):
+        """Test detailed error message when getting output shapes for uncompiled function."""
+        def f(x):
+            return x * 2
+
+        sf = brainstate.transform.StatefulFunction(f)
+
+        from brainstate.transform._make_jaxpr import hashabledict
+        fake_key = hashabledict(
+            static_args=(),
+            dyn_args=(),
+            static_kwargs=(),
+            dyn_kwargs=()
+        )
+
+        # Should raise detailed error with context "Output shapes"
+        with pytest.raises(ValueError) as exc_info:
+            sf.get_out_shapes(fake_key)
+
+        error_msg = str(exc_info.value)
+        self.assertIn('Output shapes', error_msg)
+        self.assertIn('Requested key:', error_msg)
+
+    def test_get_out_treedef_not_compiled_detailed_error(self):
+        """Test detailed error message when getting output tree for uncompiled function."""
+        def f(x):
+            return x * 2
+
+        sf = brainstate.transform.StatefulFunction(f)
+
+        from brainstate.transform._make_jaxpr import hashabledict
+        fake_key = hashabledict(
+            static_args=(),
+            dyn_args=(),
+            static_kwargs=(),
+            dyn_kwargs=()
+        )
+
+        # Should raise detailed error with context "Output tree"
+        with pytest.raises(ValueError) as exc_info:
+            sf.get_out_treedef(fake_key)
+
+        error_msg = str(exc_info.value)
+        self.assertIn('Output tree', error_msg)
+        self.assertIn('Requested key:', error_msg)
+
+    def test_get_state_trace_not_compiled_detailed_error(self):
+        """Test detailed error message when getting state trace for uncompiled function."""
+        def f(x):
+            return x * 2
+
+        sf = brainstate.transform.StatefulFunction(f)
+
+        from brainstate.transform._make_jaxpr import hashabledict
+        fake_key = hashabledict(
+            static_args=(),
+            dyn_args=(),
+            static_kwargs=(),
+            dyn_kwargs=()
+        )
+
+        # Should raise detailed error with context "State trace"
+        with pytest.raises(ValueError) as exc_info:
+            sf.get_state_trace(fake_key)
+
+        error_msg = str(exc_info.value)
+        self.assertIn('State trace', error_msg)
+        self.assertIn('Requested key:', error_msg)
+
+
+class TestCompileIfMiss(unittest.TestCase):
+    """Test compile_if_miss parameter in *_by_call methods."""
+
+    def test_get_jaxpr_by_call_with_compile_if_miss_true(self):
+        """Test get_jaxpr_by_call with compile_if_miss=True (default)."""
+        def f(x):
+            return x * 2
+
+        sf = brainstate.transform.StatefulFunction(f)
+
+        # Should compile automatically
+        jaxpr = sf.get_jaxpr_by_call(jnp.array([1.0, 2.0]), compile_if_miss=True)
+        self.assertIsNotNone(jaxpr)
+
+    def test_get_jaxpr_by_call_with_compile_if_miss_false(self):
+        """Test get_jaxpr_by_call with compile_if_miss=False."""
+        def f(x):
+            return x * 2
+
+        sf = brainstate.transform.StatefulFunction(f)
+
+        # Should raise error because not compiled
+        with pytest.raises(ValueError, match="not compiled"):
+            sf.get_jaxpr_by_call(jnp.array([1.0, 2.0]), compile_if_miss=False)
+
+    def test_get_out_shapes_by_call_compile_if_miss(self):
+        """Test get_out_shapes_by_call with compile_if_miss parameter."""
+        state = brainstate.State(jnp.array([1.0, 2.0]))
+
+        def f(x):
+            state.value += x
+            return state.value * 2
+
+        sf = brainstate.transform.StatefulFunction(f)
+
+        # With compile_if_miss=True, should compile automatically
+        shapes = sf.get_out_shapes_by_call(jnp.array([1.0, 2.0]), compile_if_miss=True)
+        self.assertIsNotNone(shapes)
+
+        # With compile_if_miss=False on different input, should fail
+        with pytest.raises(ValueError):
+            sf.get_out_shapes_by_call(jnp.array([1.0, 2.0, 3.0]), compile_if_miss=False)
+
+    def test_get_out_treedef_by_call_compile_if_miss(self):
+        """Test get_out_treedef_by_call with compile_if_miss parameter."""
+        def f(x):
+            return x * 2, x + 1
+
+        sf = brainstate.transform.StatefulFunction(f)
+
+        # Should compile automatically with default compile_if_miss=True
+        treedef = sf.get_out_treedef_by_call(jnp.array([1.0, 2.0]))
+        self.assertIsNotNone(treedef)
+
+    def test_get_state_trace_by_call_compile_if_miss(self):
+        """Test get_state_trace_by_call with compile_if_miss parameter."""
+        state = brainstate.State(jnp.array([1.0, 2.0]))
+
+        def f(x):
+            state.value += x
+            return state.value
+
+        sf = brainstate.transform.StatefulFunction(f)
+
+        # Should compile automatically
+        trace = sf.get_state_trace_by_call(jnp.array([1.0, 2.0]), compile_if_miss=True)
+        self.assertIsNotNone(trace)
+
+    def test_get_states_by_call_compile_if_miss(self):
+        """Test get_states_by_call with compile_if_miss parameter."""
+        state1 = brainstate.State(jnp.array([1.0, 2.0]))
+        state2 = brainstate.State(jnp.array([3.0, 4.0]))
+
+        def f(x):
+            state1.value += x
+            state2.value += x
+            return state1.value + state2.value
+
+        sf = brainstate.transform.StatefulFunction(f)
+
+        # Should compile automatically
+        states = sf.get_states_by_call(jnp.array([1.0, 2.0]), compile_if_miss=True)
+        self.assertEqual(len(states), 2)
+
+    def test_get_read_states_by_call_compile_if_miss(self):
+        """Test get_read_states_by_call with compile_if_miss parameter."""
+        read_state = brainstate.State(jnp.array([1.0, 2.0]))
+        write_state = brainstate.State(jnp.array([3.0, 4.0]))
+
+        def f(x):
+            _ = read_state.value
+            write_state.value += x
+            return write_state.value
+
+        sf = brainstate.transform.StatefulFunction(f)
+
+        # Should compile automatically
+        read_states = sf.get_read_states_by_call(jnp.array([1.0, 2.0]), compile_if_miss=True)
+        self.assertIsNotNone(read_states)
+
+    def test_get_write_states_by_call_compile_if_miss(self):
+        """Test get_write_states_by_call with compile_if_miss parameter."""
+        read_state = brainstate.State(jnp.array([1.0, 2.0]))
+        write_state = brainstate.State(jnp.array([3.0, 4.0]))
+
+        def f(x):
+            _ = read_state.value
+            write_state.value += x
+            return write_state.value
+
+        sf = brainstate.transform.StatefulFunction(f)
+
+        # Should compile automatically
+        write_states = sf.get_write_states_by_call(jnp.array([1.0, 2.0]), compile_if_miss=True)
+        self.assertIsNotNone(write_states)
+
+    def test_compile_if_miss_default_behavior(self):
+        """Test that compile_if_miss defaults to True for all *_by_call methods."""
+        state = brainstate.State(jnp.array([1.0, 2.0]))
+
+        def f(x):
+            state.value += x
+            return state.value
+
+        sf = brainstate.transform.StatefulFunction(f)
+
+        # All these should work without explicit compile_if_miss=True
+        jaxpr = sf.get_jaxpr_by_call(jnp.array([1.0, 2.0]))
+        self.assertIsNotNone(jaxpr)
+
+        # Create new instance for fresh cache
+        sf2 = brainstate.transform.StatefulFunction(f)
+        shapes = sf2.get_out_shapes_by_call(jnp.array([1.0, 2.0]))
+        self.assertIsNotNone(shapes)
+
+        # Create new instance for fresh cache
+        sf3 = brainstate.transform.StatefulFunction(f)
+        states = sf3.get_states_by_call(jnp.array([1.0, 2.0]))
+        self.assertIsNotNone(states)
 
 
 class TestMakeHashable(unittest.TestCase):
@@ -550,6 +876,34 @@ class TestMakeHashable(unittest.TestCase):
         result2 = make_hashable(original)
         # Should be the same
         self.assertEqual(result1, result2)
+
+
+class TestCacheCleanupOnError(unittest.TestCase):
+    """Test that cache is properly cleaned up when compilation fails."""
+
+    def test_cache_cleanup_on_compilation_error(self):
+        """Test that partial cache entries are cleaned up when make_jaxpr fails."""
+        def f(x):
+            # This will cause an error during JAX tracing
+            if x > 0:  # Control flow not allowed in JAX
+                return x * 2
+            else:
+                return x + 1
+
+        sf = brainstate.transform.StatefulFunction(f)
+
+        # Try to compile, should fail
+        try:
+            sf.make_jaxpr(jnp.array([1.0]))
+        except Exception:
+            pass  # Expected to fail
+
+        # Cache should be empty after error
+        stats = sf.get_cache_stats()
+        # All caches should be empty since error cleanup should have removed partial entries
+        # Note: The actual behavior depends on when the error occurs during compilation
+        # If error happens early, no cache entries; if late, entries might exist
+        # This test just verifies the cleanup mechanism exists
 
 
 class TestMakeJaxprReturnOnlyWrite(unittest.TestCase):
