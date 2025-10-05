@@ -74,7 +74,7 @@ class EnvironContext(Module):
         self.layer = layer
         self.context = context
 
-    def update(self, *args, **kwargs):
+    def update(self, *args, context: Dict = None, **kwargs):
         """Execute the wrapped module inside the environment context.
 
         Parameters
@@ -83,13 +83,18 @@ class EnvironContext(Module):
             Positional arguments forwarded to the wrapped module.
         **kwargs
             Keyword arguments forwarded to the wrapped module.
+        context: dict, optional
+            Additional environment settings for this call. Merged with the
+            stored context.
 
         Returns
         -------
         Any
             Result returned by the wrapped module.
         """
-        with environ.context(**self.context):
+        if context is None:
+            context = dict()
+        with environ.context(**self.context, **context):
             return self.layer(*args, **kwargs)
 
     def add_context(self, **context):
