@@ -73,8 +73,6 @@ import numpy as np
 from jax import config, devices, numpy as jnp
 from jax.typing import DTypeLike
 
-from .mixin import Mode
-
 __all__ = [
     # Core environment management
     'set',
@@ -99,7 +97,6 @@ __all__ = [
     'dctype',
 
     # Mode and computation settings
-    'get_mode',
     'get_dt',
 
     # Utility functions
@@ -117,7 +114,6 @@ __all__ = [
     'I',
     'T',
     'DT',
-    'MODE',
     'PRECISION',
     'PLATFORM',
     'HOST_DEVICE_COUNT',
@@ -134,7 +130,6 @@ PlatformType = str
 I = 'i'  # Index of the current computation
 T = 't'  # Current time of the computation
 DT = 'dt'  # Time step for numerical integration
-MODE = 'mode'  # Computation mode
 PRECISION = 'precision'  # Numerical precision
 PLATFORM = 'platform'  # Computing platform
 HOST_DEVICE_COUNT = 'host_device_count'  # Number of host devices
@@ -170,13 +165,9 @@ class EnvironmentState(threading.local):
         Thread locks for synchronized access to critical sections.
     """
     settings: Dict[Hashable, Any] = dataclasses.field(default_factory=dict)
-    contexts: defaultdict[Hashable, List[Any]] = dataclasses.field(
-        default_factory=lambda: defaultdict(list)
-    )
+    contexts: defaultdict[Hashable, List[Any]] = dataclasses.field(default_factory=lambda: defaultdict(list))
     functions: Dict[Hashable, Callable] = dataclasses.field(default_factory=dict)
-    locks: Dict[str, threading.Lock] = dataclasses.field(
-        default_factory=lambda: defaultdict(threading.Lock)
-    )
+    locks: Dict[str, threading.Lock] = dataclasses.field(default_factory=lambda: defaultdict(threading.Lock))
 
     def __post_init__(self):
         """Initialize with default settings."""
@@ -328,10 +319,6 @@ def context(**kwargs) -> ContextManager[Dict[str, Any]]:
             f"Cannot set '{HOST_DEVICE_COUNT}' in context. "
             f"Use set_host_device_count() or set() for global configuration."
         )
-
-    # Validate parameter types
-    if MODE in kwargs and not isinstance(kwargs[MODE], Mode):
-        raise TypeError(f"'{MODE}' must be a Mode instance")
 
     # Handle precision changes
     original_precision = None
@@ -659,7 +646,6 @@ def set(
     platform: Optional[PlatformType] = None,
     host_device_count: Optional[int] = None,
     precision: Optional[PrecisionType] = None,
-    mode: Optional[Mode] = None,
     dt: Optional[float] = None,
     **kwargs
 ) -> None:
@@ -757,11 +743,6 @@ def set(
         _set_jax_precision(precision)
         kwargs[PRECISION] = precision
 
-    if mode is not None:
-        if not isinstance(mode, Mode):
-            raise TypeError(f"'{MODE}' must be a Mode instance, got {type(mode)}")
-        kwargs[MODE] = mode
-
     if dt is not None:
         if not u.math.isscalar(dt):
             raise TypeError(f"'{DT}' must be a scalar number, got {type(dt)}")
@@ -812,39 +793,6 @@ def get_dt() -> float:
         ...     print(f"Fine time step: {fine_dt}")  # 0.001
     """
     return get(DT)
-
-
-def get_mode() -> Mode:
-    """
-    Get the current computation mode.
-
-    Returns
-    -------
-    Mode
-        The current Mode instance.
-
-    Raises
-    ------
-    KeyError
-        If mode is not set.
-
-    Examples
-    --------
-    .. code-block:: python
-
-        >>> import brainstate as bs
-        >>> import brainstate.environ as env
-        >>>
-        >>> # Set training mode
-        >>> env.set(mode=bs.mixin.Training())
-        >>> mode = env.get_mode()
-        >>> print(mode)  # Training
-        >>>
-        >>> # Check mode type
-        >>> if mode.has(bs.mixin.Training):
-        ...     print("In training mode")
-    """
-    return get(MODE)
 
 
 def get_platform() -> PlatformType:

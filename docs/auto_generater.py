@@ -324,9 +324,9 @@ def main():
 
     module_and_name = [
         ('_dict', 'Dict Operation'),
-        ('_filter', 'Filter Operation'),
+        ('filter', 'Filter Operation'),
         ('_pretty_repr', 'Pretty Representation'),
-        ('_struct', 'Struct Operation'),
+        ('struct', 'Struct Operation'),
         ('_visualization', 'Visualization Operation'),
         ('_others', 'Other Operations'),
     ]
