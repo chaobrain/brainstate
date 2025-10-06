@@ -105,18 +105,10 @@ See also the ecosystem
    tutorials/program_compilation-zh.ipynb
    tutorials/program_augmentation-en.ipynb
    tutorials/program_augmentation-zh.ipynb
-   tutorials/optimizers-en.ipynb
-   tutorials/optimizers-zh.ipynb
    tutorials/gspmd-en.ipynb
    tutorials/gspmd-zh.ipynb
    tutorials/random_numbers-en.ipynb
    tutorials/random_numbers-zh.ipynb
-   tutorials/checkpointing-en.ipynb
-   tutorials/checkpointing-zh.ipynb
-   tutorials/artificial_neural_networks-en.ipynb
-   tutorials/artificial_neural_networks-zh.ipynb
-   tutorials/spiking_neural_networks-en.ipynb
-   tutorials/spiking_neural_networks-zh.ipynb
 
 
 
@@ -148,7 +140,6 @@ See also the ecosystem
    apis/nn.rst
    apis/random.rst
    apis/util.rst
-   apis/surrogate.rst
    apis/typing.rst
    apis/mixin.rst
    apis/environ.rst

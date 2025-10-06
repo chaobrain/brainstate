@@ -6,17 +6,16 @@
 
 The :mod:`brainstate.mixin` module provides mixin classes and utility types that enhance
 the functionality of BrainState components through multiple inheritance. It includes
-parameter description systems, alignment interfaces, computation modes, and advanced
-type definitions for expressing complex behavioral requirements.
+parameter description systems and advanced type definitions for expressing complex
+type requirements.
 
 Key Features
 ------------
 
 - **Parameter Descriptors**: Reusable parameter templates for object instantiation
-- **Behavioral Interfaces**: Mixins for post-synaptic alignment and conductance binding
-- **Computation Modes**: Training, batching, and joint mode configurations
-- **Type System**: Advanced union and intersection type utilities
+- **Type System**: Advanced union and intersection type utilities (JointTypes, OneOfTypes)
 - **Deferred Instantiation**: Templates for creating multiple objects with shared configurations
+- **Utility Functions**: Helper functions for hashability checks and marking unimplemented methods
 
 Quick Start
 -----------
@@ -40,20 +39,24 @@ Using parameter descriptors for reusable configurations:
     excitatory = neuron_template(threshold=1.0)
     inhibitory = neuron_template(threshold=0.5)
 
-Using computation modes:
+Using advanced type system:
 
 .. code-block:: python
 
-    # Create combined training and batching mode
-    training = brainstate.mixin.Training()
-    batching = brainstate.mixin.Batching(batch_size=32)
-    mode = brainstate.mixin.JointMode(training, batching)
+    from typing import Protocol
 
-    # Check mode properties
-    if mode.has(brainstate.mixin.Training):
-        print("Model is in training mode")
-    if mode.has(brainstate.mixin.Batching):
-        print(f"Batch size: {mode.batch_size}")
+    # Define protocols/interfaces
+    class Trainable(Protocol):
+        def train(self): ...
+
+    class Evaluable(Protocol):
+        def evaluate(self): ...
+
+    # Require both interfaces (intersection type)
+    TrainableEvaluableModel = brainstate.mixin.JointTypes[Trainable, Evaluable]
+
+    # Allow either type (union type)
+    NumericType = brainstate.mixin.OneOfTypes[int, float]
 
 
 Base Mixin Classes
@@ -81,50 +84,7 @@ Classes and utilities for creating reusable parameter templates and deferred obj
    ParamDesc
    ParamDescriber
    HashableDict
-
-Behavioral Interface Mixins
----------------------------
-
-Mixins that provide specific behavioral interfaces for neural computation components.
-
-.. autosummary::
-   :toctree: generated/
-   :nosignatures:
-   :template: classtemplate.rst
-
-   AlignPost
-   BindCondData
-
-Computation Modes
------------------
-
-Classes for representing different computational contexts and behaviors.
-
-Base Mode Classes
-~~~~~~~~~~~~~~~~~
-
-Fundamental mode classes for computation context management.
-
-.. autosummary::
-   :toctree: generated/
-   :nosignatures:
-   :template: classtemplate.rst
-
-   Mode
-   JointMode
-
-Specific Mode Types
-~~~~~~~~~~~~~~~~~~~
-
-Concrete mode implementations for common computation scenarios.
-
-.. autosummary::
-   :toctree: generated/
-   :nosignatures:
-   :template: classtemplate.rst
-
-   Training
-   Batching
+   NoSubclassMeta
 
 Advanced Type System
 --------------------
@@ -134,7 +94,7 @@ Utilities for creating complex type annotations and requirements.
 Type Combinators
 ~~~~~~~~~~~~~~~~
 
-Functions for creating union and intersection types.
+Classes and functions for creating union and intersection types.
 
 .. autosummary::
    :toctree: generated/
@@ -143,6 +103,8 @@ Functions for creating union and intersection types.
 
    JointTypes
    OneOfTypes
+   _JointGenericAlias
+   _OneOfGenericAlias
 
 Utility Functions and Decorators
 ---------------------------------
