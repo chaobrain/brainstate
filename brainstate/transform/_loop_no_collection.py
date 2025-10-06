@@ -160,7 +160,7 @@ def while_loop(
     state_vals, final_val = jax.lax.while_loop(new_cond_fn, new_body_fn, (write_state_vals, init_val))
 
     # write back state values or restore them
-    state_trace.write_back_state_values(read_state_vals, state_vals)
+    state_trace.assign_state_vals_v2(read_state_vals, state_vals)
     return final_val
 
 
@@ -279,5 +279,5 @@ def bounded_while_loop(
     state_vals, val = _bounded_while_loop(new_cond_fn, new_body_fn, init_val, rounded_max_steps, base, None)
 
     # write back state values or restore them
-    state_trace.write_back_state_values(read_state_vals, state_vals)
+    state_trace.assign_state_vals_v2(read_state_vals, state_vals)
     return val

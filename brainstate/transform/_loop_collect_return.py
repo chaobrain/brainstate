@@ -268,7 +268,7 @@ def scan(
         unroll=unroll
     )
     # assign the written state values and restore the read state values
-    state_trace.write_back_state_values(all_read_state_vals, all_writen_state_vals)
+    state_trace.assign_state_vals_v2(all_read_state_vals, all_writen_state_vals)
     # carry
     if has_pbar:
         carry = carry[1]
@@ -449,7 +449,7 @@ def checkpointed_scan(
         )
     )
     # assign the written state values and restore the read state values
-    state_trace.write_back_state_values(read_state_vals, write_state_vals)
+    state_trace.assign_state_vals_v2(read_state_vals, write_state_vals)
     del write_state_vals, read_state_vals, stateful_fun
     return carry, data2collection
 

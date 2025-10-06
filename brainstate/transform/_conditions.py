@@ -135,7 +135,7 @@ def cond(pred, true_fun: Callable, false_fun: Callable, *operands):
     write_state_vals, out = jax.lax.cond(pred, true_fun, false_fun, write_state_vals, *operands)
 
     # assign the written state values and restore the read state values
-    state_trace.write_back_state_values(read_state_vals, write_state_vals)
+    state_trace.assign_state_vals_v2(read_state_vals, write_state_vals)
     return out
 
 
@@ -242,7 +242,7 @@ def switch(index, branches: Sequence[Callable], *operands):
     write_state_vals, out = jax.lax.switch(index, branches, write_state_vals, *operands)
 
     # write back state values or restore them
-    state_trace.write_back_state_values(read_state_vals, write_state_vals)
+    state_trace.assign_state_vals_v2(read_state_vals, write_state_vals)
     return out
 
 

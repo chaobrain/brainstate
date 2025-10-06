@@ -167,7 +167,7 @@ def checkpoint(
         # call the checkpointed function
         write_state_vals, outs = checkpointed_fun(state_trace.get_state_values(), *args, **params)
         # write the state values back to the states
-        state_trace.write_back_state_values(read_state_vals, write_state_vals)
+        state_trace.assign_state_vals_v2(read_state_vals, write_state_vals)
         return outs
 
     return remat_fun

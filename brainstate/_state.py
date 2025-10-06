@@ -1276,6 +1276,28 @@ class StateTraceStack(Generic[A]):
         """
         return StateTraceStack().merge(self, other)
 
+    def state_subset(self, state_type: type) -> List:
+        """
+        Get a subset of states of a specific type from the ``StateTraceStack``.
+
+        This method filters the states in the ``StateTraceStack`` and returns only
+        those that match the specified state type.
+
+        Args:
+            state_type (type): The type of state to filter by. This should be
+                a subclass of State or State itself.
+
+        Returns:
+            List[State]: A list containing all states in the ``StateTraceStack``
+            that are instances of the specified state_type.
+
+        Example:
+            >>> stack = StateTraceStack()
+            >>> # Assume stack has been populated with various state types
+            >>> short_term_states = stack.state_subset(ShortTermState)
+        """
+        return [st for st in self.states if isinstance(st, state_type)]
+
     def assign_state_vals(self, state_vals: Sequence[PyTree]) -> None:
         """
         Assign new values to the states tracked by this ``StateTraceStack``.
@@ -1302,37 +1324,17 @@ class StateTraceStack(Generic[A]):
             ``StateTraceStack``'s states list.
         """
         if len(state_vals) != len(self.states):
-            raise ValueError('The length of the state values must be equal to the states. '
-                             f'Bug got {len(state_vals)} and {len(self.states)}')
+            raise ValueError(
+                'The length of the state values must be equal to the states. '
+                f'Bug got {len(state_vals)} and {len(self.states)}'
+            )
         for st, written, val in zip(self.states, self.been_writen, state_vals):
             if written:
                 st.value = val
             else:
                 st.restore_value(val)
 
-    def state_subset(self, state_type: type) -> List:
-        """
-        Get a subset of states of a specific type from the ``StateTraceStack``.
-
-        This method filters the states in the ``StateTraceStack`` and returns only
-        those that match the specified state type.
-
-        Args:
-            state_type (type): The type of state to filter by. This should be
-                a subclass of State or State itself.
-
-        Returns:
-            List[State]: A list containing all states in the ``StateTraceStack``
-            that are instances of the specified state_type.
-
-        Example:
-            >>> stack = StateTraceStack()
-            >>> # Assume stack has been populated with various state types
-            >>> short_term_states = stack.state_subset(ShortTermState)
-        """
-        return [st for st in self.states if isinstance(st, state_type)]
-
-    def write_back_state_values(
+    def assign_state_vals_v2(
         self: StateTraceStack,
         read_state_vals: Sequence[PyTree],
         write_state_vals: Sequence[PyTree],
@@ -1371,7 +1373,12 @@ class StateTraceStack(Generic[A]):
             >>> # During compilation, state values are collected and managed
             >>> # write_back_state_values ensures proper state management
         """
-        assert len(self.states) == len(self.been_writen) == len(read_state_vals) == len(write_state_vals)
+        if len(self.states) != len(self.been_writen):
+            raise ValueError('The length of the state values must be equal to the states. ')
+        if len(read_state_vals) != len(self.states):
+            raise ValueError('The length of the read state values must be equal to the states. ')
+        if len(write_state_vals) != len(self.states):
+            raise ValueError('The length of the write state values must be equal to the states. ')
         for st, write, val_r, val_w in zip(
             self.states, self.been_writen, read_state_vals, write_state_vals
         ):

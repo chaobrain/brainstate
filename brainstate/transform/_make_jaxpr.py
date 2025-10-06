@@ -1084,7 +1084,7 @@ class StatefulFunction(PrettyObject):
         state_trace = self.get_state_trace(self.get_arg_cache_key(*args, **kwargs, compile_if_miss=True))
         all_read_state_vals = state_trace.get_read_state_values(True)
         state_vals, out = self.jaxpr_call(state_trace.get_state_values(), *args, **kwargs)
-        state_trace.write_back_state_values(all_read_state_vals, state_vals)
+        state_trace.assign_state_vals_v2(all_read_state_vals, state_vals)
         return out
 
 
