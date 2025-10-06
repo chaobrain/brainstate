@@ -56,7 +56,7 @@ class SNN(brainstate.nn.DynamicsGroup):
         self.r = brainpy.LIF(
             num_rec, tau=20 * u.ms, V_reset=0 * u.mV,
             V_rest=0 * u.mV, V_th=1. * u.mV,
-            spk_fun=brainstate.surrogate.ReluGrad()
+            spk_fun=braintools.surrogate.ReluGrad()
         )
         # synapse: r->o
         self.r2o = brainstate.nn.Linear(num_rec, num_out, w_init=braintools.init.KaimingNormal())

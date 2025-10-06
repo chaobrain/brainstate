@@ -147,7 +147,7 @@ class GIF(brainpy.Neuron):
         A2=0. * u.mA,
         V_initializer: Callable = braintools.init.ZeroInit(unit=u.mV),
         I2_initializer: Callable = braintools.init.ZeroInit(unit=u.mA),
-        spike_fun: Callable = brainstate.surrogate.ReluGrad(),
+        spike_fun: Callable = braintools.surrogate.ReluGrad(),
         spk_reset: str = 'soft',
         name: str = None,
     ):
@@ -219,7 +219,7 @@ class GifNet(brainstate.nn.Module):
             num_rec,
             V_rest=0. * u.mV,
             V_th_inf=1. * u.mV,
-            spike_fun=brainstate.surrogate.ReluGrad(),
+            spike_fun=braintools.surrogate.ReluGrad(),
             A2=args.A2 * u.mA,
             tau=args.tau_neu * u.ms,
             tau_I2=tau_I2 * u.ms

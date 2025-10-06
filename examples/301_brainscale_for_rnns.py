@@ -337,8 +337,10 @@ class Trainer(object):
                 n_sim = format_sim_epoch(self.args.warmup_ratio, inputs.shape[0])
                 _ = brainstate.transform.for_loop(self._single_step, indices[:n_sim], inputs[:n_sim])
                 if self.target_type == 'varied':
-                    outs, losses = brainstate.transform.for_loop(_run_step_train, indices[n_sim:], inputs[n_sim:],
-                                                               targets)
+                    outs, losses = brainstate.transform.for_loop(_run_step_train,
+                                                                 indices[n_sim:],
+                                                                 inputs[n_sim:],
+                                                                 targets)
                 else:
                     fun = partial(_run_step_train, targets=targets)
                     outs, losses = brainstate.transform.for_loop(fun, indices[n_sim:], inputs[n_sim:])
@@ -349,9 +351,9 @@ class Trainer(object):
 
         # gradients
         f_grad = brainstate.transform.grad(_bptt_grad_step,
-                                         self.target.states(brainstate.ParamState),
-                                         has_aux=True,
-                                         return_value=True)
+                                           self.target.states(brainstate.ParamState),
+                                           has_aux=True,
+                                           return_value=True)
         grads, loss, (outs, _) = f_grad(inputs, targets)
 
         # optimization
@@ -378,7 +380,6 @@ class Trainer(object):
                     r = self.etrace_train(x_local, y_local)
                 print(f'Training {i:5d}, loss = {float(r):.8f}', file=f)
                 bar.set_description(f'Training {i:5d}, loss = {float(r):.5f}', refresh=True)
-
                 self.target.save_state(i)
 
 

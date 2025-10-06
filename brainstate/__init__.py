@@ -25,11 +25,14 @@ from . import graph
 from . import mixin
 from . import nn
 from . import random
-from . import surrogate
 from . import transform
 from . import typing
 from . import util
 from ._deprecation import create_deprecated_module_proxy
+from ._error import *
+from ._error import __all__ as _error_all
+from ._state import *
+from ._state import __all__ as _state_all
 
 # Create deprecated module proxies with scoped APIs
 
@@ -129,75 +132,23 @@ functional = create_deprecated_module_proxy(
     replacement_name='brainstate.nn',
     scoped_apis=_functional_apis
 )
+surrogate = None
 
-_init_apis = {
-    'param': 'braintools.init',
-    'Constant': 'braintools.init',
-    'ZeroInit': 'braintools.init',
-    'Identity': 'braintools.init',
-    'Normal': 'braintools.init',
-    'VarianceScaling': 'braintools.init',
-    'TruncatedNormal': 'braintools.init',
-    'Uniform': 'braintools.init',
-    'KaimingUniform': 'braintools.init',
-    'KaimingNormal': 'braintools.init',
-    'XavierUniform': 'braintools.init',
-    'XavierNormal': 'braintools.init',
-    'LecunUniform': 'braintools.init',
-    'LecunNormal': 'braintools.init',
-    'Orthogonal': 'braintools.init',
-    'DeltaOrthogonal': 'braintools.init',
-}
+def __getattr__(name):
+    if name in ['surrogate', 'init', 'optim']:
+        import warnings
+        warnings.warn(
+            f"brainstate.{name} module is deprecated and will be removed in a future version. "
+            f"Please use braintools.{name} instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        import braintools
+        return getattr(braintools, name)
+    raise ImportError(
+        f"braintools is not installed. Please install it to  use surrogate functions."
+    )
 
-init = create_deprecated_module_proxy(
-    deprecated_name='brainstate.init',
-    replacement_module='braintools.init',
-    replacement_name='braintools.init',
-    scoped_apis=_init_apis
-)
-
-_optim_apis = {
-    'Optimizer': 'braintools.optim',
-
-    # learning rate schedulers
-    'LearningRateScheduler': 'braintools.optim',
-    'LRScheduler': 'braintools.optim',
-    'ConstantLR': 'braintools.optim',
-    'StepLR': 'braintools.optim',
-    'MultiStepLR': 'braintools.optim',
-    'CosineAnnealingLR': 'braintools.optim',
-    'CosineAnnealingWarmRestarts': 'braintools.optim',
-    'ExponentialLR': 'braintools.optim',
-    'PolynomialLR': 'braintools.optim',
-    'ExponentialDecayLR': 'braintools.optim',
-
-    # optax optimizer wrapper
-    'OptaxOptimizer': 'braintools.optim',
-    'LBFGS': 'braintools.optim',
-
-    # commonly used optimizers
-    'SGD': 'braintools.optim',
-    'Momentum': 'braintools.optim',
-    'MomentumNesterov': 'braintools.optim',
-    'Adagrad': 'braintools.optim',
-    'Adadelta': 'braintools.optim',
-    'RMSprop': 'braintools.optim',
-    'Adam': 'braintools.optim',
-    'Lars': 'braintools.optim',
-    'AdamW': 'braintools.optim',
-}
-optim = create_deprecated_module_proxy(
-    deprecated_name='brainstate.optim',
-    replacement_module='braintools.optim',
-    replacement_name='braintools.optim',
-    scoped_apis=_optim_apis
-)
-
-
-from ._error import *
-from ._error import __all__ as _error_all
-from ._state import *
-from ._state import __all__ as _state_all
 
 __all__ = [
     'environ',
@@ -205,7 +156,6 @@ __all__ = [
     'mixin',
     'nn',
     'random',
-    'surrogate',
     'transform',
     'typing',
     'util',
@@ -213,9 +163,7 @@ __all__ = [
     'augment',
     'compile',
     'functional',
-    'init',
-    'optim',
 ]
 __all__ = __all__ + _state_all + _error_all
-del _state_all, create_deprecated_module_proxy, _augment_apis, _compile_apis, _functional_apis, _init_apis, _optim_apis
+del _state_all, create_deprecated_module_proxy, _augment_apis, _compile_apis, _functional_apis
 del _error_all

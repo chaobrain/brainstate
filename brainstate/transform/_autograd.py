@@ -393,8 +393,7 @@ class GradientTransform(PrettyRepr):
         Returns:
             Tuple: A tuple containing updated state values and the function output.
         """
-        cache = self.stateful_target.get_arg_cache_key(*args, **kwargs)
-        state_trace = self.stateful_target.get_state_trace(cache)
+        state_trace = self.stateful_target.get_state_trace_by_call(*args, **kwargs)
         state_vals = self._merge_state_vals(grad_vals, other_vals, state_trace)
         state_vals, out = self.stateful_target.jaxpr_call(state_vals, *args, **kwargs)
         return state_vals, out
