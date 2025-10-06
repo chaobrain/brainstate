@@ -295,8 +295,6 @@ def _vmap_transform(
     axis_name: AxisName | None = None,
     spmd_axis_name: AxisName | tuple[AxisName, ...] | None = None,
 ):
-    # TODO: support jax.disable_jit()
-
     # format state axes
     (
         axis_to_in_states,
@@ -331,12 +329,7 @@ def _vmap_transform(
     stateful_fn = StatefulFunction(_vmap_fn_for_compilation, name='vmap', return_only_write=False)
 
     @functools.wraps(f)
-    def new_fn_for_vmap(
-        rng_keys,
-        in_state_vmap_vals,
-        in_state_oth_vals,
-        args,
-    ):
+    def new_fn_for_vmap(rng_keys, in_state_vmap_vals, in_state_oth_vals, args):
         # restore vmapping state values
         for i, states in enumerate(axis_to_in_states.values()):
             assert len(states) == len(in_state_vmap_vals[i]), (
@@ -383,8 +376,9 @@ def _vmap_transform(
                 if isinstance(state, RandomState) and state in rng_sets:
                     continue
                 state.raise_error_with_source_info(
-                    BatchAxisError(f"The value of State {state} is batched, "
-                                   f"but it is not in the out_states.")
+                    BatchAxisError(
+                        f"The value of State {state} is batched, but it is not in the out_states."
+                    )
                 )
 
         # out state values for vmapping
@@ -614,8 +608,6 @@ def pmap(
     axis_size: Optional[int] = None,
     donate_argnums: int | Iterable[int] = (),
     global_arg_shapes: Optional[Tuple[Tuple[int, ...], ...]] = None,
-    # brainstate specific arguments
-    rngs: Union[RandomState, Sequence[RandomState]] = DEFAULT,
 ) -> Callable[[F], F] | F:
     """
     Parallel map with support for collective operations.
