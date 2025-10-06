@@ -32,8 +32,6 @@ __all__ = [
     'Mixin',
     'ParamDesc',
     'ParamDescriber',
-
-    # types
     'JointTypes',
     'OneOfTypes',
     '_JointGenericAlias',
@@ -851,3 +849,24 @@ class _OneOfTypesClass:
 OneOfTypes = _OneOfTypesClass()
 
 
+def __getattr__(name):
+    if name in [
+        'Mode',
+        'JointMode',
+        'Batching',
+        'Training',
+        'AlignPost',
+        'BindCondData',
+    ]:
+        import warnings
+        warnings.warn(
+            f"brainstate.mixin.{name} is deprecated and will be removed in a future version. "
+            f"Please use brainpy.mixin.{name} instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        import brainpy
+        return getattr(brainpy.mixin, name)
+    raise AttributeError(
+        f'module {__name__!r} has no attribute {name!r}'
+    )

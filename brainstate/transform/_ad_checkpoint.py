@@ -21,7 +21,6 @@ import jax
 from brainstate._utils import set_module_as
 from brainstate.typing import Missing
 from ._make_jaxpr import StatefulFunction, _ensure_index_tuple
-from ._util import write_back_state_values
 
 __all__ = [
     'checkpoint',
@@ -152,7 +151,7 @@ def checkpoint(
         return lambda f: checkpoint(f, prevent_cse=prevent_cse, policy=policy, static_argnums=static_argnums)
 
     static_argnums = _ensure_index_tuple(tuple() if static_argnums is None else static_argnums)
-    fun = StatefulFunction(fun, static_argnums=static_argnums, name='checkpoint', return_only_write=True)
+    fun = StatefulFunction(fun, static_argnums=static_argnums, name='checkpoint')
     checkpointed_fun = jax.checkpoint(
         fun.jaxpr_call,
         prevent_cse=prevent_cse,
@@ -163,12 +162,12 @@ def checkpoint(
     @functools.wraps(fun.fun)
     def remat_fun(*args, **params):
         # compile the function and get the state trace
-        state_trace = fun.get_state_trace_by_call(*args, **params)
-        read_state_vals = state_trace.get_read_state_values()
+        state_trace = fun.get_state_trace_by_call(*args, **params, compile_if_miss=True)
+        read_state_vals = state_trace.get_read_state_values(True)
         # call the checkpointed function
         write_state_vals, outs = checkpointed_fun(state_trace.get_state_values(), *args, **params)
         # write the state values back to the states
-        write_back_state_values(state_trace, read_state_vals, write_state_vals)
+        state_trace.write_back_state_values(read_state_vals, write_state_vals)
         return outs
 
     return remat_fun

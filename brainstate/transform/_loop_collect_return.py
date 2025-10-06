@@ -24,7 +24,7 @@ from brainstate._utils import set_module_as
 from ._make_jaxpr import StatefulFunction
 from ._progress_bar import ProgressBar
 from ._unvmap import unvmap
-from ._util import write_back_state_values, wrap_single_fun
+from ._util import wrap_single_fun
 
 __all__ = [
     # "scan" syntax, which is similar to jax.lax.scan
@@ -268,7 +268,7 @@ def scan(
         unroll=unroll
     )
     # assign the written state values and restore the read state values
-    write_back_state_values(state_trace, all_read_state_vals, all_writen_state_vals)
+    state_trace.write_back_state_values(all_read_state_vals, all_writen_state_vals)
     # carry
     if has_pbar:
         carry = carry[1]
@@ -449,7 +449,7 @@ def checkpointed_scan(
         )
     )
     # assign the written state values and restore the read state values
-    write_back_state_values(state_trace, read_state_vals, write_state_vals)
+    state_trace.write_back_state_values(read_state_vals, write_state_vals)
     del write_state_vals, read_state_vals, stateful_fun
     return carry, data2collection
 

@@ -24,7 +24,6 @@ from brainstate._compatible_import import Device
 from brainstate._utils import set_module_as
 from brainstate.typing import Missing
 from ._make_jaxpr import StatefulFunction, _ensure_index_tuple
-from ._util import write_back_state_values
 
 __all__ = ['jit']
 
@@ -94,14 +93,14 @@ def _get_jitted_fun(
             return fun.fun(*args, **params)
 
         # compile the function and get the state trace
-        state_trace = fun.get_state_trace_by_call(*args, **params)
+        state_trace = fun.get_state_trace_by_call(*args, **params, compile_if_miss=True)
         read_state_vals = state_trace.get_read_state_values(True)
 
         # call the jitted function
         write_state_vals, outs = jit_fun(state_trace.get_state_values(), *args, **params)
 
         # write the state values back to the states
-        write_back_state_values(state_trace, read_state_vals, write_state_vals)
+        state_trace.write_back_state_values(read_state_vals, write_state_vals)
         return outs
 
     def clear_cache():
@@ -141,7 +140,7 @@ def _get_jitted_fun(
           A ``Lowered`` instance representing the lowering.
         """
         # compile the function and get the state trace
-        state_trace = fun.get_state_trace_by_call(*args, **params)
+        state_trace = fun.get_state_trace_by_call(*args, **params, compile_if_miss=True)
         read_state_vals = state_trace.get_read_state_values(replace_writen=True)
         write_state_vals = state_trace.get_write_state_values(replace_read=True)
 
@@ -149,7 +148,7 @@ def _get_jitted_fun(
         ret = jit_fun.lower(state_trace.get_state_values(), *args, **params).compile()
 
         # write the state values back to the states
-        write_back_state_values(state_trace, read_state_vals, write_state_vals)
+        state_trace.write_back_state_values(read_state_vals, write_state_vals)
         return ret
 
     jitted_fun: JittedFunction

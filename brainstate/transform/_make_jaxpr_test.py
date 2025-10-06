@@ -611,6 +611,7 @@ class TestErrorHandling(unittest.TestCase):
 
     def test_get_out_shapes_not_compiled_detailed_error(self):
         """Test detailed error message when getting output shapes for uncompiled function."""
+
         def f(x):
             return x * 2
 
@@ -634,6 +635,7 @@ class TestErrorHandling(unittest.TestCase):
 
     def test_get_out_treedef_not_compiled_detailed_error(self):
         """Test detailed error message when getting output tree for uncompiled function."""
+
         def f(x):
             return x * 2
 
@@ -657,6 +659,7 @@ class TestErrorHandling(unittest.TestCase):
 
     def test_get_state_trace_not_compiled_detailed_error(self):
         """Test detailed error message when getting state trace for uncompiled function."""
+
         def f(x):
             return x * 2
 
@@ -684,6 +687,7 @@ class TestCompileIfMiss(unittest.TestCase):
 
     def test_get_jaxpr_by_call_with_compile_if_miss_true(self):
         """Test get_jaxpr_by_call with compile_if_miss=True (default)."""
+
         def f(x):
             return x * 2
 
@@ -695,6 +699,7 @@ class TestCompileIfMiss(unittest.TestCase):
 
     def test_get_jaxpr_by_call_with_compile_if_miss_false(self):
         """Test get_jaxpr_by_call with compile_if_miss=False."""
+
         def f(x):
             return x * 2
 
@@ -724,6 +729,7 @@ class TestCompileIfMiss(unittest.TestCase):
 
     def test_get_out_treedef_by_call_compile_if_miss(self):
         """Test get_out_treedef_by_call with compile_if_miss parameter."""
+
         def f(x):
             return x * 2, x + 1
 
@@ -883,6 +889,7 @@ class TestCacheCleanupOnError(unittest.TestCase):
 
     def test_cache_cleanup_on_compilation_error(self):
         """Test that partial cache entries are cleaned up when make_jaxpr fails."""
+
         def f(x):
             # This will cause an error during JAX tracing
             if x > 0:  # Control flow not allowed in JAX

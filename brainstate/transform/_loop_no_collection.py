@@ -22,7 +22,6 @@ from brainstate._utils import set_module_as
 from ._loop_collect_return import _bounded_while_loop
 from ._make_jaxpr import StatefulFunction
 from ._util import wrap_single_fun_in_multi_branches_while_loop as wrap_fn
-from ._util import write_back_state_values
 
 X = TypeVar('X')
 Y = TypeVar('Y')
@@ -143,8 +142,8 @@ def while_loop(
 
     # evaluate jaxpr
     stateful_cond = StatefulFunction(cond_fun, name='while:cond').make_jaxpr(init_val)
-    cond_cache_key = stateful_cond.get_arg_cache_key(init_val)
     stateful_body = StatefulFunction(body_fun, name='while:body').make_jaxpr(init_val)
+    cond_cache_key = stateful_cond.get_arg_cache_key(init_val)
     body_cache_key = stateful_body.get_arg_cache_key(init_val)
     if len(stateful_cond.get_write_states(cond_cache_key)) != 0:
         raise ValueError("while_loop: cond_fun should not have any write states.")
@@ -161,7 +160,7 @@ def while_loop(
     state_vals, final_val = jax.lax.while_loop(new_cond_fn, new_body_fn, (write_state_vals, init_val))
 
     # write back state values or restore them
-    write_back_state_values(state_trace, read_state_vals, state_vals)
+    state_trace.write_back_state_values(read_state_vals, state_vals)
     return final_val
 
 
@@ -259,7 +258,9 @@ def bounded_while_loop(
     # evaluate jaxpr
     stateful_cond = StatefulFunction(cond_fun, name='bounded_while:cond').make_jaxpr(init_val)
     stateful_body = StatefulFunction(body_fun, name='bounded_while:body').make_jaxpr(init_val)
-    if len(stateful_cond.get_write_states()) != 0:
+    cond_cache_key = stateful_cond.get_arg_cache_key(init_val)
+    body_cache_key = stateful_body.get_arg_cache_key(init_val)
+    if len(stateful_cond.get_write_states(cond_cache_key)) != 0:
         raise ValueError("while_loop: cond_fun should not have any write states.")
 
     # state trace and state values
@@ -267,8 +268,8 @@ def bounded_while_loop(
                    stateful_body.get_state_trace_by_call(init_val))
     read_state_vals = state_trace.get_read_state_values(True)
     write_state_vals = state_trace.get_write_state_values(True)
-    new_cond_fn = wrap_fn(stateful_cond, state_trace, read_state_vals, False, stateful_cond.get_arg_cache_key(init_val))
-    new_body_fn = wrap_fn(stateful_body, state_trace, read_state_vals, True, stateful_body.get_arg_cache_key(init_val))
+    new_cond_fn = wrap_fn(stateful_cond, state_trace, read_state_vals, False, cond_cache_key)
+    new_body_fn = wrap_fn(stateful_body, state_trace, read_state_vals, True, body_cache_key)
 
     # initial value
     init_val = (write_state_vals, init_val)
@@ -278,5 +279,5 @@ def bounded_while_loop(
     state_vals, val = _bounded_while_loop(new_cond_fn, new_body_fn, init_val, rounded_max_steps, base, None)
 
     # write back state values or restore them
-    write_back_state_values(state_trace, read_state_vals, state_vals)
+    state_trace.write_back_state_values(read_state_vals, state_vals)
     return val

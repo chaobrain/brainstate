@@ -21,55 +21,6 @@ from brainstate.typing import PyTree
 from ._make_jaxpr import StatefulFunction
 
 
-def write_back_state_values(
-    state_trace: StateTraceStack,
-    read_state_vals: Sequence[PyTree],
-    write_state_vals: Sequence[PyTree],
-):
-    """
-    Write back state values to their corresponding states after computation.
-
-    This function updates the state values based on whether they were written to
-    during the computation. If a state was written to, it gets the new written value.
-    If not, it restores its original read value.
-
-    Parameters
-    ----------
-    state_trace : StateTraceStack
-        The state trace stack containing states and write information.
-    read_state_vals : sequence of PyTree
-        The original state values that were read at the beginning.
-    write_state_vals : sequence of PyTree
-        The new state values that were written during computation.
-
-    Examples
-    --------
-    Basic usage in a compilation context:
-
-    .. code-block:: python
-
-        >>> import brainstate
-        >>> import jax.numpy as jnp
-        >>>
-        >>> # Create states
-        >>> state1 = brainstate.State(jnp.array([1.0, 2.0]))
-        >>> state2 = brainstate.State(jnp.array([3.0, 4.0]))
-        >>>
-        >>> def f(x):
-        ...     state1.value += x  # This state will be written
-        ...     return state1.value + state2.value  # state2 is only read
-        >>>
-        >>> # During compilation, state values are collected and managed
-        >>> # write_back_state_values ensures proper state management
-    """
-    assert len(state_trace.states) == len(state_trace.been_writen) == len(read_state_vals) == len(write_state_vals)
-    for st, write, val_r, val_w in zip(state_trace.states, state_trace.been_writen, read_state_vals, write_state_vals):
-        if write:
-            st.value = val_w
-        else:
-            st.restore_value(val_r)
-
-
 def wrap_single_fun_in_multi_branches(
     stateful_fun: StatefulFunction,
     merged_state_trace: StateTraceStack,
@@ -257,7 +208,7 @@ def wrap_single_fun_in_multi_branches_while_loop(
 
 def wrap_single_fun(
     stateful_fun: StatefulFunction,
-    been_writen: Tuple[bool],
+    been_writen: Sequence[bool],
     read_state_vals: Tuple[PyTree | None],
 ):
     """
@@ -272,7 +223,7 @@ def wrap_single_fun(
     ----------
     stateful_fun : StatefulFunction
         The stateful function to be wrapped for scan operations.
-    been_writen : tuple of bool
+    been_writen : sequence of bool
         Boolean flags indicating which states have been written to.
     read_state_vals : tuple of PyTree or None
         The original read state values for all states.

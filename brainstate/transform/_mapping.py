@@ -386,7 +386,7 @@ def _vmap_transform(
         stateful_fn.axis_env = axis_env
 
     # stateful function
-    stateful_fn = StatefulFunction(_vmap_fn_for_compilation, name='vmap')
+    stateful_fn = StatefulFunction(_vmap_fn_for_compilation, name='vmap', return_only_write=False)
 
     @functools.wraps(f)
     def new_fn_for_vmap(
@@ -525,11 +525,7 @@ def _vmap_transform(
         if axis_name is not None:
             batch_size = _get_batch_size(args, in_axes, axis_to_in_states, axis_size)
             _set_axis_env(batch_size)
-        cache_key = _compile_stateful_function(
-            stateful_fn,
-            (st_in_axes, in_axes),
-            (in_state_map_vals, args)
-        )
+        cache_key = _compile_stateful_function(stateful_fn, (st_in_axes, in_axes), (in_state_map_vals, args))
 
         # random keys
         state_trace = stateful_fn.get_state_trace(cache_key)
@@ -566,9 +562,7 @@ def _vmap_transform(
             axis_name=axis_name,
             spmd_axis_name=spmd_axis_name,
         )
-        _, out_state_map_vals, out_state_oth_vals, outs = fn(
-            rng_keys, in_state_map_vals, in_state_oth_vals, args
-        )
+        _, out_state_map_vals, out_state_oth_vals, outs = fn(rng_keys, in_state_map_vals, in_state_oth_vals, args)
 
         # restore mapped state values
         for i, states in enumerate(axis_to_out_states.values()):

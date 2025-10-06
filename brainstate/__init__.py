@@ -132,7 +132,7 @@ functional = create_deprecated_module_proxy(
     replacement_name='brainstate.nn',
     scoped_apis=_functional_apis
 )
-surrogate = None
+
 
 def __getattr__(name):
     if name in ['surrogate', 'init', 'optim']:
@@ -145,8 +145,8 @@ def __getattr__(name):
         )
         import braintools
         return getattr(braintools, name)
-    raise ImportError(
-        f"braintools is not installed. Please install it to  use surrogate functions."
+    raise AttributeError(
+        f'module {__name__!r} has no attribute {name!r}'
     )
 
 

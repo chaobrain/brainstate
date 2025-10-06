@@ -516,7 +516,7 @@ class StatefulFunction(PrettyObject):
         axis_env: Optional[Sequence[tuple[Hashable, int]]] = None,
         abstracted_axes: Optional[Any] = None,
         name: Optional[str] = None,
-        return_only_write: bool = False,
+        return_only_write: bool = True,
     ):
         # explicit parameters
         self.fun = fun
@@ -854,7 +854,6 @@ class StatefulFunction(PrettyObject):
         cache_key,
         static_kwargs: dict,
         *args,
-        return_only_write: bool = False,
         **dyn_kwargs,
     ) -> Tuple[Any, Tuple[State, ...]]:
         """
@@ -874,7 +873,7 @@ class StatefulFunction(PrettyObject):
             out = self.fun(*args, **dyn_kwargs, **static_kwargs)
             state_values = (
                 state_trace.get_write_state_values(True)
-                if return_only_write else
+                if self.return_only_write else
                 state_trace.get_state_values()
             )
         state_trace.recovery_original_values()
@@ -930,7 +929,6 @@ class StatefulFunction(PrettyObject):
                         self._wrapped_fun_to_eval,
                         cache_key,
                         static_kwargs,
-                        return_only_write=self.return_only_write,
                     ),
                     static_argnums=self.static_argnums,
                     axis_env=self.axis_env,
@@ -1083,9 +1081,10 @@ class StatefulFunction(PrettyObject):
         Returns:
           The output of the function.
         """
-        state_trace = self.get_state_trace(self.get_arg_cache_key(*args, **kwargs))
-        state_vals, out = self.jaxpr_call([st.value for st in state_trace.states], *args, **kwargs)
-        state_trace.assign_state_vals(state_vals)
+        state_trace = self.get_state_trace(self.get_arg_cache_key(*args, **kwargs, compile_if_miss=True))
+        all_read_state_vals = state_trace.get_read_state_values(True)
+        state_vals, out = self.jaxpr_call(state_trace.get_state_values(), *args, **kwargs)
+        state_trace.write_back_state_values(all_read_state_vals, state_vals)
         return out
 
 

@@ -56,6 +56,7 @@ class RngRestore(PrettyObject):
         >>> restorer.restore()
     """
     __module__ = 'brainstate.transform'
+
     def __init__(self, rngs: Sequence[RandomState]):
         """
         Initialize a restorer for the provided random states.
@@ -112,6 +113,7 @@ def _rng_backup(
         return out
 
     return wrapper
+
 
 @set_module_as('brainstate.transform')
 def restore_rngs(

@@ -23,7 +23,7 @@ from brainstate._compatible_import import to_concrete_aval, Tracer
 from brainstate._utils import set_module_as
 from ._error_if import jit_error_if
 from ._make_jaxpr import StatefulFunction
-from ._util import wrap_single_fun_in_multi_branches, write_back_state_values
+from ._util import wrap_single_fun_in_multi_branches
 
 __all__ = [
     'cond', 'switch', 'ifelse',
@@ -124,16 +124,18 @@ def cond(pred, true_fun: Callable, false_fun: Callable, *operands):
     write_state_vals = state_trace.get_write_state_values(True)
 
     # wrap the functions
-    true_fun = wrap_single_fun_in_multi_branches(stateful_true, state_trace, read_state_vals, True,
-                                                 stateful_true.get_arg_cache_key(*operands))
-    false_fun = wrap_single_fun_in_multi_branches(stateful_false, state_trace, read_state_vals, True,
-                                                  stateful_false.get_arg_cache_key(*operands))
+    true_fun = wrap_single_fun_in_multi_branches(
+        stateful_true, state_trace, read_state_vals, True, stateful_true.get_arg_cache_key(*operands)
+    )
+    false_fun = wrap_single_fun_in_multi_branches(
+        stateful_false, state_trace, read_state_vals, True, stateful_false.get_arg_cache_key(*operands)
+    )
 
     # cond
     write_state_vals, out = jax.lax.cond(pred, true_fun, false_fun, write_state_vals, *operands)
 
     # assign the written state values and restore the read state values
-    write_back_state_values(state_trace, read_state_vals, write_state_vals)
+    state_trace.write_back_state_values(read_state_vals, write_state_vals)
     return out
 
 
@@ -240,7 +242,7 @@ def switch(index, branches: Sequence[Callable], *operands):
     write_state_vals, out = jax.lax.switch(index, branches, write_state_vals, *operands)
 
     # write back state values or restore them
-    write_back_state_values(state_trace, read_state_vals, write_state_vals)
+    state_trace.write_back_state_values(read_state_vals, write_state_vals)
     return out
 
 

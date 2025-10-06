@@ -1332,6 +1332,54 @@ class StateTraceStack(Generic[A]):
         """
         return [st for st in self.states if isinstance(st, state_type)]
 
+    def write_back_state_values(
+        self: StateTraceStack,
+        read_state_vals: Sequence[PyTree],
+        write_state_vals: Sequence[PyTree],
+    ):
+        """
+        Write back state values to their corresponding states after computation.
+
+        This function updates the state values based on whether they were written to
+        during the computation. If a state was written to, it gets the new written value.
+        If not, it restores its original read value.
+
+        Parameters
+        ----------
+        read_state_vals : sequence of PyTree
+            The original state values that were read at the beginning.
+        write_state_vals : sequence of PyTree
+            The new state values that were written during computation.
+
+        Examples
+        --------
+        Basic usage in a compilation context:
+
+        .. code-block:: python
+
+            >>> import brainstate
+            >>> import jax.numpy as jnp
+            >>>
+            >>> # Create states
+            >>> state1 = brainstate.State(jnp.array([1.0, 2.0]))
+            >>> state2 = brainstate.State(jnp.array([3.0, 4.0]))
+            >>>
+            >>> def f(x):
+            ...     state1.value += x  # This state will be written
+            ...     return state1.value + state2.value  # state2 is only read
+            >>>
+            >>> # During compilation, state values are collected and managed
+            >>> # write_back_state_values ensures proper state management
+        """
+        assert len(self.states) == len(self.been_writen) == len(read_state_vals) == len(write_state_vals)
+        for st, write, val_r, val_w in zip(
+            self.states, self.been_writen, read_state_vals, write_state_vals
+        ):
+            if write:
+                st.value = val_w
+            else:
+                st.restore_value(val_r)
+
 
 class TreefyState(Generic[A], PrettyObject):
     """
