@@ -920,24 +920,6 @@ class StateTraceStack(Generic[A]):
     The class is generic over type A, allowing for type-safe usage with
     different types of State objects.
 
-    Attributes:
-        states (List[State]): A list of all State objects encountered during tracing.
-        been_writen (List[bool]): A parallel list to states, indicating whether each state has been written to.
-        _state_id_index (dict): A dictionary mapping state ids to their index in the states list.
-        _original_state_values (List): A list of the original values of all states when first encountered.
-        _jax_trace_new_arg (Callable): A function used to transform state values during tracing.
-
-    Methods:
-        __enter__: Enters a new tracing context.
-        __exit__: Exits the current tracing context.
-        read_its_value: Records a read operation on a state.
-        write_its_value: Records a write operation on a state.
-        get_state_values: Retrieves the current values of all traced states.
-        recovery_original_values: Restores all states to their original values.
-        merge: Merges multiple ``StateTraceStack`` instances.
-        get_read_states: Retrieves states that were read during tracing.
-        get_read_state_values: Retrieves values of states that were read during tracing.
-
     The ``StateTraceStack`` is a crucial component in implementing state-based
     computations and is particularly useful in scenarios involving automatic
     differentiation or other forms of program transformation.

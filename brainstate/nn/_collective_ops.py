@@ -287,7 +287,7 @@ def vmap_call_all_fns(
 
     with catch_new_states(state_tag) as outer_catcher:
         values = vmapped_fn()
-        states = outer_catcher.get_states()
+        states = outer_catcher.get_states_by_cache()
     for state, value in zip(states, values):
         state.value = value
     return target

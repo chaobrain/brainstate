@@ -93,7 +93,7 @@ def _get_jitted_fun(
             return fun.fun(*args, **params)
 
         # compile the function and get the state trace
-        state_trace = fun.get_state_trace_by_call(*args, **params, compile_if_miss=True)
+        state_trace = fun.get_state_trace(*args, **params, compile_if_miss=True)
         read_state_vals = state_trace.get_read_state_values(True)
 
         # call the jitted function
@@ -140,7 +140,7 @@ def _get_jitted_fun(
           A ``Lowered`` instance representing the lowering.
         """
         # compile the function and get the state trace
-        state_trace = fun.get_state_trace_by_call(*args, **params, compile_if_miss=True)
+        state_trace = fun.get_state_trace(*args, **params, compile_if_miss=True)
         read_state_vals = state_trace.get_read_state_values(replace_writen=True)
         write_state_vals = state_trace.get_write_state_values(replace_read=True)
 

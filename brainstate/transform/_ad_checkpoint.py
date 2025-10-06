@@ -162,7 +162,7 @@ def checkpoint(
     @functools.wraps(fun.fun)
     def remat_fun(*args, **params):
         # compile the function and get the state trace
-        state_trace = fun.get_state_trace_by_call(*args, **params, compile_if_miss=True)
+        state_trace = fun.get_state_trace(*args, **params, compile_if_miss=True)
         read_state_vals = state_trace.get_read_state_values(True)
         # call the checkpointed function
         write_state_vals, outs = checkpointed_fun(state_trace.get_state_values(), *args, **params)

@@ -41,12 +41,12 @@ class TestJIT(unittest.TestCase):
 
         print(fun1(1.))
         key = fun1.stateful_fun.get_arg_cache_key(1.)
-        self.assertTrue(len(fun1.stateful_fun.get_states(key)) == 2)
+        self.assertTrue(len(fun1.stateful_fun.get_states_by_cache(key)) == 2)
 
         x = bst.random.randn(10)
         print(fun1(x))
         key = fun1.stateful_fun.get_arg_cache_key(x)
-        self.assertTrue(len(fun1.stateful_fun.get_states(key)) == 2)
+        self.assertTrue(len(fun1.stateful_fun.get_states_by_cache(key)) == 2)
 
     def test_kwargs(self):
         a = bst.State(bst.random.randn(10))

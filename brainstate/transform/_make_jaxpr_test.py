@@ -59,8 +59,8 @@ class TestMakeJaxpr(unittest.TestCase):
 
         fun = brainstate.transform.StatefulFunction(func4).make_jaxpr((jnp.zeros(8), jnp.ones(8)))
         cache_key = fun.get_arg_cache_key((jnp.zeros(8), jnp.ones(8)))
-        print(fun.get_states(cache_key))
-        print(fun.get_jaxpr(cache_key))
+        print(fun.get_states_by_cache(cache_key))
+        print(fun.get_jaxpr_by_cache(cache_key))
 
     def test_StatefulFunction_2(self):
         st1 = brainstate.State(jnp.ones(10))
@@ -543,13 +543,13 @@ class TestStatefulFunctionEnhancements(unittest.TestCase):
         sf_all = brainstate.transform.StatefulFunction(f, return_only_write=False)
         sf_all.make_jaxpr(jnp.array([0.5, 0.5]))
         cache_key = sf_all.get_arg_cache_key(jnp.array([0.5, 0.5]))
-        states_all = sf_all.get_states(cache_key)
+        states_all = sf_all.get_states_by_cache(cache_key)
 
         # Test with return_only_write=True
         sf_write_only = brainstate.transform.StatefulFunction(f, return_only_write=True)
         sf_write_only.make_jaxpr(jnp.array([0.5, 0.5]))
         cache_key_write = sf_write_only.get_arg_cache_key(jnp.array([0.5, 0.5]))
-        states_write = sf_write_only.get_states(cache_key_write)
+        states_write = sf_write_only.get_states_by_cache(cache_key_write)
 
         # With return_only_write=True, should have fewer or equal states
         self.assertLessEqual(len(states_write), len(states_all))
@@ -599,7 +599,7 @@ class TestErrorHandling(unittest.TestCase):
 
         # Should raise detailed error
         with pytest.raises(ValueError) as exc_info:
-            sf.get_jaxpr(fake_key)
+            sf.get_jaxpr_by_cache(fake_key)
 
         error_msg = str(exc_info.value)
         # Should contain the requested key
@@ -627,7 +627,7 @@ class TestErrorHandling(unittest.TestCase):
 
         # Should raise detailed error with context "Output shapes"
         with pytest.raises(ValueError) as exc_info:
-            sf.get_out_shapes(fake_key)
+            sf.get_out_shapes_by_cache(fake_key)
 
         error_msg = str(exc_info.value)
         self.assertIn('Output shapes', error_msg)
@@ -651,7 +651,7 @@ class TestErrorHandling(unittest.TestCase):
 
         # Should raise detailed error with context "Output tree"
         with pytest.raises(ValueError) as exc_info:
-            sf.get_out_treedef(fake_key)
+            sf.get_out_treedef_by_cache(fake_key)
 
         error_msg = str(exc_info.value)
         self.assertIn('Output tree', error_msg)
@@ -675,7 +675,7 @@ class TestErrorHandling(unittest.TestCase):
 
         # Should raise detailed error with context "State trace"
         with pytest.raises(ValueError) as exc_info:
-            sf.get_state_trace(fake_key)
+            sf.get_state_trace_by_cache(fake_key)
 
         error_msg = str(exc_info.value)
         self.assertIn('State trace', error_msg)
@@ -694,7 +694,7 @@ class TestCompileIfMiss(unittest.TestCase):
         sf = brainstate.transform.StatefulFunction(f)
 
         # Should compile automatically
-        jaxpr = sf.get_jaxpr_by_call(jnp.array([1.0, 2.0]), compile_if_miss=True)
+        jaxpr = sf.get_jaxpr(jnp.array([1.0, 2.0]), compile_if_miss=True)
         self.assertIsNotNone(jaxpr)
 
     def test_get_jaxpr_by_call_with_compile_if_miss_false(self):
@@ -707,7 +707,7 @@ class TestCompileIfMiss(unittest.TestCase):
 
         # Should raise error because not compiled
         with pytest.raises(ValueError, match="not compiled"):
-            sf.get_jaxpr_by_call(jnp.array([1.0, 2.0]), compile_if_miss=False)
+            sf.get_jaxpr(jnp.array([1.0, 2.0]), compile_if_miss=False)
 
     def test_get_out_shapes_by_call_compile_if_miss(self):
         """Test get_out_shapes_by_call with compile_if_miss parameter."""
@@ -720,12 +720,12 @@ class TestCompileIfMiss(unittest.TestCase):
         sf = brainstate.transform.StatefulFunction(f)
 
         # With compile_if_miss=True, should compile automatically
-        shapes = sf.get_out_shapes_by_call(jnp.array([1.0, 2.0]), compile_if_miss=True)
+        shapes = sf.get_out_shapes(jnp.array([1.0, 2.0]), compile_if_miss=True)
         self.assertIsNotNone(shapes)
 
         # With compile_if_miss=False on different input, should fail
         with pytest.raises(ValueError):
-            sf.get_out_shapes_by_call(jnp.array([1.0, 2.0, 3.0]), compile_if_miss=False)
+            sf.get_out_shapes(jnp.array([1.0, 2.0, 3.0]), compile_if_miss=False)
 
     def test_get_out_treedef_by_call_compile_if_miss(self):
         """Test get_out_treedef_by_call with compile_if_miss parameter."""
@@ -736,7 +736,7 @@ class TestCompileIfMiss(unittest.TestCase):
         sf = brainstate.transform.StatefulFunction(f)
 
         # Should compile automatically with default compile_if_miss=True
-        treedef = sf.get_out_treedef_by_call(jnp.array([1.0, 2.0]))
+        treedef = sf.get_out_treedef(jnp.array([1.0, 2.0]))
         self.assertIsNotNone(treedef)
 
     def test_get_state_trace_by_call_compile_if_miss(self):
@@ -750,7 +750,7 @@ class TestCompileIfMiss(unittest.TestCase):
         sf = brainstate.transform.StatefulFunction(f)
 
         # Should compile automatically
-        trace = sf.get_state_trace_by_call(jnp.array([1.0, 2.0]), compile_if_miss=True)
+        trace = sf.get_state_trace(jnp.array([1.0, 2.0]), compile_if_miss=True)
         self.assertIsNotNone(trace)
 
     def test_get_states_by_call_compile_if_miss(self):
@@ -766,7 +766,7 @@ class TestCompileIfMiss(unittest.TestCase):
         sf = brainstate.transform.StatefulFunction(f)
 
         # Should compile automatically
-        states = sf.get_states_by_call(jnp.array([1.0, 2.0]), compile_if_miss=True)
+        states = sf.get_states(jnp.array([1.0, 2.0]), compile_if_miss=True)
         self.assertEqual(len(states), 2)
 
     def test_get_read_states_by_call_compile_if_miss(self):
@@ -782,7 +782,7 @@ class TestCompileIfMiss(unittest.TestCase):
         sf = brainstate.transform.StatefulFunction(f)
 
         # Should compile automatically
-        read_states = sf.get_read_states_by_call(jnp.array([1.0, 2.0]), compile_if_miss=True)
+        read_states = sf.get_read_states(jnp.array([1.0, 2.0]), compile_if_miss=True)
         self.assertIsNotNone(read_states)
 
     def test_get_write_states_by_call_compile_if_miss(self):
@@ -798,7 +798,7 @@ class TestCompileIfMiss(unittest.TestCase):
         sf = brainstate.transform.StatefulFunction(f)
 
         # Should compile automatically
-        write_states = sf.get_write_states_by_call(jnp.array([1.0, 2.0]), compile_if_miss=True)
+        write_states = sf.get_write_states(jnp.array([1.0, 2.0]), compile_if_miss=True)
         self.assertIsNotNone(write_states)
 
     def test_compile_if_miss_default_behavior(self):
@@ -812,17 +812,17 @@ class TestCompileIfMiss(unittest.TestCase):
         sf = brainstate.transform.StatefulFunction(f)
 
         # All these should work without explicit compile_if_miss=True
-        jaxpr = sf.get_jaxpr_by_call(jnp.array([1.0, 2.0]))
+        jaxpr = sf.get_jaxpr(jnp.array([1.0, 2.0]))
         self.assertIsNotNone(jaxpr)
 
         # Create new instance for fresh cache
         sf2 = brainstate.transform.StatefulFunction(f)
-        shapes = sf2.get_out_shapes_by_call(jnp.array([1.0, 2.0]))
+        shapes = sf2.get_out_shapes(jnp.array([1.0, 2.0]))
         self.assertIsNotNone(shapes)
 
         # Create new instance for fresh cache
         sf3 = brainstate.transform.StatefulFunction(f)
-        states = sf3.get_states_by_call(jnp.array([1.0, 2.0]))
+        states = sf3.get_states(jnp.array([1.0, 2.0]))
         self.assertIsNotNone(states)
 
 
@@ -933,3 +933,576 @@ class TestMakeJaxprReturnOnlyWrite(unittest.TestCase):
         # Should compile successfully
         self.assertIsNotNone(jaxpr)
         self.assertIsInstance(states, tuple)
+
+
+class TestStatefulFunctionCallable(unittest.TestCase):
+    """Test __call__ method of StatefulFunction."""
+
+    def test_stateful_function_call(self):
+        """Test calling StatefulFunction directly."""
+        state = brainstate.State(jnp.array([1.0, 2.0]))
+
+        def f(x):
+            state.value += x
+            return state.value * 2
+
+        sf = brainstate.transform.StatefulFunction(f)
+        x = jnp.array([0.5, 0.5])
+        sf.make_jaxpr(x)
+
+        # Test direct call
+        result = sf(x)
+        self.assertEqual(result.shape, (2,))
+
+    def test_stateful_function_call_auto_compile(self):
+        """Test that __call__ automatically compiles if needed."""
+        state = brainstate.State(jnp.array([1.0, 2.0]))
+
+        def f(x):
+            state.value += x
+            return state.value * 2
+
+        sf = brainstate.transform.StatefulFunction(f)
+        x = jnp.array([0.5, 0.5])
+
+        # Call without pre-compilation should work
+        result = sf(x)
+        self.assertEqual(result.shape, (2,))
+
+    def test_stateful_function_multiple_calls(self):
+        """Test multiple calls to StatefulFunction."""
+        state = brainstate.State(jnp.array([0.0]))
+
+        def f(x):
+            state.value += x
+            return state.value
+
+        sf = brainstate.transform.StatefulFunction(f)
+
+        # Multiple calls should accumulate state
+        result1 = sf(jnp.array([1.0]))
+        result2 = sf(jnp.array([2.0]))
+        result3 = sf(jnp.array([3.0]))
+
+        # Each call should update the state
+        self.assertIsNotNone(result1)
+        self.assertIsNotNone(result2)
+        self.assertIsNotNone(result3)
+
+
+class TestStatefulFunctionStaticArgs(unittest.TestCase):
+    """Test StatefulFunction with static arguments."""
+
+    def test_static_argnums_basic(self):
+        """Test basic usage of static_argnums."""
+        state = brainstate.State(jnp.array([1.0, 2.0]))
+
+        def f(x, multiplier):
+            state.value += x
+            return state.value * multiplier
+
+        sf = brainstate.transform.StatefulFunction(f, static_argnums=(1,))
+        x = jnp.array([0.5, 0.5])
+
+        # Compile with multiplier=2
+        sf.make_jaxpr(x, 2)
+        cache_key1 = sf.get_arg_cache_key(x, 2)
+
+        # Compile with multiplier=3
+        sf.make_jaxpr(x, 3)
+        cache_key2 = sf.get_arg_cache_key(x, 3)
+
+        # Should have different cache keys
+        self.assertNotEqual(cache_key1, cache_key2)
+
+    def test_static_argnames_basic(self):
+        """Test basic usage of static_argnames."""
+        state = brainstate.State(jnp.array([1.0, 2.0]))
+
+        def f(x, multiplier=2):
+            state.value += x
+            return state.value * multiplier
+
+        sf = brainstate.transform.StatefulFunction(f, static_argnames='multiplier')
+        x = jnp.array([0.5, 0.5])
+
+        # Compile with different multiplier values
+        sf.make_jaxpr(x, multiplier=2)
+        cache_key1 = sf.get_arg_cache_key(x, multiplier=2)
+
+        sf.make_jaxpr(x, multiplier=3)
+        cache_key2 = sf.get_arg_cache_key(x, multiplier=3)
+
+        # Should have different cache keys
+        self.assertNotEqual(cache_key1, cache_key2)
+
+    def test_static_args_combination(self):
+        """Test using both static_argnums and static_argnames."""
+        state = brainstate.State(jnp.array([1.0]))
+
+        def f(x, multiplier, offset=0):
+            state.value += x
+            return state.value * multiplier + offset
+
+        sf = brainstate.transform.StatefulFunction(
+            f, static_argnums=(1,), static_argnames='offset'
+        )
+        x = jnp.array([0.5])
+
+        # Compile with different static args
+        sf.make_jaxpr(x, 2, offset=0)
+        cache_key1 = sf.get_arg_cache_key(x, 2, offset=0)
+
+        sf.make_jaxpr(x, 3, offset=1)
+        cache_key2 = sf.get_arg_cache_key(x, 3, offset=1)
+
+        # Should have different cache keys
+        self.assertNotEqual(cache_key1, cache_key2)
+
+
+class TestStatefulFunctionComplexStates(unittest.TestCase):
+    """Test StatefulFunction with complex state scenarios."""
+
+    def test_multiple_states(self):
+        """Test function with multiple states."""
+        state1 = brainstate.State(jnp.array([1.0]))
+        state2 = brainstate.State(jnp.array([2.0]))
+        state3 = brainstate.State(jnp.array([3.0]))
+
+        def f(x):
+            state1.value += x
+            state2.value += x * 2
+            state3.value += x * 3
+            return state1.value + state2.value + state3.value
+
+        sf = brainstate.transform.StatefulFunction(f)
+        x = jnp.array([1.0])
+        sf.make_jaxpr(x)
+
+        cache_key = sf.get_arg_cache_key(x)
+        states = sf.get_states_by_cache(cache_key)
+
+        # Should track all three states
+        self.assertEqual(len(states), 3)
+
+    def test_nested_state_access(self):
+        """Test function with nested state access patterns."""
+        outer_state = brainstate.State(jnp.array([1.0]))
+        inner_state = brainstate.State(jnp.array([2.0]))
+
+        def inner_fn(x):
+            inner_state.value += x
+            return inner_state.value
+
+        def outer_fn(x):
+            outer_state.value += x
+            result = inner_fn(x)
+            return outer_state.value + result
+
+        sf = brainstate.transform.StatefulFunction(outer_fn)
+        x = jnp.array([1.0])
+        sf.make_jaxpr(x)
+
+        cache_key = sf.get_arg_cache_key(x)
+        states = sf.get_states_by_cache(cache_key)
+
+        # Should track both states
+        self.assertGreaterEqual(len(states), 2)
+
+    def test_conditional_state_write(self):
+        """Test function that conditionally writes to states."""
+        state1 = brainstate.State(jnp.array([1.0]))
+        state2 = brainstate.State(jnp.array([2.0]))
+
+        def f(x, write_state1=True):
+            # Note: In JAX, actual control flow needs special handling
+            # This test is more about the framework's ability to track states
+            state1.value += x  # Always write to state1
+            state2.value += x * 2  # Always write to state2
+            return state1.value + state2.value
+
+        sf = brainstate.transform.StatefulFunction(f, static_argnames='write_state1')
+        x = jnp.array([1.0])
+        sf.make_jaxpr(x, write_state1=True)
+
+        cache_key = sf.get_arg_cache_key(x, write_state1=True)
+        states = sf.get_states_by_cache(cache_key)
+
+        # Should track states
+        self.assertGreaterEqual(len(states), 2)
+
+
+class TestStatefulFunctionOutputShapes(unittest.TestCase):
+    """Test StatefulFunction output shape tracking."""
+
+    def test_single_output(self):
+        """Test tracking single output shape."""
+        state = brainstate.State(jnp.array([1.0, 2.0, 3.0]))
+
+        def f(x):
+            state.value += x
+            return state.value
+
+        sf = brainstate.transform.StatefulFunction(f)
+        x = jnp.array([1.0, 2.0, 3.0])
+        sf.make_jaxpr(x)
+
+        cache_key = sf.get_arg_cache_key(x)
+        out_shapes = sf.get_out_shapes_by_cache(cache_key)
+
+        # Should have output shapes
+        self.assertIsNotNone(out_shapes)
+
+    def test_multiple_outputs(self):
+        """Test tracking multiple output shapes."""
+        state = brainstate.State(jnp.array([1.0, 2.0]))
+
+        def f(x):
+            state.value += x
+            return state.value, state.value * 2, jnp.sum(state.value)
+
+        sf = brainstate.transform.StatefulFunction(f)
+        x = jnp.array([1.0, 2.0])
+        sf.make_jaxpr(x)
+
+        cache_key = sf.get_arg_cache_key(x)
+        out_shapes = sf.get_out_shapes_by_cache(cache_key)
+
+        # Should track all output shapes
+        self.assertIsNotNone(out_shapes)
+
+    def test_nested_output_structure(self):
+        """Test tracking nested output structures."""
+        state = brainstate.State(jnp.array([1.0, 2.0]))
+
+        def f(x):
+            state.value += x
+            return {
+                'sum': jnp.sum(state.value),
+                'prod': jnp.prod(state.value),
+                'values': state.value
+            }
+
+        sf = brainstate.transform.StatefulFunction(f)
+        x = jnp.array([1.0, 2.0])
+        sf.make_jaxpr(x)
+
+        cache_key = sf.get_arg_cache_key(x)
+        out_treedef = sf.get_out_treedef_by_cache(cache_key)
+
+        # Should have tree definition
+        self.assertIsNotNone(out_treedef)
+
+
+class TestStatefulFunctionJaxprCall(unittest.TestCase):
+    """Test jaxpr_call and jaxpr_call_auto methods."""
+
+    def test_jaxpr_call_basic(self):
+        """Test basic jaxpr_call usage."""
+        state = brainstate.State(jnp.array([1.0, 2.0]))
+
+        def f(x):
+            state.value += x
+            return state.value * 2
+
+        sf = brainstate.transform.StatefulFunction(f)
+        x = jnp.array([0.5, 0.5])
+        sf.make_jaxpr(x)
+
+        # Get current state values
+        state_vals = [state.value]
+
+        # Call at jaxpr level
+        new_state_vals, out = sf.jaxpr_call(state_vals, x)
+
+        self.assertEqual(len(new_state_vals), 1)
+        self.assertEqual(out.shape, (2,))
+
+    def test_jaxpr_call_auto_basic(self):
+        """Test basic jaxpr_call_auto usage."""
+        state = brainstate.State(jnp.array([1.0, 2.0]))
+
+        def f(x):
+            state.value += x
+            return state.value * 2
+
+        sf = brainstate.transform.StatefulFunction(f)
+        x = jnp.array([0.5, 0.5])
+        sf.make_jaxpr(x)
+
+        # Call with automatic state management
+        result = sf.jaxpr_call_auto(x)
+
+        self.assertEqual(result.shape, (2,))
+
+    def test_jaxpr_call_preserves_state_order(self):
+        """Test that jaxpr_call preserves state order."""
+        state1 = brainstate.State(jnp.array([1.0]))
+        state2 = brainstate.State(jnp.array([2.0]))
+        state3 = brainstate.State(jnp.array([3.0]))
+
+        def f(x):
+            state1.value += x
+            state2.value += x * 2
+            state3.value += x * 3
+            return state1.value + state2.value + state3.value
+
+        sf = brainstate.transform.StatefulFunction(f)
+        x = jnp.array([1.0])
+        sf.make_jaxpr(x)
+
+        cache_key = sf.get_arg_cache_key(x)
+        states = sf.get_states_by_cache(cache_key)
+
+        # Get initial state values
+        state_vals = [s.value for s in states]
+
+        # Call at jaxpr level
+        new_state_vals, _ = sf.jaxpr_call(state_vals, x)
+
+        # Should return same number of states
+        self.assertEqual(len(new_state_vals), len(state_vals))
+
+
+class TestStatefulFunctionEdgeCases(unittest.TestCase):
+    """Test edge cases and corner scenarios."""
+
+    def test_no_state_function(self):
+        """Test function that doesn't use any states."""
+
+        def f(x):
+            return x * 2 + 1
+
+        sf = brainstate.transform.StatefulFunction(f)
+        x = jnp.array([1.0, 2.0])
+        sf.make_jaxpr(x)
+
+        cache_key = sf.get_arg_cache_key(x)
+        states = sf.get_states_by_cache(cache_key)
+
+        # Should have no states
+        self.assertEqual(len(states), 0)
+
+    def test_read_only_state(self):
+        """Test function that only reads from states."""
+        state = brainstate.State(jnp.array([1.0, 2.0]))
+
+        def f(x):
+            # Only read from state, don't write
+            return state.value + x
+
+        sf = brainstate.transform.StatefulFunction(f, return_only_write=True)
+        x = jnp.array([1.0, 2.0])
+        sf.make_jaxpr(x)
+
+        cache_key = sf.get_arg_cache_key(x)
+        write_states = sf.get_write_states_by_cache(cache_key)
+
+        # Should have no write states
+        self.assertEqual(len(write_states), 0)
+
+    def test_scalar_inputs_outputs(self):
+        """Test with scalar inputs and outputs."""
+        state = brainstate.State(jnp.array(1.0))
+
+        def f(x):
+            state.value += x
+            return state.value
+
+        sf = brainstate.transform.StatefulFunction(f)
+        x = jnp.array(0.5)
+        sf.make_jaxpr(x)
+
+        cache_key = sf.get_arg_cache_key(x)
+        jaxpr = sf.get_jaxpr_by_cache(cache_key)
+
+        # Should compile successfully
+        self.assertIsNotNone(jaxpr)
+
+    def test_empty_function(self):
+        """Test function with no operations."""
+
+        def f(x):
+            return x
+
+        sf = brainstate.transform.StatefulFunction(f)
+        x = jnp.array([1.0, 2.0])
+        sf.make_jaxpr(x)
+
+        cache_key = sf.get_arg_cache_key(x)
+        jaxpr = sf.get_jaxpr_by_cache(cache_key)
+
+        # Should compile successfully
+        self.assertIsNotNone(jaxpr)
+
+    def test_complex_dtype(self):
+        """Test with complex dtype arrays."""
+        state = brainstate.State(jnp.array([1.0 + 2.0j, 3.0 + 4.0j]))
+
+        def f(x):
+            state.value += x
+            return state.value
+
+        sf = brainstate.transform.StatefulFunction(f)
+        x = jnp.array([0.5 + 0.5j, 0.5 + 0.5j])
+        sf.make_jaxpr(x)
+
+        cache_key = sf.get_arg_cache_key(x)
+        jaxpr = sf.get_jaxpr_by_cache(cache_key)
+
+        # Should compile successfully
+        self.assertIsNotNone(jaxpr)
+
+
+class TestStatefulFunctionCacheKey(unittest.TestCase):
+    """Test cache key generation and behavior."""
+
+    def test_cache_key_different_shapes(self):
+        """Test that different input shapes produce different cache keys."""
+
+        def f(x):
+            return x * 2
+
+        sf = brainstate.transform.StatefulFunction(f)
+
+        x1 = jnp.array([1.0, 2.0])
+        x2 = jnp.array([1.0, 2.0, 3.0])
+
+        cache_key1 = sf.get_arg_cache_key(x1)
+        cache_key2 = sf.get_arg_cache_key(x2)
+
+        # Should have different cache keys
+        self.assertNotEqual(cache_key1, cache_key2)
+
+    def test_cache_key_different_dtypes(self):
+        """Test that different dtypes produce different cache keys."""
+
+        def f(x):
+            return x * 2
+
+        sf = brainstate.transform.StatefulFunction(f)
+
+        # Use int32 and float32 instead, which are always available in JAX
+        x1 = jnp.array([1.0, 2.0], dtype=jnp.float32)
+        x2 = jnp.array([1, 2], dtype=jnp.int32)
+
+        cache_key1 = sf.get_arg_cache_key(x1)
+        cache_key2 = sf.get_arg_cache_key(x2)
+
+        # Should have different cache keys due to different dtypes
+        self.assertNotEqual(cache_key1, cache_key2)
+
+    def test_cache_key_same_abstract_values(self):
+        """Test that same abstract values produce same cache keys."""
+
+        def f(x):
+            return x * 2
+
+        sf = brainstate.transform.StatefulFunction(f)
+
+        x1 = jnp.array([1.0, 2.0])
+        x2 = jnp.array([3.0, 4.0])  # Different values, same shape/dtype
+
+        cache_key1 = sf.get_arg_cache_key(x1)
+        cache_key2 = sf.get_arg_cache_key(x2)
+
+        # Should have same cache keys (abstract values are the same)
+        self.assertEqual(cache_key1, cache_key2)
+
+    def test_cache_key_with_pytree_inputs(self):
+        """Test cache key generation with pytree inputs."""
+
+        def f(inputs):
+            x, y = inputs
+            return x + y
+
+        sf = brainstate.transform.StatefulFunction(f)
+
+        inputs1 = (jnp.array([1.0]), jnp.array([2.0]))
+        inputs2 = (jnp.array([3.0]), jnp.array([4.0]))
+
+        cache_key1 = sf.get_arg_cache_key(inputs1)
+        cache_key2 = sf.get_arg_cache_key(inputs2)
+
+        # Should have same cache keys (same structure/shapes)
+        self.assertEqual(cache_key1, cache_key2)
+
+
+class TestStatefulFunctionRecompilation(unittest.TestCase):
+    """Test recompilation scenarios."""
+
+    def test_cache_reuse(self):
+        """Test that cache is reused for same inputs."""
+        state = brainstate.State(jnp.array([1.0]))
+
+        def f(x):
+            state.value += x
+            return state.value
+
+        sf = brainstate.transform.StatefulFunction(f)
+
+        x = jnp.array([1.0])
+
+        # First compilation
+        sf.make_jaxpr(x)
+        stats1 = sf.get_cache_stats()
+
+        # Second call with same shape should reuse cache
+        sf.make_jaxpr(x)
+        stats2 = sf.get_cache_stats()
+
+        # Cache size should remain the same
+        self.assertEqual(
+            stats1['jaxpr_cache']['size'],
+            stats2['jaxpr_cache']['size']
+        )
+
+    def test_multiple_compilations_different_shapes(self):
+        """Test multiple compilations with different shapes."""
+        state = brainstate.State(jnp.array([1.0]))
+
+        def f(x):
+            return x * 2
+
+        sf = brainstate.transform.StatefulFunction(f)
+
+        # Compile for different shapes
+        shapes = [
+            jnp.array([1.0]),
+            jnp.array([1.0, 2.0]),
+            jnp.array([1.0, 2.0, 3.0]),
+        ]
+
+        for x in shapes:
+            sf.make_jaxpr(x)
+
+        stats = sf.get_cache_stats()
+
+        # Should have 3 different cache entries
+        self.assertEqual(stats['jaxpr_cache']['size'], 3)
+
+    def test_clear_and_recompile(self):
+        """Test clearing cache and recompiling."""
+        state = brainstate.State(jnp.array([1.0]))
+
+        def f(x):
+            state.value += x
+            return state.value
+
+        sf = brainstate.transform.StatefulFunction(f)
+        x = jnp.array([1.0])
+
+        # Compile
+        sf.make_jaxpr(x)
+        stats_before = sf.get_cache_stats()
+        self.assertGreater(stats_before['jaxpr_cache']['size'], 0)
+
+        # Clear cache
+        sf.clear_cache()
+        stats_after_clear = sf.get_cache_stats()
+        self.assertEqual(stats_after_clear['jaxpr_cache']['size'], 0)
+
+        # Recompile
+        sf.make_jaxpr(x)
+        stats_after_recompile = sf.get_cache_stats()
+        self.assertGreater(stats_after_recompile['jaxpr_cache']['size'], 0)

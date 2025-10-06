@@ -118,8 +118,8 @@ def cond(pred, true_fun: Callable, false_fun: Callable, *operands):
     stateful_false = StatefulFunction(false_fun, name='conda:false').make_jaxpr(*operands)
 
     # state trace and state values
-    state_trace = (stateful_true.get_state_trace_by_call(*operands) +
-                   stateful_false.get_state_trace_by_call(*operands))
+    state_trace = (stateful_true.get_state_trace(*operands) +
+                   stateful_false.get_state_trace(*operands))
     read_state_vals = state_trace.get_read_state_values(True)
     write_state_vals = state_trace.get_write_state_values(True)
 
@@ -225,9 +225,9 @@ def switch(index, branches: Sequence[Callable], *operands):
     wrapped_branches = [StatefulFunction(branch, name='switch').make_jaxpr(*operands) for branch in branches]
 
     # wrap the functions
-    state_trace = (wrapped_branches[0].get_state_trace_by_call(*operands) +
-                   wrapped_branches[1].get_state_trace_by_call(*operands))
-    state_trace.merge(*[wrapped_branch.get_state_trace_by_call(*operands)
+    state_trace = (wrapped_branches[0].get_state_trace(*operands) +
+                   wrapped_branches[1].get_state_trace(*operands))
+    state_trace.merge(*[wrapped_branch.get_state_trace(*operands)
                         for wrapped_branch in wrapped_branches[2:]])
     read_state_vals = state_trace.get_read_state_values(True)
     write_state_vals = state_trace.get_write_state_values(True)

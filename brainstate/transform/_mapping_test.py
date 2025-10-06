@@ -24,7 +24,7 @@ from jax.lax import psum, pmean, pmax
 
 import brainstate
 import brainstate.transform
-from brainstate.transform._mapping import BatchAxisError
+from brainstate._error import BatchAxisError
 from brainstate.transform._mapping import _remove_axis
 
 

@@ -145,12 +145,12 @@ def while_loop(
     stateful_body = StatefulFunction(body_fun, name='while:body').make_jaxpr(init_val)
     cond_cache_key = stateful_cond.get_arg_cache_key(init_val)
     body_cache_key = stateful_body.get_arg_cache_key(init_val)
-    if len(stateful_cond.get_write_states(cond_cache_key)) != 0:
+    if len(stateful_cond.get_write_states_by_cache(cond_cache_key)) != 0:
         raise ValueError("while_loop: cond_fun should not have any write states.")
 
     # state trace and state values
-    state_trace = (stateful_cond.get_state_trace(cond_cache_key) +
-                   stateful_body.get_state_trace(body_cache_key))
+    state_trace = (stateful_cond.get_state_trace_by_cache(cond_cache_key) +
+                   stateful_body.get_state_trace_by_cache(body_cache_key))
     read_state_vals = state_trace.get_read_state_values(True)
     write_state_vals = state_trace.get_write_state_values(True)
     new_cond_fn = wrap_fn(stateful_cond, state_trace, read_state_vals, False, cond_cache_key)
@@ -260,12 +260,12 @@ def bounded_while_loop(
     stateful_body = StatefulFunction(body_fun, name='bounded_while:body').make_jaxpr(init_val)
     cond_cache_key = stateful_cond.get_arg_cache_key(init_val)
     body_cache_key = stateful_body.get_arg_cache_key(init_val)
-    if len(stateful_cond.get_write_states(cond_cache_key)) != 0:
+    if len(stateful_cond.get_write_states_by_cache(cond_cache_key)) != 0:
         raise ValueError("while_loop: cond_fun should not have any write states.")
 
     # state trace and state values
-    state_trace = (stateful_cond.get_state_trace_by_call(init_val) +
-                   stateful_body.get_state_trace_by_call(init_val))
+    state_trace = (stateful_cond.get_state_trace(init_val) +
+                   stateful_body.get_state_trace(init_val))
     read_state_vals = state_trace.get_read_state_values(True)
     write_state_vals = state_trace.get_write_state_values(True)
     new_cond_fn = wrap_fn(stateful_cond, state_trace, read_state_vals, False, cond_cache_key)

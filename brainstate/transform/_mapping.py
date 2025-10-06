@@ -32,7 +32,7 @@ import jax
 from jax.interpreters.batching import BatchTracer
 
 from brainstate._compatible_import import Device
-from brainstate._error import BrainStateError
+from brainstate._error import BatchAxisError
 from brainstate._state import State, catch_new_states
 from brainstate._utils import set_module_as
 from brainstate.random import RandomState, DEFAULT
@@ -53,20 +53,6 @@ F = TypeVar("F", bound=Callable)
 AxisName = Hashable
 AxisToState = Dict[int, List[State]]
 StateToAxis = Dict[State, int]
-
-
-class BatchAxisError(BrainStateError):
-    """
-    Exception raised for errors related to batch axis operations.
-
-    This custom exception is used to indicate errors that occur during
-    batch processing or vectorization operations, particularly in the
-    context of state management in the BrainState framework.
-
-    Inherits from:
-        BrainStateError: The base error class for BrainState-related exceptions.
-    """
-    __module__ = 'brainstate.transform'
 
 
 def _flatten_in_out_states(
@@ -188,10 +174,12 @@ def _compile_stateful_function(
     if isinstance(in_axes, int):
         args = jax.tree.map(lambda x: _remove_axis(x, in_axes), args)
     elif isinstance(in_axes, tuple):
-        args = tuple([
-            arg if in_axis is None else _remove_axis(arg, in_axis)
-            for arg, in_axis in zip(args, in_axes)
-        ])
+        args = tuple(
+            [
+                arg if in_axis is None else _remove_axis(arg, in_axis)
+                for arg, in_axis in zip(args, in_axes)
+            ]
+        )
     stateful_fn.make_jaxpr(state_vals, args)
     return stateful_fn.get_arg_cache_key(state_vals, args)
 
@@ -240,9 +228,7 @@ def _get_batch_size(
                     batch_sizes.append(state_leaves[0].shape[axis])
 
     if len(batch_sizes) == 0:
-        assert axis_size is not None, (
-            "Unable to determine batch size. Please provide the 'axis_size' argument."
-        )
+        assert axis_size is not None, "Unable to determine batch size. Please provide the 'axis_size' argument."
         return axis_size
     else:
         # Ensure all batch sizes are consistent
@@ -252,10 +238,7 @@ def _get_batch_size(
         return batch_sizes[0]
 
 
-def _format_state_axes(
-    in_states,
-    out_states,
-):
+def _format_state_axes(in_states, out_states):
     """
     Format and validate the axes of input and output states.
 
@@ -312,30 +295,6 @@ def _vmap_transform(
     axis_name: AxisName | None = None,
     spmd_axis_name: AxisName | tuple[AxisName, ...] | None = None,
 ):
-    """
-    Transforms a function for vectorized mapping (vmap) with state management.
-
-    This internal function applies vectorized mapping to the input function while
-    handling state management for input and output states. It supports custom
-    axis specifications for both inputs and outputs.
-
-    Args:
-        f (F): The function to be transformed for vectorized mapping.
-        in_axes (int | None | Sequence[Any]): Specifies which axes of the input
-            arguments to map over. Default is 0.
-        out_axes (Any): Specifies where the mapped axis should appear in the output.
-            Default is 0.
-        in_states (Dict[int, Dict] | Any | None): Specifies the input states and
-            their corresponding axes for mapping. Default is None.
-        out_states (Dict[int, Dict] | Any | None): Specifies the output states and
-            their corresponding axes for mapping. Default is None.
-        **transform_kwargs: Additional keyword arguments for the transformation.
-
-    Returns:
-        Callable: A new function that applies vectorized mapping to the input
-        function while managing states.
-    """
-
     # TODO: support jax.disable_jit()
 
     # format state axes
@@ -356,23 +315,6 @@ def _vmap_transform(
         in_axes = tuple(in_axes)
 
     def _vmap_fn_for_compilation(in_vmap_state_vals, args):
-        """
-        Compile a function for vectorized mapping (vmap) with state restoration.
-
-        This internal function is used to prepare a function for vectorized mapping
-        by restoring state values before calling the original function.
-
-        Args:
-            in_vmap_state_vals (List[List]): A nested list containing the state values
-                to be restored. The outer list corresponds to different axes, while
-                the inner lists contain the state values for each axis.
-            args (Tuple): The arguments to be passed to the original function after
-                state restoration.
-
-        Returns:
-            Any: The result of calling the original function 'f' with the restored
-            state and provided arguments.
-        """
         # restore state values
         for i, states in enumerate(axis_to_in_states.values()):
             for state, state_val in zip(states, in_vmap_state_vals[i]):
@@ -395,32 +337,6 @@ def _vmap_transform(
         in_state_oth_vals,
         args,
     ):
-        """
-        Wrapper function for vectorized mapping (vmap) that handles state restoration and function execution.
-
-        This function restores state values, random number generators (RNGs), and other state values
-        before calling the original function. It then processes the outputs and prepares them for
-        vectorized mapping.
-
-        Args:
-            rng_keys (Sequence): Random number generator keys for each mapped instance.
-            in_state_vmap_vals (Sequence[Sequence]): Input state values for vectorized mapping,
-                organized by axis.
-            in_state_oth_vals (Sequence): Other input state values not involved in vectorized mapping.
-            args (Tuple): Arguments to be passed to the original function.
-
-        Returns:
-            Tuple: A tuple containing four elements:
-                - out_rng_keys (List): Updated RNG keys after function execution.
-                - out_state_vmap_vals (List[List]): Output state values for vectorized mapping,
-                  organized by axis.
-                - out_state_oth_vals (List): Other output state values not involved in vectorized mapping.
-                - outs: The output of the original function call.
-
-        Raises:
-            AssertionError: If there's a mismatch in the number of states, state values, or RNG keys.
-            BatchAxisError: If a state value is batched but not included in out_states.
-        """
         # restore vmapping state values
         for i, states in enumerate(axis_to_in_states.values()):
             assert len(states) == len(in_state_vmap_vals[i]), (
@@ -432,7 +348,7 @@ def _vmap_transform(
 
         # restore rngs
         cache_key = stateful_fn.get_arg_cache_key(in_state_vmap_vals, args)
-        state_trace = stateful_fn.get_state_trace(cache_key)
+        state_trace = stateful_fn.get_state_trace_by_cache(cache_key)
         rngs = state_trace.state_subset(RandomState)
         rng_sets = set(rngs)
         assert len(rngs) == len(rng_keys), (
@@ -485,27 +401,6 @@ def _vmap_transform(
 
     @functools.wraps(f)
     def vmapped_fn(*args, **kwargs):
-        """
-        Applies vectorized mapping (vmap) to the input function while managing state.
-
-        This function handles the vectorization process, including state management,
-        random number generation, and function compilation. It prepares the input
-        states, compiles the stateful function, manages random number generators,
-        applies the vmap transformation, and restores the output states.
-
-        Args:
-            *args: Variable length argument list containing the input arguments
-                   to be passed to the vectorized function.
-
-        Returns:
-            Any: The output of the vectorized function after applying vmap and
-                 managing states.
-
-        Note:
-            This function assumes the existence of several helper functions and
-            data structures (e.g., axis_to_in_states, in_state_to_axis) which
-            should be defined in the broader context.
-        """
         if len(kwargs):
             raise NotImplementedError(
                 "Keyword arguments `f(**kwargs)` are not supported in brainstate.transform.vmap"
@@ -528,7 +423,7 @@ def _vmap_transform(
         cache_key = _compile_stateful_function(stateful_fn, (st_in_axes, in_axes), (in_state_map_vals, args))
 
         # random keys
-        state_trace = stateful_fn.get_state_trace(cache_key)
+        state_trace = stateful_fn.get_state_trace_by_cache(cache_key)
         rngs = state_trace.state_subset(RandomState)
         rng_sets = set(rngs)
         if len(rngs):
@@ -994,7 +889,7 @@ def _vmap_new_states_transform(
         # vmapping
         with catch_new_states(state_to_exclude=state_to_exclude) as catcher:
             outs, vmap_state_vals = new_fun(args)
-            vmap_states = catcher.get_states()
+            vmap_states = catcher.get_states_by_cache()
 
         # restore vmapped state values
         for st_val, st in zip(vmap_state_vals, vmap_states):

@@ -16,6 +16,7 @@
 
 __all__ = [
     'BrainStateError',
+    'BatchAxisError',
 ]
 
 
@@ -28,3 +29,17 @@ class BrainStateError(Exception):
     BrainState exceptions.
     """
     pass
+
+
+class BatchAxisError(BrainStateError):
+    """
+    Exception raised for errors related to batch axis operations.
+
+    This custom exception is used to indicate errors that occur during
+    batch processing or vectorization operations, particularly in the
+    context of state management in the BrainState framework.
+
+    Inherits from:
+        BrainStateError: The base error class for BrainState-related exceptions.
+    """
+    __module__ = 'brainstate.transform'

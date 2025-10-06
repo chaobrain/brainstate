@@ -74,7 +74,7 @@ def wrap_single_fun_in_multi_branches(
         >>> sf = brainstate.transform.StatefulFunction(branch_fn)
         >>> # wrapped_fn = wrap_single_fun_in_multi_branches(sf, merged_trace, read_vals)
     """
-    state_ids_belong_to_this_fun = {id(st): st for st in stateful_fun.get_states(cache_key)}
+    state_ids_belong_to_this_fun = {id(st): st for st in stateful_fun.get_states_by_cache(cache_key)}
 
     @wraps(stateful_fun.fun)
     def wrapped_branch(write_state_vals, *operands):
@@ -96,7 +96,7 @@ def wrap_single_fun_in_multi_branches(
 
         if return_states:
             # get all written state values
-            new_state_vals = {id(st): val for st, val in zip(stateful_fun.get_states(cache_key), new_state_vals)}
+            new_state_vals = {id(st): val for st, val in zip(stateful_fun.get_states_by_cache(cache_key), new_state_vals)}
             write_state_vals = tuple([
                 (new_state_vals[id(st)] if id(st) in state_ids_belong_to_this_fun else w_val)
                 if write else None
@@ -169,7 +169,7 @@ def wrap_single_fun_in_multi_branches_while_loop(
         >>> # wrapped_cond = wrap_single_fun_in_multi_branches_while_loop(sf_cond, ...)
         >>> # wrapped_body = wrap_single_fun_in_multi_branches_while_loop(sf_body, ...)
     """
-    state_ids_belong_to_this_fun = {id(st): st for st in stateful_fun.get_states(cache_key)}
+    state_ids_belong_to_this_fun = {id(st): st for st in stateful_fun.get_states_by_cache(cache_key)}
 
     @wraps(stateful_fun.fun)
     def wrapped_branch(init_val):
@@ -192,7 +192,7 @@ def wrap_single_fun_in_multi_branches_while_loop(
 
         if return_states:
             # get all written state values
-            new_state_vals = {id(st): val for st, val in zip(stateful_fun.get_states(cache_key), new_state_vals)}
+            new_state_vals = {id(st): val for st, val in zip(stateful_fun.get_states_by_cache(cache_key), new_state_vals)}
             write_state_vals = tuple([
                 (new_state_vals[id(st)] if id(st) in state_ids_belong_to_this_fun else w_val)
                 if write else None

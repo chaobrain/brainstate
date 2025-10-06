@@ -246,7 +246,7 @@ def scan(
     x_avals = [jax.core.mapped_aval(length, 0, aval) for aval in xs_avals]
     args = [init, xs_tree.unflatten(x_avals)]
     stateful_fun = StatefulFunction(f, name='scan').make_jaxpr(*args)
-    state_trace = stateful_fun.get_state_trace_by_call(*args)
+    state_trace = stateful_fun.get_state_trace(*args)
     all_writen_state_vals = state_trace.get_write_state_values(True)
     all_read_state_vals = state_trace.get_read_state_values(True)
     wrapped_f = wrap_single_fun(stateful_fun, state_trace.been_writen, all_read_state_vals)
@@ -385,7 +385,7 @@ def checkpointed_scan(
     x_avals = [jax.core.mapped_aval(length, 0, aval) for aval in xs_avals]
     args = (init, xs_tree.unflatten(x_avals))
     stateful_fun = StatefulFunction(f, name='checkpoint_scan').make_jaxpr(*args)
-    state_trace = stateful_fun.get_state_trace_by_call(*args)
+    state_trace = stateful_fun.get_state_trace(*args)
     cache_key = stateful_fun.get_arg_cache_key(*args)
     # get all states
     been_written = state_trace.been_writen
@@ -393,7 +393,7 @@ def checkpointed_scan(
     write_state_vals = state_trace.get_write_state_values(True)
 
     # initialize the collected values/dataa
-    out_info = stateful_fun.get_out_shapes(cache_key)[0]
+    out_info = stateful_fun.get_out_shapes_by_cache(cache_key)[0]
     assert len(out_info) == 2, "function in checkpointed_scan should return two data: carray and out."
     data2collection = jax.tree.map(lambda x: jnp.zeros((length,) + x.shape, x.dtype), out_info[1])
     del out_info
