@@ -22,6 +22,7 @@ import jax.numpy as jnp
 import pytest
 
 import brainstate
+from brainstate._error import BatchAxisError
 from brainstate._compatible_import import jaxpr_as_fun
 from brainstate.transform._make_jaxpr import _BoundedCache, make_hashable
 
@@ -1506,3 +1507,41 @@ class TestStatefulFunctionRecompilation(unittest.TestCase):
         sf.make_jaxpr(x)
         stats_after_recompile = sf.get_cache_stats()
         self.assertGreater(stats_after_recompile['jaxpr_cache']['size'], 0)
+
+class TestMappingStatefulFunction(unittest.TestCase):
+    def test_batched_state_without_axis_raises(self):
+        state = brainstate.State(jnp.array([0.0, 0.0, 0.0]))
+
+        def f(x):
+            state.value = state.value + x
+            return state.value
+
+        sf = brainstate.transform.StatefulMapping(
+            f,
+            in_axes=0,
+            out_axes=0,
+        )
+
+        sf.make_jaxpr(jnp.arange(3.0))
+        with self.assertRaises(BatchAxisError):
+            sf.jaxpr_call_auto(jnp.arange(3.0))
+
+    def test_batched_state_with_explicit_axis(self):
+        state = brainstate.State(jnp.array([0.0, 0.0, 0.0]))
+
+        def f(x):
+            state.value = state.value + x
+            return state.value
+
+        sf = brainstate.transform.StatefulMapping(
+            f,
+            in_axes=0,
+            out_axes=0,
+            state_in_axes={state: 0},
+            state_out_axes={state: 0},
+        )
+
+        sf.make_jaxpr(jnp.arange(3.0))
+        result = sf.jaxpr_call_auto(jnp.arange(3.0))
+        self.assertTrue(jnp.allclose(result, state.value))
+

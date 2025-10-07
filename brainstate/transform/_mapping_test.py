@@ -18,14 +18,12 @@ import unittest
 
 import jax
 import jax.numpy as jnp
-import numpy as np
 from jax import vmap
 from jax.lax import psum, pmean, pmax
 
 import brainstate
 import brainstate.transform
 from brainstate._error import BatchAxisError
-from brainstate.transform._mapping import _remove_axis
 
 
 class TestVmap(unittest.TestCase):
@@ -42,7 +40,7 @@ class TestVmap(unittest.TestCase):
 
         model = Model()
         r1 = model.a.value * model.b.value
-        r2 = brainstate.transform.vmap(model, in_states=model.states())()
+        r2 = brainstate.transform.vmap(model, state_in_axes=True, axis_size=5)()
         self.assertTrue(jnp.allclose(r1, r2))
 
     def test_vmap_2(self):
@@ -52,18 +50,22 @@ class TestVmap(unittest.TestCase):
 
                 self.a = brainstate.ShortTermState(brainstate.random.randn(5))
                 self.b = brainstate.ShortTermState(brainstate.random.randn(5))
-                self.c = brainstate.State(brainstate.random.randn(1))
+                self.c = brainstate.State(brainstate.random.randn(1), tag='c')
 
             def __call__(self, *args, **kwargs):
                 self.c.value = self.a.value * self.b.value
                 return self.c.value + 1.
 
         model = Model()
-        with self.assertRaises(BatchAxisError):
-            r2 = brainstate.transform.vmap(model, in_states=model.states(brainstate.ShortTermState))()
+        r2 = brainstate.transform.vmap(model,
+                                       state_in_axes=brainstate.ShortTermState,
+                                       axis_size=5)()
 
         model = Model()
-        r2 = brainstate.transform.vmap(model, in_states=model.states(brainstate.ShortTermState), out_states=model.c)()
+        r2 = brainstate.transform.vmap(model,
+                                       state_in_axes=brainstate.ShortTermState,
+                                       state_out_axes='c',
+                                       axis_size=5)()
 
     def test_vmap_3(self):
         class Model(brainstate.nn.Module):
@@ -78,7 +80,7 @@ class TestVmap(unittest.TestCase):
 
         model = Model()
         with self.assertRaises(BatchAxisError):
-            r2 = brainstate.transform.vmap(model, in_states=model.states(), out_states={1: model.states()})()
+            r2 = brainstate.transform.vmap(model, state_in_axes=model.states(), out_states={1: model.states()})()
 
     def test_vmap_with_random(self):
         class Model(brainstate.nn.Module):
@@ -97,7 +99,7 @@ class TestVmap(unittest.TestCase):
         model = Model()
         r2 = brainstate.transform.vmap(
             model,
-            in_states=model.states(brainstate.ShortTermState),
+            state_in_axes=model.states(brainstate.ShortTermState),
             out_states=model.c
         )(
             brainstate.random.split_key(5)
@@ -120,7 +122,7 @@ class TestVmap(unittest.TestCase):
         model = Model()
         r2 = brainstate.transform.vmap(
             model,
-            in_states=model.states(brainstate.ShortTermState),
+            state_in_axes=model.states(brainstate.ShortTermState),
             out_states=model.c
         )()
         print(brainstate.random.DEFAULT)
@@ -143,7 +145,7 @@ class TestVmap(unittest.TestCase):
         model = Model()
         r2 = brainstate.transform.vmap(
             model,
-            in_states=model.states(brainstate.ShortTermState),
+            state_in_axes=model.states(brainstate.ShortTermState),
             out_states=model.c
         )(
             brainstate.random.split_key(5)
@@ -173,7 +175,7 @@ class TestVmap(unittest.TestCase):
         gru = brainstate.nn.GRUCell(2, 3)
         gru.init_state(5)
 
-        @brainstate.transform.vmap(in_states=gru.states(brainstate.HiddenState))
+        @brainstate.transform.vmap(state_in_axes=gru.states(brainstate.HiddenState))
         def forward(x):
             return gru(x)
 
@@ -193,7 +195,7 @@ class TestVmap(unittest.TestCase):
 
         foo = Foo()
 
-        @brainstate.transform.vmap(in_states=foo.states())
+        @brainstate.transform.vmap(state_in_axes=foo.states())
         def mul():
             foo()
 
@@ -231,7 +233,7 @@ class TestVmap(unittest.TestCase):
 
         foo = Foo()
 
-        @brainstate.transform.vmap(in_states=foo.states())
+        @brainstate.transform.vmap(state_in_axes=foo.states())
         def mul():
             foo()
 
@@ -300,7 +302,7 @@ class TestVmap(unittest.TestCase):
         init1()
         print(foo.c.value)
 
-        @brainstate.transform.vmap_new_states(state_tag='new2', axis_size=5, in_states=foo.states('new1'))
+        @brainstate.transform.vmap_new_states(state_tag='new2', axis_size=5, state_in_axes=foo.states('new1'))
         def init2():
             foo.init_state_v2()
 
@@ -330,75 +332,6 @@ class TestMap(unittest.TestCase):
             self.assertTrue(jnp.allclose(r2, true_r))
             self.assertTrue(jnp.allclose(r3, true_r))
             self.assertTrue(jnp.allclose(r4, true_r))
-
-
-class TestRemoveAxis:
-
-    def test_remove_axis_2d_array_axis_0(self):
-        input_array = np.array([[1, 2, 3], [4, 5, 6]])
-        expected_output = np.array([1, 2, 3])
-
-        result = _remove_axis(input_array, axis=0)
-
-        np.testing.assert_array_equal(result, expected_output)
-
-    def test_remove_axis_3d_array(self):
-        # Create a 3D array
-        x = np.arange(24).reshape((2, 3, 4))
-
-        # Remove axis 1
-        result = _remove_axis(x, axis=1)
-
-        # Expected result: a 2D array with shape (2, 4)
-        expected = x[:, 0, :]
-
-        np.testing.assert_array_equal(result, expected)
-        assert result.shape == (2, 4)
-
-    def test_remove_axis_1d_array(self):
-        # Create a 1D array
-        x = np.array([1, 2, 3, 4, 5])
-
-        # Remove axis 0 (the only axis in a 1D array)
-        result = _remove_axis(x, axis=0)
-
-        # Check that the result is a scalar (0D array) and equal to the first element
-        assert np.isscalar(result), "Result should be a scalar"
-        assert result == 1, "Result should be equal to the first element of the input array"
-
-    def test_remove_axis_out_of_bounds(self):
-        x = jnp.array([[1, 2], [3, 4]])
-        with unittest.TestCase().assertRaises(IndexError):
-            _remove_axis(x, axis=2)
-
-    def test_remove_axis_negative(self):
-        x = jnp.array([[[1, 2], [3, 4]], [[5, 6], [7, 8]]])
-        result = _remove_axis(x, -1)
-        expected = jnp.array([[1, 3], [5, 7]])
-        np.testing.assert_array_equal(result, expected)
-
-    def test_remove_axis_with_nan_and_inf(self):
-        x = jnp.array([[1.0, jnp.nan, 3.0], [4.0, 5.0, jnp.inf]])
-        result = _remove_axis(x, axis=0)
-        expected = jnp.array([1.0, jnp.nan, 3.0])
-        np.testing.assert_array_equal(result, expected)
-        assert jnp.isnan(result[1])
-
-    def test_remove_axis_different_dtypes(self):
-        # Test with integer array
-        int_array = jnp.array([[1, 2, 3], [4, 5, 6]])
-        int_result = _remove_axis(int_array, 0)
-        assert jnp.array_equal(int_result, jnp.array([1, 2, 3]))
-
-        # Test with float array
-        float_array = jnp.array([[1.1, 2.2, 3.3], [4.4, 5.5, 6.6]])
-        float_result = _remove_axis(float_array, 1)
-        assert jnp.allclose(float_result, jnp.array([1.1, 4.4]))
-
-        # Test with complex array
-        complex_array = jnp.array([[1 + 1j, 2 + 2j], [3 + 3j, 4 + 4j]])
-        complex_result = _remove_axis(complex_array, 0)
-        assert jnp.allclose(complex_result, jnp.array([1 + 1j, 2 + 2j]))
 
 
 class TestVMAPNewStatesEdgeCases(unittest.TestCase):

@@ -55,18 +55,22 @@ import functools
 import inspect
 import operator
 import threading
-from collections import OrderedDict
-from collections.abc import Hashable, Iterable, Sequence, MutableSet
+from collections import OrderedDict, defaultdict
+from collections.abc import Hashable, Iterable, Sequence
+from collections.abc import MutableSet
 from contextlib import ExitStack
-from typing import Any, Callable, Tuple, Union, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Tuple, Union
 
 import jax
+import jax.numpy as jnp
 from jax._src import source_info_util
 from jax._src.linear_util import annotate
 from jax._src.traceback_util import api_boundary
+from jax._src.util import memoize
 from jax.api_util import shaped_abstractify
 from jax.extend.linear_util import transformation_with_aux
 from jax.interpreters import partial_eval as pe
+from jax.interpreters.batching import make_iota, to_elt, BatchTracer, BatchTrace
 
 from brainstate._compatible_import import (
     ClosedJaxpr,
@@ -82,14 +86,17 @@ from brainstate._compatible_import import (
 )
 from brainstate._state import State, StateTraceStack
 from brainstate._utils import set_module_as
-from brainstate.typing import PyTree
+from brainstate.random import RandomState
+from brainstate.typing import Filter, PyTree
 from brainstate.util import PrettyObject
+from brainstate.util.filter import to_predicate
 
 AxisName = Hashable
 
 __all__ = [
     "StatefulFunction",
     "make_jaxpr",
+    "StatefulMapping",
 ]
 
 
@@ -379,50 +386,6 @@ def _jax_v04_new_jax_trace():
     frame = main.jaxpr_stack[-1]
     trace = pe.DynamicJaxprTrace(main, jax.core.cur_sublevel())
     return frame, trace
-
-
-def _jax_v04_new_arg():
-    # Should be within the calling of ``jax.make_jaxpr()``
-    frame, trace = _jax_v04_new_jax_trace()
-    # Set the function to transform the new argument to a tracer
-    fn = functools.partial(_jax_v04_new_arg_fn, frame, trace)
-    return fn
-
-
-def _jax_new_version_new_arg():
-    trace = jax.core.trace_ctx.trace
-
-    def wrapper(x):
-        if jax.__version_info__ < (0, 6, 1):
-            return trace.new_arg(shaped_abstractify(x))
-        else:
-            return trace.new_arg(shaped_abstractify(x), source_info=source_info_util.current())
-
-    return wrapper
-
-
-def _init_state_trace_stack(name) -> StateTraceStack:
-    """
-    Initialize a state trace stack for tracking state during jaxpr creation.
-
-    Parameters
-    ----------
-    name : str
-        Name identifier for the state trace stack.
-
-    Returns
-    -------
-    StateTraceStack
-        Initialized state trace stack with appropriate new_arg handler for
-        the current JAX version.
-    """
-    state_trace: StateTraceStack = StateTraceStack(name=name)
-
-    if jax.__version_info__ < (0, 4, 36):
-        state_trace.set_new_arg(_jax_v04_new_arg())
-    else:
-        state_trace.set_new_arg(_jax_new_version_new_arg())
-    return state_trace
 
 
 class StatefulFunction(PrettyObject):
@@ -990,6 +953,25 @@ class StatefulFunction(PrettyObject):
         self._cached_jaxpr_out_tree.clear()
         self._cached_state_trace.clear()
 
+    def __jax_v04_new_arg(self):
+        # Should be within the calling of ``jax.make_jaxpr()``
+        frame, trace = _jax_v04_new_jax_trace()
+        # Set the function to transform the new argument to a tracer
+        fn = functools.partial(_jax_v04_new_arg_fn, frame, trace)
+        return fn
+
+    def __jax_new_version_new_arg(self):
+        trace = jax.core.trace_ctx.trace
+
+        def wrapper(x):
+            x = x._value
+            if jax.__version_info__ < (0, 6, 1):
+                return trace.new_arg(shaped_abstractify(x))
+            else:
+                return trace.new_arg(shaped_abstractify(x), source_info=source_info_util.current())
+
+        return wrapper
+
     def _wrapped_fun_to_eval(
         self,
         cache_key,
@@ -1022,7 +1004,11 @@ class StatefulFunction(PrettyObject):
             depending on return_only_write setting).
         """
         # state trace
-        state_trace = _init_state_trace_stack(self.name)
+        state_trace: StateTraceStack = StateTraceStack(self.name)
+        if jax.__version_info__ < (0, 4, 36):
+            state_trace.set_new_arg(self.__jax_v04_new_arg())
+        else:
+            state_trace.set_new_arg(self.__jax_new_version_new_arg())
         self._cached_state_trace.set(cache_key, state_trace)
         with state_trace:
             out = self.fun(*args, **dyn_kwargs, **static_kwargs)
@@ -1090,6 +1076,7 @@ class StatefulFunction(PrettyObject):
                     return_shape=True,
                     abstracted_axes=self.abstracted_axes,
                 )(*args, **dyn_kwargs)
+
                 # returns
                 self._cached_jaxpr_out_tree.set(cache_key, jax.tree.structure((out_shapes, state_shapes)))
                 self._cached_out_shapes.set(cache_key, (out_shapes, state_shapes))
@@ -1430,8 +1417,274 @@ def make_jaxpr(
     return make_jaxpr_f
 
 
+class StatefulMapping(StatefulFunction):
+    __module__ = "brainstate.transform"
+
+    def __init__(
+        self,
+        fun: Callable,
+        in_axes: Union[int, Tuple[int, ...], None] = 0,
+        out_axes: Union[int, Tuple[int, ...], None] = 0,
+        state_in_axes: Optional[Union[Dict[AxisName, Filter], Filter]] = None,
+        state_out_axes: Optional[Union[Dict[AxisName, Filter], Filter]] = None,
+        # jit specific parameters
+        static_argnums: Union[int, Iterable[int]] = (),
+        static_argnames: Union[str, Iterable[str]] = (),
+        axis_env: Optional[Sequence[tuple[Hashable, int]]] = None,
+        abstracted_axes: Optional[Any] = None,
+        # mapping specific parameters
+        axis_size: Optional[int] = None,
+        axis_name: AxisName | None = None,
+        name: Optional[str] = None,
+        # mapping function
+        mapping_fn: Callable = jax.vmap,
+    ):
+        self.origin_fun = fun
+        super().__init__(
+            fun=self._wrapped_fun,
+            static_argnums=static_argnums,
+            static_argnames=static_argnames,
+            axis_env=axis_env,
+            abstracted_axes=abstracted_axes,
+            name=name,
+            return_only_write=False,
+        )
+        self.in_axes = in_axes
+        self.out_axes = out_axes
+        if state_in_axes is None:
+            state_in_axes = dict()
+        elif not isinstance(state_in_axes, dict):
+            state_in_axes = {0: to_predicate(state_in_axes)}
+        state_in_axes = {k: to_predicate(v) for k, v in state_in_axes.items()}  # type: ignore
+        self.state_in_axes = state_in_axes
+
+        if state_out_axes is None:
+            state_out_axes = dict()
+        elif not isinstance(state_out_axes, dict):
+            state_out_axes = {0: to_predicate(state_out_axes)}
+        state_out_axes = {k: to_predicate(v) for k, v in state_out_axes.items()}  # type: ignore
+        self.state_out_axes = state_out_axes
+
+        self.axis_size = axis_size
+        self.axis_name = axis_name
+        self.mapping_fn = mapping_fn
+
+        # Cache for discovered state-to-axis mappings
+        self._cached_map_dim_to_in_states = _BoundedCache(maxsize=128)
+        self._cached_map_dim_to_out_states = _BoundedCache(maxsize=128)
+        self._cached_map_state_trace = _BoundedCache(maxsize=128)
+        self._cached_map_batch_size = _BoundedCache(maxsize=128)
+
+    def _infer_batch_size(self, args, in_axes):
+        if in_axes is None:
+            raise ValueError("Cannot infer batch size when in_axes is None")
+
+        batch_sizes = []
+
+        def get_batch_size_from_arg(arg_, axis_):
+            if axis_ is None:
+                return None
+
+            def _get_size(arr):
+                if not hasattr(arr, 'shape'):
+                    return None
+                if arr.ndim == 0:
+                    return None
+                ax = axis_ if axis_ >= 0 else arr.ndim + axis_
+                if ax < 0 or ax >= arr.ndim:
+                    raise IndexError(f"Axis {ax} is out of bounds for array of shape {arr.shape}")
+                return arr.shape[ax]
+
+            # Get all sizes from the pytree
+            sizes = [s for s in jax.tree.leaves(jax.tree.map(_get_size, arg_)) if s is not None]
+            return sizes[0] if sizes else None
+
+        if isinstance(in_axes, int):
+            # All args batched along the same axis
+            for arg in args:
+                size = get_batch_size_from_arg(arg, in_axes)
+                if size is not None:
+                    batch_sizes.append(size)
+        elif isinstance(in_axes, (tuple, list)):
+            # Different axes for different args
+            if len(in_axes) != len(args):
+                raise ValueError(
+                    f"Length of in_axes ({len(in_axes)}) must match number of arguments ({len(args)})"
+                )
+            for arg, axis in zip(args, in_axes):
+                size = get_batch_size_from_arg(arg, axis)
+                if size is not None:
+                    batch_sizes.append(size)
+        else:
+            raise TypeError(f"Unsupported in_axes type: {type(in_axes)}")
+
+        if not batch_sizes:
+            if self.axis_size is None:
+                raise ValueError("Cannot infer batch size when axis_size is None")
+            batch_sizes.append(self.axis_size)
+
+        # Check all batch sizes are consistent
+        if not all(s == batch_sizes[0] for s in batch_sizes):
+            raise ValueError(
+                f"Inconsistent batch sizes found: {batch_sizes}. "
+                f"All batched arguments must have the same size along their batch axes."
+            )
+
+        return batch_sizes[0]
+
+    def __new_batch_arg(self, batch_size: int, dim_to_states: dict):
+        trace = jax.core.trace_ctx.trace
+        assert isinstance(trace, BatchTrace), f"Expected to be called within a BatchTrace context, but got {trace}"
+
+        def wrapper(x):
+            if isinstance(x, RandomState):
+                idx = memoize(lambda: BatchTracer(trace, make_iota(batch_size), 0, source_info_util.current()))
+                dim_to_states['random'].append(x)
+                return to_elt(trace, idx, jnp.ones((batch_size,) + x._value.shape, x._value.dtype), 0)
+            for dim, filter_ in self.state_in_axes.items():
+                idx = memoize(lambda: BatchTracer(trace, make_iota(batch_size), dim, source_info_util.current()))
+                if filter_(tuple(), x):
+                    dim_to_states[dim].append(x)
+                    return jax.tree.map(lambda xx: to_elt(trace, idx, xx, dim), x._value)
+            return x._value
+
+        return wrapper
+
+    def __eval(self, cache_key, *args, **kwargs):
+        def fn_to_eval(*new_args, **new_kwargs):
+            dim_to_in_states = defaultdict(list)
+            state_trace = StateTraceStack(name=self.name)
+            state_trace.set_new_arg(
+                self.__new_batch_arg(self._cached_map_batch_size.get(cache_key), dim_to_in_states)
+            )
+            self._cached_map_state_trace.set(cache_key, state_trace)
+
+            # call functions
+            with state_trace:
+                out_ = self.origin_fun(*new_args, **new_kwargs)
+
+            # cache
+            self._cached_map_dim_to_in_states.set(cache_key, dim_to_in_states)
+
+            # vmapped state values
+            out_states = defaultdict(list)
+            out_states['random'] = [st for st in state_trace.states if isinstance(st, RandomState)]
+            for st in state_trace.states:
+                if not isinstance(st, RandomState):
+                    leaves = jax.tree.leaves(st._value)
+                    batch_dims = set([leaf.batch_dim if isinstance(leaf, BatchTracer) else None for leaf in leaves])
+                    if len(batch_dims) != 1:
+                        raise ValueError(
+                            f"State {st} has inconsistent batch dimensions in its leaves: {batch_dims}. "
+                            "All leaves must have the same batch dimension."
+                        )
+                    batch_dim = batch_dims.pop()
+                    out_states[batch_dim].append(st)
+            self._cached_map_dim_to_out_states.set(cache_key, out_states)
+
+        try:
+            jax.vmap(
+                fn_to_eval,
+                in_axes=self.in_axes,
+                out_axes=self.out_axes,
+                axis_name=self.axis_name,
+                axis_size=self.axis_size
+            )(*args, **kwargs)
+            self._cached_map_state_trace.get(cache_key).recovery_original_values()
+        except Exception as e:
+            if cache_key in self._cached_map_state_trace:
+                self._cached_map_state_trace.get(cache_key).recovery_original_values()
+            self._cached_map_state_trace.pop(cache_key, None)
+            self._cached_map_dim_to_in_states.pop(cache_key, None)
+            self._cached_map_dim_to_out_states.pop(cache_key, None)
+            self._cached_map_batch_size.pop(cache_key, None)
+            raise RuntimeError(f"Failed to evaluate {self}") from e
+
+    def __assign_vals_from_in_states(self, cache_key, rand_st, *other_st):
+        in_states = self._cached_map_dim_to_in_states.get(cache_key)
+        for st, val in zip(in_states['random'], rand_st):
+            assert isinstance(st, RandomState)
+            st.restore_value(val)
+        for group, group_vals in zip([in_states[dim] for dim in in_states.keys() if dim != 'random'], other_st):
+            for st, val in zip(group, group_vals):
+                st.restore_value(val)
+
+    def __assign_vals_from_out_states(self, cache_key, rand_st, *other_st):
+        out_states = self._cached_map_dim_to_out_states.get(cache_key)
+        for st, val in zip(out_states['random'], rand_st):
+            assert isinstance(st, RandomState)
+            st.restore_value(val)
+        for group, group_vals in zip([out_states[dim] for dim in out_states.keys() if dim != 'random'], other_st):
+            for st, val in zip(group, group_vals):
+                st.restore_value(val)
+
+    def __get_in_state_vals(self, cache_key: Hashable):
+        in_states = self._cached_map_dim_to_in_states.get(cache_key)
+        in_axes = []
+        in_values = []
+        for dim, states in in_states.items():
+            if dim == 'random':
+                continue
+            in_axes.append(dim)
+            in_values.append([st.value for st in states])
+        return tuple(in_axes), in_values
+
+    def __get_out_state_vals(self, cache_key: Hashable):
+        out_states = self._cached_map_dim_to_out_states.get(cache_key)
+        out_axes = []
+        out_values = []
+        for dim, state in out_states.items():
+            if dim == 'random':
+                continue
+            out_axes.append(dim)
+            out_values.append([st.value for st in state])
+        return tuple(out_axes), out_values
+
+    def __get_rand_state_vals(self, cache_key: Hashable):
+        in_states = self._cached_map_dim_to_in_states.get(cache_key)
+        batch_size = self._cached_map_batch_size.get(cache_key)
+        rand_vals, rand_recover_vals = [], []
+        for st in in_states['random']:
+            assert isinstance(st, RandomState)
+            rand_vals.append(st.split_key(batch_size))
+            rand_recover_vals.append(st.value)
+        return tuple(rand_vals), tuple(rand_recover_vals)
+
+    def __recover_rand_state_vals(self, cache_key: Hashable, rand_recover_vals):
+        state_trace = self._cached_map_state_trace.get(cache_key)
+        rand_states = [st for st in state_trace.states if isinstance(st, RandomState)]
+        for st, val in zip(rand_states, rand_recover_vals):
+            st.restore_value(val)
+
+    def _wrapped_fun(self, *args, **kwargs) -> Tuple[Any, Tuple[State, ...]]:
+        batch_size = self._infer_batch_size(args, self.in_axes)
+        cache_key = self.get_arg_cache_key(*args, **kwargs)
+        self._cached_map_batch_size.set(cache_key, batch_size)
+        if cache_key not in self._cached_map_state_trace:
+            self.__eval(cache_key, *args, **kwargs)
+
+        def fn_to_map(origin_args, rand_st, *non_rand_st):
+            self.__assign_vals_from_in_states(cache_key, rand_st, *non_rand_st)
+            out = self.origin_fun(*origin_args[0], **origin_args[1])
+            return out, *self.__get_out_state_vals(cache_key)[1]
+
+        in_axes, in_state_vals = self.__get_in_state_vals(cache_key)
+        out_axes, out_state_vals = self.__get_out_state_vals(cache_key)
+        rand_vals, rand_recover_vals = self.__get_rand_state_vals(cache_key)
+        mapped_fn = self.mapping_fn(
+            fn_to_map,
+            in_axes=(self.in_axes, 0) + in_axes,
+            out_axes=(self.out_axes,) + out_axes,
+            axis_size=self.axis_size,
+            axis_name=self.axis_name,
+        )
+        out_, *out_state_vals = mapped_fn((args, kwargs), rand_vals, *in_state_vals)
+        self.__assign_vals_from_out_states(cache_key, rand_recover_vals, *out_state_vals)
+        return out_
+
+
 def _check_callable(fun):
-    # In Python 3.10+, the only thing stopping us from supporting staticmethods
+    # In Python 3.10+, the only thing stopping us from supporting static methods
     # is that we can't take weak references to them, which the C++ JIT requires.
     if isinstance(fun, staticmethod):
         raise TypeError(f"staticmethod arguments are not supported, got {fun}")
