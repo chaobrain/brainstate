@@ -68,6 +68,8 @@ __all__ = [
     'JaxprEqn',
     'Jaxpr',
     'Literal',
+
+    'make_iota', 'to_elt', 'BatchTracer', 'BatchTrace',
 ]
 
 T = TypeVar("T")
@@ -79,6 +81,11 @@ if jax.__version_info__ < (0, 5, 0):
     from jax.lib.xla_client import Device
 else:
     from jax import Device
+
+if jax.__version_info__ < (0, 7, 1):
+    from jax.interpreters.batching import make_iota, to_elt, BatchTracer, BatchTrace
+else:
+    from jax._src.interpreters.batching import make_iota, to_elt, BatchTracer, BatchTrace
 
 if jax.__version_info__ < (0, 4, 38):
     from jax.core import ClosedJaxpr, extend_axis_env_nd, Primitive, jaxpr_as_fun

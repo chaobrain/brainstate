@@ -70,19 +70,10 @@ from jax._src.util import memoize
 from jax.api_util import shaped_abstractify
 from jax.extend.linear_util import transformation_with_aux
 from jax.interpreters import partial_eval as pe
-from jax.interpreters.batching import make_iota, to_elt, BatchTracer, BatchTrace
 
 from brainstate._compatible_import import (
-    ClosedJaxpr,
-    extend_axis_env_nd,
-    safe_map,
-    safe_zip,
-    unzip2,
-    wraps,
-    wrap_init,
-    Literal,
-    Var,
-    Jaxpr,
+    ClosedJaxpr, extend_axis_env_nd, safe_map, safe_zip, unzip2, wraps, wrap_init,
+    Literal, Var, Jaxpr, make_iota, to_elt, BatchTracer, BatchTrace,
 )
 from brainstate._state import State, StateTraceStack
 from brainstate._utils import set_module_as
@@ -964,11 +955,11 @@ class StatefulFunction(PrettyObject):
         trace = jax.core.trace_ctx.trace
 
         def wrapper(x):
-            x = x._value
             if jax.__version_info__ < (0, 6, 1):
-                return trace.new_arg(shaped_abstractify(x))
+                fn = lambda xx: trace.new_arg(shaped_abstractify(xx))
             else:
-                return trace.new_arg(shaped_abstractify(x), source_info=source_info_util.current())
+                fn = lambda xx: trace.new_arg(shaped_abstractify(xx), source_info=source_info_util.current())
+            return jax.tree.map(fn, x._value)
 
         return wrapper
 

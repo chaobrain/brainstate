@@ -984,7 +984,7 @@ class StateTraceStack(Generic[A]):
         """
         if self._jax_trace_new_arg is not None:
             # internal use
-            state._value = jax.tree.map(self._jax_trace_new_arg, state)
+            state._value = self._jax_trace_new_arg(state)
 
     def __enter__(self) -> 'StateTraceStack':
         TRACE_CONTEXT.state_stack.append(self)
