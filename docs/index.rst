@@ -1,9 +1,9 @@
 ``brainstate`` documentation
 ============================
 
-`brainstate <https://github.com/chaobrain/brainstate>`_ implements a ``State``-based Transformation System for Program Compilation and Augmentation.
+`brainstate <https://github.com/chaobrain/brainstate>`_ implements a ``State``-based transformation system for programming compilation.
 
-``BrainState`` is specifically designed to work with models that have states, including rate-based recurrent neural networks, spiking neural networks, and other dynamical systems.
+
 
 ----
 
@@ -13,32 +13,31 @@ Features
 .. grid::
 
 
-
    .. grid-item::
       :columns: 12 12 12 6
 
-      .. card:: Program Compilation
+      .. card:: State-based Transformation
          :class-card: sd-border-0
          :shadow: none
          :class-title: sd-fs-6
 
          .. div:: sd-font-normal
 
-            ``BrainState`` supports `program compilation <./apis/compile.html>`__ (such as just-in-time compilation) with its `state-based <./apis/brainstate.html>`__ IR construction.
-
+            ``BrainState`` provides an intuitive interface to write `State-based <./apis/brainstate.html>`__
+            programs with powerful `transformation <./apis/transform.html>`__ capabilities.
 
 
    .. grid-item::
       :columns: 12 12 12 6
 
-      .. card:: Program Augmentation
+      .. card:: Neural Network Support
          :class-card: sd-border-0
          :shadow: none
          :class-title: sd-fs-6
 
          .. div:: sd-font-normal
 
-            ``BrainState`` supports program `functionality augmentation <./apis/augment.html>`__ (such batching) with its `graph-based <./apis/graph.html>`__ Python objects.
+            ``BrainState`` implements a neural network module system for building and training `ANNs/SNNs <./apis/nn.html>`__.
 
 
 
