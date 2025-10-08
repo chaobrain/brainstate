@@ -7,6 +7,7 @@ on:
   push:
     branches:
       - '**'        # matches every branch
+      - '!refs/pull/**'  # exclude PR branches
   pull_request:
     branches:
       - '**'        # matches every branch
@@ -16,16 +17,14 @@ permissions:
   contents: read  # to fetch code
   actions: write  # to cancel previous workflows
 
-# This is what will cancel the workflow
+# This prevents duplicate runs: when a PR exists, only the PR event runs
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 
 jobs:
   test_linux:
-    # Skip push events that have an associated pull request
-    if: github.event_name == 'pull_request' || github.event.pull_request == null
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -52,8 +51,6 @@ jobs:
 
 
   test_macos:
-    # Skip push events that have an associated pull request
-    if: github.event_name == 'pull_request' || github.event.pull_request == null
     runs-on: macos-latest
     strategy:
       fail-fast: false
@@ -79,8 +76,6 @@ jobs:
           pytest brainstate/
 
   test_windows:
-    # Skip push events that have an associated pull request
-    if: github.event_name == 'pull_request' || github.event.pull_request == null
     runs-on: windows-latest
     strategy:
       fail-fast: false
