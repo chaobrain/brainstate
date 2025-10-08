@@ -79,35 +79,19 @@ See also the ecosystem
 ``brainstate`` is one part of our `brain simulation ecosystem <https://brainmodeling.readthedocs.io/>`_.
 
 
-.. toctree::
-   :hidden:
-   :maxdepth: 1
-   :caption: Quickstart
-
-   quickstart/concepts-en.ipynb
-   quickstart/concepts-zh.ipynb
-
-
-
 
 .. toctree::
    :hidden:
    :maxdepth: 2
-   :caption: Tutorials
+   :caption: Tutorial Series
 
-
-   tutorials/state-en.ipynb
-   tutorials/state-zh.ipynb
-   tutorials/pygraph-en.ipynb
-   tutorials/pygraph-zh.ipynb
-   tutorials/program_compilation-en.ipynb
-   tutorials/program_compilation-zh.ipynb
-   tutorials/program_augmentation-en.ipynb
-   tutorials/program_augmentation-zh.ipynb
-   tutorials/gspmd-en.ipynb
-   tutorials/gspmd-zh.ipynb
-   tutorials/random_numbers-en.ipynb
-   tutorials/random_numbers-zh.ipynb
+   Part 1: Basics <tutorials/basics/index>
+   Part 2: Neural Networks <tutorials/neural_networks/index>
+   Part 3: Transforms <tutorials/transforms/index>
+   Part 4: Advanced Topics <tutorials/advanced/index>
+   Part 5: Examples <tutorials/examples/index>
+   Part 6: Migration Guide <tutorials/migration/index>
+   Part 7: Supplementary <tutorials/supplementary/index>
 
 
 
