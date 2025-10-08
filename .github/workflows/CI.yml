@@ -7,6 +7,9 @@ on:
   push:
     branches:
       - '**'        # matches every branch
+  pull_request:
+    branches:
+      - '**'        # matches every branch
 
 
 permissions:
@@ -21,6 +24,8 @@ concurrency:
 
 jobs:
   test_linux:
+    # Skip push events that have an associated pull request
+    if: github.event_name == 'pull_request' || github.event.pull_request == null
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -47,6 +52,8 @@ jobs:
 
 
   test_macos:
+    # Skip push events that have an associated pull request
+    if: github.event_name == 'pull_request' || github.event.pull_request == null
     runs-on: macos-latest
     strategy:
       fail-fast: false
@@ -72,6 +79,8 @@ jobs:
           pytest brainstate/
 
   test_windows:
+    # Skip push events that have an associated pull request
+    if: github.event_name == 'pull_request' || github.event.pull_request == null
     runs-on: windows-latest
     strategy:
       fail-fast: false
