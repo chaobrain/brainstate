@@ -97,6 +97,8 @@ class TestRandomExamples(unittest.TestCase):
 
 
 class TestRandom(unittest.TestCase):
+    def setUp(self):
+        brainstate.environ.set(precision=32)
 
     def test_rand(self):
         brainstate.random.seed()

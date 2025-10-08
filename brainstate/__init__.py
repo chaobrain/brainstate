@@ -28,13 +28,13 @@ from . import random
 from . import transform
 from . import typing
 from . import util
-from ._deprecation import create_deprecated_module_proxy
 from ._error import *
 from ._error import __all__ as _error_all
 from ._state import *
 from ._state import __all__ as _state_all
 
 # Create deprecated module proxies with scoped APIs
+from ._deprecation import create_deprecated_module_proxy
 
 # Augment module scope
 _augment_apis = {
