@@ -1,5 +1,5 @@
-``brainstate.graph`` for pygraph processing
-===========================================
+``brainstate.graph`` moduel
+===========================
 
 Most of these APIs are adapted from Flax (https://github.com/google/flax/blob/main/flax/nnx/graph.py).
 It enables the structure-preserving ``State`` retrieval and manipulatio in the ``brainstate``.

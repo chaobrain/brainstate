@@ -3,7 +3,7 @@ publishment.md
 .vscode
 io_test_tmp*
 
-
+docs/changelog.md
 lib/
 
 development
@@ -227,3 +227,5 @@ cython_debug/
 /dist-hist/
 /.VSCodeCounter/
 /.claude/
+/dev/
+/examples/figs/

@@ -4,7 +4,7 @@ import importlib
 import inspect
 import os
 
-block_list = ['test', 'register_pytree_node', 'call', 'namedtuple', 'jit', 'wraps', 'index', 'function']
+block_list = []
 
 
 def get_class_funcs(module):
@@ -242,14 +242,18 @@ def _write_subsections_v4(module_path,
 
 
 def _get_functions(obj):
-    return set([n for n in dir(obj)
-                if (n not in block_list  # not in blacklist
-                    and callable(getattr(obj, n))  # callable
-                    and not isinstance(getattr(obj, n), type)  # not class
-                    and n[0].islower()  # starts with lower char
-                    and not n.startswith('__')  # not special methods
-                    )
-                ])
+    return set(
+        [
+            n for n in dir(obj)
+            if (
+            n not in block_list  # not in blacklist
+            and callable(getattr(obj, n))  # callable
+            and not isinstance(getattr(obj, n), type)  # not class
+            and n[0].islower()  # starts with lower char
+            and not n.startswith('__')  # not special methods
+        )
+        ]
+    )
 
 
 def _import(mod, klass=None, is_jax=False):
@@ -315,235 +319,24 @@ def _section(header, numpy_mod, brainpy_mod, jax_mod, klass=None, is_jax=False):
     return buf
 
 
-def generate_analysis_docs():
-    _write_subsections(
-        module_name='brainpy.analysis',
-        filename='apis/auto/analysis.rst',
-        subsections={
-            'Low-dimensional Analyzers': ['PhasePlane1D',
-                                          'PhasePlane2D',
-                                          'Bifurcation1D',
-                                          'Bifurcation2D',
-                                          'FastSlow1D',
-                                          'FastSlow2D'],
-            'High-dimensional Analyzers': ['SlowPointFinder']
-        }
-    )
-
-
-def generate_synapses_docs():
-    _write_module(module_name='brainpy.synapses',
-                  filename='apis/auto/synapses.rst',
-                  header='``brainpy.synapses`` module')
-
-    _write_module(module_name='brainpy.synouts',
-                  filename='apis/auto/synouts.rst',
-                  header='``brainpy.synouts`` module')
-
-    _write_module(module_name='brainpy.synplast',
-                  filename='apis/auto/synplast.rst',
-                  header='``brainpy.synplast`` module')
-
-
-def generate_brainpy_docs():
-    _write_subsections(
-        module_name='brainpy',
-        filename='apis/auto/brainpy.rst',
-        subsections={
-            'Numerical Differential Integration': ['Integrator',
-                                                   'JointEq',
-                                                   'IntegratorRunner',
-                                                   'odeint',
-                                                   'sdeint',
-                                                   'fdeint'],
-            'Building Dynamical System': ['DynamicalSystem',
-                                          'DynSysGroup',
-                                          'Sequential',
-                                          'Network',
-                                          'Dynamic',
-                                          'Projection',
-                                          ],
-            'Simulating Dynamical System': ['DSRunner'],
-            'Training Dynamical System': ['DSTrainer',
-                                          'BPTT',
-                                          'BPFF',
-                                          'OnlineTrainer',
-                                          'ForceTrainer',
-                                          'OfflineTrainer',
-                                          'RidgeTrainer'],
-            'Dynamical System Helpers': ['LoopOverTime'],
-        }
-    )
-
-
-def generate_integrators_doc():
-    _write_subsections_v3(
-        'brainpy._src.integrators',
-        'brainpy.integrators',
-        'apis/auto/integrators.rst',
-        subsections={
-            'ode': {'header': 'ODE integrators',
-                    'content': {'base': 'Base ODE Integrator',
-                                'generic': 'Generic ODE Functions',
-                                'explicit_rk': 'Explicit Runge-Kutta ODE Integrators',
-                                'adaptive_rk': 'Adaptive Runge-Kutta ODE Integrators',
-                                'exponential': 'Exponential ODE Integrators', }},
-            'sde': {'header': 'SDE integrators',
-                    'content': {'base': 'Base SDE Integrator',
-                                'generic': 'Generic SDE Functions',
-                                'normal': 'Normal SDE Integrators',
-                                'srk_scalar': 'SRK methods for scalar Wiener process'}},
-            'fde': {'header': 'FDE integrators',
-                    'content': {'base': 'Base FDE Integrator',
-                                'generic': 'Generic FDE Functions',
-                                'Caputo': 'Methods for Caputo Fractional Derivative',
-                                'GL': 'Methods for Riemann-Liouville Fractional Derivative'}}
-
-        }
-    )
-
-
-def generate_math_docs():
-    _write_subsections_v4(
-        'brainpy.math',
-        'apis/math.rst',
-        subsections={
-            'object_base': ('Objects and Variables', 'brainpy.math'),
-            'object_transform': ('Object-oriented Transformations', 'brainpy.math'),
-            'environment': ('Environment Settings', 'brainpy.math'),
-            # 'compat_numpy': ('Dense Operators with NumPy Syntax', 'brainpy.math'),
-            # 'compat_pytorch': ('Dense Operators with PyTorch Syntax', 'brainpy.math'),
-            # 'compat_tensorflow': ('Dense Operators with TensorFlow Syntax', 'brainpy.math'),
-            'interoperability': ('Array Interoperability', 'brainpy.math'),
-            'pre_syn_post': ('Operators for Pre-Syn-Post Conversion', 'brainpy.math'),
-            'activations': ('Activation Functions', 'brainpy.math'),
-            'delayvars': ('Delay Variables', 'brainpy.math'),
-            'modes': ('Computing Modes', 'brainpy.math'),
-            'sparse': ('``brainpy.math.sparse`` module: Sparse Operators', 'brainpy.math.sparse'),
-            'event': ('``brainpy.math.event`` module: Event-driven Operators', 'brainpy.math.event'),
-            'jitconn': ('``brainpy.math.jitconn`` module: Just-In-Time Connectivity Operators', 'brainpy.math.jitconn'),
-            'surrogate': ('``brainpy.math.surrogate`` module: Surrogate Gradient Functions', 'brainpy.math.surrogate'),
-            'random': ('``brainpy.math.random`` module: Random Number Generations', 'brainpy.math.random'),
-            'linalg': ('``brainpy.math.linalg`` module: Linear algebra', 'brainpy.math.linalg'),
-            'fft': ('``brainpy.math.fft`` module: Discrete Fourier Transform', 'brainpy.math.fft'),
-        }
-    )
-
-
-def generate_algorithm_docs(path='apis/auto/algorithms/'):
-    os.makedirs(path, exist_ok=True)
-
-    module_and_name = [
-        ('offline', 'Offline Training Algorithms'),
-        ('online', 'Online Training Algorithms'),
-        ('utils', 'Training Algorithm Utilities'),
-    ]
-    _write_submodules(module_name='brainpy.algorithms',
-                      filename=os.path.join(path, 'algorithms.rst'),
-                      header='``brainpy.algorithms`` module',
-                      submodule_names=[k[0] for k in module_and_name],
-                      section_names=[k[1] for k in module_and_name])
-
-
 def main():
     os.makedirs('apis/auto/', exist_ok=True)
 
-    # _write_module(module_name='brainstate.surrogate',
-    #               filename='apis/auto/surrogate.rst',
-    #               header='``brainstate.surrogate`` module')
-
-    # _write_module(module_name='brainstate.random',
-    #               filename='apis/auto/random.rst',
-    #               header='``brainstate.random`` module')
-
-    # _write_module(module_name='brainstate.mixin',
-    #               filename='apis/auto/mixin.rst',
-    #               header='``brainstate.mixin`` module')
-
-    # _write_module(module_name='brainstate.transform',
-    #               filename='apis/auto/transform.rst',
-    #               header='``brainstate.transform`` module')
-
-    # _write_module(module_name='brainstate.math',
-    #               filename='apis/auto/math.rst',
-    #               header='``brainstate.math`` module')
-
-    # _write_module(module_name='brainstate.util',
-    #               filename='apis/auto/util.rst',
-    #               header='``brainstate.util`` module')
-
-    # _write_module(module_name='brainstate.typing',
-    #               filename='apis/typing.rst',
-    #               header='``brainstate.typing`` module')
-
-    # _write_module(module_name='brainstate.optim',
-    #               filename='apis/optim.rst',
-    #               header='``brainstate.optim`` module')
-
-    # _write_module(module_name='brainstate.event',
-    #               filename='apis/event.rst',
-    #               header='``brainstate.event`` module')
-
     module_and_name = [
         ('_dict', 'Dict Operation'),
-        ('_filter', 'Filter Operation'),
+        ('filter', 'Filter Operation'),
         ('_pretty_repr', 'Pretty Representation'),
-        ('_struct', 'Struct Operation'),
+        ('struct', 'Struct Operation'),
         ('_visualization', 'Visualization Operation'),
         ('_others', 'Other Operations'),
     ]
-    _write_submodules(module_name='brainstate.util',
-                      filename='apis/util.rst',
-                      header='``brainstate.util`` module',
-                      submodule_names=[k[0] for k in module_and_name],
-                      section_names=[k[1] for k in module_and_name])
-
-    # module_and_name = [
-    #   ('_graph_node', 'Graph Node'),
-    #   ('_graph_operation', 'Graph Operation'),
-    #   ('_graph_convert', 'Graph and Tree Conversion'),
-    #   ('_graph_context', 'Graph Processing Context Management'),
-    # ]
-    # _write_submodules(module_name='brainstate.graph',
-    #                   filename='apis/graph.rst',
-    #                   header='``brainstate.graph`` module',
-    #                   submodule_names=[k[0] for k in module_and_name],
-    #                   section_names=[k[1] for k in module_and_name])
-
-    # module_and_name = [
-    #   ('_state', 'State System'),
-    # ]
-    # _write_submodules(module_name='brainstate',
-    #                   filename='apis/brainstate.rst',
-    #                   header='``brainstate`` module',
-    #                   submodule_names=[k[0] for k in module_and_name],
-    #                   section_names=[k[1] for k in module_and_name])
-
-    # module_and_name = [
-    #   ('_activations', 'Activation Functions'),
-    #   ('_normalization', 'Normalization Functions'),
-    #   ('_spikes', 'Spiking Operations'),
-    # ]
-    # _write_submodules(module_name='brainstate.functional',
-    #                   filename='apis/functional.rst',
-    #                   header='``brainstate.functional`` module',
-    #                   submodule_names=[k[0] for k in module_and_name],
-    #                   section_names=[k[1] for k in module_and_name])
-
-    # module_and_name = [
-    #   ('_module', 'Base Module Classes'),
-    #   ('_interaction', 'Synaptic Interaction Layers'),
-    #   ('_elementwise', 'Element-wise Layers'),
-    #   ('_dynamics', 'Base Dynamics Classes'),
-    #   ('_dyn_impl', 'Neuronal/Synaptic Dynamics'),
-    #   ('_exp_euler', 'Numerical Integration Methods'),
-    #   ('_collective_ops', 'Collective Operations'),
-    # ]
-    # _write_submodules(module_name='brainstate.nn',
-    #                   filename='apis/nn.rst',
-    #                   header='``brainstate.nn`` module',
-    #                   submodule_names=[k[0] for k in module_and_name],
-    #                   section_names=[k[1] for k in module_and_name])
+    _write_submodules(
+        module_name='brainstate.util',
+        filename='apis/util.rst',
+        header='``brainstate.util`` module',
+        submodule_names=[k[0] for k in module_and_name],
+        section_names=[k[1] for k in module_and_name]
+    )
 
 
 if __name__ == '__main__':

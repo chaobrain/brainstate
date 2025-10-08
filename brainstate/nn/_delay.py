@@ -1,4 +1,4 @@
-# Copyright 2024 BDP Ecosystem Limited. All Rights Reserved.
+# Copyright 2024 BrainX Ecosystem Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -24,8 +24,8 @@ import numpy as np
 
 from brainstate import environ
 from brainstate._state import ShortTermState, State
-from brainstate.compile import jit_error_if
 from brainstate.graph import Node
+from brainstate.transform import jit_error_if
 from brainstate.typing import ArrayLike, PyTree
 from ._collective_ops import call_order
 from ._module import Module
@@ -59,8 +59,8 @@ class DelayAccess(Node):
 
     Args:
         delay: The delay instance.
-        time: The delay time.
-        delay_entry: The delay entry.
+        *time: The delay time.
+        entry: The delay entry.
     """
 
     __module__ = 'brainstate.nn'
@@ -68,22 +68,22 @@ class DelayAccess(Node):
     def __init__(
         self,
         delay: 'Delay',
-        time: Union[None, int, float],
-        delay_entry: str,
+        *time,
+        entry: str,
     ):
         super().__init__()
-        self.refs = {'delay': delay}
+        self.delay = delay
         assert isinstance(delay, Delay), 'The input delay should be an instance of Delay.'
-        self._delay_entry = delay_entry
-        self.delay_info = delay.register_entry(self._delay_entry, time)
+        self._delay_entry = entry
+        self.delay_info = delay.register_entry(self._delay_entry, *time)
 
     def update(self):
-        return self.refs['delay'].at(self._delay_entry)
+        return self.delay.at(self._delay_entry)
 
 
 class Delay(Module):
     """
-    Generate Delays for the given :py:class:`~.State` instance.
+    Delay variable for storing short-term history data.
 
     The data in this delay variable is arranged as::
 
@@ -240,21 +240,8 @@ class Delay(Module):
             >>> delay_obj.register_delay(jnp.array([2.0, 3.0]), 0, 1)  # Vector delay with indices
         """
         assert len(delay_time) >= 1, 'You should provide at least one delay time.'
-        delay_size = u.math.size(delay_time[0])
         for dt in delay_time[1:]:
             assert jnp.issubdtype(u.math.get_dtype(dt), jnp.integer), f'The index should be integer. But got {dt}.'
-        # delay_size = u.math.size(delay_time[0])
-        # for dt in delay_time:
-        #     if u.math.ndim(dt) == 0:
-        #         pass
-        #     elif u.math.ndim(dt) == 1:
-        #         if u.math.size(dt) != delay_size:
-        #             raise ValueError(
-        #                 f'The delay time should be a scalar or a vector with the same size. '
-        #                 f'But got {delay_time}. The delay time {dt} has size {u.math.size(dt)}'
-        #             )
-        #     else:
-        #         raise ValueError(f'The delay time should be a scalar/vector. But got {dt}.')
         if delay_time[0] is None:
             return None
         with jax.ensure_compile_time_eval():
@@ -287,7 +274,7 @@ class Delay(Module):
         self._registered_entries[entry] = delay_info
         return delay_info
 
-    def access(self, entry: str, delay_time: Sequence) -> DelayAccess:
+    def access(self, entry: str, *delay_time) -> DelayAccess:
         """
         Create a DelayAccess object for a specific delay entry and delay time.
 
@@ -298,7 +285,7 @@ class Delay(Module):
         Returns:
             DelayAccess: An object that provides access to the delay data for the specified entry and time.
         """
-        return DelayAccess(self, delay_time, delay_entry=entry)
+        return DelayAccess(self, delay_time, entry=entry)
 
     def at(self, entry: str) -> ArrayLike:
         """
@@ -532,8 +519,8 @@ class StateWithDelay(Delay):
     Access a neuron's membrane potential 5 ms in the past:
 
     >>> import brainunit as u
-    >>> import brainstate as bst
-    >>> lif = bst.nn.LIF(100)
+    >>> import brainstate as brainstate
+    >>> lif = brainstate.nn.LIF(100)
     >>> # Create a delayed accessor to V(t-5ms)
     >>> v_delay = lif.prefetch_delay('V', 5.0 * u.ms)
     >>> # Inside another module's update you can read the delayed value

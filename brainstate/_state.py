@@ -1,4 +1,4 @@
-# Copyright 2024 BDP Ecosystem Limited. All Rights Reserved.
+# Copyright 2024 BrainX Ecosystem Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -112,9 +112,12 @@ def check_state_value_tree(val: bool = True) -> Generator[None, None, None]:
     If you want to check the tree structure of the value once the new value is assigned,
     you can use this context manager.
 
-    Example::
+    Examples
+    --------
 
-      >>> import brainstate as brainstate
+    .. code-block:: python
+
+      >>> import brainstate
       >>> import jax.numpy as jnp
       >>> state = brainstate.ShortTermState(jnp.zeros((2, 3)))
       >>> with brainstate.check_state_value_tree():
@@ -158,10 +161,13 @@ def check_state_jax_tracer(val: bool = True) -> Generator[None, None, None]:
     """
     The context manager to check whether the state is valid to trace.
 
-    Example::
+    Example
+    -------
+
+    .. code-block:: python
 
       >>> import jax
-      >>> import brainstate as brainstate
+      >>> import brainstate
       >>> import jax.numpy as jnp
       >>>
       >>> a = brainstate.ShortTermState(jnp.zeros((2, 3)))
@@ -213,7 +219,11 @@ class State(Generic[A], PrettyObject):
         name (Optional[str]): An optional name for the state.
         **metadata: Additional metadata to be stored with the state.
 
-    Example:
+    Example
+    -------
+
+    .. code-block:: python
+
         >>> class MyState(State):
         ...     pass
         >>> state = MyState(jnp.zeros((3, 3)), name="my_matrix")
@@ -910,24 +920,6 @@ class StateTraceStack(Generic[A]):
     The class is generic over type A, allowing for type-safe usage with
     different types of State objects.
 
-    Attributes:
-        states (List[State]): A list of all State objects encountered during tracing.
-        been_writen (List[bool]): A parallel list to states, indicating whether each state has been written to.
-        _state_id_index (dict): A dictionary mapping state ids to their index in the states list.
-        _original_state_values (List): A list of the original values of all states when first encountered.
-        _jax_trace_new_arg (Callable): A function used to transform state values during tracing.
-
-    Methods:
-        __enter__: Enters a new tracing context.
-        __exit__: Exits the current tracing context.
-        read_its_value: Records a read operation on a state.
-        write_its_value: Records a write operation on a state.
-        get_state_values: Retrieves the current values of all traced states.
-        recovery_original_values: Restores all states to their original values.
-        merge: Merges multiple ``StateTraceStack`` instances.
-        get_read_states: Retrieves states that were read during tracing.
-        get_read_state_values: Retrieves values of states that were read during tracing.
-
     The ``StateTraceStack`` is a crucial component in implementing state-based
     computations and is particularly useful in scenarios involving automatic
     differentiation or other forms of program transformation.
@@ -992,7 +984,7 @@ class StateTraceStack(Generic[A]):
         """
         if self._jax_trace_new_arg is not None:
             # internal use
-            state._value = jax.tree.map(self._jax_trace_new_arg, state._value)
+            state._value = self._jax_trace_new_arg(state)
 
     def __enter__(self) -> 'StateTraceStack':
         TRACE_CONTEXT.state_stack.append(self)
@@ -1266,6 +1258,28 @@ class StateTraceStack(Generic[A]):
         """
         return StateTraceStack().merge(self, other)
 
+    def state_subset(self, state_type: type) -> List:
+        """
+        Get a subset of states of a specific type from the ``StateTraceStack``.
+
+        This method filters the states in the ``StateTraceStack`` and returns only
+        those that match the specified state type.
+
+        Args:
+            state_type (type): The type of state to filter by. This should be
+                a subclass of State or State itself.
+
+        Returns:
+            List[State]: A list containing all states in the ``StateTraceStack``
+            that are instances of the specified state_type.
+
+        Example:
+            >>> stack = StateTraceStack()
+            >>> # Assume stack has been populated with various state types
+            >>> short_term_states = stack.state_subset(ShortTermState)
+        """
+        return [st for st in self.states if isinstance(st, state_type)]
+
     def assign_state_vals(self, state_vals: Sequence[PyTree]) -> None:
         """
         Assign new values to the states tracked by this ``StateTraceStack``.
@@ -1292,35 +1306,68 @@ class StateTraceStack(Generic[A]):
             ``StateTraceStack``'s states list.
         """
         if len(state_vals) != len(self.states):
-            raise ValueError('The length of the state values must be equal to the states. '
-                             f'Bug got {len(state_vals)} and {len(self.states)}')
+            raise ValueError(
+                'The length of the state values must be equal to the states. '
+                f'Bug got {len(state_vals)} and {len(self.states)}'
+            )
         for st, written, val in zip(self.states, self.been_writen, state_vals):
             if written:
                 st.value = val
             else:
                 st.restore_value(val)
 
-    def state_subset(self, state_type: type) -> List:
+    def assign_state_vals_v2(
+        self: StateTraceStack,
+        read_state_vals: Sequence[PyTree],
+        write_state_vals: Sequence[PyTree],
+    ):
         """
-        Get a subset of states of a specific type from the ``StateTraceStack``.
+        Write back state values to their corresponding states after computation.
 
-        This method filters the states in the ``StateTraceStack`` and returns only
-        those that match the specified state type.
+        This function updates the state values based on whether they were written to
+        during the computation. If a state was written to, it gets the new written value.
+        If not, it restores its original read value.
 
-        Args:
-            state_type (type): The type of state to filter by. This should be
-                a subclass of State or State itself.
+        Parameters
+        ----------
+        read_state_vals : sequence of PyTree
+            The original state values that were read at the beginning.
+        write_state_vals : sequence of PyTree
+            The new state values that were written during computation.
 
-        Returns:
-            List[State]: A list containing all states in the ``StateTraceStack``
-            that are instances of the specified state_type.
+        Examples
+        --------
+        Basic usage in a compilation context:
 
-        Example:
-            >>> stack = StateTraceStack()
-            >>> # Assume stack has been populated with various state types
-            >>> short_term_states = stack.state_subset(ShortTermState)
+        .. code-block:: python
+
+            >>> import brainstate
+            >>> import jax.numpy as jnp
+            >>>
+            >>> # Create states
+            >>> state1 = brainstate.State(jnp.array([1.0, 2.0]))
+            >>> state2 = brainstate.State(jnp.array([3.0, 4.0]))
+            >>>
+            >>> def f(x):
+            ...     state1.value += x  # This state will be written
+            ...     return state1.value + state2.value  # state2 is only read
+            >>>
+            >>> # During compilation, state values are collected and managed
+            >>> # write_back_state_values ensures proper state management
         """
-        return [st for st in self.states if isinstance(st, state_type)]
+        if len(self.states) != len(self.been_writen):
+            raise ValueError('The length of the state values must be equal to the states. ')
+        if len(read_state_vals) != len(self.states):
+            raise ValueError('The length of the read state values must be equal to the states. ')
+        if len(write_state_vals) != len(self.states):
+            raise ValueError('The length of the write state values must be equal to the states. ')
+        for st, write, val_r, val_w in zip(
+            self.states, self.been_writen, read_state_vals, write_state_vals
+        ):
+            if write:
+                st.value = val_w
+            else:
+                st.restore_value(val_r)
 
 
 class TreefyState(Generic[A], PrettyObject):

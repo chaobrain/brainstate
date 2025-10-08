@@ -1,4 +1,3 @@
-
 # Contributor Covenant Code of Conduct
 
 ## Our Pledge
@@ -60,8 +59,11 @@ representative at an online or offline event.
 ## Enforcement
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
-reported to the community leaders responsible for enforcement at brainpy@foxmail.com.
+reported to the community leaders responsible for enforcement at chao.brain@qq.com.
 All complaints will be reviewed and investigated promptly and fairly.
+
+If the concern involves someone on the maintainer team, or you need another private channel, 
+you may also contact the repository owner through GitHub by requesting a private moderation conversation.
 
 All community leaders are obligated to respect the privacy and security of the
 reporter of any incident.

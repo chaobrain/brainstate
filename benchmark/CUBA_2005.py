@@ -1,4 +1,4 @@
-# Copyright 2024 BDP Ecosystem Limited. All Rights Reserved.
+# Copyright 2024 BrainX Ecosystem Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -24,18 +24,13 @@
 # - Vogels, T. P. and Abbott, L. F. (2005), Signal propagation and logic gating in networks of integrate-and-fire neurons., J. Neurosci., 25, 46, 10786–95
 #
 
-import os
-import sys
 
-sys.path.append('../')
-os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.99'
-os.environ['JAX_TRACEBACK_FILTERING'] = 'off'
-
-import jax
 import time
 
 import brainunit as u
-import brainevent
+import jax
+
+import braintools
 import brainstate
 
 
@@ -48,7 +43,7 @@ class EINet(brainstate.nn.DynamicsGroup):
         self.N = brainstate.nn.LIFRef(
             self.num, V_rest=-49. * u.mV, V_th=-50. * u.mV, V_reset=-60. * u.mV,
             tau=20. * u.ms, tau_ref=5. * u.ms,
-            V_initializer=brainstate.init.Normal(-55., 2., unit=u.mV)
+            V_initializer=braintools.init.Normal(-55., 2., unit=u.mV)
         )
         self.E = brainstate.nn.AlignPostProj(
             comm=brainstate.nn.EventFixedProb(self.n_exc, self.num, conn_num=80 / self.num, conn_weight=1.62 * u.mS),

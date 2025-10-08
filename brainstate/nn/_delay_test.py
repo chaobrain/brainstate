@@ -1,4 +1,4 @@
-# Copyright 2025 BDP Ecosystem Limited. All Rights Reserved.
+# Copyright 2025 BrainX Ecosystem Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,10 +20,14 @@ import jax.numpy as jnp
 
 import brainstate
 
-brainstate.environ.set(dt=0.1)
-
 
 class TestDelay(unittest.TestCase):
+    def setUp(self):
+        brainstate.environ.set(dt=0.1)
+
+    def tearDown(self):
+        brainstate.environ.pop('dt')
+
     def test_delay1(self):
         a = brainstate.State(brainstate.random.random(10, 20))
         delay = brainstate.nn.Delay(a.value)
@@ -61,26 +65,27 @@ class TestDelay(unittest.TestCase):
             self.assertTrue(jnp.allclose(rotation_delay.at('c'), jnp.maximum(jnp.ones((1,)) * i - n2, 0.)))
 
     def test_concat_delay(self):
-        rotation_delay = brainstate.nn.Delay(jnp.ones([1]), delay_method='concat')
-        t0 = 0.
-        t1, n1 = 1., 10
-        t2, n2 = 2., 20
+        with brainstate.environ.context(dt=0.1) as env:
+            rotation_delay = brainstate.nn.Delay(jnp.ones([1]), delay_method='concat')
+            t0 = 0.
+            t1, n1 = 1., 10
+            t2, n2 = 2., 20
 
-        rotation_delay.register_entry('a', t0)
-        rotation_delay.register_entry('b', t1)
-        rotation_delay.register_entry('c', t2)
+            rotation_delay.register_entry('a', t0)
+            rotation_delay.register_entry('b', t1)
+            rotation_delay.register_entry('c', t2)
 
-        rotation_delay.init_state()
+            rotation_delay.init_state()
 
-        print()
-        for i in range(100):
-            brainstate.environ.set(i=i)
-            rotation_delay.update(jnp.ones((1,)) * i)
-            print(i, rotation_delay.at('a'), rotation_delay.at('b'), rotation_delay.at('c'))
-            self.assertTrue(jnp.allclose(rotation_delay.at('a'), jnp.ones((1,)) * i))
-            self.assertTrue(jnp.allclose(rotation_delay.at('b'), jnp.maximum(jnp.ones((1,)) * i - n1, 0.)))
-            self.assertTrue(jnp.allclose(rotation_delay.at('c'), jnp.maximum(jnp.ones((1,)) * i - n2, 0.)))
-        # brainstate.util.clear_buffer_memory()
+            print()
+            for i in range(100):
+                brainstate.environ.set(i=i)
+                rotation_delay.update(jnp.ones((1,)) * i)
+                print(i, rotation_delay.at('a'), rotation_delay.at('b'), rotation_delay.at('c'))
+                self.assertTrue(jnp.allclose(rotation_delay.at('a'), jnp.ones((1,)) * i))
+                self.assertTrue(jnp.allclose(rotation_delay.at('b'), jnp.maximum(jnp.ones((1,)) * i - n1, 0.)))
+                self.assertTrue(jnp.allclose(rotation_delay.at('c'), jnp.maximum(jnp.ones((1,)) * i - n2, 0.)))
+            # brainstate.util.clear_buffer_memory()
 
     def test_jit_erro(self):
         rotation_delay = brainstate.nn.Delay(jnp.ones([1]), time=2., delay_method='concat', interp_method='round')

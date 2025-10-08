@@ -1,4 +1,4 @@
-# Copyright 2024 BDP Ecosystem Limited. All Rights Reserved.
+# Copyright 2024 BrainX Ecosystem Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -27,17 +27,6 @@ class TestModuleGroup(unittest.TestCase):
     def test_initialization(self):
         group = brainstate.nn.DynamicsGroup()
         self.assertIsInstance(group, brainstate.nn.DynamicsGroup)
-
-
-class TestProjection(unittest.TestCase):
-    def test_initialization(self):
-        proj = brainstate.nn.Projection()
-        self.assertIsInstance(proj, brainstate.nn.Projection)
-
-    def test_update_not_implemented(self):
-        proj = brainstate.nn.Projection()
-        with self.assertRaises(ValueError):
-            proj.update()
 
 
 class TestDynamics(unittest.TestCase):

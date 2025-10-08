@@ -1,4 +1,4 @@
-# Copyright 2024 BDP Ecosystem Limited. All Rights Reserved.
+# Copyright 2024 BrainX Ecosystem Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,20 +17,20 @@
 
 from typing import Callable
 
-import braintools
 import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
 
 import brainstate
+import braintools
 
 dt = 0.04
 num_step = int(1.0 / dt)
 num_batch = 512
 
 
-@brainstate.compile.jit(static_argnums=2)
+@brainstate.transform.jit(static_argnums=2)
 def build_inputs_and_targets(mean=0.025, scale=0.01, batch_size=10):
     # Create the white noise input
     sample = brainstate.random.normal(size=(1, batch_size, 1))
@@ -52,10 +52,10 @@ class RNNCell(brainstate.nn.Module):
         self,
         num_in: int,
         num_out: int,
-        state_initializer: Callable = brainstate.init.ZeroInit(),
-        w_initializer: Callable = brainstate.init.XavierNormal(),
-        b_initializer: Callable = brainstate.init.ZeroInit(),
-        activation: Callable = brainstate.functional.relu,
+        state_initializer: Callable = braintools.init.ZeroInit(),
+        w_initializer: Callable = braintools.init.XavierNormal(),
+        b_initializer: Callable = braintools.init.ZeroInit(),
+        activation: Callable = brainstate.nn.relu,
         train_state: bool = False,
     ):
         super().__init__()
@@ -76,17 +76,17 @@ class RNNCell(brainstate.nn.Module):
         self.activation = activation
 
         # weights
-        W = brainstate.init.param(self._w_initializer, (num_in + num_out, self.num_out))
-        b = brainstate.init.param(self._b_initializer, (self.num_out,))
+        W = braintools.init.param(self._w_initializer, (num_in + num_out, self.num_out))
+        b = braintools.init.param(self._b_initializer, (self.num_out,))
         self.W = brainstate.ParamState(W)
         self.b = None if (b is None) else brainstate.ParamState(b)
 
         # state
         if train_state:
-            self.state2train = brainstate.ParamState(brainstate.init.param(brainstate.init.ZeroInit(), (self.num_out,), allow_none=False))
+            self.state2train = brainstate.ParamState(braintools.init.ZeroInit()(self.num_out))
 
     def init_state(self, batch_size=None, **kwargs):
-        self.state = brainstate.HiddenState(brainstate.init.param(self._state_initializer, (self.num_out,), batch_size))
+        self.state = brainstate.HiddenState(braintools.init.param(self._state_initializer, (self.num_out,), batch_size))
         if self.train_state:
             self.state.value = jnp.repeat(jnp.expand_dims(self.state2train.value, axis=0), batch_size, axis=0)
 
@@ -114,10 +114,10 @@ model = RNN(1, 100)
 weights = model.states(brainstate.ParamState)
 
 
-@brainstate.compile.jit
+@brainstate.transform.jit
 def f_predict(inputs):
     brainstate.nn.init_all_states(model, batch_size=inputs.shape[1])
-    return brainstate.compile.for_loop(model.update, inputs)
+    return brainstate.transform.for_loop(model.update, inputs)
 
 
 def f_loss(inputs, targets, l2_reg=2e-4):
@@ -131,14 +131,14 @@ def f_loss(inputs, targets, l2_reg=2e-4):
 
 
 # define optimizer
-lr = brainstate.optim.ExponentialDecayLR(lr=0.025, decay_steps=1, decay_rate=0.99975)
-opt = brainstate.optim.Adam(lr=lr, eps=1e-1)
+lr = braintools.optim.ExponentialDecayLR(0.025, decay_steps=1, decay_rate=0.99975)
+opt = braintools.optim.Adam(lr=lr, eps=1e-1)
 opt.register_trainable_weights(weights)
 
 
-@brainstate.compile.jit
+@brainstate.transform.jit
 def f_train(inputs, targets):
-    grads, l = brainstate.augment.grad(f_loss, weights, return_value=True)(inputs, targets)
+    grads, l = brainstate.transform.grad(f_loss, weights, return_value=True)(inputs, targets)
     opt.update(grads)
     return l
 

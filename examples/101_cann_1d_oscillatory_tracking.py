@@ -1,4 +1,4 @@
-# Copyright 2024 BDP Ecosystem Limited. All Rights Reserved.
+# Copyright 2024 BrainX Ecosystem Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,11 +23,11 @@
 import brainunit as u
 import jax
 import matplotlib.pyplot as plt
-import brainstate
 import numpy as np
 from matplotlib import animation
 from matplotlib.gridspec import GridSpec
 
+import brainstate
 
 
 class CANN1D(brainstate.nn.Dynamics):
@@ -143,5 +143,5 @@ def run_step(t):
 final_pos = cann.a / cann.tau_v * 0.6 * dur2
 
 times = u.math.arange(0, dur1 + dur2 + dur3, brainstate.environ.get_dt())
-us, vs = brainstate.compile.for_loop(run_step, times)
+us, vs = brainstate.transform.for_loop(run_step, times)
 animate_1d(us, vs, frame_step=30, frame_delay=5)

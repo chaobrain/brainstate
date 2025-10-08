@@ -1,37 +1,35 @@
-<!--- Provide a general summary of your changes in the Title above -->
-<!--- Please do remember to follow the contributing guidelines -->
+<!-- Thanks for contributing! Please review CONTRIBUTING.md before submitting. -->
 
-## Description
-<!--- Why is this change required? What problem does it solve? -->
-<!--- Describe your changes in detail here to communicate to the maintainers why this pull request should be accepted -->
-<!--- Describe your technology stack here if not a documentation update -->
-<!--- Tasklist format is recommended for all pull requests and is required for all draft pull requests. You can couple your description with the tasklist -->
-<!--- If it fixes an open issue, please link to the issue here in the last line. -->
+## Summary
+<!-- Describe the motivation for this change and what it achieves. Keep it concise but clear. -->
 
-## How Has This Been Tested
-<!--- Please describe in detail how you tested your changes locally -->
-<!--- Include details of your testing environment, and the tests you ran to -->
-<!--- For example, markdown files should pass markdownlint locally according to the rules -->
-<!--- See how your change affects other areas of the code, etc. -->
+## Issue Reference
+<!-- Link to the issue this PR addresses, e.g. Closes #123. If there is no issue, explain why this change is needed. -->
 
-## Types of changes
-<!--- What types of changes does your code introduce? -->
-<!--- Only left the line that best describes this pull request -->
-- Bug fix (non-breaking change which fixes an issue)
-- New feature (non-breaking change which adds functionality)
-- Documentation (non-breaking change which updates documentation)
-- Breaking change (fix or feature that would cause existing functionality to change)
-- Code style (formatting, renaming)
-- Refactoring (no functional changes, no api changes)
-- Other (please describe here):
+## Testing
+<!-- List the commands you ran and relevant environments (OS, Python, hardware). For example:
+- `pre-commit run --all-files`
+- `pytest`
+- Manual verification steps -->
+
+## Change Type
+<!-- Select all that apply by replacing the space with an x. -->
+- [ ] Bug fix (non-breaking change which fixes an issue)
+- [ ] New feature (non-breaking change which adds functionality)
+- [ ] Breaking change (fix or feature that would cause existing functionality to change)
+- [ ] Documentation update
+- [ ] Refactor / Code health
+- [ ] Build or tooling
+- [ ] Other (describe below)
 
 ## Checklist
-<!--- Go over all the following points, and put an `x` in all the boxes that apply. -->
-<!--- If you're unsure about any of these, don't hesitate to ask. We're here to help! -->
-- [ ] Code follows the code style of this project.
-- [ ] Changes follow the **CONTRIBUTING** guidelines.
-- [ ] Update necessary documentation accordingly.
-- [ ] Lint and tests pass locally with the changes.
-- [ ] Check issues and pull requests first. You don't want to duplicate effort.
+- [ ] Summary includes context and expected impact.
+- [ ] Linked to an issue or documented the rationale in this PR.
+- [ ] Added or updated tests covering this change, or explained why they are not needed.
+- [ ] Updated documentation, examples, and tutorials as needed.
+- [ ] Added an entry to `changelog.md` for user-facing changes.
+- [ ] Ran `pre-commit run --all-files` and addressed any findings.
+- [ ] Ran `pytest` (or applicable test suite) and confirmed it passes locally.
 
-## Other information
+## Additional Notes
+<!-- Optional: include screenshots, deployment notes, follow-up ideas, or anything else reviewers should know. -->

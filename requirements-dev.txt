@@ -2,6 +2,8 @@
 optax
 tqdm
 numba
+braintools>=0.1.0
+matplotlib
 
 # test requirements
 pytest

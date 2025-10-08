@@ -1,4 +1,4 @@
-# Copyright 2024 BDP Ecosystem Limited. All Rights Reserved.
+# Copyright 2024 BrainX Ecosystem Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -25,31 +25,75 @@ from ._rand_state import RandomState, DEFAULT
 
 __all__ = [
     # numpy compatibility
-    'rand', 'randint', 'random_integers', 'randn', 'random',
-    'random_sample', 'ranf', 'sample', 'choice', 'permutation', 'shuffle', 'beta',
-    'exponential', 'gamma', 'gumbel', 'laplace', 'logistic', 'normal', 'pareto',
-    'poisson', 'standard_cauchy', 'standard_exponential', 'standard_gamma',
-    'standard_normal', 'standard_t', 'uniform', 'truncated_normal', 'bernoulli',
-    'lognormal', 'binomial', 'chisquare', 'dirichlet', 'geometric', 'f',
-    'hypergeometric', 'logseries', 'multinomial', 'multivariate_normal',
-    'negative_binomial', 'noncentral_chisquare', 'noncentral_f', 'power',
-    'rayleigh', 'triangular', 'vonmises', 'wald', 'weibull', 'weibull_min',
-    'zipf', 'maxwell', 't', 'orthogonal', 'loggamma', 'categorical',
+    'rand',
+    'randint',
+    'random_integers',
+    'randn',
+    'random',
+    'random_sample',
+    'ranf',
+    'sample',
+    'choice',
+    'permutation',
+    'shuffle',
+    'beta',
+    'exponential',
+    'gamma',
+    'gumbel',
+    'laplace',
+    'logistic',
+    'normal',
+    'pareto',
+    'poisson',
+    'standard_cauchy',
+    'standard_exponential',
+    'standard_gamma',
+    'standard_normal',
+    'standard_t',
+    'uniform',
+    'truncated_normal',
+    'bernoulli',
+    'lognormal',
+    'binomial',
+    'chisquare',
+    'dirichlet',
+    'geometric',
+    'f',
+    'hypergeometric',
+    'logseries',
+    'multinomial',
+    'multivariate_normal',
+    'negative_binomial',
+    'noncentral_chisquare',
+    'noncentral_f',
+    'power',
+    'rayleigh',
+    'triangular',
+    'vonmises',
+    'wald',
+    'weibull',
+    'weibull_min',
+    'zipf',
+    'maxwell',
+    't',
+    'orthogonal',
+    'loggamma',
+    'categorical',
 
     # pytorch compatibility
-    'rand_like', 'randint_like', 'randn_like',
+    'rand_like',
+    'randint_like',
+    'randn_like',
 ]
 
 
-def rand(*dn, key: Optional[SeedOrKey] = None, dtype: DTypeLike = None):
+def rand(
+    *dn,
+    key: Optional[SeedOrKey] = None,
+    dtype: DTypeLike = None
+):
     r"""
     Random values in a given shape.
-
-    .. note::
-        This is a convenience function for users porting code from Matlab,
-        and wraps `random_sample`. That function takes a
-        tuple to specify the size of the output, which is consistent with
-        other NumPy functions like `numpy.zeros` and `numpy.ones`.
 
     Create an array of the given shape and populate it with
     random samples from a uniform distribution
@@ -78,18 +122,25 @@ def rand(*dn, key: Optional[SeedOrKey] = None, dtype: DTypeLike = None):
 
     Examples
     --------
-    >>> import brainstate as brainstate
-    >>> brainstate.random.rand(3,2)
-    array([[ 0.14022471,  0.96360618],  #random
-           [ 0.37601032,  0.25528411],  #random
-           [ 0.49313049,  0.94909878]]) #random
+    Generate random values in a 3x2 array:
+
+    .. code-block:: python
+
+        >>> import brainstate
+        >>> arr = brainstate.random.rand(3, 2)
+        >>> print(arr.shape)  # (3, 2)
+        >>> print((arr >= 0).all() and (arr < 1).all())  # True
     """
     return DEFAULT.rand(*dn, key=key, dtype=dtype)
 
 
-def randint(low, high=None, size: Optional[Size] = None,
-            key: Optional[SeedOrKey] = None,
-            dtype: DTypeLike = None):
+def randint(
+    low,
+    high=None,
+    size: Optional[Size] = None,
+    key: Optional[SeedOrKey] = None,
+    dtype: DTypeLike = None
+):
     r"""Return random integers from `low` (inclusive) to `high` (exclusive).
 
     Return random integers from the "discrete uniform" distribution of
@@ -110,9 +161,6 @@ def randint(low, high=None, size: Optional[Size] = None,
         Output shape.  If the given shape is, e.g., ``(m, n, k)``, then
         ``m * n * k`` samples are drawn.  Default is None, in which case a
         single value is returned.
-    dtype : dtype, optional
-        Desired dtype of the result. Byteorder must be native.
-        The default value is int.
     key : PRNGKey, optional
         The key for the random number generator. If not given, the
         default random number generator is used.
@@ -135,43 +183,49 @@ def randint(low, high=None, size: Optional[Size] = None,
 
     Examples
     --------
-    >>> import brainstate as brainstate
-    >>> brainstate.random.randint(2, size=10)
-    array([1, 0, 0, 0, 1, 1, 0, 0, 1, 0]) # random
-    >>> brainstate.random.randint(1, size=10)
-    array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+    Generate 10 random integers from 0 to 1 (exclusive):
 
-    Generate a 2 x 4 array of ints between 0 and 4, inclusive:
+    .. code-block:: python
 
-    >>> brainstate.random.randint(5, size=(2, 4))
-    array([[4, 0, 2, 1], # random
-           [3, 2, 2, 0]])
+        >>> import brainstate
+        >>> arr = brainstate.random.randint(2, size=10)
+        >>> print(arr.shape)  # (10,)
+        >>> print((arr >= 0).all() and (arr < 2).all())  # True
 
-    Generate a 1 x 3 array with 3 different upper bounds
+    Generate a 2x4 array of integers from 0 to 4 (exclusive):
 
-    >>> brainstate.random.randint(1, [3, 5, 10])
-    array([2, 2, 9]) # random
+    .. code-block:: python
 
-    Generate a 1 by 3 array with 3 different lower bounds
+        >>> arr = brainstate.random.randint(5, size=(2, 4))
+        >>> print(arr.shape)  # (2, 4)
+        >>> print((arr >= 0).all() and (arr < 5).all())  # True
 
-    >>> brainstate.random.randint([1, 5, 7], 10)
-    array([9, 8, 7]) # random
+    Generate integers with different upper bounds using broadcasting:
 
-    Generate a 2 by 4 array using broadcasting with dtype of uint8
+    .. code-block:: python
 
-    >>> brainstate.random.randint([1, 3, 5, 7], [[10], [20]], dtype=np.uint8)
-    array([[ 8,  6,  9,  7], # random
-           [ 1, 16,  9, 12]], dtype=uint8)
+        >>> arr = brainstate.random.randint(1, [3, 5, 10])
+        >>> print(arr.shape)  # (3,)
+
+    Generate integers with different lower bounds:
+
+    .. code-block:: python
+
+        >>> arr = brainstate.random.randint([1, 5, 7], 10)
+        >>> print(arr.shape)  # (3,)
+        >>> print((arr >= [1, 5, 7]).all())  # True
     """
 
     return DEFAULT.randint(low, high=high, size=size, dtype=dtype, key=key)
 
 
-def random_integers(low,
-                    high=None,
-                    size: Optional[Size] = None,
-                    key: Optional[SeedOrKey] = None,
-                    dtype: DTypeLike = None):
+def random_integers(
+    low,
+    high=None,
+    size: Optional[Size] = None,
+    key: Optional[SeedOrKey] = None,
+    dtype: DTypeLike = None
+):
     r"""
     Random integers of type `np.int_` between `low` and `high`, inclusive.
 
@@ -219,52 +273,53 @@ def random_integers(low,
 
     Examples
     --------
-    >>> import brainstate as brainstate
-    >>> brainstate.random.random_integers(5)
-    4 # random
-    >>> type(brainstate.random.random_integers(5))
-    <class 'numpy.int64'>
-    >>> brainstate.random.random_integers(5, size=(3,2))
-    array([[5, 4], # random
-           [3, 3],
-           [4, 5]])
+    Generate a single random integer from 1 to 5 (inclusive):
+
+    .. code-block:: python
+
+        >>> import brainstate
+        >>> val = brainstate.random.random_integers(5)
+        >>> print(type(val))  # <class 'numpy.int64'>
+        >>> print(1 <= val <= 5)  # True
+
+    Generate a 3x2 array of random integers from 1 to 5 (inclusive):
+
+    .. code-block:: python
+
+        >>> arr = brainstate.random.random_integers(5, size=(3, 2))
+        >>> print(arr.shape)  # (3, 2)
+        >>> print((arr >= 1).all() and (arr <= 5).all())  # True
 
     Choose five random numbers from the set of five evenly-spaced
     numbers between 0 and 2.5, inclusive (*i.e.*, from the set
     :math:`{0, 5/8, 10/8, 15/8, 20/8}`):
 
-    >>> 2.5 * (brainstate.random.random_integers(5, size=(5,)) - 1) / 4.
-    array([ 0.625,  1.25 ,  0.625,  0.625,  2.5  ]) # random
+    .. code-block:: python
+
+        >>> vals = 2.5 * (brainstate.random.random_integers(5, size=(5,)) - 1) / 4.
+        >>> print(vals.shape)  # (5,)
 
     Roll two six sided dice 1000 times and sum the results:
 
-    >>> d1 = brainstate.random.random_integers(1, 6, 1000)
-    >>> d2 = brainstate.random.random_integers(1, 6, 1000)
-    >>> dsums = d1 + d2
+    .. code-block:: python
 
-    Display results as a histogram:
-
-    >>> import matplotlib.pyplot as plt  # noqa
-    >>> count, bins, ignored = plt.hist(dsums, 11, density=True)
-    >>> plt.show()
+        >>> d1 = brainstate.random.random_integers(1, 6, 1000)
+        >>> d2 = brainstate.random.random_integers(1, 6, 1000)
+        >>> dsums = d1 + d2
+        >>> print(dsums.shape)  # (1000,)
+        >>> print((dsums >= 2).all() and (dsums <= 12).all())  # True
     """
 
     return DEFAULT.random_integers(low, high=high, size=size, key=key, dtype=dtype)
 
 
-def randn(*dn, key: Optional[SeedOrKey] = None, dtype: DTypeLike = None):
+def randn(
+    *dn,
+    key: Optional[SeedOrKey] = None,
+    dtype: DTypeLike = None
+):
     r"""
     Return a sample (or samples) from the "standard normal" distribution.
-
-    .. note::
-        This is a convenience function for users porting code from Matlab,
-        and wraps `standard_normal`. That function takes a
-        tuple to specify the size of the output, which is consistent with
-        other NumPy functions like `numpy.zeros` and `numpy.ones`.
-
-    .. note::
-        New code should use the ``standard_normal`` method of a ``default_rng()``
-        instance instead; please see the :ref:`random-quick-start`.
 
     If positive int_like arguments are provided, `randn` generates an array
     of shape ``(d0, d1, ..., dn)``, filled
@@ -301,21 +356,37 @@ def randn(*dn, key: Optional[SeedOrKey] = None, dtype: DTypeLike = None):
 
     Examples
     --------
-    >>> import brainstate as brainstate
-    >>> brainstate.random.randn()
-    2.1923875335537315  # random
+    Generate a single random number from standard normal distribution:
+
+    .. code-block:: python
+
+        >>> import brainstate
+        >>> val = brainstate.random.randn()
+        >>> print(type(val))  # <class 'numpy.float64'>
+
+    Generate a 2x4 array of standard normal samples:
+
+    .. code-block:: python
+
+        >>> arr = brainstate.random.randn(2, 4)
+        >>> print(arr.shape)  # (2, 4)
 
     Two-by-four array of samples from N(3, 6.25):
 
-    >>> 3 + 2.5 * brainstate.random.randn(2, 4)
-    array([[-4.49401501,  4.00950034, -1.81814867,  7.29718677],   # random
-           [ 0.39924804,  4.68456316,  4.99394529,  4.84057254]])  # random
+    .. code-block:: python
+
+        >>> arr = 3 + 2.5 * brainstate.random.randn(2, 4)
+        >>> print(arr.shape)  # (2, 4)
     """
 
     return DEFAULT.randn(*dn, key=key, dtype=dtype)
 
 
-def random(size: Optional[Size] = None, key: Optional[SeedOrKey] = None, dtype: DTypeLike = None):
+def random(
+    size: Optional[Size] = None,
+    key: Optional[SeedOrKey] = None,
+    dtype: DTypeLike = None
+):
     r"""
     Return random floats in the half-open interval [0.0, 1.0). Alias for
     `random_sample` to ease forward-porting to the new random API.
@@ -323,7 +394,11 @@ def random(size: Optional[Size] = None, key: Optional[SeedOrKey] = None, dtype: 
     return DEFAULT.random(size, key=key, dtype=dtype)
 
 
-def random_sample(size: Optional[Size] = None, key: Optional[SeedOrKey] = None, dtype: DTypeLike = None):
+def random_sample(
+    size: Optional[Size] = None,
+    key: Optional[SeedOrKey] = None,
+    dtype: DTypeLike = None
+):
     r"""
     Return random floats in the half-open interval [0.0, 1.0).
 
@@ -332,10 +407,6 @@ def random_sample(size: Optional[Size] = None, key: Optional[SeedOrKey] = None, 
     the output of `random_sample` by `(b-a)` and add `a`::
 
       (b - a) * random_sample() + a
-
-    .. note::
-        New code should use the ``random`` method of a ``default_rng()``
-        instance instead; please see the :ref:`random-quick-start`.
 
     Parameters
     ----------
@@ -359,25 +430,39 @@ def random_sample(size: Optional[Size] = None, key: Optional[SeedOrKey] = None, 
 
     Examples
     --------
-    >>> import brainstate as brainstate
-    >>> brainstate.random.random_sample()
-    0.47108547995356098 # random
-    >>> type(brainstate.random.random_sample())
-    <class 'float'>
-    >>> brainstate.random.random_sample((5,))
-    array([ 0.30220482,  0.86820401,  0.1654503 ,  0.11659149,  0.54323428]) # random
+    Generate a single random float:
+
+    .. code-block:: python
+
+        >>> import brainstate
+        >>> val = brainstate.random.random_sample()
+        >>> print(type(val))  # <class 'float'>
+        >>> print(0.0 <= val < 1.0)  # True
+
+    Generate an array of 5 random floats:
+
+    .. code-block:: python
+
+        >>> arr = brainstate.random.random_sample((5,))
+        >>> print(arr.shape)  # (5,)
+        >>> print((arr >= 0.0).all() and (arr < 1.0).all())  # True
 
     Three-by-two array of random numbers from [-5, 0):
 
-    >>> 5 * brainstate.random.random_sample((3, 2)) - 5
-    array([[-3.99149989, -0.52338984], # random
-           [-2.99091858, -0.79479508],
-           [-1.23204345, -1.75224494]])
+    .. code-block:: python
+
+        >>> arr = 5 * brainstate.random.random_sample((3, 2)) - 5
+        >>> print(arr.shape)  # (3, 2)
+        print((arr >= -5.0).all() and (arr < 0.0).all())  # True
     """
     return DEFAULT.random_sample(size, key=key, dtype=dtype)
 
 
-def ranf(size: Optional[Size] = None, key: Optional[SeedOrKey] = None, dtype: DTypeLike = None):
+def ranf(
+    size: Optional[Size] = None,
+    key: Optional[SeedOrKey] = None,
+    dtype: DTypeLike = None
+):
     r"""
     This is an alias of `random_sample`. See `random_sample`  for the complete
     documentation.
@@ -385,7 +470,11 @@ def ranf(size: Optional[Size] = None, key: Optional[SeedOrKey] = None, dtype: DT
     return DEFAULT.ranf(size, key=key, dtype=dtype)
 
 
-def sample(size: Optional[Size] = None, key: Optional[SeedOrKey] = None, dtype: DTypeLike = None):
+def sample(
+    size: Optional[Size] = None,
+    key: Optional[SeedOrKey] = None,
+    dtype: DTypeLike = None
+):
     """
     This is an alias of `random_sample`. See `random_sample`  for the complete
     documentation.
@@ -393,8 +482,13 @@ def sample(size: Optional[Size] = None, key: Optional[SeedOrKey] = None, dtype: 
     return DEFAULT.sample(size, key=key, dtype=dtype)
 
 
-def choice(a, size: Optional[Size] = None, replace=True, p=None,
-           key: Optional[SeedOrKey] = None):
+def choice(
+    a,
+    size: Optional[Size] = None,
+    replace=True,
+    p=None,
+    key: Optional[SeedOrKey] = None
+):
     r"""
     Generates a random sample from a given 1-D array
 
@@ -450,45 +544,56 @@ def choice(a, size: Optional[Size] = None, replace=True, p=None,
     --------
     Generate a uniform random sample from np.arange(5) of size 3:
 
-    >>> import brainstate as brainstate
-    >>> brainstate.random.choice(5, 3)
-    array([0, 3, 4]) # random
-    >>> #This is equivalent to brainpy.math.random.randint(0,5,3)
+    .. code-block:: python
+
+        >>> import brainstate
+        >>> result = brainstate.random.choice(5, 3)
+        >>> print(result.shape)  # (3,)
+        >>> print((result >= 0).all() and (result < 5).all())  # True
 
     Generate a non-uniform random sample from np.arange(5) of size 3:
 
-    >>> brainstate.random.choice(5, 3, p=[0.1, 0, 0.3, 0.6, 0])
-    array([3, 3, 0]) # random
+    .. code-block:: python
 
-    Generate a uniform random sample from np.arange(5) of size 3 without
-    replacement:
+        >>> result = brainstate.random.choice(5, 3, p=[0.1, 0, 0.3, 0.6, 0])
+        >>> print(result.shape)  # (3,)
+        >>> print(set(result).issubset({0, 2, 3}))  # True (only non-zero prob elements)
 
-    >>> brainstate.random.choice(5, 3, replace=False)
-    array([3,1,0]) # random
-    >>> #This is equivalent to brainpy.math.random.permutation(np.arange(5))[:3]
+    Generate a uniform random sample from np.arange(5) of size 3 without replacement:
 
-    Generate a non-uniform random sample from np.arange(5) of size
-    3 without replacement:
+    .. code-block:: python
 
-    >>> brainstate.random.choice(5, 3, replace=False, p=[0.1, 0, 0.3, 0.6, 0])
-    array([2, 3, 0]) # random
+        >>> result = brainstate.random.choice(5, 3, replace=False)
+        >>> print(result.shape)  # (3,)
+        >>> print(len(set(result)) == 3)  # True (all unique)
 
-    Any of the above can be repeated with an arbitrary array-like
-    instead of just integers. For instance:
+    Generate a non-uniform random sample from np.arange(5) of size 3 without replacement:
 
-    >>> aa_milne_arr = ['pooh', 'rabbit', 'piglet', 'Christopher']
-    >>> brainstate.random.choice(aa_milne_arr, 5, p=[0.5, 0.1, 0.1, 0.3])
-    array(['pooh', 'pooh', 'pooh', 'Christopher', 'piglet'], # random
-          dtype='<U11')
+    .. code-block:: python
+
+        >>> result = brainstate.random.choice(5, 3, replace=False, p=[0.1, 0, 0.3, 0.6, 0])
+        >>> print(result.shape)  # (3,)
+        >>> print(len(set(result)) == 3)  # True (all unique)
+
+    Any of the above can be repeated with an arbitrary array-like instead of just integers:
+
+    .. code-block:: python
+
+        >>> aa_milne_arr = ['pooh', 'rabbit', 'piglet', 'Christopher']
+        >>> result = brainstate.random.choice(aa_milne_arr, 5, p=[0.5, 0.1, 0.1, 0.3])
+        >>> print(result.shape)  # (5,)
+        >>> print(result.dtype.kind)  # 'U' (unicode string)
     """
     a = a
     return DEFAULT.choice(a=a, size=size, replace=replace, p=p, key=key)
 
 
-def permutation(x,
-                axis: int = 0,
-                independent: bool = False,
-                key: Optional[SeedOrKey] = None):
+def permutation(
+    x,
+    axis: int = 0,
+    independent: bool = False,
+    key: Optional[SeedOrKey] = None
+):
     r"""
     Randomly permute a sequence, or return a permuted range.
 
@@ -519,23 +624,42 @@ def permutation(x,
 
     Examples
     --------
-    >>> import brainstate as brainstate
-    >>> brainstate.random.permutation(10)
-    array([1, 7, 4, 3, 0, 9, 2, 5, 8, 6]) # random
+    Permute integers from 0 to 9:
 
-    >>> brainstate.random.permutation([1, 4, 9, 12, 15])
-    array([15,  1,  9,  4, 12]) # random
+    .. code-block:: python
 
-    >>> arr = np.arange(9).reshape((3, 3))
-    >>> brainstate.random.permutation(arr)
-    array([[6, 7, 8], # random
-           [0, 1, 2],
-           [3, 4, 5]])
+        >>> import brainstate
+        >>> result = brainstate.random.permutation(10)
+        >>> print(result.shape)  # (10,)
+        >>> print(sorted(result))  # [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+
+    Permute a given array:
+
+    .. code-block:: python
+
+        >>> arr = [1, 4, 9, 12, 15]
+        >>> result = brainstate.random.permutation(arr)
+        >>> print(result.shape)  # (5,)
+        >>> print(sorted(result))  # [1, 4, 9, 12, 15]
+
+    Permute rows of a 2D array:
+
+    .. code-block:: python
+
+        >>> import numpy as np
+        >>> arr = np.arange(9).reshape((3, 3))
+        >>> result = brainstate.random.permutation(arr)
+        >>> print(result.shape)  # (3, 3)
+        >>> print(result.flatten().sort() == np.arange(9).sort())  # True
     """
     return DEFAULT.permutation(x, axis=axis, independent=independent, key=key)
 
 
-def shuffle(x, axis=0, key: Optional[SeedOrKey] = None):
+def shuffle(
+    x,
+    axis=0,
+    key: Optional[SeedOrKey] = None
+):
     r"""
     Modify a sequence in-place by shuffling its contents.
 
@@ -557,25 +681,37 @@ def shuffle(x, axis=0, key: Optional[SeedOrKey] = None):
 
     Examples
     --------
-    >>> import brainstate as brainstate
-    >>> arr = np.arange(10)
-    >>> brainstate.random.shuffle(arr)
-    >>> arr
-    [1 7 5 2 9 4 3 6 0 8] # random
+    Shuffle a 1D array in-place:
+
+    .. code-block:: python
+
+        >>> import brainstate
+        >>> import numpy as np
+        >>> arr = np.arange(10)
+        >>> original_elements = set(arr)
+        >>> brainstate.random.shuffle(arr)
+        >>> print(set(arr) == original_elements)  # True (same elements)
 
     Multi-dimensional arrays are only shuffled along the first axis:
 
-    >>> arr = np.arange(9).reshape((3, 3))
-    >>> brainstate.random.shuffle(arr)
-    >>> arr
-    array([[3, 4, 5], # random
-           [6, 7, 8],
-           [0, 1, 2]])
+    .. code-block:: python
+
+        >>> arr = np.arange(9).reshape((3, 3))
+        >>> original_shape = arr.shape
+        >>> brainstate.random.shuffle(arr)
+        >>> print(arr.shape == original_shape)  # True (shape preserved)
+        >>> print(sorted(arr.flatten()) == list(range(9)))  # True (same elements)
     """
     return DEFAULT.shuffle(x, axis, key=key)
 
 
-def beta(a, b, size: Optional[Size] = None, key: Optional[SeedOrKey] = None, dtype: DTypeLike = None):
+def beta(
+    a,
+    b,
+    size: Optional[Size] = None,
+    key: Optional[SeedOrKey] = None,
+    dtype: DTypeLike = None
+):
     r"""
     Draw samples from a Beta distribution.
 
@@ -616,9 +752,12 @@ def beta(a, b, size: Optional[Size] = None, key: Optional[SeedOrKey] = None, dty
     return DEFAULT.beta(a, b, size=size, key=key, dtype=dtype)
 
 
-def exponential(scale=None, size: Optional[Size] = None,
-                key: Optional[SeedOrKey] = None,
-                dtype: DTypeLike = None):
+def exponential(
+    scale=None,
+    size: Optional[Size] = None,
+    key: Optional[SeedOrKey] = None,
+    dtype: DTypeLike = None
+):
     r"""
     Draw samples from an exponential distribution.
 
@@ -667,9 +806,13 @@ def exponential(scale=None, size: Optional[Size] = None,
     return DEFAULT.exponential(scale, size, key=key, dtype=dtype)
 
 
-def gamma(shape, scale=None, size: Optional[Size] = None,
-          key: Optional[SeedOrKey] = None,
-          dtype: DTypeLike = None):
+def gamma(
+    shape,
+    scale=None,
+    size: Optional[Size] = None,
+    key: Optional[SeedOrKey] = None,
+    dtype: DTypeLike = None
+):
     r"""
     Draw samples from a Gamma distribution.
 
@@ -724,9 +867,13 @@ def gamma(shape, scale=None, size: Optional[Size] = None,
     return DEFAULT.gamma(shape, scale, size=size, key=key, dtype=dtype)
 
 
-def gumbel(loc=None, scale=None, size: Optional[Size] = None,
-           key: Optional[SeedOrKey] = None,
-           dtype: DTypeLike = None):
+def gumbel(
+    loc=None,
+    scale=None,
+    size: Optional[Size] = None,
+    key: Optional[SeedOrKey] = None,
+    dtype: DTypeLike = None
+):
     r"""
     Draw samples from a Gumbel distribution.
 
@@ -798,9 +945,13 @@ def gumbel(loc=None, scale=None, size: Optional[Size] = None,
     return DEFAULT.gumbel(loc, scale, size=size, key=key, dtype=dtype)
 
 
-def laplace(loc=None, scale=None, size: Optional[Size] = None,
-            key: Optional[SeedOrKey] = None,
-            dtype: DTypeLike = None):
+def laplace(
+    loc=None,
+    scale=None,
+    size: Optional[Size] = None,
+    key: Optional[SeedOrKey] = None,
+    dtype: DTypeLike = None
+):
     r"""
     Draw samples from the Laplace or double exponential distribution with
     specified location (or mean) and scale (decay).
@@ -883,9 +1034,13 @@ def laplace(loc=None, scale=None, size: Optional[Size] = None,
     return DEFAULT.laplace(loc, scale, size, key=key, dtype=dtype)
 
 
-def logistic(loc=None, scale=None, size: Optional[Size] = None,
-             key: Optional[SeedOrKey] = None,
-             dtype: DTypeLike = None):
+def logistic(
+    loc=None,
+    scale=None,
+    size: Optional[Size] = None,
+    key: Optional[SeedOrKey] = None,
+    dtype: DTypeLike = None
+):
     r"""
     Draw samples from a logistic distribution.
 
@@ -1028,38 +1183,33 @@ def normal(
     --------
     Draw samples from the distribution:
 
-    >>> mu, sigma = 0, 0.1 # mean and standard deviation
-    >>> s = brainstate.random.normal(mu, sigma, 1000)
+    .. code-block:: python
 
-    Verify the mean and the variance:
-
-    >>> abs(mu - np.mean(s))
-    0.0  # may vary
-
-    >>> abs(sigma - np.std(s, ddof=1))
-    0.1  # may vary
-
-    Display the histogram of the samples, along with
-    the probability density function:
-
-    >>> import matplotlib.pyplot as plt  # noqa
-    >>> count, bins, ignored = plt.hist(s, 30, density=True)
-    >>> plt.plot(bins, 1/(sigma * np.sqrt(2 * np.pi)) *
-    ...                np.exp( - (bins - mu)**2 / (2 * sigma**2) ),
-    ...          linewidth=2, color='r')
-    >>> plt.show()
+        >>> import brainstate
+        >>> import numpy as np
+        >>> mu, sigma = 0, 0.1  # mean and standard deviation
+        >>> s = brainstate.random.normal(mu, sigma, 1000)
+        >>> print(s.shape)  # (1000,)
+        >>> print(abs(mu - np.mean(s)) < 0.1)  # True (approximately correct mean)
+        >>> print(abs(sigma - np.std(s, ddof=1)) < 0.1)  # True (approximately correct std)
 
     Two-by-four array of samples from the normal distribution with
     mean 3 and standard deviation 2.5:
 
-    >>> brainstate.random.normal(3, 2.5, size=(2, 4))
-    array([[-4.49401501,  4.00950034, -1.81814867,  7.29718677],   # random
-           [ 0.39924804,  4.68456316,  4.99394529,  4.84057254]])  # random
+    .. code-block:: python
+
+        >>> samples = brainstate.random.normal(3, 2.5, size=(2, 4))
+        >>> print(samples.shape)  # (2, 4)
     """
     return DEFAULT.normal(loc, scale, size, key=key, dtype=dtype)
 
 
-def pareto(a, size: Optional[Size] = None, key: Optional[SeedOrKey] = None, dtype: DTypeLike = None):
+def pareto(
+    a,
+    size: Optional[Size] = None,
+    key: Optional[SeedOrKey] = None,
+    dtype: DTypeLike = None
+):
     r"""
     Draw samples from a Pareto II or Lomax distribution with
     specified shape.
@@ -1154,7 +1304,12 @@ def pareto(a, size: Optional[Size] = None, key: Optional[SeedOrKey] = None, dtyp
     return DEFAULT.pareto(a, size, key=key, dtype=dtype)
 
 
-def poisson(lam=1.0, size: Optional[Size] = None, key: Optional[SeedOrKey] = None, dtype: DTypeLike = None):
+def poisson(
+    lam=1.0,
+    size: Optional[Size] = None,
+    key: Optional[SeedOrKey] = None,
+    dtype: DTypeLike = None
+):
     r"""
     Draw samples from a Poisson distribution.
 
@@ -1224,7 +1379,11 @@ def poisson(lam=1.0, size: Optional[Size] = None, key: Optional[SeedOrKey] = Non
     return DEFAULT.poisson(lam, size, key=key, dtype=dtype)
 
 
-def standard_cauchy(size: Optional[Size] = None, key: Optional[SeedOrKey] = None, dtype: DTypeLike = None):
+def standard_cauchy(
+    size: Optional[Size] = None,
+    key: Optional[SeedOrKey] = None,
+    dtype: DTypeLike = None
+):
     r"""
     Draw samples from a standard Cauchy distribution with mode = 0.
 
@@ -1289,9 +1448,11 @@ def standard_cauchy(size: Optional[Size] = None, key: Optional[SeedOrKey] = None
     return DEFAULT.standard_cauchy(size, key=key, dtype=dtype)
 
 
-def standard_exponential(size: Optional[Size] = None,
-                         key: Optional[SeedOrKey] = None,
-                         dtype: DTypeLike = None):
+def standard_exponential(
+    size: Optional[Size] = None,
+    key: Optional[SeedOrKey] = None,
+    dtype: DTypeLike = None
+):
     r"""
     Draw samples from the standard exponential distribution.
 
@@ -1322,9 +1483,12 @@ def standard_exponential(size: Optional[Size] = None,
     return DEFAULT.standard_exponential(size, key=key, dtype=dtype)
 
 
-def standard_gamma(shape, size: Optional[Size] = None,
-                   key: Optional[SeedOrKey] = None,
-                   dtype: DTypeLike = None):
+def standard_gamma(
+    shape,
+    size: Optional[Size] = None,
+    key: Optional[SeedOrKey] = None,
+    dtype: DTypeLike = None
+):
     r"""
     Draw samples from a standard Gamma distribution.
 
@@ -1396,7 +1560,11 @@ def standard_gamma(shape, size: Optional[Size] = None,
     return DEFAULT.standard_gamma(shape, size, key=key, dtype=dtype)
 
 
-def standard_normal(size: Optional[Size] = None, key: Optional[SeedOrKey] = None, dtype: DTypeLike = None):
+def standard_normal(
+    size: Optional[Size] = None,
+    key: Optional[SeedOrKey] = None,
+    dtype: DTypeLike = None
+):
     r"""
     Draw samples from a standard Normal distribution (mean=0, stdev=1).
 
@@ -1432,30 +1600,45 @@ def standard_normal(size: Optional[Size] = None, key: Optional[SeedOrKey] = None
 
     Examples
     --------
-    >>> brainstate.random.standard_normal()
-    2.1923875335537315 #random
+    Generate a single standard normal sample:
 
-    >>> s = brainstate.random.standard_normal(8000)
-    >>> s
-    array([ 0.6888893 ,  0.78096262, -0.89086505, ...,  0.49876311,  # random
-           -0.38672696, -0.4685006 ])                                # random
-    >>> s.shape
-    (8000,)
-    >>> s = brainstate.random.standard_normal(size=(3, 4, 2))
-    >>> s.shape
-    (3, 4, 2)
+    .. code-block:: python
+
+        >>> import brainstate
+        >>> val = brainstate.random.standard_normal()
+        >>> print(type(val))  # <class 'numpy.float64'>
+
+    Generate an array of 8000 standard normal samples:
+
+    .. code-block:: python
+
+        >>> s = brainstate.random.standard_normal(8000)
+        >>> print(s.shape)  # (8000,)
+
+    Generate a 3x4x2 array of standard normal samples:
+
+    .. code-block:: python
+
+        >>> s = brainstate.random.standard_normal(size=(3, 4, 2))
+        >>> print(s.shape)  # (3, 4, 2)
 
     Two-by-four array of samples from the normal distribution with
     mean 3 and standard deviation 2.5:
 
-    >>> 3 + 2.5 * brainstate.random.standard_normal(size=(2, 4))
-    array([[-4.49401501,  4.00950034, -1.81814867,  7.29718677],   # random
-           [ 0.39924804,  4.68456316,  4.99394529,  4.84057254]])  # random
+    .. code-block:: python
+
+        >>> samples = 3 + 2.5 * brainstate.random.standard_normal(size=(2, 4))
+        print(samples.shape)  # (2, 4)
     """
     return DEFAULT.standard_normal(size, key=key, dtype=dtype)
 
 
-def standard_t(df, size: Optional[Size] = None, key: Optional[SeedOrKey] = None, dtype: DTypeLike = None):
+def standard_t(
+    df,
+    size: Optional[Size] = None,
+    key: Optional[SeedOrKey] = None,
+    dtype: DTypeLike = None
+):
     r"""
     Draw samples from a standard Student's t distribution with `df` degrees
     of freedom.
@@ -1558,8 +1741,13 @@ def standard_t(df, size: Optional[Size] = None, key: Optional[SeedOrKey] = None,
     return DEFAULT.standard_t(df, size, key=key, dtype=dtype)
 
 
-def uniform(low=0.0, high=1.0, size: Optional[Size] = None,
-            key: Optional[SeedOrKey] = None, dtype: DTypeLike = None):
+def uniform(
+    low=0.0,
+    high=1.0,
+    size: Optional[Size] = None,
+    key: Optional[SeedOrKey] = None,
+    dtype: DTypeLike = None
+):
     r"""
     Draw samples from a uniform distribution.
 
@@ -1649,8 +1837,16 @@ def uniform(low=0.0, high=1.0, size: Optional[Size] = None,
     return DEFAULT.uniform(low, high, size, key=key, dtype=dtype)
 
 
-def truncated_normal(lower, upper, size: Optional[Size] = None, loc=0., scale=1.,
-                     key: Optional[SeedOrKey] = None, dtype: DTypeLike = None):
+def truncated_normal(
+    lower,
+    upper,
+    size: Optional[Size] = None,
+    loc=0.0,
+    scale=1.0,
+    key: Optional[SeedOrKey] = None,
+    dtype: DTypeLike = None,
+    check_valid: bool = True
+):
     r"""Sample truncated standard normal random values with given shape and dtype.
 
     Method based on https://people.sc.fsu.edu/~jburkardt/presentations/truncated_normal.pdf
@@ -1706,13 +1902,27 @@ def truncated_normal(lower, upper, size: Optional[Size] = None, loc=0., scale=1.
       ``shape`` is not None, or else by broadcasting ``lower`` and ``upper``.
       Returns values in the open interval ``(lower, upper)``.
     """
-    return DEFAULT.truncated_normal(lower, upper, size, loc, scale, key=key, dtype=dtype)
+    return DEFAULT.truncated_normal(
+        lower,
+        upper,
+        size,
+        loc,
+        scale,
+        key=key,
+        dtype=dtype,
+        check_valid=check_valid,
+    )
 
 
 RandomState.truncated_normal.__doc__ = truncated_normal.__doc__
 
 
-def bernoulli(p=0.5, size: Optional[Size] = None, key: Optional[SeedOrKey] = None):
+def bernoulli(
+    p=0.5,
+    size: Optional[Size] = None,
+    key: Optional[SeedOrKey] = None,
+    check_valid: bool = True,
+):
     r"""Sample Bernoulli random values with given shape and mean.
 
     Parameters
@@ -1735,11 +1945,16 @@ def bernoulli(p=0.5, size: Optional[Size] = None, key: Optional[SeedOrKey] = Non
       A random array with boolean dtype and shape given by ``shape`` if ``shape``
       is not None, or else ``p.shape``.
     """
-    return DEFAULT.bernoulli(p, size, key=key)
+    return DEFAULT.bernoulli(p, size, key=key, check_valid=check_valid)
 
 
-def lognormal(mean=None, sigma=None, size: Optional[Size] = None,
-              key: Optional[SeedOrKey] = None, dtype: DTypeLike = None):
+def lognormal(
+    mean=None,
+    sigma=None,
+    size: Optional[Size] = None,
+    key: Optional[SeedOrKey] = None,
+    dtype: DTypeLike = None
+):
     r"""
     Draw samples from a log-normal distribution.
 
@@ -1853,7 +2068,7 @@ def binomial(
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
     dtype: DTypeLike = None,
-    check_valid: bool = True,
+    check_valid: bool = True
 ):
     r"""
     Draw samples from a binomial distribution.
@@ -1942,7 +2157,12 @@ def binomial(
     return DEFAULT.binomial(n, p, size, key=key, dtype=dtype, check_valid=check_valid)
 
 
-def chisquare(df, size: Optional[Size] = None, key: Optional[SeedOrKey] = None, dtype: DTypeLike = None):
+def chisquare(
+    df,
+    size: Optional[Size] = None,
+    key: Optional[SeedOrKey] = None,
+    dtype: DTypeLike = None
+):
     r"""
     Draw samples from a chi-square distribution.
 
@@ -2002,13 +2222,24 @@ def chisquare(df, size: Optional[Size] = None, key: Optional[SeedOrKey] = None, 
 
     Examples
     --------
-    >>> brainstate.random.chisquare(2,4)
-    array([ 1.89920014,  9.00867716,  3.13710533,  5.62318272]) # random
+    Generate chi-square samples with 2 degrees of freedom:
+
+    .. code-block:: python
+
+        >>> import brainstate
+        >>> samples = brainstate.random.chisquare(2, 4)
+        >>> print(samples.shape)  # (4,)
+        >>> print((samples >= 0).all())  # True (chi-square is always non-negative)
     """
     return DEFAULT.chisquare(df, size, key=key, dtype=dtype)
 
 
-def dirichlet(alpha, size: Optional[Size] = None, key: Optional[SeedOrKey] = None, dtype: DTypeLike = None):
+def dirichlet(
+    alpha,
+    size: Optional[Size] = None,
+    key: Optional[SeedOrKey] = None,
+    dtype: DTypeLike = None
+):
     r"""
     Draw samples from the Dirichlet distribution.
 
@@ -2077,6 +2308,7 @@ def dirichlet(alpha, size: Optional[Size] = None, key: Optional[SeedOrKey] = Non
     average length, but allowing some variation in the relative sizes of
     the pieces.
 
+    >>> import brainstate
     >>> s = brainstate.random.dirichlet((10, 5, 3), 20).transpose()
 
     >>> import matplotlib.pyplot as plt  # noqa
@@ -2088,7 +2320,12 @@ def dirichlet(alpha, size: Optional[Size] = None, key: Optional[SeedOrKey] = Non
     return DEFAULT.dirichlet(alpha, size, key=key, dtype=dtype)
 
 
-def geometric(p, size: Optional[Size] = None, key: Optional[SeedOrKey] = None, dtype: DTypeLike = None):
+def geometric(
+    p,
+    size: Optional[Size] = None,
+    key: Optional[SeedOrKey] = None,
+    dtype: DTypeLike = None
+):
     r"""
     Draw samples from the geometric distribution.
 
@@ -2127,6 +2364,7 @@ def geometric(p, size: Optional[Size] = None, key: Optional[SeedOrKey] = None, d
     Draw ten thousand values from the geometric distribution,
     with the probability of an individual success equal to 0.35:
 
+    >>> import brainstate
     >>> z = brainstate.random.geometric(p=0.35, size=10000)
 
     How many trials succeeded after a single run?
@@ -2137,7 +2375,13 @@ def geometric(p, size: Optional[Size] = None, key: Optional[SeedOrKey] = None, d
     return DEFAULT.geometric(p, size, key=key, dtype=dtype)
 
 
-def f(dfnum, dfden, size: Optional[Size] = None, key: Optional[SeedOrKey] = None, dtype: DTypeLike = None):
+def f(
+    dfnum,
+    dfden,
+    size: Optional[Size] = None,
+    key: Optional[SeedOrKey] = None,
+    dtype: DTypeLike = None
+):
     r"""
     Draw samples from an F distribution.
 
@@ -2207,6 +2451,7 @@ def f(dfnum, dfden, size: Optional[Size] = None, key: Optional[SeedOrKey] = None
 
     Draw samples from the distribution:
 
+    >>> import brainstate
     >>> dfnum = 1. # between group degrees of freedom
     >>> dfden = 48. # within groups degrees of freedom
     >>> s = brainstate.random.f(dfnum, dfden, 1000)
@@ -2223,8 +2468,14 @@ def f(dfnum, dfden, size: Optional[Size] = None, key: Optional[SeedOrKey] = None
     return DEFAULT.f(dfnum, dfden, size, key=key, dtype=dtype)
 
 
-def hypergeometric(ngood, nbad, nsample, size: Optional[Size] = None,
-                   key: Optional[SeedOrKey] = None, dtype: DTypeLike = None):
+def hypergeometric(
+    ngood,
+    nbad,
+    nsample,
+    size: Optional[Size] = None,
+    key: Optional[SeedOrKey] = None,
+    dtype: DTypeLike = None
+):
     r"""
     Draw samples from a Hypergeometric distribution.
 
@@ -2300,6 +2551,7 @@ def hypergeometric(ngood, nbad, nsample, size: Optional[Size] = None,
     --------
     Draw samples from the distribution:
 
+    >>> import brainstate
     >>> ngood, nbad, nsamp = 100, 2, 10
     # number of good, number of bad, and number of samples
     >>> s = brainstate.random.hypergeometric(ngood, nbad, nsamp, 1000)
@@ -2318,7 +2570,12 @@ def hypergeometric(ngood, nbad, nsample, size: Optional[Size] = None,
     return DEFAULT.hypergeometric(ngood, nbad, nsample, size, key=key, dtype=dtype)
 
 
-def logseries(p, size: Optional[Size] = None, key: Optional[SeedOrKey] = None, dtype: DTypeLike = None):
+def logseries(
+    p,
+    size: Optional[Size] = None,
+    key: Optional[SeedOrKey] = None,
+    dtype: DTypeLike = None
+):
     r"""
     Draw samples from a logarithmic series distribution.
 
@@ -2380,6 +2637,7 @@ def logseries(p, size: Optional[Size] = None, key: Optional[SeedOrKey] = None, d
     --------
     Draw samples from the distribution:
 
+    >>> import brainstate
     >>> a = .6
     >>> s = brainstate.random.logseries(a, 10000)
     >>> import matplotlib.pyplot as plt  # noqa
@@ -2396,11 +2654,14 @@ def logseries(p, size: Optional[Size] = None, key: Optional[SeedOrKey] = None, d
     return DEFAULT.logseries(p, size, key=key, dtype=dtype)
 
 
-def multinomial(n,
-                pvals,
-                size: Optional[Size] = None,
-                key: Optional[SeedOrKey] = None,
-                dtype: DTypeLike = None):
+def multinomial(
+    n,
+    pvals,
+    size: Optional[Size] = None,
+    key: Optional[SeedOrKey] = None,
+    dtype: DTypeLike = None,
+    check_valid: bool = True,
+):
     r"""
     Draw samples from a multinomial distribution.
 
@@ -2442,45 +2703,49 @@ def multinomial(n,
     --------
     Throw a dice 20 times:
 
-    >>> brainstate.random.multinomial(20, [1/6.]*6, size=1)
-    array([[4, 1, 7, 5, 2, 1]]) # random
+    .. code-block:: python
 
-    It landed 4 times on 1, once on 2, etc.
+        >>> import brainstate
+        >>> result = brainstate.random.multinomial(20, [1/6.]*6, size=1)
+        >>> print(result.shape)  # (1, 6)
+        >>> print(result.sum())  # 20 (total throws)
 
     Now, throw the dice 20 times, and 20 times again:
 
-    >>> brainstate.random.multinomial(20, [1/6.]*6, size=2)
-    array([[3, 4, 3, 3, 4, 3], # random
-           [2, 4, 3, 4, 0, 7]])
+    .. code-block:: python
 
-    For the first run, we threw 3 times 1, 4 times 2, etc.  For the second,
-    we threw 2 times 1, 4 times 2, etc.
+        >>> result = brainstate.random.multinomial(20, [1/6.]*6, size=2)
+        >>> print(result.shape)  # (2, 6)
+        >>> print(result.sum(axis=1))  # [20, 20] (total throws per experiment)
 
     A loaded die is more likely to land on number 6:
 
-    >>> brainstate.random.multinomial(100, [1/7.]*5 + [2/7.])
-    array([11, 16, 14, 17, 16, 26]) # random
+    .. code-block:: python
 
-    The probability inputs should be normalized. As an implementation
-    detail, the value of the last entry is ignored and assumed to take
-    up any leftover probability mass, but this should not be relied on.
-    A biased coin which has twice as much weight on one side as on the
-    other should be sampled like so:
+        >>> result = brainstate.random.multinomial(100, [1/7.]*5 + [2/7.])
+        >>> print(result.shape)  # (6,)
+        >>> print(result.sum())  # 100 (total throws)
 
-    >>> brainstate.random.multinomial(100, [1.0 / 3, 2.0 / 3])  # RIGHT
-    array([38, 62]) # random
+    The probability inputs should be normalized. A biased coin which has
+    twice as much weight on one side as on the other should be sampled like so:
 
-    not like:
+    .. code-block:: python
 
-    >>> brainstate.random.multinomial(100, [1.0, 2.0])  # WRONG
-    Traceback (most recent call last):
-    ValueError: pvals < 0, pvals > 1 or pvals contains NaNs
+        >>> result = brainstate.random.multinomial(100, [1.0 / 3, 2.0 / 3])
+        >>> print(result.shape)  # (2,)
+        print(result.sum())  # 100 (total throws)
     """
-    return DEFAULT.multinomial(n, pvals, size, key=key, dtype=dtype)
+    return DEFAULT.multinomial(n, pvals, size, key=key, dtype=dtype, check_valid=check_valid)
 
 
-def multivariate_normal(mean, cov, size: Optional[Size] = None, method: str = 'cholesky',
-                        key: Optional[SeedOrKey] = None, dtype: DTypeLike = None):
+def multivariate_normal(
+    mean,
+    cov,
+    size: Optional[Size] = None,
+    method: str = 'cholesky',
+    key: Optional[SeedOrKey] = None,
+    dtype: DTypeLike = None
+):
     r"""
     Draw random samples from a multivariate normal distribution.
 
@@ -2549,6 +2814,7 @@ def multivariate_normal(mean, cov, size: Optional[Size] = None, method: str = 'c
 
     Diagonal covariance means that points are oriented along x or y-axis:
 
+    >>> import brainstate
     >>> import matplotlib.pyplot as plt  # noqa
     >>> x, y = brainstate.random.multivariate_normal(mean, cov, 5000).T
     >>> plt.plot(x, y, 'x')
@@ -2607,11 +2873,13 @@ def multivariate_normal(mean, cov, size: Optional[Size] = None, method: str = 'c
     return DEFAULT.multivariate_normal(mean, cov, size, method, key=key, dtype=dtype)
 
 
-def negative_binomial(n,
-                      p,
-                      size: Optional[Size] = None,
-                      key: Optional[SeedOrKey] = None,
-                      dtype: DTypeLike = None):
+def negative_binomial(
+    n,
+    p,
+    size: Optional[Size] = None,
+    key: Optional[SeedOrKey] = None,
+    dtype: DTypeLike = None
+):
     r"""
     Draw samples from a negative binomial distribution.
 
@@ -2677,6 +2945,7 @@ def negative_binomial(n,
     for each successive well, that is what is the probability of a
     single success after drilling 5 wells, after 6 wells, etc.?
 
+    >>> import brainstate
     >>> s = brainstate.random.negative_binomial(1, 0.1, 100000)
     >>> for i in range(1, 11): # doctest: +SKIP
     ...    probability = sum(s<i) / 100000.
@@ -2685,9 +2954,13 @@ def negative_binomial(n,
     return DEFAULT.negative_binomial(n, p, size, key=key, dtype=dtype)
 
 
-def noncentral_chisquare(df, nonc, size: Optional[Size] = None,
-                         key: Optional[SeedOrKey] = None,
-                         dtype: DTypeLike = None):
+def noncentral_chisquare(
+    df,
+    nonc,
+    size: Optional[Size] = None,
+    key: Optional[SeedOrKey] = None,
+    dtype: DTypeLike = None
+):
     r"""
     Draw samples from a noncentral chi-square distribution.
 
@@ -2734,6 +3007,7 @@ def noncentral_chisquare(df, nonc, size: Optional[Size] = None,
     --------
     Draw values from the distribution and plot the histogram
 
+    >>> import brainstate
     >>> import matplotlib.pyplot as plt  # noqa
     >>> values = plt.hist(brainstate.random.noncentral_chisquare(3, 20, 100000),
     ...                   bins=200, density=True)
@@ -2761,9 +3035,14 @@ def noncentral_chisquare(df, nonc, size: Optional[Size] = None,
     return DEFAULT.noncentral_chisquare(df, nonc, size, key=key, dtype=dtype)
 
 
-def noncentral_f(dfnum, dfden, nonc, size: Optional[Size] = None,
-                 key: Optional[SeedOrKey] = None,
-                 dtype: DTypeLike = None):
+def noncentral_f(
+    dfnum,
+    dfden,
+    nonc,
+    size: Optional[Size] = None,
+    key: Optional[SeedOrKey] = None,
+    dtype: DTypeLike = None
+):
     r"""
     Draw samples from the noncentral F distribution.
 
@@ -2820,6 +3099,7 @@ def noncentral_f(dfnum, dfden, nonc, size: Optional[Size] = None,
     distribution for the null hypothesis.  We'll plot the two probability
     distributions for comparison.
 
+    >>> import brainstate
     >>> dfnum = 3 # between group deg of freedom
     >>> dfden = 20 # within groups degrees of freedom
     >>> nonc = 3.0
@@ -2835,10 +3115,12 @@ def noncentral_f(dfnum, dfden, nonc, size: Optional[Size] = None,
     return DEFAULT.noncentral_f(dfnum, dfden, nonc, size, key=key, dtype=dtype)
 
 
-def power(a,
-          size: Optional[Size] = None,
-          key: Optional[SeedOrKey] = None,
-          dtype: DTypeLike = None):
+def power(
+    a,
+    size: Optional[Size] = None,
+    key: Optional[SeedOrKey] = None,
+    dtype: DTypeLike = None
+):
     r"""
     Draws samples in [0, 1] from a power distribution with positive
     exponent a - 1.
@@ -2895,6 +3177,7 @@ def power(a,
     --------
     Draw samples from the distribution:
 
+    >>> import brainstate
     >>> a = 5. # shape
     >>> samples = 1000
     >>> s = brainstate.random.power(a, samples)
@@ -2936,10 +3219,12 @@ def power(a,
     return DEFAULT.power(a, size, key=key, dtype=dtype)
 
 
-def rayleigh(scale=1.0,
-             size: Optional[Size] = None,
-             key: Optional[SeedOrKey] = None,
-             dtype: DTypeLike = None):
+def rayleigh(
+    scale=1.0,
+    size: Optional[Size] = None,
+    key: Optional[SeedOrKey] = None,
+    dtype: DTypeLike = None
+):
     r"""
     Draw samples from a Rayleigh distribution.
 
@@ -2986,6 +3271,7 @@ def rayleigh(scale=1.0,
     --------
     Draw values from the distribution and plot the histogram
 
+    >>> import brainstate
     >>> from matplotlib.pyplot import hist  # noqa
     >>> values = hist(brainstate.random.rayleigh(3, 100000), bins=200, density=True)
 
@@ -3005,8 +3291,10 @@ def rayleigh(scale=1.0,
     return DEFAULT.rayleigh(scale, size, key=key, dtype=dtype)
 
 
-def triangular(size: Optional[Size] = None,
-               key: Optional[SeedOrKey] = None):
+def triangular(
+    size: Optional[Size] = None,
+    key: Optional[SeedOrKey] = None
+):
     r"""
     Draw samples from the triangular distribution over the
     interval ``[left, right]``.
@@ -3057,6 +3345,7 @@ def triangular(size: Optional[Size] = None,
     --------
     Draw values from the distribution and plot the histogram:
 
+    >>> import brainstate
     >>> import matplotlib.pyplot as plt  # noqa
     >>> h = plt.hist(brainstate.random.triangular(-3, 0, 8, 100000), bins=200,
     ...              density=True)
@@ -3065,11 +3354,13 @@ def triangular(size: Optional[Size] = None,
     return DEFAULT.triangular(size, key=key)
 
 
-def vonmises(mu,
-             kappa,
-             size: Optional[Size] = None,
-             key: Optional[SeedOrKey] = None,
-             dtype: DTypeLike = None):
+def vonmises(
+    mu,
+    kappa,
+    size: Optional[Size] = None,
+    key: Optional[SeedOrKey] = None,
+    dtype: DTypeLike = None
+):
     r"""
     Draw samples from a von Mises distribution.
 
@@ -3133,6 +3424,7 @@ def vonmises(mu,
     --------
     Draw samples from the distribution:
 
+    >>> import brainstate
     >>> mu, kappa = 0.0, 4.0 # mean and dispersion
     >>> s = brainstate.random.vonmises(mu, kappa, 1000)
 
@@ -3150,11 +3442,13 @@ def vonmises(mu,
     return DEFAULT.vonmises(mu, kappa, size, key=key, dtype=dtype)
 
 
-def wald(mean,
-         scale,
-         size: Optional[Size] = None,
-         key: Optional[SeedOrKey] = None,
-         dtype: DTypeLike = None):
+def wald(
+    mean,
+    scale,
+    size: Optional[Size] = None,
+    key: Optional[SeedOrKey] = None,
+    dtype: DTypeLike = None
+):
     r"""
     Draw samples from a Wald, or inverse Gaussian, distribution.
 
@@ -3213,6 +3507,7 @@ def wald(mean,
     --------
     Draw values from the distribution and plot the histogram:
 
+    >>> import brainstate
     >>> import matplotlib.pyplot as plt  # noqa
     >>> h = plt.hist(brainstate.random.wald(3, 2, 100000), bins=200, density=True)
     >>> plt.show()
@@ -3220,10 +3515,12 @@ def wald(mean,
     return DEFAULT.wald(mean, scale, size, key=key, dtype=dtype)
 
 
-def weibull(a,
-            size: Optional[Size] = None,
-            key: Optional[SeedOrKey] = None,
-            dtype: DTypeLike = None):
+def weibull(
+    a,
+    size: Optional[Size] = None,
+    key: Optional[SeedOrKey] = None,
+    dtype: DTypeLike = None
+):
     r"""
     Draw samples from a Weibull distribution.
 
@@ -3236,10 +3533,6 @@ def weibull(a,
 
     The more common 2-parameter Weibull, including a scale parameter
     :math:`\lambda` is just :math:`X = \lambda(-ln(U))^{1/a}`.
-
-    .. note::
-        New code should use the ``weibull`` method of a ``default_rng()``
-        instance instead; please see the :ref:`random-quick-start`.
 
     Parameters
     ----------
@@ -3296,6 +3589,7 @@ def weibull(a,
     --------
     Draw samples from the distribution:
 
+    >>> import brainstate
     >>> a = 5. # shape
     >>> s = brainstate.random.weibull(a, 1000)
 
@@ -3317,11 +3611,13 @@ def weibull(a,
     return DEFAULT.weibull(a, size, key=key, dtype=dtype)
 
 
-def weibull_min(a,
-                scale=None,
-                size: Optional[Size] = None,
-                key: Optional[SeedOrKey] = None,
-                dtype: DTypeLike = None):
+def weibull_min(
+    a,
+    scale=None,
+    size: Optional[Size] = None,
+    key: Optional[SeedOrKey] = None,
+    dtype: DTypeLike = None
+):
     """Sample from a Weibull distribution.
 
     The scipy counterpart is `scipy.stats.weibull_min`.
@@ -3340,10 +3636,12 @@ def weibull_min(a,
     return DEFAULT.weibull_min(a, scale, size, key=key, dtype=dtype)
 
 
-def zipf(a,
-         size: Optional[Size] = None,
-         key: Optional[SeedOrKey] = None,
-         dtype: DTypeLike = None):
+def zipf(
+    a,
+    size: Optional[Size] = None,
+    key: Optional[SeedOrKey] = None,
+    dtype: DTypeLike = None
+):
     r"""
     Draw samples from a Zipf distribution.
 
@@ -3354,10 +3652,6 @@ def zipf(a,
     discrete probability distribution that satisfies Zipf's law: the
     frequency of an item is inversely proportional to its rank in a
     frequency table.
-
-    .. note::
-        New code should use the ``zipf`` method of a ``default_rng()``
-        instance instead; please see the :ref:`random-quick-start`.
 
     Parameters
     ----------
@@ -3405,6 +3699,7 @@ def zipf(a,
     --------
     Draw samples from the distribution:
 
+    >>> import brainstate
     >>> a = 4.0
     >>> n = 20000
     >>> s = brainstate.random.zipf(a, n)
@@ -3433,9 +3728,11 @@ def zipf(a,
     return DEFAULT.zipf(a, size, key=key, dtype=dtype)
 
 
-def maxwell(size: Optional[Size] = None,
-            key: Optional[SeedOrKey] = None,
-            dtype: DTypeLike = None):
+def maxwell(
+    size: Optional[Size] = None,
+    key: Optional[SeedOrKey] = None,
+    dtype: DTypeLike = None
+):
     """Sample from a one sided Maxwell distribution.
 
     The scipy counterpart is `scipy.stats.maxwell`.
@@ -3453,10 +3750,12 @@ def maxwell(size: Optional[Size] = None,
     return DEFAULT.maxwell(size, key=key, dtype=dtype)
 
 
-def t(df,
-      size: Optional[Size] = None,
-      key: Optional[SeedOrKey] = None,
-      dtype: DTypeLike = None):
+def t(
+    df,
+    size: Optional[Size] = None,
+    key: Optional[SeedOrKey] = None,
+    dtype: DTypeLike = None
+):
     """Sample Student’s t random values.
 
     Parameters
@@ -3478,10 +3777,12 @@ def t(df,
     return DEFAULT.t(df, size, key=key, dtype=dtype)
 
 
-def orthogonal(n: int,
-               size: Optional[Size] = None,
-               key: Optional[SeedOrKey] = None,
-               dtype: DTypeLike = None):
+def orthogonal(
+    n: int,
+    size: Optional[Size] = None,
+    key: Optional[SeedOrKey] = None,
+    dtype: DTypeLike = None
+):
     """Sample uniformly from the orthogonal group `O(n)`.
 
     Parameters
@@ -3502,10 +3803,12 @@ def orthogonal(n: int,
     return DEFAULT.orthogonal(n, size, key=key, dtype=dtype)
 
 
-def loggamma(a,
-             size: Optional[Size] = None,
-             key: Optional[SeedOrKey] = None,
-             dtype: DTypeLike = None):
+def loggamma(
+    a,
+    size: Optional[Size] = None,
+    key: Optional[SeedOrKey] = None,
+    dtype: DTypeLike = None
+):
     """Sample log-gamma random values.
 
     Parameters
@@ -3530,10 +3833,12 @@ def loggamma(a,
     return DEFAULT.loggamma(a, size, key=key, dtype=dtype)
 
 
-def categorical(logits,
-                axis: int = -1,
-                size: Optional[Size] = None,
-                key: Optional[SeedOrKey] = None):
+def categorical(
+    logits,
+    axis: int = -1,
+    size: Optional[Size] = None,
+    key: Optional[SeedOrKey] = None
+):
     """Sample random values from categorical distributions.
 
     Args:
@@ -3552,7 +3857,12 @@ def categorical(logits,
     return DEFAULT.categorical(logits, axis, size, key=key)
 
 
-def rand_like(input, *, dtype=None, key: Optional[SeedOrKey] = None):
+def rand_like(
+    input,
+    *,
+    dtype=None,
+    key: Optional[SeedOrKey] = None
+):
     """Similar to ``rand_like`` in torch.
 
     Returns a tensor with the same size as input that is filled with random
@@ -3569,7 +3879,12 @@ def rand_like(input, *, dtype=None, key: Optional[SeedOrKey] = None):
     return DEFAULT.rand_like(input, dtype=dtype, key=key)
 
 
-def randn_like(input, *, dtype=None, key: Optional[SeedOrKey] = None):
+def randn_like(
+    input,
+    *,
+    dtype=None,
+    key: Optional[SeedOrKey] = None
+):
     """Similar to ``randn_like`` in torch.
 
     Returns a tensor with the same size as ``input`` that is filled with
@@ -3586,7 +3901,14 @@ def randn_like(input, *, dtype=None, key: Optional[SeedOrKey] = None):
     return DEFAULT.randn_like(input, dtype=dtype, key=key)
 
 
-def randint_like(input, low=0, high=None, *, dtype=None, key: Optional[SeedOrKey] = None):
+def randint_like(
+    input,
+    low=0,
+    high=None,
+    *,
+    dtype=None,
+    key: Optional[SeedOrKey] = None
+):
     """Similar to ``randint_like`` in torch.
 
     Returns a tensor with the same shape as Tensor ``input`` filled with

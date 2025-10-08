@@ -1,4 +1,4 @@
-# Copyright 2024 BDP Ecosystem Limited. All Rights Reserved.
+# Copyright 2024 BrainX Ecosystem Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,10 +20,11 @@ from typing import Callable, Union, Optional
 import brainunit as u
 import jax.numpy as jnp
 
-from brainstate import init, functional
 from brainstate._state import ParamState
 from brainstate.typing import ArrayLike, Size
+from . import init as init
 from ._module import Module
+from ._normalizations import weight_standardization
 
 __all__ = [
     'Linear',
@@ -38,7 +39,58 @@ __all__ = [
 
 class Linear(Module):
     """
-    Linear layer.
+    Linear transformation layer.
+
+    Applies a linear transformation to the incoming data: :math:`y = xW + b`
+
+    Parameters
+    ----------
+    in_size : int or tuple of int
+        The input feature size.
+    out_size : int or tuple of int
+        The output feature size.
+    w_init : Callable or ArrayLike, optional
+        Weight initializer. Default is ``KaimingNormal()``.
+    b_init : Callable, ArrayLike, or None, optional
+        Bias initializer. If ``None``, no bias is added. Default is ``ZeroInit()``.
+    w_mask : ArrayLike, Callable, or None, optional
+        Optional mask for the weights. If provided, weights will be element-wise
+        multiplied by this mask.
+    name : str, optional
+        Name of the module.
+    param_type : type, optional
+        Type of parameter state. Default is ``ParamState``.
+
+    Attributes
+    ----------
+    in_size : tuple
+        Input feature size.
+    out_size : tuple
+        Output feature size.
+    w_mask : ArrayLike or None
+        Weight mask if provided.
+    weight : ParamState
+        Parameter state containing 'weight' and optionally 'bias'.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate as bst
+        >>> import jax.numpy as jnp
+        >>>
+        >>> # Create a linear layer
+        >>> layer = bst.nn.Linear((10,), (5,))
+        >>> x = jnp.ones((32, 10))
+        >>> y = layer(x)
+        >>> y.shape
+        (32, 5)
+        >>>
+        >>> # Linear layer without bias
+        >>> layer = bst.nn.Linear((10,), (5,), b_init=None)
+        >>> y = layer(x)
+        >>> y.shape
+        (32, 5)
     """
     __module__ = 'brainstate.nn'
 
@@ -82,7 +134,59 @@ class Linear(Module):
 
 class SignedWLinear(Module):
     """
-    Linear layer with signed weights.
+    Linear layer with signed absolute weights.
+
+    This layer uses absolute values of weights multiplied by a sign matrix,
+    ensuring all effective weights have controlled signs.
+
+    Parameters
+    ----------
+    in_size : int or tuple of int
+        The input feature size.
+    out_size : int or tuple of int
+        The output feature size.
+    w_init : Callable or ArrayLike, optional
+        Weight initializer. Default is ``KaimingNormal()``.
+    w_sign : ArrayLike or None, optional
+        Sign matrix for the weights. If ``None``, all weights are positive
+        (absolute values used). If provided, should have the same shape as
+        the weight matrix.
+    name : str, optional
+        Name of the module.
+    param_type : type, optional
+        Type of parameter state. Default is ``ParamState``.
+
+    Attributes
+    ----------
+    in_size : tuple
+        Input feature size.
+    out_size : tuple
+        Output feature size.
+    w_sign : ArrayLike or None
+        Sign matrix for weights.
+    weight : ParamState
+        Parameter state containing the weight values.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate as bst
+        >>> import jax.numpy as jnp
+        >>>
+        >>> # Create a signed weight linear layer with all positive weights
+        >>> layer = bst.nn.SignedWLinear((10,), (5,))
+        >>> x = jnp.ones((32, 10))
+        >>> y = layer(x)
+        >>> y.shape
+        (32, 5)
+        >>>
+        >>> # With custom sign matrix (e.g., inhibitory connections)
+        >>> w_sign = jnp.ones((10, 5)) * -1.0  # all negative
+        >>> layer = bst.nn.SignedWLinear((10,), (5,), w_sign=w_sign)
+        >>> y = layer(x)
+        >>> y.shape
+        (32, 5)
     """
     __module__ = 'brainstate.nn'
 
@@ -120,29 +224,71 @@ class SignedWLinear(Module):
 
 class ScaledWSLinear(Module):
     """
-    Linear Layer with Weight Standardization.
+    Linear layer with weight standardization.
 
-    Applies weight standardization to the weights of the linear layer.
+    Applies weight standardization [1]_ to normalize weights before the linear
+    transformation, which can improve training stability and performance.
 
     Parameters
     ----------
-    in_size: int, sequence of int
-      The input size.
-    out_size: int, sequence of int
-      The output size.
-    w_init: Callable, ArrayLike
-      The initializer for the weights.
-    b_init: Callable, ArrayLike
-      The initializer for the bias.
-    w_mask: ArrayLike, Callable
-      The optional mask of the weights.
-    ws_gain: bool
-      Whether to use gain for the weights. The default is True.
-    eps: float
-      The epsilon value for the weight standardization.
-    name: str
-      The name of the object.
+    in_size : int or tuple of int
+        The input feature size.
+    out_size : int or tuple of int
+        The output feature size.
+    w_init : Callable, optional
+        Weight initializer. Default is ``KaimingNormal()``.
+    b_init : Callable, optional
+        Bias initializer. Default is ``ZeroInit()``.
+    w_mask : ArrayLike, Callable, or None, optional
+        Optional mask for the weights.
+    ws_gain : bool, optional
+        Whether to use a learnable gain parameter for weight standardization.
+        Default is ``True``.
+    eps : float, optional
+        Small constant for numerical stability in standardization.
+        Default is ``1e-4``.
+    name : str, optional
+        Name of the module.
+    param_type : type, optional
+        Type of parameter state. Default is ``ParamState``.
 
+    Attributes
+    ----------
+    in_size : tuple
+        Input feature size.
+    out_size : tuple
+        Output feature size.
+    w_mask : ArrayLike or None
+        Weight mask if provided.
+    eps : float
+        Epsilon for numerical stability.
+    weight : ParamState
+        Parameter state containing 'weight', optionally 'bias' and 'gain'.
+
+    References
+    ----------
+    .. [1] Qiao, S., Wang, H., Liu, C., Shen, W., & Yuille, A. (2019).
+           Weight standardization. arXiv preprint arXiv:1903.10520.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate as bst
+        >>> import jax.numpy as jnp
+        >>>
+        >>> # Create a weight-standardized linear layer
+        >>> layer = bst.nn.ScaledWSLinear((10,), (5,))
+        >>> x = jnp.ones((32, 10))
+        >>> y = layer(x)
+        >>> y.shape
+        (32, 5)
+        >>>
+        >>> # Without learnable gain
+        >>> layer = bst.nn.ScaledWSLinear((10,), (5,), ws_gain=False)
+        >>> y = layer(x)
+        >>> y.shape
+        (32, 5)
     """
     __module__ = 'brainstate.nn'
 
@@ -185,7 +331,7 @@ class ScaledWSLinear(Module):
     def update(self, x):
         params = self.weight.value
         w = params['weight']
-        w = functional.weight_standardization(w, self.eps, params.get('gain', None))
+        w = weight_standardization(w, self.eps, params.get('gain', None))
         if self.w_mask is not None:
             w = w * self.w_mask
         y = u.linalg.dot(x, w)
@@ -196,13 +342,53 @@ class ScaledWSLinear(Module):
 
 class SparseLinear(Module):
     """
-    Linear layer with Sparse Matrix (can be ``brainunit.sparse.CSR``,
-    ``brainunit.sparse.CSC``, ``brainunit.sparse.COO``, or any other sparse matrix).
+    Linear layer with sparse weight matrix.
 
-    Args:
-        spar_mat: SparseMatrix. The sparse weight matrix.
-        in_size: Size. The input size.
-        name: str. The object name.
+    Supports sparse matrices from ``brainunit.sparse`` including CSR, CSC,
+    and COO formats. Only the non-zero entries are stored and updated.
+
+    Parameters
+    ----------
+    spar_mat : brainunit.sparse.SparseMatrix
+        The sparse weight matrix defining the connectivity structure.
+    b_init : Callable, ArrayLike, or None, optional
+        Bias initializer. If ``None``, no bias is added.
+    in_size : int or tuple of int, optional
+        The input size. If not provided, inferred from ``spar_mat``.
+    name : str, optional
+        Name of the module.
+    param_type : type, optional
+        Type of parameter state. Default is ``ParamState``.
+
+    Attributes
+    ----------
+    in_size : tuple
+        Input feature size.
+    out_size : int
+        Output feature size.
+    spar_mat : brainunit.sparse.SparseMatrix
+        The sparse matrix structure.
+    weight : ParamState
+        Parameter state containing the sparse 'weight' data and optionally 'bias'.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate as bst
+        >>> import brainunit as u
+        >>> import jax.numpy as jnp
+        >>>
+        >>> # Create a sparse linear layer with CSR matrix
+        >>> indices = jnp.array([[0, 1], [1, 2], [2, 0]])
+        >>> values = jnp.array([1.0, 2.0, 3.0])
+        >>> spar_mat = u.sparse.CSR((values, indices[:, 1], indices[:, 0]),
+        ...                          shape=(3, 3))
+        >>> layer = bst.nn.SparseLinear(spar_mat, in_size=(3,))
+        >>> x = jnp.ones((5, 3))
+        >>> y = layer(x)
+        >>> y.shape
+        (5, 3)
     """
     __module__ = 'brainstate.nn'
 
@@ -244,15 +430,61 @@ class SparseLinear(Module):
 
 class AllToAll(Module):
     """
-    Synaptic matrix multiplication with All-to-All connections.
+    All-to-all connection layer.
 
-    Args:
-      in_size: Size. The number of neurons in the pre-synaptic neuron group.
-      out_size: Size. The number of neurons in the postsynaptic neuron group.
-      w_init: The synaptic weight initializer.
-      include_self: bool. Whether connect the neuron with at the same position.
-      name: str. The object name.
+    Performs matrix multiplication with optional exclusion of self-connections,
+    commonly used in recurrent neural networks and graph neural networks.
+
+    Parameters
+    ----------
+    in_size : int or tuple of int
+        The number of neurons in the pre-synaptic group.
+    out_size : int or tuple of int
+        The number of neurons in the post-synaptic group.
+    w_init : Callable or ArrayLike, optional
+        Weight initializer. Default is ``KaimingNormal()``.
+    b_init : Callable, ArrayLike, or None, optional
+        Bias initializer. If ``None``, no bias is added.
+    include_self : bool, optional
+        Whether to include self-connections (diagonal elements).
+        Default is ``True``.
+    name : str, optional
+        Name of the module.
+    param_type : type, optional
+        Type of parameter state. Default is ``ParamState``.
+
+    Attributes
+    ----------
+    in_size : tuple
+        Input size.
+    out_size : tuple
+        Output size.
+    include_self : bool
+        Whether self-connections are included.
+    weight : ParamState
+        Parameter state containing 'weight' and optionally 'bias'.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate as bst
+        >>> import jax.numpy as jnp
+        >>>
+        >>> # All-to-all with self-connections
+        >>> layer = bst.nn.AllToAll((10,), (10,), include_self=True)
+        >>> x = jnp.ones((32, 10))
+        >>> y = layer(x)
+        >>> y.shape
+        (32, 10)
+        >>>
+        >>> # All-to-all without self-connections (recurrent layer)
+        >>> layer = bst.nn.AllToAll((10,), (10,), include_self=False)
+        >>> y = layer(x)
+        >>> y.shape
+        (32, 10)
     """
+    __module__ = 'brainstate.nn'
 
     def __init__(
         self,
@@ -320,14 +552,55 @@ class AllToAll(Module):
 
 class OneToOne(Module):
     """
-    Synaptic matrix multiplication with One2One connection.
+    One-to-one connection layer.
 
-    Args:
-        in_size: Size. The number of neurons in the pre-synaptic neuron group.
-        w_init: The synaptic weight initializer.
-        b_init: The synaptic bias initializer.
-        name: str. The object name.
+    Applies element-wise multiplication with a weight vector, implementing
+    diagonal connectivity where each input unit connects only to its
+    corresponding output unit.
+
+    Parameters
+    ----------
+    in_size : int or tuple of int
+        The number of neurons. Input and output sizes are the same.
+    w_init : Callable or ArrayLike, optional
+        Weight initializer. Default is ``Normal()``.
+    b_init : Callable, ArrayLike, or None, optional
+        Bias initializer. If ``None``, no bias is added.
+    name : str, optional
+        Name of the module.
+    param_type : type, optional
+        Type of parameter state. Default is ``ParamState``.
+
+    Attributes
+    ----------
+    in_size : tuple
+        Input size.
+    out_size : tuple
+        Output size (same as input size).
+    weight : ParamState
+        Parameter state containing 'weight' and optionally 'bias'.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate as bst
+        >>> import jax.numpy as jnp
+        >>>
+        >>> # One-to-one connection
+        >>> layer = bst.nn.OneToOne((10,))
+        >>> x = jnp.ones((32, 10))
+        >>> y = layer(x)
+        >>> y.shape
+        (32, 10)
+        >>>
+        >>> # With bias
+        >>> layer = bst.nn.OneToOne((10,), b_init=bst.init.Constant(0.1))
+        >>> y = layer(x)
+        >>> y.shape
+        (32, 10)
     """
+    __module__ = 'brainstate.nn'
 
     def __init__(
         self,
@@ -357,35 +630,76 @@ class OneToOne(Module):
 
 
 class LoRA(Module):
-    """A standalone LoRA layer.
-
-    Example usage::
-
-        >>> import brainstate as brainstate
-        >>> import jax, jax.numpy as jnp
-        >>> layer = brainstate.nn.LoRA(3, 2, 4)
-        >>> layer.weight.value
-    {'lora_a': Array([[ 0.25141352, -0.09826107],
-            [ 0.2328382 ,  0.38869813],
-            [ 0.27069277,  0.7678282 ]], dtype=float32),
-     'lora_b': Array([[-0.8372317 ,  0.21012013, -0.52999765, -0.31939325],
-            [ 0.64234126, -0.42980042,  1.2549229 , -0.47134295]],      dtype=float32)}
-        >>> # Wrap around existing layer
-        >>> linear = brainstate.nn.Linear(3, 4)
-        >>> wrapper = brainstate.nn.LoRA(3, 2, 4, base_module=linear)
-        >>> assert wrapper.base_module == linear
-        >>> y = layer(jnp.ones((16, 3)))
-        >>> y.shape
-        (16, 4)
-
-    Args:
-        in_features: the number of input features.
-        lora_rank: the rank of the LoRA dimension.
-        out_features: the number of output features.
-        base_module: a base module to call and substitute, if possible.
-        kernel_init: initializer function for the weight matrices.
-        param_type: the type of the LoRA params.
     """
+    Low-Rank Adaptation (LoRA) layer.
+
+    Implements parameter-efficient fine-tuning using low-rank decomposition [1]_.
+    Can be used standalone or as a wrapper around an existing module.
+
+    Parameters
+    ----------
+    in_features : int
+        The number of input features.
+    lora_rank : int
+        The rank of the low-rank decomposition. Lower rank means fewer parameters.
+    out_features : int
+        The number of output features.
+    base_module : Module, optional
+        A base module to wrap. If provided, the LoRA output will be added to
+        the base module's output. Default is ``None``.
+    kernel_init : Callable or ArrayLike, optional
+        Initializer for the LoRA weight matrices. Default is ``LecunNormal()``.
+    param_type : type, optional
+        Type of parameter state. Default is ``ParamState``.
+
+    Attributes
+    ----------
+    in_size : int
+        Input feature size.
+    out_size : int
+        Output feature size.
+    in_features : int
+        Number of input features.
+    out_features : int
+        Number of output features.
+    base_module : Module or None
+        The wrapped base module if provided.
+    weight : ParamState
+        Parameter state containing 'lora_a' and 'lora_b' matrices.
+
+    References
+    ----------
+    .. [1] Hu, E. J., Shen, Y., Wallis, P., Allen-Zhu, Z., Li, Y., Wang, S.,
+           Wang, L., & Chen, W. (2021). LoRA: Low-Rank Adaptation of Large
+           Language Models. arXiv preprint arXiv:2106.09685.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate as bst
+        >>> import jax.numpy as jnp
+        >>>
+        >>> # Standalone LoRA layer
+        >>> layer = bst.nn.LoRA(in_features=10, lora_rank=2, out_features=5)
+        >>> x = jnp.ones((32, 10))
+        >>> y = layer(x)
+        >>> y.shape
+        (32, 5)
+        >>>
+        >>> # Wrap around existing linear layer
+        >>> base = bst.nn.Linear((10,), (5,))
+        >>> lora_layer = bst.nn.LoRA(in_features=10, lora_rank=2,
+        ...                           out_features=5, base_module=base)
+        >>> y = lora_layer(x)
+        >>> y.shape
+        (32, 5)
+        >>>
+        >>> # Check parameter count - LoRA has fewer parameters
+        >>> # Base layer: 10 * 5 = 50 parameters
+        >>> # LoRA: 10 * 2 + 2 * 5 = 30 parameters
+    """
+    __module__ = 'brainstate.nn'
 
     def __init__(
         self,
@@ -396,6 +710,7 @@ class LoRA(Module):
         base_module: Optional[Module] = None,
         kernel_init: Union[Callable, ArrayLike] = init.LecunNormal(),
         param_type: type = ParamState,
+        in_size: Size = None,
     ):
         super().__init__()
 
@@ -414,6 +729,11 @@ class LoRA(Module):
             lora_b=kernel_init((lora_rank, out_features))
         )
         self.weight = param_type(param)
+
+        # in_size
+        if in_size is not None:
+            self.in_size = in_size
+            self.out_size = tuple(self.in_size[:-1]) + (out_features,)
 
     def __call__(self, x: ArrayLike):
         out = x @ self.weight.value['lora_a'] @ self.weight.value['lora_b']

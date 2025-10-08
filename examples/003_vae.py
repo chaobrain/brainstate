@@ -1,4 +1,4 @@
-# Copyright 2024 BDP Ecosystem Limited. All Rights Reserved.
+# Copyright 2024 BrainX Ecosystem Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,8 +23,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import optax
 from datasets import load_dataset
-import brainstate
 
+import brainstate
+import braintools
 
 np.random.seed(42)
 latent_size = 32
@@ -94,9 +95,7 @@ class VAE(brainstate.nn.Module):
         super().__init__()
         self.output_shape = output_shape
         self.encoder = Encoder(din, hidden_size, latent_size)
-        self.decoder = Decoder(
-            latent_size, hidden_size, int(np.prod(output_shape))
-        )
+        self.decoder = Decoder(latent_size, hidden_size, int(np.prod(output_shape)))
 
     def __call__(self, x: jax.Array) -> jax.Array:
         z = self.encoder(x)
@@ -117,12 +116,12 @@ model = VAE(
     output_shape=image_shape,
 )
 
-optimizer = brainstate.optim.OptaxOptimizer(optax.adam(1e-3))
+optimizer = braintools.optim.Adam(1e-3)
 optimizer.register_trainable_weights(model.states(brainstate.ParamState))
 
 
 # %%
-@brainstate.compile.jit
+@brainstate.transform.jit
 def train_step(x: jax.Array):
     def loss_fn():
         logits = model(x)
@@ -132,17 +131,17 @@ def train_step(x: jax.Array):
         loss = reconstruction_loss + 0.1 * kl_loss
         return loss
 
-    grads, loss = brainstate.augment.grad(loss_fn, model.states(brainstate.ParamState), return_value=True)()
+    grads, loss = brainstate.transform.grad(loss_fn, optimizer.param_states.to_pytree(), return_value=True)()
     optimizer.update(grads)
     return loss
 
 
-@brainstate.compile.jit
+@brainstate.transform.jit
 def forward(x: jax.Array) -> jax.Array:
     return jax.nn.sigmoid(model(x))
 
 
-@brainstate.compile.jit
+@brainstate.transform.jit
 def sample(z: jax.Array) -> jax.Array:
     return model.generate(z)
 

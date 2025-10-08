@@ -1,4 +1,4 @@
-# Copyright 2024 BDP Ecosystem Limited. All Rights Reserved.
+# Copyright 2024 BrainX Ecosystem Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -25,7 +25,80 @@ import pytest
 import brainstate
 
 
+class TestRandomExamples(unittest.TestCase):
+    """Test cases that demonstrate usage examples from docstrings."""
+
+    def test_rand_examples(self):
+        """Test examples from rand function docstring."""
+        # Generate random values in a 3x2 array
+        arr = brainstate.random.rand(3, 2)
+        self.assertEqual(arr.shape, (3, 2))
+        self.assertTrue((arr >= 0).all() and (arr < 1).all())
+
+    def test_randint_examples(self):
+        """Test examples from randint function docstring."""
+        # Generate 10 random integers from 0 to 1 (exclusive)
+        arr = brainstate.random.randint(2, size=10)
+        self.assertEqual(arr.shape, (10,))
+        self.assertTrue((arr >= 0).all() and (arr < 2).all())
+
+        # Generate a 2x4 array of integers from 0 to 4 (exclusive)
+        arr = brainstate.random.randint(5, size=(2, 4))
+        self.assertEqual(arr.shape, (2, 4))
+        self.assertTrue((arr >= 0).all() and (arr < 5).all())
+
+        # Generate integers with different upper bounds using broadcasting
+        arr = brainstate.random.randint(1, [3, 5, 10])
+        self.assertEqual(arr.shape, (3,))
+
+        # Generate integers with different lower bounds
+        arr = brainstate.random.randint([1, 5, 7], 10)
+        self.assertEqual(arr.shape, (3,))
+        self.assertTrue((arr >= jnp.array([1, 5, 7])).all())
+
+    def test_randn_examples(self):
+        """Test examples from randn function docstring."""
+        # Generate standard normal distributed values
+        arr = brainstate.random.randn(3, 2)
+        self.assertEqual(arr.shape, (3, 2))
+
+    def test_choice_examples(self):
+        """Test examples from choice function docstring."""
+        # Choose from range
+        result = brainstate.random.choice(5)
+        self.assertTrue(0 <= result < 5)
+
+        # Choose multiple with probabilities
+        arr = brainstate.random.choice(5, 3, p=[0.1, 0.4, 0.2, 0.0, 0.3])
+        self.assertEqual(arr.shape, (3,))
+        self.assertTrue((arr >= 0).all() and (arr < 5).all())
+
+    def test_normal_examples(self):
+        """Test examples from normal function docstring."""
+        # Standard normal
+        result = brainstate.random.normal()
+        self.assertEqual(result.shape, ())
+
+        # With different parameters
+        arr = brainstate.random.normal(loc=0.0, scale=1.0, size=(2, 3))
+        self.assertEqual(arr.shape, (2, 3))
+
+    def test_uniform_examples(self):
+        """Test examples from uniform function docstring."""
+        # Standard uniform
+        result = brainstate.random.uniform()
+        self.assertEqual(result.shape, ())
+        self.assertTrue(0.0 <= result < 1.0)
+
+        # With custom range
+        arr = brainstate.random.uniform(low=2.0, high=5.0, size=(3, 2))
+        self.assertEqual(arr.shape, (3, 2))
+        self.assertTrue((arr >= 2.0).all() and (arr < 5.0).all())
+
+
 class TestRandom(unittest.TestCase):
+    def setUp(self):
+        brainstate.environ.set(precision=32)
 
     def test_rand(self):
         brainstate.random.seed()

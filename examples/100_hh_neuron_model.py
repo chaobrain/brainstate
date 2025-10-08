@@ -1,4 +1,4 @@
-# Copyright 2024 BDP Ecosystem Limited. All Rights Reserved.
+# Copyright 2024 BrainX Ecosystem Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,9 +15,10 @@
 
 
 import brainunit as u
-import brainstate
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
+
+import brainstate
 
 
 class HH(brainstate.nn.Dynamics):
@@ -104,11 +105,11 @@ def run(t, inp):
 
 
 times = u.math.arange(0. * u.ms, 100. * u.ms, dt)
-vs = brainstate.compile.for_loop(
+vs = brainstate.transform.for_loop(
     run,
     # times, random inputs
     times, brainstate.random.uniform(1., 10., times.shape) * u.uA / u.cm ** 2,
-    pbar=brainstate.compile.ProgressBar(count=100)
+    pbar=brainstate.transform.ProgressBar(count=100)
 )
 
 plt.plot(times.to_decimal(u.ms), vs.to_decimal(u.mV))

@@ -1,7 +1,7 @@
 # The file is adapted from the Flax library (https://github.com/google/flax).
 # The credit should go to the Flax authors.
 #
-# Copyright 2024 The Flax Authors & 2024 BDP Ecosystem.
+# Copyright 2024 The Flax Authors & 2024 BrainX Ecosystem.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,9 +22,9 @@ import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
-import optax
-import brainstate
 
+import brainstate
+import braintools
 
 X = np.linspace(0, 1, 100)[:, None]
 Y = 0.8 * X ** 2 + 0.1 + np.random.normal(0, 0.1, size=X.shape)
@@ -66,23 +66,23 @@ class MLP(brainstate.nn.Module):
 
 
 model = MLP(din=1, dhidden=32, dout=1)
-optimizer = brainstate.optim.OptaxOptimizer(optax.sgd(1e-3))
+optimizer = braintools.optim.SGD(1e-3)
 optimizer.register_trainable_weights(model.states(brainstate.ParamState))
 
 
-@brainstate.compile.jit
+@brainstate.transform.jit
 def train_step(batch):
     x, y = batch
 
     def loss_fn():
         return jnp.mean((y - model(x)) ** 2)
 
-    grads = brainstate.augment.grad(loss_fn, model.states(brainstate.ParamState))()
+    grads = brainstate.transform.grad(loss_fn, optimizer.param_states.to_pytree())()
     optimizer.update(grads)
 
 
-@brainstate.compile.jit
-def test_step(batch):
+@brainstate.transform.jit
+def eval_step(batch):
     x, y = batch
     y_pred = model(x)
     loss = jnp.mean((y - y_pred) ** 2)
@@ -94,7 +94,7 @@ for step, batch in enumerate(dataset(32)):
     train_step(batch)
 
     if step % 1000 == 0:
-        logs = test_step((X, Y))
+        logs = eval_step((X, Y))
         print(f"step: {step}, loss: {logs['loss']}")
 
     if step >= total_steps - 1:

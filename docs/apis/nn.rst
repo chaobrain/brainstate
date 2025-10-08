@@ -1,5 +1,5 @@
-``brainstate.nn`` for neural network building
-=============================================
+``brainstate.nn`` module
+========================
 
 .. currentmodule:: brainstate.nn 
 .. automodule:: brainstate.nn 
