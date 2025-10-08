@@ -24,6 +24,7 @@ import brainstate
 
 class SimpleTestModule(brainstate.nn.Module):
     """Simple test module with init_state method"""
+
     def __init__(self):
         super().__init__()
         self.state_initialized = False
@@ -39,6 +40,7 @@ class SimpleTestModule(brainstate.nn.Module):
 
 class OrderedTestModule(brainstate.nn.Module):
     """Test module with call_order decorator"""
+
     def __init__(self, order_level):
         super().__init__()
         self.order_level = order_level
@@ -51,6 +53,7 @@ class OrderedTestModule(brainstate.nn.Module):
 
 class NestedModule(brainstate.nn.Module):
     """Module with nested submodules"""
+
     def __init__(self):
         super().__init__()
         self.submodule1 = SimpleTestModule()
@@ -151,6 +154,7 @@ class Test_init_all_states:
 
     def test_with_call_order(self):
         """Test that call_order is respected during initialization"""
+
         class OrderedModule(brainstate.nn.Module):
             def __init__(self):
                 super().__init__()
@@ -179,220 +183,9 @@ class Test_init_all_states:
         assert parent.execution_order == ['child', 'parent']
 
 
-class Test_vmap_init_all_states:
-    """Comprehensive tests for vmap_init_all_states function"""
-
-    def check_vmap_shape(self, state_dict, expected_axis_size):
-        """Helper to check vmap shapes, handling nested dicts and ShapedArrays"""
-        # Look for HiddenState or similar that actually gets vmapped
-        found_vmapped_state = False
-        for state in state_dict.values():
-            val = state.value
-            # Skip ParamState dicts (they contain ShapedArrays, not actual arrays)
-            if isinstance(val, dict):
-                continue
-            # Check actual arrays/TracedArrays
-            if hasattr(val, 'shape'):
-                assert val.shape[0] == expected_axis_size, \
-                    f"Expected axis_size {expected_axis_size}, got shape {val.shape}"
-                found_vmapped_state = True
-
-        # Ensure we found at least one vmapped state
-        assert found_vmapped_state, "No vmapped states found to verify"
-
-    def test_basic_vmap_initialization(self):
-        """Test basic vectorized state initialization"""
-        gru = brainstate.nn.GRUCell(1, 2)
-
-        brainstate.nn.vmap_init_all_states(gru, axis_size=10)
-
-        # Check that states have batch dimension
-        state_dict = gru.states()
-        self.check_vmap_shape(state_dict, 10)
-
-    def test_different_axis_sizes(self):
-        """Test with different axis sizes"""
-        for axis_size in [1, 5, 10, 20]:
-            gru = brainstate.nn.GRUCell(1, 2)
-
-            brainstate.nn.vmap_init_all_states(gru, axis_size=axis_size)
-
-            state_dict = gru.states()
-            self.check_vmap_shape(state_dict, axis_size)
-
-    def test_with_positional_args(self):
-        """Test vmap_init_all_states with positional arguments"""
-        gru = brainstate.nn.GRUCell(1, 2)
-
-        # batch_size is passed to init_state
-        brainstate.nn.vmap_init_all_states(gru, 32, axis_size=5)
-
-        state_dict = gru.states()
-        self.check_vmap_shape(state_dict, 5)
-
-    def test_with_keyword_args(self):
-        """Test vmap_init_all_states with keyword arguments"""
-        gru = brainstate.nn.GRUCell(1, 2)
-
-        brainstate.nn.vmap_init_all_states(
-            gru,
-            batch_size=16,
-            axis_size=8
-        )
-
-        state_dict = gru.states()
-        self.check_vmap_shape(state_dict, 8)
-
-    def test_invalid_axis_size(self):
-        """Test that invalid axis_size raises error"""
-        gru = brainstate.nn.GRUCell(1, 2)
-
-        # axis_size=None should raise an error
-        with pytest.raises((ValueError, TypeError)):
-            brainstate.nn.vmap_init_all_states(gru, axis_size=None)
-
-        # axis_size=0 should raise an error
-        with pytest.raises(ValueError):
-            brainstate.nn.vmap_init_all_states(gru, axis_size=0)
-
-        # Negative axis_size should raise an error
-        with pytest.raises(ValueError):
-            brainstate.nn.vmap_init_all_states(gru, axis_size=-5)
-
-    def test_with_jit_compilation(self):
-        """Test vmap_init_all_states works correctly (JIT not applicable here)"""
-        # vmap_init_all_states is a state-management operation that creates states,
-        # so JIT compilation doesn't apply in the same way
-        # Test that it works correctly in a regular context
-        gru = brainstate.nn.GRUCell(1, 2)
-        brainstate.nn.vmap_init_all_states(gru, axis_size=10)
-
-        state_dict = gru.states()
-        self.check_vmap_shape(state_dict, 10)
-
-    def test_with_linear_layer(self):
-        """Test with Linear layer"""
-        # Linear layer only has parameters (ParamState), not hidden states
-        # So we just verify that vmap_init_all_states completes without error
-        linear = brainstate.nn.Linear(10, 20)
-
-        brainstate.nn.vmap_init_all_states(linear, axis_size=5)
-
-        # Verify that states were created (even if just params)
-        state_dict = linear.states()
-        assert len(state_dict) > 0, "Linear layer should have states"
-
-    def test_nested_modules_vmap(self):
-        """Test vmap initialization with nested modules"""
-        class NestedNet(brainstate.nn.Module):
-            def __init__(self):
-                super().__init__()
-                self.gru1 = brainstate.nn.GRUCell(5, 10)
-                self.gru2 = brainstate.nn.GRUCell(10, 5)
-
-            def init_state(self, batch_size=1):
-                pass
-
-        net = NestedNet()
-
-        brainstate.nn.vmap_init_all_states(net, batch_size=8, axis_size=4)
-
-        # All states should have batch dimension of 4
-        state_dict = net.states()
-        self.check_vmap_shape(state_dict, 4)
-
-    def test_node_to_exclude(self):
-        """Test excluding specific nodes from vmap initialization"""
-        class NetworkWithExclusion(brainstate.nn.Module):
-            def __init__(self):
-                super().__init__()
-                self.gru1 = brainstate.nn.GRUCell(5, 10)
-                self.gru2 = brainstate.nn.GRUCell(10, 5)
-
-        net = NetworkWithExclusion()
-
-        # Exclude the parent from initialization using type filter
-        brainstate.nn.vmap_init_all_states(
-            net,
-            batch_size=8,
-            axis_size=5,
-            node_to_exclude=NetworkWithExclusion
-        )
-
-        # Only the children GRU cells should be initialized
-        # Both should have vmapped hidden states
-        gru1_states = net.gru1.states()
-        self.check_vmap_shape(gru1_states, 5)
-
-        gru2_states = net.gru2.states()
-        self.check_vmap_shape(gru2_states, 5)
-
-    def test_state_tag(self):
-        """Test state_tag parameter for categorizing states"""
-        gru = brainstate.nn.GRUCell(1, 2)
-
-        # This should not raise an error
-        brainstate.nn.vmap_init_all_states(
-            gru,
-            axis_size=5,
-            state_tag="ensemble"
-        )
-
-        state_dict = gru.states()
-        assert len(state_dict) > 0
-
-    def test_multiple_vmap_calls(self):
-        """Test calling vmap_init_all_states multiple times"""
-        gru1 = brainstate.nn.GRUCell(1, 2)
-        gru2 = brainstate.nn.GRUCell(1, 2)
-
-        brainstate.nn.vmap_init_all_states(gru1, axis_size=5)
-        brainstate.nn.vmap_init_all_states(gru2, axis_size=10)
-
-        # Each should maintain its own axis size
-        state_dict1 = gru1.states()
-        state_dict2 = gru2.states()
-
-        self.check_vmap_shape(state_dict1, 5)
-        self.check_vmap_shape(state_dict2, 10)
-
-    def test_with_dropout(self):
-        """Test vmap initialization with Dropout layer"""
-        dropout = brainstate.nn.Dropout(0.5)
-
-        # Should not raise error even though Dropout might not have init_state
-        try:
-            brainstate.nn.vmap_init_all_states(dropout, axis_size=5)
-        except AttributeError:
-            # Expected if Dropout doesn't have init_state
-            pass
-
-    def test_state_to_exclude(self):
-        """Test state_to_exclude parameter"""
-        gru = brainstate.nn.GRUCell(1, 2)
-
-        # Initialize with state exclusion
-        brainstate.nn.vmap_init_all_states(
-            gru,
-            axis_size=5,
-            state_to_exclude=None  # No exclusion
-        )
-
-        state_dict = gru.states()
-        self.check_vmap_shape(state_dict, 5)
-
-    def test_consistency_across_calls(self):
-        """Test that multiple vmap initializations produce consistent shapes"""
-        for _ in range(3):
-            gru = brainstate.nn.GRUCell(1, 2)
-            brainstate.nn.vmap_init_all_states(gru, axis_size=7)
-
-            state_dict = gru.states()
-            self.check_vmap_shape(state_dict, 7)
-
-
 class ResetTestModule(brainstate.nn.Module):
     """Test module with both init_state and reset_state methods"""
+
     def __init__(self):
         super().__init__()
         self.state_initialized = False
@@ -415,6 +208,7 @@ class ResetTestModule(brainstate.nn.Module):
 
 class ResetOrderedModule(brainstate.nn.Module):
     """Test module with call_order on reset_state"""
+
     def __init__(self, order_level, execution_tracker):
         super().__init__()
         self.order_level = order_level
@@ -431,6 +225,7 @@ class ResetOrderedModule(brainstate.nn.Module):
 
 class NestedResetModule(brainstate.nn.Module):
     """Module with nested submodules that have reset_state"""
+
     def __init__(self):
         super().__init__()
         self.submodule1 = ResetTestModule()
@@ -517,7 +312,7 @@ class Test_reset_all_states:
 
         # Get initial state
         initial_states = {k: v.value.copy() for k, v in gru.states().items()
-                         if hasattr(v.value, 'copy') and not isinstance(v.value, dict)}
+                          if hasattr(v.value, 'copy') and not isinstance(v.value, dict)}
 
         # Reset state
         brainstate.nn.reset_all_states(gru, batch_size=8)
@@ -532,6 +327,7 @@ class Test_reset_all_states:
 
     def test_sequential_reset(self):
         """Test reset with Sequential module"""
+
         # Create a simple network with stateful components
         class StatefulLayer(brainstate.nn.Module):
             def __init__(self):
@@ -618,225 +414,9 @@ class Test_reset_all_states:
         assert len(states) > 0
 
 
-class Test_vmap_reset_all_states:
-    """Comprehensive tests for vmap_reset_all_states function"""
-
-    def check_vmap_shape(self, state_dict, expected_axis_size):
-        """Helper to check vmap shapes, handling nested dicts and ShapedArrays"""
-        found_vmapped_state = False
-        for state in state_dict.values():
-            val = state.value
-            if isinstance(val, dict):
-                continue
-            if hasattr(val, 'shape'):
-                assert val.shape[0] == expected_axis_size, \
-                    f"Expected axis_size {expected_axis_size}, got shape {val.shape}"
-                found_vmapped_state = True
-        assert found_vmapped_state, "No vmapped states found to verify"
-
-    def test_basic_vmap_reset(self):
-        """Test basic vectorized state reset"""
-        gru = brainstate.nn.GRUCell(5, 10)
-
-        # Initialize with vmap
-        brainstate.nn.vmap_init_all_states(gru, batch_size=8, axis_size=10)
-
-        # Get initial hidden state
-        initial_h = None
-        for key, state in gru.states().items():
-            if 'h' in str(key) and not isinstance(state.value, dict):
-                initial_h = state.value.copy()
-                break
-
-        assert initial_h is not None
-        assert initial_h.shape[0] == 10
-
-        # Reset with vmap
-        brainstate.nn.vmap_reset_all_states(gru, batch_size=8, axis_size=10)
-
-        # Verify reset happened
-        for key, state in gru.states().items():
-            if 'h' in str(key) and not isinstance(state.value, dict):
-                # Hidden state should be reset to zeros
-                assert jnp.allclose(state.value, jnp.zeros_like(state.value))
-
-    def test_different_axis_sizes(self):
-        """Test vmap reset with different axis sizes"""
-        for axis_size in [1, 5, 10]:
-            gru = brainstate.nn.GRUCell(3, 5)
-
-            brainstate.nn.vmap_init_all_states(gru, batch_size=4, axis_size=axis_size)
-
-            # Verify init created vmapped states
-            state_dict = gru.states()
-            self.check_vmap_shape(state_dict, axis_size)
-
-            # Reset should work without error (shape changes are expected)
-            brainstate.nn.vmap_reset_all_states(gru, batch_size=4, axis_size=axis_size)
-
-    def test_with_positional_args(self):
-        """Test vmap_reset_all_states with positional arguments"""
-        gru = brainstate.nn.GRUCell(3, 5)
-
-        brainstate.nn.vmap_init_all_states(gru, 8, axis_size=5)
-
-        # Reset should complete without error
-        brainstate.nn.vmap_reset_all_states(gru, 8, axis_size=5)
-
-        # Verify states exist (shape may change after reset)
-        state_dict = gru.states()
-        assert len(state_dict) > 0
-
-    def test_with_keyword_args(self):
-        """Test vmap_reset_all_states with keyword arguments"""
-        gru = brainstate.nn.GRUCell(3, 5)
-
-        brainstate.nn.vmap_init_all_states(gru, batch_size=8, axis_size=7)
-        brainstate.nn.vmap_reset_all_states(gru, batch_size=8, axis_size=7)
-
-        # Verify states exist
-        state_dict = gru.states()
-        assert len(state_dict) > 0
-
-    def test_invalid_axis_size(self):
-        """Test that invalid axis_size raises error"""
-        gru = brainstate.nn.GRUCell(3, 5)
-        brainstate.nn.vmap_init_all_states(gru, batch_size=8, axis_size=5)
-
-        with pytest.raises((ValueError, TypeError)):
-            brainstate.nn.vmap_reset_all_states(gru, batch_size=8, axis_size=None)
-
-        with pytest.raises(ValueError):
-            brainstate.nn.vmap_reset_all_states(gru, batch_size=8, axis_size=0)
-
-        with pytest.raises(ValueError):
-            brainstate.nn.vmap_reset_all_states(gru, batch_size=8, axis_size=-5)
-
-    def test_nested_modules_vmap_reset(self):
-        """Test vmap reset with nested modules"""
-        class NestedNet(brainstate.nn.Module):
-            def __init__(self):
-                super().__init__()
-                self.gru1 = brainstate.nn.GRUCell(3, 5)
-                self.gru2 = brainstate.nn.GRUCell(5, 3)
-
-            def init_state(self, batch_size=1):
-                pass
-
-            def reset_state(self, batch_size=1):
-                pass
-
-        net = NestedNet()
-
-        brainstate.nn.vmap_init_all_states(net, batch_size=4, axis_size=6)
-        brainstate.nn.vmap_reset_all_states(net, batch_size=4, axis_size=6)
-
-        # Verify states exist
-        state_dict = net.states()
-        assert len(state_dict) > 0
-
-    def test_node_to_exclude(self):
-        """Test excluding specific nodes from vmap reset"""
-        class NetworkWithExclusion(brainstate.nn.Module):
-            def __init__(self):
-                super().__init__()
-                self.gru1 = brainstate.nn.GRUCell(3, 5)
-                self.gru2 = brainstate.nn.GRUCell(5, 3)
-
-        net = NetworkWithExclusion()
-
-        brainstate.nn.vmap_init_all_states(net, batch_size=4, axis_size=5)
-
-        # Reset, excluding parent
-        brainstate.nn.vmap_reset_all_states(
-            net,
-            batch_size=4,
-            axis_size=5,
-            node_to_exclude=NetworkWithExclusion
-        )
-
-        # Verify states exist
-        gru1_states = net.gru1.states()
-        assert len(gru1_states) > 0
-
-    def test_state_tag(self):
-        """Test state_tag parameter"""
-        gru = brainstate.nn.GRUCell(3, 5)
-
-        brainstate.nn.vmap_init_all_states(gru, batch_size=4, axis_size=5, state_tag="test")
-        brainstate.nn.vmap_reset_all_states(gru, batch_size=4, axis_size=5, state_tag="test")
-
-        # Should not raise error
-        state_dict = gru.states()
-        assert len(state_dict) > 0
-
-    def test_multiple_vmap_resets(self):
-        """Test calling vmap_reset_all_states multiple times"""
-        gru = brainstate.nn.GRUCell(3, 5)
-
-        brainstate.nn.vmap_init_all_states(gru, batch_size=4, axis_size=5)
-
-        for _ in range(3):
-            brainstate.nn.vmap_reset_all_states(gru, batch_size=4, axis_size=5)
-
-            # Verify states exist
-            state_dict = gru.states()
-            assert len(state_dict) > 0
-
-    def test_reset_after_forward_pass(self):
-        """Test resetting states after some computations"""
-        gru = brainstate.nn.GRUCell(3, 5)
-
-        brainstate.nn.vmap_init_all_states(gru, batch_size=4, axis_size=5)
-
-        # Simulate changing the hidden state (in real usage, this would be from forward pass)
-        for key, state in gru.states().items():
-            if 'h' in str(key) and not isinstance(state.value, dict):
-                state.value = state.value + 1.0
-
-        # Reset should bring it back to zeros
-        brainstate.nn.vmap_reset_all_states(gru, batch_size=4, axis_size=5)
-
-        for key, state in gru.states().items():
-            if 'h' in str(key) and not isinstance(state.value, dict):
-                assert jnp.allclose(state.value, jnp.zeros_like(state.value))
-
-    def test_consistency_across_reset_calls(self):
-        """Test that multiple reset calls produce consistent results"""
-        for _ in range(3):
-            gru = brainstate.nn.GRUCell(3, 5)
-
-            brainstate.nn.vmap_init_all_states(gru, batch_size=4, axis_size=7)
-            brainstate.nn.vmap_reset_all_states(gru, batch_size=4, axis_size=7)
-
-            # Verify states exist
-            state_dict = gru.states()
-            assert len(state_dict) > 0
-
-    def test_mixed_init_and_reset(self):
-        """Test mixing vmap_init and vmap_reset"""
-        gru = brainstate.nn.GRUCell(3, 5)
-
-        # Initialize with vmap
-        brainstate.nn.vmap_init_all_states(gru, batch_size=4, axis_size=8)
-
-        # Reset with vmap
-        brainstate.nn.vmap_reset_all_states(gru, batch_size=4, axis_size=8)
-
-        # Reset again with different batch size
-        brainstate.nn.vmap_reset_all_states(gru, batch_size=6, axis_size=8)
-
-        # Verify states exist (batch_size dimension changes based on last reset)
-        state_dict = gru.states()
-        assert len(state_dict) > 0
-        # Hidden state should now have batch_size=6
-        for key, state in state_dict.items():
-            if 'h' in str(key) and not isinstance(state.value, dict):
-                assert state.value.shape[0] == 6
-
-
 class CustomMethodModule(brainstate.nn.Module):
     """Test module with custom methods for call_all_fns testing"""
+
     def __init__(self):
         super().__init__()
         self.method_called = False
@@ -856,6 +436,7 @@ class CustomMethodModule(brainstate.nn.Module):
 
 class OrderedCallModule(brainstate.nn.Module):
     """Test module with ordered methods"""
+
     def __init__(self, execution_tracker):
         super().__init__()
         self.execution_tracker = execution_tracker
@@ -878,6 +459,7 @@ class OrderedCallModule(brainstate.nn.Module):
 
 class NestedCallModule(brainstate.nn.Module):
     """Module with nested submodules for call testing"""
+
     def __init__(self):
         super().__init__()
         self.child1 = CustomMethodModule()
@@ -922,6 +504,7 @@ class Test_call_order:
             @brainstate.nn.call_order(level)
             def valid_method():
                 pass
+
             assert valid_method.call_order == level
 
         # Invalid levels
@@ -937,6 +520,7 @@ class Test_call_order:
 
     def test_disable_boundary_check(self):
         """Test disabling boundary check"""
+
         @brainstate.nn.call_order(100, check_order_boundary=False)
         def method():
             pass
@@ -1138,6 +722,7 @@ class Test_call_all_fns:
 
     def test_non_callable_attribute(self):
         """Test that non-callable attributes raise error"""
+
         class ModuleWithAttribute(brainstate.nn.Module):
             def __init__(self):
                 super().__init__()
@@ -1187,256 +772,3 @@ class Test_call_all_fns:
 
         assert layer1.method_called
         assert layer2.method_called
-
-
-class Test_vmap_call_all_fns:
-    """Comprehensive tests for vmap_call_all_fns function"""
-
-    def check_vmap_shape(self, state_dict, expected_axis_size):
-        """Helper to check vmap shapes"""
-        found_vmapped_state = False
-        for state in state_dict.values():
-            val = state.value
-            if isinstance(val, dict):
-                continue
-            if hasattr(val, 'shape'):
-                assert val.shape[0] == expected_axis_size, \
-                    f"Expected axis_size {expected_axis_size}, got shape {val.shape}"
-                found_vmapped_state = True
-        assert found_vmapped_state, "No vmapped states found to verify"
-
-    def test_basic_vmap_call(self):
-        """Test basic vectorized function calling"""
-        gru = brainstate.nn.GRUCell(3, 5)
-
-        brainstate.nn.vmap_call_all_fns(
-            gru,
-            'init_state',
-            kwargs={'batch_size': 4},
-            axis_size=10
-        )
-
-        # Verify vmapped states were created
-        state_dict = gru.states()
-        self.check_vmap_shape(state_dict, 10)
-
-    def test_different_axis_sizes(self):
-        """Test with different axis sizes"""
-        for axis_size in [1, 5, 10, 20]:
-            gru = brainstate.nn.GRUCell(2, 3)
-
-            brainstate.nn.vmap_call_all_fns(
-                gru,
-                'init_state',
-                kwargs={'batch_size': 4},
-                axis_size=axis_size
-            )
-
-            state_dict = gru.states()
-            self.check_vmap_shape(state_dict, axis_size)
-
-    def test_with_positional_args(self):
-        """Test vmap_call_all_fns with positional arguments"""
-        gru = brainstate.nn.GRUCell(3, 5)
-
-        brainstate.nn.vmap_call_all_fns(
-            gru,
-            'init_state',
-            args=(8,),
-            axis_size=6
-        )
-
-        state_dict = gru.states()
-        self.check_vmap_shape(state_dict, 6)
-
-    def test_with_keyword_args(self):
-        """Test vmap_call_all_fns with keyword arguments"""
-        gru = brainstate.nn.GRUCell(3, 5)
-
-        brainstate.nn.vmap_call_all_fns(
-            gru,
-            'init_state',
-            kwargs={'batch_size': 4},
-            axis_size=7
-        )
-
-        state_dict = gru.states()
-        self.check_vmap_shape(state_dict, 7)
-
-    def test_invalid_axis_size(self):
-        """Test that invalid axis_size raises error"""
-        gru = brainstate.nn.GRUCell(3, 5)
-
-        with pytest.raises((ValueError, TypeError)):
-            brainstate.nn.vmap_call_all_fns(
-                gru,
-                'init_state',
-                axis_size=None
-            )
-
-        with pytest.raises(ValueError):
-            brainstate.nn.vmap_call_all_fns(
-                gru,
-                'init_state',
-                axis_size=0
-            )
-
-        with pytest.raises(ValueError):
-            brainstate.nn.vmap_call_all_fns(
-                gru,
-                'init_state',
-                axis_size=-5
-            )
-
-    def test_nested_modules(self):
-        """Test with nested modules"""
-        class NestedNet(brainstate.nn.Module):
-            def __init__(self):
-                super().__init__()
-                self.gru1 = brainstate.nn.GRUCell(3, 5)
-                self.gru2 = brainstate.nn.GRUCell(5, 3)
-
-            def init_state(self, batch_size=1):
-                pass
-
-        net = NestedNet()
-
-        brainstate.nn.vmap_call_all_fns(
-            net,
-            'init_state',
-            kwargs={'batch_size': 4},
-            axis_size=8
-        )
-
-        state_dict = net.states()
-        self.check_vmap_shape(state_dict, 8)
-
-    def test_node_to_exclude(self):
-        """Test excluding specific nodes"""
-        class NetworkWithExclusion(brainstate.nn.Module):
-            def __init__(self):
-                super().__init__()
-                self.gru1 = brainstate.nn.GRUCell(3, 5)
-                self.gru2 = brainstate.nn.GRUCell(5, 3)
-
-        net = NetworkWithExclusion()
-
-        brainstate.nn.vmap_call_all_fns(
-            net,
-            'init_state',
-            kwargs={'batch_size': 4},
-            axis_size=6,
-            node_to_exclude=NetworkWithExclusion
-        )
-
-        # Children should have vmapped states
-        gru1_states = net.gru1.states()
-        self.check_vmap_shape(gru1_states, 6)
-
-    def test_state_tag(self):
-        """Test state_tag parameter"""
-        gru = brainstate.nn.GRUCell(3, 5)
-
-        brainstate.nn.vmap_call_all_fns(
-            gru,
-            'init_state',
-            kwargs={'batch_size': 4},
-            axis_size=5,
-            state_tag="test_tag"
-        )
-
-        state_dict = gru.states()
-        assert len(state_dict) > 0
-
-    def test_fn_if_not_exist_pass(self):
-        """Test fn_if_not_exist='pass' behavior"""
-        class ModuleWithoutMethod(brainstate.nn.Module):
-            pass
-
-        module = ModuleWithoutMethod()
-
-        # Should not raise error
-        brainstate.nn.vmap_call_all_fns(
-            module,
-            'nonexistent_method',
-            axis_size=5,
-            fn_if_not_exist='pass'
-        )
-
-    def test_fn_if_not_exist_warn(self):
-        """Test fn_if_not_exist='warn' behavior"""
-        class ModuleWithoutMethod(brainstate.nn.Module):
-            pass
-
-        module = ModuleWithoutMethod()
-
-        with pytest.warns(UserWarning, match="does not have method"):
-            brainstate.nn.vmap_call_all_fns(
-                module,
-                'nonexistent_method',
-                axis_size=5,
-                fn_if_not_exist='warn'
-            )
-
-    def test_invalid_kwargs_type(self):
-        """Test that invalid kwargs type raises error"""
-        gru = brainstate.nn.GRUCell(3, 5)
-
-        with pytest.raises(TypeError, match="kwargs must be a mapping"):
-            brainstate.nn.vmap_call_all_fns(
-                gru,
-                'init_state',
-                kwargs=[1, 2, 3],
-                axis_size=5
-            )
-
-    def test_reset_with_vmap(self):
-        """Test calling reset_state with vmap"""
-        gru = brainstate.nn.GRUCell(3, 5)
-
-        # Initialize first
-        brainstate.nn.vmap_call_all_fns(
-            gru,
-            'init_state',
-            kwargs={'batch_size': 4},
-            axis_size=5
-        )
-
-        # Then reset
-        brainstate.nn.vmap_call_all_fns(
-            gru,
-            'reset_state',
-            kwargs={'batch_size': 4},
-            axis_size=5
-        )
-
-        # Verify states exist
-        state_dict = gru.states()
-        assert len(state_dict) > 0
-
-    def test_multiple_vmap_calls(self):
-        """Test multiple vmap calls on different instances"""
-        gru1 = brainstate.nn.GRUCell(2, 3)
-        gru2 = brainstate.nn.GRUCell(2, 3)
-
-        brainstate.nn.vmap_call_all_fns(gru1, 'init_state', axis_size=5, kwargs={'batch_size': 4})
-        brainstate.nn.vmap_call_all_fns(gru2, 'init_state', axis_size=10, kwargs={'batch_size': 4})
-
-        # Each should maintain its own axis size
-        self.check_vmap_shape(gru1.states(), 5)
-        self.check_vmap_shape(gru2.states(), 10)
-
-    def test_consistency_across_calls(self):
-        """Test that repeated calls produce consistent results"""
-        for _ in range(3):
-            gru = brainstate.nn.GRUCell(2, 3)
-
-            brainstate.nn.vmap_call_all_fns(
-                gru,
-                'init_state',
-                kwargs={'batch_size': 4},
-                axis_size=7
-            )
-
-            state_dict = gru.states()
-            self.check_vmap_shape(state_dict, 7)

@@ -20,6 +20,7 @@ import jax.numpy as jnp
 from absl.testing import parameterized
 
 import brainstate
+import braintools
 
 
 class TestLinear(parameterized.TestCase):
@@ -65,8 +66,8 @@ class TestLinear(parameterized.TestCase):
         """Test custom weight initialization."""
         layer = brainstate.nn.Linear(
             10, 5,
-            w_init=brainstate.nn.ZeroInit(),
-            b_init=brainstate.nn.Constant(1.0)
+            w_init=braintools.init.ZeroInit(),
+            b_init=braintools.init.Constant(1.0)
         )
         self.assertTrue(jnp.allclose(layer.weight.value['weight'], 0.0))
         self.assertTrue(jnp.allclose(layer.weight.value['bias'], 1.0))
@@ -227,7 +228,7 @@ class TestSparseLinear(unittest.TestCase):
         spar_mat = u.sparse.CSR.fromdense(data)
         layer = brainstate.nn.SparseLinear(
             spar_mat,
-            b_init=brainstate.nn.Constant(0.5),
+            b_init=braintools.init.Constant(0.5),
             in_size=(10,)
         )
         self.assertIn('bias', layer.weight.value)
@@ -281,7 +282,7 @@ class TestAllToAll(parameterized.TestCase):
 
     def test_all_to_all_scalar_weight(self):
         """Test all-to-all with scalar weight."""
-        layer = brainstate.nn.AllToAll((5,), (5,), w_init=brainstate.nn.Constant(2.0))
+        layer = brainstate.nn.AllToAll((5,), (5,), w_init=braintools.init.Constant(2.0))
         # Override with scalar
         layer.weight.value = {'weight': 2.0}
         x = jnp.ones((1, 5))
@@ -293,7 +294,7 @@ class TestAllToAll(parameterized.TestCase):
         """Test all-to-all with bias."""
         layer = brainstate.nn.AllToAll(
             (5,), (5,),
-            b_init=brainstate.nn.Constant(1.0)
+            b_init=braintools.init.Constant(1.0)
         )
         self.assertIn('bias', layer.weight.value)
         x = brainstate.random.random((3, 5))
@@ -332,7 +333,7 @@ class TestOneToOne(parameterized.TestCase):
 
     def test_one_to_one_with_bias(self):
         """Test one-to-one with bias."""
-        layer = brainstate.nn.OneToOne((5,), b_init=brainstate.nn.Constant(1.0))
+        layer = brainstate.nn.OneToOne((5,), b_init=braintools.init.Constant(1.0))
         self.assertIn('bias', layer.weight.value)
         layer.weight.value = {
             'weight': jnp.ones(5),
@@ -350,7 +351,7 @@ class TestOneToOne(parameterized.TestCase):
 
     def test_one_to_one_zero_weights(self):
         """Test one-to-one with zero weights."""
-        layer = brainstate.nn.OneToOne((5,), w_init=brainstate.nn.ZeroInit(), b_init=None)
+        layer = brainstate.nn.OneToOne((5,), w_init=braintools.init.ZeroInit(), b_init=None)
         x = jnp.ones((1, 5))
         y = layer(x)
         expected = jnp.zeros((1, 5))
@@ -431,7 +432,7 @@ class TestLoRA(parameterized.TestCase):
         """Test LoRA with custom initialization."""
         layer = brainstate.nn.LoRA(
             5, 2, 3,
-            kernel_init=brainstate.nn.ZeroInit()
+            kernel_init=braintools.init.ZeroInit()
         )
         self.assertTrue(jnp.allclose(layer.weight.value['lora_a'], 0.0))
         self.assertTrue(jnp.allclose(layer.weight.value['lora_b'], 0.0))

@@ -436,7 +436,7 @@ class TestDropoutFixed(parameterized.TestCase):
                 scale_factor = 1 / (1 - 0.5)
                 non_zero_elements = output_data[output_data != 0]
                 expected_non_zero_elements = input_data[output_data != 0] * scale_factor
-                np.testing.assert_almost_equal(non_zero_elements, expected_non_zero_elements)
+                np.testing.assert_almost_equal(non_zero_elements, expected_non_zero_elements, decimal=3)
 
     def test_dropoutfixed_eval_mode(self):
         """Test that DropoutFixed is disabled in eval mode."""

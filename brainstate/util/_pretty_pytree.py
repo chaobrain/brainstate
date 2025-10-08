@@ -630,11 +630,10 @@ class NestedDict(PrettyDict):
         """
         states_ = _split_nested_mapping(self, *filters)
         assert len(states_) == len(filters) + 1, f'Expected {len(filters) + 1} states, got {len(states_)}'
-        if len(states_) == 1:
-            states = states_[0]
+        if len(filters) == 1:
+            return states_[0]
         else:
-            states = tuple(states_)
-        return states  # type: ignore[bad-return-type]
+            return tuple(states_[:-1])
 
     @staticmethod
     def merge(*states) -> 'NestedDict':

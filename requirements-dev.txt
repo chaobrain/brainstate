@@ -4,6 +4,7 @@ tqdm
 numba
 braintools>=0.1.0
 brainpy
+matplotlib
 
 # test requirements
 pytest

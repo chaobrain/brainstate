@@ -13,7 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 
-
+from . import init
 from ._activations import *
 from ._activations import __all__ as activation_all
 from ._collective_ops import *
@@ -55,7 +55,7 @@ from ._rnns import __all__ as rate_rnns
 from ._utils import *
 from ._utils import __all__ as utils_all
 
-__all__ = activation_all + metrics_all
+__all__ = ['init'] + activation_all + metrics_all
 __all__ = __all__ + collective_ops_all + common_all + elementwise_all + module_all + exp_euler_all
 __all__ = __all__ + utils_all + dyn_all + state_delay_all + conv_all
 __all__ = __all__ + linear_all + normalizations_all + paddings_all + poolings_all + fixedprob_all + linear_mv_all

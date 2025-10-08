@@ -18,6 +18,7 @@ import jax
 import jax.numpy as jnp
 import pytest
 
+import braintools
 import brainstate
 
 
@@ -30,7 +31,7 @@ class TestEventLinear:
             x = jnp.asarray(x, dtype=float)
         m = brainstate.nn.EventLinear(
             20, 40,
-            1.5 if homo_w else brainstate.nn.KaimingUniform(),
+            1.5 if homo_w else braintools.init.KaimingUniform(),
             float_as_event=bool_x
         )
         y = m(x)
@@ -42,7 +43,7 @@ class TestEventLinear:
         n_in = 20
         n_out = 30
         x = brainstate.random.rand(n_in) < 0.3
-        fn = brainstate.nn.EventLinear(n_in, n_out, brainstate.nn.KaimingUniform())
+        fn = brainstate.nn.EventLinear(n_in, n_out, braintools.init.KaimingUniform())
 
         with pytest.raises(TypeError):
             print(jax.grad(lambda x: fn(x).sum())(x))
@@ -60,7 +61,7 @@ class TestEventLinear:
         fn = brainstate.nn.EventLinear(
             n_in,
             n_out,
-            1.5 if homo_w else brainstate.nn.KaimingUniform(),
+            1.5 if homo_w else braintools.init.KaimingUniform(),
             float_as_event=bool_x
         )
         w = fn.weight.value
@@ -97,7 +98,7 @@ class TestEventLinear:
             x = brainstate.random.rand(n_in)
 
         fn = brainstate.nn.EventLinear(
-            n_in, n_out, 1.5 if homo_w else brainstate.nn.KaimingUniform(),
+            n_in, n_out, 1.5 if homo_w else braintools.init.KaimingUniform(),
             float_as_event=bool_x
         )
         w = fn.weight.value

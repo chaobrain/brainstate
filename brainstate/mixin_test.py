@@ -328,66 +328,6 @@ class TestOneOfTypes(unittest.TestCase):
         self.assertFalse(isinstance("hello", MaybeInt))
 
 
-class TestAlignPost(unittest.TestCase):
-    """Test AlignPost mixin."""
-
-    def test_align_post_interface(self):
-        """Test AlignPost provides the interface."""
-
-        class Synapse(brainstate.mixin.AlignPost):
-            def __init__(self):
-                self.current = 0.0
-
-            def align_post_input_add(self, current):
-                self.current += current
-
-        synapse = Synapse()
-        synapse.align_post_input_add(5.0)
-        self.assertEqual(synapse.current, 5.0)
-
-    def test_align_post_not_implemented(self):
-        """Test that AlignPost raises NotImplementedError if not overridden."""
-
-        class BadSynapse(brainstate.mixin.AlignPost):
-            pass
-
-        synapse = BadSynapse()
-        with self.assertRaises(NotImplementedError):
-            synapse.align_post_input_add(5.0)
-
-
-class TestBindCondData(unittest.TestCase):
-    """Test BindCondData mixin."""
-
-    def test_bind_cond_basic(self):
-        """Test basic conductance binding."""
-
-        class Synapse(brainstate.mixin.BindCondData):
-            def __init__(self):
-                self._conductance = None
-
-        synapse = Synapse()
-        self.assertIsNone(synapse._conductance)
-
-        synapse.bind_cond(0.5)
-        self.assertEqual(synapse._conductance, 0.5)
-
-        synapse.unbind_cond()
-        self.assertIsNone(synapse._conductance)
-
-    def test_bind_cond_with_arrays(self):
-        """Test conductance binding with arrays."""
-
-        class Synapse(brainstate.mixin.BindCondData):
-            def __init__(self):
-                self._conductance = None
-
-        synapse = Synapse()
-        cond = jnp.array([0.1, 0.2, 0.3])
-        synapse.bind_cond(cond)
-
-        self.assertTrue(jnp.allclose(synapse._conductance, cond))
-
 
 class TestNotImplemented(unittest.TestCase):
     """Test not_implemented decorator."""

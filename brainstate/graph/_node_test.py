@@ -14,10 +14,9 @@
 # ==============================================================================
 
 import unittest
-from copy import deepcopy
-from typing import Any
 
 import brainstate
+from brainstate._state import State
 from brainstate.graph._node import (
     Node,
     _node_flatten,
@@ -26,7 +25,6 @@ from brainstate.graph._node import (
     _node_create_empty,
     _node_clear
 )
-from brainstate._state import State, TreefyState
 
 
 class TestNode(unittest.TestCase):
@@ -34,6 +32,7 @@ class TestNode(unittest.TestCase):
 
     def test_node_creation(self):
         """Test basic node creation."""
+
         class SimpleNode(Node):
             def __init__(self, value):
                 self.value = value
@@ -44,6 +43,7 @@ class TestNode(unittest.TestCase):
 
     def test_node_subclass_registration(self):
         """Test that Node subclasses are automatically registered."""
+
         class TestNode(Node):
             pass
 
@@ -53,6 +53,7 @@ class TestNode(unittest.TestCase):
 
     def test_graph_invisible_attrs(self):
         """Test that graph_invisible_attrs works correctly."""
+
         class NodeWithInvisible(Node):
             graph_invisible_attrs = ('_private', '_internal')
 
@@ -72,6 +73,7 @@ class TestNode(unittest.TestCase):
 
     def test_deepcopy_using_treefy(self):
         """Test deep copying of nodes using treefy_split/merge."""
+
         class NodeWithData(Node):
             def __init__(self, data=None):
                 if data is not None:
@@ -98,6 +100,7 @@ class TestNode(unittest.TestCase):
 
     def test_node_with_state(self):
         """Test nodes containing State objects."""
+
         class NodeWithState(Node):
             def __init__(self):
                 self.value = State(10)
@@ -110,6 +113,7 @@ class TestNode(unittest.TestCase):
 
     def test_complex_nested_structure(self):
         """Test nodes with complex nested structures using treefy."""
+
         class ComplexNode(Node):
             def __init__(self):
                 self.list_data = [1, 2, [3, 4]]
@@ -132,6 +136,7 @@ class TestNodeHelperFunctions(unittest.TestCase):
 
     def test_node_flatten(self):
         """Test _node_flatten function."""
+
         class TestNode(Node):
             def __init__(self):
                 self.b = 2
@@ -154,6 +159,7 @@ class TestNodeHelperFunctions(unittest.TestCase):
 
     def test_node_flatten_with_invisible(self):
         """Test _node_flatten with invisible attributes."""
+
         class TestNode(Node):
             graph_invisible_attrs = ('hidden',)
 
@@ -170,6 +176,7 @@ class TestNodeHelperFunctions(unittest.TestCase):
 
     def test_node_set_key_simple(self):
         """Test _node_set_key with simple values."""
+
         class TestNode(Node):
             pass
 
@@ -182,6 +189,7 @@ class TestNodeHelperFunctions(unittest.TestCase):
 
     def test_node_set_key_with_state(self):
         """Test _node_set_key with State objects."""
+
         class TestNode(Node):
             def __init__(self):
                 self.state_attr = State(10)
@@ -210,6 +218,7 @@ class TestNodeHelperFunctions(unittest.TestCase):
 
     def test_node_set_key_invalid_key(self):
         """Test _node_set_key with invalid key."""
+
         class TestNode(Node):
             pass
 
@@ -221,6 +230,7 @@ class TestNodeHelperFunctions(unittest.TestCase):
 
     def test_node_pop_key(self):
         """Test _node_pop_key function."""
+
         class TestNode(Node):
             def __init__(self):
                 self.attr1 = 10
@@ -236,6 +246,7 @@ class TestNodeHelperFunctions(unittest.TestCase):
 
     def test_node_pop_key_invalid(self):
         """Test _node_pop_key with invalid key."""
+
         class TestNode(Node):
             pass
 
@@ -252,6 +263,7 @@ class TestNodeHelperFunctions(unittest.TestCase):
 
     def test_node_create_empty(self):
         """Test _node_create_empty function."""
+
         class TestNode(Node):
             def __init__(self, value=None):
                 self.value = value
@@ -269,6 +281,7 @@ class TestNodeHelperFunctions(unittest.TestCase):
 
     def test_node_clear(self):
         """Test _node_clear function."""
+
         class TestNode(Node):
             def __init__(self):
                 self.attr1 = 10
@@ -299,6 +312,7 @@ class TestNodeIntegration(unittest.TestCase):
 
     def test_node_with_nested_nodes(self):
         """Test nodes containing other nodes."""
+
         class ChildNode(Node):
             def __init__(self, value=None):
                 if value is not None:
@@ -321,6 +335,7 @@ class TestNodeIntegration(unittest.TestCase):
 
     def test_node_with_list_of_nodes(self):
         """Test nodes containing lists of other nodes."""
+
         class ItemNode(Node):
             def __init__(self, id=None):
                 if id is not None:
@@ -341,6 +356,7 @@ class TestNodeIntegration(unittest.TestCase):
 
     def test_node_with_dict_of_nodes(self):
         """Test nodes containing dictionaries of other nodes."""
+
         class ValueNode(Node):
             def __init__(self, value=None):
                 if value is not None:
@@ -369,6 +385,7 @@ class TestStateRetrieve(unittest.TestCase):
 
     def test_list_of_states_1(self):
         """Test retrieving states from a list."""
+
         class Model(brainstate.graph.Node):
             def __init__(self):
                 self.a = [1, 2, 3]
@@ -381,6 +398,7 @@ class TestStateRetrieve(unittest.TestCase):
 
     def test_list_of_states_2(self):
         """Test retrieving states from nested lists."""
+
         class Model(brainstate.graph.Node):
             def __init__(self):
                 self.a = [1, 2, 3]
@@ -393,6 +411,7 @@ class TestStateRetrieve(unittest.TestCase):
 
     def test_list_of_node_1(self):
         """Test retrieving states from a list of nodes."""
+
         class Model(brainstate.graph.Node):
             def __init__(self):
                 self.a = [1, 2, 3]
@@ -405,6 +424,7 @@ class TestStateRetrieve(unittest.TestCase):
 
     def test_list_of_node_2(self):
         """Test retrieving states from nested structures of nodes."""
+
         class Model(brainstate.graph.Node):
             def __init__(self):
                 self.a = [1, 2, 3]
@@ -418,6 +438,7 @@ class TestStateRetrieve(unittest.TestCase):
 
     def test_mixed_states_and_nodes(self):
         """Test nodes with mixed states and sub-nodes."""
+
         class Model(brainstate.graph.Node):
             def __init__(self):
                 self.state1 = brainstate.State(1.0)
@@ -438,6 +459,7 @@ class TestEdgeCases(unittest.TestCase):
 
     def test_empty_node(self):
         """Test node with no attributes."""
+
         class EmptyNode(Node):
             pass
 
@@ -449,6 +471,7 @@ class TestEdgeCases(unittest.TestCase):
 
     def test_node_with_none_values(self):
         """Test node with None values."""
+
         class NoneNode(Node):
             def __init__(self):
                 self.none_val = None
@@ -463,6 +486,7 @@ class TestEdgeCases(unittest.TestCase):
 
     def test_node_with_special_attributes(self):
         """Test node with special Python attributes."""
+
         class SpecialNode(Node):
             def __init__(self):
                 self.__dict__['special'] = 'value'
@@ -474,6 +498,7 @@ class TestEdgeCases(unittest.TestCase):
 
     def test_circular_reference(self):
         """Test handling of circular references."""
+
         class CircularNode(Node):
             pass
 
@@ -493,6 +518,7 @@ class TestEdgeCases(unittest.TestCase):
 
     def test_node_inheritance(self):
         """Test node inheritance hierarchy."""
+
         class BaseNode(Node):
             def __init__(self):
                 self.base_attr = 'base'
@@ -513,6 +539,7 @@ class TestEdgeCases(unittest.TestCase):
 
     def test_node_with_property(self):
         """Test node with property decorators."""
+
         class PropertyNode(Node):
             def __init__(self):
                 self._value = 10
@@ -538,6 +565,7 @@ class TestEdgeCases(unittest.TestCase):
 
     def test_multiple_inheritance(self):
         """Test node with multiple inheritance."""
+
         class Mixin:
             def mixin_method(self):
                 return 'mixin'

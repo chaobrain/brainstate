@@ -420,8 +420,8 @@ def _vmap_new_states_transform(
     # -- brainstate specific arguments -- #
     state_tag: str | None = None,
     state_to_exclude: Filter | None = None,
-    in_states: Dict[int, Dict] | Any | None = None,
-    out_states: Dict[int, Dict] | Any | None = None,
+    state_in_axes: Union[Dict[AxisName, Filter], Filter] = None,
+    state_out_axes: Union[Dict[AxisName, Filter], Filter] = None,
 ):
     # TODO: How about nested call ``vmap_new_states``?
     if isinstance(axis_size, int) and axis_size <= 0:
@@ -433,8 +433,8 @@ def _vmap_new_states_transform(
         axis_name=axis_name,
         axis_size=axis_size,
         spmd_axis_name=spmd_axis_name,
-        in_states=in_states,
-        out_states=out_states,
+        state_in_axes=state_in_axes,
+        state_out_axes=state_out_axes,
     )
     def new_fun(args):
         # call the function
@@ -451,7 +451,7 @@ def _vmap_new_states_transform(
         # vmapping
         with catch_new_states(state_to_exclude=state_to_exclude) as catcher:
             outs, vmap_state_vals = new_fun(args)
-            vmap_states = catcher.get_states_by_cache()
+            vmap_states = catcher.get_states()
 
         # restore vmapped state values
         for st_val, st in zip(vmap_state_vals, vmap_states):
@@ -478,8 +478,8 @@ def vmap_new_states(
     # -- brainstate specific arguments -- #
     state_tag: str | None = None,
     state_to_exclude: Filter = None,
-    in_states: Dict[int, Dict] | Any | None = None,
-    out_states: Dict[int, Dict] | Any | None = None,
+    state_in_axes: Union[Dict[AxisName, Filter], Filter] = None,
+    state_out_axes: Union[Dict[AxisName, Filter], Filter] = None,
 ):
     """
     Vectorize a function over new states created within it.
@@ -511,8 +511,8 @@ def vmap_new_states(
             spmd_axis_name=spmd_axis_name,
             state_tag=state_tag,
             state_to_exclude=state_to_exclude,
-            in_states=in_states,
-            out_states=out_states,
+            state_in_axes=state_in_axes,
+            state_out_axes=state_out_axes,
         )
     else:
         return _vmap_new_states_transform(
@@ -524,6 +524,6 @@ def vmap_new_states(
             spmd_axis_name=spmd_axis_name,
             state_tag=state_tag,
             state_to_exclude=state_to_exclude,
-            in_states=in_states,
-            out_states=out_states,
+            state_in_axes=state_in_axes,
+            state_out_axes=state_out_axes,
         )

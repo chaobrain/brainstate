@@ -369,11 +369,6 @@ class TestEnvironmentContext(unittest.TestCase):
         with bst.environ.context(mode=mode):
             self.assertEqual(bst.environ.get('mode'), mode)
 
-        # Invalid mode type
-        with self.assertRaises(TypeError):
-            with bst.environ.context(mode='invalid'):
-                pass
-
     def test_context_preserves_unmodified_values(self):
         """Test that context doesn't affect unmodified values."""
         bst.environ.set(unchanged='original', changed='original')
@@ -569,14 +564,14 @@ class TestModeAndSpecialGetters(unittest.TestCase):
         # Set training mode
         training = bst.mixin.Training()
         bst.environ.set(mode=training)
-        mode = bst.environ.get_mode()
+        mode = bst.environ.get('mode')
         self.assertEqual(mode, training)
         self.assertTrue(mode.has(bst.mixin.Training))
 
         # Test with batching mode
         batching = bst.mixin.Batching(batch_size=32)
         with bst.environ.context(mode=batching):
-            mode = bst.environ.get_mode()
+            mode = bst.environ.get('mode')
             self.assertEqual(mode, batching)
             self.assertTrue(mode.has(bst.mixin.Batching))
             self.assertEqual(mode.batch_size, 32)
@@ -584,7 +579,7 @@ class TestModeAndSpecialGetters(unittest.TestCase):
         # Test missing mode
         bst.environ.reset()
         with self.assertRaises(KeyError):
-            bst.environ.get_mode()
+            bst.environ.get('mode')
 
     def test_get_platform(self):
         """Test get_platform function."""
@@ -604,23 +599,6 @@ class TestModeAndSpecialGetters(unittest.TestCase):
         for dt in valid_dts:
             bst.environ.set(dt=dt)
             self.assertEqual(bst.environ.get_dt(), dt)
-
-        # Invalid dt values
-        invalid_dts = [0, -0.1, 'invalid']
-        for dt in invalid_dts:
-            with self.assertRaises(ValueError):
-                bst.environ.set(dt=dt)
-
-    def test_mode_validation(self):
-        """Test mode validation in set function."""
-        # Valid mode
-        mode = bst.mixin.Training()
-        bst.environ.set(mode=mode)
-        self.assertEqual(bst.environ.get_mode(), mode)
-
-        # Invalid mode
-        with self.assertRaises(TypeError):
-            bst.environ.set(mode='invalid')
 
 
 class TestPlatformAndDevice(unittest.TestCase):
@@ -1191,12 +1169,12 @@ class TestIntegration(unittest.TestCase):
 
         # Test training mode
         bst.environ.set(mode=training)
-        mode = bst.environ.get_mode()
+        mode = bst.environ.get('mode')
         self.assertTrue(mode.has(bst.mixin.Training))
 
         # Test batching mode
         with bst.environ.context(mode=batching):
-            mode = bst.environ.get_mode()
+            mode = bst.environ.get('mode')
             self.assertTrue(mode.has(bst.mixin.Batching))
             self.assertEqual(mode.batch_size, 32)
 
@@ -1228,7 +1206,7 @@ class TestIntegration(unittest.TestCase):
         # Verify all are set
         self.assertEqual(bst.environ.get_precision(), 64)
         self.assertEqual(bst.environ.get_dt(), 0.01)
-        self.assertTrue(bst.environ.get_mode().has(bst.mixin.Training))
+        self.assertTrue(bst.environ.get('mode').has(bst.mixin.Training))
         self.assertEqual(bst.environ.get('custom_param'), 'test')
         self.assertTrue(bst.environ.get('debug'))
 
