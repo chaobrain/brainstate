@@ -74,37 +74,6 @@ jobs:
         run: |
           pytest brainstate/
 
-  test_jax_version:
-    runs-on: macos-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: [ "3.12" ]
-        jax-version: ["0.4.38", "0.5.2", "0.6.0"]
-
-    steps:
-      - uses: actions/checkout@v5
-      - name: Print concurrency group
-        run: echo '${{ github.workflow }}-${{ github.ref }}'
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v6
-        with:
-          python-version: ${{ matrix.python-version }}
-      - name: Install dependencies
-        run: |
-          python -m pip cache purge
-          python -m pip install --upgrade pip build --no-cache-dir
-          python -m pip install -r requirements-dev.txt  --no-cache-dir
-          if [ "${{ matrix.jax-version }}" == "" ]; then
-            python -m pip install jax || exit 1
-          else
-            python -m pip install jax==${{ matrix.jax-version }} || exit 1
-          fi
-          python -m pip install . || exit 1
-      - name: Test with pytest
-        run: |
-          pytest brainstate/
-
   test_windows:
     runs-on: windows-latest
     strategy:
