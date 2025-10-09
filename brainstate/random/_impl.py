@@ -242,7 +242,7 @@ def const(example, val):
 # ---------------------------------------------------------------------------------------------------------------
 
 
-def _formalize_key(key):
+def formalize_key(key, use_prng_key):
     if isinstance(key, int):
         return jr.PRNGKey(key) if use_prng_key else jr.key(key)
     elif isinstance(key, (jax.Array, np.ndarray)):
@@ -302,3 +302,157 @@ def _loc_scale(
 
 def _check_py_seq(seq):
     return u.math.asarray(seq) if isinstance(seq, (tuple, list)) else seq
+
+
+@partial(jit, static_argnames=['shape', 'dtype'])
+def noncentral_f(
+    key,
+    dfnum,
+    dfden,
+    nonc,
+    *,
+    shape,
+    dtype=None
+):
+    """
+    Draw samples from the noncentral F distribution.
+
+    The noncentral F distribution is a generalization of the F distribution.
+    It is parameterized by dfnum (degrees of freedom of the numerator),
+    dfden (degrees of freedom of the denominator), and nonc (noncentrality parameter).
+
+    The implementation uses the relationship:
+    If X ~ noncentral_chisquare(dfnum, nonc) and Y ~ chisquare(dfden), then
+    F = (X / dfnum) / (Y / dfden) ~ noncentral_f(dfnum, dfden, nonc)
+
+    Parameters
+    ----------
+    key : jax.random.PRNGKey
+        Random key
+    dfnum : float or array_like
+        Degrees of freedom of the numerator, must be > 0
+    dfden : float or array_like
+        Degrees of freedom of the denominator, must be > 0
+    nonc : float or array_like
+        Noncentrality parameter, must be >= 0
+    shape : tuple
+        Output shape
+    dtype : dtype, optional
+        Data type of the output
+
+    Returns
+    -------
+    out : array_like
+        Samples from the noncentral F distribution
+    """
+    dtype = dtype or environ.dftype()
+    dfnum = lax.convert_element_type(dfnum, dtype)
+    dfden = lax.convert_element_type(dfden, dtype)
+    nonc = lax.convert_element_type(nonc, dtype)
+
+    # Split key for two random samples
+    key1, key2 = jr.split(key)
+
+    # Generate noncentral chi-square for numerator
+    # noncentral_chisquare(df, nonc) = chi-square(df - 1) + (normal(0,1) + sqrt(nonc))^2
+    # when df > 1, else chi-square(df + 2*poisson(nonc/2))
+    keys_numer = jr.split(key1, 3)
+    i = jr.poisson(keys_numer[0], 0.5 * nonc, shape=shape, dtype=environ.ditype())
+    n = jr.normal(keys_numer[1], shape=shape, dtype=dtype) + jnp.sqrt(nonc)
+    cond = jnp.greater(dfnum, 1.0)
+    df_numerator = jnp.where(cond, dfnum - 1.0, dfnum + 2.0 * i)
+    chi2_numerator = 2.0 * jr.gamma(keys_numer[2], 0.5 * df_numerator, shape=shape, dtype=dtype)
+    numerator = jnp.where(cond, chi2_numerator + n * n, chi2_numerator)
+
+    # Generate central chi-square for denominator
+    # chi-square(df) = 2 * gamma(df/2, 1)
+    chi2_denominator = 2.0 * jr.gamma(key2, 0.5 * dfden, shape=shape, dtype=dtype)
+
+    # Compute F statistic: (numerator / dfnum) / (denominator / dfden)
+    f_stat = (numerator / dfnum) / (chi2_denominator / dfden)
+
+    return f_stat
+
+
+@partial(jit, static_argnames=['shape', 'dtype'])
+def logseries(
+    key,
+    p,
+    *,
+    shape,
+    dtype=None
+):
+    """
+    Draw samples from a logarithmic series distribution.
+
+    The logarithmic series distribution (also known as the log-series distribution)
+    is a discrete probability distribution derived from the Maclaurin series expansion
+    of -ln(1-p). It is used to model the distribution of species abundances and other
+    phenomena in ecology and other fields.
+
+    The probability mass function is:
+        P(k) = -p^k / (k * ln(1-p))  for k = 1, 2, 3, ...
+
+    This implementation uses the inversion method described in:
+    Kemp, A. W. (1981). "Efficient generation of logarithmically distributed pseudo-random variables."
+    Journal of the Royal Statistical Society: Series C (Applied Statistics), 30(3), 249-253.
+
+    Parameters
+    ----------
+    key : jax.random.PRNGKey
+        Random key
+    p : float or array_like
+        Shape parameter, must be in (0, 1)
+    shape : tuple
+        Output shape
+    dtype : dtype, optional
+        Data type of the output (should be an integer type)
+
+    Returns
+    -------
+    out : array_like
+        Samples from the logarithmic series distribution, values >= 1
+    """
+    dtype = dtype or environ.ditype()
+    float_dtype = environ.dftype()
+
+    p = lax.convert_element_type(p, float_dtype)
+    p = jnp.broadcast_to(p, shape)
+
+    # Kemp's algorithm for logarithmic series distribution
+    # Generate uniform random number
+    u = jr.uniform(key, shape=shape, dtype=float_dtype)
+
+    # Compute useful constants
+    # r = ln(1 - p)
+    r = jnp.log1p(-p)
+
+    # v = u * (-r)
+    v = -u * r
+
+    # Initialize result
+    # If v >= p, result = 1
+    # Otherwise we need to compute more
+    result = jnp.ones(shape, dtype=float_dtype)
+
+    # Compute: result = floor(log(v) / log(p)) if v < p, else 1
+    # This is equivalent to finding k such that p^k < v <= p^(k-1)
+    # Which means k > log(v)/log(p) >= k-1
+    # So k = floor(log(v)/log(p)) + 1
+
+    log_v = jnp.log(v)
+    log_p = jnp.log(p)
+
+    # k = 1 + floor(log(v) / log(p))
+    k = jnp.floor(log_v / log_p)
+
+    # Add 1 since logseries starts at 1, not 0
+    result = k + 1.0
+
+    # Ensure result is at least 1
+    result = jnp.maximum(result, 1.0)
+
+    # Convert to integer dtype
+    result = lax.convert_element_type(result, dtype)
+
+    return result
