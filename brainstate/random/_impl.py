@@ -22,6 +22,7 @@ import jax.random as jr
 import numpy as np
 from jax import jit, vmap
 from jax import lax, dtypes
+from jax.scipy import special as jsp
 
 from brainstate import environ
 
@@ -242,7 +243,7 @@ def const(example, val):
 # ---------------------------------------------------------------------------------------------------------------
 
 
-def formalize_key(key, use_prng_key):
+def formalize_key(key, use_prng_key=True):
     if isinstance(key, int):
         return jr.PRNGKey(key) if use_prng_key else jr.key(key)
     elif isinstance(key, (jax.Array, np.ndarray)):
@@ -302,6 +303,41 @@ def _loc_scale(
 
 def _check_py_seq(seq):
     return u.math.asarray(seq) if isinstance(seq, (tuple, list)) else seq
+
+
+@partial(jit, static_argnames=['shape', 'dtype'])
+def f(
+    key,
+    dfnum,
+    dfden,
+    *,
+    shape,
+    dtype=None
+):
+    """Draw samples from the central F distribution."""
+    dtype = dtype or environ.dftype()
+    dfnum = lax.convert_element_type(dfnum, dtype)
+    dfden = lax.convert_element_type(dfden, dtype)
+
+    if shape is None:
+        shape = lax.broadcast_shapes(u.math.shape(dfnum), u.math.shape(dfden))
+    elif isinstance(shape, int):
+        shape = (shape,)
+    else:
+        shape = tuple(shape)
+
+    dfnum = jnp.broadcast_to(dfnum, shape)
+    dfden = jnp.broadcast_to(dfden, shape)
+
+    size = int(np.prod(shape)) if shape else 1
+    if size == 0:
+        return jnp.empty(shape, dtype=dtype)
+
+    key_num, key_den = jr.split(key)
+    chi2_num = 2.0 * jr.gamma(key_num, 0.5 * dfnum, shape=shape, dtype=dtype)
+    chi2_den = 2.0 * jr.gamma(key_den, 0.5 * dfden, shape=shape, dtype=dtype)
+
+    return (chi2_num / dfnum) / (chi2_den / dfden)
 
 
 @partial(jit, static_argnames=['shape', 'dtype'])
@@ -382,77 +418,274 @@ def logseries(
     shape,
     dtype=None
 ):
-    """
-    Draw samples from a logarithmic series distribution.
-
-    The logarithmic series distribution (also known as the log-series distribution)
-    is a discrete probability distribution derived from the Maclaurin series expansion
-    of -ln(1-p). It is used to model the distribution of species abundances and other
-    phenomena in ecology and other fields.
-
-    The probability mass function is:
-        P(k) = -p^k / (k * ln(1-p))  for k = 1, 2, 3, ...
-
-    This implementation uses the inversion method described in:
-    Kemp, A. W. (1981). "Efficient generation of logarithmically distributed pseudo-random variables."
-    Journal of the Royal Statistical Society: Series C (Applied Statistics), 30(3), 249-253.
-
-    Parameters
-    ----------
-    key : jax.random.PRNGKey
-        Random key
-    p : float or array_like
-        Shape parameter, must be in (0, 1)
-    shape : tuple
-        Output shape
-    dtype : dtype, optional
-        Data type of the output (should be an integer type)
-
-    Returns
-    -------
-    out : array_like
-        Samples from the logarithmic series distribution, values >= 1
-    """
+    """Draw samples from the logarithmic series distribution."""
     dtype = dtype or environ.ditype()
-    float_dtype = environ.dftype()
+    float_dtype = dtypes.canonicalize_dtype(environ.dftype())
+    calc_dtype = dtypes.canonicalize_dtype(jnp.promote_types(float_dtype, jnp.float64))
 
     p = lax.convert_element_type(p, float_dtype)
+
+    if shape is None:
+        shape = u.math.shape(p)
+    elif isinstance(shape, int):
+        shape = (shape,)
+    else:
+        shape = tuple(shape)
+
     p = jnp.broadcast_to(p, shape)
 
-    # Kemp's algorithm for logarithmic series distribution
-    # Generate uniform random number
-    u = jr.uniform(key, shape=shape, dtype=float_dtype)
+    size = int(np.prod(shape)) if shape else 1
+    if size == 0:
+        return jnp.empty(shape, dtype=dtype)
 
-    # Compute useful constants
-    # r = ln(1 - p)
-    r = jnp.log1p(-p)
+    p_flat = jnp.reshape(lax.convert_element_type(p, calc_dtype), (size,))
+    keys = jr.split(key, size)
 
-    # v = u * (-r)
-    v = -u * r
+    tiny = jnp.array(np.finfo(calc_dtype).tiny, dtype=calc_dtype)
+    one_minus_eps = jnp.nextafter(jnp.array(1.0, dtype=calc_dtype), jnp.array(0.0, dtype=calc_dtype))
 
-    # Initialize result
-    # If v >= p, result = 1
-    # Otherwise we need to compute more
-    result = jnp.ones(shape, dtype=float_dtype)
+    def _sample_one(single_key, p_scalar):
+        p_scalar = lax.convert_element_type(p_scalar, calc_dtype)
+        operand = (single_key, p_scalar)
 
-    # Compute: result = floor(log(v) / log(p)) if v < p, else 1
-    # This is equivalent to finding k such that p^k < v <= p^(k-1)
-    # Which means k > log(v)/log(p) >= k-1
-    # So k = floor(log(v)/log(p)) + 1
+        def _limit_case(_):
+            return jnp.array(1.0, dtype=calc_dtype)
 
-    log_v = jnp.log(v)
-    log_p = jnp.log(p)
+        def _positive_case(args):
+            key_i, p_val = args
+            p_val = jnp.clip(p_val, tiny, one_minus_eps)
+            log_p = jnp.log(p_val)
+            log_norm = jnp.log(-jnp.log1p(-p_val))
+            log_prob = log_p - log_norm
+            log_cdf = log_prob
+            log_u = jnp.log(jr.uniform(key_i, shape=(), dtype=calc_dtype, minval=tiny, maxval=one_minus_eps))
 
-    # k = 1 + floor(log(v) / log(p))
-    k = jnp.floor(log_v / log_p)
+            init_state = (jnp.array(1.0, dtype=calc_dtype), log_prob, log_cdf, log_u)
 
-    # Add 1 since logseries starts at 1, not 0
-    result = k + 1.0
+            def cond_fn(state):
+                _, _, log_cdf_val, log_u_val = state
+                return log_u_val > log_cdf_val
 
-    # Ensure result is at least 1
-    result = jnp.maximum(result, 1.0)
+            def body_fn(state):
+                k_val, log_prob_val, log_cdf_val, log_u_val = state
+                k_next = k_val + 1.0
+                log_prob_next = log_prob_val + log_p + jnp.log(k_val) - jnp.log(k_next)
+                log_cdf_next = jnp.logaddexp(log_cdf_val, log_prob_next)
+                return k_next, log_prob_next, log_cdf_next, log_u_val
 
-    # Convert to integer dtype
-    result = lax.convert_element_type(result, dtype)
+            k_val, _, _, _ = lax.while_loop(cond_fn, body_fn, init_state)
+            return k_val
 
-    return result
+        return lax.cond(p_scalar <= 0.0, _limit_case, _positive_case, operand)
+
+    samples = vmap(_sample_one)(keys, p_flat)
+    samples = lax.convert_element_type(samples, dtype)
+    return jnp.reshape(samples, shape)
+
+
+@partial(jit, static_argnames=['shape', 'dtype'])
+def zipf(
+    key,
+    a,
+    *,
+    shape,
+    dtype=None
+):
+    """Draw samples from the Zipf (zeta) distribution."""
+    dtype = dtype or environ.ditype()
+    float_dtype = dtypes.canonicalize_dtype(environ.dftype())
+    calc_dtype = dtypes.canonicalize_dtype(jnp.promote_types(float_dtype, jnp.float64))
+
+    a = lax.convert_element_type(a, calc_dtype)
+
+    if shape is None:
+        shape = u.math.shape(a)
+    elif isinstance(shape, int):
+        shape = (shape,)
+    else:
+        shape = tuple(shape)
+
+    a = jnp.broadcast_to(a, shape)
+
+    size = int(np.prod(shape)) if shape else 1
+    if size == 0:
+        return jnp.empty(shape, dtype=dtype)
+
+    u_ = jr.uniform(
+        key,
+        shape=shape,
+        dtype=calc_dtype,
+        minval=jnp.finfo(calc_dtype).tiny,
+        maxval=jnp.array(1.0, dtype=calc_dtype)
+    )
+
+    a_flat = jnp.reshape(a, (size,))
+    u_flat = jnp.reshape(u_, (size,))
+
+    max_iters = jnp.array(1000000, dtype=jnp.int32)
+
+    def _sample_one(a_scalar, u_scalar):
+        norm = jsp.zeta(a_scalar, jnp.array(1.0, dtype=calc_dtype))
+
+        def cdf(k_val):
+            return jnp.array(1.0, dtype=calc_dtype) - jsp.zeta(a_scalar,
+                                                               k_val + jnp.array(1.0, dtype=calc_dtype)) / norm
+
+        initial = jnp.array(1.0, dtype=calc_dtype)
+        cdf_prev = jnp.array(0.0, dtype=calc_dtype)
+        cdf_curr = cdf(initial)
+
+        state = (
+            initial,
+            cdf_prev,
+            cdf_curr,
+            jnp.array(0, dtype=jnp.int32)
+        )
+
+        def cond_fn(state):
+            _, c_prev, c_curr, it = state
+            not_ok = jnp.logical_or(u_scalar > c_curr, u_scalar <= c_prev)
+            return jnp.logical_and(not_ok, it < max_iters)
+
+        def body_fn(state):
+            k_val, c_prev, c_curr, it = state
+            need_increase = u_scalar > c_curr
+
+            def inc(_):
+                k_next = k_val + jnp.array(1.0, dtype=calc_dtype)
+                c_prev_next = jnp.array(1.0, dtype=calc_dtype) - jsp.zeta(a_scalar, k_next) / norm
+                c_curr_next = cdf(k_next)
+                return k_next, c_prev_next, c_curr_next, it + 1
+
+            def dec(_):
+                k_next = jnp.maximum(jnp.array(1.0, dtype=calc_dtype), k_val - jnp.array(1.0, dtype=calc_dtype))
+                c_prev_next = jnp.array(1.0, dtype=calc_dtype) - jsp.zeta(a_scalar, k_next) / norm
+                c_curr_next = cdf(k_next)
+                return k_next, c_prev_next, c_curr_next, it + 1
+
+            return lax.cond(need_increase, inc, dec, operand=None)
+
+        k_final, _, _, _ = lax.while_loop(cond_fn, body_fn, state)
+        return lax.convert_element_type(k_final, dtype)
+
+    samples_flat = jax.vmap(_sample_one)(a_flat, u_flat)
+    samples = jnp.reshape(samples_flat, shape)
+    return samples
+
+
+@partial(jit, static_argnames=['shape', 'dtype'])
+def power(
+    key,
+    a,
+    *,
+    shape,
+    dtype=None
+):
+    """Draw samples from the power distribution."""
+    dtype = dtype or environ.dftype()
+    float_dtype = dtypes.canonicalize_dtype(dtype)
+
+    a = lax.convert_element_type(a, float_dtype)
+
+    if shape is None:
+        shape = u.math.shape(a)
+    elif isinstance(shape, int):
+        shape = (shape,)
+    else:
+        shape = tuple(shape)
+
+    a = jnp.broadcast_to(a, shape)
+
+    size = int(np.prod(shape)) if shape else 1
+    if size == 0:
+        return jnp.empty(shape, dtype=float_dtype)
+
+    eps = jnp.array(np.finfo(float_dtype).tiny, dtype=float_dtype)
+    a_safe = jnp.maximum(a, eps)
+
+    u_ = jr.uniform(key, shape=shape, dtype=float_dtype, minval=eps, maxval=1.0)
+    samples = jnp.power(u_, jnp.reciprocal(a_safe))
+
+    return lax.convert_element_type(samples, dtype)
+
+
+@partial(jit, static_argnames=['shape', 'dtype'])
+def hypergeometric(
+    key,
+    ngood,
+    nbad,
+    nsample,
+    *,
+    shape,
+    dtype=None
+):
+    """Draw samples from the hypergeometric distribution."""
+    dtype = dtype or environ.ditype()
+    out_dtype = dtypes.canonicalize_dtype(dtype)
+    float_dtype = dtypes.canonicalize_dtype(environ.dftype())
+    calc_dtype = dtypes.canonicalize_dtype(jnp.promote_types(float_dtype, jnp.float64))
+
+    ngood = lax.convert_element_type(ngood, out_dtype)
+    nbad = lax.convert_element_type(nbad, out_dtype)
+    nsample = lax.convert_element_type(nsample, out_dtype)
+
+    if shape is None:
+        shape = lax.broadcast_shapes(u.math.shape(ngood), u.math.shape(nbad), u.math.shape(nsample))
+    elif isinstance(shape, int):
+        shape = (shape,)
+    else:
+        shape = tuple(shape)
+
+    ngood = jnp.broadcast_to(ngood, shape)
+    nbad = jnp.broadcast_to(nbad, shape)
+    nsample = jnp.broadcast_to(nsample, shape)
+
+    size = int(np.prod(shape)) if shape else 1
+    if size == 0:
+        return jnp.empty(shape, dtype=out_dtype)
+
+    flat_ngood = jnp.reshape(ngood, (size,))
+    flat_nbad = jnp.reshape(nbad, (size,))
+    flat_nsample = jnp.reshape(nsample, (size,))
+    sample_keys = jr.split(key, size + 1)[1:]
+
+    one = jnp.array(1, dtype=out_dtype)
+    zero = jnp.array(0, dtype=out_dtype)
+
+    def _sample_one(sample_key, good, bad, draws):
+        good = jnp.maximum(good, zero)
+        bad = jnp.maximum(bad, zero)
+        draws = jnp.maximum(draws, zero)
+        total = good + bad
+        draws = jnp.minimum(draws, total)
+
+        init_state = (zero, sample_key, good, bad, zero, draws)
+
+        def cond_fn(state):
+            i, _, good_i, bad_i, _, draws_i = state
+            total_i = good_i + bad_i
+            return jnp.logical_and(i < draws_i, total_i > zero)
+
+        def body_fn(state):
+            i, key_i, good_i, bad_i, succ_i, draws_i = state
+            key_i, subkey = jr.split(key_i)
+            total_i = good_i + bad_i
+            prob = jnp.where(
+                total_i > zero,
+                lax.convert_element_type(good_i, calc_dtype)
+                / lax.convert_element_type(total_i, calc_dtype),
+                jnp.array(0.0, dtype=calc_dtype)
+            )
+            u = jr.uniform(subkey, shape=(), dtype=calc_dtype)
+            success = (u < prob).astype(out_dtype)
+            good_i = good_i - success
+            bad_i = bad_i - jnp.where(total_i > zero, one - success, zero)
+            succ_i = succ_i + success
+            return (i + one, key_i, good_i, bad_i, succ_i, draws_i)
+
+        _, _, _, _, successes, _ = lax.while_loop(cond_fn, body_fn, init_state)
+        return successes
+
+    samples = jax.vmap(_sample_one)(sample_keys, flat_ngood, flat_nbad, flat_nsample)
+    samples = lax.convert_element_type(samples, out_dtype)
+    return jnp.reshape(samples, shape)

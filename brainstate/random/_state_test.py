@@ -444,7 +444,7 @@ class TestUtilityFunctions(unittest.TestCase):
     def test_formalize_key_with_array(self):
         """Test _formalize_key with array."""
         input_key = jr.PRNGKey(123)
-        key = formalize_key(input_key)
+        key = formalize_key(input_key, True)
         np.testing.assert_array_equal(key, input_key)
 
     def test_formalize_key_with_uint32_array(self):
