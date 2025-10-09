@@ -19,7 +19,7 @@ import jax.numpy as jnp
 import jax.random as jr
 import numpy as np
 
-from brainstate.random._rand_state import RandomState, DEFAULT, _formalize_key, _size2shape, _check_py_seq
+from brainstate.random._state import RandomState, DEFAULT, _formalize_key, _size2shape, _check_py_seq
 
 
 class TestRandomStateInitialization(unittest.TestCase):

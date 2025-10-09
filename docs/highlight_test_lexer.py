@@ -13,9 +13,9 @@
 # limitations under the License.
 # ==============================================================================
 
-import os
 import glob
 import json
+import os
 import sys
 
 
@@ -106,8 +106,6 @@ def fix_ipython2_lexer_in_notebooks(directory_path):
 
 
 if __name__ == "__main__":
-    import os
-
     print(os.path.dirname(os.path.abspath(__file__)))
 
     # 使用当前目录，或者指定您的文档目录路径
