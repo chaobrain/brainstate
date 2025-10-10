@@ -11,3 +11,4 @@ This section covers neural network modules and layers in BrainState.
    03_activations_normalization
    04_recurrent_networks
    05_dynamics_systems
+   06_collective_ops
