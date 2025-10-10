@@ -6,6 +6,6 @@ This section provides additional resources for performance optimization, debuggi
 .. toctree::
    :maxdepth: 1
 
-   25_performance_optimization
-   26_debugging_tips
-   27_faq
+   01_performance_optimization
+   02_debugging_tips
+   03_faq
