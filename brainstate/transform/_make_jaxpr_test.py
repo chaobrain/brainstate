@@ -22,7 +22,6 @@ import jax.numpy as jnp
 import pytest
 
 import brainstate
-from brainstate._error import BatchAxisError
 from brainstate._compatible_import import jaxpr_as_fun
 from brainstate.transform._make_jaxpr import _BoundedCache, make_hashable
 
@@ -1507,4 +1506,24 @@ class TestStatefulFunctionRecompilation(unittest.TestCase):
         sf.make_jaxpr(x)
         stats_after_recompile = sf.get_cache_stats()
         self.assertGreater(stats_after_recompile['jaxpr_cache']['size'], 0)
+
+
+class TestStatefulMapping(unittest.TestCase):
+    def test1(self):
+        read_state = brainstate.State(jnp.arange(10), tag='read')
+        write_state = brainstate.State(jnp.array([2.0]))
+
+        def f(x):
+            _ = read_state.value  # Read only
+            write_state.value += (x + _)  # Write
+            return x * 2
+
+        sf = brainstate.transform.StatefulMapping(
+            f, in_axes=0, state_in_axes={0: 'read'}
+        )
+        r = sf(brainstate.random.rand(10))
+
+        print(read_state.value)
+        print(write_state.value)
+        print(r)
 

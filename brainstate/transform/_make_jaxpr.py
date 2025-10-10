@@ -1408,7 +1408,7 @@ def make_jaxpr(
     return make_jaxpr_f
 
 
-class StatefulMapping(StatefulFunction):
+class StatefulMapping(PrettyObject):
     __module__ = "brainstate.transform"
 
     def __init__(
@@ -1418,11 +1418,6 @@ class StatefulMapping(StatefulFunction):
         out_axes: Union[int, Tuple[int, ...], None] = 0,
         state_in_axes: Optional[Union[Dict[AxisName, Filter], Filter]] = None,
         state_out_axes: Optional[Union[Dict[AxisName, Filter], Filter]] = None,
-        # jit specific parameters
-        static_argnums: Union[int, Iterable[int]] = (),
-        static_argnames: Union[str, Iterable[str]] = (),
-        axis_env: Optional[Sequence[tuple[Hashable, int]]] = None,
-        abstracted_axes: Optional[Any] = None,
         # mapping specific parameters
         axis_size: Optional[int] = None,
         axis_name: AxisName | None = None,
@@ -1430,16 +1425,8 @@ class StatefulMapping(StatefulFunction):
         # mapping function
         mapping_fn: Callable = jax.vmap,
     ):
+        self.name = name
         self.origin_fun = fun
-        super().__init__(
-            fun=self._wrapped_fun,
-            static_argnums=static_argnums,
-            static_argnames=static_argnames,
-            axis_env=axis_env,
-            abstracted_axes=abstracted_axes,
-            name=name,
-            return_only_write=False,
-        )
         self.in_axes = in_axes
         self.out_axes = out_axes
         if state_in_axes is None:
@@ -1466,12 +1453,12 @@ class StatefulMapping(StatefulFunction):
         self._cached_map_state_trace = _BoundedCache(maxsize=128)
         self._cached_map_batch_size = _BoundedCache(maxsize=128)
 
+
     def _infer_batch_size(self, args, in_axes):
         if in_axes is None:
             raise ValueError("Cannot infer batch size when in_axes is None")
 
         batch_sizes = []
-
         def get_batch_size_from_arg(arg_, axis_):
             if axis_ is None:
                 return None
@@ -1523,17 +1510,14 @@ class StatefulMapping(StatefulFunction):
 
         return batch_sizes[0]
 
-    def __new_batch_arg(self, batch_size: int, dim_to_states: dict):
-        trace = jax.core.trace_ctx.trace
-        assert isinstance(trace, BatchTrace), f"Expected to be called within a BatchTrace context, but got {trace}"
-
+    def __new_batch_arg(self, trace, batch_size: int, dim_to_states: dict):
         def wrapper(x):
             if isinstance(x, RandomState):
-                idx = memoize(lambda: BatchTracer(trace, make_iota(batch_size), 0, source_info_util.current()))
+                idx = lambda: BatchTracer(trace, make_iota(batch_size), 0, source_info_util.current())
                 dim_to_states['random'].append(x)
-                return to_elt(trace, idx, jnp.ones((batch_size,) + x._value.shape, x._value.dtype), 0)
+                return to_elt(trace, idx, self._rand_value, 0)
             for dim, filter_ in self.state_in_axes.items():
-                idx = memoize(lambda: BatchTracer(trace, make_iota(batch_size), dim, source_info_util.current()))
+                idx = lambda: BatchTracer(trace, make_iota(batch_size), dim, source_info_util.current())
                 if filter_(tuple(), x):
                     dim_to_states[dim].append(x)
                     return jax.tree.map(lambda xx: to_elt(trace, idx, xx, dim), x._value)
@@ -1543,10 +1527,12 @@ class StatefulMapping(StatefulFunction):
 
     def __eval(self, cache_key, *args, **kwargs):
         def fn_to_eval(*new_args, **new_kwargs):
+            trace = jax.core.trace_ctx.trace
+            assert isinstance(trace, BatchTrace), f"Expected to be called within a BatchTrace context, but got {trace}"
             dim_to_in_states = defaultdict(list)
             state_trace = StateTraceStack(name=self.name)
             state_trace.set_new_arg(
-                self.__new_batch_arg(self._cached_map_batch_size.get(cache_key), dim_to_in_states)
+                self.__new_batch_arg(trace, self._cached_map_batch_size.get(cache_key), dim_to_in_states)
             )
             self._cached_map_state_trace.set(cache_key, state_trace)
 
@@ -1649,6 +1635,7 @@ class StatefulMapping(StatefulFunction):
 
     def _wrapped_fun(self, *args, **kwargs) -> Tuple[Any, Tuple[State, ...]]:
         batch_size = self._infer_batch_size(args, self.in_axes)
+        self._rand_value = jnp.ones((batch_size, 2), dtype=jnp.uint32)
         cache_key = self.get_arg_cache_key(*args, **kwargs)
         self._cached_map_batch_size.set(cache_key, batch_size)
         if cache_key not in self._cached_map_state_trace:
@@ -1672,6 +1659,31 @@ class StatefulMapping(StatefulFunction):
         out_, *out_state_vals = mapped_fn((args, kwargs), rand_vals, *in_state_vals)
         self.__assign_vals_from_out_states(cache_key, rand_recover_vals, *out_state_vals)
         return out_
+
+    def get_arg_cache_key(self, *args, **kwargs) -> hashabledict:
+        static_args, dyn_args = [], []
+        for i, arg in enumerate(args):
+            dyn_args.append(arg)
+        dyn_args = jax.tree.map(shaped_abstractify, dyn_args)
+        static_kwargs, dyn_kwargs = [], []
+        for k, v in sorted(kwargs.items()):
+            dyn_kwargs.append((k, jax.tree.map(shaped_abstractify, v)))
+
+        static_args = make_hashable(tuple(static_args))
+        dyn_args = make_hashable(tuple(dyn_args))
+        static_kwargs = make_hashable(static_kwargs)
+        dyn_kwargs = make_hashable(dyn_kwargs)
+
+        cache_key = hashabledict(
+            static_args=static_args,
+            dyn_args=dyn_args,
+            static_kwargs=static_kwargs,
+            dyn_kwargs=dyn_kwargs,
+        )
+        return cache_key
+
+    def __call__(self, *args, **kwargs):
+        return self._wrapped_fun(*args, **kwargs)
 
 
 def _check_callable(fun):
@@ -1924,6 +1936,9 @@ def constant_fold_jaxpr(jaxpr: Jaxpr):
     return _partial_eval_jaxpr(jaxpr, {})
 
 
+_constant_fold_blacklist = {'broadcast_in_dim', 'broadcast'}
+
+
 def _partial_eval_jaxpr(jaxpr, env):
     env = env.copy()
     new_eqns = []
@@ -2008,9 +2023,3 @@ def _eval_eqn(eqn, vals) -> Union[Jaxpr, tuple, list, jax.Array]:
     else:
         out = eqn.primitive.bind(*vals, **eqn.params)
     return out
-
-
-_constant_fold_blacklist = {
-    'broadcast_in_dim',
-    'broadcast',
-}
