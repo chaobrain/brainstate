@@ -437,13 +437,11 @@ class TestRandom(unittest.TestCase):
         a = brainstate.random.hypergeometric(10, 10, 10, 20)
         self.assertTupleEqual(a.shape, (20,))
 
-    @pytest.mark.skipif(platform.system() == 'Windows', reason='Windows jaxlib error')
     def test_hypergeometric2(self):
         brainstate.random.seed()
         a = brainstate.random.hypergeometric(8, [10, 4], [[5, 2], [5, 5]])
         self.assertTupleEqual(a.shape, (2, 2))
 
-    @pytest.mark.skipif(platform.system() == 'Windows', reason='Windows jaxlib error')
     def test_hypergeometric3(self):
         brainstate.random.seed()
         a = brainstate.random.hypergeometric(8, [10, 4], [[5, 2], [5, 5]], size=(3, 2, 2))

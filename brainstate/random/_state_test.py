@@ -19,7 +19,7 @@ import jax.numpy as jnp
 import jax.random as jr
 import numpy as np
 
-from brainstate.random._rand_state import RandomState, DEFAULT, _formalize_key, _size2shape, _check_py_seq
+from brainstate.random._state import RandomState, DEFAULT, formalize_key, _size2shape, _check_py_seq
 
 
 class TestRandomStateInitialization(unittest.TestCase):
@@ -437,32 +437,32 @@ class TestUtilityFunctions(unittest.TestCase):
 
     def test_formalize_key_with_int(self):
         """Test _formalize_key with integer."""
-        key = _formalize_key(42)
+        key = formalize_key(42)
         expected = jr.PRNGKey(42)
         np.testing.assert_array_equal(key, expected)
 
     def test_formalize_key_with_array(self):
         """Test _formalize_key with array."""
         input_key = jr.PRNGKey(123)
-        key = _formalize_key(input_key)
+        key = formalize_key(input_key, True)
         np.testing.assert_array_equal(key, input_key)
 
     def test_formalize_key_with_uint32_array(self):
         """Test _formalize_key with uint32 array."""
         input_array = np.array([123, 456], dtype=np.uint32)
-        key = _formalize_key(input_array)
+        key = formalize_key(input_array)
         np.testing.assert_array_equal(key, input_array)
 
     def test_formalize_key_invalid_input(self):
         """Test _formalize_key with invalid input."""
         with self.assertRaises(TypeError):
-            _formalize_key("invalid")
+            formalize_key("invalid")
 
         with self.assertRaises(TypeError):
-            _formalize_key(np.array([1, 2, 3], dtype=np.uint32))  # Wrong size
+            formalize_key(np.array([1, 2, 3], dtype=np.uint32))  # Wrong size
 
         with self.assertRaises(TypeError):
-            _formalize_key(np.array([1, 2], dtype=np.int32))  # Wrong dtype
+            formalize_key(np.array([1, 2], dtype=np.int32))  # Wrong dtype
 
     def test_size2shape(self):
         """Test _size2shape function."""

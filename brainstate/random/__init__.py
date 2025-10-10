@@ -259,12 +259,12 @@ References
 
 """
 
-from ._rand_funs import *
-from ._rand_funs import __all__ as __all_random__
-from ._rand_seed import *
-from ._rand_seed import __all__ as __all_seed__
-from ._rand_state import *
-from ._rand_state import __all__ as __all_state__
+from ._fun import *
+from ._fun import __all__ as __all_random__
+from ._seed import *
+from ._seed import __all__ as __all_seed__
+from ._state import *
+from ._state import __all__ as __all_state__
 
 __all__ = __all_random__ + __all_state__ + __all_seed__
 del __all_random__, __all_state__, __all_seed__
