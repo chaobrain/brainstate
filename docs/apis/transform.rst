@@ -103,6 +103,7 @@ custom error handling in JIT-compiled code.
    :template: classtemplate.rst
 
    StatefulFunction
+   StatefulMapping
 
 
 .. autosummary::

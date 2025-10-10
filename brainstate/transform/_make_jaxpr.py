@@ -55,6 +55,7 @@ import functools
 import inspect
 import operator
 import threading
+import warnings
 from collections import OrderedDict, defaultdict
 from collections.abc import Hashable, Iterable, Sequence
 from collections.abc import MutableSet
@@ -66,7 +67,6 @@ import jax.numpy as jnp
 from jax._src import source_info_util
 from jax._src.linear_util import annotate
 from jax._src.traceback_util import api_boundary
-from jax._src.util import memoize
 from jax.api_util import shaped_abstractify
 from jax.extend.linear_util import transformation_with_aux
 from jax.interpreters import partial_eval as pe
@@ -75,6 +75,7 @@ from brainstate._compatible_import import (
     ClosedJaxpr, extend_axis_env_nd, safe_map, safe_zip, unzip2, wraps, wrap_init,
     Literal, Var, Jaxpr, make_iota, to_elt, BatchTracer, BatchTrace,
 )
+from brainstate._error import BatchAxisError
 from brainstate._state import State, StateTraceStack
 from brainstate._utils import set_module_as
 from brainstate.random import RandomState
@@ -1409,6 +1410,124 @@ def make_jaxpr(
 
 
 class StatefulMapping(PrettyObject):
+    """
+    Vectorized wrapper that preserves BrainState states during mapping.
+
+    StatefulMapping augments JAX mapping transforms (such as ``vmap`` and
+    ``pmap``) with awareness of :class:`~brainstate.State` instances. The class
+    records which states participate in the mapped axis, manages batched random
+    number generators, and restores stateful side effects after the mapped
+    function executes. Instances are typically constructed via
+    :func:`brainstate.transform.vmap` or :func:`brainstate.transform.pmap`, but
+    can also be instantiated directly for custom mapping functions.
+
+    .. note::
+
+         All random states (e.g., :class:`~brainstate.RandomState`) that are
+         accessed during the mapped function are automatically split along the
+         mapped axis and restored after the mapping completes.
+
+         This behavior cannot be disabled. If you try to disable it, you should use
+         ``jax.random`` apis.
+
+
+    Parameters
+    ----------
+    fun : callable
+        Stateless callable to be wrapped. The callable may close over
+        :class:`~brainstate.State` objects whose reads and writes should be
+        tracked during the mapping transform.
+    in_axes : int, tuple of int, or None, default 0
+        Alignment of the mapped axis on each positional argument, following the
+        same semantics as :func:`jax.vmap`. When ``None``, positional arguments
+        are treated as static and no batch dimension is introduced.
+    out_axes : int, tuple of int, or None, default 0
+        Position of the mapped axis in the return value, matching the
+        conventions used by JAX mapping primitives.
+    state_in_axes : dict[AxisName, Filter] or Filter, optional
+        Filters that identify input states participating in the mapped axis. A
+        dictionary maps axis identifiers to :mod:`brainstate.util.filter`
+        predicates. Passing a single filter applies it to axis ``0``. When not
+        provided, no state inputs are batched.
+    state_out_axes : dict[AxisName, Filter] or Filter, optional
+        Filters that identify output states to scatter back onto the mapped
+        axis. The semantics mirror ``state_in_axes``.
+    axis_size : int, optional
+        Explicit size of the mapped axis. If omitted, the size is inferred from
+        the mapped arguments.
+    axis_name : hashable, optional
+        Name for the mapped axis so that collective primitives can target it.
+    name : str, optional
+        Human-readable identifier for diagnostics and debugging output.
+    mapping_fn : callable, default ``jax.vmap``
+        Mapping primitive used to batch ``fun``. Supplying ``jax.pmap`` or a
+        custom callable enables alternative execution strategies.
+    unexpected_out_state_mapping: str
+        The be
+
+
+    Attributes
+    ----------
+    origin_fun : callable
+        Original Python callable wrapped by the mapping helper.
+    in_axes : int, tuple of int, or None
+        Mapping specification for positional arguments.
+    out_axes : int, tuple of int, or None
+        Mapping specification for the return value.
+    state_in_axes : dict[AxisName, Predicate]
+        Normalized predicates describing which states to batch on input.
+    state_out_axes : dict[AxisName, Predicate]
+        Normalized predicates describing which states to batch on output.
+    axis_size : int or None
+        Size of the mapped axis, if explicitly provided.
+    axis_name : hashable or None
+        Axis identifier forwarded to collective primitives.
+    mapping_fn : callable
+        Mapping primitive responsible for executing ``fun``.
+
+    Notes
+    -----
+    The wrapper caches inferred state placements and batch sizes keyed by the
+    abstract shapes of the concrete arguments. Random states are automatically
+    split along the mapped axis and restored after the mapped call completes.
+    Unsupported ``in_axes`` specifications or inconsistent batch dimensions
+    result in a :class:`ValueError`, and evaluation errors propagate as
+    :class:`RuntimeError` with additional debugging context.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate as bst
+        >>> import jax.numpy as jnp
+        >>> from brainstate.util.filter import OfType
+        >>>
+        >>> counter = bst.ShortTermState(jnp.array(0.0))
+        >>>
+        >>> def accumulate(x):
+        ...     counter.value = counter.value + x
+        ...     return counter.value
+        >>>
+        >>> batched_accumulate = bst.transform.StatefulMapping(
+        ...     accumulate,
+        ...     in_axes=0,
+        ...     out_axes=0,
+        ...     state_in_axes={0: OfType(bst.ShortTermState)},
+        ...     state_out_axes={0: OfType(bst.ShortTermState)},
+        ...     name="batched_accumulate",
+        ... )
+        >>>
+        >>> xs = jnp.ones((3,))
+        >>> batched_accumulate(xs)
+        Array([1., 2., 3.], dtype=float32)
+        >>> counter.value
+        Array(3., dtype=float32)
+
+    See Also
+    --------
+    brainstate.transform.vmap : Convenience API that returns a ``StatefulMapping``.
+    brainstate.transform.pmap : Device-mapped variant aware of BrainState states.
+    """
     __module__ = "brainstate.transform"
 
     def __init__(
@@ -1418,6 +1537,7 @@ class StatefulMapping(PrettyObject):
         out_axes: Union[int, Tuple[int, ...], None] = 0,
         state_in_axes: Optional[Union[Dict[AxisName, Filter], Filter]] = None,
         state_out_axes: Optional[Union[Dict[AxisName, Filter], Filter]] = None,
+        unexpected_out_state_mapping: str = 'raise',
         # mapping specific parameters
         axis_size: Optional[int] = None,
         axis_name: AxisName | None = None,
@@ -1446,6 +1566,7 @@ class StatefulMapping(PrettyObject):
         self.axis_size = axis_size
         self.axis_name = axis_name
         self.mapping_fn = mapping_fn
+        self.unexpected_out_state_mapping = unexpected_out_state_mapping
 
         # Cache for discovered state-to-axis mappings
         self._cached_map_dim_to_in_states = _BoundedCache(maxsize=128)
@@ -1453,12 +1574,7 @@ class StatefulMapping(PrettyObject):
         self._cached_map_state_trace = _BoundedCache(maxsize=128)
         self._cached_map_batch_size = _BoundedCache(maxsize=128)
 
-
-    def _infer_batch_size(self, args, in_axes):
-        if in_axes is None:
-            raise ValueError("Cannot infer batch size when in_axes is None")
-
-        batch_sizes = []
+    def __infer_batch_size(self, args, in_axes):
         def get_batch_size_from_arg(arg_, axis_):
             if axis_ is None:
                 return None
@@ -1477,6 +1593,9 @@ class StatefulMapping(PrettyObject):
             sizes = [s for s in jax.tree.leaves(jax.tree.map(_get_size, arg_)) if s is not None]
             return sizes[0] if sizes else None
 
+        batch_sizes = []
+        if in_axes is None:
+            raise ValueError("Cannot infer batch size when in_axes is None")
         if isinstance(in_axes, int):
             # All args batched along the same axis
             for arg in args:
@@ -1525,43 +1644,76 @@ class StatefulMapping(PrettyObject):
 
         return wrapper
 
-    def __eval(self, cache_key, *args, **kwargs):
-        def fn_to_eval(*new_args, **new_kwargs):
-            trace = jax.core.trace_ctx.trace
-            assert isinstance(trace, BatchTrace), f"Expected to be called within a BatchTrace context, but got {trace}"
-            dim_to_in_states = defaultdict(list)
-            state_trace = StateTraceStack(name=self.name)
-            state_trace.set_new_arg(
-                self.__new_batch_arg(trace, self._cached_map_batch_size.get(cache_key), dim_to_in_states)
+    def __find_batch_dim(self, st):
+        leaves = jax.tree.leaves(st._value)
+        batch_dims = set([leaf.batch_dim if isinstance(leaf, BatchTracer) else None for leaf in leaves])
+        if len(batch_dims) != 1:
+            raise ValueError(
+                f"State {st} has inconsistent batch dimensions in its leaves: {batch_dims}. "
+                "All leaves must have the same batch dimension."
             )
-            self._cached_map_state_trace.set(cache_key, state_trace)
+        dim = batch_dims.pop()
+        return dim
 
-            # call functions
-            with state_trace:
-                out_ = self.origin_fun(*new_args, **new_kwargs)
+    def __fn_to_eval(self, cache_key, *new_args, **new_kwargs):
+        # state trace
+        trace = jax.core.trace_ctx.trace
+        assert isinstance(trace, BatchTrace), f"Expected to be called within a BatchTrace context, but got {trace}"
+        dim_to_in_states = defaultdict(list)
+        state_trace = StateTraceStack(name=self.name)
+        state_trace.set_new_arg(
+            self.__new_batch_arg(trace, self._cached_map_batch_size.get(cache_key), dim_to_in_states)
+        )
+        self._cached_map_state_trace.set(cache_key, state_trace)
 
-            # cache
-            self._cached_map_dim_to_in_states.set(cache_key, dim_to_in_states)
+        # call functions
+        with state_trace:
+            out_ = self.origin_fun(*new_args, **new_kwargs)
 
-            # vmapped state values
-            out_states = defaultdict(list)
-            out_states['random'] = [st for st in state_trace.states if isinstance(st, RandomState)]
-            for st in state_trace.states:
-                if not isinstance(st, RandomState):
-                    leaves = jax.tree.leaves(st._value)
-                    batch_dims = set([leaf.batch_dim if isinstance(leaf, BatchTracer) else None for leaf in leaves])
-                    if len(batch_dims) != 1:
-                        raise ValueError(
-                            f"State {st} has inconsistent batch dimensions in its leaves: {batch_dims}. "
-                            "All leaves must have the same batch dimension."
+        # cache vmapped in states
+        self._cached_map_dim_to_in_states.set(cache_key, dim_to_in_states.copy())
+        mapped_in_states = set([id(v) for vv in dim_to_in_states.values() for v in vv])
+
+        # vmapped out states
+        out_states = defaultdict(list)
+        out_states['random'] = [st for st in state_trace.states if isinstance(st, RandomState)]
+        for st in state_trace.states:
+            if isinstance(st, RandomState):
+                continue
+            for dim, filter_ in self.state_out_axes.items():
+                if filter_(tuple(), st):
+                    out_states[dim].append(st)
+                    continue
+            dim = self.__find_batch_dim(st)
+            if dim is None or id(st) in mapped_in_states:
+                out_states[dim].append(st)
+            else:
+                if self.unexpected_out_state_mapping == 'raise':
+                    st.raise_error_with_source_info(
+                        BatchAxisError(
+                            'State {st} was not expected to be batched on output. '
+                            'Please adjust state_out_axes or set unexpected_out_state_mapping to "warn" or "ignore".'
                         )
-                    batch_dim = batch_dims.pop()
-                    out_states[batch_dim].append(st)
-            self._cached_map_dim_to_out_states.set(cache_key, out_states)
+                    )
+                elif self.unexpected_out_state_mapping == 'warn':
+                    warnings.warn(
+                        f'State {st} was not expected to be batched on output. '
+                        f'Please adjust state_out_axes or set unexpected_out_state_mapping to "ignore".',
+                        UserWarning,
+                    )
+                elif self.unexpected_out_state_mapping == 'ignore':
+                    out_states[dim].append(st)
+                else:
+                    raise ValueError(
+                        'Invalid value for unexpected_out_state_mapping: '
+                        f'{self.unexpected_out_state_mapping}. Must be "raise", "warn", or "ignore".'
+                    )
+        self._cached_map_dim_to_out_states.set(cache_key, out_states)
 
+    def __eval(self, cache_key, *args, **kwargs):
         try:
             jax.vmap(
-                fn_to_eval,
+                functools.partial(self.__fn_to_eval, cache_key),
                 in_axes=self.in_axes,
                 out_axes=self.out_axes,
                 axis_name=self.axis_name,
@@ -1633,9 +1785,9 @@ class StatefulMapping(PrettyObject):
         for st, val in zip(rand_states, rand_recover_vals):
             st.restore_value(val)
 
-    def _wrapped_fun(self, *args, **kwargs) -> Tuple[Any, Tuple[State, ...]]:
-        batch_size = self._infer_batch_size(args, self.in_axes)
-        self._rand_value = jnp.ones((batch_size, 2), dtype=jnp.uint32)
+    def __wrapped_fun(self, *args, **kwargs) -> Tuple[Any, Tuple[State, ...]]:
+        batch_size = self.__infer_batch_size(args, self.in_axes)
+        self._rand_value = RandomState._batch_keys(batch_size)
         cache_key = self.get_arg_cache_key(*args, **kwargs)
         self._cached_map_batch_size.set(cache_key, batch_size)
         if cache_key not in self._cached_map_state_trace:
@@ -1683,7 +1835,58 @@ class StatefulMapping(PrettyObject):
         return cache_key
 
     def __call__(self, *args, **kwargs):
-        return self._wrapped_fun(*args, **kwargs)
+        """
+        Execute the mapped function while managing tracked BrainState objects.
+
+        Parameters
+        ----------
+        *args : Any
+            Positional arguments forwarded to the wrapped function. Batched axes
+            must align with the ``in_axes`` specification provided at
+            construction.
+        **kwargs : Any
+            Keyword arguments forwarded to the wrapped function.
+
+        Returns
+        -------
+        Any
+            Output of the mapped function with axes arranged according to
+            ``out_axes`` and side effects on state objects applied.
+
+        Notes
+        -----
+        This method reuses cached axis/state assignments whenever the abstract
+        argument signature matches a previously seen invocation, eliminating the
+        need to re-trace the function. Random states are automatically split and
+        restored across the mapped axis.
+
+        Examples
+        --------
+        .. code-block:: python
+
+            >>> import brainstate
+            >>> from brainstate import ShortTermState
+            >>> import jax.numpy as jnp
+            >>>
+            >>> counter = ShortTermState(jnp.array(0.0))
+            >>>
+            >>> def accumulate(x):
+            ...     counter.value = counter.value + x
+            ...     return counter.value
+            >>>
+            >>> mapper = brainstate.transform.StatefulMapping(
+            ...     accumulate,
+            ...     in_axes=0,
+            ...     out_axes=0,
+            ...     state_in_axes={0: brainstate.util.filter.OfType(ShortTermState)},
+            ...     state_out_axes={0: brainstate.util.filter.OfType(ShortTermState)},
+            ... )
+            >>> mapper(jnp.ones((2,)))
+            Array([1., 2.], dtype=float32)
+            >>> counter.value
+            Array(2., dtype=float32)
+        """
+        return self.__wrapped_fun(*args, **kwargs)
 
 
 def _check_callable(fun):
