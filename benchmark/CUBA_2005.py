@@ -41,7 +41,7 @@ class EINet(brainstate.nn.Module):
         self.n_exc = int(3200 * scale)
         self.n_inh = int(800 * scale)
         self.num = self.n_exc + self.n_inh
-        self.N = brainpy.LIFRef(
+        self.N = brainpy.state.LIFRef(
             self.num,
             V_rest=-49. * u.mV,
             V_th=-50. * u.mV,
@@ -50,26 +50,26 @@ class EINet(brainstate.nn.Module):
             tau_ref=5. * u.ms,
             V_initializer=braintools.init.Normal(-55., 2., unit=u.mV)
         )
-        self.E = brainpy.AlignPostProj(
+        self.E = brainpy.state.AlignPostProj(
             comm=brainstate.nn.EventFixedProb(
                 self.n_exc,
                 self.num,
                 conn_num=80 / self.num,
                 conn_weight=1.62 * u.mS
             ),
-            syn=brainpy.Expon.desc(self.num, tau=5. * u.ms),
-            out=brainpy.CUBA.desc(scale=u.volt),
+            syn=brainpy.state.Expon.desc(self.num, tau=5. * u.ms),
+            out=brainpy.state.CUBA.desc(scale=u.volt),
             post=self.N
         )
-        self.I = brainpy.AlignPostProj(
+        self.I = brainpy.state.AlignPostProj(
             comm=brainstate.nn.EventFixedProb(
                 self.n_inh,
                 self.num,
                 conn_num=80 / self.num,
                 conn_weight=-9.0 * u.mS
             ),
-            syn=brainpy.Expon.desc(self.num, tau=10. * u.ms),
-            out=brainpy.CUBA.desc(scale=u.volt),
+            syn=brainpy.state.Expon.desc(self.num, tau=10. * u.ms),
+            out=brainpy.state.CUBA.desc(scale=u.volt),
             post=self.N
         )
 
