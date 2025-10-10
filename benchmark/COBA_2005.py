@@ -51,13 +51,23 @@ class EINet(brainstate.nn.Module):
             V_initializer=braintools.init.Normal(-55., 2., unit=u.mV)
         )
         self.E = brainpy.AlignPostProj(
-            comm=brainstate.nn.EventFixedProb(self.n_exc, self.num, conn_num=80 / self.num, conn_weight=0.6 * u.mS),
+            comm=brainstate.nn.EventFixedProb(
+                self.n_exc,
+                self.num,
+                conn_num=80 / self.num,
+                conn_weight=0.6 * u.mS
+            ),
             syn=brainpy.Expon.desc(self.num, tau=5. * u.ms),
             out=brainpy.COBA.desc(E=0. * u.mV),
             post=self.N
         )
         self.I = brainpy.AlignPostProj(
-            comm=brainstate.nn.EventFixedProb(self.n_inh, self.num, conn_num=80 / self.num, conn_weight=6.7 * u.mS),
+            comm=brainstate.nn.EventFixedProb(
+                self.n_inh,
+                self.num,
+                conn_num=80 / self.num,
+                conn_weight=6.7 * u.mS
+            ),
             syn=brainpy.Expon.desc(self.num, tau=10. * u.ms),
             out=brainpy.COBA.desc(E=-80. * u.mV),
             post=self.N
