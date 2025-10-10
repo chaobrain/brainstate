@@ -90,6 +90,11 @@ class RandomState(State):
         ):
             self.seed()
 
+    @staticmethod
+    def _batch_keys(batch_size: int):
+        key = jr.PRNGKey(0) if use_prng_key else jr.key(0)
+        return jr.split(key, batch_size)
+
     # ------------------- #
     # seed and random key #
     # ------------------- #

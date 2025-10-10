@@ -6,7 +6,7 @@ This section covers advanced BrainState features and utilities.
 .. toctree::
    :maxdepth: 1
 
-   14_graph_operations
-   15_mixin_system
-   16_typing_system
-   17_utilities
+   01_graph_operations
+   02_mixin_system
+   03_typing_system
+   04_utilities

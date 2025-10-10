@@ -103,6 +103,7 @@ custom error handling in JIT-compiled code.
    :template: classtemplate.rst
 
    StatefulFunction
+   StatefulMapping
 
 
 .. autosummary::
@@ -150,20 +151,6 @@ scaling, essential for large-scale simulations and distributed training.
    pmap
    map
    vmap_new_states
-
-
-
-Random State Processing
------------------------
-
-Utilities for managing random number generation in transformed functions. These tools
-ensure proper handling of random states across different transformation contexts,
-maintaining reproducibility in stochastic computations.
-
-.. autosummary::
-   :toctree: generated/
-
-   restore_rngs
 
 
 

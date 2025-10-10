@@ -132,23 +132,3 @@ class TestFilterStates(unittest.TestCase):
 
         self.mock_module.states.assert_called_once_with(filter_obj)
         self.assertEqual(result, ['test1', 'test2'])
-
-    def test_filter_states_dict_filters(self):
-        """Test _filter_states with dictionary of filters.
-
-        Note: Current implementation expects dict to be iterable as tuples,
-        which suggests it's meant to be passed as a dict that yields tuples when iterated.
-        This is likely a bug - should use filters.items().
-        """
-        # Skip this test as the current implementation has a bug
-        self.skipTest("Current implementation has a bug in dict iteration")
-
-    def test_filter_states_dict_invalid_axis(self):
-        """Test _filter_states with non-integer axis in dictionary."""
-        # Skip this test as the current implementation has a bug in dict iteration
-        self.skipTest("Current implementation has a bug in dict iteration")
-
-    def test_filter_states_dict_multiple_filters_same_axis(self):
-        """Test _filter_states with multiple filters for the same axis."""
-        # Skip this test as the current implementation has a bug in dict iteration
-        self.skipTest("Current implementation has a bug in dict iteration")

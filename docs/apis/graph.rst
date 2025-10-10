@@ -40,5 +40,4 @@ Graph Operation
    iter_node
    clone
    graphdef
-   call
 

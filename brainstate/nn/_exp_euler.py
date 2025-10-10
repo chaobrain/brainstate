@@ -112,11 +112,11 @@ def exp_euler_step(
 
     .. code-block:: python
 
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> import jax.numpy as jnp
         >>>
         >>> # Set time step in environment
-        >>> bst.environ.set(dt=0.01)
+        >>> brainstate.environ.set(dt=0.01)
         >>>
         >>> # Define drift function
         >>> def drift(x, t):
@@ -126,7 +126,7 @@ def exp_euler_step(
         >>> x0 = jnp.array(1.0)
         >>>
         >>> # Single integration step
-        >>> x1 = bst.nn.exp_euler_step(drift, x0, None)
+        >>> x1 = brainstate.nn.exp_euler_step(drift, x0, None)
         >>> print(x1)  # Should be close to exp(-0.01) ≈ 0.99
 
     **SDE Integration:**
@@ -135,11 +135,11 @@ def exp_euler_step(
 
     .. code-block:: python
 
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> import jax.numpy as jnp
         >>>
         >>> # Set time step
-        >>> bst.environ.set(dt=0.01)
+        >>> brainstate.environ.set(dt=0.01)
         >>>
         >>> # Define drift and diffusion
         >>> theta = 0.5
@@ -155,16 +155,16 @@ def exp_euler_step(
         >>> x0 = jnp.array(1.0)
         >>>
         >>> # Single SDE integration step
-        >>> x1 = bst.nn.exp_euler_step(drift, diffusion, x0, None)
+        >>> x1 = brainstate.nn.exp_euler_step(drift, diffusion, x0, None)
 
     **Multi-dimensional system:**
 
     .. code-block:: python
 
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> import jax.numpy as jnp
         >>>
-        >>> bst.environ.set(dt=0.01)
+        >>> brainstate.environ.set(dt=0.01)
         >>>
         >>> # Coupled oscillator system
         >>> def drift(x, t):
@@ -172,7 +172,7 @@ def exp_euler_step(
         ...     return jnp.array([-x1 + x2, -x2 - x1])
         >>>
         >>> x0 = jnp.array([1.0, 0.0])
-        >>> x1 = bst.nn.exp_euler_step(drift, x0, None)
+        >>> x1 = brainstate.nn.exp_euler_step(drift, x0, None)
 
     See Also
     --------
