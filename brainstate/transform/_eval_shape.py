@@ -21,7 +21,6 @@ import jax
 from brainstate import random
 from brainstate._utils import set_module_as
 from brainstate.graph import Node, flatten, unflatten
-from ._random import restore_rngs
 
 __all__ = [
     'abstract_init',
@@ -34,7 +33,6 @@ A = TypeVar('A')
 def abstract_init(
     fn: Callable[..., A],
     *args: Any,
-    rngs: Union[random.RandomState, Sequence[random.RandomState]] = random.DEFAULT,
     **kwargs: Any,
 ) -> A:
     """
@@ -134,7 +132,6 @@ def abstract_init(
     """
 
     @functools.wraps(fn)
-    @restore_rngs(rngs=rngs)
     def _eval_shape_fn(*args_, **kwargs_):
         out = fn(*args_, **kwargs_)
         assert isinstance(out, Node), 'The output of the function must be Node'

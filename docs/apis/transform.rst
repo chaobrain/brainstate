@@ -154,20 +154,6 @@ scaling, essential for large-scale simulations and distributed training.
 
 
 
-Random State Processing
------------------------
-
-Utilities for managing random number generation in transformed functions. These tools
-ensure proper handling of random states across different transformation contexts,
-maintaining reproducibility in stochastic computations.
-
-.. autosummary::
-   :toctree: generated/
-
-   restore_rngs
-
-
-
 Shape Evaluation
 ----------------
 
