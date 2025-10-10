@@ -10,4 +10,3 @@ This section covers advanced BrainState features and utilities.
    02_mixin_system
    03_typing_system
    04_utilities
-   05_collective_ops.ipynb
