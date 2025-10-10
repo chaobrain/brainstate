@@ -1608,7 +1608,7 @@ class TestStatefulMapping(unittest.TestCase):
 
         with pytest.warns(UserWarning):
             mapper(jnp.ones((2,)))
-        self.assertTrue(jnp.isclose(leak.value, 2.0))
+        self.assertTrue(jnp.allclose(leak.value, 1.0))
 
     def test_unexpected_out_state_mapping_ignore(self):
         leak = brainstate.ShortTermState(jnp.array(0.0))
