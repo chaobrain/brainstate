@@ -88,7 +88,7 @@ See also the ecosystem
    Part 1: Basics <tutorials/basics/index>
    Part 2: Neural Networks <tutorials/neural_networks/index>
    Part 3: Transforms <tutorials/transforms/index>
-   Part 4: Advanced Topics <tutorials/advanced/index>
+   Part 4: Utilities <tutorials/utilities/index>
    Part 5: Examples <tutorials/examples/index>
    Part 6: Migration Guide <tutorials/migration/index>
    Part 7: Supplementary <tutorials/supplementary/index>

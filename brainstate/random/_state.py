@@ -682,7 +682,7 @@ class RandomState(State):
         key: Optional[SeedOrKey] = None,
         dtype: DTypeLike = None
     ):
-        dtype = dtype  or environ.dftype()
+        dtype = dtype or environ.dftype()
         mean = _check_py_seq(mean)
         sigma = _check_py_seq(sigma)
         mean = u.math.asarray(mean, dtype=dtype)
@@ -801,7 +801,7 @@ class RandomState(State):
         size = _size2shape(size)
         n_max = int(np.max(jax.device_get(n)))
         batch_shape = lax.broadcast_shapes(u.math.shape(pvals)[:-1], u.math.shape(n))
-        r = multinomial(key, pvals, n, n_max, batch_shape + size)
+        r = multinomial(key, pvals, n, n_max=n_max, shape=batch_shape + size)
         dtype = dtype or environ.ditype()
         return u.math.asarray(r, dtype=dtype)
 
