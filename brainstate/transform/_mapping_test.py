@@ -1,194 +1,104 @@
-# Copyright 2024 BrainX Ecosystem Limited. All Rights Reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-# ==============================================================================
-
-
 import unittest
 
 import jax
 import jax.numpy as jnp
-from jax import vmap
-from jax.lax import psum, pmean, pmax
 
-import brainstate
-import brainstate.transform
-from brainstate._error import BatchAxisError
-
+import brainstate as bst
+from brainstate.transform import StatefulMapping, vmap, vmap_new_states, pmap, map as bst_map
+from brainstate.util import filter as state_filter
 
 
 class TestMap(unittest.TestCase):
-    def test_map(self):
-        for dim in [(10,), (10, 10), (10, 10, 10)]:
-            x = brainstate.random.rand(*dim)
-            r1 = brainstate.transform.map(lambda a: a + 1, x, batch_size=None)
-            r2 = brainstate.transform.map(lambda a: a + 1, x, batch_size=2)
-            r3 = brainstate.transform.map(lambda a: a + 1, x, batch_size=4)
-            r4 = brainstate.transform.map(lambda a: a + 1, x, batch_size=5)
-            true_r = x + 1
+    def test_map_matches_vectorized(self):
+        xs = jnp.arange(6.0).reshape(6, 1)
 
-            self.assertTrue(jnp.allclose(r1, true_r))
-            self.assertTrue(jnp.allclose(r2, true_r))
-            self.assertTrue(jnp.allclose(r3, true_r))
-            self.assertTrue(jnp.allclose(r4, true_r))
+        def fn(x):
+            return x + 1.0
+
+        expected = jax.vmap(fn)(xs)
+        result = bst_map(fn, xs)
+        self.assertTrue(jnp.allclose(result, expected))
+
+    def test_map_multiple_inputs_and_batch_size(self):
+        xs = jnp.arange(5.0)
+        ys = jnp.ones_like(xs) * 2.0
+
+        def fn(a, b):
+            return a * a + b
+
+        expected = jax.vmap(fn)(xs, ys)
+        result = bst_map(fn, xs, ys, batch_size=2)
+        self.assertTrue(jnp.allclose(result, expected))
 
 
-class TestAxisName:
-    def test1(self):
-        def compute_stats_with_axis_name(x):
-            """Compute statistics using named axis operations"""
-            # Sum across the named axis 'batch'
-            total_sum = psum(x, axis_name='batch')
+class TestVmapIntegration(unittest.TestCase):
+    def test_decorator_batched_stateful_function(self):
+        counter = bst.ShortTermState(jnp.zeros(3))
 
-            # Mean across the named axis 'batch'
-            mean_val = pmean(x, axis_name='batch')
-
-            # Max across the named axis 'batch'
-            max_val = pmax(x, axis_name='batch')
-
-            return {
-                'sum': total_sum,
-                'mean': mean_val,
-                'max': max_val,
-                'original': x
-            }
-
-        batch_data = jnp.array([1.0, 2.0, 3.0, 4.0, 5.0])
-        print("Input batch data:", batch_data)
-
-        # vmap with axis name 'batch'
-        vectorized_stats_jax = jax.jit(vmap(compute_stats_with_axis_name, axis_name='batch'))
-        result_jax = vectorized_stats_jax(batch_data)
-
-        # vmap with axis name 'batch'
-        vectorized_stats = brainstate.transform.vmap(compute_stats_with_axis_name, axis_name='batch')
-        result = vectorized_stats(batch_data)
-
-        # vmap with axis name 'batch'
-        vectorized_stats_v2 = brainstate.transform.jit(
-            brainstate.transform.vmap(compute_stats_with_axis_name, axis_name='batch')
+        @vmap(
+            in_axes=0,
+            out_axes=0,
+            state_in_axes={0: state_filter.OfType(bst.ShortTermState)},
+            state_out_axes={0: state_filter.OfType(bst.ShortTermState)},
         )
-        result_v2 = vectorized_stats_v2(batch_data)
+        def accumulate(x):
+            counter.value = counter.value + x
+            return counter.value
 
-        for key in result_jax.keys():
-            print(f"  {key}: {result_jax[key]}")
-            assert jnp.allclose(result_jax[key], result[key]), f"Mismatch in {key}"
-            assert jnp.allclose(result_jax[key], result_v2[key]), f"Mismatch in {key}"
+        xs = jnp.asarray([1.0, 2.0, 3.0])
+        result = accumulate(xs)
+        self.assertTrue(jnp.allclose(result, xs))
+        self.assertTrue(jnp.allclose(counter.value, xs))
 
-    def test_nested_vmap(self):
-        def nested_computation(x):
-            """Computation with multiple named axes"""
-            # Sum over 'inner' axis, then mean over 'outer' axis
-            inner_sum = psum(x, axis_name='inner')
-            outer_mean = pmean(inner_sum, axis_name='outer')
-            return outer_mean
+    def test_vmap_partial_returns_stateful_mapping(self):
+        builder = vmap(in_axes=0, out_axes=0)
 
-        # Create 2D batch data
-        data_2d = jnp.arange(12.0).reshape(3, 4)  # Shape: [outer_batch=3, inner_batch=4]
-        print("Input 2D data shape:", data_2d.shape)
-        print("Input 2D data:\n", data_2d)
+        def fn(x):
+            return x * 2.0
 
-        # Nested vmap: first over inner dimension, then outer dimension
-        inner_vmap = vmap(nested_computation, axis_name='inner')
-        nested_vmap = vmap(inner_vmap, axis_name='outer')
+        mapped = builder(fn)
+        self.assertIsInstance(mapped, StatefulMapping)
+        xs = jnp.arange(3.0)
+        self.assertTrue(jnp.allclose(mapped(xs), xs * 2.0))
 
-        result_2d = nested_vmap(data_2d)
-        print("Result after nested vmap:", result_2d)
 
-        inner_vmap_bst = brainstate.transform.vmap(nested_computation, axis_name='inner')
-        nested_vmap_bst = brainstate.transform.vmap(inner_vmap_bst, axis_name='outer')
-        result_2d_bst = nested_vmap_bst(data_2d)
-        print("Result after nested vmap:", result_2d_bst)
+class TestVmapNewStates(unittest.TestCase):
+    def test_new_states_are_vectorized(self):
+        @vmap_new_states(in_axes=0, out_axes=0)
+        def build(x):
+            scratch = bst.ShortTermState(jnp.array(0.0), tag='scratch')
+            scratch.value = scratch.value + x
+            return scratch.value
 
-        assert jnp.allclose(result_2d, result_2d_bst)
+        xs = jnp.arange(4.0)
+        result_first = build(xs)
+        result_second = build(xs)
+        self.assertTrue(jnp.allclose(result_first, xs))
+        self.assertTrue(jnp.allclose(result_second, xs))
 
-    def _gradient_averaging_simulation_bst(self):
-        def loss_function(params, x, y):
-            """Simple quadratic loss"""
-            pred = params * x
-            return (pred - y) ** 2
 
-        def compute_gradients_with_averaging(params, batch_x, batch_y):
-            """Compute gradients and average them across the batch"""
-            # Compute per-sample gradients
-            grad_fn = jax.grad(loss_function, argnums=0)
-            per_sample_grads = vmap(grad_fn, in_axes=(None, 0, 0))(params, batch_x, batch_y)
+class TestPmapIntegration(unittest.TestCase):
+    @unittest.skipIf(jax.local_device_count() < 2, "Requires at least 2 devices")
+    def test_pmap_stateful_execution(self):
+        param = bst.ParamState(jnp.ones((4,)))
 
-            # Average gradients across batch using named axis
-            def average_grads(grads):
-                return pmean(grads, axis_name='batch')
+        @pmap(
+            in_axes=0,
+            out_axes=0,
+            axis_name='devices',
+            state_in_axes={0: state_filter.OfType(bst.ParamState)},
+            state_out_axes={0: state_filter.OfType(bst.ParamState)},
+        )
+        def update(delta):
+            param.value = param.value + delta
+            return param.value
 
-            # Apply averaging with named axis
-            averaged_grads = vmap(average_grads, axis_name='batch')(per_sample_grads)
-            return averaged_grads
+        device_count = jax.local_device_count()
+        deltas = jnp.arange(device_count * 4.0, dtype=param.value.dtype).reshape(device_count, 4)
+        updated = update(deltas)
+        self.assertEqual(updated.shape, (device_count, 4))
+        self.assertTrue(jnp.all(updated >= 1.0))
 
-        # Example data
-        params = 2.0
-        batch_x = jnp.array([1.0, 2.0, 3.0, 4.0])
-        batch_y = jnp.array([2.0, 4.0, 7.0, 8.0])
 
-        print("Parameters:", params)
-        print("Batch X:", batch_x)
-        print("Batch Y:", batch_y)
-
-        # Compute individual gradients first
-        grad_fn = jax.grad(loss_function, argnums=0)
-        individual_grads = vmap(grad_fn, in_axes=(None, 0, 0))(params, batch_x, batch_y)
-        print("Individual gradients:", individual_grads)
-
-        # Now compute averaged gradients using axis names
-        averaged_grads = compute_gradients_with_averaging(params, batch_x, batch_y)
-        print("Averaged gradients:", averaged_grads)
-
-        return individual_grads, averaged_grads
-
-    def _gradient_averaging_simulation_jax(self):
-        def loss_function(params, x, y):
-            """Simple quadratic loss"""
-            pred = params * x
-            return (pred - y) ** 2
-
-        def compute_gradients_with_averaging(params, batch_x, batch_y):
-            """Compute gradients and average them across the batch"""
-            # Compute per-sample gradients
-            grad_fn = jax.grad(loss_function, argnums=0)
-            per_sample_grads = brainstate.transform.vmap(grad_fn, in_axes=(None, 0, 0))(params, batch_x, batch_y)
-
-            # Average gradients across batch using named axis
-            def average_grads(grads):
-                return pmean(grads, axis_name='batch')
-
-            # Apply averaging with named axis
-            averaged_grads = brainstate.transform.vmap(average_grads, axis_name='batch')(per_sample_grads)
-            return averaged_grads
-
-        # Example data
-        params = 2.0
-        batch_x = jnp.array([1.0, 2.0, 3.0, 4.0])
-        batch_y = jnp.array([2.0, 4.0, 7.0, 8.0])
-
-        print("Parameters:", params)
-        print("Batch X:", batch_x)
-        print("Batch Y:", batch_y)
-
-        # Compute individual gradients first
-        grad_fn = jax.grad(loss_function, argnums=0)
-        individual_grads = brainstate.transform.vmap(grad_fn, in_axes=(None, 0, 0))(params, batch_x, batch_y)
-        print("Individual gradients:", individual_grads)
-
-        # Now compute averaged gradients using axis names
-        averaged_grads = compute_gradients_with_averaging(params, batch_x, batch_y)
-        print("Averaged gradients:", averaged_grads)
-
-        return individual_grads, averaged_grads
-
+if __name__ == "__main__":
+    unittest.main()

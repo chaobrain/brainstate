@@ -1411,60 +1411,50 @@ def make_jaxpr(
 
 class StatefulMapping(PrettyObject):
     """
-    Vectorized wrapper that preserves BrainState states during mapping.
+    Vectorized wrapper that preserves BrainState state semantics during mapping.
 
-    StatefulMapping augments JAX mapping transforms (such as ``vmap`` and
-    ``pmap``) with awareness of :class:`~brainstate.State` instances. The class
-    records which states participate in the mapped axis, manages batched random
-    number generators, and restores stateful side effects after the mapped
-    function executes. Instances are typically constructed via
+    ``StatefulMapping`` extends JAX mapping transforms (such as :func:`jax.vmap`
+    and :func:`jax.pmap`) with awareness of :class:`~brainstate.State`
+    instances. It tracks state reads and writes across the mapped axis,
+    ensures deterministic random-number handling, and restores side effects
+    after each batched execution. The helper is typically constructed by
     :func:`brainstate.transform.vmap` or :func:`brainstate.transform.pmap`, but
-    can also be instantiated directly for custom mapping functions.
-
-    .. note::
-
-         All random states (e.g., :class:`~brainstate.RandomState`) that are
-         accessed during the mapped function are automatically split along the
-         mapped axis and restored after the mapping completes.
-
-         This behavior cannot be disabled. If you try to disable it, you should use
-         ``jax.random`` apis.
-
+    it can also be instantiated directly for custom mapping primitives.
 
     Parameters
     ----------
     fun : callable
         Stateless callable to be wrapped. The callable may close over
-        :class:`~brainstate.State` objects whose reads and writes should be
-        tracked during the mapping transform.
+        :class:`~brainstate.State` objects that should be tracked during the
+        mapping transform.
     in_axes : int, tuple of int, or None, default 0
-        Alignment of the mapped axis on each positional argument, following the
-        same semantics as :func:`jax.vmap`. When ``None``, positional arguments
-        are treated as static and no batch dimension is introduced.
+        Alignment of the mapped axis per positional argument, following the
+        semantics of :func:`jax.vmap`. Arguments mapped with ``None`` are treated
+        as static.
     out_axes : int, tuple of int, or None, default 0
-        Position of the mapped axis in the return value, matching the
-        conventions used by JAX mapping primitives.
+        Placement of the mapped axis in the return value, consistent with JAX
+        mapping primitives.
     state_in_axes : dict[AxisName, Filter] or Filter, optional
-        Filters that identify input states participating in the mapped axis. A
+        Specification of input states that participate in the mapped axis. A
         dictionary maps axis identifiers to :mod:`brainstate.util.filter`
-        predicates. Passing a single filter applies it to axis ``0``. When not
-        provided, no state inputs are batched.
+        predicates; passing a single filter applies it to axis ``0``. Values are
+        normalized via :func:`brainstate.util.filter.to_predicate`.
     state_out_axes : dict[AxisName, Filter] or Filter, optional
-        Filters that identify output states to scatter back onto the mapped
-        axis. The semantics mirror ``state_in_axes``.
+        Specification of state outputs to scatter back along the mapped axis.
+        Uses the same semantics and normalization as ``state_in_axes``.
+    unexpected_out_state_mapping : {'raise', 'warn', 'ignore'}, default 'raise'
+        Strategy for handling states written during the mapped call that are not
+        captured by ``state_out_axes``.
     axis_size : int, optional
-        Explicit size of the mapped axis. If omitted, the size is inferred from
-        the mapped arguments.
+        Explicit size of the mapped axis. When omitted, the size is inferred
+        from the mapped arguments.
     axis_name : hashable, optional
         Name for the mapped axis so that collective primitives can target it.
     name : str, optional
-        Human-readable identifier for diagnostics and debugging output.
+        Human-readable identifier for diagnostics and debugging.
     mapping_fn : callable, default ``jax.vmap``
-        Mapping primitive used to batch ``fun``. Supplying ``jax.pmap`` or a
-        custom callable enables alternative execution strategies.
-    unexpected_out_state_mapping: str
-        The be
-
+        Mapping primitive that executes ``fun``. The callable must accept the
+        ``in_axes`` and ``out_axes`` keyword arguments used by :func:`jax.vmap`.
 
     Attributes
     ----------
@@ -1485,35 +1475,43 @@ class StatefulMapping(PrettyObject):
     mapping_fn : callable
         Mapping primitive responsible for executing ``fun``.
 
+    Raises
+    ------
+    TypeError
+        If ``in_axes`` has an unsupported type.
+    ValueError
+        If batch dimensions are inconsistent or cannot be inferred.
+    RuntimeError
+        If tracing or executing the mapped function fails.
+
     Notes
     -----
-    The wrapper caches inferred state placements and batch sizes keyed by the
-    abstract shapes of the concrete arguments. Random states are automatically
-    split along the mapped axis and restored after the mapped call completes.
-    Unsupported ``in_axes`` specifications or inconsistent batch dimensions
-    result in a :class:`ValueError`, and evaluation errors propagate as
-    :class:`RuntimeError` with additional debugging context.
+    Random states (for example :class:`~brainstate.RandomState`) encountered
+    during execution are automatically split along the mapped axis and restored
+    afterwards; this behaviour cannot be disabled. The wrapper caches inferred
+    state placements, batch sizes, and trace stacks keyed by abstract argument
+    signatures so repeated calls with the same structure avoid re-tracing.
 
     Examples
     --------
     .. code-block:: python
 
-        >>> import brainstate as bst
+        >>> import brainstate
         >>> import jax.numpy as jnp
         >>> from brainstate.util.filter import OfType
         >>>
-        >>> counter = bst.ShortTermState(jnp.array(0.0))
+        >>> counter = brainstate.ShortTermState(jnp.array(0.0))
         >>>
         >>> def accumulate(x):
         ...     counter.value = counter.value + x
         ...     return counter.value
         >>>
-        >>> batched_accumulate = bst.transform.StatefulMapping(
+        >>> batched_accumulate = brainstate.transform.StatefulMapping(
         ...     accumulate,
         ...     in_axes=0,
         ...     out_axes=0,
-        ...     state_in_axes={0: OfType(bst.ShortTermState)},
-        ...     state_out_axes={0: OfType(bst.ShortTermState)},
+        ...     state_in_axes={0: OfType(brainstate.ShortTermState)},
+        ...     state_out_axes={0: OfType(brainstate.ShortTermState)},
         ...     name="batched_accumulate",
         ... )
         >>>
@@ -1525,7 +1523,7 @@ class StatefulMapping(PrettyObject):
 
     See Also
     --------
-    brainstate.transform.vmap : Convenience API that returns a ``StatefulMapping``.
+    brainstate.transform.vmap : Convenience API returning a ``StatefulMapping``.
     brainstate.transform.pmap : Device-mapped variant aware of BrainState states.
     """
     __module__ = "brainstate.transform"
@@ -1691,16 +1689,17 @@ class StatefulMapping(PrettyObject):
                 if self.unexpected_out_state_mapping == 'raise':
                     st.raise_error_with_source_info(
                         BatchAxisError(
-                            'State {st} was not expected to be batched on output. '
+                            f'State\n {st} \n was not expected to be batched on output. '
                             'Please adjust state_out_axes or set unexpected_out_state_mapping to "warn" or "ignore".'
                         )
                     )
                 elif self.unexpected_out_state_mapping == 'warn':
                     warnings.warn(
-                        f'State {st} was not expected to be batched on output. '
+                        f'State\n {st} \n was not expected to be batched on output. '
                         f'Please adjust state_out_axes or set unexpected_out_state_mapping to "ignore".',
                         UserWarning,
                     )
+                    out_states[dim].append(st)
                 elif self.unexpected_out_state_mapping == 'ignore':
                     out_states[dim].append(st)
                 else:
@@ -1727,7 +1726,7 @@ class StatefulMapping(PrettyObject):
             self._cached_map_dim_to_in_states.pop(cache_key, None)
             self._cached_map_dim_to_out_states.pop(cache_key, None)
             self._cached_map_batch_size.pop(cache_key, None)
-            raise RuntimeError(f"Failed to evaluate {self}") from e
+            raise e
 
     def __assign_vals_from_in_states(self, cache_key, rand_st, *other_st):
         in_states = self._cached_map_dim_to_in_states.get(cache_key)
@@ -1787,10 +1786,10 @@ class StatefulMapping(PrettyObject):
 
     def __wrapped_fun(self, *args, **kwargs) -> Tuple[Any, Tuple[State, ...]]:
         batch_size = self.__infer_batch_size(args, self.in_axes)
-        self._rand_value = RandomState._batch_keys(batch_size)
         cache_key = self.get_arg_cache_key(*args, **kwargs)
-        self._cached_map_batch_size.set(cache_key, batch_size)
         if cache_key not in self._cached_map_state_trace:
+            self._rand_value = RandomState._batch_keys(batch_size)
+            self._cached_map_batch_size.set(cache_key, batch_size)
             self.__eval(cache_key, *args, **kwargs)
 
         def fn_to_map(origin_args, rand_st, *non_rand_st):
