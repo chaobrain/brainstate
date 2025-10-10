@@ -52,7 +52,7 @@ class TestDeprecatedAugmentModule(unittest.TestCase):
         expected_apis = [
             'GradientTransform', 'grad', 'vector_grad', 'hessian', 'jacobian',
             'jacrev', 'jacfwd', 'abstract_init', 'vmap', 'pmap', 'map',
-            'vmap_new_states', 'restore_rngs'
+            'vmap_new_states',
         ]
 
         for api in expected_apis:
@@ -1384,7 +1384,6 @@ class TestDeprecatedAugment(unittest.TestCase):
             'pmap',
             'map',
             'vmap_new_states',
-            'restore_rngs',
         ]
 
         for func_name in augment_funcs:
@@ -1512,16 +1511,6 @@ class TestDeprecatedAugment(unittest.TestCase):
             # Test abstract_init
             abstract_init = brainstate.augment.abstract_init
             self.assertIsNotNone(abstract_init)
-
-    def test_restore_rngs(self):
-        """Test restore_rngs function."""
-        with warnings.catch_warnings(record=True):
-            warnings.simplefilter("always")
-            import brainstate
-
-            # Test restore_rngs
-            restore_rngs = brainstate.augment.restore_rngs
-            self.assertIsNotNone(restore_rngs)
 
     def test_module_attributes(self):
         """Test module-level attributes."""

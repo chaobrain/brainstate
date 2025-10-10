@@ -50,7 +50,6 @@ _augment_apis = {
     'pmap': 'brainstate.transform._mapping',
     'map': 'brainstate.transform._mapping',
     'vmap_new_states': 'brainstate.transform._mapping',
-    'restore_rngs': 'brainstate.transform._random',
 }
 
 augment = create_deprecated_module_proxy(
