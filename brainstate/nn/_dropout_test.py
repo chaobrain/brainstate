@@ -146,16 +146,19 @@ class TestDropout1d(parameterized.TestCase):
 
 
 class TestDropout2d(parameterized.TestCase):
+    def setUp(self):
+        brainstate.random.seed(0)
 
     def test_dropout2d_basic(self):
         """Test basic Dropout2d functionality."""
-        dropout_layer = brainstate.nn.Dropout2d(prob=0.5)
-        input_data = brainstate.random.randn(2, 3, 4, 5)  # (N, C, H, W)
+        with brainstate.random.seed_context(42):
+            dropout_layer = brainstate.nn.Dropout2d(prob=0.5)
+            input_data = brainstate.random.randn(2, 3, 4, 5)  # (N, C, H, W)
 
-        with brainstate.environ.context(fit=True):
-            output_data = dropout_layer(input_data)
-            self.assertEqual(input_data.shape, output_data.shape)
-            self.assertTrue(np.any(output_data == 0))
+            with brainstate.environ.context(fit=True):
+                output_data = dropout_layer(input_data)
+                self.assertEqual(input_data.shape, output_data.shape)
+                self.assertTrue(np.any(output_data == 0))
 
     def test_dropout2d_channel_wise(self):
         """Test that Dropout2d applies dropout."""
