@@ -285,7 +285,7 @@ class Delay(Module):
         Returns:
             DelayAccess: An object that provides access to the delay data for the specified entry and time.
         """
-        return DelayAccess(self, delay_time, entry=entry)
+        return DelayAccess(self, *delay_time, entry=entry)
 
     def at(self, entry: str) -> ArrayLike:
         """
