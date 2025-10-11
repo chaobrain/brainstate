@@ -17,8 +17,8 @@
 A ``State``-based Transformation System for Program Compilation and Augmentation
 """
 
-__version__ = "0.2.0"
-__versio_info__ = (0, 2, 0)
+__version__ = "0.2.2"
+__versio_info__ = (0, 2, 2)
 
 from . import environ
 from . import graph
@@ -45,12 +45,10 @@ _augment_apis = {
     'jacobian': 'brainstate.transform._autograd',
     'jacrev': 'brainstate.transform._autograd',
     'jacfwd': 'brainstate.transform._autograd',
-    'abstract_init': 'brainstate.transform._eval_shape',
     'vmap': 'brainstate.transform._mapping',
     'pmap': 'brainstate.transform._mapping',
     'map': 'brainstate.transform._mapping',
     'vmap_new_states': 'brainstate.transform._mapping',
-    'restore_rngs': 'brainstate.transform._random',
 }
 
 augment = create_deprecated_module_proxy(

@@ -77,16 +77,16 @@ def weight_standardization(
     --------
     .. code-block:: python
 
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> import jax.numpy as jnp
         >>>
         >>> # Standardize a weight matrix
         >>> w = jnp.ones((3, 4))
-        >>> w_std = bst.nn.weight_standardization(w)
+        >>> w_std = brainstate.nn.weight_standardization(w)
         >>>
         >>> # With custom gain
         >>> gain = jnp.ones((4,))
-        >>> w_std = bst.nn.weight_standardization(w, gain=gain)
+        >>> w_std = brainstate.nn.weight_standardization(w, gain=gain)
     """
     w = u.maybe_custom_array(w)
     if out_axis < 0:
@@ -551,11 +551,11 @@ class BatchNorm0d(_BatchNorm):
     --------
     .. code-block:: python
 
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> import jax.numpy as jnp
         >>>
         >>> # Create a BatchNorm0d layer
-        >>> layer = bst.nn.BatchNorm0d(in_size=(10,))
+        >>> layer = brainstate.nn.BatchNorm0d(in_size=(10,))
         >>>
         >>> # Apply normalization to a batch of data
         >>> x = jnp.ones((32, 10))  # batch_size=32, features=10
@@ -623,11 +623,11 @@ class BatchNorm1d(_BatchNorm):
     --------
     .. code-block:: python
 
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> import jax.numpy as jnp
         >>>
         >>> # Create a BatchNorm1d layer for sequence data
-        >>> layer = bst.nn.BatchNorm1d(in_size=(100, 64))  # length=100, channels=64
+        >>> layer = brainstate.nn.BatchNorm1d(in_size=(100, 64))  # length=100, channels=64
         >>>
         >>> # Apply normalization
         >>> x = jnp.ones((8, 100, 64))  # batch_size=8
@@ -693,11 +693,11 @@ class BatchNorm2d(_BatchNorm):
     --------
     .. code-block:: python
 
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> import jax.numpy as jnp
         >>>
         >>> # Create a BatchNorm2d layer for image data
-        >>> layer = bst.nn.BatchNorm2d(in_size=(28, 28, 3))  # 28x28 RGB images
+        >>> layer = brainstate.nn.BatchNorm2d(in_size=(28, 28, 3))  # 28x28 RGB images
         >>>
         >>> # Apply normalization
         >>> x = jnp.ones((16, 28, 28, 3))  # batch_size=16
@@ -763,11 +763,11 @@ class BatchNorm3d(_BatchNorm):
     --------
     .. code-block:: python
 
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> import jax.numpy as jnp
         >>>
         >>> # Create a BatchNorm3d layer for volumetric data
-        >>> layer = bst.nn.BatchNorm3d(in_size=(32, 32, 32, 1))  # 32x32x32 volumes
+        >>> layer = brainstate.nn.BatchNorm3d(in_size=(32, 32, 32, 1))  # 32x32x32 volumes
         >>>
         >>> # Apply normalization
         >>> x = jnp.ones((4, 32, 32, 32, 1))  # batch_size=4
@@ -841,11 +841,11 @@ class LayerNorm(Module):
     --------
     .. code-block:: python
 
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>>
         >>> # Create a LayerNorm layer
-        >>> x = bst.random.normal(size=(3, 4, 5, 6))
-        >>> layer = bst.nn.LayerNorm(x.shape)
+        >>> x = brainstate.random.normal(size=(3, 4, 5, 6))
+        >>> layer = brainstate.nn.LayerNorm(x.shape)
         >>>
         >>> # Apply normalization
         >>> y = layer(x)
@@ -853,8 +853,8 @@ class LayerNorm(Module):
         (3, 4, 5, 6)
         >>>
         >>> # Normalize only the last dimension
-        >>> layer = bst.nn.LayerNorm((10, 20), reduction_axes=-1, feature_axes=-1)
-        >>> x = bst.random.normal((5, 10, 20))
+        >>> layer = brainstate.nn.LayerNorm((10, 20), reduction_axes=-1, feature_axes=-1)
+        >>> x = brainstate.random.normal((5, 10, 20))
         >>> y = layer(x)
     """
 
@@ -1005,11 +1005,11 @@ class RMSNorm(Module):
     --------
     .. code-block:: python
 
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>>
         >>> # Create an RMSNorm layer
-        >>> x = bst.random.normal(size=(5, 6))
-        >>> layer = bst.nn.RMSNorm(in_size=(6,))
+        >>> x = brainstate.random.normal(size=(5, 6))
+        >>> layer = brainstate.nn.RMSNorm(in_size=(6,))
         >>>
         >>> # Apply normalization
         >>> y = layer(x)
@@ -1017,8 +1017,8 @@ class RMSNorm(Module):
         (5, 6)
         >>>
         >>> # Without scaling
-        >>> layer = bst.nn.RMSNorm(in_size=(10,), use_scale=False)
-        >>> x = bst.random.normal((3, 10))
+        >>> layer = brainstate.nn.RMSNorm(in_size=(10,), use_scale=False)
+        >>> x = brainstate.random.normal((3, 10))
         >>> y = layer(x)
     """
 
@@ -1179,20 +1179,20 @@ class GroupNorm(Module):
     .. code-block:: python
 
         >>> import numpy as np
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>>
         >>> # Create a GroupNorm layer with 3 groups
-        >>> x = bst.random.normal(size=(3, 4, 5, 6))
-        >>> layer = bst.nn.GroupNorm(x.shape, num_groups=3)
+        >>> x = brainstate.random.normal(size=(3, 4, 5, 6))
+        >>> layer = brainstate.nn.GroupNorm(x.shape, num_groups=3)
         >>> y = layer(x)
         >>>
         >>> # GroupNorm with num_groups=1 is equivalent to LayerNorm
-        >>> y1 = bst.nn.GroupNorm(x.shape, num_groups=1)(x)
-        >>> y2 = bst.nn.LayerNorm(x.shape, reduction_axes=(1, 2, 3))(x)
+        >>> y1 = brainstate.nn.GroupNorm(x.shape, num_groups=1)(x)
+        >>> y2 = brainstate.nn.LayerNorm(x.shape, reduction_axes=(1, 2, 3))(x)
         >>> np.testing.assert_allclose(y1, y2, rtol=1e-5)
         >>>
         >>> # Specify group_size instead of num_groups
-        >>> layer = bst.nn.GroupNorm((12,), num_groups=None, group_size=4)
+        >>> layer = brainstate.nn.GroupNorm((12,), num_groups=None, group_size=4)
     """
 
     def __init__(

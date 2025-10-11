@@ -161,8 +161,8 @@ class Embedding(Module):
 
     .. code-block:: python
 
-        >>> import brainstate as bst
-        >>> embedding = bst.nn.Embedding(num_embeddings=10, embedding_size=3)
+        >>> import brainstate as brainstate
+        >>> embedding = brainstate.nn.Embedding(num_embeddings=10, embedding_size=3)
         >>> embedding.weight.value.shape
         (10, 3)
 
@@ -191,7 +191,7 @@ class Embedding(Module):
 
     .. code-block:: python
 
-        >>> embedding = bst.nn.Embedding(num_embeddings=10, embedding_size=3, padding_idx=0)
+        >>> embedding = brainstate.nn.Embedding(num_embeddings=10, embedding_size=3, padding_idx=0)
         >>> # The embedding at index 0 will remain zeros and not be updated during training
         >>> indices = jnp.array([0, 2, 0, 5])
         >>> output = embedding(indices)
@@ -202,7 +202,7 @@ class Embedding(Module):
 
     .. code-block:: python
 
-        >>> embedding = bst.nn.Embedding(num_embeddings=10, embedding_size=3, max_norm=1.0)
+        >>> embedding = brainstate.nn.Embedding(num_embeddings=10, embedding_size=3, max_norm=1.0)
         >>> # All embeddings accessed in a forward pass are renormalized to have norm <= 1.0
 
     Load pretrained embeddings:
@@ -214,7 +214,7 @@ class Embedding(Module):
         >>> pretrained = jnp.array([[1.0, 2.0, 3.0],
         ...                         [4.0, 5.0, 6.0],
         ...                         [7.0, 8.0, 9.0]])
-        >>> embedding = bst.nn.Embedding.from_pretrained(pretrained, param_type=brainstate.FakeState)
+        >>> embedding = brainstate.nn.Embedding.from_pretrained(pretrained, param_type=brainstate.FakeState)
         >>> embedding.weight.value.shape
         (3, 3)
     """
@@ -310,11 +310,11 @@ class Embedding(Module):
         .. code-block:: python
 
             >>> import jax.numpy as jnp
-            >>> import brainstate as bst
+            >>> import brainstate as brainstate
             >>> pretrained = jnp.array([[1.0, 2.0, 3.0],
             ...                         [4.0, 5.0, 6.0],
             ...                         [7.0, 8.0, 9.0]])
-            >>> embedding = bst.nn.Embedding.from_pretrained(pretrained)
+            >>> embedding = brainstate.nn.Embedding.from_pretrained(pretrained)
             >>> embedding.weight.value.shape
             (3, 3)
             >>> indices = jnp.array([1])

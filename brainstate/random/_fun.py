@@ -21,7 +21,7 @@ from typing import Optional
 import numpy as np
 
 from brainstate.typing import DTypeLike, Size, SeedOrKey
-from ._rand_state import RandomState, DEFAULT
+from ._state import RandomState, DEFAULT
 
 __all__ = [
     # numpy compatibility

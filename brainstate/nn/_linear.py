@@ -76,18 +76,18 @@ class Linear(Module):
     --------
     .. code-block:: python
 
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> import jax.numpy as jnp
         >>>
         >>> # Create a linear layer
-        >>> layer = bst.nn.Linear((10,), (5,))
+        >>> layer = brainstate.nn.Linear((10,), (5,))
         >>> x = jnp.ones((32, 10))
         >>> y = layer(x)
         >>> y.shape
         (32, 5)
         >>>
         >>> # Linear layer without bias
-        >>> layer = bst.nn.Linear((10,), (5,), b_init=None)
+        >>> layer = brainstate.nn.Linear((10,), (5,), b_init=None)
         >>> y = layer(x)
         >>> y.shape
         (32, 5)
@@ -171,11 +171,11 @@ class SignedWLinear(Module):
     --------
     .. code-block:: python
 
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> import jax.numpy as jnp
         >>>
         >>> # Create a signed weight linear layer with all positive weights
-        >>> layer = bst.nn.SignedWLinear((10,), (5,))
+        >>> layer = brainstate.nn.SignedWLinear((10,), (5,))
         >>> x = jnp.ones((32, 10))
         >>> y = layer(x)
         >>> y.shape
@@ -183,7 +183,7 @@ class SignedWLinear(Module):
         >>>
         >>> # With custom sign matrix (e.g., inhibitory connections)
         >>> w_sign = jnp.ones((10, 5)) * -1.0  # all negative
-        >>> layer = bst.nn.SignedWLinear((10,), (5,), w_sign=w_sign)
+        >>> layer = brainstate.nn.SignedWLinear((10,), (5,), w_sign=w_sign)
         >>> y = layer(x)
         >>> y.shape
         (32, 5)
@@ -274,18 +274,18 @@ class ScaledWSLinear(Module):
     --------
     .. code-block:: python
 
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> import jax.numpy as jnp
         >>>
         >>> # Create a weight-standardized linear layer
-        >>> layer = bst.nn.ScaledWSLinear((10,), (5,))
+        >>> layer = brainstate.nn.ScaledWSLinear((10,), (5,))
         >>> x = jnp.ones((32, 10))
         >>> y = layer(x)
         >>> y.shape
         (32, 5)
         >>>
         >>> # Without learnable gain
-        >>> layer = bst.nn.ScaledWSLinear((10,), (5,), ws_gain=False)
+        >>> layer = brainstate.nn.ScaledWSLinear((10,), (5,), ws_gain=False)
         >>> y = layer(x)
         >>> y.shape
         (32, 5)
@@ -375,7 +375,7 @@ class SparseLinear(Module):
     --------
     .. code-block:: python
 
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> import brainunit as u
         >>> import jax.numpy as jnp
         >>>
@@ -384,7 +384,7 @@ class SparseLinear(Module):
         >>> values = jnp.array([1.0, 2.0, 3.0])
         >>> spar_mat = u.sparse.CSR((values, indices[:, 1], indices[:, 0]),
         ...                          shape=(3, 3))
-        >>> layer = bst.nn.SparseLinear(spar_mat, in_size=(3,))
+        >>> layer = brainstate.nn.SparseLinear(spar_mat, in_size=(3,))
         >>> x = jnp.ones((5, 3))
         >>> y = layer(x)
         >>> y.shape
@@ -468,18 +468,18 @@ class AllToAll(Module):
     --------
     .. code-block:: python
 
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> import jax.numpy as jnp
         >>>
         >>> # All-to-all with self-connections
-        >>> layer = bst.nn.AllToAll((10,), (10,), include_self=True)
+        >>> layer = brainstate.nn.AllToAll((10,), (10,), include_self=True)
         >>> x = jnp.ones((32, 10))
         >>> y = layer(x)
         >>> y.shape
         (32, 10)
         >>>
         >>> # All-to-all without self-connections (recurrent layer)
-        >>> layer = bst.nn.AllToAll((10,), (10,), include_self=False)
+        >>> layer = brainstate.nn.AllToAll((10,), (10,), include_self=False)
         >>> y = layer(x)
         >>> y.shape
         (32, 10)
@@ -584,18 +584,18 @@ class OneToOne(Module):
     --------
     .. code-block:: python
 
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> import jax.numpy as jnp
         >>>
         >>> # One-to-one connection
-        >>> layer = bst.nn.OneToOne((10,))
+        >>> layer = brainstate.nn.OneToOne((10,))
         >>> x = jnp.ones((32, 10))
         >>> y = layer(x)
         >>> y.shape
         (32, 10)
         >>>
         >>> # With bias
-        >>> layer = bst.nn.OneToOne((10,), b_init=bst.init.Constant(0.1))
+        >>> layer = brainstate.nn.OneToOne((10,), b_init=brainstate.init.Constant(0.1))
         >>> y = layer(x)
         >>> y.shape
         (32, 10)
@@ -677,19 +677,19 @@ class LoRA(Module):
     --------
     .. code-block:: python
 
-        >>> import brainstate as bst
+        >>> import brainstate as brainstate
         >>> import jax.numpy as jnp
         >>>
         >>> # Standalone LoRA layer
-        >>> layer = bst.nn.LoRA(in_features=10, lora_rank=2, out_features=5)
+        >>> layer = brainstate.nn.LoRA(in_features=10, lora_rank=2, out_features=5)
         >>> x = jnp.ones((32, 10))
         >>> y = layer(x)
         >>> y.shape
         (32, 5)
         >>>
         >>> # Wrap around existing linear layer
-        >>> base = bst.nn.Linear((10,), (5,))
-        >>> lora_layer = bst.nn.LoRA(in_features=10, lora_rank=2,
+        >>> base = brainstate.nn.Linear((10,), (5,))
+        >>> lora_layer = brainstate.nn.LoRA(in_features=10, lora_rank=2,
         ...                           out_features=5, base_module=base)
         >>> y = lora_layer(x)
         >>> y.shape

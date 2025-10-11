@@ -79,7 +79,6 @@ provide information about the current execution mode and time step settings for 
    :nosignatures:
    :template: classtemplate.rst
 
-   get_mode
    get_dt
 
 

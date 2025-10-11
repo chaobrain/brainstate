@@ -54,7 +54,7 @@ import jax
 import numpy as np
 
 from brainstate.typing import SeedOrKey
-from ._rand_state import RandomState, DEFAULT, use_prng_key
+from ._state import RandomState, DEFAULT, use_prng_key
 
 __all__ = [
     'seed',
