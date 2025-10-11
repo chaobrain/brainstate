@@ -4,46 +4,6 @@
 .. currentmodule:: brainstate.random
 .. automodule:: brainstate.random
 
-The :mod:`brainstate.random` module provides comprehensive random number generation
-capabilities for scientific computing and neural network modeling. It offers a unified
-interface for random number generation that is compatible with JAX, NumPy, and supports
-reproducible computations across different backends.
-
-Key Features
-------------
-
-- **Unified Interface**: Compatible with both JAX and NumPy random number generation
-- **Reproducible Computation**: Comprehensive seed management for deterministic results
-- **JAX Integration**: Native support for JAX's PRNG key system and functional programming
-- **Context Management**: Temporary seed changes with automatic restoration
-- **Parallel Support**: Key splitting for independent parallel random number generation
-
-Quick Start
------------
-
-Basic random number generation:
-
-.. code-block:: python
-
-    import brainstate
-
-    # Set global seed for reproducibility
-    brainstate.random.seed(42)
-
-    # Generate random numbers
-    values = brainstate.random.normal(size=(3, 4))
-    integers = brainstate.random.randint(0, 10, size=5)
-
-Context-based temporary seeding:
-
-.. code-block:: python
-
-    # Temporary seed that doesn't affect global state
-    with brainstate.random.seed_context(123):
-        temp_values = brainstate.random.rand(10)
-
-    # Global state continues unchanged
-
 
 Random State Management
 -----------------------

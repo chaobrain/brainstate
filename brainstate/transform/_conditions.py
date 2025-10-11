@@ -218,7 +218,7 @@ def switch(index, branches: Sequence[Callable], *operands):
     index = jax.lax.clamp(lo, index, hi)
 
     # not jit
-    if jax.config.jax_disable_jit and isinstance(jax.core.core.get_aval(index), jax.core.ConcreteArray):
+    if jax.config.jax_disable_jit and not isinstance(to_concrete_aval(index), Tracer):
         return branches[int(index)](*operands)
 
     # evaluate jaxpr
@@ -311,6 +311,6 @@ def ifelse(conditions, branches, *operands, check_cond: bool = True):
     # format index
     conditions = jnp.asarray(conditions, np.int32)
     if check_cond:
-        jit_error_if(jnp.sum(conditions) != 1, "Only one condition can be True. But got {}.", err_arg=conditions)
+        jit_error_if(jnp.sum(conditions) != 1, "Only one condition can be True. But got {c}.", c=conditions)
     index = jnp.where(conditions, size=1, fill_value=len(conditions) - 1)[0][0]
     return switch(index, branches, *operands)

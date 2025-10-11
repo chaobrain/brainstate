@@ -36,14 +36,8 @@ def _categorical(key, p, shape):
     return jnp.sum(s < r, axis=-1)
 
 
-@partial(jit, static_argnums=(3, 4))
-def multinomial(
-    key,
-    p,
-    n,
-    n_max,
-    shape=()
-):
+@partial(jit, static_argnames=('n_max', 'shape'))
+def multinomial(key, p, n, *, n_max, shape=()):
     if u.math.shape(n) != u.math.shape(p)[:-1]:
         broadcast_shape = lax.broadcast_shapes(u.math.shape(n), u.math.shape(p)[:-1])
         n = jnp.broadcast_to(n, broadcast_shape)
@@ -57,9 +51,11 @@ def multinomial(
     if jnp.ndim(n) > 0:
         mask = _promote_shapes(jnp.arange(n_max) < jnp.expand_dims(n, -1), shape=shape + (n_max,))[0]
         mask = jnp.moveaxis(mask, -1, 0).astype(indices.dtype)
-        excess = jnp.concatenate([jnp.expand_dims(n_max - n, -1),
-                                  jnp.zeros(u.math.shape(n) + (p.shape[-1] - 1,))],
-                                 -1)
+        excess = jnp.concatenate(
+            [jnp.expand_dims(n_max - n, -1),
+             jnp.zeros(u.math.shape(n) + (p.shape[-1] - 1,))],
+            -1
+        )
     else:
         mask = 1
         excess = 0
@@ -115,16 +111,12 @@ def von_mises_centered(
 
     s = jnp.where(concentration > s_cutoff, s_exact, s_approximate)
 
-    def cond_fn(
-        *args
-    ):
+    def cond_fn(*args):
         """check if all are done or reached max number of iterations"""
         i, _, done, _, _ = args[0]
         return jnp.bitwise_and(i < 100, jnp.logical_not(jnp.all(done)))
 
-    def body_fn(
-        *args
-    ):
+    def body_fn(*args):
         i, key, done, _, w = args[0]
         uni_ukey, uni_vkey, key = jr.split(key, 3)
         u_ = jr.uniform(
@@ -154,11 +146,7 @@ def von_mises_centered(
     return jnp.sign(uu) * jnp.arccos(w)
 
 
-def _scatter_add_one(
-    operand,
-    indices,
-    updates
-):
+def _scatter_add_one(operand, indices, updates):
     return lax.scatter_add(
         operand,
         indices,
@@ -200,11 +188,7 @@ python_scalar_dtypes = {
 }
 
 
-def _dtype(
-    x,
-    *,
-    canonicalize: bool = False
-):
+def _dtype(x, *, canonicalize: bool = False):
     """Return the dtype object for a value or type, optionally canonicalized based on X64 mode."""
     if x is None:
         raise ValueError(f"Invalid argument to dtype: {x}.")
@@ -270,11 +254,7 @@ def _size2shape(size):
         return (size,)
 
 
-def _check_shape(
-    name,
-    shape,
-    *param_shapes
-):
+def _check_shape(name, shape, *param_shapes):
     if param_shapes:
         shape_ = lax.broadcast_shapes(shape, *param_shapes)
         if shape != shape_:
@@ -528,8 +508,10 @@ def zipf(
         norm = jsp.zeta(a_scalar, jnp.array(1.0, dtype=calc_dtype))
 
         def cdf(k_val):
-            return jnp.array(1.0, dtype=calc_dtype) - jsp.zeta(a_scalar,
-                                                               k_val + jnp.array(1.0, dtype=calc_dtype)) / norm
+            return (
+                jnp.array(1.0, dtype=calc_dtype) -
+                jsp.zeta(a_scalar, k_val + jnp.array(1.0, dtype=calc_dtype)) / norm
+            )
 
         initial = jnp.array(1.0, dtype=calc_dtype)
         cdf_prev = jnp.array(0.0, dtype=calc_dtype)
@@ -672,9 +654,8 @@ def hypergeometric(
             total_i = good_i + bad_i
             prob = jnp.where(
                 total_i > zero,
-                lax.convert_element_type(good_i, calc_dtype)
-                / lax.convert_element_type(total_i, calc_dtype),
-                jnp.array(0.0, dtype=calc_dtype)
+                lax.convert_element_type(good_i, calc_dtype) / lax.convert_element_type(total_i, calc_dtype),
+                jnp.array(0.0, dtype=calc_dtype),
             )
             u = jr.uniform(subkey, shape=(), dtype=calc_dtype)
             success = (u < prob).astype(out_dtype)

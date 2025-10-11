@@ -380,6 +380,20 @@ class ParamDescriber(metaclass=NoSubclassMeta):
         merged_kwargs = {**self.kwargs, **kwargs}
         return self.cls(*self.args, *args, **merged_kwargs)
 
+    def __repr__(self):
+        """
+        Return a string representation of the ParamDescriber.
+
+        Returns
+        -------
+        str
+            A string showing the class and stored parameters.
+        """
+        args_str = ', '.join(repr(a) for a in self.args)
+        kwargs_str = ', '.join(f'{k}={v!r}' for k, v in self.kwargs.items())
+        all_params = ', '.join(filter(None, [args_str, kwargs_str]))
+        return f'ParamDescriber({self.cls.__name__}({all_params}))'
+
     def init(self, *args, **kwargs):
         """
         Alias for __call__, explicitly named for clarity.

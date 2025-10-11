@@ -122,8 +122,17 @@ _DEPRECATED_NAMES = {
 
 
 def __getattr__(name: str):
+    import warnings
+    if name == 'DynamicsGroup':
+        warnings.warn(
+            f"'brainstate.nn.{name}' is deprecated and will be removed in a future version. "
+            f"Please use 'brainstate.nn.Module' instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        return Module
+
     if name in _DEPRECATED_NAMES:
-        import warnings
         new_name = _DEPRECATED_NAMES[name]
         warnings.warn(
             f"'brainstate.nn.{name}' is deprecated and will be removed in a future version. "
@@ -133,5 +142,5 @@ def __getattr__(name: str):
         )
         # Import and return the actual brainpy object
         import brainpy
-        return getattr(brainpy, name)
+        return getattr(brainpy.state, name)
     raise AttributeError(f"module 'brainstate.nn' has no attribute '{name}'")

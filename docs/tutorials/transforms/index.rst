@@ -1,5 +1,5 @@
-Part 3: Transforms
-===================
+Part 3: Transformations
+=======================
 
 This section covers JAX transformations and program optimization in BrainState.
 
@@ -9,5 +9,7 @@ This section covers JAX transformations and program optimization in BrainState.
    01_jit_compilation
    02_automatic_differentiation
    03_vectorization
-   04_loops_conditions
-   05_other_transforms
+   04_parallelization.ipynb
+   05_loops_conditions
+   06_other_transforms
+

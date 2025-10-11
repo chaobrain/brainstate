@@ -1262,11 +1262,7 @@ def treefy_states(
     if len(filters) == 0:
         return state_mapping
     else:
-        state_mappings = state_mapping.filter(*filters)
-        if len(filters) == 1:
-            return state_mappings[0]
-        else:
-            return state_mappings
+        return state_mapping.filter(*filters)
 
 
 def _graph_update_dynamic(node: Any, state: Mapping) -> None:

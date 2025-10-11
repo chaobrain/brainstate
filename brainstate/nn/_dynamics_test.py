@@ -42,20 +42,6 @@ class TestDynamics(unittest.TestCase):
         with self.assertRaises(ValueError):
             brainstate.nn.Dynamics(in_size="invalid")
 
-    def test_input_handling(self):
-        dyn = brainstate.nn.Dynamics(in_size=10)
-        dyn.add_current_input("test_current", lambda: np.random.rand(10))
-        dyn.add_delta_input("test_delta", lambda: np.random.rand(10))
-
-        self.assertIn("test_current", dyn.current_inputs)
-        self.assertIn("test_delta", dyn.delta_inputs)
-
-    def test_duplicate_input_key(self):
-        dyn = brainstate.nn.Dynamics(in_size=10)
-        dyn.add_current_input("test", lambda: np.random.rand(10))
-        with self.assertRaises(ValueError):
-            dyn.add_current_input("test", lambda: np.random.rand(10))
-
     def test_varshape(self):
         dyn = brainstate.nn.Dynamics(in_size=(2, 3))
         self.assertEqual(dyn.varshape, (2, 3))

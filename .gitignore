@@ -229,3 +229,6 @@ cython_debug/
 /.claude/
 /dev/
 /examples/figs/
+/examples/braincell-interoperation/
+/examples/brainmass-interoperation/
+/examples/brainpy-interoperation/
