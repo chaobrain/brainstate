@@ -87,6 +87,7 @@ del (
 
 # Deprecated names that redirect to brainpy
 _DEPRECATED_NAMES = {
+    'DynamicsGroup': 'brainstate.nn.Module',
     'SpikeTime': 'brainpy.state.SpikeTime',
     'PoissonSpike': 'brainpy.state.PoissonSpike',
     'PoissonEncoder': 'brainpy.state.PoissonEncoder',

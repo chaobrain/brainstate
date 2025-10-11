@@ -363,22 +363,29 @@ class Sequential(Module):
         self.out_size = in_size
 
     def _format_module(self, module, in_size):
-        if isinstance(module, ParamDescriber):
-            if in_size is None:
-                raise ValueError(
-                    'The input size should be specified. '
-                    f'Please set the in_size attribute of the previous module: \n'
-                    f'{self.layers[-1]}'
-                )
-            module = module(in_size=in_size)
-            assert isinstance(module, Module), 'The module should be an instance of Module.'
-            out_size = module.out_size
-        elif isinstance(module, ElementWiseBlock):
-            out_size = in_size
-        elif isinstance(module, Module):
-            out_size = module.out_size
-        elif callable(module):
-            out_size = in_size
-        else:
-            raise TypeError(f"Unsupported type {type(module)}. ")
+        try:
+            if isinstance(module, ParamDescriber):
+                if in_size is None:
+                    raise ValueError(
+                        'The input size should be specified. '
+                        f'Please set the in_size attribute of the previous module: \n'
+                        f'{self.layers[-1]}'
+                    )
+                module = module(in_size=in_size)
+                assert isinstance(module, Module), 'The module should be an instance of Module.'
+                out_size = module.out_size
+            elif isinstance(module, ElementWiseBlock):
+                out_size = in_size
+            elif isinstance(module, Module):
+                out_size = module.out_size
+            elif callable(module):
+                out_size = in_size
+            else:
+                raise TypeError(f"Unsupported type {type(module)}. ")
+        except Exception as e:
+            raise BrainStateError(
+                f'Failed to format the module: \n'
+                f'{module}\n'
+                f'with input size: {in_size}\n'
+            ) from e
         return module, out_size
