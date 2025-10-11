@@ -289,7 +289,7 @@ class Dynamics(Module):
         """
         return self._after_updates
 
-    def _add_before_update(self, key: Any, fun: Callable):
+    def add_before_update(self, key: Any, fun: Callable):
         """
         Register a function to be executed before the module's update.
 
@@ -315,7 +315,7 @@ class Dynamics(Module):
             raise KeyError(f'{key} has been registered in before_updates of {self}')
         self.before_updates[key] = fun
 
-    def _add_after_update(self, key: Any, fun: Callable):
+    def add_after_update(self, key: Any, fun: Callable):
         """
         Register a function to be executed after the module's update.
 
@@ -341,7 +341,7 @@ class Dynamics(Module):
             raise KeyError(f'{key} has been registered in after_updates of {self}')
         self.after_updates[key] = fun
 
-    def _get_before_update(self, key: Any):
+    def get_before_update(self, key: Any):
         """
         Retrieve a registered before-update function by its key.
 
@@ -366,7 +366,7 @@ class Dynamics(Module):
             raise KeyError(f'{key} is not registered in before_updates of {self}')
         return self.before_updates.get(key)
 
-    def _get_after_update(self, key: Any):
+    def get_after_update(self, key: Any):
         """
         Retrieve a registered after-update function by its key.
 
@@ -391,7 +391,7 @@ class Dynamics(Module):
             raise KeyError(f'{key} is not registered in after_updates of {self}')
         return self.after_updates.get(key)
 
-    def _has_before_update(self, key: Any):
+    def has_before_update(self, key: Any):
         """
         Check if a before-update function is registered with the given key.
 
@@ -409,7 +409,7 @@ class Dynamics(Module):
             return False
         return key in self.before_updates
 
-    def _has_after_update(self, key: Any):
+    def has_after_update(self, key: Any):
         """
         Check if an after-update function is registered with the given key.
 
@@ -426,6 +426,31 @@ class Dynamics(Module):
         if self._after_updates is None:
             return False
         return key in self.after_updates
+
+    def __call__(self, *args, **kwargs):
+        """
+        The shortcut to call ``update`` methods.
+        """
+
+        # ``before_updates``
+        if self.before_updates is not None:
+            for model in self.before_updates.values():
+                if hasattr(model, '_receive_update_input'):
+                    model(*args, **kwargs)
+                else:
+                    model()
+
+        # update the model self
+        ret = self.update(*args, **kwargs)
+
+        # ``after_updates``
+        if self.after_updates is not None:
+            for model in self.after_updates.values():
+                if hasattr(model, '_not_receive_update_output'):
+                    model()
+                else:
+                    model(ret)
+        return ret
 
 
 class Prefetch(Node):
@@ -638,14 +663,14 @@ class PrefetchDelayAt(Node):
         self.delay_time = delay_time
         if len(delay_time) > 0:
             key = _get_prefetch_delay_key(item)
-            if not module._has_after_update(key):
-                module._add_after_update(
+            if not module.has_after_update(key):
+                module.add_after_update(
                     key,
                     not_receive_update_output(
                         StateWithDelay(module, item, init=init)
                     )
                 )
-            self.state_delay: StateWithDelay = module._get_after_update(key)
+            self.state_delay: StateWithDelay = module.get_after_update(key)
             self.delay_info = self.state_delay.register_delay(*delay_time)
 
     def __call__(self, *args, **kwargs):
@@ -699,10 +724,10 @@ class OutputDelayAt(Node):
         assert isinstance(module, Dynamics), 'The module should be an instance of Dynamics.'
         self.module = module
         key = _get_output_delay_key()
-        if not module._has_after_update(key):
+        if not module.has_after_update(key):
             delay = Delay(jax.ShapeDtypeStruct(module.out_size, dtype=environ.dftype()), take_aware_unit=True)
-            module._add_after_update(key, receive_update_output(delay))
-        self.out_delay: Delay = module._get_after_update(key)
+            module.add_after_update(key, receive_update_output(delay))
+        self.out_delay: Delay = module.get_after_update(key)
         self.delay_info = self.out_delay.register_delay(*delay_time)
 
     def __call__(self, *args, **kwargs):
@@ -729,7 +754,7 @@ def _get_prefetch_item_delay(target: Union[Prefetch, PrefetchDelay, PrefetchDela
         f'The target module should be an instance '
         f'of Dynamics. But got {target.module}.'
     )
-    delay = target.module._get_after_update(_get_prefetch_delay_key(target.item))
+    delay = target.module.get_after_update(_get_prefetch_delay_key(target.item))
     if not isinstance(delay, StateWithDelay):
         raise TypeError(f'The prefetch target should be a {StateWithDelay.__name__} when accessing '
                         f'its delay. But got {delay}.')
