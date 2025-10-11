@@ -1608,8 +1608,6 @@ class StatefulMapping(StatefulFunction):
             return sizes[0] if sizes else None
 
         batch_sizes = []
-        if in_axes is None:
-            raise ValueError("Cannot infer batch size when in_axes is None")
         if isinstance(in_axes, int):
             # All args batched along the same axis
             for arg in args:
@@ -1626,6 +1624,8 @@ class StatefulMapping(StatefulFunction):
                 size = get_batch_size_from_arg(arg, axis)
                 if size is not None:
                     batch_sizes.append(size)
+        elif in_axes is None:
+            pass
         else:
             raise TypeError(f"Unsupported in_axes type: {type(in_axes)}")
 
@@ -1694,10 +1694,14 @@ class StatefulMapping(StatefulFunction):
         for st in state_trace.states:
             if isinstance(st, RandomState):
                 continue
+            find = False
             for dim, filter_ in self.state_out_axes.items():
                 if filter_(tuple(), st):
                     out_states[dim].append(st)
-                    continue
+                    find = True
+                    break
+            if find:
+                continue
             dim = self.__find_batch_dim(st)
             if dim is None or id(st) in mapped_in_states:
                 out_states[dim].append(st)
@@ -1801,6 +1805,11 @@ class StatefulMapping(StatefulFunction):
             st.restore_value(val)
 
     def __wrapped_fun(self, *args, **kwargs) -> Tuple[Any, Tuple[State, ...]]:
+        if len(kwargs):
+            raise NotImplementedError(
+                'StatefulMapping currently does not support keyword arguments.'
+            )
+
         batch_size = self.__infer_batch_size(args, self.in_axes)
         cache_key = self.get_arg_cache_key(*args, **kwargs)
         if cache_key not in self._cached_map_state_trace:
@@ -1810,7 +1819,7 @@ class StatefulMapping(StatefulFunction):
 
         def fn_to_map(origin_args, rand_st, *non_rand_st):
             self.__assign_vals_from_in_states(cache_key, rand_st, *non_rand_st)
-            out = self.origin_fun(*origin_args[0], **origin_args[1])
+            out = self.origin_fun(*origin_args)
             return out, *self.__get_out_state_vals(cache_key)[1]
 
         in_axes, in_state_vals = self.__get_in_state_vals(cache_key)
@@ -1818,12 +1827,12 @@ class StatefulMapping(StatefulFunction):
         rand_vals, rand_recover_vals = self.__get_rand_state_vals(cache_key)
         mapped_fn = self.mapping_fn(
             fn_to_map,
-            in_axes=(self.in_axes, 0) + in_axes,
+            in_axes=(self.in_axes, 0 if len(rand_vals) else None) + in_axes,
             out_axes=(self.out_axes,) + out_axes,
             axis_size=self.axis_size,
             axis_name=self.axis_name,
         )
-        out_, *out_state_vals = mapped_fn((args, kwargs), rand_vals, *in_state_vals)
+        out_, *out_state_vals = mapped_fn(args, rand_vals, *in_state_vals)
         self.__assign_vals_from_out_states(cache_key, rand_recover_vals, *out_state_vals)
         return out_
 
