@@ -1,5 +1,5 @@
-Part 3: Transforms
-===================
+Part 3: Transformations
+=======================
 
 This section covers JAX transformations and program optimization in BrainState.
 

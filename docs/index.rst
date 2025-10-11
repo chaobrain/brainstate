@@ -91,7 +91,6 @@ See also the ecosystem
    Part 4: Utilities <tutorials/utilities/index>
    Part 5: Examples <tutorials/examples/index>
    Part 6: Migration Guide <tutorials/migration/index>
-   Part 7: Supplementary <tutorials/supplementary/index>
 
 
 

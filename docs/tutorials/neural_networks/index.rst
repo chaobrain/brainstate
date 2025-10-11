@@ -1,5 +1,5 @@
-Part 2: Neural Networks
-========================
+Part 2: Neural Network Protocol
+===============================
 
 This section covers neural network modules and layers in BrainState.
 
