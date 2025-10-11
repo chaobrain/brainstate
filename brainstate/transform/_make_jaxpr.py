@@ -1409,7 +1409,7 @@ def make_jaxpr(
     return make_jaxpr_f
 
 
-class StatefulMapping(PrettyObject):
+class StatefulMapping(StatefulFunction):
     """
     Vectorized wrapper that preserves BrainState state semantics during mapping.
 
@@ -1536,6 +1536,12 @@ class StatefulMapping(PrettyObject):
         state_in_axes: Optional[Union[Dict[AxisName, Filter], Filter]] = None,
         state_out_axes: Optional[Union[Dict[AxisName, Filter], Filter]] = None,
         unexpected_out_state_mapping: str = 'raise',
+        # JIT specific parameters
+        static_argnums: Union[int, Iterable[int]] = (),
+        static_argnames: Union[str, Iterable[str]] = (),
+        axis_env: Optional[Sequence[tuple[Hashable, int]]] = None,
+        abstracted_axes: Optional[Any] = None,
+        return_only_write: bool = True,
         # mapping specific parameters
         axis_size: Optional[int] = None,
         axis_name: AxisName | None = None,
@@ -1543,6 +1549,16 @@ class StatefulMapping(PrettyObject):
         # mapping function
         mapping_fn: Callable = jax.vmap,
     ):
+        super().__init__(
+            fun=self.__wrapped_fun,
+            static_argnums=static_argnums,
+            static_argnames=static_argnames,
+            axis_env=axis_env,
+            abstracted_axes=abstracted_axes,
+            return_only_write=return_only_write,
+            name=name,
+        )
+
         self.name = name
         self.origin_fun = fun
         self.in_axes = in_axes
@@ -1810,82 +1826,6 @@ class StatefulMapping(PrettyObject):
         out_, *out_state_vals = mapped_fn((args, kwargs), rand_vals, *in_state_vals)
         self.__assign_vals_from_out_states(cache_key, rand_recover_vals, *out_state_vals)
         return out_
-
-    def get_arg_cache_key(self, *args, **kwargs) -> hashabledict:
-        static_args, dyn_args = [], []
-        for i, arg in enumerate(args):
-            dyn_args.append(arg)
-        dyn_args = jax.tree.map(shaped_abstractify, dyn_args)
-        static_kwargs, dyn_kwargs = [], []
-        for k, v in sorted(kwargs.items()):
-            dyn_kwargs.append((k, jax.tree.map(shaped_abstractify, v)))
-
-        static_args = make_hashable(tuple(static_args))
-        dyn_args = make_hashable(tuple(dyn_args))
-        static_kwargs = make_hashable(static_kwargs)
-        dyn_kwargs = make_hashable(dyn_kwargs)
-
-        cache_key = hashabledict(
-            static_args=static_args,
-            dyn_args=dyn_args,
-            static_kwargs=static_kwargs,
-            dyn_kwargs=dyn_kwargs,
-        )
-        return cache_key
-
-    def __call__(self, *args, **kwargs):
-        """
-        Execute the mapped function while managing tracked BrainState objects.
-
-        Parameters
-        ----------
-        *args : Any
-            Positional arguments forwarded to the wrapped function. Batched axes
-            must align with the ``in_axes`` specification provided at
-            construction.
-        **kwargs : Any
-            Keyword arguments forwarded to the wrapped function.
-
-        Returns
-        -------
-        Any
-            Output of the mapped function with axes arranged according to
-            ``out_axes`` and side effects on state objects applied.
-
-        Notes
-        -----
-        This method reuses cached axis/state assignments whenever the abstract
-        argument signature matches a previously seen invocation, eliminating the
-        need to re-trace the function. Random states are automatically split and
-        restored across the mapped axis.
-
-        Examples
-        --------
-        .. code-block:: python
-
-            >>> import brainstate
-            >>> from brainstate import ShortTermState
-            >>> import jax.numpy as jnp
-            >>>
-            >>> counter = ShortTermState(jnp.array(0.0))
-            >>>
-            >>> def accumulate(x):
-            ...     counter.value = counter.value + x
-            ...     return counter.value
-            >>>
-            >>> mapper = brainstate.transform.StatefulMapping(
-            ...     accumulate,
-            ...     in_axes=0,
-            ...     out_axes=0,
-            ...     state_in_axes={0: brainstate.util.filter.OfType(ShortTermState)},
-            ...     state_out_axes={0: brainstate.util.filter.OfType(ShortTermState)},
-            ... )
-            >>> mapper(jnp.ones((2,)))
-            Array([1., 2.], dtype=float32)
-            >>> counter.value
-            Array(2., dtype=float32)
-        """
-        return self.__wrapped_fun(*args, **kwargs)
 
 
 def _check_callable(fun):

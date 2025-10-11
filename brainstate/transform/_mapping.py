@@ -172,7 +172,8 @@ def vmap(
         axis_name=axis_name,
         axis_size=axis_size,
         unexpected_out_state_mapping=unexpected_out_state_mapping,
-        mapping_fn=functools.partial(jax.vmap, spmd_axis_name=spmd_axis_name)
+        mapping_fn=functools.partial(jax.vmap, spmd_axis_name=spmd_axis_name),
+        name='vmap'
     )
 
 
@@ -316,7 +317,8 @@ def pmap(
             donate_argnums=donate_argnums,
             global_arg_shapes=global_arg_shapes,
         ),
-        unexpected_out_state_mapping=unexpected_out_state_mapping
+        unexpected_out_state_mapping=unexpected_out_state_mapping,
+        name='pmap'
     )
 
 
