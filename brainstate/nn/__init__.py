@@ -87,7 +87,6 @@ del (
 
 # Deprecated names that redirect to brainpy
 _DEPRECATED_NAMES = {
-    'DynamicsGroup': 'brainstate.nn.Module',
     'SpikeTime': 'brainpy.state.SpikeTime',
     'PoissonSpike': 'brainpy.state.PoissonSpike',
     'PoissonEncoder': 'brainpy.state.PoissonEncoder',
@@ -123,6 +122,9 @@ _DEPRECATED_NAMES = {
 
 
 def __getattr__(name: str):
+    if name == 'DynamicsGroup':
+        return Module
+
     if name in _DEPRECATED_NAMES:
         import warnings
         new_name = _DEPRECATED_NAMES[name]
@@ -134,5 +136,5 @@ def __getattr__(name: str):
         )
         # Import and return the actual brainpy object
         import brainpy
-        return getattr(brainpy, name)
+        return getattr(brainpy.state, name)
     raise AttributeError(f"module 'brainstate.nn' has no attribute '{name}'")
