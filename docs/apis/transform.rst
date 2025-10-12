@@ -97,6 +97,7 @@ Advanced utilities for compilation and debugging. These tools provide low-level 
 to JAX's compilation pipeline, enabling inspection of intermediate representations and
 custom error handling in JIT-compiled code.
 
+
 .. autosummary::
    :toctree: generated/
    :nosignatures:
@@ -106,13 +107,43 @@ custom error handling in JIT-compiled code.
    StatefulMapping
 
 
+Generates the JAX expression (JAXPR) for a function, allowing visualization and
+debugging of the computation graph. It reveals the underlying operations used
+during JAX compilation and automatic differentiation, helping users understand
+and optimize numerical workflows.
+
+
 .. autosummary::
    :toctree: generated/
    :nosignatures:
 
    make_jaxpr
+
+
+Performs conditional checks during JIT compilation and raises an error if the
+specified condition is met. This utility helps catch exceptional cases at compile
+time, improving code robustness and debugging capabilities.
+
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+
    jit_error_if
 
+
+State finder: Tools for locating and managing state variables in stateful
+computations. These functions help automatically identify, track, and
+manipulate state within complex neural network and scientific workflows,
+enabling efficient state management and debugging.
+
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+   :template: classtemplate.rst
+
+   StateFinder
 
 
 
