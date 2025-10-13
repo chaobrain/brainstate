@@ -14,11 +14,12 @@
 # ==============================================================================
 
 from collections.abc import MutableSet
-from typing import Union
-
+from typing import Union, Sequence
+from jax import lax
 import jax
 
-from brainstate._compatible_import import (Literal, Var, Jaxpr, ClosedJaxpr)
+import numpy as np
+from brainstate._compatible_import import (Literal, Var, Jaxpr, ClosedJaxpr, JaxprEqn)
 
 __all__ = [
     'constant_fold',
@@ -31,14 +32,28 @@ __all__ = [
 
 
 class IdentitySet(MutableSet):
-    """Set that compares objects by identity.
+    """
+    Set that compares objects by identity instead of equality.
 
-    This is a set that compares objects by identity instead of equality. It is
-    useful for storing objects that are not hashable or that should be compared
-    by identity.
+    This is a mutable set implementation that uses object identity (``id()``)
+    for comparison rather than equality (``==``). It is useful for storing
+    objects that are not hashable or that must be compared by identity.
 
-    This is a mutable set, but it does not support the ``__hash__`` method and
-    therefore cannot be used as a dictionary key or as an element of another set.
+    Notes
+    -----
+    This class does not support the ``__hash__`` method and therefore cannot
+    be used as a dictionary key or as an element of another set.
+
+    Examples
+    --------
+    >>> s = IdentitySet()
+    >>> a = [1, 2, 3]
+    >>> b = [1, 2, 3]
+    >>> s.add(a)
+    >>> a in s
+    True
+    >>> b in s  # Different object, even though equal
+    False
     """
 
     def __init__(self, iterable=None):
@@ -61,18 +76,23 @@ class IdentitySet(MutableSet):
     def discard(self, value):
         self._data.pop(id(value), None)
 
+    def update(self, iterable):
+        """
+        Add all elements from iterable to the set.
+
+        Parameters
+        ----------
+        iterable : iterable
+            An iterable of items to add to the set.
+        """
+        for item in iterable:
+            self.add(item)
+
     def __repr__(self):
         return f"IdentitySet({list(repr(x) for x in self._data.values())})"
 
     def __str__(self):
         return f"IdentitySet({list(str(x) for x in self._data.values())})"
-
-
-def constant_fold(jaxpr: Jaxpr):
-    """
-    Given a jaxpr, return a new jaxpr with all constant folding done.
-    """
-    return _partial_eval_jaxpr(jaxpr, {})
 
 
 _constant_fold_blacklist = {'broadcast_in_dim', 'broadcast'}
@@ -164,21 +184,81 @@ def _eval_eqn(eqn, vals) -> Union[Jaxpr, tuple, list, jax.Array]:
     return out
 
 
+def constant_fold(jaxpr: Jaxpr) -> Jaxpr:
+    """
+    Perform constant folding optimization on a Jaxpr.
+
+    This optimization evaluates all operations with constant inputs at
+    compile time, replacing them with their computed constant values.
+    This reduces runtime computation and can enable further optimizations.
+
+    Parameters
+    ----------
+    jaxpr : Jaxpr
+        The input Jaxpr to optimize.
+
+    Returns
+    -------
+    Jaxpr
+        A new Jaxpr with constant expressions evaluated. The input and
+        output variables are preserved.
+
+    Notes
+    -----
+    This optimization preserves the input and output variables of the jaxpr,
+    only modifying the internal computation. Some primitives like
+    'broadcast_in_dim' and 'broadcast' are blacklisted and won't be folded.
+
+    Examples
+    --------
+    >>> # Given a jaxpr that computes: y = x + (2 + 3)
+    >>> # After constant folding: y = x + 5
+    >>> optimized_jaxpr = constant_fold(original_jaxpr)
+    """
+    result = _partial_eval_jaxpr(jaxpr, {})
+    # Ensure invars and outvars are preserved
+    return result.replace(invars=jaxpr.invars, outvars=jaxpr.outvars)
+
+
 def dead_code_elimination(jaxpr: Jaxpr) -> Jaxpr:
     """
-    Remove equations whose outputs are not used.
+    Remove equations whose outputs are not used (dead code elimination).
 
     This optimization performs a backward pass to identify which variables are
-    actually used, then removes equations that produce unused outputs.
+    actually used, then removes equations that produce unused outputs. This
+    reduces the number of computations and can improve performance.
 
-    Args:
-        jaxpr: The input Jaxpr to optimize
+    Parameters
+    ----------
+    jaxpr : Jaxpr
+        The input Jaxpr to optimize.
 
-    Returns:
-        A new Jaxpr with dead code removed
+    Returns
+    -------
+    Jaxpr
+        A new Jaxpr with dead code removed. All input and output variables
+        are preserved.
+
+    Notes
+    -----
+    This optimization preserves all input and output variables to maintain
+    the function interface. Only internal dead computations are eliminated.
+
+    The algorithm uses a two-phase approach:
+    1. Backward pass: Mark all variables that are transitively used
+    2. Forward pass: Keep only equations that produce marked variables
+
+    Examples
+    --------
+    >>> # Given a jaxpr with unused intermediate computations
+    >>> # Before: a = x + 1; b = x * 2; y = x + 2  (a and b unused)
+    >>> # After:  y = x + 2
+    >>> optimized_jaxpr = dead_code_elimination(original_jaxpr)
     """
-    # Mark all variables that are used (starting from outputs)
+    # Mark all variables that are used (starting from outputs and ALL inputs)
+    # We must keep all invars even if they appear unused, as they define the interface
     used_vars = IdentitySet(jaxpr.outvars)
+    used_vars.update(jaxpr.invars)
 
     # Backward pass: mark variables as used if they're inputs to used equations
     # We need to iterate until convergence
@@ -199,24 +279,47 @@ def dead_code_elimination(jaxpr: Jaxpr) -> Jaxpr:
         if any(outvar in used_vars for outvar in eqn.outvars):
             new_eqns.append(eqn)
 
-    # Keep only input variables that are actually used
-    new_invars = tuple(var for var in jaxpr.invars if var in used_vars)
-
-    return jaxpr.replace(eqns=new_eqns, invars=new_invars, debug_info=None)
+    # Keep all input and output variables unchanged
+    return jaxpr.replace(eqns=new_eqns, invars=jaxpr.invars, outvars=jaxpr.outvars, debug_info=None)
 
 
 def common_subexpression_elimination(jaxpr: Jaxpr) -> Jaxpr:
     """
-    Eliminate redundant computations by reusing results of identical operations.
+    Eliminate redundant computations by reusing results (CSE).
 
-    This optimization identifies equations that perform the same operation with
-    the same inputs and reuses the result instead of recomputing.
+    Common Subexpression Elimination identifies equations that perform the
+    same operation with identical inputs and reuses the result instead of
+    recomputing. This reduces redundant computations and memory usage.
 
-    Args:
-        jaxpr: The input Jaxpr to optimize
+    Parameters
+    ----------
+    jaxpr : Jaxpr
+        The input Jaxpr to optimize.
 
-    Returns:
-        A new Jaxpr with common subexpressions eliminated
+    Returns
+    -------
+    Jaxpr
+        A new Jaxpr with common subexpressions eliminated. All input and
+        output variables are preserved.
+
+    Notes
+    -----
+    This optimization preserves all input and output variables. When output
+    variables are mapped to other variables due to CSE, identity equations
+    (using ``convert_element_type`` with the same dtype) are added to maintain
+    the correct interface.
+
+    Two equations are considered identical if they have:
+    - The same primitive operation
+    - The same input variables (by identity)
+    - The same parameters
+
+    Examples
+    --------
+    >>> # Given a jaxpr with duplicate computations
+    >>> # Before: a = x + y; b = x * 2; c = x + y  (c duplicates a)
+    >>> # After:  a = x + y; b = x * 2; c = a
+    >>> optimized_jaxpr = common_subexpression_elimination(original_jaxpr)
     """
     # Map from (primitive, invars, params) to output variables
     expr_cache = {}
@@ -257,27 +360,75 @@ def common_subexpression_elimination(jaxpr: Jaxpr) -> Jaxpr:
             new_eqns.append(eqn)
             expr_cache[key] = eqn.outvars
 
-    # Update output variables
-    new_outvars = tuple(get_var(v) for v in jaxpr.outvars)
+    # For outvars that have been replaced, add identity equations to preserve the interface
+    final_eqns = new_eqns[:]
+    outvars_need_identity = []
+    for outvar in jaxpr.outvars:
+        canonical = get_var(outvar)
+        if id(canonical) != id(outvar):
+            outvars_need_identity.append((outvar, canonical))
 
-    return jaxpr.replace(eqns=new_eqns, outvars=new_outvars, debug_info=None)
+    # Add identity equations if needed
+    if outvars_need_identity:
+        # Import the identity primitive from jax
+        from jax._src.core import JaxprEqnContext
+        default_ctx = JaxprEqnContext(None, True)
+        for outvar, canonical in outvars_need_identity:
+            # Create an identity equation: outvar = identity(canonical)
+            # Use convert_element_type as identity (same type)
+            eqn = JaxprEqn([canonical],
+                           [outvar],
+                           lax.convert_element_type_p,
+                           {'new_dtype': outvar.aval.dtype, 'weak_type': False},
+                           set(),
+                           None,
+                           default_ctx)
+            final_eqns.append(eqn)
+
+    # Keep original outvars and invars
+    return jaxpr.replace(eqns=final_eqns, outvars=jaxpr.outvars, invars=jaxpr.invars, debug_info=None)
 
 
 def copy_propagation(jaxpr: Jaxpr) -> Jaxpr:
     """
-    Replace variables with their aliases to reduce unnecessary copies.
+    Eliminate unnecessary copy operations by propagating original variables.
 
-    When a variable is simply copied or renamed (identity operation), this
-    optimization propagates the original variable forward, eliminating the copy.
+    When a variable is simply copied or renamed via identity operations
+    (copy, device_put, or redundant convert_element_type), this optimization
+    propagates the original variable forward, eliminating the copy operation.
 
-    Args:
-        jaxpr: The input Jaxpr to optimize
+    Parameters
+    ----------
+    jaxpr : Jaxpr
+        The input Jaxpr to optimize.
 
-    Returns:
-        A new Jaxpr with copies propagated
+    Returns
+    -------
+    Jaxpr
+        A new Jaxpr with copies propagated. All input and output variables
+        are preserved.
+
+    Notes
+    -----
+    This optimization preserves all input and output variables. Copy operations
+    that produce output variables are kept to maintain the correct interface.
+
+    The following operations are considered identity operations:
+    - ``copy``: Always an identity
+    - ``device_put``: Always an identity
+    - ``convert_element_type``: Only when the input and output dtypes match
+
+    Examples
+    --------
+    >>> # Given a jaxpr with unnecessary copies
+    >>> # Before: a = copy(x); b = a + 1; c = copy(b)
+    >>> # After:  b = x + 1; c = copy(b)
+    >>> optimized_jaxpr = copy_propagation(original_jaxpr)
     """
     # Map from variables to their canonical representatives
     var_map = {}
+    # Track which outvars are identity operations that can be safely removed
+    identity_outvars = set()
 
     def get_canonical(var):
         """Follow the chain of copies to find the canonical variable."""
@@ -313,49 +464,78 @@ def copy_propagation(jaxpr: Jaxpr) -> Jaxpr:
                     is_identity = True
 
                 if is_identity:
-                    # Map output to input (they're the same)
-                    var_map[outvar] = invar
+                    # Only eliminate if outvar is not in the original outvars
+                    if outvar not in jaxpr.outvars:
+                        var_map[outvar] = invar
+                    else:
+                        # Keep the identity equation if it's an output variable
+                        is_identity = False
 
         if not is_identity:
             # Keep the equation with updated invars
             eqn = eqn.replace(invars=new_invars)
             new_eqns.append(eqn)
 
-    # Update output variables
-    new_outvars = tuple(get_canonical(v) for v in jaxpr.outvars)
+    # Update outvars, but keep them as-is since we preserved identity ops for them
+    # Apply canonical mapping only to internal references
+    new_outvars = jaxpr.outvars
 
-    # Update input variables (remove unused ones)
-    used_invars = IdentitySet()
-    for eqn in new_eqns:
-        for var in eqn.invars:
-            if not isinstance(var, Literal):
-                used_invars.add(var)
-    for var in new_outvars:
-        if not isinstance(var, Literal):
-            used_invars.add(var)
-
-    new_invars = tuple(var for var in jaxpr.invars if var in used_invars)
-
-    return jaxpr.replace(eqns=new_eqns, invars=new_invars, outvars=new_outvars, debug_info=None)
+    # Keep all input and output variables unchanged
+    return jaxpr.replace(eqns=new_eqns, invars=jaxpr.invars, outvars=new_outvars, debug_info=None)
 
 
 def algebraic_simplification(jaxpr: Jaxpr) -> Jaxpr:
     """
-    Apply algebraic identities to simplify operations.
+    Apply algebraic identities to simplify arithmetic operations.
 
-    This optimization recognizes patterns like:
-    - x + 0 = x
-    - x * 1 = x
-    - x * 0 = 0
-    - x - x = 0
+    This optimization recognizes and applies common algebraic identities
+    to simplify operations, reducing computational complexity and enabling
+    further optimizations.
 
-    Args:
-        jaxpr: The input Jaxpr to optimize
+    Parameters
+    ----------
+    jaxpr : Jaxpr
+        The input Jaxpr to optimize.
 
-    Returns:
-        A new Jaxpr with algebraic simplifications applied
+    Returns
+    -------
+    Jaxpr
+        A new Jaxpr with algebraic simplifications applied. All input and
+        output variables are preserved.
+
+    Notes
+    -----
+    This optimization preserves all input and output variables. When output
+    variables are simplified, identity equations are added to maintain the
+    correct interface.
+
+    The following algebraic identities are recognized:
+
+    Addition:
+        - ``0 + x = x``
+        - ``x + 0 = x``
+
+    Subtraction:
+        - ``x - 0 = x``
+        - ``x - x = 0``
+
+    Multiplication:
+        - ``0 * x = 0``
+        - ``x * 0 = 0``
+        - ``1 * x = x``
+        - ``x * 1 = x``
+
+    Division:
+        - ``x / 1 = x``
+        - ``0 / x = 0`` (assuming x != 0)
+
+    Examples
+    --------
+    >>> # Given a jaxpr with algebraic simplifications
+    >>> # Before: a = x + 0; b = a * 1; c = b - 0
+    >>> # After:  a = x; b = a; c = b
+    >>> optimized_jaxpr = algebraic_simplification(original_jaxpr)
     """
-    import numpy as np
 
     # Map from variables to their replacements (for eliminated operations)
     var_map = {}
@@ -447,31 +627,149 @@ def algebraic_simplification(jaxpr: Jaxpr) -> Jaxpr:
             eqn = eqn.replace(invars=canonical_invars)
             new_eqns.append(eqn)
 
-    # Update output variables
-    new_outvars = tuple(get_var(v) for v in jaxpr.outvars)
+    # For outvars that have been replaced, add identity equations to preserve the interface
+    final_eqns = new_eqns[:]
+    outvars_need_identity = []
+    for outvar in jaxpr.outvars:
+        canonical = get_var(outvar)
+        if id(canonical) != id(outvar):
+            outvars_need_identity.append((outvar, canonical))
 
-    return jaxpr.replace(eqns=new_eqns, outvars=new_outvars, debug_info=None)
+    # Add identity equations if needed
+    if outvars_need_identity:
+        from jax._src.core import JaxprEqnContext
+        default_ctx = JaxprEqnContext(None, True)
+        for outvar, canonical in outvars_need_identity:
+            # Create an identity equation: outvar = identity(canonical)
+            if isinstance(canonical, Literal):
+                # If canonical is a literal, we need to materialize it
+                eqn = JaxprEqn([canonical], [outvar], lax.convert_element_type_p,
+                               {'new_dtype': outvar.aval.dtype, 'weak_type': False}, set(), None, default_ctx)
+            else:
+                # Use convert_element_type as identity (same type)
+                eqn = JaxprEqn([canonical], [outvar], lax.convert_element_type_p,
+                               {'new_dtype': outvar.aval.dtype, 'weak_type': False}, set(), None, default_ctx)
+            final_eqns.append(eqn)
+
+    # Keep original outvars and invars
+    return jaxpr.replace(eqns=final_eqns, outvars=jaxpr.outvars, invars=jaxpr.invars, debug_info=None)
 
 
-def optimize_jaxpr(jaxpr: Jaxpr, max_iterations: int = 3) -> Jaxpr:
+def optimize_jaxpr(
+    jaxpr: Jaxpr | ClosedJaxpr,
+    max_iterations: int = 3,
+    optimizations: Sequence[str] | None = None,
+    verbose: bool = False,
+) -> Jaxpr | ClosedJaxpr:
     """
     Apply multiple optimization passes to a Jaxpr.
 
     This function applies a sequence of optimizations in multiple iterations
-    until convergence or max_iterations is reached. The optimizations are:
-    1. Constant folding
-    2. Algebraic simplification
-    3. Copy propagation
-    4. Common subexpression elimination
-    5. Dead code elimination
+    until convergence or the maximum number of iterations is reached. The
+    optimizations work together to simplify the computation graph while
+    preserving the function's semantics and interface.
 
-    Args:
-        jaxpr: The input Jaxpr to optimize
-        max_iterations: Maximum number of optimization passes (default: 3)
+    Parameters
+    ----------
+    jaxpr : Jaxpr or ClosedJaxpr
+        The input Jaxpr or ClosedJaxpr to optimize.
+    max_iterations : int, optional
+        Maximum number of optimization passes. Default is 3.
+    optimizations : sequence of str, optional
+        List of optimization names to apply in order. If None, applies all
+        optimizations in the recommended order: constant_fold, algebraic_simplification,
+        copy_propagation, cse, dce. Use a custom list to control which optimizations
+        run and in what order.
+    verbose : bool, optional
+        If True, print detailed optimization progress information including
+        equation counts and reduction statistics. Default is False.
 
-    Returns:
-        An optimized Jaxpr
+    Returns
+    -------
+    Jaxpr or ClosedJaxpr
+        An optimized Jaxpr or ClosedJaxpr (same type as input) with reduced
+        equation count and improved efficiency.
+
+    Raises
+    ------
+    TypeError
+        If the input is not a Jaxpr or ClosedJaxpr.
+    ValueError
+        If any optimization name in ``optimizations`` is invalid.
+    RuntimeError
+        If the input or output variables change during optimization (indicates
+        a bug in the optimization passes).
+
+    Notes
+    -----
+    Available optimizations:
+
+    - **constant_fold**: Evaluate constant expressions at compile time
+    - **algebraic_simplification**: Apply algebraic identities (x+0=x, x*1=x, etc.)
+    - **copy_propagation**: Eliminate unnecessary copy operations
+    - **cse**: Common subexpression elimination (reuse identical computations)
+    - **dce**: Dead code elimination (remove unused equations)
+
+    The optimization process iterates until:
+
+    1. No more equations can be eliminated (convergence), or
+    2. The maximum number of iterations is reached
+
+    All optimizations preserve the function interface (input and output variables)
+    while optimizing the internal computation graph.
+
+    Examples
+    --------
+    Apply all default optimizations:
+
+    .. code-block:: python
+
+        >>> optimized = optimize_jaxpr(jaxpr)
+
+    Use more iterations for aggressive optimization:
+
+    .. code-block:: python
+
+        >>> optimized = optimize_jaxpr(jaxpr, max_iterations=5)
+
+    Run only specific optimizations:
+
+    .. code-block:: python
+
+        >>> optimized = optimize_jaxpr(jaxpr, optimizations=['constant_fold', 'dce'])
+
+    Enable verbose output to see optimization progress:
+
+    .. code-block:: python
+
+        >>> optimized = optimize_jaxpr(jaxpr, verbose=True)
+        Starting optimization with 50 equations
+        Optimization sequence: constant_fold -> algebraic_simplification -> ...
+        Max iterations: 3
+        ------------------------------------------------------------
+
+        Iteration 1:
+          constant_fold: 50 -> 45 equations (-5)
+          algebraic_simplification: 45 -> 42 equations (-3)
+          dce: 42 -> 38 equations (-4)
+
+        Converged after 2 iteration(s)
+        ------------------------------------------------------------
+        Optimization complete:
+          Initial equations: 50
+          Final equations:   38
+          Reduction:         12 (24.0%)
+
+    Custom optimization pipeline:
+
+    .. code-block:: python
+
+        >>> # First fold constants, then eliminate dead code
+        >>> stage1 = optimize_jaxpr(jaxpr, optimizations=['constant_fold', 'dce'])
+        >>> # Then apply CSE and more DCE
+        >>> stage2 = optimize_jaxpr(stage1, optimizations=['cse', 'dce'])
     """
+    # Parse input
     if isinstance(jaxpr, Jaxpr):
         closed_jaxpr = None
     elif isinstance(jaxpr, ClosedJaxpr):
@@ -480,20 +778,99 @@ def optimize_jaxpr(jaxpr: Jaxpr, max_iterations: int = 3) -> Jaxpr:
     else:
         raise TypeError(f'Expected Jaxpr or ClosedJaxpr, got {type(jaxpr)}')
 
-    for i in range(max_iterations):
+    # Store original interface
+    invars_before = tuple(jaxpr.invars)
+    outvars_before = tuple(jaxpr.outvars)
+    initial_eqns = len(jaxpr.eqns)
+
+    # Define available optimizations
+    _OPTIMIZATION_MAP = {
+        'constant_fold': constant_fold,
+        'algebraic_simplification': algebraic_simplification,
+        'copy_propagation': copy_propagation,
+        'cse': common_subexpression_elimination,
+        'dce': dead_code_elimination,
+    }
+
+    # Default optimization sequence
+    if optimizations is None:
+        optimizations = [
+            'constant_fold',
+            'algebraic_simplification',
+            'copy_propagation',
+            'cse',
+            'dce',
+        ]
+
+    # Validate optimization names
+    invalid_opts = set(optimizations) - set(_OPTIMIZATION_MAP.keys())
+    if invalid_opts:
+        available = ', '.join(sorted(_OPTIMIZATION_MAP.keys()))
+        raise ValueError(
+            f"Invalid optimization(s): {', '.join(invalid_opts)}. "
+            f"Available optimizations: {available}"
+        )
+
+    if verbose:
+        print(f"Starting optimization with {initial_eqns} equations")
+        print(f"Optimization sequence: {' -> '.join(optimizations)}")
+        print(f"Max iterations: {max_iterations}")
+        print("-" * 60)
+
+    # Apply optimization iterations
+    for iteration in range(max_iterations):
         prev_num_eqns = len(jaxpr.eqns)
 
-        # Apply optimizations in sequence
-        jaxpr = constant_fold(jaxpr)
-        jaxpr = algebraic_simplification(jaxpr)
-        jaxpr = copy_propagation(jaxpr)
-        jaxpr = common_subexpression_elimination(jaxpr)
-        jaxpr = dead_code_elimination(jaxpr)
+        if verbose:
+            print(f"\nIteration {iteration + 1}:")
+
+        # Apply each optimization in sequence
+        for opt_name in optimizations:
+            opt_func = _OPTIMIZATION_MAP[opt_name]
+            prev_eqns = len(jaxpr.eqns)
+            jaxpr = opt_func(jaxpr)
+            current_eqns = len(jaxpr.eqns)
+
+            if verbose and current_eqns != prev_eqns:
+                reduction = prev_eqns - current_eqns
+                print(f"  {opt_name}: {prev_eqns} -> {current_eqns} equations "
+                      f"({reduction:+d})")
 
         # Check for convergence
         if len(jaxpr.eqns) == prev_num_eqns:
+            if verbose:
+                print(f"\nConverged after {iteration + 1} iteration(s)")
             break
+    else:
+        if verbose:
+            print(f"\nReached max iterations ({max_iterations})")
 
+    # Final statistics
+    final_eqns = len(jaxpr.eqns)
+    if verbose:
+        print("-" * 60)
+        print(f"Optimization complete:")
+        print(f"  Initial equations: {initial_eqns}")
+        print(f"  Final equations:   {final_eqns}")
+        print(f"  Reduction:         {initial_eqns - final_eqns} "
+              f"({100 * (initial_eqns - final_eqns) / initial_eqns:.1f}%)")
+
+    # Validate that interface is preserved
+    invars_after = tuple(jaxpr.invars)
+    outvars_after = tuple(jaxpr.outvars)
+    if invars_before != invars_after:
+        raise RuntimeError(
+            f'Input variables changed during optimization. '
+            f'Before: {len(invars_before)}, After: {len(invars_after)}'
+        )
+    if outvars_before != outvars_after:
+        raise RuntimeError(
+            f'Output variables changed during optimization. '
+            f'Before: {len(outvars_before)}, After: {len(outvars_after)}'
+        )
+
+    # Restore ClosedJaxpr if needed
     if closed_jaxpr is not None:
         jaxpr = ClosedJaxpr(jaxpr, closed_jaxpr.consts)
+
     return jaxpr

@@ -1537,7 +1537,6 @@ class TestStatefulMapping(unittest.TestCase):
         jaxpr = mapper.get_jaxpr(xs)
         print(jaxpr)
 
-
     def test_random_state_restoration(self):
         rng_state = brainstate.random.RandomState(0)
 

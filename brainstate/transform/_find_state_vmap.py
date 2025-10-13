@@ -21,9 +21,14 @@ import jax
 from brainstate._compatible_import import BatchTracer
 from brainstate._error import BatchAxisError
 from brainstate._state import State
-from brainstate.random._state import RandomState
+from brainstate.random import RandomState
 from brainstate.typing import Missing
 from ._make_jaxpr import StatefulFunction
+
+__all__ = [
+    'vmap',
+    'vmap_new_states',
+]
 
 F = TypeVar("F", bound=Callable)
 AxisName = Hashable
@@ -416,23 +421,6 @@ def _vmap_transform(
     return vmapped_fn
 
 
-class VmapStateFinder:
-    def __init__(
-        self,
-        fn: F,
-        in_axes: int | None | Sequence[Any] = 0,
-        out_axes: Any = 0,
-        axis_name: AxisName | None = None,
-        axis_size: int | None = None,
-    ):
-        self.fn = fn
-        self.in_axes = in_axes
-        self.out_axes = out_axes
-        self.axis_name = axis_name
-        self.axis_size = axis_size
-        self.stateful_fn = StatefulFunction(self.fn)
-
-
 def vmap(
     fn: F | Missing = Missing(),
     *,
@@ -468,3 +456,7 @@ def vmap(
         axis_size=axis_size,
         spmd_axis_name=spmd_axis_name,
     )
+
+def vmap_new_states():
+    pass
+
