@@ -35,7 +35,7 @@ from ._make_jaxpr import StatefulFunction, _BoundedCache
 
 __all__ = [
     'StatefulMapping',
-    'vmap',
+    'vmap2',
     'pmap',
     'map',
 ]
@@ -478,7 +478,7 @@ class StatefulMapping(StatefulFunction):
 
 
 @set_module_as('brainstate.transform')
-def vmap(
+def vmap2(
     fn: F | Missing = Missing(),
     *,
     # --- normal jax.vmap arguments --- #
@@ -581,7 +581,7 @@ def vmap(
 
     if isinstance(fn, Missing):
         return functools.partial(
-            vmap,
+            vmap2,
             in_axes=in_axes,
             out_axes=out_axes,
             state_in_axes=state_in_axes,
@@ -602,7 +602,7 @@ def vmap(
         axis_size=axis_size,
         unexpected_out_state_mapping=unexpected_out_state_mapping,
         mapping_fn=functools.partial(jax.vmap, spmd_axis_name=spmd_axis_name),
-        name='vmap'
+        name='vmap2'
     )
 
 
@@ -835,6 +835,7 @@ def map(
     jax.lax.scan : Primitive used for the sequential fallback.
     """
     if batch_size is not None:
+        from ._mapping_old import vmap
         scan_xs, remainder_xs = _batch_and_remainder(xs, batch_size)
         g = lambda _, x: ((), vmap(f)(*x))
         _, scan_ys = scan(g, (), scan_xs)

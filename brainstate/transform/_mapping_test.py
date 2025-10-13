@@ -4,7 +4,7 @@ import jax
 import jax.numpy as jnp
 
 import brainstate as bst
-from brainstate.transform import StatefulMapping, vmap, vmap_new_states, pmap, map as bst_map
+from brainstate.transform import StatefulMapping, vmap2, vmap_new_states, pmap, map as brainstate_map
 from brainstate.util import filter as state_filter
 
 
@@ -16,7 +16,7 @@ class TestMap(unittest.TestCase):
             return x + 1.0
 
         expected = jax.vmap(fn)(xs)
-        result = bst_map(fn, xs)
+        result = brainstate_map(fn, xs)
         self.assertTrue(jnp.allclose(result, expected))
 
     def test_map_multiple_inputs_and_batch_size(self):
@@ -27,7 +27,7 @@ class TestMap(unittest.TestCase):
             return a * a + b
 
         expected = jax.vmap(fn)(xs, ys)
-        result = bst_map(fn, xs, ys, batch_size=2)
+        result = brainstate_map(fn, xs, ys, batch_size=2)
         self.assertTrue(jnp.allclose(result, expected))
 
 
@@ -35,7 +35,7 @@ class TestVmapIntegration(unittest.TestCase):
     def test_decorator_batched_stateful_function(self):
         counter = bst.ShortTermState(jnp.zeros(3))
 
-        @vmap(
+        @vmap2(
             in_axes=0,
             out_axes=0,
             state_in_axes={0: state_filter.OfType(bst.ShortTermState)},
@@ -51,7 +51,7 @@ class TestVmapIntegration(unittest.TestCase):
         self.assertTrue(jnp.allclose(counter.value, xs))
 
     def test_vmap_partial_returns_stateful_mapping(self):
-        builder = vmap(in_axes=0, out_axes=0)
+        builder = vmap2(in_axes=0, out_axes=0)
 
         def fn(x):
             return x * 2.0

@@ -19,7 +19,7 @@ from collections import defaultdict
 from typing import Any, Sequence, Hashable, Dict
 
 from brainstate import environ
-from brainstate.transform._mapping import vmap
+from brainstate.transform import vmap
 from brainstate.typing import Filter
 from ._module import Module
 
@@ -174,7 +174,7 @@ class Vmap(Module):
         in_axes: int | None | Sequence[Any] = 0,
         out_axes: Any = 0,
         vmap_states: Filter | Dict[int, Filter] = None,
-        state_out_axes: Filter | Dict[int, Filter] = None,
+        vmap_out_states: Dict[int, Dict] | Any | None = None,
         axis_name: AxisName | None = None,
         axis_size: int | None = None,
     ):
@@ -187,12 +187,14 @@ class Vmap(Module):
         self.axis_size = axis_size
         assert isinstance(module, Module), 'The module must be an instance of Module.'
         self.module = module
+        vmap_states = _filter_states(module, vmap_states)
+        vmap_out_states = _filter_states(module, vmap_out_states)
 
         @vmap(
             in_axes=in_axes,
             out_axes=out_axes,
-            state_in_axes=vmap_states,
-            state_out_axes=state_out_axes,
+            in_states=vmap_states,
+            out_states=vmap_out_states,
             axis_name=axis_name,
             axis_size=axis_size,
         )

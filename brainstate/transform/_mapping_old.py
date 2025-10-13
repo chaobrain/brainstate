@@ -20,9 +20,10 @@ import jax
 
 from brainstate._compatible_import import BatchTracer
 from brainstate._error import BatchAxisError
-from brainstate._state import State
+from brainstate._state import State, catch_new_states
 from brainstate.random import RandomState
 from brainstate.typing import Missing
+from brainstate.util.filter import Filter
 from ._make_jaxpr import StatefulFunction
 
 __all__ = [
@@ -275,7 +276,7 @@ def _vmap_transform(
 
         # restore rngs
         cache_key = stateful_fn.get_arg_cache_key(in_state_vmap_vals, args)
-        state_trace = stateful_fn.get_state_trace(cache_key)
+        state_trace = stateful_fn.get_state_trace_by_cache(cache_key)
         rngs = state_trace.state_subset(RandomState)
         rng_sets = set(rngs)
         assert len(rngs) == len(rng_keys), (
@@ -354,7 +355,7 @@ def _vmap_transform(
         )
 
         # random keys
-        state_trace = stateful_fn.get_state_trace(cache_key)
+        state_trace = stateful_fn.get_state_trace_by_cache(cache_key)
         rngs = state_trace.state_subset(RandomState)
         rng_sets = set(rngs)
         if len(rngs):
@@ -457,6 +458,122 @@ def vmap(
         spmd_axis_name=spmd_axis_name,
     )
 
-def vmap_new_states():
-    pass
 
+def _vmap_new_states_transform(
+    fun: Callable[..., Any],
+    *,
+    # -- normal jax.vmap arguments -- #
+    in_axes: int | None | Sequence[Any] = 0,
+    out_axes: Any = 0,
+    axis_name: AxisName | None = None,
+    axis_size: int | None = None,
+    spmd_axis_name: AxisName | tuple[AxisName, ...] | None = None,
+    # -- brainstate specific arguments -- #
+    state_tag: str | None = None,
+    state_to_exclude: Filter | None = None,
+    in_states: Dict[int, Dict] | Any | None = None,
+    out_states: Dict[int, Dict] | Any | None = None,
+):
+    # TODO: How about nested call ``vmap_new_states``?
+    if isinstance(axis_size, int) and axis_size <= 0:
+        raise ValueError(f"axis_size must be greater than 0, got {axis_size}.")
+
+    @vmap(
+        in_axes=in_axes,
+        out_axes=out_axes,
+        axis_name=axis_name,
+        axis_size=axis_size,
+        spmd_axis_name=spmd_axis_name,
+        in_states=in_states,
+        out_states=out_states,
+    )
+    def new_fun(args):
+        # call the function
+        with catch_new_states(state_tag=state_tag, state_to_exclude=state_to_exclude) as catcher:
+            out = fun(*args)
+
+        # get vmap state values
+        vmap_state_vals = catcher.get_state_values()
+
+        return out, vmap_state_vals
+
+    @functools.wraps(fun)
+    def vmapped_fn(*args):
+        # vmapping
+        with catch_new_states(state_to_exclude=state_to_exclude) as catcher:
+            outs, vmap_state_vals = new_fun(args)
+            vmap_states = catcher.get_states()
+
+        # restore vmapped state values
+        for st_val, st in zip(vmap_state_vals, vmap_states):
+            st.restore_value(st_val)
+            # ------------------------------------------------
+            # --- this is CRUCIAL to avoid jax tracing leakage
+            # ------------------------------------------------
+            st.decrease_stack_level()
+        return outs
+
+    return vmapped_fn
+
+
+def vmap_new_states(
+    fun: Callable = Missing(),
+    *,
+    # -- normal jax.vmap arguments -- #
+    in_axes: int | None | Sequence[Any] = 0,
+    out_axes: Any = 0,
+    axis_name: AxisName | None = None,
+    axis_size: int | None = None,
+    spmd_axis_name: AxisName | tuple[AxisName, ...] | None = None,
+    # -- brainstate specific arguments -- #
+    state_tag: str | None = None,
+    state_to_exclude: Filter = None,
+    in_states: Dict[int, Dict] | Any | None = None,
+    out_states: Dict[int, Dict] | Any | None = None,
+):
+    """
+    Vectorize a function over new states created within it.
+
+    This function applies JAX's vmap transformation to newly created states
+    during the function's execution. It allows for more
+    flexible vectorization in the context of stateful computations.
+
+    Args:
+        fun (Callable, optional): The function to be vectorized. Defaults to Missing().
+        in_axes (int | None | Sequence[Any], optional): Specification of input axes for vectorization. Defaults to 0.
+        out_axes (Any, optional): Specification of output axes after vectorization. Defaults to 0.
+        axis_name (AxisName, optional): Name of the axis being vectorized over. Defaults to None.
+        axis_size (int, optional): Size of the axis being vectorized over. Defaults to None.
+        spmd_axis_name (AxisName | tuple[AxisName, ...], optional): Name(s) of SPMD axis/axes. Defaults to None.
+        state_tag (str, optional): A tag to identify specific states. Defaults to None.
+        state_to_exclude (Sequence[int], optional): Indices of states to exclude from vectorization. Defaults to ().
+
+    Returns:
+        Callable: A vectorized version of the input function that handles new state creation.
+    """
+    if isinstance(fun, Missing):
+        return functools.partial(
+            _vmap_new_states_transform,
+            in_axes=in_axes,
+            out_axes=out_axes,
+            axis_name=axis_name,
+            axis_size=axis_size,
+            spmd_axis_name=spmd_axis_name,
+            state_tag=state_tag,
+            state_to_exclude=state_to_exclude,
+            in_states=in_states,
+            out_states=out_states,
+        )
+    else:
+        return _vmap_new_states_transform(
+            fun,
+            in_axes=in_axes,
+            out_axes=out_axes,
+            axis_name=axis_name,
+            axis_size=axis_size,
+            spmd_axis_name=spmd_axis_name,
+            state_tag=state_tag,
+            state_to_exclude=state_to_exclude,
+            in_states=in_states,
+            out_states=out_states,
+        )

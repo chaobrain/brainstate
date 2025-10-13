@@ -21,6 +21,7 @@ import jax
 import jax.numpy as jnp
 
 import brainstate
+import braintools
 
 
 class TestConv1d(unittest.TestCase):

@@ -24,8 +24,8 @@ from ._error_if import *
 from ._error_if import __all__ as _error_if_all
 from ._find_state import *
 from ._find_state import __all__ as _find_all
-from ._find_state_vmap import *
-from ._find_state_vmap import __all__ as _find_state_vmap
+from ._mapping_old import *
+from ._mapping_old import __all__ as _find_state_vmap
 from ._ir_optim import *
 from ._ir_optim import __all__ as _constant_fold_all
 from ._jit import *
