@@ -595,7 +595,7 @@ class OneToOne(Module):
         (32, 10)
         >>>
         >>> # With bias
-        >>> layer = brainstate.nn.OneToOne((10,), b_init=brainstate.init.Constant(0.1))
+        >>> layer = brainstate.nn.OneToOne((10,), b_init=braintools.init.Constant(0.1))
         >>> y = layer(x)
         >>> y.shape
         (32, 10)

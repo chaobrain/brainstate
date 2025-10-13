@@ -445,7 +445,7 @@ class Conv1d(_Conv):
         ...     kernel_size=3,
         ...     stride=2,
         ...     padding='VALID',
-        ...     b_init=brainstate.init.ZeroInit()
+        ...     b_init=braintools.init.ZeroInit()
         ... )
 
     Notes
@@ -529,7 +529,7 @@ class Conv2d(_Conv):
     w_init : Callable or ArrayLike, optional
         Weight initializer for the convolutional kernel. Can be:
 
-        - An initializer instance (e.g., brainstate.init.XavierNormal())
+        - An initializer instance (e.g., braintools.init.XavierNormal())
         - A callable that returns an array given a shape
         - A direct array matching the kernel shape
 
@@ -682,7 +682,7 @@ class Conv3d(_Conv):
     w_init : Callable or ArrayLike, optional
         Weight initializer for the convolutional kernel. Can be:
 
-        - An initializer instance (e.g., brainstate.init.XavierNormal())
+        - An initializer instance (e.g., braintools.init.XavierNormal())
         - A callable that returns an array given a shape
         - A direct array matching the kernel shape
 
@@ -743,7 +743,7 @@ class Conv3d(_Conv):
         ...     kernel_size=(3, 3, 3),
         ...     stride=2,
         ...     padding='VALID',
-        ...     b_init=brainstate.init.Constant(0.1)
+        ...     b_init=braintools.init.Constant(0.1)
         ... )
 
     Notes
@@ -916,7 +916,7 @@ class ScaledWSConv1d(_ScaledWSConv):
     w_init : Callable or ArrayLike, optional
         Weight initializer for the convolutional kernel. Can be:
 
-        - An initializer instance (e.g., brainstate.init.XavierNormal())
+        - An initializer instance (e.g., braintools.init.XavierNormal())
         - A callable that returns an array given a shape
         - A direct array matching the kernel shape
 
@@ -1081,7 +1081,7 @@ class ScaledWSConv2d(_ScaledWSConv):
     w_init : Callable or ArrayLike, optional
         Weight initializer for the convolutional kernel. Can be:
 
-        - An initializer instance (e.g., brainstate.init.XavierNormal())
+        - An initializer instance (e.g., braintools.init.XavierNormal())
         - A callable that returns an array given a shape
         - A direct array matching the kernel shape
 
@@ -1153,7 +1153,7 @@ class ScaledWSConv2d(_ScaledWSConv):
         ...     stride=2,
         ...     padding='SAME',
         ...     ws_gain=True,
-        ...     b_init=brainstate.init.ZeroInit()
+        ...     b_init=braintools.init.ZeroInit()
         ... )
         >>>
         >>> # Depthwise separable convolution with weight standardization
@@ -1260,7 +1260,7 @@ class ScaledWSConv3d(_ScaledWSConv):
     w_init : Callable or ArrayLike, optional
         Weight initializer for the convolutional kernel. Can be:
 
-        - An initializer instance (e.g., brainstate.init.XavierNormal())
+        - An initializer instance (e.g., braintools.init.XavierNormal())
         - A callable that returns an array given a shape
         - A direct array matching the kernel shape
 
@@ -1332,7 +1332,7 @@ class ScaledWSConv3d(_ScaledWSConv):
         ...     stride=2,
         ...     ws_gain=True,
         ...     eps=1e-5,
-        ...     b_init=brainstate.init.Constant(0.01)
+        ...     b_init=braintools.init.Constant(0.01)
         ... )
         >>>
         >>> # 3D grouped convolution with weight standardization
@@ -1785,7 +1785,7 @@ class ConvTranspose2d(_ConvTranspose):
         ...     kernel_size=4,
         ...     stride=2,
         ...     padding='SAME',
-        ...     b_init=brainstate.init.Constant(0.0)
+        ...     b_init=braintools.init.Constant(0.0)
         ... )
         >>>
         >>> # Channels-first format (PyTorch style)
@@ -1950,7 +1950,7 @@ class ConvTranspose3d(_ConvTranspose):
         ...     kernel_size=(4, 4, 4),
         ...     stride=2,
         ...     padding='SAME',
-        ...     b_init=brainstate.init.Constant(0.0)
+        ...     b_init=braintools.init.Constant(0.0)
         ... )
         >>>
         >>> # Channels-first format (PyTorch style)

@@ -19,7 +19,7 @@ from collections import defaultdict
 from typing import Any, Sequence, Hashable, Dict
 
 from brainstate import environ
-from brainstate.transform._mapping import vmap
+from brainstate.transform import vmap
 from brainstate.typing import Filter
 from ._module import Module
 
@@ -154,10 +154,6 @@ class Vmap(Module):
         Specification for mapping over inputs. Defaults to ``0``.
     out_axes : Any, optional
         Specification for mapping over outputs. Defaults to ``0``.
-    vmap_states : Filter or dict[Filter, int], optional
-        State filters to vectorize as inputs. Defaults to ``None``.
-    vmap_out_states : Filter or dict[Filter, int], optional
-        State filters to vectorize as outputs. Defaults to ``None``.
     axis_name : AxisName or None, optional
         Name of the axis being mapped. Defaults to ``None``.
     axis_size : int or None, optional
@@ -177,8 +173,8 @@ class Vmap(Module):
         module: Module,
         in_axes: int | None | Sequence[Any] = 0,
         out_axes: Any = 0,
-        vmap_states: Filter | Dict[Filter, int] = None,
-        vmap_out_states: Filter | Dict[Filter, int] = None,
+        vmap_states: Filter | Dict[int, Filter] = None,
+        vmap_out_states: Dict[int, Dict] | Any | None = None,
         axis_name: AxisName | None = None,
         axis_size: int | None = None,
     ):

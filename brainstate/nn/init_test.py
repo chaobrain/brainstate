@@ -24,13 +24,13 @@ class TestNormalInit(unittest.TestCase):
 
     def test_normal_init1(self):
         init = brainstate.nn.init.Normal()
-        for size in [(100,), (10, 20), (10, 20, 30)]:
+        for size in [(10,), (10, 20), (10, 20, 30)]:
             weights = init(size)
             assert weights.shape == size
 
     def test_normal_init2(self):
         init = brainstate.nn.init.Normal(scale=0.5)
-        for size in [(100,), (10, 20)]:
+        for size in [(10,), (10, 20)]:
             weights = init(size)
             assert weights.shape == size
 
@@ -47,13 +47,13 @@ class TestNormalInit(unittest.TestCase):
 class TestUniformInit(unittest.TestCase):
     def test_uniform_init1(self):
         init = brainstate.nn.init.Normal()
-        for size in [(100,), (10, 20), (10, 20, 30)]:
+        for size in [(10,), (10, 20), (10, 20, 30)]:
             weights = init(size)
             assert weights.shape == size
 
     def test_uniform_init2(self):
         init = brainstate.nn.init.Uniform(min_val=10, max_val=20)
-        for size in [(100,), (10, 20)]:
+        for size in [(10,), (10, 20)]:
             weights = init(size)
             assert weights.shape == size
 
@@ -153,14 +153,14 @@ class TestDeltaOrthogonalUnit(unittest.TestCase):
 class TestZeroInit(unittest.TestCase):
     def test_zero_init(self):
         init = brainstate.nn.init.ZeroInit()
-        for size in [(100,), (10, 20), (10, 20, 30)]:
+        for size in [(10,), (10, 20), (10, 20, 30)]:
             weights = init(size)
             assert weights.shape == size
 
 
 class TestOneInit(unittest.TestCase):
     def test_one_init(self):
-        for size in [(100,), (10, 20), (10, 20, 30)]:
+        for size in [(10,), (10, 20), (10, 20, 30)]:
             for value in [0., 1., -1.]:
                 init = brainstate.nn.init.Constant(value=value)
                 weights = init(size)
@@ -170,7 +170,7 @@ class TestOneInit(unittest.TestCase):
 
 class TestIdentityInit(unittest.TestCase):
     def test_identity_init(self):
-        for size in [(100,), (10, 20)]:
+        for size in [(10,), (10, 20)]:
             for value in [0., 1., -1.]:
                 init = brainstate.nn.init.Identity(value=value)
                 weights = init(size)

@@ -1517,6 +1517,7 @@ class TestStatefulMapping(unittest.TestCase):
         counter = brainstate.ShortTermState(jnp.zeros(3))
 
         def accumulate(x):
+            print('run')
             counter.value = counter.value + x
             return counter.value
 
@@ -1532,6 +1533,9 @@ class TestStatefulMapping(unittest.TestCase):
         result = mapper(xs)
         self.assertTrue(jnp.allclose(result, xs))
         self.assertTrue(jnp.allclose(counter.value, xs))
+
+        jaxpr = mapper.get_jaxpr(xs)
+        print(jaxpr)
 
     def test_random_state_restoration(self):
         rng_state = brainstate.random.RandomState(0)
@@ -1552,6 +1556,12 @@ class TestStatefulMapping(unittest.TestCase):
         self.assertEqual(samples.shape, xs.shape)
         self.assertFalse(jnp.allclose(samples, jnp.repeat(samples[0], xs.shape[0])))
         self.assertTrue(jnp.array_equal(rng_state.value.shape, before.shape))
+
+        jaxpr = mapper.get_jaxpr(xs)
+        print(jaxpr)
+        print('\n\n')
+        j2 = brainstate.transform.optimize_jaxpr(jaxpr.jaxpr)
+        print(j2)
 
     def test_inconsistent_batch_sizes_raise(self):
         tracker = brainstate.ShortTermState(jnp.array(0.0))

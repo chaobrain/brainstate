@@ -17,8 +17,8 @@
 A ``State``-based Transformation System for Program Compilation and Augmentation
 """
 
-__version__ = "0.2.2"
-__versio_info__ = (0, 2, 2)
+__version__ = "0.2.3"
+__versio_info__ = (0, 2, 3)
 
 from . import environ
 from . import graph
