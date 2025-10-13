@@ -85,7 +85,7 @@ class TestConv1d(unittest.TestCase):
     def test_with_bias(self):
         """Test Conv1d with bias."""
         conv = brainstate.nn.Conv1d(in_size=(50, 8), out_channels=16, kernel_size=3,
-                                    b_init=brainstate.init.Constant(0.0))
+                                    b_init=braintools.init.Constant(0.0))
         x = jnp.ones((2, 50, 8))
         y = conv(x)
 
@@ -477,7 +477,7 @@ class TestConvTranspose1d(unittest.TestCase):
             in_size=(50, 8),
             out_channels=16,
             kernel_size=3,
-            b_init=brainstate.init.Constant(0.0)
+            b_init=braintools.init.Constant(0.0)
         )
         x = jnp.ones((4, 50, 8))
         y = conv_t(x)
