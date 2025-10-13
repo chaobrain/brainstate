@@ -147,6 +147,30 @@ enabling efficient state management and debugging.
 
 
 
+IR Optimization
+---------------
+
+Intermediate Representation (IR) optimization tools for JAX computation graphs.
+These functions optimize Jaxpr (JAX expression) intermediate representations by
+applying various compiler optimizations such as constant folding, dead code elimination,
+common subexpression elimination, and algebraic simplifications. These optimizations
+reduce computation overhead and improve runtime performance while preserving the
+function's semantics and interface.
+
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+
+   constant_fold
+   dead_code_elimination
+   common_subexpression_elimination
+   copy_propagation
+   algebraic_simplification
+   optimize_jaxpr
+
+
+
 Gradient Computations
 ---------------------
 
