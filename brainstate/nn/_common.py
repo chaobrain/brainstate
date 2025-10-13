@@ -154,10 +154,6 @@ class Vmap(Module):
         Specification for mapping over inputs. Defaults to ``0``.
     out_axes : Any, optional
         Specification for mapping over outputs. Defaults to ``0``.
-    vmap_states : Filter or dict[Filter, int], optional
-        State filters to vectorize as inputs. Defaults to ``None``.
-    vmap_out_states : Filter or dict[Filter, int], optional
-        State filters to vectorize as outputs. Defaults to ``None``.
     axis_name : AxisName or None, optional
         Name of the axis being mapped. Defaults to ``None``.
     axis_size : int or None, optional
@@ -177,8 +173,8 @@ class Vmap(Module):
         module: Module,
         in_axes: int | None | Sequence[Any] = 0,
         out_axes: Any = 0,
-        vmap_states: Filter | Dict[Filter, int] = None,
-        vmap_out_states: Filter | Dict[Filter, int] = None,
+        vmap_states: Filter | Dict[int, Filter] = None,
+        state_out_axes: Filter | Dict[int, Filter] = None,
         axis_name: AxisName | None = None,
         axis_size: int | None = None,
     ):
@@ -191,14 +187,12 @@ class Vmap(Module):
         self.axis_size = axis_size
         assert isinstance(module, Module), 'The module must be an instance of Module.'
         self.module = module
-        vmap_states = _filter_states(module, vmap_states)
-        vmap_out_states = _filter_states(module, vmap_out_states)
 
         @vmap(
             in_axes=in_axes,
             out_axes=out_axes,
-            in_states=vmap_states,
-            out_states=vmap_out_states,
+            state_in_axes=vmap_states,
+            state_out_axes=state_out_axes,
             axis_name=axis_name,
             axis_size=axis_size,
         )

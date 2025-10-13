@@ -1550,17 +1550,24 @@ class StatefulMapping(StatefulFunction):
         mapping_fn: Callable = jax.vmap,
     ):
         super().__init__(
-            fun=self.__wrapped_fun,
+            self.__wrapped_fun,
             static_argnums=static_argnums,
             static_argnames=static_argnames,
             axis_env=axis_env,
             abstracted_axes=abstracted_axes,
             return_only_write=return_only_write,
-            name=name,
+        )
+        self.origin_fun = fun
+        self.traced_fn = StatefulFunction(
+            fun,
+            static_argnums=static_argnums,
+            static_argnames=static_argnames,
+            axis_env=axis_env,
+            abstracted_axes=abstracted_axes,
+            return_only_write=return_only_write,
         )
 
         self.name = name
-        self.origin_fun = fun
         self.in_axes = in_axes
         self.out_axes = out_axes
         if state_in_axes is None:
@@ -1670,6 +1677,11 @@ class StatefulMapping(StatefulFunction):
         return dim
 
     def __fn_to_eval(self, cache_key, *new_args, **new_kwargs):
+        if len(new_kwargs):
+            raise NotImplementedError(
+                'StatefulMapping currently does not support keyword arguments.'
+            )
+
         # state trace
         trace = jax.core.trace_ctx.trace
         assert isinstance(trace, BatchTrace), f"Expected to be called within a BatchTrace context, but got {trace}"
@@ -1682,7 +1694,7 @@ class StatefulMapping(StatefulFunction):
 
         # call functions
         with state_trace:
-            out_ = self.origin_fun(*new_args, **new_kwargs)
+            out_ = self.traced_fn(*new_args)
 
         # cache vmapped in states
         self._cached_map_dim_to_in_states.set(cache_key, dim_to_in_states.copy())
@@ -1819,7 +1831,7 @@ class StatefulMapping(StatefulFunction):
 
         def fn_to_map(origin_args, rand_st, *non_rand_st):
             self.__assign_vals_from_in_states(cache_key, rand_st, *non_rand_st)
-            out = self.origin_fun(*origin_args)
+            out = self.traced_fn(*origin_args)
             return out, *self.__get_out_state_vals(cache_key)[1]
 
         in_axes, in_state_vals = self.__get_in_state_vals(cache_key)
@@ -1835,6 +1847,65 @@ class StatefulMapping(StatefulFunction):
         out_, *out_state_vals = mapped_fn(args, rand_vals, *in_state_vals)
         self.__assign_vals_from_out_states(cache_key, rand_recover_vals, *out_state_vals)
         return out_
+
+    # def __call__(self, *args, **kwargs):
+    #     return self.__wrapped_fun(*args, **kwargs)
+    #
+    # def get_arg_cache_key(self, *args, **kwargs) -> hashabledict:
+    #     """
+    #     Compute the cache key for the given arguments.
+    #
+    #     This method separates static and dynamic arguments and creates a hashable
+    #     key that can be used to cache compiled jaxpr representations.
+    #
+    #     Parameters
+    #     ----------
+    #     *args
+    #         The positional arguments to the function.
+    #     **kwargs
+    #         The keyword arguments to the function.
+    #
+    #     Returns
+    #     -------
+    #     hashabledict
+    #         A hashable dictionary containing the cache key with fields:
+    #         'static_args', 'dyn_args', 'static_kwargs', 'dyn_kwargs'.
+    #
+    #     Examples
+    #     --------
+    #     .. code-block:: python
+    #
+    #         >>> import brainstate
+    #         >>> import jax.numpy as jnp
+    #         >>>
+    #         >>> def f(x, n):
+    #         ...     return x ** n
+    #         >>>
+    #         >>> sf = brainstate.transform.StatefulFunction(
+    #         ...     f, static_argnums=(1,)
+    #         ... )
+    #         >>> cache_key = sf.get_arg_cache_key(jnp.array([1.0, 2.0]), 2)
+    #     """
+    #     static_args, dyn_args = [], []
+    #     for i, arg in enumerate(args):
+    #        dyn_args.append(arg)
+    #     dyn_args = jax.tree.map(shaped_abstractify, dyn_args)
+    #     static_kwargs, dyn_kwargs = [], []
+    #     for k, v in sorted(kwargs.items()):
+    #         dyn_kwargs.append((k, jax.tree.map(shaped_abstractify, v)))
+    #
+    #     static_args = make_hashable(tuple(static_args))
+    #     dyn_args = make_hashable(tuple(dyn_args))
+    #     static_kwargs = make_hashable(static_kwargs)
+    #     dyn_kwargs = make_hashable(dyn_kwargs)
+    #
+    #     cache_key = hashabledict(
+    #         static_args=static_args,
+    #         dyn_args=dyn_args,
+    #         static_kwargs=static_kwargs,
+    #         dyn_kwargs=dyn_kwargs,
+    #     )
+    #     return cache_key
 
 
 def _check_callable(fun):

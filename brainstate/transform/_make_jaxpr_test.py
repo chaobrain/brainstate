@@ -1517,6 +1517,7 @@ class TestStatefulMapping(unittest.TestCase):
         counter = brainstate.ShortTermState(jnp.zeros(3))
 
         def accumulate(x):
+            print('run')
             counter.value = counter.value + x
             return counter.value
 

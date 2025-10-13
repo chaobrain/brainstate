@@ -235,9 +235,6 @@ def pmap(
         Filters describing how state writes are scattered back to devices.
     unexpected_out_state_mapping : {'raise', 'warn', 'ignore'}, default 'raise'
         Policy applied when a state write is not covered by ``state_out_axes``.
-    rngs : Any, optional
-        Optional RNG seeds passed through to ``fn``. They are restored to their
-        original values after execution.
 
     Returns
     -------
@@ -468,17 +465,18 @@ def _vmap_new_states_transform(
 
         # get vmap state values
         vmap_state_vals = catcher.get_state_values()
-
         return out, vmap_state_vals
 
     @functools.wraps(fun)
     def vmapped_fn(*args):
-        # vmapping
         with catch_new_states(state_to_exclude=state_to_exclude) as catcher:
             outs, vmap_state_vals = new_fun(args)
             vmap_states = catcher.get_states()
 
         # restore vmapped state values
+        assert len(vmap_state_vals) == len(vmap_states), (
+            f'Internal Error: state count mismatch. {len(vmap_state_vals)} != {len(vmap_states)}'
+        )
         for st_val, st in zip(vmap_state_vals, vmap_states):
             st.restore_value(st_val)
             # ------------------------------------------------
