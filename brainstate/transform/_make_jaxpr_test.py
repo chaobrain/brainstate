@@ -1561,7 +1561,7 @@ class TestStatefulMapping(unittest.TestCase):
         jaxpr = mapper.get_jaxpr(xs)
         print(jaxpr)
         print('\n\n')
-        j2 = brainstate.transform.constant_fold_jaxpr(jaxpr.jaxpr)
+        j2 = brainstate.transform.optimize_jaxpr(jaxpr.jaxpr)
         print(j2)
 
     def test_inconsistent_batch_sizes_raise(self):
