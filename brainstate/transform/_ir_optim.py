@@ -15,16 +15,18 @@
 
 from collections.abc import MutableSet
 from typing import Union, Sequence
-from jax import lax
-import jax
 
+import jax
 import numpy as np
-from brainstate._compatible_import import (Literal, Var, Jaxpr, ClosedJaxpr, JaxprEqn)
+from jax import lax
+from jax._src.core import JaxprEqnContext
+
+from brainstate._compatible_import import (Literal, Var, Jaxpr, ClosedJaxpr, JaxprEqn, )
 
 __all__ = [
     'constant_fold',
     'dead_code_elimination',
-    'common_subexpression_elimination',
+    # 'common_subexpression_elimination',
     'copy_propagation',
     'algebraic_simplification',
     'optimize_jaxpr',
@@ -161,7 +163,7 @@ def _partial_eval_jaxpr(jaxpr, env):
     # sub in any constants for outvars
     outvars = tuple(read_or_self(var) for var in jaxpr.outvars)
 
-    return jaxpr.replace(eqns=out_eqns, outvars=outvars, invars=invars, debug_info=None)
+    return jaxpr.replace(eqns=out_eqns, outvars=outvars, invars=invars)
 
 
 def _eval_eqn(eqn, vals) -> Union[Jaxpr, tuple, list, jax.Array]:
@@ -280,7 +282,7 @@ def dead_code_elimination(jaxpr: Jaxpr) -> Jaxpr:
             new_eqns.append(eqn)
 
     # Keep all input and output variables unchanged
-    return jaxpr.replace(eqns=new_eqns, invars=jaxpr.invars, outvars=jaxpr.outvars, debug_info=None)
+    return jaxpr.replace(eqns=new_eqns, invars=jaxpr.invars, outvars=jaxpr.outvars)
 
 
 def common_subexpression_elimination(jaxpr: Jaxpr) -> Jaxpr:
@@ -370,23 +372,22 @@ def common_subexpression_elimination(jaxpr: Jaxpr) -> Jaxpr:
 
     # Add identity equations if needed
     if outvars_need_identity:
-        # Import the identity primitive from jax
-        from jax._src.core import JaxprEqnContext
-        default_ctx = JaxprEqnContext(None, True)
         for outvar, canonical in outvars_need_identity:
             # Create an identity equation: outvar = identity(canonical)
             # Use convert_element_type as identity (same type)
-            eqn = JaxprEqn([canonical],
-                           [outvar],
-                           lax.convert_element_type_p,
-                           {'new_dtype': outvar.aval.dtype, 'weak_type': False},
-                           set(),
-                           None,
-                           default_ctx)
+            eqn = JaxprEqn(
+                [canonical],
+                [outvar],
+                lax.convert_element_type_p,
+                {'new_dtype': outvar.aval.dtype, 'weak_type': False},
+                set(),
+                new_eqns[-1].source_info if new_eqns else None,
+                new_eqns[-1].ctx if new_eqns else JaxprEqnContext(None, True),
+            )
             final_eqns.append(eqn)
 
     # Keep original outvars and invars
-    return jaxpr.replace(eqns=final_eqns, outvars=jaxpr.outvars, invars=jaxpr.invars, debug_info=None)
+    return jaxpr.replace(eqns=final_eqns, outvars=jaxpr.outvars, invars=jaxpr.invars)
 
 
 def copy_propagation(jaxpr: Jaxpr) -> Jaxpr:
@@ -481,7 +482,7 @@ def copy_propagation(jaxpr: Jaxpr) -> Jaxpr:
     new_outvars = jaxpr.outvars
 
     # Keep all input and output variables unchanged
-    return jaxpr.replace(eqns=new_eqns, invars=jaxpr.invars, outvars=new_outvars, debug_info=None)
+    return jaxpr.replace(eqns=new_eqns, invars=jaxpr.invars, outvars=new_outvars)
 
 
 def algebraic_simplification(jaxpr: Jaxpr) -> Jaxpr:
@@ -573,7 +574,6 @@ def algebraic_simplification(jaxpr: Jaxpr) -> Jaxpr:
         return Literal(value, aval)
 
     new_eqns = []
-
     for eqn in jaxpr.eqns:
         # Update invars to use canonical variables
         canonical_invars = tuple(get_var(v) for v in eqn.invars)
@@ -637,22 +637,34 @@ def algebraic_simplification(jaxpr: Jaxpr) -> Jaxpr:
 
     # Add identity equations if needed
     if outvars_need_identity:
-        from jax._src.core import JaxprEqnContext
-        default_ctx = JaxprEqnContext(None, True)
         for outvar, canonical in outvars_need_identity:
             # Create an identity equation: outvar = identity(canonical)
             if isinstance(canonical, Literal):
                 # If canonical is a literal, we need to materialize it
-                eqn = JaxprEqn([canonical], [outvar], lax.convert_element_type_p,
-                               {'new_dtype': outvar.aval.dtype, 'weak_type': False}, set(), None, default_ctx)
+                eqn = JaxprEqn(
+                    [canonical],
+                    [outvar],
+                    lax.convert_element_type_p,
+                    {'new_dtype': outvar.aval.dtype, 'weak_type': False},
+                    set(),
+                    new_eqns[-1].source_info if new_eqns else None,
+                    new_eqns[-1].ctx if new_eqns else JaxprEqnContext(None, True)
+                )
             else:
                 # Use convert_element_type as identity (same type)
-                eqn = JaxprEqn([canonical], [outvar], lax.convert_element_type_p,
-                               {'new_dtype': outvar.aval.dtype, 'weak_type': False}, set(), None, default_ctx)
+                eqn = JaxprEqn(
+                    [canonical],
+                    [outvar],
+                    lax.convert_element_type_p,
+                    {'new_dtype': outvar.aval.dtype, 'weak_type': False},
+                    set(),
+                    new_eqns[-1].source_info,
+                    new_eqns[-1].ctx if new_eqns else JaxprEqnContext(None, True)
+                )
             final_eqns.append(eqn)
 
     # Keep original outvars and invars
-    return jaxpr.replace(eqns=final_eqns, outvars=jaxpr.outvars, invars=jaxpr.invars, debug_info=None)
+    return jaxpr.replace(eqns=final_eqns, outvars=jaxpr.outvars, invars=jaxpr.invars)
 
 
 def optimize_jaxpr(
@@ -788,7 +800,7 @@ def optimize_jaxpr(
         'constant_fold': constant_fold,
         'algebraic_simplification': algebraic_simplification,
         'copy_propagation': copy_propagation,
-        'cse': common_subexpression_elimination,
+        # 'cse': common_subexpression_elimination,
         'dce': dead_code_elimination,
     }
 
@@ -798,7 +810,7 @@ def optimize_jaxpr(
             'constant_fold',
             'algebraic_simplification',
             'copy_propagation',
-            'cse',
+            # 'cse',
             'dce',
         ]
 
