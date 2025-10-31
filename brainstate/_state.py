@@ -758,7 +758,7 @@ class HiddenState(ShortTermState):
 
     Note:
         From version 0.2.2, :class:`HiddenState` only supports value of numpy.ndarray,
-        jax.Array or brainunit.Quantity. Moreover, it is equivalent to :class:`brainscale.ETraceState`.
+        jax.Array or brainunit.Quantity. Moreover, it is equivalent to :class:`brainstate.HiddenState`.
         Dynamics models defined with :class:`HiddenState` can be seamlessly integrated with
         BrainScale online learning.
 

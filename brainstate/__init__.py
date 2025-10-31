@@ -52,7 +52,7 @@ _augment_apis = {
 }
 
 augment = create_deprecated_module_proxy(
-    deprecated_name='brainstate.augment',
+    deprecated_name='brainstate.transform',
     replacement_module=transform,
     replacement_name='brainstate.transform',
     scoped_apis=_augment_apis
@@ -79,7 +79,7 @@ _compile_apis = {
 }
 
 compile = create_deprecated_module_proxy(
-    deprecated_name='brainstate.compile',
+    deprecated_name='brainstate.transform',
     replacement_module=transform,
     replacement_name='brainstate.transform',
     scoped_apis=_compile_apis

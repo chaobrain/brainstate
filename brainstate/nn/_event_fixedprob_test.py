@@ -61,7 +61,7 @@ class TestFixedProbCSR:
             fn.weight.value = w
             return fn(x).sum()
 
-        r = brainstate.augment.grad(f, argnums=(0, 1))(x, w)
+        r = brainstate.transform.grad(f, argnums=(0, 1))(x, w)
 
         # -------------------
         # TRUE gradients
