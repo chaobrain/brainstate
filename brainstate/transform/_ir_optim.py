@@ -658,7 +658,7 @@ def algebraic_simplification(jaxpr: Jaxpr) -> Jaxpr:
                     lax.convert_element_type_p,
                     {'new_dtype': outvar.aval.dtype, 'weak_type': False},
                     set(),
-                    new_eqns[-1].source_info,
+                    new_eqns[-1].source_info if new_eqns else None,
                     new_eqns[-1].ctx if new_eqns else JaxprEqnContext(None, True)
                 )
             final_eqns.append(eqn)
