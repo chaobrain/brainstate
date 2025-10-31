@@ -26,7 +26,7 @@ import pytest
 import brainstate
 from brainstate._compatible_import import jaxpr_as_fun
 from brainstate._error import BatchAxisError
-from brainstate.transform._make_jaxpr import _BoundedCache, make_hashable
+from brainstate.transform._make_jaxpr import _BoundedCache, _make_hashable
 from brainstate.util import filter as state_filter
 
 
@@ -835,7 +835,7 @@ class TestMakeHashable(unittest.TestCase):
 
     def test_hashable_list(self):
         """Test converting list to hashable."""
-        result = make_hashable([1, 2, 3])
+        result = _make_hashable([1, 2, 3])
         # Should return a tuple
         self.assertIsInstance(result, tuple)
         # Should be hashable
@@ -843,7 +843,7 @@ class TestMakeHashable(unittest.TestCase):
 
     def test_hashable_dict(self):
         """Test converting dict to hashable."""
-        result = make_hashable({'b': 2, 'a': 1})
+        result = _make_hashable({'b': 2, 'a': 1})
         # Should return a tuple of sorted key-value pairs
         self.assertIsInstance(result, tuple)
         # Should be hashable
@@ -854,7 +854,7 @@ class TestMakeHashable(unittest.TestCase):
 
     def test_hashable_set(self):
         """Test converting set to hashable."""
-        result = make_hashable({1, 2, 3})
+        result = _make_hashable({1, 2, 3})
         # Should return a frozenset
         self.assertIsInstance(result, frozenset)
         # Should be hashable
@@ -867,13 +867,13 @@ class TestMakeHashable(unittest.TestCase):
             'dict': {'a': 1, 'b': 2},
             'set': {4, 5}
         }
-        result = make_hashable(nested)
+        result = _make_hashable(nested)
         # Should be hashable
         hash(result)  # Should not raise
 
     def test_hashable_tuple(self):
         """Test with tuples."""
-        result = make_hashable((1, 2, 3))
+        result = _make_hashable((1, 2, 3))
         # Should return a tuple
         self.assertIsInstance(result, tuple)
         # Should be hashable
@@ -882,8 +882,8 @@ class TestMakeHashable(unittest.TestCase):
     def test_hashable_idempotent(self):
         """Test that applying make_hashable twice gives consistent results."""
         original = {'a': [1, 2], 'b': {3, 4}}
-        result1 = make_hashable(original)
-        result2 = make_hashable(original)
+        result1 = _make_hashable(original)
+        result2 = _make_hashable(original)
         # Should be the same
         self.assertEqual(result1, result2)
 
