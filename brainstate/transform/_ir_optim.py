@@ -20,6 +20,7 @@ import jax
 import numpy as np
 from jax import lax
 from jax._src.core import JaxprEqnContext
+from jax.extend import source_info_util
 
 from brainstate._compatible_import import (Literal, Var, Jaxpr, ClosedJaxpr, JaxprEqn, )
 
@@ -100,6 +101,14 @@ class IdentitySet(MutableSet):
 _constant_fold_blacklist = {'broadcast_in_dim', 'broadcast'}
 
 
+def _fallback_source_info(eqns: Sequence[JaxprEqn]) -> source_info_util.SourceInfo:
+    if eqns:
+        source_info = eqns[-1].source_info
+        if source_info is not None:
+            return source_info
+    return source_info_util.new_source_info()
+
+
 def _partial_eval_jaxpr(jaxpr, env):
     env = env.copy()
     new_eqns = []
@@ -124,11 +133,17 @@ def _partial_eval_jaxpr(jaxpr, env):
 
     for eqn in jaxpr.eqns:
         vals = [read(var) for var in eqn.invars]
-        if eqn.primitive.name in _constant_fold_blacklist:
+        if eqn.primitive.name in _constant_fold_blacklist or eqn.effects:
             new_eqns.append(eqn)
-        elif all(val is not None for val in vals):
-            # go ahead and eval it
-            out = _eval_eqn(eqn, vals)
+            continue
+
+        if all(val is not None for val in vals):
+            # go ahead and eval it if it is safe to do so
+            try:
+                out = _eval_eqn(eqn, vals)
+            except Exception:
+                new_eqns.append(eqn)
+                continue
 
             # two options: either it's a jaxpr result (partial eval) or it's a value or a list of values
             if isinstance(out, Jaxpr):
@@ -171,14 +186,15 @@ def _eval_eqn(eqn, vals) -> Union[Jaxpr, tuple, list, jax.Array]:
         assert eqn.primitive.call_primitive
         assert not eqn.primitive.map_primitive
 
-        out = _partial_eval_jaxpr(
-            eqn.params['call_jaxpr'].jaxpr,
-            {
-                var: val
-                for var, val in
-                zip(eqn.params['call_jaxpr'].jaxpr.invars, vals)
-            }
-        )
+        call_jaxpr: ClosedJaxpr = eqn.params['call_jaxpr']
+        env = {
+            var: val
+            for var, val in zip(call_jaxpr.jaxpr.invars, vals)
+        }
+        if call_jaxpr.consts:
+            env.update(zip(call_jaxpr.jaxpr.constvars, call_jaxpr.consts))
+
+        out = _partial_eval_jaxpr(call_jaxpr.jaxpr, env)
     elif eqn.primitive.name == "scan":
         out = eqn.primitive.bind(*vals, **eqn.params)
     else:
@@ -218,8 +234,47 @@ def constant_fold(jaxpr: Jaxpr) -> Jaxpr:
     >>> optimized_jaxpr = constant_fold(original_jaxpr)
     """
     result = _partial_eval_jaxpr(jaxpr, {})
+
+    # Ensure outvars from the folded jaxpr are wired back to the original
+    # interface. When a result is now a literal or a different variable, add a
+    # trailing copy equation so eval_jaxpr can still bind the original Var.
+    existing_eqns = list(result.eqns)
+    extra_eqns = []
+    source_info = _fallback_source_info(existing_eqns)
+    ctx = existing_eqns[-1].ctx if existing_eqns else JaxprEqnContext(None, True)
+
+    for original, folded_out in zip(jaxpr.outvars, result.outvars):
+        needs_bridge = False
+        if isinstance(original, Literal):
+            # Literal outputs can remain literals; no bridge required.
+            continue
+
+        if isinstance(folded_out, Literal):
+            needs_bridge = True
+        elif isinstance(folded_out, Var):
+            needs_bridge = folded_out is not original
+        else:
+            # Unexpected type, fall back to keeping the original interface by
+            # leaving the variable unmodified.
+            folded_out = original
+
+        if needs_bridge:
+            bridge_eqn = JaxprEqn(
+                (folded_out,),
+                (original,),
+                lax.copy_p,
+                {},
+                set(),
+                source_info,
+                ctx,
+            )
+            extra_eqns.append(bridge_eqn)
+
+    if extra_eqns:
+        existing_eqns.extend(extra_eqns)
+
     # Ensure invars and outvars are preserved
-    return result.replace(invars=jaxpr.invars, outvars=jaxpr.outvars)
+    return result.replace(eqns=tuple(existing_eqns), invars=jaxpr.invars, outvars=jaxpr.outvars)
 
 
 def dead_code_elimination(jaxpr: Jaxpr) -> Jaxpr:
@@ -381,7 +436,7 @@ def common_subexpression_elimination(jaxpr: Jaxpr) -> Jaxpr:
                 lax.convert_element_type_p,
                 {'new_dtype': outvar.aval.dtype, 'weak_type': False},
                 set(),
-                new_eqns[-1].source_info if new_eqns else None,
+                _fallback_source_info(new_eqns),
                 new_eqns[-1].ctx if new_eqns else JaxprEqnContext(None, True),
             )
             final_eqns.append(eqn)
@@ -639,6 +694,7 @@ def algebraic_simplification(jaxpr: Jaxpr) -> Jaxpr:
     if outvars_need_identity:
         for outvar, canonical in outvars_need_identity:
             # Create an identity equation: outvar = identity(canonical)
+            source_info = _fallback_source_info(new_eqns)
             if isinstance(canonical, Literal):
                 # If canonical is a literal, we need to materialize it
                 eqn = JaxprEqn(
@@ -647,7 +703,7 @@ def algebraic_simplification(jaxpr: Jaxpr) -> Jaxpr:
                     lax.convert_element_type_p,
                     {'new_dtype': outvar.aval.dtype, 'weak_type': False},
                     set(),
-                    new_eqns[-1].source_info if new_eqns else None,
+                    source_info,
                     new_eqns[-1].ctx if new_eqns else JaxprEqnContext(None, True)
                 )
             else:
@@ -658,7 +714,7 @@ def algebraic_simplification(jaxpr: Jaxpr) -> Jaxpr:
                     lax.convert_element_type_p,
                     {'new_dtype': outvar.aval.dtype, 'weak_type': False},
                     set(),
-                    new_eqns[-1].source_info,
+                    source_info,
                     new_eqns[-1].ctx if new_eqns else JaxprEqnContext(None, True)
                 )
             final_eqns.append(eqn)

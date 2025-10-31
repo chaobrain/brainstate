@@ -113,7 +113,7 @@ class TestDelay(unittest.TestCase):
                 t2, n2 = 1.06, 11
                 rotation_delay.init_state()
 
-                @brainstate.compile.jit
+                @brainstate.transform.jit
                 def retrieve(td, i):
                     with brainstate.environ.context(i=i, t=i * brainstate.environ.get_dt()):
                         return rotation_delay.retrieve_at_time(td)
@@ -143,7 +143,7 @@ class TestDelay(unittest.TestCase):
                 t2, n2 = 1.06, 10.6
                 rotation_delay.init_state()
 
-                @brainstate.compile.jit
+                @brainstate.transform.jit
                 def retrieve(td, i):
                     with brainstate.environ.context(i=i, t=i * brainstate.environ.get_dt()):
                         return rotation_delay.retrieve_at_time(td)

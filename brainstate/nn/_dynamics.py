@@ -208,7 +208,7 @@ class Dynamics(Module):
         --------
         >>> import brainstate
         >>> import brainunit as u
-        >>> neuron = brainstate.nn.LIF(...)
+        >>> neuron = brainpy.state.LIF(...)
         >>> v_ref = neuron.prefetch('V')  # Reference to voltage
         >>> v_value = v_ref()  # Get current value
         >>> delayed_v = v_ref.delay.at(5.0 * u.ms)  # Get delayed value
@@ -478,7 +478,7 @@ class Prefetch(Node):
     --------
     >>> import brainstate
     >>> import brainunit as u
-    >>> neuron = brainstate.nn.LIF(...)
+    >>> neuron = brainpy.state.LIF(...)
     >>> v_reference = neuron.prefetch('V')  # Reference to voltage before initialization
     >>> v_value = v_reference()  # Get the current value
     >>> delay_ref = v_reference.delay.at(5.0 * u.ms)  # Reference voltage delayed by 5ms
@@ -578,7 +578,7 @@ class PrefetchDelay(Node):
     --------
     >>> import brainstate
     >>> import brainunit as u
-    >>> neuron = brainstate.nn.LIF(10)
+    >>> neuron = brainpy.state.LIF(10)
     >>> # Access voltage delayed by 5ms
     >>> delayed_v = neuron.prefetch('V').delay.at(5.0 * u.ms)
     >>> delayed_value = delayed_v()  # Get the delayed value
@@ -628,7 +628,7 @@ class PrefetchDelayAt(Node):
     --------
     >>> import brainstate
     >>> import brainunit as u
-    >>> neuron = brainstate.nn.LIF(10)
+    >>> neuron = brainpy.state.LIF(10)
     >>> # Create a reference to voltage delayed by 5ms
     >>> delayed_v = PrefetchDelayAt(neuron, 'V', 5.0 * u.ms)
     >>> # Get the delayed value
@@ -708,7 +708,7 @@ class OutputDelayAt(Node):
     --------
     >>> import brainstate
     >>> import brainunit as u
-    >>> neuron = brainstate.nn.LIF(10)
+    >>> neuron = brainpy.state.LIF(10)
     >>> # Create a reference to voltage delayed by 5ms
     >>> delayed_spike = OutputDelayAt(neuron, 5.0 * u.ms)
     >>> # Get the delayed value

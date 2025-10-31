@@ -413,7 +413,7 @@ class TestGraphOperation(unittest.TestCase):
 
         prev_loss = loss_fn(x, y)
         weights = model.states()
-        grads = brainstate.augment.grad(loss_fn, weights)(x, y)
+        grads = brainstate.transform.grad(loss_fn, weights)(x, y)
         for key, val in grads.items():
             sgd(weights[key], val)
         assert loss_fn(x, y) < prev_loss

@@ -31,6 +31,7 @@ from typing import (
     List,
     Sequence,
     Generator,
+    Protocol
 )
 
 import brainunit as u
@@ -54,6 +55,7 @@ __all__ = [
     'BatchState',
     'TreefyState',
     'FakeState',
+    'ArrayParam',
 
     'StateDictManager',
     'StateTraceStack',
@@ -756,7 +758,7 @@ class HiddenState(ShortTermState):
 
     Note:
         From version 0.2.2, :class:`HiddenState` only supports value of numpy.ndarray,
-        jax.Array or brainunit.Quantity. Moreover, it is equivalent to :class:`brainscale.ETraceState`.
+        jax.Array or brainunit.Quantity. Moreover, it is equivalent to :class:`brainstate.HiddenState`.
         Dynamics models defined with :class:`HiddenState` can be seamlessly integrated with
         BrainScale online learning.
 
@@ -2155,3 +2157,132 @@ def catch_new_states(
         yield catcher
     finally:
         TRACE_CONTEXT.new_state_catcher.pop()
+
+
+class Transform(Protocol):
+    def inverse(self, value: ArrayLike) -> ArrayLike:
+        ...
+
+    def __call__(self, value: ArrayLike) -> ArrayLike:
+        ...
+
+
+class IdentityTransform:
+    def inverse(self, value: ArrayLike) -> ArrayLike:
+        return value
+
+    def __call__(self, value: ArrayLike) -> ArrayLike:
+        return value
+
+
+class ArrayParam(ParamState, u.CustomArray):
+    """
+    Trainable parameter wrapper with bijective transform support.
+
+    ``ArrayParam`` is a specialized parameter state that allows applying bijective
+    transformations to parameter values. This is useful for constrained optimization
+    where you want to optimize in an unconstrained space but use parameters in a
+    constrained space (e.g., ensuring parameters remain positive or bounded).
+
+    The transform operates in two directions:
+
+    - **Forward transform**: Applied when accessing the parameter via the ``.data`` property.
+      This transforms the internal unconstrained value to the constrained space.
+    - **Inverse transform**: Applied when setting values or during initialization.
+      This transforms constrained values to the internal unconstrained representation.
+
+    This design ensures that the internal parameter storage (accessed via ``.value``)
+    maintains values in the unconstrained space, making gradient-based optimization
+    more stable and effective.
+
+    Parameters
+    ----------
+    value : ArrayLike
+        The initial parameter value in the constrained space. This will be transformed
+        to the unconstrained space using ``transform.inverse()`` for internal storage.
+    transform : Transform, optional
+        A bijective transformation with both forward (``__call__``) and inverse
+        (``inverse()``) methods. Defaults to ``IdentityTransform()`` which applies
+        no transformation.
+
+    Attributes
+    ----------
+    value : ArrayLike
+        The internal unconstrained parameter value. This is what gets optimized during
+        training and is stored in the unconstrained space.
+    transform : Transform
+        The bijective transformation object used to convert between constrained and
+        unconstrained spaces.
+    data : ArrayLike (property)
+        The parameter value in the constrained space. When accessed, returns
+        ``transform(value)``. When set, applies ``transform.inverse()`` and updates
+        ``value``.
+
+    Examples
+    --------
+    Using ArrayParam with identity transform (no transformation):
+
+    >>> import brainstate as bst
+    >>> import jax.numpy as jnp
+    >>>
+    >>> # Simple parameter without transformation
+    >>> param = bst.ArrayParam(jnp.array([1.0, 2.0, 3.0]))
+    >>> print(param.data)  # Access constrained value
+    [1. 2. 3.]
+    >>> print(param.value)  # Access unconstrained value (same as data for identity)
+    [1. 2. 3.]
+
+    Using ArrayParam with custom transform for positive constraints:
+
+    >>> class ExpTransform:
+    ...     '''Transform to ensure parameters remain positive.'''
+    ...     def __call__(self, value):
+    ...         return jnp.exp(value)  # unconstrained -> constrained (positive)
+    ...     def inverse(self, value):
+    ...         return jnp.log(value)  # constrained (positive) -> unconstrained
+    >>>
+    >>> # Parameter that stays positive
+    >>> positive_param = bst.ArrayParam(jnp.array([1.0, 2.0]), transform=ExpTransform())
+    >>> print(positive_param.data)  # Positive values
+    [1. 2.]
+    >>> print(positive_param.value)  # Log space (unconstrained)
+    [0. 0.6931472]
+    >>>
+    >>> # During optimization, gradients are computed w.r.t. the unconstrained value
+    >>> # But when you access .data, you always get positive values
+
+    Notes
+    -----
+    - The transform must be bijective (one-to-one and onto) to ensure unique mappings
+      between constrained and unconstrained spaces.
+    - Common use cases include: positive constraints (exp/log), bounded constraints
+      (sigmoid/logit), or more complex domain constraints.
+    - When using gradient-based optimization, gradients are computed with respect to
+      the unconstrained ``.value``, which often leads to better optimization dynamics.
+
+    See Also
+    --------
+    ParamState : Base class for trainable parameters
+    IdentityTransform : Default no-op transformation
+    Transform : Protocol defining the transform interface
+    """
+    __module__ = 'brainstate'
+
+    def __init__(
+        self,
+        value: ArrayLike,
+        transform: Transform = IdentityTransform()
+    ):
+        if not isinstance(value, ArrayLike):
+            raise TypeError(f'value must be array-like, got {value}')
+        value = transform.inverse(value)
+        super().__init__(value)
+        self.transform = transform
+
+    @property
+    def data(self):
+        return self.transform(self.value)
+
+    @data.setter
+    def data(self, v):
+        self.value = self.transform.inverse(v)
