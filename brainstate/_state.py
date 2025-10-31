@@ -31,6 +31,7 @@ from typing import (
     List,
     Sequence,
     Generator,
+    Protocol
 )
 
 import brainunit as u
@@ -54,6 +55,7 @@ __all__ = [
     'BatchState',
     'TreefyState',
     'FakeState',
+    'ArrayParam',
 
     'StateDictManager',
     'StateTraceStack',
@@ -2155,3 +2157,45 @@ def catch_new_states(
         yield catcher
     finally:
         TRACE_CONTEXT.new_state_catcher.pop()
+
+
+class Transform(Protocol):
+    def inverse(self, value: ArrayLike) -> ArrayLike:
+        ...
+
+    def __call__(self, value: ArrayLike) -> ArrayLike:
+        ...
+
+
+class IdentityTransform:
+    def inverse(self, value: ArrayLike) -> ArrayLike:
+        return value
+
+    def __call__(self, value: ArrayLike) -> ArrayLike:
+        return value
+
+
+class ArrayParam(ParamState, u.CustomArray):
+    """
+    Trainable parameter wrapper with bijective transform and unit support.
+    """
+    __module__ = 'brainstate'
+
+    def __init__(
+        self,
+        value: ArrayLike,
+        transform: Transform = IdentityTransform()
+    ):
+        if not isinstance(value, ArrayLike):
+            raise TypeError(f'value must be array-like, got {value}')
+        value = transform.inverse(value)
+        super().__init__(value)
+        self.transform = transform
+
+    @property
+    def data(self):
+        return self.transform(self.value)
+
+    @data.setter
+    def data(self, v):
+        self.value = self.transform.inverse(v)
