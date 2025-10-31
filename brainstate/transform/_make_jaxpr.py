@@ -895,10 +895,10 @@ class StatefulFunction(PrettyObject):
             else:
                 dyn_kwargs.append((k, jax.tree.map(shaped_abstractify, v)))
 
-        static_args = make_hashable(tuple(static_args))
-        dyn_args = make_hashable(tuple(dyn_args))
-        static_kwargs = make_hashable(static_kwargs)
-        dyn_kwargs = make_hashable(dyn_kwargs)
+        static_args = _make_hashable(tuple(static_args))
+        dyn_args = _make_hashable(tuple(dyn_args))
+        static_kwargs = _make_hashable(static_kwargs)
+        dyn_kwargs = _make_hashable(dyn_kwargs)
 
         cache_key = hashabledict(
             static_args=static_args,
@@ -1571,7 +1571,7 @@ def _make_jaxpr(
     return make_jaxpr_f
 
 
-def make_hashable(obj):
+def _make_hashable(obj):
     """
     Convert a pytree into a hashable representation.
 
@@ -1588,11 +1588,11 @@ def make_hashable(obj):
         and other pytrees are flattened using JAX's tree utilities.
     """
     if isinstance(obj, (list, tuple)):
-        return tuple(make_hashable(item) for item in obj)
+        return tuple(_make_hashable(item) for item in obj)
     elif isinstance(obj, dict):
-        return tuple(sorted((k, make_hashable(v)) for k, v in obj.items()))
+        return tuple(sorted((k, _make_hashable(v)) for k, v in obj.items()))
     elif isinstance(obj, set):
-        return frozenset(make_hashable(item) for item in obj)
+        return frozenset(_make_hashable(item) for item in obj)
     else:
         # return obj
         # Use JAX's tree_util for any other pytree structures

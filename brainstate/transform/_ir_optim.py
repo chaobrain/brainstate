@@ -23,6 +23,7 @@ from jax._src.core import JaxprEqnContext
 from jax.extend import source_info_util
 
 from brainstate._compatible_import import (Literal, Var, Jaxpr, ClosedJaxpr, JaxprEqn, )
+from brainstate._utils import set_module_as
 
 __all__ = [
     'constant_fold',
@@ -58,6 +59,7 @@ class IdentitySet(MutableSet):
     >>> b in s  # Different object, even though equal
     False
     """
+    __module__ = 'brainstate.transform'
 
     def __init__(self, iterable=None):
         self._data = {}
@@ -202,6 +204,7 @@ def _eval_eqn(eqn, vals) -> Union[Jaxpr, tuple, list, jax.Array]:
     return out
 
 
+@set_module_as('brainstate.transform')
 def constant_fold(jaxpr: Jaxpr) -> Jaxpr:
     """
     Perform constant folding optimization on a Jaxpr.
@@ -277,6 +280,7 @@ def constant_fold(jaxpr: Jaxpr) -> Jaxpr:
     return result.replace(eqns=tuple(existing_eqns), invars=jaxpr.invars, outvars=jaxpr.outvars)
 
 
+@set_module_as('brainstate.transform')
 def dead_code_elimination(jaxpr: Jaxpr) -> Jaxpr:
     """
     Remove equations whose outputs are not used (dead code elimination).
@@ -340,6 +344,7 @@ def dead_code_elimination(jaxpr: Jaxpr) -> Jaxpr:
     return jaxpr.replace(eqns=new_eqns, invars=jaxpr.invars, outvars=jaxpr.outvars)
 
 
+@set_module_as('brainstate.transform')
 def common_subexpression_elimination(jaxpr: Jaxpr) -> Jaxpr:
     """
     Eliminate redundant computations by reusing results (CSE).
@@ -445,6 +450,7 @@ def common_subexpression_elimination(jaxpr: Jaxpr) -> Jaxpr:
     return jaxpr.replace(eqns=final_eqns, outvars=jaxpr.outvars, invars=jaxpr.invars)
 
 
+@set_module_as('brainstate.transform')
 def copy_propagation(jaxpr: Jaxpr) -> Jaxpr:
     """
     Eliminate unnecessary copy operations by propagating original variables.
@@ -540,6 +546,7 @@ def copy_propagation(jaxpr: Jaxpr) -> Jaxpr:
     return jaxpr.replace(eqns=new_eqns, invars=jaxpr.invars, outvars=new_outvars)
 
 
+@set_module_as('brainstate.transform')
 def algebraic_simplification(jaxpr: Jaxpr) -> Jaxpr:
     """
     Apply algebraic identities to simplify arithmetic operations.
@@ -723,6 +730,7 @@ def algebraic_simplification(jaxpr: Jaxpr) -> Jaxpr:
     return jaxpr.replace(eqns=final_eqns, outvars=jaxpr.outvars, invars=jaxpr.invars)
 
 
+@set_module_as('brainstate.transform')
 def optimize_jaxpr(
     jaxpr: Jaxpr | ClosedJaxpr,
     max_iterations: int = 3,

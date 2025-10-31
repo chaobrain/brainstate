@@ -45,6 +45,8 @@ use_prng_key = True
 class RandomState(State):
     """RandomState that track the random generator state. """
 
+    __module__ = 'brainstate.random'
+
     # __slots__ = ('_backup', '_value')
 
     def __init__(

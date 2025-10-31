@@ -220,11 +220,11 @@ in JAX transformations. Here's a complete example demonstrating the key concepts
 
 **Key Advantages:**
 
-✅ **Intuitive**: States behave like normal Python variables with ``.value``
-✅ **Automatic**: No manual state threading through transformations
-✅ **Composable**: JIT, grad, vmap work together seamlessly
-✅ **Type-safe**: Different state types (State, ParamState, RandomState) for different purposes
-✅ **Efficient**: Zero-overhead state management compiled by JAX
+- ✅ **Intuitive**: States behave like normal Python variables with ``.value``
+- ✅ **Automatic**: No manual state threading through transformations
+- ✅ **Composable**: JIT, grad, vmap work together seamlessly
+- ✅ **Type-safe**: Different state types (State, ParamState, RandomState) for different purposes
+- ✅ **Efficient**: Zero-overhead state management compiled by JAX
 
 
 

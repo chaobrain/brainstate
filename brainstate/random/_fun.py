@@ -20,6 +20,7 @@ from typing import Optional
 
 import numpy as np
 
+from brainstate._utils import set_module_as
 from brainstate.typing import DTypeLike, Size, SeedOrKey
 from ._state import RandomState, DEFAULT
 
@@ -87,6 +88,7 @@ __all__ = [
 ]
 
 
+@set_module_as('brainstate.random')
 def rand(
     *dn,
     key: Optional[SeedOrKey] = None,
@@ -134,6 +136,7 @@ def rand(
     return DEFAULT.rand(*dn, key=key, dtype=dtype)
 
 
+@set_module_as('brainstate.random')
 def randint(
     low,
     high=None,
@@ -219,6 +222,7 @@ def randint(
     return DEFAULT.randint(low, high=high, size=size, dtype=dtype, key=key)
 
 
+@set_module_as('brainstate.random')
 def random_integers(
     low,
     high=None,
@@ -313,6 +317,7 @@ def random_integers(
     return DEFAULT.random_integers(low, high=high, size=size, key=key, dtype=dtype)
 
 
+@set_module_as('brainstate.random')
 def randn(
     *dn,
     key: Optional[SeedOrKey] = None,
@@ -382,6 +387,7 @@ def randn(
     return DEFAULT.randn(*dn, key=key, dtype=dtype)
 
 
+@set_module_as('brainstate.random')
 def random(
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
@@ -394,6 +400,7 @@ def random(
     return DEFAULT.random(size, key=key, dtype=dtype)
 
 
+@set_module_as('brainstate.random')
 def random_sample(
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
@@ -458,6 +465,7 @@ def random_sample(
     return DEFAULT.random_sample(size, key=key, dtype=dtype)
 
 
+@set_module_as('brainstate.random')
 def ranf(
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
@@ -470,6 +478,7 @@ def ranf(
     return DEFAULT.ranf(size, key=key, dtype=dtype)
 
 
+@set_module_as('brainstate.random')
 def sample(
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
@@ -482,6 +491,7 @@ def sample(
     return DEFAULT.sample(size, key=key, dtype=dtype)
 
 
+@set_module_as('brainstate.random')
 def choice(
     a,
     size: Optional[Size] = None,
@@ -588,6 +598,7 @@ def choice(
     return DEFAULT.choice(a=a, size=size, replace=replace, p=p, key=key)
 
 
+@set_module_as('brainstate.random')
 def permutation(
     x,
     axis: int = 0,
@@ -655,6 +666,7 @@ def permutation(
     return DEFAULT.permutation(x, axis=axis, independent=independent, key=key)
 
 
+@set_module_as('brainstate.random')
 def shuffle(
     x,
     axis=0,
@@ -705,6 +717,7 @@ def shuffle(
     return DEFAULT.shuffle(x, axis, key=key)
 
 
+@set_module_as('brainstate.random')
 def beta(
     a,
     b,
@@ -752,6 +765,7 @@ def beta(
     return DEFAULT.beta(a, b, size=size, key=key, dtype=dtype)
 
 
+@set_module_as('brainstate.random')
 def exponential(
     scale=None,
     size: Optional[Size] = None,
@@ -806,6 +820,7 @@ def exponential(
     return DEFAULT.exponential(scale, size, key=key, dtype=dtype)
 
 
+@set_module_as('brainstate.random')
 def gamma(
     shape,
     scale=None,
@@ -867,6 +882,7 @@ def gamma(
     return DEFAULT.gamma(shape, scale, size=size, key=key, dtype=dtype)
 
 
+@set_module_as('brainstate.random')
 def gumbel(
     loc=None,
     scale=None,
@@ -945,6 +961,7 @@ def gumbel(
     return DEFAULT.gumbel(loc, scale, size=size, key=key, dtype=dtype)
 
 
+@set_module_as('brainstate.random')
 def laplace(
     loc=None,
     scale=None,
@@ -1034,6 +1051,7 @@ def laplace(
     return DEFAULT.laplace(loc, scale, size, key=key, dtype=dtype)
 
 
+@set_module_as('brainstate.random')
 def logistic(
     loc=None,
     scale=None,
@@ -1113,6 +1131,7 @@ def logistic(
     return DEFAULT.logistic(loc, scale, size, key=key, dtype=dtype)
 
 
+@set_module_as('brainstate.random')
 def normal(
     loc=None,
     scale=None,
@@ -1204,6 +1223,7 @@ def normal(
     return DEFAULT.normal(loc, scale, size, key=key, dtype=dtype)
 
 
+@set_module_as('brainstate.random')
 def pareto(
     a,
     size: Optional[Size] = None,
@@ -1304,6 +1324,7 @@ def pareto(
     return DEFAULT.pareto(a, size, key=key, dtype=dtype)
 
 
+@set_module_as('brainstate.random')
 def poisson(
     lam=1.0,
     size: Optional[Size] = None,
@@ -1379,6 +1400,7 @@ def poisson(
     return DEFAULT.poisson(lam, size, key=key, dtype=dtype)
 
 
+@set_module_as('brainstate.random')
 def standard_cauchy(
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
@@ -1448,6 +1470,7 @@ def standard_cauchy(
     return DEFAULT.standard_cauchy(size, key=key, dtype=dtype)
 
 
+@set_module_as('brainstate.random')
 def standard_exponential(
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
@@ -1483,6 +1506,7 @@ def standard_exponential(
     return DEFAULT.standard_exponential(size, key=key, dtype=dtype)
 
 
+@set_module_as('brainstate.random')
 def standard_gamma(
     shape,
     size: Optional[Size] = None,
@@ -1560,6 +1584,7 @@ def standard_gamma(
     return DEFAULT.standard_gamma(shape, size, key=key, dtype=dtype)
 
 
+@set_module_as('brainstate.random')
 def standard_normal(
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
@@ -1633,6 +1658,7 @@ def standard_normal(
     return DEFAULT.standard_normal(size, key=key, dtype=dtype)
 
 
+@set_module_as('brainstate.random')
 def standard_t(
     df,
     size: Optional[Size] = None,
@@ -1741,6 +1767,7 @@ def standard_t(
     return DEFAULT.standard_t(df, size, key=key, dtype=dtype)
 
 
+@set_module_as('brainstate.random')
 def uniform(
     low=0.0,
     high=1.0,
@@ -1837,6 +1864,7 @@ def uniform(
     return DEFAULT.uniform(low, high, size, key=key, dtype=dtype)
 
 
+@set_module_as('brainstate.random')
 def truncated_normal(
     lower,
     upper,
@@ -1917,6 +1945,7 @@ def truncated_normal(
 RandomState.truncated_normal.__doc__ = truncated_normal.__doc__
 
 
+@set_module_as('brainstate.random')
 def bernoulli(
     p=0.5,
     size: Optional[Size] = None,
@@ -1948,6 +1977,7 @@ def bernoulli(
     return DEFAULT.bernoulli(p, size, key=key, check_valid=check_valid)
 
 
+@set_module_as('brainstate.random')
 def lognormal(
     mean=None,
     sigma=None,
@@ -2062,6 +2092,7 @@ def lognormal(
     return DEFAULT.lognormal(mean, sigma, size, key=key, dtype=dtype)
 
 
+@set_module_as('brainstate.random')
 def binomial(
     n,
     p,
@@ -2157,6 +2188,7 @@ def binomial(
     return DEFAULT.binomial(n, p, size, key=key, dtype=dtype, check_valid=check_valid)
 
 
+@set_module_as('brainstate.random')
 def chisquare(
     df,
     size: Optional[Size] = None,
@@ -2234,6 +2266,7 @@ def chisquare(
     return DEFAULT.chisquare(df, size, key=key, dtype=dtype)
 
 
+@set_module_as('brainstate.random')
 def dirichlet(
     alpha,
     size: Optional[Size] = None,
@@ -2320,6 +2353,7 @@ def dirichlet(
     return DEFAULT.dirichlet(alpha, size, key=key, dtype=dtype)
 
 
+@set_module_as('brainstate.random')
 def geometric(
     p,
     size: Optional[Size] = None,
@@ -2375,6 +2409,7 @@ def geometric(
     return DEFAULT.geometric(p, size, key=key, dtype=dtype)
 
 
+@set_module_as('brainstate.random')
 def f(
     dfnum,
     dfden,
@@ -2468,6 +2503,7 @@ def f(
     return DEFAULT.f(dfnum, dfden, size, key=key, dtype=dtype)
 
 
+@set_module_as('brainstate.random')
 def hypergeometric(
     ngood,
     nbad,
@@ -2570,6 +2606,7 @@ def hypergeometric(
     return DEFAULT.hypergeometric(ngood, nbad, nsample, size, key=key, dtype=dtype)
 
 
+@set_module_as('brainstate.random')
 def logseries(
     p,
     size: Optional[Size] = None,
@@ -2654,6 +2691,7 @@ def logseries(
     return DEFAULT.logseries(p, size, key=key, dtype=dtype)
 
 
+@set_module_as('brainstate.random')
 def multinomial(
     n,
     pvals,
@@ -2738,6 +2776,7 @@ def multinomial(
     return DEFAULT.multinomial(n, pvals, size, key=key, dtype=dtype, check_valid=check_valid)
 
 
+@set_module_as('brainstate.random')
 def multivariate_normal(
     mean,
     cov,
@@ -2873,6 +2912,7 @@ def multivariate_normal(
     return DEFAULT.multivariate_normal(mean, cov, size, method, key=key, dtype=dtype)
 
 
+@set_module_as('brainstate.random')
 def negative_binomial(
     n,
     p,
@@ -2954,6 +2994,7 @@ def negative_binomial(
     return DEFAULT.negative_binomial(n, p, size, key=key, dtype=dtype)
 
 
+@set_module_as('brainstate.random')
 def noncentral_chisquare(
     df,
     nonc,
@@ -3035,6 +3076,7 @@ def noncentral_chisquare(
     return DEFAULT.noncentral_chisquare(df, nonc, size, key=key, dtype=dtype)
 
 
+@set_module_as('brainstate.random')
 def noncentral_f(
     dfnum,
     dfden,
@@ -3115,6 +3157,7 @@ def noncentral_f(
     return DEFAULT.noncentral_f(dfnum, dfden, nonc, size, key=key, dtype=dtype)
 
 
+@set_module_as('brainstate.random')
 def power(
     a,
     size: Optional[Size] = None,
@@ -3219,6 +3262,7 @@ def power(
     return DEFAULT.power(a, size, key=key, dtype=dtype)
 
 
+@set_module_as('brainstate.random')
 def rayleigh(
     scale=1.0,
     size: Optional[Size] = None,
@@ -3291,6 +3335,7 @@ def rayleigh(
     return DEFAULT.rayleigh(scale, size, key=key, dtype=dtype)
 
 
+@set_module_as('brainstate.random')
 def triangular(
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None
@@ -3354,6 +3399,7 @@ def triangular(
     return DEFAULT.triangular(size, key=key)
 
 
+@set_module_as('brainstate.random')
 def vonmises(
     mu,
     kappa,
@@ -3442,6 +3488,7 @@ def vonmises(
     return DEFAULT.vonmises(mu, kappa, size, key=key, dtype=dtype)
 
 
+@set_module_as('brainstate.random')
 def wald(
     mean,
     scale,
@@ -3515,6 +3562,7 @@ def wald(
     return DEFAULT.wald(mean, scale, size, key=key, dtype=dtype)
 
 
+@set_module_as('brainstate.random')
 def weibull(
     a,
     size: Optional[Size] = None,
@@ -3611,6 +3659,7 @@ def weibull(
     return DEFAULT.weibull(a, size, key=key, dtype=dtype)
 
 
+@set_module_as('brainstate.random')
 def weibull_min(
     a,
     scale=None,
@@ -3636,6 +3685,7 @@ def weibull_min(
     return DEFAULT.weibull_min(a, scale, size, key=key, dtype=dtype)
 
 
+@set_module_as('brainstate.random')
 def zipf(
     a,
     size: Optional[Size] = None,
@@ -3728,6 +3778,7 @@ def zipf(
     return DEFAULT.zipf(a, size, key=key, dtype=dtype)
 
 
+@set_module_as('brainstate.random')
 def maxwell(
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
@@ -3750,6 +3801,7 @@ def maxwell(
     return DEFAULT.maxwell(size, key=key, dtype=dtype)
 
 
+@set_module_as('brainstate.random')
 def t(
     df,
     size: Optional[Size] = None,
@@ -3777,6 +3829,7 @@ def t(
     return DEFAULT.t(df, size, key=key, dtype=dtype)
 
 
+@set_module_as('brainstate.random')
 def orthogonal(
     n: int,
     size: Optional[Size] = None,
@@ -3803,6 +3856,7 @@ def orthogonal(
     return DEFAULT.orthogonal(n, size, key=key, dtype=dtype)
 
 
+@set_module_as('brainstate.random')
 def loggamma(
     a,
     size: Optional[Size] = None,
@@ -3833,6 +3887,7 @@ def loggamma(
     return DEFAULT.loggamma(a, size, key=key, dtype=dtype)
 
 
+@set_module_as('brainstate.random')
 def categorical(
     logits,
     axis: int = -1,
@@ -3857,6 +3912,7 @@ def categorical(
     return DEFAULT.categorical(logits, axis, size, key=key)
 
 
+@set_module_as('brainstate.random')
 def rand_like(
     input,
     *,
@@ -3879,6 +3935,7 @@ def rand_like(
     return DEFAULT.rand_like(input, dtype=dtype, key=key)
 
 
+@set_module_as('brainstate.random')
 def randn_like(
     input,
     *,
@@ -3901,6 +3958,7 @@ def randn_like(
     return DEFAULT.randn_like(input, dtype=dtype, key=key)
 
 
+@set_module_as('brainstate.random')
 def randint_like(
     input,
     low=0,

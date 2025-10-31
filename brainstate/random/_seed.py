@@ -53,6 +53,7 @@ from contextlib import contextmanager
 import jax
 import numpy as np
 
+from brainstate._utils import set_module_as
 from brainstate.typing import SeedOrKey
 from ._state import RandomState, DEFAULT, use_prng_key
 
@@ -70,6 +71,7 @@ __all__ = [
 ]
 
 
+@set_module_as('brainstate.random')
 def restore_key() -> None:
     """
     Restore the default random key to its previous state.
@@ -98,6 +100,7 @@ def restore_key() -> None:
     DEFAULT.restore_key()
 
 
+@set_module_as('brainstate.random')
 def split_key(n: int = None, backup: bool = False):
     """
     Create new random key(s) from the current seed.
@@ -150,6 +153,7 @@ def split_key(n: int = None, backup: bool = False):
     return DEFAULT.split_key(n=n, backup=backup)
 
 
+@set_module_as('brainstate.random')
 def split_keys(n: int, backup: bool = False):
     """
     Create multiple independent random keys from the current seed.
@@ -211,6 +215,7 @@ def split_keys(n: int, backup: bool = False):
     return split_key(n, backup=backup)
 
 
+@set_module_as('brainstate.random')
 def self_assign_multi_keys(n: int, backup: bool = True) -> None:
     """
     Assign multiple keys to the global random state for parallel access.
@@ -257,6 +262,7 @@ def self_assign_multi_keys(n: int, backup: bool = True) -> None:
     DEFAULT.self_assign_multi_keys(n, backup=backup)
 
 
+@set_module_as('brainstate.random')
 def clone_rng(seed_or_key: SeedOrKey = None, clone: bool = True) -> RandomState:
     """
     Create a clone of the random state or a new random state.
@@ -313,6 +319,7 @@ def clone_rng(seed_or_key: SeedOrKey = None, clone: bool = True) -> RandomState:
         return RandomState(seed_or_key)
 
 
+@set_module_as('brainstate.random')
 def default_rng(seed_or_key: SeedOrKey = None) -> RandomState:
     """
     Get the default random state or create a new one with specified seed.
@@ -367,6 +374,7 @@ def default_rng(seed_or_key: SeedOrKey = None) -> RandomState:
         return RandomState(seed_or_key)
 
 
+@set_module_as('brainstate.random')
 def set_key(seed_or_key: SeedOrKey) -> None:
     """
     Set a new random key for the global random state.
@@ -433,6 +441,7 @@ def set_key(seed_or_key: SeedOrKey) -> None:
     DEFAULT.set_key(key)
 
 
+@set_module_as('brainstate.random')
 def get_key():
     """
     Get the current global random key.
@@ -486,6 +495,7 @@ def get_key():
     return DEFAULT.value
 
 
+@set_module_as('brainstate.random')
 def seed(seed_or_key: SeedOrKey = None):
     """
     Set the global random seed for both JAX and NumPy.
@@ -576,6 +586,7 @@ def seed(seed_or_key: SeedOrKey = None):
 
 
 @contextmanager
+@set_module_as('brainstate.random')
 def seed_context(seed_or_key: SeedOrKey):
     """
     Context manager for temporary random seed changes with automatic restoration.

@@ -80,6 +80,7 @@ class StateFinder:
     The underlying :class:`StatefulFunction` is cached, so subsequent calls with
     compatible arguments will reuse the compiled trace.
     """
+    __module__ = 'brainstate.transform'
 
     _VALID_USAGE: tuple[str, ...] = ('all', 'read', 'write', 'both')
     _VALID_RETURN_TYPE: tuple[str, ...] = ('dict', 'list', 'tuple')
