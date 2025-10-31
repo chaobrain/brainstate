@@ -49,7 +49,7 @@ with special support for BrainScale online learning integration.
    HiddenGroupState
    HiddenTreeState
 
-- **HiddenState**: Single hidden state variable for neurons or synapses (equivalent to ``brainscale.ETraceState``)
+- **HiddenState**: Single hidden state variable for neurons or synapses (equivalent to ``brainstate.HiddenState``)
 - **HiddenGroupState**: Multiple hidden states stored in the last dimension of a single array
 - **HiddenTreeState**: Multiple hidden states with different units, stored as a PyTree structure
 

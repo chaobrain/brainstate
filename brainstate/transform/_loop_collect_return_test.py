@@ -32,7 +32,7 @@ class TestForLoop(unittest.TestCase):
 
         n_iter = 10
         ops = np.arange(n_iter)
-        r = brainstate.compile.for_loop(f, ops)
+        r = brainstate.transform.for_loop(f, ops)
 
         print(a)
         print(b)
@@ -49,7 +49,7 @@ class TestForLoop(unittest.TestCase):
 
         n_iter = 18
         ops = jnp.arange(n_iter)
-        r = brainstate.compile.checkpointed_for_loop(f, ops, base=2, pbar=brainstate.compile.ProgressBar())
+        r = brainstate.transform.checkpointed_for_loop(f, ops, base=2, pbar=brainstate.transform.ProgressBar())
 
         print(a)
         print(b)

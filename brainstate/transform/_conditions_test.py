@@ -24,8 +24,8 @@ import brainstate
 class TestCond(unittest.TestCase):
     def test1(self):
         brainstate.random.seed(1)
-        brainstate.compile.cond(True, lambda: brainstate.random.random(10), lambda: brainstate.random.random(10))
-        brainstate.compile.cond(False, lambda: brainstate.random.random(10), lambda: brainstate.random.random(10))
+        brainstate.transform.cond(True, lambda: brainstate.random.random(10), lambda: brainstate.random.random(10))
+        brainstate.transform.cond(False, lambda: brainstate.random.random(10), lambda: brainstate.random.random(10))
 
     def test2(self):
         st1 = brainstate.State(brainstate.random.rand(10))
@@ -39,7 +39,7 @@ class TestCond(unittest.TestCase):
         def false_fun(x):
             st3.value = (st3.value + 1.) * x
 
-        brainstate.compile.cond(True, true_fun, false_fun, 2.)
+        brainstate.transform.cond(True, true_fun, false_fun, 2.)
         assert not isinstance(st1.value, jax.core.Tracer)
         assert not isinstance(st2.value, jax.core.Tracer)
         assert not isinstance(st3.value, jax.core.Tracer)
@@ -65,7 +65,7 @@ class TestSwitch(unittest.TestCase):
                 return branches[2](x)
 
         def cfun(x):
-            return brainstate.compile.switch(x, branches, x)
+            return brainstate.transform.switch(x, branches, x)
 
         self.assertEqual(fun(-1), cfun(-1))
         self.assertEqual(fun(0), cfun(0))
@@ -89,7 +89,7 @@ class TestSwitch(unittest.TestCase):
             return branches[i](x, x)
 
         def cfun(x):
-            return brainstate.compile.switch(x, branches, x, x)
+            return brainstate.transform.switch(x, branches, x, x)
 
         self.assertEqual(fun(-1), cfun(-1))
         self.assertEqual(fun(0), cfun(0))
@@ -122,13 +122,13 @@ class TestSwitch(unittest.TestCase):
         branches3 = branches2 + [lambda x: jnp.sin(x) + jnp.cos(x)]  # requires one more residual slot
 
         def fun1(x, i):
-            return brainstate.compile.switch(i + 1, branches1, x)
+            return brainstate.transform.switch(i + 1, branches1, x)
 
         def fun2(x, i):
-            return brainstate.compile.switch(i + 1, branches2, x)
+            return brainstate.transform.switch(i + 1, branches2, x)
 
         def fun3(x, i):
-            return brainstate.compile.switch(i + 1, branches3, x)
+            return brainstate.transform.switch(i + 1, branches3, x)
 
         fwd1, bwd1 = get_conds(fun1)
         fwd2, bwd2 = get_conds(fun2)
@@ -148,7 +148,7 @@ class TestSwitch(unittest.TestCase):
 
     def testOneBranchSwitch(self):
         branch = lambda x: -x
-        f = lambda i, x: brainstate.compile.switch(i, [branch], x)
+        f = lambda i, x: brainstate.transform.switch(i, [branch], x)
         x = 7.
         self.assertEqual(f(-1, x), branch(x))
         self.assertEqual(f(0, x), branch(x))
@@ -166,7 +166,7 @@ class TestSwitch(unittest.TestCase):
 class TestIfElse(unittest.TestCase):
     def test1(self):
         def f(a):
-            return brainstate.compile.ifelse(conditions=[a < 0,
+            return brainstate.transform.ifelse(conditions=[a < 0,
                                                          a >= 0 and a < 2,
                                                          a >= 2 and a < 5,
                                                          a >= 5 and a < 10,
@@ -183,7 +183,7 @@ class TestIfElse(unittest.TestCase):
 
     def test_vmap(self):
         def f(operands):
-            f = lambda a: brainstate.compile.ifelse([a > 10,
+            f = lambda a: brainstate.transform.ifelse([a > 10,
                                                      jnp.logical_and(a <= 10, a > 5),
                                                      jnp.logical_and(a <= 5, a > 2),
                                                      jnp.logical_and(a <= 2, a > 0),
@@ -201,7 +201,7 @@ class TestIfElse(unittest.TestCase):
 
     def test_grad1(self):
         def F2(x):
-            return brainstate.compile.ifelse((x >= 10, x < 10),
+            return brainstate.transform.ifelse((x >= 10, x < 10),
                                              [lambda x: x, lambda x: x ** 2, ],
                                              x)
 
@@ -210,7 +210,7 @@ class TestIfElse(unittest.TestCase):
 
     def test_grad2(self):
         def F3(x):
-            return brainstate.compile.ifelse((x >= 10, jnp.logical_and(x >= 0, x < 10), x < 0),
+            return brainstate.transform.ifelse((x >= 10, jnp.logical_and(x >= 0, x < 10), x < 0),
                                              [lambda x: x,
                                               lambda x: x ** 2,
                                               lambda x: x ** 4, ],

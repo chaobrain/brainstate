@@ -16,12 +16,13 @@
 
 import unittest
 
+import braintools
+import brainunit as u
 import jax
 import jax.numpy as jnp
 import numpy as np
-import brainunit as u
 
-import brainstate as bst
+import brainstate
 
 
 class TestBasicState(unittest.TestCase):
@@ -30,7 +31,7 @@ class TestBasicState(unittest.TestCase):
     def test_state_initialization(self):
         """Test basic state initialization."""
         value = jnp.array([1.0, 2.0, 3.0])
-        state = bst.State(value, name='test_state')
+        state = brainstate.State(value, name='test_state')
 
         self.assertEqual(state.name, 'test_state')
         np.testing.assert_array_equal(state.value, value)
@@ -38,35 +39,35 @@ class TestBasicState(unittest.TestCase):
 
     def test_state_without_name(self):
         """Test state initialization without a name."""
-        state = bst.State(jnp.zeros(5))
+        state = brainstate.State(jnp.zeros(5))
         self.assertIsNone(state.name)
 
     def test_state_value_setter(self):
         """Test setting state values."""
-        state = bst.State(jnp.zeros(3))
+        state = brainstate.State(jnp.zeros(3))
         new_value = jnp.array([1.0, 2.0, 3.0])
         state.value = new_value
         np.testing.assert_array_equal(state.value, new_value)
 
     def test_state_value_from_another_state_fails(self):
         """Test that setting value from another State raises an error."""
-        state1 = bst.State(jnp.zeros(3))
-        state2 = bst.State(jnp.ones(3))
+        state1 = brainstate.State(jnp.zeros(3))
+        state2 = brainstate.State(jnp.ones(3))
 
         with self.assertRaises(ValueError):
             state1.value = state2
 
     def test_state_numel(self):
         """Test numel calculation."""
-        state = bst.State(jnp.zeros((2, 3, 4)))
+        state = brainstate.State(jnp.zeros((2, 3, 4)))
         self.assertEqual(state.numel(), 24)
 
-        state2 = bst.State({'a': jnp.zeros(5), 'b': jnp.zeros((2, 3))})
+        state2 = brainstate.State({'a': jnp.zeros(5), 'b': jnp.zeros((2, 3))})
         self.assertEqual(state2.numel(), 11)
 
     def test_state_copy(self):
         """Test state copying."""
-        state = bst.State(jnp.array([1.0, 2.0]), name='original')
+        state = brainstate.State(jnp.array([1.0, 2.0]), name='original')
         state_copy = state.copy()
 
         self.assertEqual(state_copy.name, 'original')
@@ -75,7 +76,7 @@ class TestBasicState(unittest.TestCase):
 
     def test_state_replace(self):
         """Test state replace method."""
-        state = bst.State(jnp.array([1.0, 2.0]), name='test')
+        state = brainstate.State(jnp.array([1.0, 2.0]), name='test')
         new_state = state.replace(value=jnp.array([3.0, 4.0]))
 
         np.testing.assert_array_equal(new_state.value, jnp.array([3.0, 4.0]))
@@ -83,7 +84,7 @@ class TestBasicState(unittest.TestCase):
 
     def test_state_replace_with_name(self):
         """Test state replace with name update."""
-        state = bst.State(jnp.array([1.0, 2.0]), name='test')
+        state = brainstate.State(jnp.array([1.0, 2.0]), name='test')
         new_state = state.replace(_name='new_name')
 
         self.assertEqual(new_state.name, 'new_name')
@@ -91,7 +92,7 @@ class TestBasicState(unittest.TestCase):
 
     def test_state_restore_value(self):
         """Test restoring state values."""
-        state = bst.State(jnp.zeros(3))
+        state = brainstate.State(jnp.zeros(3))
         original = state.value.copy()
 
         state.value = jnp.ones(3)
@@ -101,7 +102,7 @@ class TestBasicState(unittest.TestCase):
 
     def test_state_hashable(self):
         """Test that states are hashable."""
-        state = bst.State(jnp.zeros(3))
+        state = brainstate.State(jnp.zeros(3))
         hash_val = hash(state)
         self.assertIsInstance(hash_val, int)
 
@@ -111,24 +112,24 @@ class TestBasicState(unittest.TestCase):
 
     def test_state_to_state_ref(self):
         """Test converting state to TreefyState reference."""
-        state = bst.State(jnp.array([1.0, 2.0]), name='test')
+        state = brainstate.State(jnp.array([1.0, 2.0]), name='test')
         state_ref = state.to_state_ref()
 
-        self.assertIsInstance(state_ref, bst.TreefyState)
+        self.assertIsInstance(state_ref, brainstate.TreefyState)
         np.testing.assert_array_equal(state_ref.value, state.value)
         self.assertEqual(state_ref.name, 'test')
 
     def test_state_update_from_ref(self):
         """Test updating state from TreefyState reference."""
-        state = bst.State(jnp.zeros(3), name='test')
-        state_ref = bst.TreefyState(bst.State, jnp.ones(3), _name='test', _been_writen=True)
+        state = brainstate.State(jnp.zeros(3), name='test')
+        state_ref = brainstate.TreefyState(brainstate.State, jnp.ones(3), _name='test', _been_writen=True)
 
         state.update_from_ref(state_ref)
         np.testing.assert_array_equal(state.value, jnp.ones(3))
 
     def test_state_stack_level(self):
         """Test state stack level management."""
-        state = bst.State(jnp.zeros(3))
+        state = brainstate.State(jnp.zeros(3))
         initial_level = state.stack_level
 
         state.increase_stack_level()
@@ -148,14 +149,14 @@ class TestStateSourceInfo(unittest.TestCase):
 
     def test_state_source_info(self):
         """Test that source info is captured."""
-        state = bst.State(bst.random.randn(10))
+        state = brainstate.State(brainstate.random.randn(10))
         self.assertIsNotNone(state.source_info)
 
     def test_state_value_tree(self):
         """Test state value tree checking."""
-        state = bst.ShortTermState(jnp.zeros((2, 3)))
+        state = brainstate.ShortTermState(jnp.zeros((2, 3)))
 
-        with bst.check_state_value_tree():
+        with brainstate.check_state_value_tree():
             state.value = jnp.zeros((2, 3))
 
             with self.assertRaises(ValueError):
@@ -167,19 +168,19 @@ class TestStateRepr(unittest.TestCase):
 
     def test_state_repr(self):
         """Test basic state representation."""
-        state = bst.State(bst.random.randn(10))
+        state = brainstate.State(brainstate.random.randn(10))
         repr_str = repr(state)
         self.assertIsInstance(repr_str, str)
 
     def test_state_dict_repr(self):
         """Test state representation with dict value."""
-        state = bst.State({'a': bst.random.randn(10), 'b': bst.random.randn(10)})
+        state = brainstate.State({'a': brainstate.random.randn(10), 'b': brainstate.random.randn(10)})
         repr_str = repr(state)
         self.assertIsInstance(repr_str, str)
 
     def test_state_list_repr(self):
         """Test state representation with list value."""
-        state = bst.State([bst.random.randn(10), bst.random.randn(10)])
+        state = brainstate.State([brainstate.random.randn(10), brainstate.random.randn(10)])
         repr_str = repr(state)
         self.assertIsInstance(repr_str, str)
 
@@ -189,14 +190,14 @@ class TestShortTermState(unittest.TestCase):
 
     def test_short_term_state_creation(self):
         """Test creating a short-term state."""
-        state = bst.ShortTermState(jnp.zeros(5), name='short_term')
-        self.assertIsInstance(state, bst.ShortTermState)
-        self.assertIsInstance(state, bst.State)
+        state = brainstate.ShortTermState(jnp.zeros(5), name='short_term')
+        self.assertIsInstance(state, brainstate.ShortTermState)
+        self.assertIsInstance(state, brainstate.State)
         self.assertEqual(state.name, 'short_term')
 
     def test_short_term_state_semantics(self):
         """Test that ShortTermState behaves like State."""
-        state = bst.ShortTermState(jnp.array([1.0, 2.0, 3.0]))
+        state = brainstate.ShortTermState(jnp.array([1.0, 2.0, 3.0]))
         state.value = jnp.array([4.0, 5.0, 6.0])
         np.testing.assert_array_equal(state.value, jnp.array([4.0, 5.0, 6.0]))
 
@@ -206,14 +207,14 @@ class TestLongTermState(unittest.TestCase):
 
     def test_long_term_state_creation(self):
         """Test creating a long-term state."""
-        state = bst.LongTermState(jnp.zeros(5), name='long_term')
-        self.assertIsInstance(state, bst.LongTermState)
-        self.assertIsInstance(state, bst.State)
+        state = brainstate.LongTermState(jnp.zeros(5), name='long_term')
+        self.assertIsInstance(state, brainstate.LongTermState)
+        self.assertIsInstance(state, brainstate.State)
         self.assertEqual(state.name, 'long_term')
 
     def test_long_term_state_semantics(self):
         """Test that LongTermState behaves like State."""
-        state = bst.LongTermState(jnp.array([1.0, 2.0, 3.0]))
+        state = brainstate.LongTermState(jnp.array([1.0, 2.0, 3.0]))
         state.value = jnp.array([4.0, 5.0, 6.0])
         np.testing.assert_array_equal(state.value, jnp.array([4.0, 5.0, 6.0]))
 
@@ -223,15 +224,15 @@ class TestParamState(unittest.TestCase):
 
     def test_param_state_creation(self):
         """Test creating a parameter state."""
-        state = bst.ParamState(jnp.zeros((3, 3)), name='weights')
-        self.assertIsInstance(state, bst.ParamState)
-        self.assertIsInstance(state, bst.LongTermState)
+        state = brainstate.ParamState(jnp.zeros((3, 3)), name='weights')
+        self.assertIsInstance(state, brainstate.ParamState)
+        self.assertIsInstance(state, brainstate.LongTermState)
         self.assertEqual(state.name, 'weights')
 
     def test_param_state_typical_use(self):
         """Test typical parameter state usage."""
-        weights = bst.ParamState(jnp.ones((10, 5)), name='layer_weights')
-        bias = bst.ParamState(jnp.zeros(5), name='layer_bias')
+        weights = brainstate.ParamState(jnp.ones((10, 5)), name='layer_weights')
+        bias = brainstate.ParamState(jnp.zeros(5), name='layer_bias')
 
         self.assertEqual(weights.value.shape, (10, 5))
         self.assertEqual(bias.value.shape, (5,))
@@ -242,13 +243,13 @@ class TestBatchState(unittest.TestCase):
 
     def test_batch_state_creation(self):
         """Test creating a batch state."""
-        state = bst.BatchState(jnp.zeros((32, 10)), name='batch')
-        self.assertIsInstance(state, bst.BatchState)
-        self.assertIsInstance(state, bst.LongTermState)
+        state = brainstate.BatchState(jnp.zeros((32, 10)), name='batch')
+        self.assertIsInstance(state, brainstate.BatchState)
+        self.assertIsInstance(state, brainstate.LongTermState)
 
     def test_batch_state_semantics(self):
         """Test batch state typical usage."""
-        batch = bst.BatchState(jnp.array([[1, 2], [3, 4], [5, 6]]))
+        batch = brainstate.BatchState(jnp.array([[1, 2], [3, 4], [5, 6]]))
         self.assertEqual(batch.value.shape, (3, 2))
 
 
@@ -257,44 +258,44 @@ class TestHiddenState(unittest.TestCase):
 
     def test_hidden_state_creation(self):
         """Test creating a hidden state."""
-        state = bst.HiddenState(jnp.zeros(10), name='hidden')
-        self.assertIsInstance(state, bst.HiddenState)
-        self.assertIsInstance(state, bst.ShortTermState)
+        state = brainstate.HiddenState(jnp.zeros(10), name='hidden')
+        self.assertIsInstance(state, brainstate.HiddenState)
+        self.assertIsInstance(state, brainstate.ShortTermState)
 
     def test_hidden_state_with_array(self):
         """Test HiddenState with numpy array."""
-        state = bst.HiddenState(np.zeros(5))
+        state = brainstate.HiddenState(np.zeros(5))
         self.assertEqual(state.varshape, (5,))
         self.assertEqual(state.num_state, 1)
 
     def test_hidden_state_with_jax_array(self):
         """Test HiddenState with JAX array."""
-        state = bst.HiddenState(jnp.zeros((3, 4)))
+        state = brainstate.HiddenState(jnp.zeros((3, 4)))
         self.assertEqual(state.varshape, (3, 4))
         self.assertEqual(state.num_state, 1)
 
     def test_hidden_state_with_quantity(self):
         """Test HiddenState with brainunit Quantity."""
-        state = bst.HiddenState(jnp.zeros(5) * u.mV)
+        state = brainstate.HiddenState(jnp.zeros(5) * u.mV)
         self.assertEqual(state.varshape, (5,))
         self.assertEqual(state.num_state, 1)
 
     def test_hidden_state_invalid_type(self):
         """Test that invalid types raise TypeError."""
         with self.assertRaises(TypeError):
-            bst.HiddenState([1, 2, 3])  # Python list not allowed
+            brainstate.HiddenState([1, 2, 3])  # Python list not allowed
 
         with self.assertRaises(TypeError):
-            bst.HiddenState({'a': 1})  # Dict not allowed
+            brainstate.HiddenState({'a': 1})  # Dict not allowed
 
     def test_hidden_state_varshape(self):
         """Test varshape property."""
-        state = bst.HiddenState(jnp.zeros((10, 20)))
+        state = brainstate.HiddenState(jnp.zeros((10, 20)))
         self.assertEqual(state.varshape, (10, 20))
 
     def test_hidden_state_num_state(self):
         """Test num_state property."""
-        state = bst.HiddenState(jnp.zeros(10))
+        state = brainstate.HiddenState(jnp.zeros(10))
         self.assertEqual(state.num_state, 1)
 
 
@@ -304,16 +305,16 @@ class TestHiddenGroupState(unittest.TestCase):
     def test_hidden_group_state_creation(self):
         """Test creating a hidden group state."""
         value = np.random.randn(10, 10, 5)
-        state = bst.HiddenGroupState(value)
+        state = brainstate.HiddenGroupState(value)
 
-        self.assertIsInstance(state, bst.HiddenGroupState)
+        self.assertIsInstance(state, brainstate.HiddenGroupState)
         self.assertEqual(state.num_state, 5)
         self.assertEqual(state.varshape, (10, 10))
 
     def test_hidden_group_state_with_quantity(self):
         """Test HiddenGroupState with Quantity."""
         value = np.random.randn(10, 10, 5) * u.mV
-        state = bst.HiddenGroupState(value)
+        state = brainstate.HiddenGroupState(value)
 
         self.assertEqual(state.num_state, 5)
         self.assertEqual(state.varshape, (10, 10))
@@ -321,12 +322,12 @@ class TestHiddenGroupState(unittest.TestCase):
     def test_hidden_group_state_invalid_dimensions(self):
         """Test that 1D arrays raise ValueError."""
         with self.assertRaises(ValueError):
-            bst.HiddenGroupState(np.zeros(5))
+            brainstate.HiddenGroupState(np.zeros(5))
 
     def test_hidden_group_state_get_value_by_index(self):
         """Test getting value by integer index."""
         value = np.random.randn(10, 10, 3)
-        state = bst.HiddenGroupState(value)
+        state = brainstate.HiddenGroupState(value)
 
         first_state = state.get_value(0)
         self.assertEqual(first_state.shape, (10, 10))
@@ -335,7 +336,7 @@ class TestHiddenGroupState(unittest.TestCase):
     def test_hidden_group_state_get_value_by_name(self):
         """Test getting value by string name."""
         value = np.random.randn(10, 10, 3)
-        state = bst.HiddenGroupState(value)
+        state = brainstate.HiddenGroupState(value)
 
         first_state = state.get_value('0')
         second_state = state.get_value('1')
@@ -346,7 +347,7 @@ class TestHiddenGroupState(unittest.TestCase):
     def test_hidden_group_state_get_value_invalid_index(self):
         """Test that invalid indices raise errors."""
         value = np.random.randn(10, 10, 3)
-        state = bst.HiddenGroupState(value)
+        state = brainstate.HiddenGroupState(value)
 
         with self.assertRaises(AssertionError):
             state.get_value(5)  # Out of range
@@ -357,7 +358,7 @@ class TestHiddenGroupState(unittest.TestCase):
     def test_hidden_group_state_set_value_dict(self):
         """Test setting values with dictionary."""
         value = jnp.array(np.random.randn(10, 10, 3))
-        state = bst.HiddenGroupState(value)
+        state = brainstate.HiddenGroupState(value)
 
         new_val = jnp.ones((10, 10))
         state.set_value({0: new_val})
@@ -367,7 +368,7 @@ class TestHiddenGroupState(unittest.TestCase):
     def test_hidden_group_state_set_value_by_name(self):
         """Test setting values by name."""
         value = jnp.array(np.random.randn(10, 10, 3))
-        state = bst.HiddenGroupState(value)
+        state = brainstate.HiddenGroupState(value)
 
         new_val = jnp.ones((10, 10))
         state.set_value({'1': new_val})
@@ -377,7 +378,7 @@ class TestHiddenGroupState(unittest.TestCase):
     def test_hidden_group_state_set_value_list(self):
         """Test setting values with list."""
         value = jnp.array(np.random.randn(10, 10, 3))
-        state = bst.HiddenGroupState(value)
+        state = brainstate.HiddenGroupState(value)
 
         new_vals = [jnp.ones((10, 10)), jnp.zeros((10, 10))]
         state.set_value(new_vals)
@@ -388,7 +389,7 @@ class TestHiddenGroupState(unittest.TestCase):
     def test_hidden_group_state_set_value_wrong_shape(self):
         """Test that wrong shapes raise errors."""
         value = np.random.randn(10, 10, 3)
-        state = bst.HiddenGroupState(value)
+        state = brainstate.HiddenGroupState(value)
 
         with self.assertRaises(AssertionError):
             state.set_value({0: np.ones((5, 5))})  # Wrong shape
@@ -396,7 +397,7 @@ class TestHiddenGroupState(unittest.TestCase):
     def test_hidden_group_state_name2index(self):
         """Test name2index mapping."""
         value = np.random.randn(10, 10, 5)
-        state = bst.HiddenGroupState(value)
+        state = brainstate.HiddenGroupState(value)
 
         self.assertEqual(len(state.name2index), 5)
         self.assertEqual(state.name2index['0'], 0)
@@ -413,7 +414,7 @@ class TestHiddenTreeState(unittest.TestCase):
             np.random.randn(10, 10) * u.mA,
             np.random.randn(10, 10) * u.mS
         ]
-        state = bst.HiddenTreeState(value)
+        state = brainstate.HiddenTreeState(value)
 
         self.assertEqual(state.num_state, 3)
         self.assertEqual(state.varshape, (10, 10))
@@ -425,7 +426,7 @@ class TestHiddenTreeState(unittest.TestCase):
             'i': np.random.randn(10, 10) * u.mA,
             'g': np.random.randn(10, 10) * u.mS
         }
-        state = bst.HiddenTreeState(value)
+        state = brainstate.HiddenTreeState(value)
 
         self.assertEqual(state.num_state, 3)
         self.assertEqual(state.varshape, (10, 10))
@@ -439,7 +440,7 @@ class TestHiddenTreeState(unittest.TestCase):
             'v': np.random.randn(10, 10) * u.mV,
             'i': np.random.randn(10, 10) * u.mA,
         }
-        state = bst.HiddenTreeState(value)
+        state = brainstate.HiddenTreeState(value)
 
         v_val = state.get_value('v')
         self.assertEqual(v_val.shape, (10, 10))
@@ -452,7 +453,7 @@ class TestHiddenTreeState(unittest.TestCase):
             'v': np.random.randn(10, 10) * u.mV,
             'i': np.random.randn(10, 10) * u.mA,
         }
-        state = bst.HiddenTreeState(value)
+        state = brainstate.HiddenTreeState(value)
 
         val0 = state.get_value(0)
         val1 = state.get_value(1)
@@ -466,7 +467,7 @@ class TestHiddenTreeState(unittest.TestCase):
             'v': np.random.randn(10, 10) * u.mV,
             'i': np.random.randn(10, 10) * u.mA,
         }
-        state = bst.HiddenTreeState(value)
+        state = brainstate.HiddenTreeState(value)
 
         new_v = np.ones((10, 10)) * u.mV
         state.set_value({'v': new_v})
@@ -480,7 +481,7 @@ class TestHiddenTreeState(unittest.TestCase):
             np.random.randn(10, 10) * u.mV,
             np.random.randn(10, 10) * u.mA,
         ]
-        state = bst.HiddenTreeState(value)
+        state = brainstate.HiddenTreeState(value)
 
         new_vals = [
             np.ones((10, 10)) * u.mV,
@@ -497,7 +498,7 @@ class TestHiddenTreeState(unittest.TestCase):
             'v': np.ones((5, 5)) * u.mV,
             'i': np.ones((5, 5)) * u.mA,
         }
-        state = bst.HiddenTreeState(value)
+        state = brainstate.HiddenTreeState(value)
 
         v_val = state.get_value('v')
         i_val = state.get_value('i')
@@ -511,7 +512,7 @@ class TestHiddenTreeState(unittest.TestCase):
             np.random.randn(10, 10),
             np.random.randn(10, 10),
         ]
-        state = bst.HiddenTreeState(value)
+        state = brainstate.HiddenTreeState(value)
 
         val = state.get_value(0)
         self.assertIsInstance(val, (np.ndarray, jax.Array))
@@ -524,7 +525,7 @@ class TestHiddenTreeState(unittest.TestCase):
         ]
 
         with self.assertRaises(ValueError):
-            bst.HiddenTreeState(value)
+            brainstate.HiddenTreeState(value)
 
     def test_hidden_tree_state_invalid_type_error(self):
         """Test that invalid types raise TypeError."""
@@ -534,7 +535,7 @@ class TestHiddenTreeState(unittest.TestCase):
         }
 
         with self.assertRaises(TypeError):
-            bst.HiddenTreeState(value)
+            brainstate.HiddenTreeState(value)
 
     def test_hidden_tree_state_name2unit_mapping(self):
         """Test name2unit mapping."""
@@ -543,7 +544,7 @@ class TestHiddenTreeState(unittest.TestCase):
             'i': np.ones((5, 5)) * u.mA,
             'g': np.ones((5, 5)) * u.mS,
         }
-        state = bst.HiddenTreeState(value)
+        state = brainstate.HiddenTreeState(value)
 
         self.assertEqual(state.name2unit['v'], u.mV)
         self.assertEqual(state.name2unit['i'], u.mA)
@@ -555,7 +556,7 @@ class TestHiddenTreeState(unittest.TestCase):
             np.ones((5, 5)) * u.mV,
             np.ones((5, 5)) * u.mA,
         ]
-        state = bst.HiddenTreeState(value)
+        state = brainstate.HiddenTreeState(value)
 
         self.assertEqual(state.index2unit[0], u.mV)
         self.assertEqual(state.index2unit[1], u.mA)
@@ -566,25 +567,25 @@ class TestFakeState(unittest.TestCase):
 
     def test_fake_state_creation(self):
         """Test creating a fake state."""
-        state = bst.FakeState(42, name='fake')
+        state = brainstate.FakeState(42, name='fake')
         self.assertEqual(state.value, 42)
         self.assertEqual(state.name, 'fake')
 
     def test_fake_state_value_setter(self):
         """Test setting fake state value."""
-        state = bst.FakeState(10)
+        state = brainstate.FakeState(10)
         state.value = 20
         self.assertEqual(state.value, 20)
 
     def test_fake_state_name_setter(self):
         """Test setting fake state name."""
-        state = bst.FakeState(10, name='old')
+        state = brainstate.FakeState(10, name='old')
         state.name = 'new'
         self.assertEqual(state.name, 'new')
 
     def test_fake_state_repr(self):
         """Test fake state representation."""
-        state = bst.FakeState([1, 2, 3])
+        state = brainstate.FakeState([1, 2, 3])
         repr_str = repr(state)
         self.assertIn('FakedState', repr_str)
 
@@ -594,14 +595,14 @@ class TestStateDictManager(unittest.TestCase):
 
     def test_dict_manager_creation(self):
         """Test creating a StateDictManager."""
-        manager = bst.StateDictManager()
-        self.assertIsInstance(manager, bst.StateDictManager)
+        manager = brainstate.StateDictManager()
+        self.assertIsInstance(manager, brainstate.StateDictManager)
 
     def test_dict_manager_add_states(self):
         """Test adding states to manager."""
-        manager = bst.StateDictManager()
-        state1 = bst.State(jnp.zeros(5), name='state1')
-        state2 = bst.State(jnp.ones(5), name='state2')
+        manager = brainstate.StateDictManager()
+        state1 = brainstate.State(jnp.zeros(5), name='state1')
+        state2 = brainstate.State(jnp.ones(5), name='state2')
 
         manager['s1'] = state1
         manager['s2'] = state2
@@ -612,8 +613,8 @@ class TestStateDictManager(unittest.TestCase):
 
     def test_dict_manager_assign_values(self):
         """Test assigning values through manager."""
-        manager = bst.StateDictManager()
-        state = bst.State(jnp.zeros(3), name='test')
+        manager = brainstate.StateDictManager()
+        state = brainstate.State(jnp.zeros(3), name='test')
         manager['test'] = state
 
         new_values = {'test': jnp.array([1.0, 2.0, 3.0])}
@@ -623,9 +624,9 @@ class TestStateDictManager(unittest.TestCase):
 
     def test_dict_manager_collect_values(self):
         """Test collecting values from manager."""
-        manager = bst.StateDictManager()
-        state1 = bst.State(jnp.array([1.0, 2.0]), name='s1')
-        state2 = bst.State(jnp.array([3.0, 4.0]), name='s2')
+        manager = brainstate.StateDictManager()
+        state1 = brainstate.State(jnp.array([1.0, 2.0]), name='s1')
+        state2 = brainstate.State(jnp.array([3.0, 4.0]), name='s2')
 
         manager['s1'] = state1
         manager['s2'] = state2
@@ -637,21 +638,21 @@ class TestStateDictManager(unittest.TestCase):
 
     def test_dict_manager_split_values(self):
         """Test splitting values by type."""
-        manager = bst.StateDictManager()
-        short_state = bst.ShortTermState(jnp.zeros(3))
-        long_state = bst.LongTermState(jnp.ones(3))
+        manager = brainstate.StateDictManager()
+        short_state = brainstate.ShortTermState(jnp.zeros(3))
+        long_state = brainstate.LongTermState(jnp.ones(3))
 
         manager['short'] = short_state
         manager['long'] = long_state
 
-        short_vals, other_vals = manager.split_values(bst.ShortTermState)
+        short_vals, other_vals = manager.split_values(brainstate.ShortTermState)
         self.assertEqual(len(short_vals), 1)
 
     def test_dict_manager_to_dict_values(self):
         """Test converting to dict of values."""
-        manager = bst.StateDictManager()
-        state1 = bst.State(jnp.array([1.0]), name='s1')
-        state2 = bst.State(jnp.array([2.0]), name='s2')
+        manager = brainstate.StateDictManager()
+        state1 = brainstate.State(jnp.array([1.0]), name='s1')
+        state2 = brainstate.State(jnp.array([2.0]), name='s2')
 
         manager['s1'] = state1
         manager['s2'] = state2
@@ -666,14 +667,14 @@ class TestStateTraceStack(unittest.TestCase):
 
     def test_trace_stack_creation(self):
         """Test creating a StateTraceStack."""
-        stack = bst.StateTraceStack(name='test_stack')
+        stack = brainstate.StateTraceStack(name='test_stack')
         self.assertEqual(stack.name, 'test_stack')
         self.assertEqual(len(stack.states), 0)
 
     def test_trace_stack_read_value(self):
         """Test recording state reads."""
-        stack = bst.StateTraceStack()
-        state = bst.State(jnp.zeros(3))
+        stack = brainstate.StateTraceStack()
+        state = brainstate.State(jnp.zeros(3))
 
         with stack:
             _ = state.value
@@ -684,8 +685,8 @@ class TestStateTraceStack(unittest.TestCase):
 
     def test_trace_stack_write_value(self):
         """Test recording state writes."""
-        stack = bst.StateTraceStack()
-        state = bst.State(jnp.zeros(3))
+        stack = brainstate.StateTraceStack()
+        state = brainstate.State(jnp.zeros(3))
 
         with stack:
             state.value = jnp.ones(3)
@@ -695,9 +696,9 @@ class TestStateTraceStack(unittest.TestCase):
 
     def test_trace_stack_get_state_values(self):
         """Test getting state values from stack."""
-        stack = bst.StateTraceStack()
-        state1 = bst.State(jnp.array([1.0, 2.0]))
-        state2 = bst.State(jnp.array([3.0, 4.0]))
+        stack = brainstate.StateTraceStack()
+        state1 = brainstate.State(jnp.array([1.0, 2.0]))
+        state2 = brainstate.State(jnp.array([3.0, 4.0]))
 
         with stack:
             _ = state1.value
@@ -708,9 +709,9 @@ class TestStateTraceStack(unittest.TestCase):
 
     def test_trace_stack_get_read_states(self):
         """Test getting read-only states."""
-        stack = bst.StateTraceStack()
-        read_state = bst.State(jnp.zeros(3))
-        write_state = bst.State(jnp.ones(3))
+        stack = brainstate.StateTraceStack()
+        read_state = brainstate.State(jnp.zeros(3))
+        write_state = brainstate.State(jnp.ones(3))
 
         with stack:
             _ = read_state.value
@@ -723,9 +724,9 @@ class TestStateTraceStack(unittest.TestCase):
 
     def test_trace_stack_get_write_states(self):
         """Test getting written states."""
-        stack = bst.StateTraceStack()
-        read_state = bst.State(jnp.zeros(3))
-        write_state = bst.State(jnp.ones(3))
+        stack = brainstate.StateTraceStack()
+        read_state = brainstate.State(jnp.zeros(3))
+        write_state = brainstate.State(jnp.ones(3))
 
         with stack:
             _ = read_state.value
@@ -738,8 +739,8 @@ class TestStateTraceStack(unittest.TestCase):
 
     def test_trace_stack_recovery_original_values(self):
         """Test recovering original values."""
-        stack = bst.StateTraceStack()
-        state = bst.State(jnp.zeros(3))
+        stack = brainstate.StateTraceStack()
+        state = brainstate.State(jnp.zeros(3))
         original = state.value.copy()
 
         with stack:
@@ -750,11 +751,11 @@ class TestStateTraceStack(unittest.TestCase):
 
     def test_trace_stack_merge(self):
         """Test merging trace stacks."""
-        stack1 = bst.StateTraceStack()
-        stack2 = bst.StateTraceStack()
+        stack1 = brainstate.StateTraceStack()
+        stack2 = brainstate.StateTraceStack()
 
-        state1 = bst.State(jnp.zeros(3))
-        state2 = bst.State(jnp.ones(3))
+        state1 = brainstate.State(jnp.zeros(3))
+        state2 = brainstate.State(jnp.ones(3))
 
         with stack1:
             _ = state1.value
@@ -767,11 +768,11 @@ class TestStateTraceStack(unittest.TestCase):
 
     def test_trace_stack_add_operator(self):
         """Test using + operator to merge stacks."""
-        stack1 = bst.StateTraceStack()
-        stack2 = bst.StateTraceStack()
+        stack1 = brainstate.StateTraceStack()
+        stack2 = brainstate.StateTraceStack()
 
-        state1 = bst.State(jnp.zeros(3))
-        state2 = bst.State(jnp.ones(3))
+        state1 = brainstate.State(jnp.zeros(3))
+        state2 = brainstate.State(jnp.ones(3))
 
         with stack1:
             _ = state1.value
@@ -784,23 +785,23 @@ class TestStateTraceStack(unittest.TestCase):
 
     def test_trace_stack_state_subset(self):
         """Test getting state subset by type."""
-        stack = bst.StateTraceStack()
-        short_state = bst.ShortTermState(jnp.zeros(3))
-        long_state = bst.LongTermState(jnp.ones(3))
+        stack = brainstate.StateTraceStack()
+        short_state = brainstate.ShortTermState(jnp.zeros(3))
+        long_state = brainstate.LongTermState(jnp.ones(3))
 
         with stack:
             _ = short_state.value
             _ = long_state.value
 
-        short_subset = stack.state_subset(bst.ShortTermState)
+        short_subset = stack.state_subset(brainstate.ShortTermState)
         self.assertEqual(len(short_subset), 1)
         self.assertIn(short_state, short_subset)
 
     def test_trace_stack_assign_state_vals(self):
         """Test assigning state values."""
-        stack = bst.StateTraceStack()
-        state1 = bst.State(jnp.zeros(3))
-        state2 = bst.State(jnp.zeros(3))
+        stack = brainstate.StateTraceStack()
+        state1 = brainstate.State(jnp.zeros(3))
+        state2 = brainstate.State(jnp.zeros(3))
 
         with stack:
             _ = state1.value
@@ -817,13 +818,13 @@ class TestTreefyState(unittest.TestCase):
 
     def test_treefy_state_creation(self):
         """Test creating a TreefyState."""
-        ref = bst.TreefyState(bst.State, jnp.array([1.0, 2.0]), _name='test')
+        ref = brainstate.TreefyState(brainstate.State, jnp.array([1.0, 2.0]), _name='test')
         self.assertEqual(ref.name, 'test')
         np.testing.assert_array_equal(ref.value, jnp.array([1.0, 2.0]))
 
     def test_treefy_state_replace(self):
         """Test replacing TreefyState value."""
-        ref = bst.TreefyState(bst.State, jnp.zeros(3), _name='test')
+        ref = brainstate.TreefyState(brainstate.State, jnp.zeros(3), _name='test')
         new_ref = ref.replace(jnp.ones(3))
 
         np.testing.assert_array_equal(new_ref.value, jnp.ones(3))
@@ -831,16 +832,16 @@ class TestTreefyState(unittest.TestCase):
 
     def test_treefy_state_to_state(self):
         """Test converting TreefyState to State."""
-        ref = bst.TreefyState(bst.State, jnp.array([1.0, 2.0]), _name='test')
+        ref = brainstate.TreefyState(brainstate.State, jnp.array([1.0, 2.0]), _name='test')
         state = ref.to_state()
 
-        self.assertIsInstance(state, bst.State)
+        self.assertIsInstance(state, brainstate.State)
         np.testing.assert_array_equal(state.value, ref.value)
         self.assertEqual(state.name, 'test')
 
     def test_treefy_state_copy(self):
         """Test copying TreefyState."""
-        ref = bst.TreefyState(bst.State, jnp.array([1.0, 2.0]), _name='test')
+        ref = brainstate.TreefyState(brainstate.State, jnp.array([1.0, 2.0]), _name='test')
         ref_copy = ref.copy()
 
         self.assertIsNot(ref, ref_copy)
@@ -848,7 +849,7 @@ class TestTreefyState(unittest.TestCase):
 
     def test_treefy_state_get_metadata(self):
         """Test getting metadata from TreefyState."""
-        ref = bst.TreefyState(bst.State, jnp.zeros(3), _name='test', _been_writen=True)
+        ref = brainstate.TreefyState(brainstate.State, jnp.zeros(3), _name='test', _been_writen=True)
         metadata = ref.get_metadata()
 
         self.assertIsInstance(metadata, dict)
@@ -859,7 +860,7 @@ class TestTreefyState(unittest.TestCase):
 
     def test_treefy_state_pytree_operations(self):
         """Test that TreefyState works as a pytree."""
-        ref = bst.TreefyState(bst.State, jnp.array([1.0, 2.0]), _name='test')
+        ref = brainstate.TreefyState(brainstate.State, jnp.array([1.0, 2.0]), _name='test')
 
         # Test tree_map
         mapped = jax.tree.map(lambda x: x * 2, ref)
@@ -875,44 +876,44 @@ class TestContextManagers(unittest.TestCase):
 
     def test_check_state_value_tree(self):
         """Test check_state_value_tree context manager."""
-        state = bst.State(jnp.zeros((2, 3)))
+        state = brainstate.State(jnp.zeros((2, 3)))
 
         # Should not raise error
-        with bst.check_state_value_tree():
+        with brainstate.check_state_value_tree():
             state.value = jnp.ones((2, 3))
 
         # Should raise error on tree structure change
-        with bst.check_state_value_tree():
+        with brainstate.check_state_value_tree():
             with self.assertRaises(ValueError):
                 state.value = {'a': jnp.zeros((2, 3))}
 
     def test_check_state_value_tree_nested(self):
         """Test nested check_state_value_tree contexts."""
-        state = bst.State(jnp.zeros(3))
+        state = brainstate.State(jnp.zeros(3))
 
-        with bst.check_state_value_tree(True):
-            with bst.check_state_value_tree(False):
+        with brainstate.check_state_value_tree(True):
+            with brainstate.check_state_value_tree(False):
                 # Inner context disables checking
                 state.value = {'a': jnp.zeros(3)}  # Should not raise
 
     def test_maybe_state(self):
         """Test maybe_state utility function."""
-        state = bst.State(jnp.array([1.0, 2.0, 3.0]))
+        state = brainstate.State(jnp.array([1.0, 2.0, 3.0]))
 
         # Should extract value from State
-        result = bst.maybe_state(state)
+        result = brainstate.maybe_state(state)
         np.testing.assert_array_equal(result, jnp.array([1.0, 2.0, 3.0]))
 
         # Should return non-State values as-is
         value = jnp.array([4.0, 5.0, 6.0])
-        result = bst.maybe_state(value)
+        result = brainstate.maybe_state(value)
         np.testing.assert_array_equal(result, value)
 
     def test_catch_new_states(self):
         """Test catch_new_states context manager."""
-        with bst.catch_new_states('test_tag') as catcher:
-            state1 = bst.State(jnp.zeros(3))
-            state2 = bst.State(jnp.ones(3))
+        with brainstate.catch_new_states('test_tag') as catcher:
+            state1 = brainstate.State(jnp.zeros(3))
+            state2 = brainstate.State(jnp.ones(3))
 
         self.assertEqual(len(catcher), 2)
         self.assertEqual(state1.tag, 'test_tag')
@@ -920,8 +921,8 @@ class TestContextManagers(unittest.TestCase):
 
     def test_catch_new_states_get_states(self):
         """Test getting caught states."""
-        with bst.catch_new_states() as catcher:
-            state = bst.State(jnp.zeros(3))
+        with brainstate.catch_new_states() as catcher:
+            state = brainstate.State(jnp.zeros(3))
 
         states = catcher.get_states()
         self.assertEqual(len(states), 1)
@@ -929,8 +930,8 @@ class TestContextManagers(unittest.TestCase):
 
     def test_catch_new_states_get_state_values(self):
         """Test getting caught state values."""
-        with bst.catch_new_states() as catcher:
-            state = bst.State(jnp.array([1.0, 2.0]))
+        with brainstate.catch_new_states() as catcher:
+            state = brainstate.State(jnp.array([1.0, 2.0]))
 
         values = catcher.get_state_values()
         self.assertEqual(len(values), 1)
@@ -942,18 +943,18 @@ class TestStateCatcher(unittest.TestCase):
 
     def test_catch_new_states_basic(self):
         """Test basic catch_new_states functionality."""
-        with bst.catch_new_states('test') as catcher:
-            state = bst.State(jnp.zeros(3))
+        with brainstate.catch_new_states('test') as catcher:
+            state = brainstate.State(jnp.zeros(3))
 
         self.assertEqual(len(catcher), 1)
         self.assertEqual(state.tag, 'test')
 
     def test_catch_multiple_states(self):
         """Test catching multiple states."""
-        with bst.catch_new_states('test') as catcher:
-            state1 = bst.State(jnp.zeros(3))
-            state2 = bst.State(jnp.ones(3))
-            state3 = bst.State(jnp.array([1.0, 2.0]))
+        with brainstate.catch_new_states('test') as catcher:
+            state1 = brainstate.State(jnp.zeros(3))
+            state2 = brainstate.State(jnp.ones(3))
+            state3 = brainstate.State(jnp.array([1.0, 2.0]))
 
         self.assertEqual(len(catcher), 3)
         self.assertIn(state1, catcher.get_states())
@@ -962,31 +963,31 @@ class TestStateCatcher(unittest.TestCase):
 
     def test_catcher_iteration(self):
         """Test iterating over caught states."""
-        with bst.catch_new_states('test') as catcher:
-            states = [bst.State(jnp.zeros(i+1)) for i in range(3)]
+        with brainstate.catch_new_states('test') as catcher:
+            states = [brainstate.State(jnp.zeros(i + 1)) for i in range(3)]
 
         collected = list(catcher)
         self.assertEqual(len(collected), 3)
 
     def test_catcher_indexing(self):
         """Test indexing into catcher."""
-        with bst.catch_new_states('test') as catcher:
-            state = bst.State(jnp.zeros(3))
+        with brainstate.catch_new_states('test') as catcher:
+            state = brainstate.State(jnp.zeros(3))
 
         self.assertIs(catcher[0], state)
 
     def test_catcher_contains(self):
         """Test checking if state is in catcher."""
-        with bst.catch_new_states('test') as catcher:
-            state = bst.State(jnp.zeros(3))
+        with brainstate.catch_new_states('test') as catcher:
+            state = brainstate.State(jnp.zeros(3))
 
         self.assertIn(state, catcher)
 
     def test_catcher_get_states(self):
         """Test getting list of caught states."""
-        with bst.catch_new_states('test') as catcher:
-            state1 = bst.State(jnp.zeros(3))
-            state2 = bst.State(jnp.ones(3))
+        with brainstate.catch_new_states('test') as catcher:
+            state1 = brainstate.State(jnp.zeros(3))
+            state2 = brainstate.State(jnp.ones(3))
 
         states = catcher.get_states()
         self.assertEqual(len(states), 2)
@@ -995,8 +996,8 @@ class TestStateCatcher(unittest.TestCase):
 
     def test_catcher_get_state_values(self):
         """Test getting values of caught states."""
-        with bst.catch_new_states('test') as catcher:
-            state = bst.State(jnp.array([1.0, 2.0, 3.0]))
+        with brainstate.catch_new_states('test') as catcher:
+            state = brainstate.State(jnp.array([1.0, 2.0, 3.0]))
 
         values = catcher.get_state_values()
         self.assertEqual(len(values), 1)
@@ -1004,11 +1005,11 @@ class TestStateCatcher(unittest.TestCase):
 
     def test_nested_catch_contexts(self):
         """Test nested catch_new_states contexts."""
-        with bst.catch_new_states('outer') as outer_catcher:
-            outer_state = bst.State(jnp.zeros(3))
+        with brainstate.catch_new_states('outer') as outer_catcher:
+            outer_state = brainstate.State(jnp.zeros(3))
 
-            with bst.catch_new_states('inner') as inner_catcher:
-                inner_state = bst.State(jnp.ones(3))
+            with brainstate.catch_new_states('inner') as inner_catcher:
+                inner_state = brainstate.State(jnp.ones(3))
 
             # Inner catcher should have only inner state
             self.assertEqual(len(inner_catcher), 1)
@@ -1026,12 +1027,12 @@ class TestIntegrationScenarios(unittest.TestCase):
     def test_neural_network_state_management(self):
         """Test typical neural network state management scenario."""
         # Create network states
-        weights = bst.ParamState(jnp.ones((10, 5)), name='weights')
-        bias = bst.ParamState(jnp.zeros(5), name='bias')
-        hidden = bst.HiddenState(jnp.zeros(5), name='hidden')
+        weights = brainstate.ParamState(jnp.ones((10, 5)), name='weights')
+        bias = brainstate.ParamState(jnp.zeros(5), name='bias')
+        hidden = brainstate.HiddenState(jnp.zeros(5), name='hidden')
 
         # Trace computation
-        stack = bst.StateTraceStack(name='forward')
+        stack = brainstate.StateTraceStack(name='forward')
         with stack:
             # Simulate forward pass
             x = jnp.ones(10)
@@ -1050,7 +1051,7 @@ class TestIntegrationScenarios(unittest.TestCase):
     def test_recurrent_network_with_multiple_hidden_states(self):
         """Test RNN with multiple hidden states using HiddenGroupState."""
         # Create group of hidden states (e.g., LSTM: h, c)
-        hidden_group = bst.HiddenGroupState(jnp.array(np.random.randn(10, 10, 2)))
+        hidden_group = brainstate.HiddenGroupState(jnp.array(np.random.randn(10, 10, 2)))
 
         # Access individual hidden states
         h = hidden_group.get_value(0)
@@ -1070,13 +1071,13 @@ class TestIntegrationScenarios(unittest.TestCase):
 
     def test_state_dict_manager_integration(self):
         """Test managing multiple states with StateDictManager."""
-        manager = bst.StateDictManager()
+        manager = brainstate.StateDictManager()
 
         # Create and register states
-        with bst.catch_new_states('network') as catcher:
-            weights = bst.ParamState(jnp.ones((5, 3)), name='weights')
-            bias = bst.ParamState(jnp.zeros(3), name='bias')
-            hidden = bst.HiddenState(jnp.zeros(3), name='hidden')
+        with brainstate.catch_new_states('network') as catcher:
+            weights = brainstate.ParamState(jnp.ones((5, 3)), name='weights')
+            bias = brainstate.ParamState(jnp.zeros(3), name='bias')
+            hidden = brainstate.HiddenState(jnp.zeros(3), name='hidden')
 
         # Add to manager
         for state in catcher.get_states():
@@ -1088,13 +1089,13 @@ class TestIntegrationScenarios(unittest.TestCase):
         self.assertEqual(len(values), 3)
 
         # Split by type
-        params, others = manager.split_values(bst.ParamState)
+        params, others = manager.split_values(brainstate.ParamState)
         self.assertEqual(len(params), 2)
 
     def test_eligibility_trace_learning(self):
         """Test eligibility trace-based learning with HiddenTreeState."""
         # Create multiple eligibility traces with different units
-        traces = bst.HiddenTreeState({
+        traces = brainstate.HiddenTreeState({
             'v': np.random.randn(10, 10) * u.mV,
             'u': np.random.randn(10, 10) * u.mV,
             'g': np.random.randn(10, 10) * u.mS,
@@ -1114,7 +1115,7 @@ class TestIntegrationScenarios(unittest.TestCase):
 
     def test_jit_compilation_with_states(self):
         """Test that states work with JAX JIT compilation."""
-        state = bst.State(jnp.array([1.0, 2.0, 3.0]))
+        state = brainstate.State(jnp.array([1.0, 2.0, 3.0]))
 
         @jax.jit
         def update_state(x):
@@ -1123,6 +1124,89 @@ class TestIntegrationScenarios(unittest.TestCase):
 
         result = update_state(jnp.array([1.0, 1.0, 1.0]))
         np.testing.assert_array_equal(result, jnp.array([2.0, 3.0, 4.0]))
+
+
+class TestArrayParamBasic:
+    def test_initialization_identity(self):
+        x = np.array([1.0, 2.0, 3.0])
+        p = brainstate.ArrayParam(x)  # default IdentityTransform
+
+        assert isinstance(p, brainstate.ParamState)
+        assert isinstance(p, u.CustomArray)
+        # Internal value equals input under identity transform
+        assert u.math.allclose(p.value, x)
+        # Exposed data applies transform (identity)
+        assert u.math.allclose(p.data, x)
+
+    def test_unit_support_identity(self):
+        x = np.array([0.5, 1.5]) * u.nA
+        p = brainstate.ArrayParam(x)
+
+        assert u.get_unit(p.value) == u.nA
+        assert u.get_unit(p.data) == u.nA
+        assert p.value.shape == (2,)
+        assert p.data.shape == (2,)
+
+    def test_invalid_value_type_raises(self):
+        # Clearly non-arraylike inputs should raise TypeError
+        for bad in [None, {"a": 1}, object()]:
+            try:
+                _ = brainstate.ArrayParam(bad)
+                assert False, "Expected TypeError for non-arraylike value"
+            except TypeError:
+                pass
+
+
+class TestArrayParamWithCustomTransform:
+    class AffineTransform:
+        """Simple bijective transform y = a*x + b with an inverse."""
+
+        def __init__(self, a=2.0, b=3.0):
+            self.a = a
+            self.b = b
+
+        def __call__(self, x):
+            return self.a * x + self.b
+
+        def inverse(self, y):
+            return (y - self.b) / self.a
+
+    def test_transform_applied_on_access_and_inverse_on_store(self):
+        t = self.AffineTransform(a=2.0, b=3.0)
+        x = np.array([1.0, 2.0, 3.0])
+
+        p = brainstate.ArrayParam(x, transform=t)
+
+        # Internally stores inverse-transformed values
+        expected_internal = (x - 3.0) / 2.0
+        assert u.math.allclose(p.value, expected_internal)
+
+        # Exposed data applies forward transform and recovers original x
+        assert u.math.allclose(p.data, x)
+
+        # Setting data applies inverse to internal storage
+        new_data = np.array([10.0, 20.0, 30.0])
+        p.data = new_data
+        assert u.math.allclose(p.value, (new_data - 3.0) / 2.0)
+        assert u.math.allclose(p.data, new_data)
+
+    def test_transform_with_units(self):
+        # Use identity from braintools for a unit-carrying check, then
+        # also verify behavior with the custom affine transform.
+        x = np.array([2.0, 4.0]) * u.mV
+
+        # Identity preserves units end-to-end
+        p1 = brainstate.ArrayParam(x, transform=braintools.IdentityTransform())
+        assert u.get_unit(p1.data) == u.mV
+        assert u.math.allclose(p1.data, x)
+
+        # Affine transform should preserve unit tagging through __call__ and inverse
+        t = self.AffineTransform(a=0.5, b=1.0 * u.mV)
+        p2 = brainstate.ArrayParam(x, transform=t)
+        # data property should equal the original x
+        assert u.math.allclose(p2.data, x)
+        # internal representation carries units as well (because inputs carry units)
+        assert u.get_unit(p2.value) == u.mV
 
 
 if __name__ == '__main__':

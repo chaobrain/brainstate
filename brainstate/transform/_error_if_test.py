@@ -24,18 +24,18 @@ import brainstate
 class TestJitError(unittest.TestCase):
     def test1(self):
         with self.assertRaises(Exception):
-            brainstate.compile.jit_error_if(True, 'error')
+            brainstate.transform.jit_error_if(True, 'error')
 
         def err_f(x):
             raise ValueError(f'error: {x}')
 
-        brainstate.compile.jit_error_if(False, err_f, 1.)
+        brainstate.transform.jit_error_if(False, err_f, 1.)
         with self.assertRaises(Exception):
-            brainstate.compile.jit_error_if(True, err_f, 1.)
+            brainstate.transform.jit_error_if(True, err_f, 1.)
 
     def test_vmap(self):
         def f(x):
-            brainstate.compile.jit_error_if(x, 'error: {x}', x=x)
+            brainstate.transform.jit_error_if(x, 'error: {x}', x=x)
 
         jax.vmap(f)(jnp.array([False, False, False]))
         with self.assertRaises(Exception):
@@ -43,7 +43,7 @@ class TestJitError(unittest.TestCase):
 
     def test_vmap_vmap(self):
         def f(x):
-            brainstate.compile.jit_error_if(x, 'error: {x}', x=x)
+            brainstate.transform.jit_error_if(x, 'error: {x}', x=x)
 
         jax.vmap(jax.vmap(f))(jnp.array([[False, False, False],
                                          [False, False, False]]))

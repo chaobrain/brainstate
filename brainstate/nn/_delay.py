@@ -520,7 +520,7 @@ class StateWithDelay(Delay):
 
     >>> import brainunit as u
     >>> import brainstate as brainstate
-    >>> lif = brainstate.nn.LIF(100)
+    >>> lif = brainpy.state.LIF(100)
     >>> # Create a delayed accessor to V(t-5ms)
     >>> v_delay = lif.prefetch_delay('V', 5.0 * u.ms)
     >>> # Inside another module's update you can read the delayed value
