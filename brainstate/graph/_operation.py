@@ -954,7 +954,7 @@ def pop_states(
         ...     def __init__(self):
         ...         super().__init__()
         ...         self.a = brainstate.nn.Linear(2, 3)
-        ...         self.b = brainstate.nn.LIF([10, 2])
+        ...         self.b = brainpy.state.LIF([10, 2])
 
         >>> model = Model()
         >>> with brainstate.catch_new_states('new'):
@@ -1507,7 +1507,7 @@ def iter_node(
         ...         self.b = brainstate.nn.Linear(2, 3)
         ...         self.c = [brainstate.nn.Linear(3, 4), brainstate.nn.Linear(4, 5)]
         ...         self.d = {'x': brainstate.nn.Linear(5, 6), 'y': brainstate.nn.Linear(6, 7)}
-        ...         self.b.a = brainstate.nn.LIF(2)
+        ...         self.b.a = brainpy.state.LIF(2)
         ...
         >>> model = Model()
         ...

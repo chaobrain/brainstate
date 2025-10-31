@@ -22,7 +22,7 @@ import brainstate
 
 class TestRemat(absltest.TestCase):
     def test_basic_remat(self):
-        module = brainstate.compile.remat(brainstate.nn.Linear(2, 3))
+        module = brainstate.transform.remat(brainstate.nn.Linear(2, 3))
         y = module(jnp.ones((1, 2)))
         assert y.shape == (1, 3)
 
@@ -33,12 +33,12 @@ class TestRemat(absltest.TestCase):
                 self.linear = brainstate.nn.Linear(3, 3)
 
             def __call__(self, x: jax.Array):
-                @brainstate.compile.remat
+                @brainstate.transform.remat
                 def fun(x: jax.Array, _):
                     x = self.linear(x)
                     return x, None
 
-                return brainstate.compile.scan(fun, x, None, length=10)[0]
+                return brainstate.transform.scan(fun, x, None, length=10)[0]
 
         m = ScanLinear()
 

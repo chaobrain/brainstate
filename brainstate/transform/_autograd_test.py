@@ -35,7 +35,7 @@ class TestPureFuncGrad(unittest.TestCase):
         a = jnp.ones(10)
         b = brainstate.random.randn(10)
         c = brainstate.random.uniform(size=10)
-        f_grad = brainstate.augment.grad(call, argnums=[0, 1, 2])
+        f_grad = brainstate.transform.grad(call, argnums=[0, 1, 2])
         grads = f_grad(a, b, c)
 
         for g in grads: assert (g == 1.).all()
@@ -47,7 +47,7 @@ class TestPureFuncGrad(unittest.TestCase):
         a = jnp.ones(10)
         b = brainstate.random.randn(10)
         c = brainstate.random.uniform(size=10)
-        f_grad = brainstate.augment.grad(call)
+        f_grad = brainstate.transform.grad(call)
         assert (f_grad(a, b, c) == 1.).all()
 
     def test_grad_pure_func_aux1(self):
@@ -55,7 +55,7 @@ class TestPureFuncGrad(unittest.TestCase):
             return jnp.sum(a + b + c), (jnp.sin(100), jnp.exp(0.1))
 
         brainstate.random.seed(1)
-        f_grad = brainstate.augment.grad(call, argnums=[0, 1, 2])
+        f_grad = brainstate.transform.grad(call, argnums=[0, 1, 2])
         with pytest.raises(TypeError):
             f_grad(jnp.ones(10), brainstate.random.randn(10), brainstate.random.uniform(size=10))
 
@@ -64,7 +64,7 @@ class TestPureFuncGrad(unittest.TestCase):
             return jnp.sum(a + b + c), (jnp.sin(100), jnp.exp(0.1))
 
         brainstate.random.seed(1)
-        f_grad = brainstate.augment.grad(call, argnums=[0, 1, 2], has_aux=True)
+        f_grad = brainstate.transform.grad(call, argnums=[0, 1, 2], has_aux=True)
         grads, aux = f_grad(jnp.ones(10), brainstate.random.randn(10), brainstate.random.uniform(size=10))
         for g in grads: assert (g == 1.).all()
         assert aux[0] == jnp.sin(100)
@@ -77,7 +77,7 @@ class TestPureFuncGrad(unittest.TestCase):
         a = jnp.ones(10)
         b = brainstate.random.randn(10)
         c = brainstate.random.uniform(size=10)
-        f_grad = brainstate.augment.grad(call, return_value=True)
+        f_grad = brainstate.transform.grad(call, return_value=True)
         grads, returns = f_grad(a, b, c)
         assert (grads == 1.).all()
         assert returns == jnp.sum(a + b + c)
@@ -90,7 +90,7 @@ class TestPureFuncGrad(unittest.TestCase):
         a = jnp.ones(10)
         b = brainstate.random.randn(10)
         c = brainstate.random.uniform(size=10)
-        f_grad = brainstate.augment.grad(call, return_value=True, has_aux=True)
+        f_grad = brainstate.transform.grad(call, return_value=True, has_aux=True)
         grads, returns, aux = f_grad(a, b, c)
         assert (grads == 1.).all()
         assert returns == jnp.sum(a + b + c)
@@ -114,23 +114,23 @@ class TestObjectFuncGrad(unittest.TestCase):
         brainstate.random.seed(0)
 
         t = Test()
-        f_grad = brainstate.augment.grad(t, grad_states={'a': t.a, 'b': t.b, 'c': t.c})
+        f_grad = brainstate.transform.grad(t, grad_states={'a': t.a, 'b': t.b, 'c': t.c})
         grads = f_grad()
         for g in grads.values():
             assert (g == 1.).all()
 
         t = Test()
-        f_grad = brainstate.augment.grad(t, grad_states=[t.a, t.b])
+        f_grad = brainstate.transform.grad(t, grad_states=[t.a, t.b])
         grads = f_grad()
         for g in grads: assert (g == 1.).all()
 
         t = Test()
-        f_grad = brainstate.augment.grad(t, grad_states=t.a)
+        f_grad = brainstate.transform.grad(t, grad_states=t.a)
         grads = f_grad()
         assert (grads == 1.).all()
 
         t = Test()
-        f_grad = brainstate.augment.grad(t, grad_states=t.states())
+        f_grad = brainstate.transform.grad(t, grad_states=t.states())
         grads = f_grad()
         for g in grads.values():
             assert (g == 1.).all()
@@ -148,21 +148,21 @@ class TestObjectFuncGrad(unittest.TestCase):
 
         brainstate.random.seed(0)
         t = Test()
-        f_grad = brainstate.augment.grad(t, grad_states=[t.a, t.b], has_aux=True)
+        f_grad = brainstate.transform.grad(t, grad_states=[t.a, t.b], has_aux=True)
         grads, aux = f_grad()
         for g in grads: assert (g == 1.).all()
         assert aux[0] == jnp.sin(100)
         assert aux[1] == jnp.exp(0.1)
 
         t = Test()
-        f_grad = brainstate.augment.grad(t, grad_states=t.a, has_aux=True)
+        f_grad = brainstate.transform.grad(t, grad_states=t.a, has_aux=True)
         grads, aux = f_grad()
         assert (grads == 1.).all()
         assert aux[0] == jnp.sin(100)
         assert aux[1] == jnp.exp(0.1)
 
         t = Test()
-        f_grad = brainstate.augment.grad(t, grad_states=t.states(), has_aux=True)
+        f_grad = brainstate.transform.grad(t, grad_states=t.states(), has_aux=True)
         grads, aux = f_grad()
         self.assertTrue(len(grads) == len(t.states()))
 
@@ -179,13 +179,13 @@ class TestObjectFuncGrad(unittest.TestCase):
 
         brainstate.random.seed(0)
         t = Test()
-        f_grad = brainstate.augment.grad(t, grad_states=[t.a, t.b], return_value=True)
+        f_grad = brainstate.transform.grad(t, grad_states=[t.a, t.b], return_value=True)
         grads, returns = f_grad()
         for g in grads: assert (g == 1.).all()
         assert returns == t()
 
         t = Test()
-        f_grad = brainstate.augment.grad(t, grad_states=t.a, return_value=True)
+        f_grad = brainstate.transform.grad(t, grad_states=t.a, return_value=True)
         grads, returns = f_grad()
         assert (grads == 1.).all()
         assert returns == t()
@@ -203,7 +203,7 @@ class TestObjectFuncGrad(unittest.TestCase):
 
         brainstate.random.seed(0)
         t = Test()
-        f_grad = brainstate.augment.grad(t, grad_states=[t.a, t.b], has_aux=True, return_value=True)
+        f_grad = brainstate.transform.grad(t, grad_states=[t.a, t.b], has_aux=True, return_value=True)
         grads, returns, aux = f_grad()
         for g in grads: assert (g == 1.).all()
         assert returns == jnp.sum(t.a.value + t.b.value + t.c.value)
@@ -211,7 +211,7 @@ class TestObjectFuncGrad(unittest.TestCase):
         assert aux[1] == jnp.exp(0.1)
 
         t = Test()
-        f_grad = brainstate.augment.grad(t, grad_states=t.a, has_aux=True, return_value=True)
+        f_grad = brainstate.transform.grad(t, grad_states=t.a, has_aux=True, return_value=True)
         grads, returns, aux = f_grad()
         assert (grads == 1.).all()
         assert returns == jnp.sum(t.a.value + t.b.value + t.c.value)
@@ -233,24 +233,24 @@ class TestObjectFuncGrad(unittest.TestCase):
         brainstate.random.seed(0)
 
         t = Test()
-        f_grad = brainstate.augment.grad(t, t.states(), argnums=0)
+        f_grad = brainstate.transform.grad(t, t.states(), argnums=0)
         var_grads, arg_grads = f_grad(brainstate.random.random(10))
         for g in var_grads.values(): assert (g == 1.).all()
         assert (arg_grads == 2.).all()
 
         t = Test()
-        f_grad = brainstate.augment.grad(t, t.states(), argnums=[0])
+        f_grad = brainstate.transform.grad(t, t.states(), argnums=[0])
         var_grads, arg_grads = f_grad(brainstate.random.random(10))
         for g in var_grads.values(): assert (g == 1.).all()
         assert (arg_grads[0] == 2.).all()
 
         t = Test()
-        f_grad = brainstate.augment.grad(t, argnums=0)
+        f_grad = brainstate.transform.grad(t, argnums=0)
         arg_grads = f_grad(brainstate.random.random(10))
         assert (arg_grads == 2.).all()
 
         t = Test()
-        f_grad = brainstate.augment.grad(t, argnums=[0])
+        f_grad = brainstate.transform.grad(t, argnums=[0])
         arg_grads = f_grad(brainstate.random.random(10))
         assert (arg_grads[0] == 2.).all()
 
@@ -268,7 +268,7 @@ class TestObjectFuncGrad(unittest.TestCase):
         brainstate.random.seed(0)
 
         t = Test()
-        f_grad = brainstate.augment.grad(t, grad_states=t.states(), argnums=0, has_aux=True)
+        f_grad = brainstate.transform.grad(t, grad_states=t.states(), argnums=0, has_aux=True)
         (var_grads, arg_grads), aux = f_grad(brainstate.random.random(10))
         for g in var_grads.values(): assert (g == 1.).all()
         assert (arg_grads == 2.).all()
@@ -276,7 +276,7 @@ class TestObjectFuncGrad(unittest.TestCase):
         assert aux[1] == jnp.exp(0.1)
 
         t = Test()
-        f_grad = brainstate.augment.grad(t, grad_states=t.states(), argnums=[0], has_aux=True)
+        f_grad = brainstate.transform.grad(t, grad_states=t.states(), argnums=[0], has_aux=True)
         (var_grads, arg_grads), aux = f_grad(brainstate.random.random(10))
         for g in var_grads.values(): assert (g == 1.).all()
         assert (arg_grads[0] == 2.).all()
@@ -284,14 +284,14 @@ class TestObjectFuncGrad(unittest.TestCase):
         assert aux[1] == jnp.exp(0.1)
 
         t = Test()
-        f_grad = brainstate.augment.grad(t, argnums=0, has_aux=True)
+        f_grad = brainstate.transform.grad(t, argnums=0, has_aux=True)
         arg_grads, aux = f_grad(brainstate.random.random(10))
         assert (arg_grads == 2.).all()
         assert aux[0] == jnp.sin(100)
         assert aux[1] == jnp.exp(0.1)
 
         t = Test()
-        f_grad = brainstate.augment.grad(t, argnums=[0], has_aux=True)
+        f_grad = brainstate.transform.grad(t, argnums=[0], has_aux=True)
         arg_grads, aux = f_grad(brainstate.random.random(10))
         assert (arg_grads[0] == 2.).all()
         assert aux[0] == jnp.sin(100)
@@ -312,7 +312,7 @@ class TestObjectFuncGrad(unittest.TestCase):
         brainstate.random.seed(0)
 
         t = Test()
-        f_grad = brainstate.augment.grad(t, t.states(), argnums=0, return_value=True)
+        f_grad = brainstate.transform.grad(t, t.states(), argnums=0, return_value=True)
         d = brainstate.random.random(10)
         (var_grads, arg_grads), loss = f_grad(d)
         for g in var_grads.values():
@@ -321,7 +321,7 @@ class TestObjectFuncGrad(unittest.TestCase):
         assert loss == t(d)
 
         t = Test()
-        f_grad = brainstate.augment.grad(t, t.states(), argnums=[0], return_value=True)
+        f_grad = brainstate.transform.grad(t, t.states(), argnums=[0], return_value=True)
         d = brainstate.random.random(10)
         (var_grads, arg_grads), loss = f_grad(d)
         for g in var_grads.values():
@@ -330,14 +330,14 @@ class TestObjectFuncGrad(unittest.TestCase):
         assert loss == t(d)
 
         t = Test()
-        f_grad = brainstate.augment.grad(t, argnums=0, return_value=True)
+        f_grad = brainstate.transform.grad(t, argnums=0, return_value=True)
         d = brainstate.random.random(10)
         arg_grads, loss = f_grad(d)
         assert (arg_grads == 2.).all()
         assert loss == t(d)
 
         t = Test()
-        f_grad = brainstate.augment.grad(t, argnums=[0], return_value=True)
+        f_grad = brainstate.transform.grad(t, argnums=[0], return_value=True)
         d = brainstate.random.random(10)
         arg_grads, loss = f_grad(d)
         assert (arg_grads[0] == 2.).all()
@@ -357,7 +357,7 @@ class TestObjectFuncGrad(unittest.TestCase):
         brainstate.random.seed(0)
 
         t = Test()
-        f_grad = brainstate.augment.grad(t, grad_states=t.states(), argnums=0, has_aux=True, return_value=True)
+        f_grad = brainstate.transform.grad(t, grad_states=t.states(), argnums=0, has_aux=True, return_value=True)
         d = brainstate.random.random(10)
         (var_grads, arg_grads), loss, aux = f_grad(d)
         for g in var_grads.values(): assert (g == 1.).all()
@@ -367,7 +367,7 @@ class TestObjectFuncGrad(unittest.TestCase):
         assert loss == t(d)[0]
 
         t = Test()
-        f_grad = brainstate.augment.grad(t, grad_states=t.states(), argnums=[0], has_aux=True, return_value=True)
+        f_grad = brainstate.transform.grad(t, grad_states=t.states(), argnums=[0], has_aux=True, return_value=True)
         d = brainstate.random.random(10)
         (var_grads, arg_grads), loss, aux = f_grad(d)
         for g in var_grads.values(): assert (g == 1.).all()
@@ -377,7 +377,7 @@ class TestObjectFuncGrad(unittest.TestCase):
         assert loss == t(d)[0]
 
         t = Test()
-        f_grad = brainstate.augment.grad(t, argnums=0, has_aux=True, return_value=True)
+        f_grad = brainstate.transform.grad(t, argnums=0, has_aux=True, return_value=True)
         d = brainstate.random.random(10)
         arg_grads, loss, aux = f_grad(d)
         assert (arg_grads == 2.).all()
@@ -386,7 +386,7 @@ class TestObjectFuncGrad(unittest.TestCase):
         assert loss == t(d)[0]
 
         t = Test()
-        f_grad = brainstate.augment.grad(t, argnums=[0], has_aux=True, return_value=True)
+        f_grad = brainstate.transform.grad(t, argnums=[0], has_aux=True, return_value=True)
         d = brainstate.random.random(10)
         arg_grads, loss, aux = f_grad(d)
         assert (arg_grads[0] == 2.).all()
@@ -435,11 +435,11 @@ class TestPureFuncJacobian(unittest.TestCase):
             r = jnp.asarray([x[0] * y[0], 5 * x[2] * y[1], 4 * x[1] ** 2 - 2 * x[2], x[2] * jnp.sin(x[0])])
             return r
 
-        br = brainstate.augment.jacrev(f1)(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
+        br = brainstate.transform.jacrev(f1)(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
         jr = jax.jacrev(f1)(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
         assert (br == jr).all()
 
-        br = brainstate.augment.jacrev(f1, argnums=(0, 1))(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
+        br = brainstate.transform.jacrev(f1, argnums=(0, 1))(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
         jr = jax.jacrev(f1, argnums=(0, 1))(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
         assert (br[0] == jr[0]).all()
         assert (br[1] == jr[1]).all()
@@ -455,12 +455,12 @@ class TestPureFuncJacobian(unittest.TestCase):
         jr = jax.jacrev(f2)(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
         pprint(jr)
 
-        br = brainstate.augment.jacrev(f2)(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
+        br = brainstate.transform.jacrev(f2)(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
         pprint(br)
         assert jnp.array_equal(br[0], jr[0])
         assert jnp.array_equal(br[1], jr[1])
 
-        br = brainstate.augment.jacrev(f2)(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
+        br = brainstate.transform.jacrev(f2)(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
         pprint(br)
         assert jnp.array_equal(br[0], jr[0])
         assert jnp.array_equal(br[1], jr[1])
@@ -470,12 +470,12 @@ class TestPureFuncJacobian(unittest.TestCase):
             r2 = jnp.asarray([4 * x[1] ** 2 - 2 * x[2], x[2] * jnp.sin(x[0])])
             return r1, r2
 
-        br = brainstate.augment.jacrev(f2)(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
+        br = brainstate.transform.jacrev(f2)(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
         pprint(br)
         assert jnp.array_equal(br[0], jr[0])
         assert jnp.array_equal(br[1], jr[1])
 
-        br = brainstate.augment.jacrev(f2)(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
+        br = brainstate.transform.jacrev(f2)(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
         pprint(br)
         assert jnp.array_equal(br[0], jr[0])
         assert jnp.array_equal(br[1], jr[1])
@@ -491,14 +491,14 @@ class TestPureFuncJacobian(unittest.TestCase):
         jr = jax.jacrev(f3, argnums=(0, 1))(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
         pprint(jr)
 
-        br = brainstate.augment.jacrev(f3, argnums=(0, 1))(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
+        br = brainstate.transform.jacrev(f3, argnums=(0, 1))(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
         pprint(br)
         assert jnp.array_equal(br[0][0], jr[0][0])
         assert jnp.array_equal(br[0][1], jr[0][1])
         assert jnp.array_equal(br[1][0], jr[1][0])
         assert jnp.array_equal(br[1][1], jr[1][1])
 
-        br = brainstate.augment.jacrev(f3, argnums=(0, 1))(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
+        br = brainstate.transform.jacrev(f3, argnums=(0, 1))(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
         pprint(br)
         assert jnp.array_equal(br[0][0], jr[0][0])
         assert jnp.array_equal(br[0][1], jr[0][1])
@@ -510,14 +510,14 @@ class TestPureFuncJacobian(unittest.TestCase):
             r2 = jnp.asarray([4 * x[1] ** 2 - 2 * x[2], x[2] * jnp.sin(x[0])])
             return r1, r2
 
-        br = brainstate.augment.jacrev(f3, argnums=(0, 1))(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
+        br = brainstate.transform.jacrev(f3, argnums=(0, 1))(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
         pprint(br)
         assert jnp.array_equal(br[0][0], jr[0][0])
         assert jnp.array_equal(br[0][1], jr[0][1])
         assert jnp.array_equal(br[1][0], jr[1][0])
         assert jnp.array_equal(br[1][1], jr[1][1])
 
-        br = brainstate.augment.jacrev(f3, argnums=(0, 1))(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
+        br = brainstate.transform.jacrev(f3, argnums=(0, 1))(jnp.array([1., 2., 3.]), jnp.array([10., 5.]))
         pprint(br)
         assert jnp.array_equal(br[0][0], jr[0][0])
         assert jnp.array_equal(br[0][1], jr[0][1])
@@ -536,13 +536,13 @@ class TestPureFuncJacobian(unittest.TestCase):
         f2 = lambda *args: f1(*args)[0]
         jr = jax.jacrev(f2)(x, y)  # jax jacobian
         pprint(jr)
-        grads, aux = brainstate.augment.jacrev(f1, has_aux=True)(x, y)
+        grads, aux = brainstate.transform.jacrev(f1, has_aux=True)(x, y)
         assert (grads == jr).all()
         assert aux == (4 * x[1] ** 2 - 2 * x[2])
 
         jr = jax.jacrev(f2, argnums=(0, 1))(x, y)  # jax jacobian
         pprint(jr)
-        grads, aux = brainstate.augment.jacrev(f1, argnums=(0, 1), has_aux=True)(x, y)
+        grads, aux = brainstate.transform.jacrev(f1, argnums=(0, 1), has_aux=True)(x, y)
         assert (grads[0] == jr[0]).all()
         assert (grads[1] == jr[1]).all()
         assert aux == (4 * x[1] ** 2 - 2 * x[2])
@@ -563,12 +563,12 @@ class TestPureFuncJacobian(unittest.TestCase):
             _g2 = jax.jacrev(f2, argnums=(0, 1))(_x, _y)  # jax jacobian
             pprint(_g2)
 
-            grads, vec, aux = brainstate.augment.jacrev(f1, return_value=True, has_aux=True)(_x, _y)
+            grads, vec, aux = brainstate.transform.jacrev(f1, return_value=True, has_aux=True)(_x, _y)
             assert (grads == _g1).all()
             assert aux == _a
             assert (vec == _r).all()
 
-            grads, vec, aux = brainstate.augment.jacrev(f1, return_value=True, argnums=(0, 1), has_aux=True)(_x, _y)
+            grads, vec, aux = brainstate.transform.jacrev(f1, return_value=True, argnums=(0, 1), has_aux=True)(_x, _y)
             assert (grads[0] == _g2[0]).all()
             assert (grads[1] == _g2[1]).all()
             assert aux == _a
@@ -600,12 +600,12 @@ class TestClassFuncJacobian(unittest.TestCase):
 
         _jr = jax.jacrev(f1)(_x, _y)
         t = Test()
-        br = brainstate.augment.jacrev(t, grad_states=t.x)()
+        br = brainstate.transform.jacrev(t, grad_states=t.x)()
         self.assertTrue((br == _jr).all())
 
         _jr = jax.jacrev(f1, argnums=(0, 1))(_x, _y)
         t = Test()
-        br = brainstate.augment.jacrev(t, grad_states=[t.x, t.y])()
+        br = brainstate.transform.jacrev(t, grad_states=[t.x, t.y])()
         self.assertTrue((br[0] == _jr[0]).all())
         self.assertTrue((br[1] == _jr[1]).all())
 
@@ -635,12 +635,12 @@ class TestClassFuncJacobian(unittest.TestCase):
 #
 #     _jr = jax.jacfwd(f1)(_x, _y)
 #     t = Test()
-#     br = brainstate.augment.jacfwd(t, grad_states=t.x)()
+#     br = brainstate.transform.jacfwd(t, grad_states=t.x)()
 #     self.assertTrue((br == _jr).all())
 #
 #     _jr = jax.jacfwd(f1, argnums=(0, 1))(_x, _y)
 #     t = Test()
-#     br = brainstate.augment.jacfwd(t, grad_states=[t.x, t.y])()
+#     br = brainstate.transform.jacfwd(t, grad_states=[t.x, t.y])()
 #     self.assertTrue((br[0] == _jr[0]).all())
 #     self.assertTrue((br[1] == _jr[1]).all())
 #
@@ -667,12 +667,12 @@ class TestClassFuncJacobian(unittest.TestCase):
 #
 #     _jr = jax.jacrev(f1)(_x, _y)
 #     t = Test()
-#     br = brainstate.augment.jacrev(t, grad_states=t.x)(_y)
+#     br = brainstate.transform.jacrev(t, grad_states=t.x)(_y)
 #     self.assertTrue((br == _jr).all())
 #
 #     _jr = jax.jacrev(f1, argnums=(0, 1))(_x, _y)
 #     t = Test()
-#     var_grads, arg_grads = brainstate.augment.jacrev(t, grad_states=t.x, argnums=0)(_y)
+#     var_grads, arg_grads = brainstate.transform.jacrev(t, grad_states=t.x, argnums=0)(_y)
 #     print(var_grads, )
 #     print(arg_grads, )
 #     self.assertTrue((var_grads == _jr[0]).all())
@@ -701,12 +701,12 @@ class TestClassFuncJacobian(unittest.TestCase):
 #
 #     _jr = jax.jacfwd(f1)(_x, _y)
 #     t = Test()
-#     br = brainstate.augment.jacfwd(t, grad_states=t.x)(_y)
+#     br = brainstate.transform.jacfwd(t, grad_states=t.x)(_y)
 #     self.assertTrue((br == _jr).all())
 #
 #     _jr = jax.jacfwd(f1, argnums=(0, 1))(_x, _y)
 #     t = Test()
-#     var_grads, arg_grads = brainstate.augment.jacfwd(t, grad_states=t.x, argnums=0)(_y)
+#     var_grads, arg_grads = brainstate.transform.jacfwd(t, grad_states=t.x, argnums=0)(_y)
 #     print(var_grads, )
 #     print(arg_grads, )
 #     self.assertTrue((var_grads == _jr[0]).all())
@@ -737,13 +737,13 @@ class TestClassFuncJacobian(unittest.TestCase):
 #
 #     _jr = jax.jacrev(f1)(_x, _y)
 #     t = Test()
-#     br, _ = brainstate.augment.jacrev(t, grad_states=t.x, has_aux=True)(_y)
+#     br, _ = brainstate.transform.jacrev(t, grad_states=t.x, has_aux=True)(_y)
 #     self.assertTrue((br == _jr).all())
 #
 #     t = Test()
 #     _jr = jax.jacrev(f1, argnums=(0, 1))(_x, _y)
 #     _aux = t(_y)[1]
-#     (var_grads, arg_grads), aux = brainstate.augment.jacrev(t, grad_states=t.x, argnums=0, has_aux=True)(_y)
+#     (var_grads, arg_grads), aux = brainstate.transform.jacrev(t, grad_states=t.x, argnums=0, has_aux=True)(_y)
 #     print(var_grads, )
 #     print(arg_grads, )
 #     self.assertTrue((var_grads == _jr[0]).all())
@@ -777,7 +777,7 @@ class TestClassFuncJacobian(unittest.TestCase):
 #
 #     _jr = jax.jacfwd(f1)(_x, _y)
 #     t = Test()
-#     br, (c, d) = brainstate.augment.jacfwd(t, grad_states=t.x, has_aux=True)(_y)
+#     br, (c, d) = brainstate.transform.jacfwd(t, grad_states=t.x, has_aux=True)(_y)
 #     # print(_jr)
 #     # print(br)
 #     a = (br == _jr)
@@ -786,7 +786,7 @@ class TestClassFuncJacobian(unittest.TestCase):
 #     t = Test()
 #     _jr = jax.jacfwd(f1, argnums=(0, 1))(_x, _y)
 #     _aux = t(_y)[1]
-#     (var_grads, arg_grads), aux = brainstate.augment.jacfwd(t, grad_states=t.x, argnums=0, has_aux=True)(_y)
+#     (var_grads, arg_grads), aux = brainstate.transform.jacfwd(t, grad_states=t.x, argnums=0, has_aux=True)(_y)
 #     print(var_grads, )
 #     print(arg_grads, )
 #     self.assertTrue((var_grads == _jr[0]).all())
@@ -820,13 +820,13 @@ class TestClassFuncJacobian(unittest.TestCase):
 #
 #     _jr = jax.jacrev(f1)(_x, _y)
 #     t = Test()
-#     br, _ = brainstate.augment.jacrev(t, grad_states=t.x, has_aux=True)(_y)
+#     br, _ = brainstate.transform.jacrev(t, grad_states=t.x, has_aux=True)(_y)
 #     self.assertTrue((br == _jr).all())
 #
 #     t = Test()
 #     _jr = jax.jacrev(f1, argnums=(0, 1))(_x, _y)
 #     _val, _aux = t(_y)
-#     (var_grads, arg_grads), value, aux = brainstate.augment.jacrev(t, grad_states=t.x, argnums=0, has_aux=True, return_value=True)(_y)
+#     (var_grads, arg_grads), value, aux = brainstate.transform.jacrev(t, grad_states=t.x, argnums=0, has_aux=True, return_value=True)(_y)
 #     print(var_grads, )
 #     print(arg_grads, )
 #     self.assertTrue((var_grads == _jr[0]).all())
@@ -861,13 +861,13 @@ class TestClassFuncJacobian(unittest.TestCase):
 #
 #     _jr = jax.jacfwd(f1)(_x, _y)
 #     t = Test()
-#     br, _ = brainstate.augment.jacfwd(t, grad_states=t.x, has_aux=True)(_y)
+#     br, _ = brainstate.transform.jacfwd(t, grad_states=t.x, has_aux=True)(_y)
 #     self.assertTrue((br == _jr).all())
 #
 #     t = Test()
 #     _jr = jax.jacfwd(f1, argnums=(0, 1))(_x, _y)
 #     _val, _aux = t(_y)
-#     (var_grads, arg_grads), value, aux = brainstate.augment.jacfwd(t, grad_states=t.x, argnums=0, has_aux=True, return_value=True)(_y)
+#     (var_grads, arg_grads), value, aux = brainstate.transform.jacfwd(t, grad_states=t.x, argnums=0, has_aux=True, return_value=True)(_y)
 #     print(_val, )
 #     print('_aux: ', _aux, 'aux: ', aux)
 #     print(var_grads, )
@@ -884,7 +884,7 @@ class TestClassFuncJacobian(unittest.TestCase):
 #   def test1(self):
 #     f = lambda x: 3 * x ** 2
 #     _x = jnp.ones(10)
-#     pprint(brainstate.augment.vector_grad(f, argnums=0)(_x))
+#     pprint(brainstate.transform.vector_grad(f, argnums=0)(_x))
 #
 #   def test2(self):
 #     def f(x, y):
@@ -894,14 +894,14 @@ class TestClassFuncJacobian(unittest.TestCase):
 #     _x = jnp.ones(5)
 #     _y = jnp.ones(5)
 #
-#     g = brainstate.augment.vector_grad(f, argnums=0)(_x, _y)
+#     g = brainstate.transform.vector_grad(f, argnums=0)(_x, _y)
 #     pprint(g)
 #     self.assertTrue(jnp.array_equal(g, 2 * _x))
 #
-#     g = brainstate.augment.vector_grad(f, argnums=(0,))(_x, _y)
+#     g = brainstate.transform.vector_grad(f, argnums=(0,))(_x, _y)
 #     self.assertTrue(jnp.array_equal(g[0], 2 * _x))
 #
-#     g = brainstate.augment.vector_grad(f, argnums=(0, 1))(_x, _y)
+#     g = brainstate.transform.vector_grad(f, argnums=(0, 1))(_x, _y)
 #     pprint(g)
 #     self.assertTrue(jnp.array_equal(g[0], 2 * _x))
 #     self.assertTrue(jnp.array_equal(g[1], 2 * _y))
@@ -915,14 +915,14 @@ class TestClassFuncJacobian(unittest.TestCase):
 #     _x = jnp.ones(5)
 #     _y = jnp.ones(5)
 #
-#     g = brainstate.augment.vector_grad(f, argnums=0)(_x, _y)
+#     g = brainstate.transform.vector_grad(f, argnums=0)(_x, _y)
 #     # pprint(g)
 #     self.assertTrue(jnp.array_equal(g, 2 * _x + 3 * _x ** 2))
 #
-#     g = brainstate.augment.vector_grad(f, argnums=(0,))(_x, _y)
+#     g = brainstate.transform.vector_grad(f, argnums=(0,))(_x, _y)
 #     self.assertTrue(jnp.array_equal(g[0], 2 * _x + 3 * _x ** 2))
 #
-#     g = brainstate.augment.vector_grad(f, argnums=(0, 1))(_x, _y)
+#     g = brainstate.transform.vector_grad(f, argnums=(0, 1))(_x, _y)
 #     # pprint(g)
 #     self.assertTrue(jnp.array_equal(g[0], 2 * _x + 3 * _x ** 2))
 #     self.assertTrue(jnp.array_equal(g[1], 2 * _y + 3 * _y ** 2))
@@ -935,14 +935,14 @@ class TestClassFuncJacobian(unittest.TestCase):
 #     _x = jnp.ones((5, 5))
 #     _y = jnp.ones((5, 5))
 #
-#     g = brainstate.augment.vector_grad(f, argnums=0)(_x, _y)
+#     g = brainstate.transform.vector_grad(f, argnums=0)(_x, _y)
 #     pprint(g)
 #     self.assertTrue(jnp.array_equal(g, 2 * _x))
 #
-#     g = brainstate.augment.vector_grad(f, argnums=(0,))(_x, _y)
+#     g = brainstate.transform.vector_grad(f, argnums=(0,))(_x, _y)
 #     self.assertTrue(jnp.array_equal(g[0], 2 * _x))
 #
-#     g = brainstate.augment.vector_grad(f, argnums=(0, 1))(_x, _y)
+#     g = brainstate.transform.vector_grad(f, argnums=(0, 1))(_x, _y)
 #     pprint(g)
 #     self.assertTrue(jnp.array_equal(g[0], 2 * _x))
 #     self.assertTrue(jnp.array_equal(g[1], 2 * _y))
@@ -956,7 +956,7 @@ class TestClassFuncJacobian(unittest.TestCase):
 #     _x = jnp.ones(5)
 #     _y = jnp.ones(5)
 #
-#     g, aux = brainstate.augment.vector_grad(f, has_aux=True)(_x, _y)
+#     g, aux = brainstate.transform.vector_grad(f, has_aux=True)(_x, _y)
 #     pprint(g, )
 #     pprint(aux)
 #     self.assertTrue(jnp.array_equal(g, 2 * _x))
@@ -970,7 +970,7 @@ class TestClassFuncJacobian(unittest.TestCase):
 #     _x = jnp.ones(5)
 #     _y = jnp.ones(5)
 #
-#     g, value = brainstate.augment.vector_grad(f, return_value=True)(_x, _y)
+#     g, value = brainstate.transform.vector_grad(f, return_value=True)(_x, _y)
 #     pprint(g, )
 #     pprint(value)
 #     self.assertTrue(jnp.array_equal(g, 2 * _x))
@@ -985,7 +985,7 @@ class TestClassFuncJacobian(unittest.TestCase):
 #     _x = jnp.ones(5)
 #     _y = jnp.ones(5)
 #
-#     g, value, aux = brainstate.augment.vector_grad(f, has_aux=True, return_value=True)(_x, _y)
+#     g, value, aux = brainstate.transform.vector_grad(f, has_aux=True, return_value=True)(_x, _y)
 #     print('grad', g)
 #     print('value', value)
 #     print('aux', aux)
@@ -1007,13 +1007,13 @@ class TestClassFuncJacobian(unittest.TestCase):
 #
 #     t = Test()
 #
-#     g = brainstate.augment.vector_grad(t, grad_states=t.x)()
+#     g = brainstate.transform.vector_grad(t, grad_states=t.x)()
 #     self.assertTrue(jnp.array_equal(g, 2 * t.x))
 #
-#     g = brainstate.augment.vector_grad(t, grad_states=(t.x,))()
+#     g = brainstate.transform.vector_grad(t, grad_states=(t.x,))()
 #     self.assertTrue(jnp.array_equal(g[0], 2 * t.x))
 #
-#     g = brainstate.augment.vector_grad(t, grad_states=(t.x, t.y))()
+#     g = brainstate.transform.vector_grad(t, grad_states=(t.x, t.y))()
 #     self.assertTrue(jnp.array_equal(g[0], 2 * t.x))
 #     self.assertTrue(jnp.array_equal(g[1], 2 * t.y))
 #
@@ -1031,14 +1031,14 @@ class TestClassFuncJacobian(unittest.TestCase):
 #       print(a.value)
 #       return a + b + a.random()
 #
-#     f = brainstate.augment.vector_grad(f, argnums=0)
+#     f = brainstate.transform.vector_grad(f, argnums=0)
 #     f(1.)
 #
 #     with jax.disable_jit():
 #       f(1.)
 #
 #   @parameterized.product(
-#     grad_fun=[brainstate.augment.grad, brainstate.augment.vector_grad]
+#     grad_fun=[brainstate.transform.grad, brainstate.transform.vector_grad]
 #   )
 #   def test_print_info1(self, grad_fun):
 #     file = tempfile.TemporaryFile(mode='w+')
@@ -1075,7 +1075,7 @@ class TestClassFuncJacobian(unittest.TestCase):
 #       self.assertTrue(file.read().strip() == expect_res.strip())
 #
 #   @parameterized.product(
-#     grad_fun=[brainstate.augment.grad, brainstate.augment.vector_grad]
+#     grad_fun=[brainstate.transform.grad, brainstate.transform.vector_grad]
 #   )
 #   def test_print_info2(self, grad_fun):
 #     file = tempfile.TemporaryFile(mode='w+')
@@ -1117,7 +1117,7 @@ class TestClassFuncJacobian(unittest.TestCase):
 #       a = jnp.Variable(jnp.ones(2))
 #       b = jnp.Variable(jnp.zeros(2))
 #
-#       @brainstate.augment.vector_grad(argnums=0)
+#       @brainstate.transform.vector_grad(argnums=0)
 #       def f1(c):
 #         a.value += 1
 #         b.value += 10
@@ -1149,7 +1149,7 @@ class TestClassFuncJacobian(unittest.TestCase):
 #
 #
 #     def run_fun(d):
-#       @brainstate.augment.vector_grad(argnums=0)
+#       @brainstate.transform.vector_grad(argnums=0)
 #       def f1(c):
 #         a.value += d
 #         b.value += 10
@@ -1178,8 +1178,8 @@ class TestClassFuncJacobian(unittest.TestCase):
 #         print('compiling f ...', file=file)
 #         return a + b
 #
-#       grad1 = brainstate.augment.grad(f)(1., 2.)  # call "f" twice, one for Variable finding, one for compiling
-#       grad2 = brainstate.augment.vector_grad(f)(1., 2.)  # call "f" once for compiling
+#       grad1 = brainstate.transform.grad(f)(1., 2.)  # call "f" twice, one for Variable finding, one for compiling
+#       grad2 = brainstate.transform.vector_grad(f)(1., 2.)  # call "f" once for compiling
 #
 #       file.seek(0)
 #       print(file.read().strip())
@@ -1201,7 +1201,7 @@ class TestUnitAwareGrad(unittest.TestCase):
             return u.math.sum(x ** 2)
 
         x = jnp.array([1., 2., 3.]) * u.ms
-        g = brainstate.augment.grad(f, unit_aware=True)(x)
+        g = brainstate.transform.grad(f, unit_aware=True)(x)
         self.assertTrue(u.math.allclose(g, 2 * x))
 
     def test_vector_grad1(self):
@@ -1209,7 +1209,7 @@ class TestUnitAwareGrad(unittest.TestCase):
             return x ** 3
 
         x = jnp.array([1., 2., 3.]) * u.ms
-        g = brainstate.augment.vector_grad(f, unit_aware=True)(x)
+        g = brainstate.transform.vector_grad(f, unit_aware=True)(x)
         self.assertTrue(u.math.allclose(g, 3 * x ** 2))
 
     def test_jacrev1(self):
@@ -1221,7 +1221,7 @@ class TestUnitAwareGrad(unittest.TestCase):
         _x = jnp.array([1., 2., 3.]) * u.ms
         _y = jnp.array([10., 5.]) * u.ms
 
-        g = brainstate.augment.jacrev(f, unit_aware=True, argnums=(0, 1))(_x, _y)
+        g = brainstate.transform.jacrev(f, unit_aware=True, argnums=(0, 1))(_x, _y)
         self.assertTrue(
             u.math.allclose(
                 g[0],
@@ -1253,7 +1253,7 @@ class TestUnitAwareGrad(unittest.TestCase):
         _x = jnp.array([1., 2., 3.]) * u.ms
         _y = jnp.array([10., 5.]) * u.ms
 
-        g = brainstate.augment.jacfwd(f, unit_aware=True, argnums=(0, 1))(_x, _y)
+        g = brainstate.transform.jacfwd(f, unit_aware=True, argnums=(0, 1))(_x, _y)
         self.assertTrue(
             u.math.allclose(
                 g[0],
@@ -1282,7 +1282,7 @@ class TestUnitAwareGrad(unittest.TestCase):
         def scalar_function(x):
             return x ** 3 + 3 * x * unit * unit + 2 * unit * unit * unit
 
-        hess = brainstate.augment.hessian(scalar_function, unit_aware=True)
+        hess = brainstate.transform.hessian(scalar_function, unit_aware=True)
         x = jnp.array(1.0) * unit
         res = hess(x)
         expected_hessian = jnp.array([[6.0]]) * unit

@@ -160,7 +160,7 @@ This release focuses on enhancing hidden state management for recurrent neural n
 - **HiddenState**: Enhanced documentation and type checking
   - Restricted to `numpy.ndarray`, `jax.Array`, and `brainunit.Quantity` types only
   - Added comprehensive docstrings with examples
-  - Clarified equivalence to `brainscale.ETraceState` for online learning
+  - Clarified equivalence to `brainstate.HiddenState` for online learning
   - Improved error messages for invalid input types
 
 - **BatchState**: Now properly exported in the public API
@@ -318,7 +318,7 @@ This is a major release with significant refactoring, new features, and comprehe
 
 ### Breaking Changes
 
-- **Module Deprecations**: Deprecated `brainstate.augment`, `brainstate.compile`, and `brainstate.functional` modules in favor of `brainstate.transform` and `brainstate.nn`
+- **Module Deprecations**: Deprecated `brainstate.transform`, `brainstate.transform`, and `brainstate.functional` modules in favor of `brainstate.transform` and `brainstate.nn`
   - Added deprecation proxies to guide users towards replacement modules
   - Updated all documentation and examples to use new module paths
 

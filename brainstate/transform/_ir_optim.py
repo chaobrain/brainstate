@@ -15,16 +15,19 @@
 
 from collections.abc import MutableSet
 from typing import Union, Sequence
-from jax import lax
-import jax
 
+import jax
 import numpy as np
-from brainstate._compatible_import import (Literal, Var, Jaxpr, ClosedJaxpr, JaxprEqn)
+from jax import lax
+from jax._src.core import JaxprEqnContext
+from jax.extend import source_info_util
+
+from brainstate._compatible_import import (Literal, Var, Jaxpr, ClosedJaxpr, JaxprEqn, )
 
 __all__ = [
     'constant_fold',
     'dead_code_elimination',
-    'common_subexpression_elimination',
+    # 'common_subexpression_elimination',
     'copy_propagation',
     'algebraic_simplification',
     'optimize_jaxpr',
@@ -98,6 +101,14 @@ class IdentitySet(MutableSet):
 _constant_fold_blacklist = {'broadcast_in_dim', 'broadcast'}
 
 
+def _fallback_source_info(eqns: Sequence[JaxprEqn]) -> source_info_util.SourceInfo:
+    if eqns:
+        source_info = eqns[-1].source_info
+        if source_info is not None:
+            return source_info
+    return source_info_util.new_source_info()
+
+
 def _partial_eval_jaxpr(jaxpr, env):
     env = env.copy()
     new_eqns = []
@@ -122,11 +133,17 @@ def _partial_eval_jaxpr(jaxpr, env):
 
     for eqn in jaxpr.eqns:
         vals = [read(var) for var in eqn.invars]
-        if eqn.primitive.name in _constant_fold_blacklist:
+        if eqn.primitive.name in _constant_fold_blacklist or eqn.effects:
             new_eqns.append(eqn)
-        elif all(val is not None for val in vals):
-            # go ahead and eval it
-            out = _eval_eqn(eqn, vals)
+            continue
+
+        if all(val is not None for val in vals):
+            # go ahead and eval it if it is safe to do so
+            try:
+                out = _eval_eqn(eqn, vals)
+            except Exception:
+                new_eqns.append(eqn)
+                continue
 
             # two options: either it's a jaxpr result (partial eval) or it's a value or a list of values
             if isinstance(out, Jaxpr):
@@ -161,7 +178,7 @@ def _partial_eval_jaxpr(jaxpr, env):
     # sub in any constants for outvars
     outvars = tuple(read_or_self(var) for var in jaxpr.outvars)
 
-    return jaxpr.replace(eqns=out_eqns, outvars=outvars, invars=invars, debug_info=None)
+    return jaxpr.replace(eqns=out_eqns, outvars=outvars, invars=invars)
 
 
 def _eval_eqn(eqn, vals) -> Union[Jaxpr, tuple, list, jax.Array]:
@@ -169,14 +186,15 @@ def _eval_eqn(eqn, vals) -> Union[Jaxpr, tuple, list, jax.Array]:
         assert eqn.primitive.call_primitive
         assert not eqn.primitive.map_primitive
 
-        out = _partial_eval_jaxpr(
-            eqn.params['call_jaxpr'].jaxpr,
-            {
-                var: val
-                for var, val in
-                zip(eqn.params['call_jaxpr'].jaxpr.invars, vals)
-            }
-        )
+        call_jaxpr: ClosedJaxpr = eqn.params['call_jaxpr']
+        env = {
+            var: val
+            for var, val in zip(call_jaxpr.jaxpr.invars, vals)
+        }
+        if call_jaxpr.consts:
+            env.update(zip(call_jaxpr.jaxpr.constvars, call_jaxpr.consts))
+
+        out = _partial_eval_jaxpr(call_jaxpr.jaxpr, env)
     elif eqn.primitive.name == "scan":
         out = eqn.primitive.bind(*vals, **eqn.params)
     else:
@@ -216,8 +234,47 @@ def constant_fold(jaxpr: Jaxpr) -> Jaxpr:
     >>> optimized_jaxpr = constant_fold(original_jaxpr)
     """
     result = _partial_eval_jaxpr(jaxpr, {})
+
+    # Ensure outvars from the folded jaxpr are wired back to the original
+    # interface. When a result is now a literal or a different variable, add a
+    # trailing copy equation so eval_jaxpr can still bind the original Var.
+    existing_eqns = list(result.eqns)
+    extra_eqns = []
+    source_info = _fallback_source_info(existing_eqns)
+    ctx = existing_eqns[-1].ctx if existing_eqns else JaxprEqnContext(None, True)
+
+    for original, folded_out in zip(jaxpr.outvars, result.outvars):
+        needs_bridge = False
+        if isinstance(original, Literal):
+            # Literal outputs can remain literals; no bridge required.
+            continue
+
+        if isinstance(folded_out, Literal):
+            needs_bridge = True
+        elif isinstance(folded_out, Var):
+            needs_bridge = folded_out is not original
+        else:
+            # Unexpected type, fall back to keeping the original interface by
+            # leaving the variable unmodified.
+            folded_out = original
+
+        if needs_bridge:
+            bridge_eqn = JaxprEqn(
+                (folded_out,),
+                (original,),
+                lax.copy_p,
+                {},
+                set(),
+                source_info,
+                ctx,
+            )
+            extra_eqns.append(bridge_eqn)
+
+    if extra_eqns:
+        existing_eqns.extend(extra_eqns)
+
     # Ensure invars and outvars are preserved
-    return result.replace(invars=jaxpr.invars, outvars=jaxpr.outvars)
+    return result.replace(eqns=tuple(existing_eqns), invars=jaxpr.invars, outvars=jaxpr.outvars)
 
 
 def dead_code_elimination(jaxpr: Jaxpr) -> Jaxpr:
@@ -280,7 +337,7 @@ def dead_code_elimination(jaxpr: Jaxpr) -> Jaxpr:
             new_eqns.append(eqn)
 
     # Keep all input and output variables unchanged
-    return jaxpr.replace(eqns=new_eqns, invars=jaxpr.invars, outvars=jaxpr.outvars, debug_info=None)
+    return jaxpr.replace(eqns=new_eqns, invars=jaxpr.invars, outvars=jaxpr.outvars)
 
 
 def common_subexpression_elimination(jaxpr: Jaxpr) -> Jaxpr:
@@ -370,23 +427,22 @@ def common_subexpression_elimination(jaxpr: Jaxpr) -> Jaxpr:
 
     # Add identity equations if needed
     if outvars_need_identity:
-        # Import the identity primitive from jax
-        from jax._src.core import JaxprEqnContext
-        default_ctx = JaxprEqnContext(None, True)
         for outvar, canonical in outvars_need_identity:
             # Create an identity equation: outvar = identity(canonical)
             # Use convert_element_type as identity (same type)
-            eqn = JaxprEqn([canonical],
-                           [outvar],
-                           lax.convert_element_type_p,
-                           {'new_dtype': outvar.aval.dtype, 'weak_type': False},
-                           set(),
-                           None,
-                           default_ctx)
+            eqn = JaxprEqn(
+                [canonical],
+                [outvar],
+                lax.convert_element_type_p,
+                {'new_dtype': outvar.aval.dtype, 'weak_type': False},
+                set(),
+                _fallback_source_info(new_eqns),
+                new_eqns[-1].ctx if new_eqns else JaxprEqnContext(None, True),
+            )
             final_eqns.append(eqn)
 
     # Keep original outvars and invars
-    return jaxpr.replace(eqns=final_eqns, outvars=jaxpr.outvars, invars=jaxpr.invars, debug_info=None)
+    return jaxpr.replace(eqns=final_eqns, outvars=jaxpr.outvars, invars=jaxpr.invars)
 
 
 def copy_propagation(jaxpr: Jaxpr) -> Jaxpr:
@@ -481,7 +537,7 @@ def copy_propagation(jaxpr: Jaxpr) -> Jaxpr:
     new_outvars = jaxpr.outvars
 
     # Keep all input and output variables unchanged
-    return jaxpr.replace(eqns=new_eqns, invars=jaxpr.invars, outvars=new_outvars, debug_info=None)
+    return jaxpr.replace(eqns=new_eqns, invars=jaxpr.invars, outvars=new_outvars)
 
 
 def algebraic_simplification(jaxpr: Jaxpr) -> Jaxpr:
@@ -573,7 +629,6 @@ def algebraic_simplification(jaxpr: Jaxpr) -> Jaxpr:
         return Literal(value, aval)
 
     new_eqns = []
-
     for eqn in jaxpr.eqns:
         # Update invars to use canonical variables
         canonical_invars = tuple(get_var(v) for v in eqn.invars)
@@ -637,22 +692,35 @@ def algebraic_simplification(jaxpr: Jaxpr) -> Jaxpr:
 
     # Add identity equations if needed
     if outvars_need_identity:
-        from jax._src.core import JaxprEqnContext
-        default_ctx = JaxprEqnContext(None, True)
         for outvar, canonical in outvars_need_identity:
             # Create an identity equation: outvar = identity(canonical)
+            source_info = _fallback_source_info(new_eqns)
             if isinstance(canonical, Literal):
                 # If canonical is a literal, we need to materialize it
-                eqn = JaxprEqn([canonical], [outvar], lax.convert_element_type_p,
-                               {'new_dtype': outvar.aval.dtype, 'weak_type': False}, set(), None, default_ctx)
+                eqn = JaxprEqn(
+                    [canonical],
+                    [outvar],
+                    lax.convert_element_type_p,
+                    {'new_dtype': outvar.aval.dtype, 'weak_type': False},
+                    set(),
+                    source_info,
+                    new_eqns[-1].ctx if new_eqns else JaxprEqnContext(None, True)
+                )
             else:
                 # Use convert_element_type as identity (same type)
-                eqn = JaxprEqn([canonical], [outvar], lax.convert_element_type_p,
-                               {'new_dtype': outvar.aval.dtype, 'weak_type': False}, set(), None, default_ctx)
+                eqn = JaxprEqn(
+                    [canonical],
+                    [outvar],
+                    lax.convert_element_type_p,
+                    {'new_dtype': outvar.aval.dtype, 'weak_type': False},
+                    set(),
+                    source_info,
+                    new_eqns[-1].ctx if new_eqns else JaxprEqnContext(None, True)
+                )
             final_eqns.append(eqn)
 
     # Keep original outvars and invars
-    return jaxpr.replace(eqns=final_eqns, outvars=jaxpr.outvars, invars=jaxpr.invars, debug_info=None)
+    return jaxpr.replace(eqns=final_eqns, outvars=jaxpr.outvars, invars=jaxpr.invars)
 
 
 def optimize_jaxpr(
@@ -788,7 +856,7 @@ def optimize_jaxpr(
         'constant_fold': constant_fold,
         'algebraic_simplification': algebraic_simplification,
         'copy_propagation': copy_propagation,
-        'cse': common_subexpression_elimination,
+        # 'cse': common_subexpression_elimination,
         'dce': dead_code_elimination,
     }
 
@@ -798,7 +866,7 @@ def optimize_jaxpr(
             'constant_fold',
             'algebraic_simplification',
             'copy_propagation',
-            'cse',
+            # 'cse',
             'dce',
         ]
 

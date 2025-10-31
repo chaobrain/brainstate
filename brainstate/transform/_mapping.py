@@ -550,17 +550,17 @@ def vmap2(
     --------
     .. code-block:: python
 
-        >>> import brainstate as bst
+        >>> import brainstate
         >>> import jax.numpy as jnp
         >>> from brainstate.util.filter import OfType
         >>>
-        >>> counter = bst.ShortTermState(jnp.array(0.0))
+        >>> counter = brainstate.ShortTermState(jnp.array(0.0))
         >>>
-        >>> @bst.transform.vmap(
+        >>> @brainstate.transform.vmap(
         ...     in_axes=0,
         ...     out_axes=0,
-        ...     state_in_axes={0: OfType(bst.ShortTermState)},
-        ...     state_out_axes={0: OfType(bst.ShortTermState)},
+        ...     state_in_axes={0: OfType(brainstate.ShortTermState)},
+        ...     state_out_axes={0: OfType(brainstate.ShortTermState)},
         ... )
         ... def accumulate(x):
         ...     counter.value = counter.value + x
@@ -682,18 +682,18 @@ def pmap(
     --------
     .. code-block:: python
 
-        >>> import brainstate as bst
+        >>> import brainstate
         >>> import jax.numpy as jnp
         >>> from brainstate.util.filter import OfType
         >>>
-        >>> weights = bst.ParamState(jnp.ones((4,)))
+        >>> weights = brainstate.ParamState(jnp.ones((4,)))
         >>>
-        >>> @bst.transform.pmap(
+        >>> @brainstate.transform.pmap(
         ...     axis_name='devices',
         ...     in_axes=0,
         ...     out_axes=0,
-        ...     state_in_axes={0: OfType(bst.ParamState)},
-        ...     state_out_axes={0: OfType(bst.ParamState)},
+        ...     state_in_axes={0: OfType(brainstate.ParamState)},
+        ...     state_out_axes={0: OfType(brainstate.ParamState)},
         ... )
         ... def update(delta):
         ...     weights.value = weights.value + delta

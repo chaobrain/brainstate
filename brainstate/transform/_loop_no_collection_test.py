@@ -30,7 +30,7 @@ class TestWhileLoop(TestCase):
         def body(_):
             a.value += 1.
 
-        brainstate.compile.while_loop(cond, body, None)
+        brainstate.transform.while_loop(cond, body, None)
 
         print(a.value, b.value)
 
@@ -45,6 +45,6 @@ class TestWhileLoop(TestCase):
             a.value += x
             return x
 
-        r = brainstate.compile.while_loop(cond, body, 1.)
+        r = brainstate.transform.while_loop(cond, body, 1.)
 
         print(a.value, b.value, r)

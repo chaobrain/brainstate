@@ -166,8 +166,8 @@ class GIF(brainpy.Neuron):
         self._I2_initializer = I2_initializer
 
     def init_state(self, batch_size=None):
-        self.V = brainscale.ETraceState(braintools.init.param(self._V_initializer, self.varshape, batch_size))
-        self.I2 = brainscale.ETraceState(braintools.init.param(self._I2_initializer, self.varshape, batch_size))
+        self.V = brainstate.HiddenState(braintools.init.param(self._V_initializer, self.varshape, batch_size))
+        self.I2 = brainstate.HiddenState(braintools.init.param(self._I2_initializer, self.varshape, batch_size))
 
     def update(self, x=0.):
         t = brainstate.environ.get('t')
@@ -213,7 +213,7 @@ class GifNet(brainstate.nn.Module):
         self.num_rec = num_rec
         self.num_out = num_out
         self.ir2r = brainscale.nn.Linear(num_in + num_rec, num_rec, w_init=w, b_init=braintools.init.ZeroInit(unit=u.mA))
-        self.exp = brainscale.nn.Expon(num_rec, tau=args.tau_syn * u.ms, g_initializer=braintools.init.ZeroInit(unit=u.mA))
+        self.exp = brainpy.state.Expon(num_rec, tau=args.tau_syn * u.ms, g_initializer=braintools.init.ZeroInit(unit=u.mA))
         tau_I2 = brainstate.random.uniform(100., args.tau_I2 * 1.5, num_rec)
         self.r = GIF(
             num_rec,
