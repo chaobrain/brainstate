@@ -3,7 +3,7 @@ publishment.md
 .vscode
 io_test_tmp*
 
-
+docs/changelog.md
 lib/
 
 development
@@ -226,3 +226,9 @@ cython_debug/
 /docs/apis/deprecated/generated/
 /dist-hist/
 /.VSCodeCounter/
+/.claude/
+/dev/
+/examples/figs/
+/examples/braincell-interoperation/
+/examples/brainmass-interoperation/
+/examples/brainpy-interoperation/

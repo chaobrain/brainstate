@@ -1,0 +1,81 @@
+name: Bug report
+description: Report a problem or unexpected behavior in BrainState.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve BrainState! Please review `CONTRIBUTING.md` to confirm this report has the details maintainers need to reproduce the issue.
+  - type: checkboxes
+    id: prerequisites
+    attributes:
+      label: Prerequisites
+      description: Confirm these steps before filing the report.
+      options:
+        - label: I have searched existing issues and discussions to avoid duplicates.
+          required: true
+        - label: I have read `CONTRIBUTING.md` and followed the reporting guidelines.
+          required: true
+  - type: input
+    id: summary
+    attributes:
+      label: Summary
+      description: Briefly describe the bug.
+      placeholder: e.g. BrainState crash when compiling a stateful transform on Python 3.12
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Provide a minimal reproducible example (code and data). Include commands needed to run it.
+      placeholder: |
+        1. `pip install brainstate`
+        2. Run the script below
+        ```python
+        import brainstate as bst
+
+        # minimal example
+        ```
+      render: python
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: Describe what you expected to happen.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: Describe what actually happened, including full error messages and stack traces.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include OS, Python, BrainState, JAX, and other relevant package versions plus how you installed BrainState.
+      placeholder: |
+        - OS: Ubuntu 22.04
+        - Python: 3.12.1
+        - BrainState: 0.x.y
+        - JAX: 0.x.y (cuda|cpu)
+        - Installation method: pip / conda / from source
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs & Traceback
+      description: Paste relevant console output, stack traces, profiler results, or attach files.
+      render: shell
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Add screenshots, related issues, or any other context that helps understand the problem.

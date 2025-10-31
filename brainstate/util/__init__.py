@@ -1,4 +1,4 @@
-# Copyright 2024 BDP Ecosystem Limited. All Rights Reserved.
+# Copyright 2024 BrainX Ecosystem Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,37 +14,14 @@
 # ==============================================================================
 
 from . import filter
-from .error import *
-from .error import __all__ as _error_all
-from .others import *
-from .others import __all__ as _others_all
-from .pretty_pytree import *
-from .pretty_pytree import __all__ as _mapping_all
-from .pretty_repr import *
-from .pretty_repr import __all__ as _pretty_repr_all
-from .pretty_table import *
-from .pretty_table import __all__ as _table_all
-from .scaling import *
-from .scaling import __all__ as _mem_scale_all
+from ._others import *
+from ._others import __all__ as _others_all
+from ._pretty_pytree import *
+from ._pretty_pytree import __all__ as _mapping_all
+from ._pretty_repr import *
+from ._pretty_repr import __all__ as _pretty_repr_all
 from .struct import *
 from .struct import __all__ as _struct_all
 
-__all__ = (
-    ['filter']
-    + _others_all
-    + _mem_scale_all
-    + _pretty_repr_all
-    + _struct_all
-    + _error_all
-    + _mapping_all
-    + _table_all
-)
-del (
-    _others_all,
-    _mem_scale_all,
-    _pretty_repr_all,
-    _struct_all,
-    _error_all,
-    _mapping_all,
-    _table_all,
-)
+__all__ = ['filter'] + _others_all + _pretty_repr_all + _struct_all + _mapping_all
+del _others_all, _pretty_repr_all, _struct_all, _mapping_all

@@ -1,8 +1,8 @@
-``brainstate.nn`` for neural network building
-=============================================
+``brainstate.nn`` module
+========================
 
-.. currentmodule:: brainstate.nn 
-.. automodule:: brainstate.nn 
+.. currentmodule:: brainstate.nn
+.. automodule:: brainstate.nn
 
 Base Module Classes
 -------------------
@@ -16,9 +16,19 @@ Base Module Classes
    ElementWiseBlock
    Sequential
 
+Common Wrappers
+---------------
 
-Synaptic Interaction Layers
----------------------------
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+   :template: classtemplate.rst
+
+   EnvironContext
+   Vmap
+
+Linear Layers
+-------------
 
 .. autosummary::
    :toctree: generated/
@@ -29,8 +39,17 @@ Synaptic Interaction Layers
    ScaledWSLinear
    SignedWLinear
    SparseLinear
+   LoRA
    AllToAll
    OneToOne
+
+Convolutional Layers
+--------------------
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+   :template: classtemplate.rst
 
    Conv1d
    Conv2d
@@ -38,21 +57,32 @@ Synaptic Interaction Layers
    ScaledWSConv1d
    ScaledWSConv2d
    ScaledWSConv3d
+   ConvTranspose1d
+   ConvTranspose2d
+   ConvTranspose3d
 
-   BatchNorm0d
-   BatchNorm1d
-   BatchNorm2d
-   BatchNorm3d
+Pooling and Reshaping
+---------------------
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+   :template: classtemplate.rst
 
    Flatten
    Unflatten
-
    AvgPool1d
    AvgPool2d
    AvgPool3d
    MaxPool1d
    MaxPool2d
    MaxPool3d
+   MaxUnpool1d
+   MaxUnpool2d
+   MaxUnpool3d
+   LPPool1d
+   LPPool2d
+   LPPool3d
    AdaptiveAvgPool1d
    AdaptiveAvgPool2d
    AdaptiveAvgPool3d
@@ -60,8 +90,72 @@ Synaptic Interaction Layers
    AdaptiveMaxPool2d
    AdaptiveMaxPool3d
 
-   Embedding
+Padding Layers
+--------------
 
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+   :template: classtemplate.rst
+
+   ReflectionPad1d
+   ReflectionPad2d
+   ReflectionPad3d
+   ReplicationPad1d
+   ReplicationPad2d
+   ReplicationPad3d
+   ZeroPad1d
+   ZeroPad2d
+   ZeroPad3d
+   ConstantPad1d
+   ConstantPad2d
+   ConstantPad3d
+   CircularPad1d
+   CircularPad2d
+   CircularPad3d
+
+Normalization Layers
+--------------------
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+   :template: classtemplate.rst
+
+   BatchNorm0d
+   BatchNorm1d
+   BatchNorm2d
+   BatchNorm3d
+   LayerNorm
+   RMSNorm
+   GroupNorm
+   weight_standardization
+
+Dropout Layers
+--------------
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+   :template: classtemplate.rst
+
+   Dropout
+   Dropout1d
+   Dropout2d
+   Dropout3d
+   AlphaDropout
+   FeatureAlphaDropout
+   DropoutFixed
+
+Embedding
+---------
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+   :template: classtemplate.rst
+
+   Embedding
 
 Element-wise Layers
 -------------------
@@ -71,13 +165,6 @@ Element-wise Layers
    :nosignatures:
    :template: classtemplate.rst
 
-   DropoutFixed
-   Dropout
-   Dropout1d
-   Dropout2d
-   Dropout3d
-   AlphaDropout
-   FeatureAlphaDropout
    Threshold
    ReLU
    RReLU
@@ -109,8 +196,78 @@ Element-wise Layers
    Identity
    SpikeBitwise
 
+Activation Functions
+--------------------
 
-Base Dynamics Classes
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+   :template: classtemplate.rst
+
+   tanh
+   relu
+   squareplus
+   softplus
+   soft_sign
+   sigmoid
+   silu
+   swish
+   log_sigmoid
+   elu
+   leaky_relu
+   hard_tanh
+   celu
+   selu
+   gelu
+   glu
+   logsumexp
+   log_softmax
+   softmax
+   standardize
+   one_hot
+   relu6
+   hard_sigmoid
+   hard_silu
+   hard_swish
+   hard_shrink
+   rrelu
+   mish
+   soft_shrink
+   prelu
+   tanh_shrink
+   softmin
+   sparse_plus
+   sparse_sigmoid
+
+Event-based Connectivity
+------------------------
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+   :template: classtemplate.rst
+
+   FixedNumConn
+   EventFixedNumConn
+   EventFixedProb
+   EventLinear
+
+Recurrent Cells
+---------------
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+   :template: classtemplate.rst
+
+   RNNCell
+   ValinaRNNCell
+   GRUCell
+   MGUCell
+   LSTMCell
+   URLSTMCell
+
+Dynamics Base Classes
 ---------------------
 
 .. autosummary::
@@ -119,15 +276,7 @@ Base Dynamics Classes
    :template: classtemplate.rst
 
    DynamicsGroup
-   Projection
    Dynamics
-   AlignPostProj
-   DeltaProj
-   CurrentProj
-   SynOut
-   Neuron
-   Synapse
-
 
 Dynamics Utilities
 ------------------
@@ -137,79 +286,13 @@ Dynamics Utilities
    :nosignatures:
    :template: classtemplate.rst
 
-    Prefetch
-    PrefetchDelay
-    PrefetchDelayAt
-    OutputDelayAt
+   Prefetch
+   PrefetchDelay
+   PrefetchDelayAt
+   OutputDelayAt
 
-
-Neuronal Dynamics
------------------
-
-.. autosummary::
-   :toctree: generated/
-   :nosignatures:
-   :template: classtemplate.rst
-
-   IF
-   LIF
-   LIFRef
-   ALIF
-   SpikeTime
-   PoissonSpike
-   PoissonEncoder
-   RNNCell
-   ValinaRNNCell
-   GRUCell
-   MGUCell
-   LSTMCell
-   URLSTMCell
-   LeakyRateReadout
-   LeakySpikeReadout
-
-
-Synaptic Dynamics
------------------
-
-.. autosummary::
-   :toctree: generated/
-   :nosignatures:
-   :template: classtemplate.rst
-
-   Expon
-   DualExpon
-   AMPA
-   GABAa
-
-
-
-Short-Term Plasticity
----------------------
-
-.. autosummary::
-   :toctree: generated/
-   :nosignatures:
-   :template: classtemplate.rst
-
-   STD
-   STP
-
-
-Synaptic Outputs
-----------------
-
-.. autosummary::
-   :toctree: generated/
-   :nosignatures:
-   :template: classtemplate.rst
-
-   COBA
-   CUBA
-   MgBlock
-
-
-Synaptic Delays
-----------------
+Delay Utilities
+---------------
 
 .. autosummary::
    :toctree: generated/
@@ -220,32 +303,6 @@ Synaptic Delays
    DelayAccess
    StateWithDelay
 
-
-
-Synaptic Projections
---------------------
-
-.. autosummary::
-   :toctree: generated/
-   :nosignatures:
-   :template: classtemplate.rst
-
-    align_pre_projection
-    align_post_projection
-
-
-
-Numerical Integration Methods
------------------------------
-
-.. autosummary::
-   :toctree: generated/
-   :nosignatures:
-   :template: classtemplate.rst
-
-   exp_euler_step
-
-
 Collective Operations
 ---------------------
 
@@ -255,11 +312,80 @@ Collective Operations
    :template: classtemplate.rst
 
    call_order
+   call_all_fns
+   vmap_call_all_fns
    init_all_states
+   vmap_init_all_states
    reset_all_states
-   load_all_states
-   save_all_states
+   vmap_reset_all_states
    assign_state_values
-   MAX_ORDER
 
+Numerical Integration
+---------------------
 
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+   :template: classtemplate.rst
+
+   exp_euler_step
+
+Metrics
+-------
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+   :template: classtemplate.rst
+
+   MetricState
+   Metric
+   AverageMetric
+   WelfordMetric
+   AccuracyMetric
+   MultiMetric
+   PrecisionMetric
+   RecallMetric
+   F1ScoreMetric
+   ConfusionMatrix
+
+Utility Functions
+-----------------
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+   :template: classtemplate.rst
+
+   count_parameters
+   clip_grad_norm
+
+Parameter Initialization
+------------------------
+
+.. currentmodule:: brainstate.nn.init
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+   :template: classtemplate.rst
+
+   param
+   calculate_init_gain
+   ZeroInit
+   Constant
+   Identity
+   Normal
+   TruncatedNormal
+   Uniform
+   VarianceScaling
+   KaimingUniform
+   KaimingNormal
+   XavierUniform
+   XavierNormal
+   LecunUniform
+   LecunNormal
+   Orthogonal
+   DeltaOrthogonal
+
+.. currentmodule:: brainstate.nn

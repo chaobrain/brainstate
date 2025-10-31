@@ -1,4 +1,4 @@
-# Copyright 2024 BDP Ecosystem Limited. All Rights Reserved.
+# Copyright 2024 BrainX Ecosystem Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,40 +23,53 @@
 #
 # - Vogels, T. P. and Abbott, L. F. (2005), Signal propagation and logic gating in networks of integrate-and-fire neurons., J. Neurosci., 25, 46, 10786–95
 #
-import os
-import sys
-
-sys.path.append('../')
-os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.99'
-os.environ['JAX_TRACEBACK_FILTERING'] = 'off'
 
 
-import jax
-import brainunit as u
 import time
+
+import brainunit as u
+import jax
+
+import brainpy
+import braintools
 import brainstate
-import brainevent
 
 
-class EINet(brainstate.nn.DynamicsGroup):
+class EINet(brainstate.nn.Module):
     def __init__(self, scale):
         super().__init__()
         self.n_exc = int(3200 * scale)
         self.n_inh = int(800 * scale)
         self.num = self.n_exc + self.n_inh
-        self.N = brainstate.nn.LIFRef(self.num, V_rest=-60. * u.mV, V_th=-50. * u.mV, V_reset=-60. * u.mV,
-                                      tau=20. * u.ms, tau_ref=5. * u.ms,
-                                      V_initializer=brainstate.init.Normal(-55., 2., unit=u.mV))
-        self.E = brainstate.nn.AlignPostProj(
-            comm=brainstate.nn.EventFixedProb(self.n_exc, self.num, conn_num=80 / self.num, conn_weight=0.6 * u.mS),
-            syn=brainstate.nn.Expon.desc(self.num, tau=5. * u.ms),
-            out=brainstate.nn.COBA.desc(E=0. * u.mV),
+        self.N = brainpy.state.LIFRef(
+            self.num,
+            V_rest=-60. * u.mV,
+            V_th=-50. * u.mV,
+            V_reset=-60. * u.mV,
+            tau=20. * u.ms,
+            tau_ref=5. * u.ms,
+            V_initializer=braintools.init.Normal(-55., 2., unit=u.mV)
+        )
+        self.E = brainpy.state.AlignPostProj(
+            comm=brainstate.nn.EventFixedProb(
+                self.n_exc,
+                self.num,
+                conn_num=80 / self.num,
+                conn_weight=0.6 * u.mS
+            ),
+            syn=brainpy.state.Expon.desc(self.num, tau=5. * u.ms),
+            out=brainpy.state.COBA.desc(E=0. * u.mV),
             post=self.N
         )
-        self.I = brainstate.nn.AlignPostProj(
-            comm=brainstate.nn.EventFixedProb(self.n_inh, self.num, conn_num=80 / self.num, conn_weight=6.7 * u.mS),
-            syn=brainstate.nn.Expon.desc(self.num, tau=10. * u.ms),
-            out=brainstate.nn.COBA.desc(E=-80. * u.mV),
+        self.I = brainpy.state.AlignPostProj(
+            comm=brainstate.nn.EventFixedProb(
+                self.n_inh,
+                self.num,
+                conn_num=80 / self.num,
+                conn_weight=6.7 * u.mS
+            ),
+            syn=brainpy.state.Expon.desc(self.num, tau=10. * u.ms),
+            out=brainpy.state.COBA.desc(E=-80. * u.mV),
             post=self.N
         )
 
@@ -65,14 +78,14 @@ class EINet(brainstate.nn.DynamicsGroup):
 
     def update(self, t, inp):
         with brainstate.environ.context(t=t):
-            spk = self.N.get_spike() != 0.
+            spk = self.N.get_spike()
             self.E(spk[:self.n_exc])
             self.I(spk[self.n_exc:])
             self.N(inp)
             self.rate.value += self.N.get_spike()
 
 
-@brainstate.compile.jit(static_argnums=0)
+@brainstate.transform.jit(static_argnums=0)
 def run(scale: float):
     # network
     net = EINet(scale)
@@ -82,7 +95,7 @@ def run(scale: float):
     # simulation
     with brainstate.environ.context(dt=0.1 * u.ms):
         times = u.math.arange(0. * u.ms, duration, brainstate.environ.get_dt())
-        brainstate.compile.for_loop(lambda t: net.update(t, 20. * u.mA), times)
+        brainstate.transform.for_loop(lambda t: net.update(t, 20. * u.mA), times)
 
     return net.num, net.rate.value.sum() / net.num / duration.to_decimal(u.second)
 
@@ -94,7 +107,6 @@ for s in [1, 2, 4, 6, 8, 10, 20, 40, 60, 80, 100]:
     n, rate = jax.block_until_ready(run(s))
     t1 = time.time()
     print(f'scale={s}, size={n}, time = {t1 - t0} s, firing rate = {rate} Hz')
-
 
 # A6000 NVIDIA GPU
 

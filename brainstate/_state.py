@@ -1,4 +1,4 @@
-# Copyright 2024 BDP Ecosystem Limited. All Rights Reserved.
+# Copyright 2024 BrainX Ecosystem Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,15 +16,13 @@
 from __future__ import annotations
 
 import contextlib
-import dataclasses
 import threading
-from functools import wraps, partial
+from functools import partial
 from typing import (
     Any,
     Union,
     Callable,
     Generic,
-    Mapping,
     TypeVar,
     Optional,
     TYPE_CHECKING,
@@ -35,6 +33,7 @@ from typing import (
     Generator,
 )
 
+import brainunit as u
 import jax
 import numpy as np
 from jax.api_util import shaped_abstractify
@@ -49,6 +48,8 @@ __all__ = [
     'ShortTermState',
     'LongTermState',
     'HiddenState',
+    'HiddenGroupState',
+    'HiddenTreeState',
     'ParamState',
     'BatchState',
     'TreefyState',
@@ -114,9 +115,12 @@ def check_state_value_tree(val: bool = True) -> Generator[None, None, None]:
     If you want to check the tree structure of the value once the new value is assigned,
     you can use this context manager.
 
-    Example::
+    Examples
+    --------
 
-      >>> import brainstate as brainstate
+    .. code-block:: python
+
+      >>> import brainstate
       >>> import jax.numpy as jnp
       >>> state = brainstate.ShortTermState(jnp.zeros((2, 3)))
       >>> with brainstate.check_state_value_tree():
@@ -160,10 +164,13 @@ def check_state_jax_tracer(val: bool = True) -> Generator[None, None, None]:
     """
     The context manager to check whether the state is valid to trace.
 
-    Example::
+    Example
+    -------
+
+    .. code-block:: python
 
       >>> import jax
-      >>> import brainstate as brainstate
+      >>> import brainstate
       >>> import jax.numpy as jnp
       >>>
       >>> a = brainstate.ShortTermState(jnp.zeros((2, 3)))
@@ -185,59 +192,6 @@ def check_state_jax_tracer(val: bool = True) -> Generator[None, None, None]:
         yield
     finally:
         TRACE_CONTEXT.jax_tracer_check.pop()
-
-
-@dataclasses.dataclass
-class StateMetadata(Generic[A]):
-    """
-    A dataclass representing metadata for a state object.
-
-    This class encapsulates the raw value of a state along with associated metadata.
-    It is generic over the type of the raw value.
-
-    Attributes:
-        raw_value (A): The raw value of the state. The type A is a generic type parameter.
-        metadata (Mapping[str, Any]): A mapping of string keys to arbitrary values,
-                                      representing additional metadata for the state.
-                                      Defaults to an empty dictionary.
-    """
-    raw_value: A
-    metadata: Mapping[str, Any] = dataclasses.field(default_factory=dict)
-
-
-def with_metadata(initializer: F, **metadata: Any) -> F:
-    """
-    A decorator that adds metadata to a state initialization function.
-
-    This decorator wraps the given initializer function, allowing additional
-    metadata to be associated with the state it creates. The metadata is
-    incorporated into a StateMetadata object along with the state's value.
-
-    Args:
-        initializer (F): The original state initialization function to be wrapped.
-        **metadata (Any): Arbitrary keyword arguments representing metadata
-                          to be associated with the state.
-
-    Returns:
-        F: A wrapped version of the initializer function that returns a
-           StateMetadata object containing both the original state value
-           and the provided metadata.
-
-    Example::
-        @with_metadata(tag='model_param')
-        def init_weights(shape):
-            return np.zeros(shape)
-
-        state = init_weights((100, 100))
-        # state is now a StateMetadata object with the initialized weights
-        # and the 'tag' metadata
-    """
-
-    @wraps(initializer)
-    def wrapper(*args):
-        return StateMetadata(initializer(*args), metadata=metadata)
-
-    return wrapper  # type: ignore
 
 
 def _get_trace_stack_level() -> int:
@@ -262,13 +216,17 @@ class State(Generic[A], PrettyObject):
         tag (Optional[str]): An optional tag for categorizing or grouping states.
 
     Args:
-        value (Union[PyTree[ArrayLike], StateMetadata[PyTree[ArrayLike]]]): 
+        value (Union[PyTree[ArrayLike], StateMetadata[PyTree[ArrayLike]]]):
             The initial value for the state. Can be a PyTree of array-like objects
             or a StateMetadata object.
         name (Optional[str]): An optional name for the state.
         **metadata: Additional metadata to be stored with the state.
 
-    Example:
+    Example
+    -------
+
+    .. code-block:: python
+
         >>> class MyState(State):
         ...     pass
         >>> state = MyState(jnp.zeros((3, 3)), name="my_matrix")
@@ -278,13 +236,13 @@ class State(Generic[A], PrettyObject):
          [0. 0. 0.]]
 
     Note:
-        - Subclasses of :class:`State` (e.g., ShortTermState, LongTermState, ParamState, 
+        - Subclasses of :class:`State` (e.g., ShortTermState, LongTermState, ParamState,
           RandomState) are typically used for specific purposes in a program.
-        - The class integrates with BrainState's tracing system to track state 
+        - The class integrates with BrainState's tracing system to track state
           creation and modifications.
 
         The typical examples of :py:class:`~.State` subclass are:
-    
+
         - :py:class:`ShortTermState`: The short-term state, which is used to store the short-term data in the program.
         - :py:class:`LongTermState`: The long-term state, which is used to store the long-term data in the program.
         - :py:class:`ParamState`: The parameter state, which is used to store the parameters in the program.
@@ -305,7 +263,7 @@ class State(Generic[A], PrettyObject):
 
     def __init__(
         self,
-        value: Union[PyTree[ArrayLike], StateMetadata[PyTree[ArrayLike]]],
+        value: PyTree[ArrayLike],
         name: Optional[str] = None,
         **metadata: Any
     ):
@@ -316,7 +274,7 @@ class State(Generic[A], PrettyObject):
         handling various input types and metadata.
 
         Args:
-            value (Union[PyTree[ArrayLike], StateMetadata[PyTree[ArrayLike]]]): 
+            value (Union[PyTree[ArrayLike], StateMetadata[PyTree[ArrayLike]]]):
                 The initial value for the hidden state. Can be a PyTree of array-like objects
                 or a StateMetadata object containing both value and metadata.
             name (Optional[str], optional): A name for the hidden state. Defaults to None.
@@ -331,9 +289,6 @@ class State(Generic[A], PrettyObject):
         tag = metadata.pop('tag', None)
 
         # set the value and metadata
-        if isinstance(value, StateMetadata):
-            metadata.update(dict(value.metadata))
-            value = value.raw_value
         if isinstance(value, State):
             value = value.value
 
@@ -585,8 +540,8 @@ class State(Generic[A], PrettyObject):
 
         return k, v
 
-    def __eq__(self, other: object) -> bool:
-        return type(self) is type(other) and vars(other) == vars(self)
+    # def __eq__(self, other: object) -> bool:
+    #     return type(self) is type(other) and vars(other) == vars(self)
 
     def __hash__(self):
         """
@@ -786,7 +741,7 @@ class BatchState(LongTermState):
 
 class HiddenState(ShortTermState):
     """
-     Represents hidden state variables in neurons or synapses.
+    Represents hidden state variables in neurons or synapses.
 
     This class extends :class:`ShortTermState` and is specifically designed to represent
     and manage hidden states within dynamic models, such as recurrent neural networks.
@@ -799,12 +754,514 @@ class HiddenState(ShortTermState):
         or networks. The latter is used to store the trainable parameters in the model,
         such as synaptic weights.
 
+    Note:
+        From version 0.2.2, :class:`HiddenState` only supports value of numpy.ndarray,
+        jax.Array or brainunit.Quantity. Moreover, it is equivalent to :class:`brainscale.ETraceState`.
+        Dynamics models defined with :class:`HiddenState` can be seamlessly integrated with
+        BrainScale online learning.
+
     Example:
         >>> lstm_hidden = HiddenState(np.zeros(128), name="lstm_hidden_state")
         >>> gru_hidden = HiddenState(np.zeros(64), name="gru_hidden_state")
     """
 
     __module__ = 'brainstate'
+
+    value: ArrayLike
+
+    def __init__(self, value: ArrayLike, name: Optional[str] = None):
+        self._check_value(value)
+        super().__init__(value, name=name)
+
+    @property
+    def varshape(self) -> Tuple[int, ...]:
+        """
+        Get the shape of the hidden state variable.
+
+        This property returns the shape of the hidden state variable stored in the instance.
+        It provides the dimensions of the array representing the hidden state.
+
+        Returns:
+            Tuple[int, ...]: A tuple representing the shape of the hidden state variable.
+        """
+        return self.value.shape
+
+    @property
+    def num_state(self) -> int:
+        """
+        Get the number of hidden states.
+
+        This property returns the number of hidden states represented by the instance.
+        For the `ETraceState` class, this is always 1, as it represents a single hidden state.
+
+        Returns:
+            int: The number of hidden states, which is 1 for this class.
+        """
+        return 1
+
+    def _check_value(self, value: ArrayLike):
+        if not isinstance(value, (np.ndarray, jax.Array, u.Quantity)):
+            raise TypeError(
+                f'Currently, {HiddenState.__name__} only supports '
+                f'numpy.ndarray, jax.Array or brainunit.Quantity. '
+                f'But we got {type(value)}.'
+            )
+
+
+class HiddenGroupState(HiddenState):
+    """
+    A group of multiple hidden states for eligibility trace-based learning.
+
+    This class is used to define multiple hidden states within a single instance
+    of :py:class:`ETraceState`. Normally, you should define multiple instances
+    of :py:class:`ETraceState` to represent multiple hidden states. But
+    :py:class:`HiddenGroupState` let your define multiple hidden states within
+    a single instance.
+
+    The following is the way to initialize the hidden states.
+
+    .. code-block:: python
+
+        import brainunit as u
+        value = np.random.randn(10, 10, 5) * u.mV
+        state = HiddenGroupState(value)
+
+    Then, you can retrieve the hidden state value with the following method.
+
+    .. code-block:: python
+
+        state.get_value(0)  # get the first hidden state
+        # or
+        state.get_value('0')  # get the hidden state with the name '0'
+
+    You can write the hidden state value with the following method.
+
+    .. code-block:: python
+
+        state.set_value({0: np.random.randn(10, 10) * u.mV})  # set the first hidden state
+        # or
+        state.set_value({'0': np.random.randn(10, 10) * u.mV})  # set the hidden state with the name '0'
+        # or
+        state.value = np.random.randn(10, 10, 5) * u.mV  # set all hidden state value
+
+    Args:
+        value: The values of the hidden states. It can be a sequence of hidden states,
+            or a single hidden state with the last dimension as the number of hidden states,
+            or a dictionary of hidden states.
+    """
+
+    __module__ = 'brainstate'
+    value: ArrayLike
+    name2index: Dict[str, int]
+
+    def __init__(self, value: ArrayLike):
+        value, name2index = self._check_value(value)
+        self.name2index = name2index
+        ShortTermState.__init__(self, value)
+
+    @property
+    def varshape(self) -> Tuple[int, ...]:
+        """
+        Get the shape of each hidden state variable.
+
+        This property returns the shape of the hidden state variables, excluding
+        the last dimension which represents the number of hidden states.
+
+        Returns:
+            Tuple[int, ...]: A tuple representing the shape of each hidden state variable.
+        """
+        return self.value.shape[:-1]
+
+    @property
+    def num_state(self) -> int:
+        """
+        Get the number of hidden states.
+
+        This property returns the number of hidden states represented by the last dimension
+        of the value array.
+
+        Returns:
+            int: The number of hidden states.
+        """
+        return self.value.shape[-1]
+
+    def _check_value(self, value) -> Tuple[ArrayLike, Dict[str, int]]:
+        """
+        Validates the input value for hidden states and returns a tuple containing
+        the processed value and a dictionary mapping state names to indices.
+
+        This function ensures that the input value is of a supported type and has
+        the required dimensionality for hidden states. It also constructs a mapping
+        from string representations of indices to their integer counterparts.
+
+        Parameters
+        ----------
+        value (ArrayLike): The input value representing hidden states.
+            It must be an instance of numpy.ndarray, jax.Array, or brainunit.Quantity
+            with at least two dimensions.
+
+        Returns
+        -------
+        Tuple[ArrayLike, Dict[str, int]]: A tuple containing:
+            - The validated and possibly modified input value.
+            - A dictionary mapping string representations of indices to integer indices.
+
+        Raises
+        ------
+        TypeError: If the input value is not of a supported type.
+        ValueError: If the input value does not have the required number of dimensions.
+        """
+        if not isinstance(value, (np.ndarray, jax.Array, u.Quantity)):
+            raise TypeError(
+                f'Currently, {self.__class__.__name__} only supports '
+                f'numpy.ndarray, jax.Array or brainunit.Quantity. '
+                f'But we got {type(value)}.'
+            )
+        if value.ndim < 2:
+            raise ValueError(
+                f'Currently, {self.__class__.__name__} only supports '
+                f'hidden states with more than 2 dimensions, where the last '
+                f'dimension is the number of state size and the other dimensions '
+                f'are the hidden shape. '
+                f'But we got {value.ndim} dimensions.'
+            )
+        name2index = {str(i): i for i in range(value.shape[-1])}
+        return value, name2index
+
+    def get_value(self, item: int | str) -> ArrayLike:
+        """
+        Get the value of the hidden state with the item.
+
+        Args:
+            item: int or str. The index of the hidden state.
+                - If int, the index of the hidden state.
+                - If str, the name of the hidden state.
+        Returns:
+            The value of the hidden state.
+        """
+        if isinstance(item, int):
+            assert item < self.value.shape[-1], (f'Index {item} out of range. '
+                                                 f'The maximum index is {self.value.shape[-1] - 1}.')
+            return self.value[..., item]
+        elif isinstance(item, str):
+            assert item in self.name2index, (f'Hidden state name {item} not found. '
+                                             f'Please check the hidden state names.')
+            index = self.name2index[item]
+            return self.value[..., index]
+        else:
+            raise TypeError(
+                f'Currently, {self.__class__.__name__} only supports '
+                f'int or str for getting the hidden state. '
+                f'But we got {type(item)}.'
+            )
+
+    def set_value(
+        self,
+        val: Dict[int | str, ArrayLike] | Sequence[ArrayLike]
+    ) -> None:
+        """
+        Set the value of the hidden state with the specified item.
+
+        This method updates the hidden state values based on the provided dictionary or sequence.
+        The values are set according to the indices or names specified in the input.
+
+        Parameters
+        ----------
+        val (Dict[int | str, ArrayLike] | Sequence[ArrayLike]):
+            A dictionary or sequence containing the new values for the hidden states.
+            - If a dictionary, keys can be integers (indices) or strings (names) of the hidden states.
+            - If a sequence, it is converted to a dictionary with indices as keys.
+
+        Returns
+        -------
+        None: This method does not return any value. It updates the hidden state values in place.
+        """
+        if isinstance(val, (tuple, list)):
+            val = {i: v for i, v in enumerate(val)}
+        assert isinstance(val, dict), (
+            f'Currently, {self.__class__.__name__}.set_value() only supports '
+            f'dictionary of hidden states. But we got {type(val)}.'
+        )
+        indices = []
+        values = []
+        for k, v in val.items():
+            if isinstance(k, str):
+                k = self.name2index[k]
+            assert isinstance(k, int), (
+                f'Key {k} should be int or str. '
+                f'But we got {type(k)}.'
+            )
+            assert v.shape == self.varshape, (
+                f'The shape of the hidden state should be {self.varshape}. '
+                f'But we got {v.shape}.'
+            )
+            indices.append(k)
+            values.append(v)
+        values = u.math.stack(values, axis=-1)
+        self.value = self.value.at[..., indices].set(values)
+
+
+class HiddenTreeState(HiddenGroupState):
+    """
+    A pytree of multiple hidden states for eligibility trace-based learning.
+
+    .. note::
+
+        The value in this state class behaves likes a dictionary/sequence of hidden states.
+        However, the state is actually stored as a single dimensionless array.
+
+    There are two ways to define the hidden states.
+
+    1. The first is to define a sequence of hidden states.
+
+    .. code-block:: python
+
+        import brainunit as u
+        value = [np.random.randn(10, 10) * u.mV,
+                 np.random.randn(10, 10) * u.mA,
+                 np.random.randn(10, 10) * u.mS]
+        state = HiddenTreeState(value)
+
+    Then, you can retrieve the hidden state value with the following method.
+
+    .. code-block:: python
+
+        state.get_value(0)  # get the first hidden state
+        # or
+        state.get_value('0')  # get the hidden state with the name '0'
+
+    You can write the hidden state value with the following method.
+
+    .. code-block:: python
+
+        state.set_value({0: np.random.randn(10, 10) * u.mV})  # set the first hidden state
+        # or
+        state.set_value({'1': np.random.randn(10, 10) * u.mA})  # set the hidden state with the name '1'
+        # or
+        state.set_value([np.random.randn(10, 10) * u.mV,
+                         np.random.randn(10, 10) * u.mA,
+                         np.random.randn(10, 10) * u.mS])  # set all hidden state value
+        # or
+        state.set_value({
+            0: np.random.randn(10, 10) * u.mV,
+            1: np.random.randn(10, 10) * u.mA,
+            2: np.random.randn(10, 10) * u.mS
+        })  # set all hidden state value
+
+    2. The second is to define a dictionary of hidden states.
+
+    .. code-block:: python
+
+        import brainunit as u
+        value = {'v': np.random.randn(10, 10) * u.mV,
+                 'i': np.random.randn(10, 10) * u.mA,
+                 'g': np.random.randn(10, 10) * u.mS}
+        state = HiddenTreeState(value)
+
+    Then, you can retrieve the hidden state value with the following method.
+
+    .. code-block:: python
+
+        state.get_value('v')  # get the hidden state with the name 'v'
+        # or
+        state.get_value('i')  # get the hidden state with the name 'i'
+
+    You can write the hidden state value with the following method.
+
+    .. code-block:: python
+
+        state.set_value({'v': np.random.randn(10, 10) * u.mV})  # set the hidden state with the name 'v'
+        # or
+        state.set_value({'i': np.random.randn(10, 10) * u.mA})  # set the hidden state with the name 'i'
+        # or
+        state.set_value([np.random.randn(10, 10) * u.mV,
+                         np.random.randn(10, 10) * u.mA,
+                         np.random.randn(10, 10) * u.mS])  # set all hidden state value
+        # or
+        state.set_value({
+            'v': np.random.randn(10, 10) * u.mV,
+            'g': np.random.randn(10, 10) * u.mA,
+            'i': np.random.randn(10, 10) * u.mS
+        })  # set all hidden state value
+
+    .. note::
+
+        Avoid using ``HiddenTreeState.value`` to get the state value, or
+        ``HiddenTreeState.value =`` to assign the state value.
+
+        Instead, use ``HiddenTreeState.get_value()`` and ``HiddenTreeState.set_value()``.
+        This is because ``.value`` loss hidden state units and other information,
+        and it is only dimensionless data.
+
+        This design aims to ensure that any etrace hidden state has only one array.
+
+
+    Args:
+        value: The values of the hidden states.
+    """
+
+    __module__ = 'brainstate'
+    value: ArrayLike
+
+    def __init__(
+        self,
+        value: Dict[str, ArrayLike] | Sequence[ArrayLike],
+    ):
+        value, name2unit, name2index = self._check_value(value)
+        self.name2unit: Dict[str, u.Unit] = name2unit
+        self.name2index: Dict[str, int] = name2index
+        self.index2unit: Dict[int, u.Unit] = {i: v for i, v in enumerate(name2unit.values())}
+        self.index2name: Dict[int, str] = {v: k for k, v in name2index.items()}
+        ShortTermState.__init__(self, value)
+
+    @property
+    def varshape(self) -> Tuple[int, ...]:
+        """
+        The shape of each hidden state variable.
+        """
+        return self.value.shape[:-1]
+
+    @property
+    def num_state(self) -> int:
+        """
+        The number of hidden states.
+        """
+        assert self.value.shape[-1] == len(self.name2index), (
+            f'The number of hidden states '
+            f'is not equal to the number of hidden state names.'
+        )
+        return self.value.shape[-1]
+
+    def _check_value(
+        self,
+        value: dict | Sequence
+    ) -> Tuple[ArrayLike, Dict[str, u.Unit], Dict[str, int]]:
+        """
+        Validates and processes the input value to ensure it conforms to the expected format
+        and structure for hidden states.
+
+        This function checks if the input value is a dictionary or sequence of hidden states,
+        verifies that all hidden states have the same shape, and extracts units and indices
+        for each hidden state.
+
+        Args:
+            value (dict | Sequence): A dictionary or sequence representing hidden states.
+                - If a sequence, it is converted to a dictionary with string indices as keys.
+                - Each hidden state should be a numpy.ndarray, jax.Array, or brainunit.Quantity.
+
+        Returns:
+            Tuple[ArrayLike, Dict[str, u.Unit], Dict[str, int]]:
+                - A stacked array of hidden state magnitudes.
+                - A dictionary mapping hidden state names to their units.
+                - A dictionary mapping hidden state names to their indices.
+
+        Raises:
+            TypeError: If any hidden state is not a numpy.ndarray, jax.Array, or brainunit.Quantity.
+            ValueError: If hidden states do not have the same shape.
+        """
+        if isinstance(value, (tuple, list)):
+            value = {str(i): v for i, v in enumerate(value)}
+        assert isinstance(value, dict), (
+            f'Currently, {self.__class__.__name__} only supports '
+            f'dictionary/sequence of hidden states. But we got {type(value)}.'
+        )
+        shapes = []
+        for k, v in value.items():
+            if not isinstance(v, (np.ndarray, jax.Array, u.Quantity)):
+                raise TypeError(
+                    f'Currently, {self.__class__.__name__} only supports '
+                    f'numpy.ndarray, jax.Array or brainunit.Quantity. '
+                    f'But we got {type(v)} for key {k}.'
+                )
+            shapes.append(v.shape)
+        if len(set(shapes)) > 1:
+            info = {k: v.shape for k, v in value.items()}
+            raise ValueError(
+                f'Currently, {self.__class__.__name__} only supports '
+                f'hidden states with the same shape. '
+                f'But we got {info}.'
+            )
+        name2unit = {k: u.get_unit(v) for k, v in value.items()}
+        name2index = {k: i for i, k in enumerate(value.keys())}
+        value = u.math.stack([u.get_magnitude(v) for v in value.values()], axis=-1)
+        return value, name2unit, name2index
+
+    def get_value(self, item: str | int) -> ArrayLike:
+        """
+        Get the value of the hidden state with the key.
+
+        Args:
+            item: The key of the hidden state.
+                - If int, the index of the hidden state.
+                - If str, the name of the hidden state.
+        """
+        if isinstance(item, int):
+            assert item < self.value.shape[-1], (f'Index {item} out of range. '
+                                                 f'The maximum index is {self.value.shape[-1] - 1}.')
+            val = self.value[..., item]
+        elif isinstance(item, str):
+            assert item in self.name2index, (f'Hidden state name {item} not found. '
+                                             f'Please check the hidden state names.')
+            item = self.name2index[item]
+            val = self.value[..., item]
+        else:
+            raise TypeError(
+                f'Currently, {self.__class__.__name__} only supports '
+                f'int or str for getting the hidden state. '
+                f'But we got {type(item)}.'
+            )
+        if self.index2unit[item].dim.is_dimensionless:
+            return val
+        else:
+            return val * self.index2unit[item]
+
+    def set_value(
+        self,
+        val: Dict[int | str, ArrayLike] | Sequence[ArrayLike]
+    ) -> None:
+        """
+        Set the value of the hidden state with the specified item.
+
+        This method updates the hidden state values based on the provided dictionary or sequence.
+        The values are set according to the indices or names specified in the input.
+
+        Parameters
+        ----------
+        val (Dict[int | str, ArrayLike] | Sequence[ArrayLike]):
+            A dictionary or sequence containing the new values for the hidden states.
+            - If a dictionary, keys can be integers (indices) or strings (names) of the hidden states.
+            - If a sequence, it is converted to a dictionary with indices as keys.
+
+        Returns
+        -------
+        None: This method does not return any value. It updates the hidden state values in place.
+        """
+        if isinstance(val, (tuple, list)):
+            val = {i: v for i, v in enumerate(val)}
+        assert isinstance(val, dict), (f'Currently, {self.__class__.__name__}.set_value() only supports '
+                                       f'dictionary of hidden states. But we got {type(val)}.')
+        indices = []
+        values = []
+        for index, v in val.items():
+            if isinstance(index, str):
+                index = self.name2index[index]
+            assert isinstance(index, int), (f'Key {index} should be int or str. '
+                                            f'But we got {type(index)}.')
+            assert v.shape == self.varshape, (f'The shape of the hidden state should be {self.varshape}. '
+                                              f'But we got {v.shape}.')
+            indices.append(index)
+            values.append(u.Quantity(v).to(self.index2unit[index]).mantissa)
+        if len(indices) == 0:
+            raise ValueError(
+                f'No hidden state is set. Please check the hidden state names or indices.'
+            )
+        if len(indices) == 1:
+            indices = indices[0]
+            values = values[0]
+        else:
+            indices = np.asarray(indices)
+            values = u.math.stack(values, axis=-1)
+        self.value = self.value.at[..., indices].set(values)
 
 
 class ParamState(LongTermState):
@@ -968,24 +1425,6 @@ class StateTraceStack(Generic[A]):
     The class is generic over type A, allowing for type-safe usage with
     different types of State objects.
 
-    Attributes:
-        states (List[State]): A list of all State objects encountered during tracing.
-        been_writen (List[bool]): A parallel list to states, indicating whether each state has been written to.
-        _state_id_index (dict): A dictionary mapping state ids to their index in the states list.
-        _original_state_values (List): A list of the original values of all states when first encountered.
-        _jax_trace_new_arg (Callable): A function used to transform state values during tracing.
-
-    Methods:
-        __enter__: Enters a new tracing context.
-        __exit__: Exits the current tracing context.
-        read_its_value: Records a read operation on a state.
-        write_its_value: Records a write operation on a state.
-        get_state_values: Retrieves the current values of all traced states.
-        recovery_original_values: Restores all states to their original values.
-        merge: Merges multiple ``StateTraceStack`` instances.
-        get_read_states: Retrieves states that were read during tracing.
-        get_read_state_values: Retrieves values of states that were read during tracing.
-
     The ``StateTraceStack`` is a crucial component in implementing state-based
     computations and is particularly useful in scenarios involving automatic
     differentiation or other forms of program transformation.
@@ -1033,24 +1472,24 @@ class StateTraceStack(Generic[A]):
     def new_arg(self, state: State) -> None:
         """
         Apply a transformation to the value of a given state using a predefined function.
-    
+
         This method is used internally to transform the value of a state during tracing.
         If a transformation function (``_jax_trace_new_arg``) is defined, it applies this
         function to each element of the state's value using JAX's tree mapping.
-    
+
         Args:
             state (State): The State object whose value needs to be transformed.
-    
+
         Returns:
             None: This function modifies the state in-place and doesn't return anything.
-    
+
         Note:
             This method is intended for internal use and relies on the presence of
             a ``_jax_trace_new_arg`` function, which should be set separately.
         """
         if self._jax_trace_new_arg is not None:
             # internal use
-            state._value = jax.tree.map(self._jax_trace_new_arg, state._value)
+            state._value = self._jax_trace_new_arg(state)
 
     def __enter__(self) -> 'StateTraceStack':
         TRACE_CONTEXT.state_stack.append(self)
@@ -1063,18 +1502,18 @@ class StateTraceStack(Generic[A]):
     def read_its_value(self, state: State) -> None:
         """
         Record that a state's value has been read during tracing.
-    
+
         This method marks the given state as having been read in the current
         tracing context. If the state hasn't been encountered before, it adds
         it to the internal tracking structures and applies any necessary
         transformations via the new_arg method.
-    
+
         Args:
             state (State): The State object whose value is being read.
-    
+
         Returns:
             None
-    
+
         Note:
             This method updates the internal tracking of state accesses.
             It doesn't actually read or return the state's value.
@@ -1118,11 +1557,11 @@ class StateTraceStack(Generic[A]):
     ) -> Sequence[PyTree] | Tuple[Sequence[PyTree], Sequence[PyTree]]:
         """
         Retrieve the values of all states in the StateTraceStack.
-    
+
         This method returns the values of all states, optionally separating them
         into written and read states, and optionally replacing values with None
         for states that weren't accessed in a particular way.
-    
+
         Args:
             separate (bool, optional): If True, separate the values into written
                 and read states. If False, return all values in a single sequence.
@@ -1130,7 +1569,7 @@ class StateTraceStack(Generic[A]):
             replace (bool, optional): If True and separate is True, replace values
                 with None for states that weren't written/read. If False, only
                 include values for states that were written/read. Defaults to False.
-    
+
         Returns:
             Sequence[PyTree] | Tuple[Sequence[PyTree], Sequence[PyTree]]:
                 If separate is False:
@@ -1141,7 +1580,7 @@ class StateTraceStack(Generic[A]):
                     - The second sequence contains values of read states.
                     If replace is True, these sequences will have None for
                     states that weren't written/read respectively.
-    
+
         """
         if separate:
             if replace:
@@ -1187,19 +1626,19 @@ class StateTraceStack(Generic[A]):
     def merge(self, *traces) -> 'StateTraceStack':
         """
         Merge other state traces into the current ``StateTraceStack``.
-    
+
         This method combines the states, their write status, and original values from
         other ``StateTraceStack`` instances into the current one. If a state from another
         trace is not present in the current trace, it is added. If a state is already
         present, its write status is updated if necessary.
-    
+
         Args:
             *traces: Variable number of ``StateTraceStack`` instances to be merged into
                      the current instance.
-    
+
         Returns:
             StateTraceStack: The current ``StateTraceStack`` instance with merged traces.
-    
+
         Note:
             This method modifies the current ``StateTraceStack`` in-place and also returns it.
         """
@@ -1218,16 +1657,16 @@ class StateTraceStack(Generic[A]):
     def get_read_states(self, replace_writen: bool = False) -> Tuple[State, ...]:
         """
         Retrieve the states that were read during the function execution.
-    
+
         This method returns the states that were accessed (read from) during
         the traced function's execution. It can optionally replace written
         states with None.
-    
+
         Args:
             replace_writen (bool, optional): If True, replace written states with None
                 in the returned tuple. If False, exclude written states entirely from
                 the result. Defaults to False.
-    
+
         Returns:
             Tuple[State, ...]: A tuple containing the read states.
                 If replace_writen is True, the tuple will have the same length as the
@@ -1243,15 +1682,15 @@ class StateTraceStack(Generic[A]):
     def get_read_state_values(self, replace_writen: bool = False) -> Tuple[PyTree, ...]:
         """
         Retrieve the values of states that were read during the function execution.
-    
+
         This method returns the values of states that were accessed (read from) during
         the traced function's execution. It can optionally replace written states with None.
-    
+
         Args:
             replace_writen (bool, optional): If True, replace the values of written
                 states with None in the returned tuple. If False, exclude written
                 states entirely from the result. Defaults to False.
-    
+
         Returns:
             Tuple[PyTree, ...]: A tuple containing the values of read states.
                 If replace_writen is True, the tuple will have the same length as the
@@ -1270,16 +1709,16 @@ class StateTraceStack(Generic[A]):
     def get_write_states(self, replace_read: bool = False) -> Tuple[State, ...]:
         """
         Retrieve the states that were written during the function execution.
-    
+
         This method returns the states that were modified (written to) during
         the traced function's execution. It can optionally replace unwritten (read-only)
         states with None.
-    
+
         Args:
             replace_read (bool, optional): If True, replace read-only states with None
                 in the returned tuple. If False, exclude read-only states entirely from
                 the result. Defaults to False.
-    
+
         Returns:
             Tuple[State, ...]: A tuple containing the written states.
                 If replace_read is True, the tuple will have the same length as the
@@ -1295,23 +1734,23 @@ class StateTraceStack(Generic[A]):
     def get_write_state_values(self, replace_read: bool = False) -> Tuple[PyTree, ...]:
         """
         Retrieve the values of states that were written during the function execution.
-    
+
         This method returns the values of states that were modified (written to) during
         the traced function's execution. It can optionally replace unwritten (read-only)
         states with None.
-    
+
         Args:
             replace_read (bool, optional): If True, replace the values of read-only
                 states with None in the returned tuple. If False, exclude read-only
                 states entirely from the result. Defaults to False.
-    
+
         Returns:
             Tuple[PyTree, ...]: A tuple containing the values of written states.
                 If replace_read is True, the tuple will have the same length as the
                 total number of states, with None for read-only states.
                 If replace_read is False, the tuple will only contain values of
                 written states.
-    
+
         """
         if replace_read:
             return tuple([st.value if been_writen else None for st, been_writen in zip(self.states, self.been_writen)])
@@ -1323,6 +1762,28 @@ class StateTraceStack(Generic[A]):
         Support the syntax of `+` to merge the state traces.
         """
         return StateTraceStack().merge(self, other)
+
+    def state_subset(self, state_type: type) -> List:
+        """
+        Get a subset of states of a specific type from the ``StateTraceStack``.
+
+        This method filters the states in the ``StateTraceStack`` and returns only
+        those that match the specified state type.
+
+        Args:
+            state_type (type): The type of state to filter by. This should be
+                a subclass of State or State itself.
+
+        Returns:
+            List[State]: A list containing all states in the ``StateTraceStack``
+            that are instances of the specified state_type.
+
+        Example:
+            >>> stack = StateTraceStack()
+            >>> # Assume stack has been populated with various state types
+            >>> short_term_states = stack.state_subset(ShortTermState)
+        """
+        return [st for st in self.states if isinstance(st, state_type)]
 
     def assign_state_vals(self, state_vals: Sequence[PyTree]) -> None:
         """
@@ -1350,35 +1811,68 @@ class StateTraceStack(Generic[A]):
             ``StateTraceStack``'s states list.
         """
         if len(state_vals) != len(self.states):
-            raise ValueError('The length of the state values must be equal to the states. '
-                             f'Bug got {len(state_vals)} and {len(self.states)}')
+            raise ValueError(
+                'The length of the state values must be equal to the states. '
+                f'Bug got {len(state_vals)} and {len(self.states)}'
+            )
         for st, written, val in zip(self.states, self.been_writen, state_vals):
             if written:
                 st.value = val
             else:
                 st.restore_value(val)
 
-    def state_subset(self, state_type: type) -> List:
+    def assign_state_vals_v2(
+        self: StateTraceStack,
+        read_state_vals: Sequence[PyTree],
+        write_state_vals: Sequence[PyTree],
+    ):
         """
-        Get a subset of states of a specific type from the ``StateTraceStack``.
+        Write back state values to their corresponding states after computation.
 
-        This method filters the states in the ``StateTraceStack`` and returns only
-        those that match the specified state type.
+        This function updates the state values based on whether they were written to
+        during the computation. If a state was written to, it gets the new written value.
+        If not, it restores its original read value.
 
-        Args:
-            state_type (type): The type of state to filter by. This should be
-                a subclass of State or State itself.
+        Parameters
+        ----------
+        read_state_vals : sequence of PyTree
+            The original state values that were read at the beginning.
+        write_state_vals : sequence of PyTree
+            The new state values that were written during computation.
 
-        Returns:
-            List[State]: A list containing all states in the ``StateTraceStack``
-            that are instances of the specified state_type.
+        Examples
+        --------
+        Basic usage in a compilation context:
 
-        Example:
-            >>> stack = StateTraceStack()
-            >>> # Assume stack has been populated with various state types
-            >>> short_term_states = stack.state_subset(ShortTermState)
+        .. code-block:: python
+
+            >>> import brainstate
+            >>> import jax.numpy as jnp
+            >>>
+            >>> # Create states
+            >>> state1 = brainstate.State(jnp.array([1.0, 2.0]))
+            >>> state2 = brainstate.State(jnp.array([3.0, 4.0]))
+            >>>
+            >>> def f(x):
+            ...     state1.value += x  # This state will be written
+            ...     return state1.value + state2.value  # state2 is only read
+            >>>
+            >>> # During compilation, state values are collected and managed
+            >>> # write_back_state_values ensures proper state management
         """
-        return [st for st in self.states if isinstance(st, state_type)]
+        if len(self.states) != len(self.been_writen):
+            raise ValueError('The length of the state values must be equal to the states. ')
+        if len(read_state_vals) != len(self.states):
+            raise ValueError('The length of the read state values must be equal to the states. ')
+        if len(write_state_vals) != len(self.states):
+            raise ValueError('The length of the write state values must be equal to the states. ')
+        for st, write, val_r, val_w in zip(
+            self.states, self.been_writen, read_state_vals, write_state_vals
+        ):
+            if write:
+                st.value = val_w
+            else:
+                st.restore_value(val_r)
 
 
 class TreefyState(Generic[A], PrettyObject):

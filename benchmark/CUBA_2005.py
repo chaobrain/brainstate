@@ -1,4 +1,4 @@
-# Copyright 2024 BDP Ecosystem Limited. All Rights Reserved.
+# Copyright 2024 BrainX Ecosystem Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -24,42 +24,52 @@
 # - Vogels, T. P. and Abbott, L. F. (2005), Signal propagation and logic gating in networks of integrate-and-fire neurons., J. Neurosci., 25, 46, 10786–95
 #
 
-import os
-import sys
 
-sys.path.append('../')
-os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.99'
-os.environ['JAX_TRACEBACK_FILTERING'] = 'off'
-
-import jax
 import time
 
+import brainpy
+import braintools
 import brainunit as u
-import brainevent
+import jax
+
 import brainstate
 
 
-class EINet(brainstate.nn.DynamicsGroup):
+class EINet(brainstate.nn.Module):
     def __init__(self, scale=1.0):
         super().__init__()
         self.n_exc = int(3200 * scale)
         self.n_inh = int(800 * scale)
         self.num = self.n_exc + self.n_inh
-        self.N = brainstate.nn.LIFRef(
-            self.num, V_rest=-49. * u.mV, V_th=-50. * u.mV, V_reset=-60. * u.mV,
-            tau=20. * u.ms, tau_ref=5. * u.ms,
-            V_initializer=brainstate.init.Normal(-55., 2., unit=u.mV)
+        self.N = brainpy.state.LIFRef(
+            self.num,
+            V_rest=-49. * u.mV,
+            V_th=-50. * u.mV,
+            V_reset=-60. * u.mV,
+            tau=20. * u.ms,
+            tau_ref=5. * u.ms,
+            V_initializer=braintools.init.Normal(-55., 2., unit=u.mV)
         )
-        self.E = brainstate.nn.AlignPostProj(
-            comm=brainstate.nn.EventFixedProb(self.n_exc, self.num, conn_num=80 / self.num, conn_weight=1.62 * u.mS),
-            syn=brainstate.nn.Expon.desc(self.num, tau=5. * u.ms),
-            out=brainstate.nn.CUBA.desc(scale=u.volt),
+        self.E = brainpy.state.AlignPostProj(
+            comm=brainstate.nn.EventFixedProb(
+                self.n_exc,
+                self.num,
+                conn_num=80 / self.num,
+                conn_weight=1.62 * u.mS
+            ),
+            syn=brainpy.state.Expon.desc(self.num, tau=5. * u.ms),
+            out=brainpy.state.CUBA.desc(scale=u.volt),
             post=self.N
         )
-        self.I = brainstate.nn.AlignPostProj(
-            comm=brainstate.nn.EventFixedProb(self.n_inh, self.num, conn_num=80 / self.num, conn_weight=-9.0 * u.mS),
-            syn=brainstate.nn.Expon.desc(self.num, tau=10. * u.ms),
-            out=brainstate.nn.CUBA.desc(scale=u.volt),
+        self.I = brainpy.state.AlignPostProj(
+            comm=brainstate.nn.EventFixedProb(
+                self.n_inh,
+                self.num,
+                conn_num=80 / self.num,
+                conn_weight=-9.0 * u.mS
+            ),
+            syn=brainpy.state.Expon.desc(self.num, tau=10. * u.ms),
+            out=brainpy.state.CUBA.desc(scale=u.volt),
             post=self.N
         )
 
@@ -75,7 +85,7 @@ class EINet(brainstate.nn.DynamicsGroup):
             self.rate.value += self.N.get_spike()
 
 
-@brainstate.compile.jit(static_argnums=0)
+@brainstate.transform.jit(static_argnums=0)
 def run(scale: float):
     # network
     net = EINet(scale)
@@ -85,9 +95,9 @@ def run(scale: float):
     # simulation
     with brainstate.environ.context(dt=0.1 * u.ms):
         times = u.math.arange(0. * u.ms, duration, brainstate.environ.get_dt())
-        brainstate.compile.for_loop(lambda t: net.update(t, 20. * u.mA), times,
-                                    # pbar=brainstate.compile.ProgressBar(100)
-                                    )
+        brainstate.transform.for_loop(lambda t: net.update(t, 20. * u.mA), times,
+                                      # pbar=brainstate.compile.ProgressBar(100)
+                                      )
 
     return net.num, net.rate.value.sum() / net.num / duration.to_decimal(u.second)
 

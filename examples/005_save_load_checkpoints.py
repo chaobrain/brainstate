@@ -1,7 +1,7 @@
 # The file is adapted from the Flax library (https://github.com/google/flax).
 # The credit should go to the Flax authors.
 #
-# Copyright 2024 The Flax Authors & 2024 BDP Ecosystem.
+# Copyright 2024 The Flax Authors & 2024 BrainX Ecosystem.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,12 +17,13 @@
 # ==============================================================================
 
 
-from tempfile import TemporaryDirectory
 import os
+from tempfile import TemporaryDirectory
 
 import jax
 import jax.numpy as jnp
 import orbax.checkpoint as orbax
+
 import brainstate
 
 
@@ -54,7 +55,7 @@ def create_and_save(seed: int, path: str):
 
 def load_model(path: str) -> MLP:
   # create that model with abstract shapes
-  model = brainstate.augment.abstract_init(lambda: create_model(0))
+  model = brainstate.transform.abstract_init(lambda: create_model(0))
   state_tree = brainstate.graph.treefy_states(model)
   # Load the parameters
   checkpointer = orbax.PyTreeCheckpointer()

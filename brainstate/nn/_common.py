@@ -1,4 +1,4 @@
-# Copyright 2025 BDP Ecosystem Limited. All Rights Reserved.
+# Copyright 2025 BrainX Ecosystem Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,7 +19,7 @@ from collections import defaultdict
 from typing import Any, Sequence, Hashable, Dict
 
 from brainstate import environ
-from brainstate.augment._mapping import vmap
+from brainstate.transform import vmap
 from brainstate.typing import Filter
 from ._module import Module
 
@@ -32,35 +32,41 @@ __all__ = [
 
 
 class EnvironContext(Module):
-    """
-    A wrapper class that provides an environment context for a given layer.
+    """Wrap a module so it executes inside a brainstate environment context.
 
-    This class allows execution of a layer within a specific environment context,
-    which can be useful for controlling the execution environment of neural network layers.
+    Parameters
+    ----------
+    layer : Module
+        Module executed within the environment context.
+    **context
+        Keyword arguments forwarded to ``brainstate.environ.context``.
 
-    This class is equivalent to the following code snippet:
+    Attributes
+    ----------
+    layer : Module
+        Wrapped module executed inside the context.
+    context : dict
+        Environment arguments applied to the wrapped module.
 
-    ```python
+    Examples
+    --------
+    .. code-block:: python
 
-    import brainstate
-
-    with brainstate.environ.context(**context):
-        result = layer(*args, **kwargs)
-
-    ```
-
-    Attributes:
-        layer (Module): The layer to be executed within the environment context.
-        context (dict): The environment context parameters.
+       >>> import brainstate
+       >>> from brainstate.nn import EnvironContext
+       >>> wrapped = EnvironContext(layer, fit=True)
+       >>> result = wrapped.update(inputs)
     """
 
     def __init__(self, layer: Module, **context):
-        """
-        Initialize the EnvironContext.
+        """Initialize the wrapper with a module and environment arguments.
 
-        Args:
-            layer (Module): The layer to be wrapped with the environment context.
-            **context: Arbitrary keyword arguments representing the environment context parameters.
+        Parameters
+        ----------
+        layer : Module
+            Module executed inside the environment context.
+        **context
+            Keyword arguments forwarded to ``brainstate.environ.context``.
         """
         super().__init__()
 
@@ -68,26 +74,36 @@ class EnvironContext(Module):
         self.layer = layer
         self.context = context
 
-    def update(self, *args, **kwargs):
-        """
-        Execute the wrapped layer within the specified environment context.
+    def update(self, *args, context: Dict = None, **kwargs):
+        """Execute the wrapped module inside the environment context.
 
-        Args:
-            *args: Variable length argument list to be passed to the wrapped layer.
-            **kwargs: Arbitrary keyword arguments to be passed to the wrapped layer.
+        Parameters
+        ----------
+        *args
+            Positional arguments forwarded to the wrapped module.
+        **kwargs
+            Keyword arguments forwarded to the wrapped module.
+        context: dict, optional
+            Additional environment settings for this call. Merged with the
+            stored context.
 
-        Returns:
-            The result of executing the wrapped layer within the environment context.
+        Returns
+        -------
+        Any
+            Result returned by the wrapped module.
         """
-        with environ.context(**self.context):
+        if context is None:
+            context = dict()
+        with environ.context(**self.context, **context):
             return self.layer(*args, **kwargs)
 
     def add_context(self, **context):
-        """
-        Add additional environment context parameters to the existing context.
+        """Add more environment settings to the wrapped module.
 
-        Args:
-            **context: Arbitrary keyword arguments representing the additional environment context parameters.
+        Parameters
+        ----------
+        **context
+            Keyword arguments merged into the stored environment context.
         """
         self.context.update(context)
 
@@ -96,6 +112,22 @@ def _filter_states(
     module: Module,
     filters: Filter | Dict[Filter, int],
 ) -> Dict:
+    """Normalize state filter specifications for ``Module.states``.
+
+    Parameters
+    ----------
+    module : Module
+        Module providing the states interface.
+    filters : Filter or dict[Filter, int]
+        Filters passed by the caller. Dictionary keys are filters and values
+        are the axes they should map over.
+
+    Returns
+    -------
+    dict[int, Any] or Any or None
+        Structured filters to pass to ``Module.states``. Returns ``None`` when
+        no filtering is requested.
+    """
     if filters is None:
         filtered_states = None
     elif isinstance(filters, dict):
@@ -112,20 +144,28 @@ def _filter_states(
 
 
 class Vmap(Module):
-    """
-    A class that applies vectorized mapping (vmap) to a given module.
+    """Vectorize a module with ``brainstate.transform.vmap``.
 
-    This class wraps a module and applies vectorized mapping to its execution,
-    allowing for efficient parallel processing across specified axes.
+    Parameters
+    ----------
+    module : Module
+        Module to wrap with vectorized mapping.
+    in_axes : int or None or Sequence[Any], optional
+        Specification for mapping over inputs. Defaults to ``0``.
+    out_axes : Any, optional
+        Specification for mapping over outputs. Defaults to ``0``.
+    axis_name : AxisName or None, optional
+        Name of the axis being mapped. Defaults to ``None``.
+    axis_size : int or None, optional
+        Size of the mapped axis. Defaults to ``None``.
 
-    Args:
-        module (Module): The module to be vmapped.
-        in_axes (int | None | Sequence[Any], optional): Specifies how to map over inputs. Defaults to 0.
-        out_axes (Any, optional): Specifies how to map over outputs. Defaults to 0.
-        vmap_states (Filter | Dict[Filter, int], optional): Specifies which states to vmap and on which axes. Defaults to None.
-        vmap_out_states (Filter | Dict[Filter, int], optional): Specifies which output states to vmap and on which axes. Defaults to None.
-        axis_name (AxisName | None, optional): Name of the axis being mapped over. Defaults to None.
-        axis_size (int | None, optional): Size of the axis being mapped over. Defaults to None.
+    Examples
+    --------
+    .. code-block:: python
+
+       >>> from brainstate.nn import Vmap
+       >>> vmapped = Vmap(module, in_axes=0, axis_name="batch")
+       >>> outputs = vmapped.update(inputs)
     """
 
     def __init__(
@@ -133,8 +173,8 @@ class Vmap(Module):
         module: Module,
         in_axes: int | None | Sequence[Any] = 0,
         out_axes: Any = 0,
-        vmap_states: Filter | Dict[Filter, int] = None,
-        vmap_out_states: Filter | Dict[Filter, int] = None,
+        vmap_states: Filter | Dict[int, Filter] = None,
+        vmap_out_states: Dict[int, Dict] | Any | None = None,
         axis_name: AxisName | None = None,
         axis_size: int | None = None,
     ):
@@ -165,14 +205,18 @@ class Vmap(Module):
         self.vmapped_fn = vmap_run
 
     def update(self, *args, **kwargs):
-        """
-        Execute the vmapped module with the given arguments.
+        """Execute the vmapped module with the given arguments.
 
-        Args:
-            *args: Variable length argument list to be passed to the vmapped module.
-            **kwargs: Arbitrary keyword arguments to be passed to the vmapped module.
+        Parameters
+        ----------
+        *args
+            Positional arguments forwarded to the vmapped module.
+        **kwargs
+            Keyword arguments forwarded to the vmapped module.
 
-        Returns:
-            The result of executing the vmapped module.
+        Returns
+        -------
+        Any
+            Result of executing the vmapped module.
         """
         return self.vmapped_fn(*args, **kwargs)

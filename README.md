@@ -1,5 +1,5 @@
 
-# A ``State``-based Transformation System for Program Compilation and Augmentation
+# A ``State``-based Transformation System for Brain Modeling
 
 
 
@@ -42,8 +42,8 @@ The official documentation is hosted on Read the Docs: [https://brainstate.readt
 
 
 
-## See also the brain modeling ecosystem
+## See also the ecosystem
 
-We are building the brain modeling ecosystem: https://brainmodeling.readthedocs.io/
+``brainstate`` is one part of our brain simulation ecosystem: https://brainmodeling.readthedocs.io/
 
 

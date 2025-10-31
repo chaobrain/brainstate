@@ -1,0 +1,51 @@
+name: Feature request
+description: Suggest an enhancement or new capability for BrainState.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for sharing your idea! Provide enough detail so contributors can understand the motivation and scope.
+  - type: checkboxes
+    id: prerequisites
+    attributes:
+      label: Prerequisites
+      description: Confirm these steps before submitting.
+      options:
+        - label: I have searched existing issues and discussions to ensure this request has not already been proposed.
+          required: true
+        - label: I have reviewed the current documentation to confirm the feature does not already exist.
+          required: true
+  - type: input
+    id: summary
+    attributes:
+      label: Summary
+      description: What should change and why?
+      placeholder: e.g. Support exporting compiled states to ONNX
+    validations:
+      required: true
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation & Use Case
+      description: Explain the problem this feature solves. Share any background, user stories, or research that supports the request.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed Solution
+      description: Describe your preferred implementation or API shape. Include sample code if possible.
+      render: python
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: List any workarounds or other approaches you evaluated and why they are insufficient.
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Add references, related issues, or anything else maintainers should know.

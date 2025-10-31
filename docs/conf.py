@@ -1,4 +1,4 @@
-# Copyright 2024 BDP Ecosystem Limited. All Rights Reserved.
+# Copyright 2024 BrainX Ecosystem Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,31 +17,29 @@
 # Copyright: 2024, Chaoming Wang
 # ==============================================================================
 
-# Configuration file for the Sphinx documentation builder.
-#
-# This file only contains a selection of the most common options. For a full
-# a_list see the documentation:
-# https://www.sphinx-doc.org/en/master/usage/configuration.html
-
-# -- Path setup --------------------------------------------------------------
-
-# If extensions (or modules to document with autodoc) are in another directory,
-# add these directories to sys.path here. If the directory is relative to the
-# documentation root, use os.path.abspath to make it absolute, like shown here.
-#
 
 import os
 import sys
 
 sys.path.insert(0, os.path.abspath('../'))
+sys.path.insert(0, os.path.abspath('./'))
 
 import brainstate
+import shutil
+
+shutil.rmtree('changelog.md', ignore_errors=True)
+shutil.rmtree('apis/generated', ignore_errors=True)
+shutil.rmtree('_build', ignore_errors=True)
+shutil.copy('../changelog.md', './changelog.md')
+
+from highlight_test_lexer import fix_ipython2_lexer_in_notebooks
+fix_ipython2_lexer_in_notebooks(os.path.dirname(os.path.abspath(__file__)))
 
 # -- Project information -----------------------------------------------------
 
 project = 'brainstate'
 copyright = '2024, brainstate'
-author = 'BDP Ecosystem'
+author = 'BrainState Developers'
 
 # The full version, including alpha/beta/rc tags
 release = brainstate.__version__
@@ -129,3 +127,6 @@ html_theme_options = {
 autodoc_default_options = {
     'exclude-members': '....,default_rng',
 }
+napoleon_google_docstring = True
+napoleon_numpy_docstring = True
+

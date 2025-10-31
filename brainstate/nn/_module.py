@@ -1,4 +1,4 @@
-# Copyright 2024 BDP Ecosystem Limited. All Rights Reserved.
+# Copyright 2024 BrainX Ecosystem Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -31,11 +31,12 @@ from typing import Sequence, Optional, Tuple, Union, TYPE_CHECKING, Callable
 
 import numpy as np
 
+from brainstate._error import BrainStateError
 from brainstate._state import State
 from brainstate.graph import Node, states, nodes, flatten
 from brainstate.mixin import ParamDescriber, ParamDesc
 from brainstate.typing import PathParts, Size
-from brainstate.util import FlattedDict, NestedDict, BrainStateError
+from brainstate.util import FlattedDict, NestedDict
 
 # maximum integer
 max_int = np.iinfo(np.int32).max
@@ -94,7 +95,10 @@ class Module(Node, ParamDesc):
     def in_size(self, in_size: Sequence[int] | int):
         if isinstance(in_size, int):
             in_size = (in_size,)
-        assert isinstance(in_size, (tuple, list)), f"Invalid type of in_size: {type(in_size)}"
+        elif isinstance(in_size, np.generic):
+            if np.issubdtype(in_size, np.integer) and in_size.ndim == 0:
+                in_size = (int(in_size),)
+        assert isinstance(in_size, (tuple, list)), f"Invalid type of in_size: {in_size} {type(in_size)}"
         self._in_size = tuple(in_size)
 
     @property
@@ -105,6 +109,9 @@ class Module(Node, ParamDesc):
     def out_size(self, out_size: Sequence[int] | int):
         if isinstance(out_size, int):
             out_size = (out_size,)
+        elif isinstance(out_size, np.ndarray):
+            if np.issubdtype(out_size, np.integer) and out_size.ndim == 0:
+                out_size = (int(out_size),)
         assert isinstance(out_size, (tuple, list)), f"Invalid type of out_size: {type(out_size)}"
         self._out_size = tuple(out_size)
 
@@ -356,22 +363,29 @@ class Sequential(Module):
         self.out_size = in_size
 
     def _format_module(self, module, in_size):
-        if isinstance(module, ParamDescriber):
-            if in_size is None:
-                raise ValueError(
-                    'The input size should be specified. '
-                    f'Please set the in_size attribute of the previous module: \n'
-                    f'{self.layers[-1]}'
-                )
-            module = module(in_size=in_size)
-            assert isinstance(module, Module), 'The module should be an instance of Module.'
-            out_size = module.out_size
-        elif isinstance(module, ElementWiseBlock):
-            out_size = in_size
-        elif isinstance(module, Module):
-            out_size = module.out_size
-        elif callable(module):
-            out_size = in_size
-        else:
-            raise TypeError(f"Unsupported type {type(module)}. ")
+        try:
+            if isinstance(module, ParamDescriber):
+                if in_size is None:
+                    raise ValueError(
+                        'The input size should be specified. '
+                        f'Please set the in_size attribute of the previous module: \n'
+                        f'{self.layers[-1]}'
+                    )
+                module = module(in_size=in_size)
+                assert isinstance(module, Module), 'The module should be an instance of Module.'
+                out_size = module.out_size
+            elif isinstance(module, ElementWiseBlock):
+                out_size = in_size
+            elif isinstance(module, Module):
+                out_size = module.out_size
+            elif callable(module):
+                out_size = in_size
+            else:
+                raise TypeError(f"Unsupported type {type(module)}. ")
+        except Exception as e:
+            raise BrainStateError(
+                f'Failed to format the module: \n'
+                f'{module}\n'
+                f'with input size: {in_size}\n'
+            ) from e
         return module, out_size

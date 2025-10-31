@@ -1,4 +1,4 @@
-# Copyright 2024 BDP Ecosystem Limited. All Rights Reserved.
+# Copyright 2024 BrainX Ecosystem Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -33,6 +33,8 @@ __all__ = [
 
     'AvgPool1d', 'AvgPool2d', 'AvgPool3d',
     'MaxPool1d', 'MaxPool2d', 'MaxPool3d',
+    'MaxUnpool1d', 'MaxUnpool2d', 'MaxUnpool3d',
+    'LPPool1d', 'LPPool2d', 'LPPool3d',
 
     'AdaptiveAvgPool1d', 'AdaptiveAvgPool2d', 'AdaptiveAvgPool3d',
     'AdaptiveMaxPool1d', 'AdaptiveMaxPool2d', 'AdaptiveMaxPool3d',
@@ -49,13 +51,20 @@ class Flatten(Module):
           number of dimensions including none.
         - Output: :math:`(*, \prod_{i=\text{start}}^{\text{end}} S_{i}, *)`.
 
-    Args:
-        in_size: Sequence of int. The shape of the input tensor.
-        start_axis: first dim to flatten (default = 1).
-        end_axis: last dim to flatten (default = -1).
+    Parameters
+    ----------
+    start_axis : int, optional
+        First dim to flatten (default = 0).
+    end_axis : int, optional
+        Last dim to flatten (default = -1).
+    in_size : Sequence of int, optional
+        The shape of the input tensor.
 
-    Examples::
-        >>> import brainstate as brainstate
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate
         >>> inp = brainstate.random.randn(32, 1, 5, 5)
         >>> # With default parameters
         >>> m = Flatten()
@@ -100,9 +109,6 @@ class Flatten(Module):
                 start_axis = x.ndim + self.start_axis
         return u.math.flatten(x, start_axis, self.end_axis)
 
-    def __repr__(self) -> str:
-        return f'{self.__class__.__name__}(start_axis={self.start_axis}, end_axis={self.end_axis})'
-
 
 class Unflatten(Module):
     r"""
@@ -121,10 +127,16 @@ class Unflatten(Module):
         - Output: :math:`(*, U_1, ..., U_n, *)`, where :math:`U` = :attr:`unflattened_size` and
           :math:`\prod_{i=1}^n U_i = S_{\text{dim}}`.
 
-    Args:
-        axis: int, Dimension to be unflattened.
-        sizes: Sequence of int. New shape of the unflattened dimension.
-        in_size: Sequence of int. The shape of the input tensor.
+    Parameters
+    ----------
+    axis : int
+        Dimension to be unflattened.
+    sizes : Sequence of int
+        New shape of the unflattened dimension.
+    name : str, optional
+        The name of the module.
+    in_size : Sequence of int, optional
+        The shape of the input tensor.
     """
     __module__ = 'brainstate.nn'
 
@@ -156,9 +168,6 @@ class Unflatten(Module):
     def update(self, x):
         return u.math.unflatten(x, self.axis, self.sizes)
 
-    def __repr__(self):
-        return f'{self.__class__.__name__}(axis={self.axis}, sizes={self.sizes})'
-
 
 class _MaxPool(Module):
     def __init__(
@@ -170,6 +179,7 @@ class _MaxPool(Module):
         stride: Union[int, Sequence[int]] = None,
         padding: Union[str, int, Tuple[int, ...], Sequence[Tuple[int, int]]] = "VALID",
         channel_axis: Optional[int] = -1,
+        return_indices: bool = False,
         name: Optional[str] = None,
         in_size: Optional[Size] = None,
     ):
@@ -178,6 +188,7 @@ class _MaxPool(Module):
         self.init_value = init_value
         self.computation = computation
         self.pool_dim = pool_dim
+        self.return_indices = return_indices
 
         # kernel_size
         if isinstance(kernel_size, int):
@@ -247,11 +258,18 @@ class _MaxPool(Module):
         x_dim = self.pool_dim + (0 if self.channel_axis is None else 1)
         if x.ndim < x_dim:
             raise ValueError(f'Excepted input with >= {x_dim} dimensions, but got {x.ndim}.')
-        window_shape = self._infer_shape(x.ndim, self.kernel_size, 1)
-        stride = self._infer_shape(x.ndim, self.stride, 1)
-        padding = (self.padding if isinstance(self.padding, str) else
-                   self._infer_shape(x.ndim, self.padding, element=(0, 0)))
-        r = jax.lax.reduce_window(
+        window_shape = tuple(self._infer_shape(x.ndim, self.kernel_size, 1))
+        stride = tuple(self._infer_shape(x.ndim, self.stride, 1))
+        if isinstance(self.padding, str):
+            padding = tuple(jax.lax.padtype_to_pads(x.shape, window_shape, stride, self.padding))
+        else:
+            padding = tuple(self._infer_shape(x.ndim, self.padding, element=(0, 0)))
+
+        if self.return_indices:
+            # For returning indices, we need to use a custom implementation
+            return self._pooling_with_indices(x, window_shape, stride, padding)
+
+        return jax.lax.reduce_window(
             x,
             init_value=self.init_value,
             computation=self.computation,
@@ -259,7 +277,39 @@ class _MaxPool(Module):
             window_strides=stride,
             padding=padding
         )
-        return r
+
+    def _pooling_with_indices(self, x, window_shape, stride, padding):
+        """Perform max pooling and return both pooled values and indices."""
+        total_size = x.size
+        flat_indices = jnp.arange(total_size, dtype=jnp.int32).reshape(x.shape)
+
+        init_val = jnp.asarray(self.init_value, dtype=x.dtype)
+        init_idx = jnp.array(total_size, dtype=flat_indices.dtype)
+
+        def reducer(acc, operand):
+            acc_val, acc_idx = acc
+            cur_val, cur_idx = operand
+
+            better = cur_val > acc_val
+            best_val = jnp.where(better, cur_val, acc_val)
+            best_idx = jnp.where(better, cur_idx, acc_idx)
+            tie = jnp.logical_and(cur_val == acc_val, cur_idx < acc_idx)
+            best_idx = jnp.where(tie, cur_idx, best_idx)
+
+            return best_val, best_idx
+
+        pooled, indices_result = jax.lax.reduce_window(
+            (x, flat_indices),
+            (init_val, init_idx),
+            reducer,
+            window_dimensions=window_shape,
+            window_strides=stride,
+            padding=padding
+        )
+
+        indices_result = jnp.where(indices_result == total_size, 0, indices_result)
+
+        return pooled, indices_result.astype(jnp.int32)
 
     def _infer_shape(self, x_dim, inputs, element):
         channel_axis = self.channel_axis
@@ -331,34 +381,39 @@ class MaxPool1d(_MaxPool):
               L_{out} = \left\lfloor \frac{L_{in} + 2 \times \text{padding} - \text{dilation}
                     \times (\text{kernel\_size} - 1) - 1}{\text{stride}} + 1\right\rfloor
 
+    Parameters
+    ----------
+    kernel_size : int or sequence of int
+        An integer, or a sequence of integers defining the window to reduce over.
+    stride : int or sequence of int, optional
+        An integer, or a sequence of integers, representing the inter-window stride.
+        Default: kernel_size
+    padding : str, int or sequence of tuple, optional
+        Either the string `'SAME'`, the string `'VALID'`, or a sequence
+        of n `(low, high)` integer pairs that give the padding to apply before
+        and after each spatial dimension. Default: 'VALID'
+    channel_axis : int, optional
+        Axis of the spatial channels for which pooling is skipped.
+        If ``None``, there is no channel axis. Default: -1
+    return_indices : bool, optional
+        If True, will return the max indices along with the outputs.
+        Useful for MaxUnpool1d. Default: False
+    name : str, optional
+        The object name.
+    in_size : Sequence of int, optional
+        The shape of the input tensor.
 
-    Examples::
+    Examples
+    --------
+    .. code-block:: python
 
-        >>> import brainstate as brainstate
+        >>> import brainstate
         >>> # pool of size=3, stride=2
         >>> m = MaxPool1d(3, stride=2, channel_axis=-1)
         >>> input = brainstate.random.randn(20, 50, 16)
         >>> output = m(input)
         >>> output.shape
         (20, 24, 16)
-
-    Parameters
-    ----------
-    in_size: Sequence of int
-      The shape of the input tensor.
-    kernel_size: int, sequence of int
-      An integer, or a sequence of integers defining the window to reduce over.
-    stride: int, sequence of int
-      An integer, or a sequence of integers, representing the inter-window stride (default: `(1, ..., 1)`).
-    padding: str, int, sequence of tuple
-      Either the string `'SAME'`, the string `'VALID'`, or a sequence
-      of n `(low, high)` integer pairs that give the padding to apply before
-      and after each spatial dimension.
-    channel_axis: int, optional
-      Axis of the spatial channels for which pooling is skipped.
-      If ``None``, there is no channel axis.
-    name: optional, str
-      The object name.
 
     .. _link:
           https://github.com/vdumoulin/conv_arithmetic/blob/master/README.md
@@ -371,6 +426,7 @@ class MaxPool1d(_MaxPool):
         stride: Union[int, Sequence[int]] = None,
         padding: Union[str, int, Tuple[int, ...], Sequence[Tuple[int, int]]] = "VALID",
         channel_axis: Optional[int] = -1,
+        return_indices: bool = False,
         name: Optional[str] = None,
         in_size: Optional[Size] = None,
     ):
@@ -382,6 +438,7 @@ class MaxPool1d(_MaxPool):
                          stride=stride,
                          padding=padding,
                          channel_axis=channel_axis,
+                         return_indices=return_indices,
                          name=name)
 
 
@@ -403,7 +460,6 @@ class MaxPool2d(_MaxPool):
     for :attr:`padding` number of points. :attr:`dilation` controls the spacing between the kernel points.
     It is harder to describe, but this `link`_ has a nice visualization of what :attr:`dilation` does.
 
-
     Shape:
         - Input: :math:`(N, H_{in}, W_{in}, C)` or :math:`(H_{in}, W_{in}, C)`
         - Output: :math:`(N, H_{out}, W_{out}, C)` or :math:`(H_{out}, W_{out}, C)`, where
@@ -416,9 +472,33 @@ class MaxPool2d(_MaxPool):
               W_{out} = \left\lfloor\frac{W_{in} + 2 * \text{padding[1]} - \text{dilation[1]}
                     \times (\text{kernel\_size[1]} - 1) - 1}{\text{stride[1]}} + 1\right\rfloor
 
-    Examples::
+    Parameters
+    ----------
+    kernel_size : int or sequence of int
+        An integer, or a sequence of integers defining the window to reduce over.
+    stride : int or sequence of int, optional
+        An integer, or a sequence of integers, representing the inter-window stride.
+        Default: kernel_size
+    padding : str, int or sequence of tuple, optional
+        Either the string `'SAME'`, the string `'VALID'`, or a sequence
+        of n `(low, high)` integer pairs that give the padding to apply before
+        and after each spatial dimension. Default: 'VALID'
+    channel_axis : int, optional
+        Axis of the spatial channels for which pooling is skipped.
+        If ``None``, there is no channel axis. Default: -1
+    return_indices : bool, optional
+        If True, will return the max indices along with the outputs.
+        Useful for MaxUnpool2d. Default: False
+    name : str, optional
+        The object name.
+    in_size : Sequence of int, optional
+        The shape of the input tensor.
 
-        >>> import brainstate as brainstate
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate
         >>> # pool of square window of size=3, stride=2
         >>> m = MaxPool2d(3, stride=2)
         >>> # pool of non-square window
@@ -430,25 +510,6 @@ class MaxPool2d(_MaxPool):
 
     .. _link:
         https://github.com/vdumoulin/conv_arithmetic/blob/master/README.md
-
-    Parameters
-    ----------
-    in_size: Sequence of int
-      The shape of the input tensor.
-    kernel_size: int, sequence of int
-      An integer, or a sequence of integers defining the window to reduce over.
-    stride: int, sequence of int
-      An integer, or a sequence of integers, representing the inter-window stride (default: `(1, ..., 1)`).
-    padding: str, int, sequence of tuple
-      Either the string `'SAME'`, the string `'VALID'`, or a sequence
-      of n `(low, high)` integer pairs that give the padding to apply before
-      and after each spatial dimension.
-    channel_axis: int, optional
-      Axis of the spatial channels for which pooling is skipped.
-      If ``None``, there is no channel axis.
-    name: optional, str
-      The object name.
-
     """
     __module__ = 'brainstate.nn'
 
@@ -458,6 +519,7 @@ class MaxPool2d(_MaxPool):
         stride: Union[int, Sequence[int]] = None,
         padding: Union[str, int, Tuple[int, ...], Sequence[Tuple[int, int]]] = "VALID",
         channel_axis: Optional[int] = -1,
+        return_indices: bool = False,
         name: Optional[str] = None,
         in_size: Optional[Size] = None,
     ):
@@ -469,6 +531,7 @@ class MaxPool2d(_MaxPool):
                          stride=stride,
                          padding=padding,
                          channel_axis=channel_axis,
+                         return_indices=return_indices,
                          name=name)
 
 
@@ -490,7 +553,6 @@ class MaxPool3d(_MaxPool):
     for :attr:`padding` number of points. :attr:`dilation` controls the spacing between the kernel points.
     It is harder to describe, but this `link`_ has a nice visualization of what :attr:`dilation` does.
 
-
     Shape:
         - Input: :math:`(N, D_{in}, H_{in}, W_{in}, C)` or :math:`(D_{in}, H_{in}, W_{in}, C)`.
         - Output: :math:`(N, D_{out}, H_{out}, W_{out}, C)` or :math:`(D_{out}, H_{out}, W_{out}, C)`, where
@@ -507,9 +569,33 @@ class MaxPool3d(_MaxPool):
               W_{out} = \left\lfloor\frac{W_{in} + 2 \times \text{padding}[2] - \text{dilation}[2] \times
                 (\text{kernel\_size}[2] - 1) - 1}{\text{stride}[2]} + 1\right\rfloor
 
-    Examples::
+    Parameters
+    ----------
+    kernel_size : int or sequence of int
+        An integer, or a sequence of integers defining the window to reduce over.
+    stride : int or sequence of int, optional
+        An integer, or a sequence of integers, representing the inter-window stride.
+        Default: kernel_size
+    padding : str, int or sequence of tuple, optional
+        Either the string `'SAME'`, the string `'VALID'`, or a sequence
+        of n `(low, high)` integer pairs that give the padding to apply before
+        and after each spatial dimension. Default: 'VALID'
+    channel_axis : int, optional
+        Axis of the spatial channels for which pooling is skipped.
+        If ``None``, there is no channel axis. Default: -1
+    return_indices : bool, optional
+        If True, will return the max indices along with the outputs.
+        Useful for MaxUnpool3d. Default: False
+    name : str, optional
+        The object name.
+    in_size : Sequence of int, optional
+        The shape of the input tensor.
 
-        >>> import brainstate as brainstate
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate
         >>> # pool of square window of size=3, stride=2
         >>> m = MaxPool3d(3, stride=2)
         >>> # pool of non-square window
@@ -521,25 +607,6 @@ class MaxPool3d(_MaxPool):
 
     .. _link:
         https://github.com/vdumoulin/conv_arithmetic/blob/master/README.md
-
-    Parameters
-    ----------
-    in_size: Sequence of int
-      The shape of the input tensor.
-    kernel_size: int, sequence of int
-      An integer, or a sequence of integers defining the window to reduce over.
-    stride: int, sequence of int
-      An integer, or a sequence of integers, representing the inter-window stride (default: `(1, ..., 1)`).
-    padding: str, int, sequence of tuple
-      Either the string `'SAME'`, the string `'VALID'`, or a sequence
-      of n `(low, high)` integer pairs that give the padding to apply before
-      and after each spatial dimension.
-    channel_axis: int, optional
-      Axis of the spatial channels for which pooling is skipped.
-      If ``None``, there is no channel axis.
-    name: optional, str
-      The object name.
-
     """
     __module__ = 'brainstate.nn'
 
@@ -549,6 +616,7 @@ class MaxPool3d(_MaxPool):
         stride: Union[int, Sequence[int]] = None,
         padding: Union[str, int, Tuple[int], Sequence[Tuple[int, int]]] = "VALID",
         channel_axis: Optional[int] = -1,
+        return_indices: bool = False,
         name: Optional[str] = None,
         in_size: Optional[Size] = None,
     ):
@@ -560,7 +628,430 @@ class MaxPool3d(_MaxPool):
                          stride=stride,
                          padding=padding,
                          channel_axis=channel_axis,
+                         return_indices=return_indices,
                          name=name)
+
+
+class _MaxUnpool(Module):
+    """Base class for max unpooling operations."""
+
+    def __init__(
+        self,
+        pool_dim: int,
+        kernel_size: Size,
+        stride: Union[int, Sequence[int]] = None,
+        padding: Union[int, Tuple[int, ...]] = 0,
+        channel_axis: Optional[int] = -1,
+        name: Optional[str] = None,
+        in_size: Optional[Size] = None,
+    ):
+        super().__init__(name=name)
+
+        self.pool_dim = pool_dim
+
+        # kernel_size
+        if isinstance(kernel_size, int):
+            kernel_size = (kernel_size,) * pool_dim
+        elif isinstance(kernel_size, Sequence):
+            assert isinstance(kernel_size, (tuple, list)), f'kernel_size should be a tuple, but got {type(kernel_size)}'
+            assert all(
+                [isinstance(x, int) for x in kernel_size]), f'kernel_size should be a tuple of ints. {kernel_size}'
+            if len(kernel_size) != pool_dim:
+                raise ValueError(f'kernel_size should a tuple with {pool_dim} ints, but got {len(kernel_size)}')
+        else:
+            raise TypeError(f'kernel_size should be a int or a tuple with {pool_dim} ints.')
+        self.kernel_size = kernel_size
+
+        # stride
+        if stride is None:
+            stride = kernel_size
+        if isinstance(stride, int):
+            stride = (stride,) * pool_dim
+        elif isinstance(stride, Sequence):
+            assert isinstance(stride, (tuple, list)), f'stride should be a tuple, but got {type(stride)}'
+            assert all([isinstance(x, int) for x in stride]), f'stride should be a tuple of ints. {stride}'
+            if len(stride) != pool_dim:
+                raise ValueError(f'stride should a tuple with {pool_dim} ints, but got {len(stride)}')
+        else:
+            raise TypeError(f'stride should be a int or a tuple with {pool_dim} ints.')
+        self.stride = stride
+
+        # padding
+        if isinstance(padding, int):
+            padding = (padding,) * pool_dim
+        elif isinstance(padding, (tuple, list)):
+            if len(padding) != pool_dim:
+                raise ValueError(f'padding should have {pool_dim} values, but got {len(padding)}')
+        else:
+            raise TypeError(f'padding should be int or tuple of {pool_dim} ints.')
+        self.padding = padding
+
+        # channel_axis
+        assert channel_axis is None or isinstance(channel_axis, int), \
+            f'channel_axis should be an int, but got {channel_axis}'
+        self.channel_axis = channel_axis
+
+        # in & out shapes
+        if in_size is not None:
+            in_size = tuple(in_size)
+            self.in_size = in_size
+
+    def _compute_output_shape(self, input_shape, output_size=None):
+        """Compute the output shape after unpooling."""
+        if output_size is not None:
+            return output_size
+
+        # Calculate output shape based on kernel, stride, and padding
+        output_shape = []
+        for i in range(self.pool_dim):
+            dim_size = (input_shape[i] - 1) * self.stride[i] - 2 * self.padding[i] + self.kernel_size[i]
+            output_shape.append(dim_size)
+
+        return tuple(output_shape)
+
+    def _unpool_nd(self, x, indices, output_size=None):
+        """Perform N-dimensional max unpooling."""
+        x_dim = self.pool_dim + (0 if self.channel_axis is None else 1)
+        if x.ndim < x_dim:
+            raise ValueError(f'Expected input with >= {x_dim} dimensions, but got {x.ndim}.')
+
+        # Determine output shape
+        if output_size is None:
+            # Infer output shape from input shape
+            spatial_dims = self._get_spatial_dims(x.shape)
+            output_spatial_shape = self._compute_output_shape(spatial_dims, output_size)
+            output_shape = list(x.shape)
+
+            # Update spatial dimensions in output shape
+            spatial_start = self._get_spatial_start_idx(x.ndim)
+            for i, size in enumerate(output_spatial_shape):
+                output_shape[spatial_start + i] = size
+            output_shape = tuple(output_shape)
+        else:
+            # Use provided output size
+            if isinstance(output_size, (list, tuple)):
+                if len(output_size) == x.ndim:
+                    # Full output shape provided
+                    output_shape = tuple(output_size)
+                else:
+                    # Only spatial dimensions provided
+                    if len(output_size) != self.pool_dim:
+                        raise ValueError(f"output_size must have {self.pool_dim} spatial dimensions, got {len(output_size)}")
+                    output_shape = list(x.shape)
+                    spatial_start = self._get_spatial_start_idx(x.ndim)
+                    for i, size in enumerate(output_size):
+                        output_shape[spatial_start + i] = size
+                    output_shape = tuple(output_shape)
+            else:
+                # Single integer provided, use for all spatial dims
+                output_shape = list(x.shape)
+                spatial_start = self._get_spatial_start_idx(x.ndim)
+                for i in range(self.pool_dim):
+                    output_shape[spatial_start + i] = output_size
+                output_shape = tuple(output_shape)
+
+        # Create output array filled with zeros
+        output = jnp.zeros(output_shape, dtype=x.dtype)
+
+        # # Scatter input values to output using indices
+        # # Flatten spatial dimensions for easier indexing
+        # batch_dims = x.ndim - self.pool_dim - (0 if self.channel_axis is None else 1)
+        #
+        # # Reshape for processing
+        # if batch_dims > 0:
+        #     batch_shape = x.shape[:batch_dims]
+        #     if self.channel_axis is not None and self.channel_axis < batch_dims:
+        #         # Channel axis is before spatial dims
+        #         channel_idx = self.channel_axis
+        #         n_channels = x.shape[channel_idx]
+        #     elif self.channel_axis is not None:
+        #         # Channel axis is after spatial dims
+        #         if self.channel_axis < 0:
+        #             channel_idx = x.ndim + self.channel_axis
+        #         else:
+        #             channel_idx = self.channel_axis
+        #         n_channels = x.shape[channel_idx]
+        #     else:
+        #         n_channels = None
+        # else:
+        #     batch_shape = ()
+        #     if self.channel_axis is not None:
+        #         if self.channel_axis < 0:
+        #             channel_idx = x.ndim + self.channel_axis
+        #         else:
+        #             channel_idx = self.channel_axis
+        #         n_channels = x.shape[channel_idx]
+        #     else:
+        #         n_channels = None
+
+        # Use JAX's scatter operation
+        # Flatten the indices to 1D for scatter
+        flat_indices = indices.ravel()
+        flat_values = x.ravel()
+        flat_output = output.ravel()
+
+        # Scatter the values
+        flat_output = flat_output.at[flat_indices].set(flat_values)
+
+        # Reshape back to original shape
+        output = flat_output.reshape(output_shape)
+
+        return output
+
+    def _get_spatial_dims(self, shape):
+        """Extract spatial dimensions from input shape."""
+        if self.channel_axis is None:
+            return shape[-self.pool_dim:]
+        else:
+            channel_axis = self.channel_axis if self.channel_axis >= 0 else len(shape) + self.channel_axis
+            all_dims = list(range(len(shape)))
+            all_dims.pop(channel_axis)
+            return tuple(shape[i] for i in all_dims[-self.pool_dim:])
+
+    def _get_spatial_start_idx(self, ndim):
+        """Get the starting index of spatial dimensions."""
+        if self.channel_axis is None:
+            return ndim - self.pool_dim
+        else:
+            channel_axis = self.channel_axis if self.channel_axis >= 0 else ndim + self.channel_axis
+            if channel_axis < ndim - self.pool_dim:
+                return ndim - self.pool_dim
+            else:
+                return ndim - self.pool_dim - 1
+
+    def update(self, x, indices, output_size=None):
+        """Forward pass of MaxUnpool1d.
+
+        Parameters
+        ----------
+        x : Array
+            Input tensor from MaxPool1d
+        indices : Array
+            Indices of maximum values from MaxPool1d
+        output_size : int or tuple, optional
+            The targeted output size
+
+        Returns
+        -------
+        Array
+            Unpooled output
+        """
+        return self._unpool_nd(x, indices, output_size)
+
+
+class MaxUnpool1d(_MaxUnpool):
+    r"""Computes a partial inverse of MaxPool1d.
+
+    MaxPool1d is not fully invertible, since the non-maximal values are lost.
+    MaxUnpool1d takes in as input the output of MaxPool1d including the indices
+    of the maximal values and computes a partial inverse in which all
+    non-maximal values are set to zero.
+
+    Note:
+        This function may produce nondeterministic gradients when given tensors
+        on a CUDA device. See notes on reproducibility for more information.
+
+    Shape:
+        - Input: :math:`(N, L_{in}, C)` or :math:`(L_{in}, C)`
+        - Output: :math:`(N, L_{out}, C)` or :math:`(L_{out}, C)`, where
+
+          .. math::
+              L_{out} = (L_{in} - 1) \times \text{stride} - 2 \times \text{padding} + \text{kernel\_size}
+
+          or as given by :attr:`output_size` in the call operator
+
+    Parameters
+    ----------
+    kernel_size : int or tuple
+        Size of the max pooling window.
+    stride : int or tuple, optional
+        Stride of the max pooling window. Default: kernel_size
+    padding : int or tuple, optional
+        Padding that was added to the input. Default: 0
+    channel_axis : int, optional
+        Axis of the channels. Default: -1
+    name : str, optional
+        Name of the module.
+    in_size : Size, optional
+        Input size for shape inference.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate
+        >>> import jax.numpy as jnp
+        >>> # Create pooling and unpooling layers
+        >>> pool = MaxPool1d(2, stride=2, return_indices=True, channel_axis=-1)
+        >>> unpool = MaxUnpool1d(2, stride=2, channel_axis=-1)
+        >>> input = brainstate.random.randn(20, 50, 16)
+        >>> output, indices = pool(input)
+        >>> unpooled = unpool(output, indices)
+        >>> # unpooled will have shape (20, 100, 16) with zeros at non-maximal positions
+    """
+    __module__ = 'brainstate.nn'
+
+    def __init__(
+        self,
+        kernel_size: Size,
+        stride: Union[int, Sequence[int]] = None,
+        padding: Union[int, Tuple[int, ...]] = 0,
+        channel_axis: Optional[int] = -1,
+        name: Optional[str] = None,
+        in_size: Optional[Size] = None,
+    ):
+        super().__init__(
+            pool_dim=1,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+            channel_axis=channel_axis,
+            name=name,
+            in_size=in_size
+        )
+
+
+class MaxUnpool2d(_MaxUnpool):
+    r"""Computes a partial inverse of MaxPool2d.
+
+    MaxPool2d is not fully invertible, since the non-maximal values are lost.
+    MaxUnpool2d takes in as input the output of MaxPool2d including the indices
+    of the maximal values and computes a partial inverse in which all
+    non-maximal values are set to zero.
+
+    Shape:
+        - Input: :math:`(N, H_{in}, W_{in}, C)` or :math:`(H_{in}, W_{in}, C)`
+        - Output: :math:`(N, H_{out}, W_{out}, C)` or :math:`(H_{out}, W_{out}, C)`, where
+
+          .. math::
+              H_{out} = (H_{in} - 1) \times \text{stride}[0] - 2 \times \text{padding}[0] + \text{kernel\_size}[0]
+
+          .. math::
+              W_{out} = (W_{in} - 1) \times \text{stride}[1] - 2 \times \text{padding}[1] + \text{kernel\_size}[1]
+
+          or as given by :attr:`output_size` in the call operator
+
+    Parameters
+    ----------
+    kernel_size : int or tuple
+        Size of the max pooling window.
+    stride : int or tuple, optional
+        Stride of the max pooling window. Default: kernel_size
+    padding : int or tuple, optional
+        Padding that was added to the input. Default: 0
+    channel_axis : int, optional
+        Axis of the channels. Default: -1
+    name : str, optional
+        Name of the module.
+    in_size : Size, optional
+        Input size for shape inference.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate
+        >>> # Create pooling and unpooling layers
+        >>> pool = MaxPool2d(2, stride=2, return_indices=True, channel_axis=-1)
+        >>> unpool = MaxUnpool2d(2, stride=2, channel_axis=-1)
+        >>> input = brainstate.random.randn(1, 4, 4, 16)
+        >>> output, indices = pool(input)
+        >>> unpooled = unpool(output, indices)
+        >>> # unpooled will have shape (1, 8, 8, 16) with zeros at non-maximal positions
+    """
+    __module__ = 'brainstate.nn'
+
+    def __init__(
+        self,
+        kernel_size: Size,
+        stride: Union[int, Sequence[int]] = None,
+        padding: Union[int, Tuple[int, ...]] = 0,
+        channel_axis: Optional[int] = -1,
+        name: Optional[str] = None,
+        in_size: Optional[Size] = None,
+    ):
+        super().__init__(
+            pool_dim=2,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+            channel_axis=channel_axis,
+            name=name,
+            in_size=in_size
+        )
+
+
+class MaxUnpool3d(_MaxUnpool):
+    r"""Computes a partial inverse of MaxPool3d.
+
+    MaxPool3d is not fully invertible, since the non-maximal values are lost.
+    MaxUnpool3d takes in as input the output of MaxPool3d including the indices
+    of the maximal values and computes a partial inverse in which all
+    non-maximal values are set to zero.
+
+    Shape:
+        - Input: :math:`(N, D_{in}, H_{in}, W_{in}, C)` or :math:`(D_{in}, H_{in}, W_{in}, C)`
+        - Output: :math:`(N, D_{out}, H_{out}, W_{out}, C)` or :math:`(D_{out}, H_{out}, W_{out}, C)`, where
+
+          .. math::
+              D_{out} = (D_{in} - 1) \times \text{stride}[0] - 2 \times \text{padding}[0] + \text{kernel\_size}[0]
+
+          .. math::
+              H_{out} = (H_{in} - 1) \times \text{stride}[1] - 2 \times \text{padding}[1] + \text{kernel\_size}[1]
+
+          .. math::
+              W_{out} = (W_{in} - 1) \times \text{stride}[2] - 2 \times \text{padding}[2] + \text{kernel\_size}[2]
+
+          or as given by :attr:`output_size` in the call operator
+
+    Parameters
+    ----------
+    kernel_size : int or tuple
+        Size of the max pooling window.
+    stride : int or tuple, optional
+        Stride of the max pooling window. Default: kernel_size
+    padding : int or tuple, optional
+        Padding that was added to the input. Default: 0
+    channel_axis : int, optional
+        Axis of the channels. Default: -1
+    name : str, optional
+        Name of the module.
+    in_size : Size, optional
+        Input size for shape inference.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate
+        >>> # Create pooling and unpooling layers
+        >>> pool = MaxPool3d(2, stride=2, return_indices=True, channel_axis=-1)
+        >>> unpool = MaxUnpool3d(2, stride=2, channel_axis=-1)
+        >>> input = brainstate.random.randn(1, 4, 4, 4, 16)
+        >>> output, indices = pool(input)
+        >>> unpooled = unpool(output, indices)
+        >>> # unpooled will have shape (1, 8, 8, 8, 16) with zeros at non-maximal positions
+    """
+    __module__ = 'brainstate.nn'
+
+    def __init__(
+        self,
+        kernel_size: Size,
+        stride: Union[int, Sequence[int]] = None,
+        padding: Union[int, Tuple[int, ...]] = 0,
+        channel_axis: Optional[int] = -1,
+        name: Optional[str] = None,
+        in_size: Optional[Size] = None,
+    ):
+        super().__init__(
+            pool_dim=3,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+            channel_axis=channel_axis,
+            name=name,
+            in_size=in_size
+        )
 
 
 class AvgPool1d(_AvgPool):
@@ -586,33 +1077,35 @@ class AvgPool1d(_AvgPool):
               L_{out} = \left\lfloor \frac{L_{in} +
               2 \times \text{padding} - \text{kernel\_size}}{\text{stride}} + 1\right\rfloor
 
-    Examples::
+    Parameters
+    ----------
+    kernel_size : int or sequence of int
+        An integer, or a sequence of integers defining the window to reduce over.
+    stride : int or sequence of int, optional
+        An integer, or a sequence of integers, representing the inter-window stride.
+        Default: 1
+    padding : str, int or sequence of tuple, optional
+        Either the string `'SAME'`, the string `'VALID'`, or a sequence
+        of n `(low, high)` integer pairs that give the padding to apply before
+        and after each spatial dimension. Default: 'VALID'
+    channel_axis : int, optional
+        Axis of the spatial channels for which pooling is skipped.
+        If ``None``, there is no channel axis. Default: -1
+    name : str, optional
+        The object name.
+    in_size : Sequence of int, optional
+        The shape of the input tensor.
 
-        >>> import brainstate as brainstate
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate
         >>> # pool with window of size=3, stride=2
         >>> m = AvgPool1d(3, stride=2)
         >>> input = brainstate.random.randn(20, 50, 16)
         >>> m(input).shape
         (20, 24, 16)
-
-    Parameters
-    ----------
-    in_size: Sequence of int
-      The shape of the input tensor.
-    kernel_size: int, sequence of int
-      An integer, or a sequence of integers defining the window to reduce over.
-    stride: int, sequence of int
-      An integer, or a sequence of integers, representing the inter-window stride (default: `(1, ..., 1)`).
-    padding: str, int, sequence of tuple
-      Either the string `'SAME'`, the string `'VALID'`, or a sequence
-      of n `(low, high)` integer pairs that give the padding to apply before
-      and after each spatial dimension.
-    channel_axis: int, optional
-      Axis of the spatial channels for which pooling is skipped.
-      If ``None``, there is no channel axis.
-    name: optional, str
-      The object name.
-
     """
     __module__ = 'brainstate.nn'
 
@@ -625,15 +1118,17 @@ class AvgPool1d(_AvgPool):
         name: Optional[str] = None,
         in_size: Optional[Size] = None,
     ):
-        super().__init__(in_size=in_size,
-                         init_value=0.,
-                         computation=jax.lax.add,
-                         pool_dim=1,
-                         kernel_size=kernel_size,
-                         stride=stride,
-                         padding=padding,
-                         channel_axis=channel_axis,
-                         name=name)
+        super().__init__(
+            in_size=in_size,
+            init_value=0.,
+            computation=jax.lax.add,
+            pool_dim=1,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+            channel_axis=channel_axis,
+            name=name
+        )
 
 
 class AvgPool2d(_AvgPool):
@@ -663,35 +1158,38 @@ class AvgPool2d(_AvgPool):
               W_{out} = \left\lfloor\frac{W_{in}  + 2 \times \text{padding}[1] -
                 \text{kernel\_size}[1]}{\text{stride}[1]} + 1\right\rfloor
 
-    Examples::
+    Parameters
+    ----------
+    kernel_size : int or sequence of int
+        An integer, or a sequence of integers defining the window to reduce over.
+    stride : int or sequence of int, optional
+        An integer, or a sequence of integers, representing the inter-window stride.
+        Default: 1
+    padding : str, int or sequence of tuple, optional
+        Either the string `'SAME'`, the string `'VALID'`, or a sequence
+        of n `(low, high)` integer pairs that give the padding to apply before
+        and after each spatial dimension. Default: 'VALID'
+    channel_axis : int, optional
+        Axis of the spatial channels for which pooling is skipped.
+        If ``None``, there is no channel axis. Default: -1
+    name : str, optional
+        The object name.
+    in_size : Sequence of int, optional
+        The shape of the input tensor.
 
-        >>> import brainstate as brainstate
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate
         >>> # pool of square window of size=3, stride=2
         >>> m = AvgPool2d(3, stride=2)
         >>> # pool of non-square window
         >>> m = AvgPool2d((3, 2), stride=(2, 1))
-        >>> input = brainstate.random.randn(20, 50, 32, , 16)
+        >>> input = brainstate.random.randn(20, 50, 32, 16)
         >>> output = m(input)
         >>> output.shape
         (20, 24, 31, 16)
-
-    Parameters
-    ----------
-    in_size: Sequence of int
-      The shape of the input tensor.
-    kernel_size: int, sequence of int
-      An integer, or a sequence of integers defining the window to reduce over.
-    stride: int, sequence of int
-      An integer, or a sequence of integers, representing the inter-window stride (default: `(1, ..., 1)`).
-    padding: str, int, sequence of tuple
-      Either the string `'SAME'`, the string `'VALID'`, or a sequence
-      of n `(low, high)` integer pairs that give the padding to apply before
-      and after each spatial dimension.
-    channel_axis: int, optional
-      Axis of the spatial channels for which pooling is skipped.
-      If ``None``, there is no channel axis.
-    name: optional, str
-      The object name.
     """
     __module__ = 'brainstate.nn'
 
@@ -704,15 +1202,17 @@ class AvgPool2d(_AvgPool):
         name: Optional[str] = None,
         in_size: Optional[Size] = None,
     ):
-        super().__init__(in_size=in_size,
-                         init_value=0.,
-                         computation=jax.lax.add,
-                         pool_dim=2,
-                         kernel_size=kernel_size,
-                         stride=stride,
-                         padding=padding,
-                         channel_axis=channel_axis,
-                         name=name)
+        super().__init__(
+            in_size=in_size,
+            init_value=0.,
+            computation=jax.lax.add,
+            pool_dim=2,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+            channel_axis=channel_axis,
+            name=name
+        )
 
 
 class AvgPool3d(_AvgPool):
@@ -751,9 +1251,30 @@ class AvgPool3d(_AvgPool):
               W_{out} = \left\lfloor\frac{W_{in} + 2 \times \text{padding}[2] -
                     \text{kernel\_size}[2]}{\text{stride}[2]} + 1\right\rfloor
 
-    Examples::
+    Parameters
+    ----------
+    kernel_size : int or sequence of int
+        An integer, or a sequence of integers defining the window to reduce over.
+    stride : int or sequence of int, optional
+        An integer, or a sequence of integers, representing the inter-window stride.
+        Default: 1
+    padding : str, int or sequence of tuple, optional
+        Either the string `'SAME'`, the string `'VALID'`, or a sequence
+        of n `(low, high)` integer pairs that give the padding to apply before
+        and after each spatial dimension. Default: 'VALID'
+    channel_axis : int, optional
+        Axis of the spatial channels for which pooling is skipped.
+        If ``None``, there is no channel axis. Default: -1
+    name : str, optional
+        The object name.
+    in_size : Sequence of int, optional
+        The shape of the input tensor.
 
-        >>> import brainstate as brainstate
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate
         >>> # pool of square window of size=3, stride=2
         >>> m = AvgPool3d(3, stride=2)
         >>> # pool of non-square window
@@ -762,24 +1283,6 @@ class AvgPool3d(_AvgPool):
         >>> output = m(input)
         >>> output.shape
         (20, 24, 43, 15, 16)
-
-    Parameters
-    ----------
-    in_size: Sequence of int
-      The shape of the input tensor.
-    kernel_size: int, sequence of int
-      An integer, or a sequence of integers defining the window to reduce over.
-    stride: int, sequence of int
-      An integer, or a sequence of integers, representing the inter-window stride (default: `(1, ..., 1)`).
-    padding: str, int, sequence of tuple
-      Either the string `'SAME'`, the string `'VALID'`, or a sequence
-      of n `(low, high)` integer pairs that give the padding to apply before
-      and after each spatial dimension.
-    channel_axis: int, optional
-      Axis of the spatial channels for which pooling is skipped.
-      If ``None``, there is no channel axis.
-    name: optional, str
-      The object name.
 
     """
     __module__ = 'brainstate.nn'
@@ -793,15 +1296,395 @@ class AvgPool3d(_AvgPool):
         name: Optional[str] = None,
         in_size: Optional[Size] = None,
     ):
-        super().__init__(in_size=in_size,
-                         init_value=0.,
-                         computation=jax.lax.add,
-                         pool_dim=3,
-                         kernel_size=kernel_size,
-                         stride=stride,
-                         padding=padding,
-                         channel_axis=channel_axis,
-                         name=name)
+        super().__init__(
+            in_size=in_size,
+            init_value=0.,
+            computation=jax.lax.add,
+            pool_dim=3,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+            channel_axis=channel_axis,
+            name=name
+        )
+
+
+class _LPPool(Module):
+    """Base class for Lp pooling operations."""
+
+    def __init__(
+        self,
+        norm_type: float,
+        pool_dim: int,
+        kernel_size: Size,
+        stride: Union[int, Sequence[int]] = None,
+        padding: Union[str, int, Tuple[int, ...], Sequence[Tuple[int, int]]] = "VALID",
+        channel_axis: Optional[int] = -1,
+        name: Optional[str] = None,
+        in_size: Optional[Size] = None,
+    ):
+        super().__init__(name=name)
+
+        if norm_type <= 0:
+            raise ValueError(f"norm_type must be positive, got {norm_type}")
+        self.norm_type = norm_type
+        self.pool_dim = pool_dim
+
+        # kernel_size
+        if isinstance(kernel_size, int):
+            kernel_size = (kernel_size,) * pool_dim
+        elif isinstance(kernel_size, Sequence):
+            assert isinstance(kernel_size, (tuple, list)), f'kernel_size should be a tuple, but got {type(kernel_size)}'
+            assert all(
+                [isinstance(x, int) for x in kernel_size]), f'kernel_size should be a tuple of ints. {kernel_size}'
+            if len(kernel_size) != pool_dim:
+                raise ValueError(f'kernel_size should a tuple with {pool_dim} ints, but got {len(kernel_size)}')
+        else:
+            raise TypeError(f'kernel_size should be a int or a tuple with {pool_dim} ints.')
+        self.kernel_size = kernel_size
+
+        # stride
+        if stride is None:
+            stride = kernel_size
+        if isinstance(stride, int):
+            stride = (stride,) * pool_dim
+        elif isinstance(stride, Sequence):
+            assert isinstance(stride, (tuple, list)), f'stride should be a tuple, but got {type(stride)}'
+            assert all([isinstance(x, int) for x in stride]), f'stride should be a tuple of ints. {stride}'
+            if len(stride) != pool_dim:
+                raise ValueError(f'stride should a tuple with {pool_dim} ints, but got {len(stride)}')
+        else:
+            raise TypeError(f'stride should be a int or a tuple with {pool_dim} ints.')
+        self.stride = stride
+
+        # padding
+        if isinstance(padding, str):
+            if padding not in ("SAME", "VALID"):
+                raise ValueError(f"Invalid padding '{padding}', must be 'SAME' or 'VALID'.")
+        elif isinstance(padding, int):
+            padding = [(padding, padding) for _ in range(pool_dim)]
+        elif isinstance(padding, (list, tuple)):
+            if isinstance(padding[0], int):
+                if len(padding) == pool_dim:
+                    padding = [(x, x) for x in padding]
+                else:
+                    raise ValueError(f'If padding is a sequence of ints, it '
+                                     f'should has the length of {pool_dim}.')
+            else:
+                if not all([isinstance(x, (tuple, list)) for x in padding]):
+                    raise ValueError(f'padding should be sequence of Tuple[int, int]. {padding}')
+                if not all([len(x) == 2 for x in padding]):
+                    raise ValueError(f"Each entry in padding must be tuple of 2 ints. {padding} ")
+                if len(padding) == 1:
+                    padding = tuple(padding) * pool_dim
+                assert len(padding) == pool_dim, f'padding should has the length of {pool_dim}. {padding}'
+        else:
+            raise ValueError
+        self.padding = padding
+
+        # channel_axis
+        assert channel_axis is None or isinstance(channel_axis, int), \
+            f'channel_axis should be an int, but got {channel_axis}'
+        self.channel_axis = channel_axis
+
+        # in & out shapes
+        if in_size is not None:
+            in_size = tuple(in_size)
+            self.in_size = in_size
+            y = jax.eval_shape(self.update, jax.ShapeDtypeStruct((128,) + in_size, environ.dftype()))
+            self.out_size = y.shape[1:]
+
+    def update(self, x):
+        x_dim = self.pool_dim + (0 if self.channel_axis is None else 1)
+        if x.ndim < x_dim:
+            raise ValueError(f'Expected input with >= {x_dim} dimensions, but got {x.ndim}.')
+
+        window_shape = self._infer_shape(x.ndim, self.kernel_size, 1)
+        stride = self._infer_shape(x.ndim, self.stride, 1)
+        padding = (self.padding if isinstance(self.padding, str) else
+                   self._infer_shape(x.ndim, self.padding, element=(0, 0)))
+
+        # For Lp pooling, we need to:
+        # 1. Take absolute value and raise to power p
+        # 2. Sum over the window
+        # 3. Take the p-th root
+
+        # Step 1: |x|^p
+        x_pow = jnp.abs(x) ** self.norm_type
+
+        # Step 2: Sum over window
+        pooled_sum = jax.lax.reduce_window(
+            x_pow,
+            init_value=0.,
+            computation=jax.lax.add,
+            window_dimensions=window_shape,
+            window_strides=stride,
+            padding=padding
+        )
+
+        # Step 3: Take p-th root and multiply by normalization factor
+        # The normalization factor is (1/N)^(1/p) where N is the window size
+        window_size = np.prod([w for i, w in enumerate(self.kernel_size)])
+        norm_factor = window_size ** (-1.0 / self.norm_type)
+        result = norm_factor * (pooled_sum ** (1.0 / self.norm_type))
+
+        return result
+
+    def _infer_shape(self, x_dim, inputs, element):
+        channel_axis = self.channel_axis
+        if channel_axis and not 0 <= abs(channel_axis) < x_dim:
+            raise ValueError(f"Invalid channel axis {channel_axis} for input with {x_dim} dimensions")
+        if channel_axis and channel_axis < 0:
+            channel_axis = x_dim + channel_axis
+        all_dims = list(range(x_dim))
+        if channel_axis is not None:
+            all_dims.pop(channel_axis)
+        pool_dims = all_dims[-self.pool_dim:]
+        results = [element] * x_dim
+        for i, dim in enumerate(pool_dims):
+            results[dim] = inputs[i]
+        return results
+
+
+class LPPool1d(_LPPool):
+    r"""Applies a 1D power-average pooling over an input signal composed of several input planes.
+
+    On each window, the function computed is:
+
+    .. math::
+        f(X) = \sqrt[p]{\sum_{x \in X} |x|^{p}}
+
+    - At :math:`p = \infty`, one gets max pooling
+    - At :math:`p = 1`, one gets average pooling (with absolute values)
+    - At :math:`p = 2`, one gets root mean square (RMS) pooling
+
+    Shape:
+        - Input: :math:`(N, L_{in}, C)` or :math:`(L_{in}, C)`.
+        - Output: :math:`(N, L_{out}, C)` or :math:`(L_{out}, C)`, where
+
+          .. math::
+              L_{out} = \left\lfloor \frac{L_{in} + 2 \times \text{padding} - \text{kernel\_size}}{\text{stride}} + 1\right\rfloor
+
+    Parameters
+    ----------
+    norm_type : float
+        Exponent for the pooling operation. Default: 2.0
+    kernel_size : int or sequence of int
+        An integer, or a sequence of integers defining the window to reduce over.
+    stride : int or sequence of int, optional
+        An integer, or a sequence of integers, representing the inter-window stride.
+        Default: kernel_size
+    padding : str, int or sequence of tuple, optional
+        Either the string `'SAME'`, the string `'VALID'`, or a sequence
+        of n `(low, high)` integer pairs that give the padding to apply before
+        and after each spatial dimension. Default: 'VALID'
+    channel_axis : int, optional
+        Axis of the spatial channels for which pooling is skipped.
+        If ``None``, there is no channel axis. Default: -1
+    name : str, optional
+        The object name.
+    in_size : Sequence of int, optional
+        The shape of the input tensor.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate
+        >>> # power-average pooling of window of size=3, stride=2 with norm_type=2.0
+        >>> m = LPPool1d(2, 3, stride=2)
+        >>> input = brainstate.random.randn(20, 50, 16)
+        >>> output = m(input)
+        >>> output.shape
+        (20, 24, 16)
+    """
+    __module__ = 'brainstate.nn'
+
+    def __init__(
+        self,
+        norm_type: float,
+        kernel_size: Size,
+        stride: Union[int, Sequence[int]] = None,
+        padding: Union[str, int, Tuple[int, ...], Sequence[Tuple[int, int]]] = "VALID",
+        channel_axis: Optional[int] = -1,
+        name: Optional[str] = None,
+        in_size: Optional[Size] = None,
+    ):
+        super().__init__(
+            norm_type=norm_type,
+            pool_dim=1,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+            channel_axis=channel_axis,
+            name=name,
+            in_size=in_size
+        )
+
+
+class LPPool2d(_LPPool):
+    r"""Applies a 2D power-average pooling over an input signal composed of several input planes.
+
+    On each window, the function computed is:
+
+    .. math::
+        f(X) = \sqrt[p]{\sum_{x \in X} |x|^{p}}
+
+    - At :math:`p = \infty`, one gets max pooling
+    - At :math:`p = 1`, one gets average pooling (with absolute values)
+    - At :math:`p = 2`, one gets root mean square (RMS) pooling
+
+    Shape:
+        - Input: :math:`(N, H_{in}, W_{in}, C)` or :math:`(H_{in}, W_{in}, C)`
+        - Output: :math:`(N, H_{out}, W_{out}, C)` or :math:`(H_{out}, W_{out}, C)`, where
+
+          .. math::
+              H_{out} = \left\lfloor\frac{H_{in} + 2 \times \text{padding}[0] - \text{kernel\_size}[0]}{\text{stride}[0]} + 1\right\rfloor
+
+          .. math::
+              W_{out} = \left\lfloor\frac{W_{in} + 2 \times \text{padding}[1] - \text{kernel\_size}[1]}{\text{stride}[1]} + 1\right\rfloor
+
+    Parameters
+    ----------
+    norm_type : float
+        Exponent for the pooling operation. Default: 2.0
+    kernel_size : int or sequence of int
+        An integer, or a sequence of integers defining the window to reduce over.
+    stride : int or sequence of int, optional
+        An integer, or a sequence of integers, representing the inter-window stride.
+        Default: kernel_size
+    padding : str, int or sequence of tuple, optional
+        Either the string `'SAME'`, the string `'VALID'`, or a sequence
+        of n `(low, high)` integer pairs that give the padding to apply before
+        and after each spatial dimension. Default: 'VALID'
+    channel_axis : int, optional
+        Axis of the spatial channels for which pooling is skipped.
+        If ``None``, there is no channel axis. Default: -1
+    name : str, optional
+        The object name.
+    in_size : Sequence of int, optional
+        The shape of the input tensor.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate
+        >>> # power-average pooling of square window of size=3, stride=2
+        >>> m = LPPool2d(2, 3, stride=2)
+        >>> # pool of non-square window with norm_type=1.5
+        >>> m = LPPool2d(1.5, (3, 2), stride=(2, 1), channel_axis=-1)
+        >>> input = brainstate.random.randn(20, 50, 32, 16)
+        >>> output = m(input)
+        >>> output.shape
+        (20, 24, 31, 16)
+    """
+    __module__ = 'brainstate.nn'
+
+    def __init__(
+        self,
+        norm_type: float,
+        kernel_size: Size,
+        stride: Union[int, Sequence[int]] = None,
+        padding: Union[str, int, Tuple[int, ...], Sequence[Tuple[int, int]]] = "VALID",
+        channel_axis: Optional[int] = -1,
+        name: Optional[str] = None,
+        in_size: Optional[Size] = None,
+    ):
+        super().__init__(
+            norm_type=norm_type,
+            pool_dim=2,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+            channel_axis=channel_axis,
+            name=name,
+            in_size=in_size
+        )
+
+
+class LPPool3d(_LPPool):
+    r"""Applies a 3D power-average pooling over an input signal composed of several input planes.
+
+    On each window, the function computed is:
+
+    .. math::
+        f(X) = \sqrt[p]{\sum_{x \in X} |x|^{p}}
+
+    - At :math:`p = \infty`, one gets max pooling
+    - At :math:`p = 1`, one gets average pooling (with absolute values)
+    - At :math:`p = 2`, one gets root mean square (RMS) pooling
+
+    Shape:
+        - Input: :math:`(N, D_{in}, H_{in}, W_{in}, C)` or :math:`(D_{in}, H_{in}, W_{in}, C)`.
+        - Output: :math:`(N, D_{out}, H_{out}, W_{out}, C)` or :math:`(D_{out}, H_{out}, W_{out}, C)`, where
+
+          .. math::
+              D_{out} = \left\lfloor\frac{D_{in} + 2 \times \text{padding}[0] - \text{kernel\_size}[0]}{\text{stride}[0]} + 1\right\rfloor
+
+          .. math::
+              H_{out} = \left\lfloor\frac{H_{in} + 2 \times \text{padding}[1] - \text{kernel\_size}[1]}{\text{stride}[1]} + 1\right\rfloor
+
+          .. math::
+              W_{out} = \left\lfloor\frac{W_{in} + 2 \times \text{padding}[2] - \text{kernel\_size}[2]}{\text{stride}[2]} + 1\right\rfloor
+
+    Parameters
+    ----------
+    norm_type : float
+        Exponent for the pooling operation. Default: 2.0
+    kernel_size : int or sequence of int
+        An integer, or a sequence of integers defining the window to reduce over.
+    stride : int or sequence of int, optional
+        An integer, or a sequence of integers, representing the inter-window stride.
+        Default: kernel_size
+    padding : str, int or sequence of tuple, optional
+        Either the string `'SAME'`, the string `'VALID'`, or a sequence
+        of n `(low, high)` integer pairs that give the padding to apply before
+        and after each spatial dimension. Default: 'VALID'
+    channel_axis : int, optional
+        Axis of the spatial channels for which pooling is skipped.
+        If ``None``, there is no channel axis. Default: -1
+    name : str, optional
+        The object name.
+    in_size : Sequence of int, optional
+        The shape of the input tensor.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate
+        >>> # power-average pooling of cube window of size=3, stride=2
+        >>> m = LPPool3d(2, 3, stride=2)
+        >>> # pool of non-cubic window with norm_type=1.5
+        >>> m = LPPool3d(1.5, (3, 2, 2), stride=(2, 1, 2), channel_axis=-1)
+        >>> input = brainstate.random.randn(20, 50, 44, 31, 16)
+        >>> output = m(input)
+        >>> output.shape
+        (20, 24, 43, 15, 16)
+    """
+    __module__ = 'brainstate.nn'
+
+    def __init__(
+        self,
+        norm_type: float,
+        kernel_size: Size,
+        stride: Union[int, Sequence[int]] = None,
+        padding: Union[str, int, Tuple[int], Sequence[Tuple[int, int]]] = "VALID",
+        channel_axis: Optional[int] = -1,
+        name: Optional[str] = None,
+        in_size: Optional[Size] = None,
+    ):
+        super().__init__(
+            norm_type=norm_type,
+            pool_dim=3,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+            channel_axis=channel_axis,
+            name=name,
+            in_size=in_size
+        )
 
 
 def _adaptive_pool1d(x, target_size: int, operation: Callable):
@@ -919,259 +1802,438 @@ class _AdaptivePool(Module):
 
 
 class AdaptiveAvgPool1d(_AdaptivePool):
+    r"""Applies a 1D adaptive average pooling over an input signal composed of several input planes.
+
+    The output size is :math:`L_{out}`, for any input size.
+    The number of output features is equal to the number of input planes.
+
+    Adaptive pooling automatically computes the kernel size and stride to achieve the desired
+    output size, making it useful for creating fixed-size representations from variable-sized inputs.
+
+    Shape:
+        - Input: :math:`(N, L_{in}, C)` or :math:`(L_{in}, C)`.
+        - Output: :math:`(N, L_{out}, C)` or :math:`(L_{out}, C)`, where
+          :math:`L_{out}=\text{target\_size}`.
+
+    Parameters
+    ----------
+    target_size : int or sequence of int
+        The target output size. The number of output features for each channel.
+    channel_axis : int, optional
+        Axis of the spatial channels for which pooling is skipped.
+        If ``None``, there is no channel axis. Default: -1
+    name : str, optional
+        The name of the module.
+    in_size : Sequence of int, optional
+        The shape of the input tensor for shape inference.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate
+        >>> # Target output size of 5
+        >>> m = AdaptiveAvgPool1d(5)
+        >>> input = brainstate.random.randn(1, 64, 8)
+        >>> output = m(input)
+        >>> output.shape
+        (1, 5, 8)
+        >>> # Can handle variable input sizes
+        >>> input2 = brainstate.random.randn(1, 32, 8)
+        >>> output2 = m(input2)
+        >>> output2.shape
+        (1, 5, 8)  # Same output size regardless of input size
+
+    See Also
+    --------
+    AvgPool1d : Non-adaptive 1D average pooling.
+    AdaptiveMaxPool1d : Adaptive 1D max pooling.
+    """
+    __module__ = 'brainstate.nn'
+
+    def __init__(
+        self,
+        target_size: Union[int, Sequence[int]],
+        channel_axis: Optional[int] = -1,
+        name: Optional[str] = None,
+        in_size: Optional[Sequence[int]] = None,
+    ):
+        super().__init__(
+            in_size=in_size,
+            target_size=target_size,
+            channel_axis=channel_axis,
+            num_spatial_dims=1,
+            operation=jnp.mean,
+            name=name
+        )
+
+
+class AdaptiveAvgPool2d(_AdaptivePool):
+    r"""Applies a 2D adaptive average pooling over an input signal composed of several input planes.
+
+    The output is of size :math:`H_{out} \times W_{out}`, for any input size.
+    The number of output features is equal to the number of input planes.
+
+    Adaptive pooling automatically computes the kernel size and stride to achieve the desired
+    output size, making it useful for creating fixed-size representations from variable-sized inputs.
+
+    Shape:
+        - Input: :math:`(N, H_{in}, W_{in}, C)` or :math:`(H_{in}, W_{in}, C)`.
+        - Output: :math:`(N, H_{out}, W_{out}, C)` or :math:`(H_{out}, W_{out}, C)`, where
+          :math:`(H_{out}, W_{out})=\text{target\_size}`.
+
+    Parameters
+    ----------
+    target_size : int or tuple of int
+        The target output size. If a single integer is provided, the output will be a square
+        of that size. If a tuple is provided, it specifies (H_out, W_out).
+        Use None for dimensions that should not be pooled.
+    channel_axis : int, optional
+        Axis of the spatial channels for which pooling is skipped.
+        If ``None``, there is no channel axis. Default: -1
+    name : str, optional
+        The name of the module.
+    in_size : Sequence of int, optional
+        The shape of the input tensor for shape inference.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate
+        >>> # Target output size of 5x7
+        >>> m = AdaptiveAvgPool2d((5, 7))
+        >>> input = brainstate.random.randn(1, 8, 9, 64)
+        >>> output = m(input)
+        >>> output.shape
+        (1, 5, 7, 64)
+        >>> # Target output size of 7x7 (square)
+        >>> m = AdaptiveAvgPool2d(7)
+        >>> input = brainstate.random.randn(1, 10, 9, 64)
+        >>> output = m(input)
+        >>> output.shape
+        (1, 7, 7, 64)
+        >>> # Target output size of 10x7
+        >>> m = AdaptiveAvgPool2d((None, 7))
+        >>> input = brainstate.random.randn(1, 10, 9, 64)
+        >>> output = m(input)
+        >>> output.shape
+        (1, 10, 7, 64)
+
+    See Also
+    --------
+    AvgPool2d : Non-adaptive 2D average pooling.
+    AdaptiveMaxPool2d : Adaptive 2D max pooling.
+    """
+    __module__ = 'brainstate.nn'
+
+    def __init__(
+        self,
+        target_size: Union[int, Sequence[int]],
+        channel_axis: Optional[int] = -1,
+        name: Optional[str] = None,
+        in_size: Optional[Sequence[int]] = None,
+    ):
+        super().__init__(
+            in_size=in_size,
+            target_size=target_size,
+            channel_axis=channel_axis,
+            num_spatial_dims=2,
+            operation=jnp.mean,
+            name=name
+        )
+
+
+class AdaptiveAvgPool3d(_AdaptivePool):
+    r"""Applies a 3D adaptive average pooling over an input signal composed of several input planes.
+
+    The output is of size :math:`D_{out} \times H_{out} \times W_{out}`, for any input size.
+    The number of output features is equal to the number of input planes.
+
+    Adaptive pooling automatically computes the kernel size and stride to achieve the desired
+    output size, making it useful for creating fixed-size representations from variable-sized inputs.
+
+    Shape:
+        - Input: :math:`(N, D_{in}, H_{in}, W_{in}, C)` or :math:`(D_{in}, H_{in}, W_{in}, C)`.
+        - Output: :math:`(N, D_{out}, H_{out}, W_{out}, C)` or :math:`(D_{out}, H_{out}, W_{out}, C)`,
+          where :math:`(D_{out}, H_{out}, W_{out})=\text{target\_size}`.
+
+    Parameters
+    ----------
+    target_size : int or tuple of int
+        The target output size. If a single integer is provided, the output will be a cube
+        of that size. If a tuple is provided, it specifies (D_out, H_out, W_out).
+        Use None for dimensions that should not be pooled.
+    channel_axis : int, optional
+        Axis of the spatial channels for which pooling is skipped.
+        If ``None``, there is no channel axis. Default: -1
+    name : str, optional
+        The name of the module.
+    in_size : Sequence of int, optional
+        The shape of the input tensor for shape inference.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate
+        >>> # Target output size of 5x7x9
+        >>> m = AdaptiveAvgPool3d((5, 7, 9))
+        >>> input = brainstate.random.randn(1, 8, 9, 10, 64)
+        >>> output = m(input)
+        >>> output.shape
+        (1, 5, 7, 9, 64)
+        >>> # Target output size of 7x7x7 (cube)
+        >>> m = AdaptiveAvgPool3d(7)
+        >>> input = brainstate.random.randn(1, 10, 9, 8, 64)
+        >>> output = m(input)
+        >>> output.shape
+        (1, 7, 7, 7, 64)
+        >>> # Target output size of 7x9x8
+        >>> m = AdaptiveAvgPool3d((7, None, None))
+        >>> input = brainstate.random.randn(1, 10, 9, 8, 64)
+        >>> output = m(input)
+        >>> output.shape
+        (1, 7, 9, 8, 64)
+
+    See Also
+    --------
+    AvgPool3d : Non-adaptive 3D average pooling.
+    AdaptiveMaxPool3d : Adaptive 3D max pooling.
+    """
+    __module__ = 'brainstate.nn'
+
+    def __init__(
+        self,
+        target_size: Union[int, Sequence[int]],
+        channel_axis: Optional[int] = -1,
+        name: Optional[str] = None,
+        in_size: Optional[Sequence[int]] = None,
+    ):
+        super().__init__(
+            in_size=in_size,
+            target_size=target_size,
+            channel_axis=channel_axis,
+            num_spatial_dims=3,
+            operation=jnp.mean,
+            name=name
+        )
+
+
+class AdaptiveMaxPool1d(_AdaptivePool):
     r"""Applies a 1D adaptive max pooling over an input signal composed of several input planes.
 
     The output size is :math:`L_{out}`, for any input size.
     The number of output features is equal to the number of input planes.
 
+    Adaptive pooling automatically computes the kernel size and stride to achieve the desired
+    output size, making it useful for creating fixed-size representations from variable-sized inputs.
+
     Shape:
         - Input: :math:`(N, L_{in}, C)` or :math:`(L_{in}, C)`.
         - Output: :math:`(N, L_{out}, C)` or :math:`(L_{out}, C)`, where
-          :math:`L_{out}=\text{output\_size}`.
+          :math:`L_{out}=\text{target\_size}`.
 
-    Examples:
+    Parameters
+    ----------
+    target_size : int or sequence of int
+        The target output size. The number of output features for each channel.
+    channel_axis : int, optional
+        Axis of the spatial channels for which pooling is skipped.
+        If ``None``, there is no channel axis. Default: -1
+    name : str, optional
+        The name of the module.
+    in_size : Sequence of int, optional
+        The shape of the input tensor for shape inference.
 
-        >>> import brainstate as brainstate
-        >>> # target output size of 5
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate
+        >>> # Target output size of 5
         >>> m = AdaptiveMaxPool1d(5)
         >>> input = brainstate.random.randn(1, 64, 8)
         >>> output = m(input)
         >>> output.shape
         (1, 5, 8)
+        >>> # Can handle variable input sizes
+        >>> input2 = brainstate.random.randn(1, 32, 8)
+        >>> output2 = m(input2)
+        >>> output2.shape
+        (1, 5, 8)  # Same output size regardless of input size
 
-    Parameters
-    ----------
-    in_size: Sequence of int
-      The shape of the input tensor.
-    target_size: int, sequence of int
-      The target output shape.
-    channel_axis: int, optional
-      Axis of the spatial channels for which pooling is skipped.
-      If ``None``, there is no channel axis.
-    name: str
-      The class name.
+    See Also
+    --------
+    MaxPool1d : Non-adaptive 1D max pooling.
+    AdaptiveAvgPool1d : Adaptive 1D average pooling.
     """
     __module__ = 'brainstate.nn'
 
-    def __init__(self,
-                 target_size: Union[int, Sequence[int]],
-                 channel_axis: Optional[int] = -1,
-                 name: Optional[str] = None,
-                 in_size: Optional[Sequence[int]] = None, ):
-        super().__init__(in_size=in_size,
-                         target_size=target_size,
-                         channel_axis=channel_axis,
-                         num_spatial_dims=1,
-                         operation=jnp.mean,
-                         name=name)
+    def __init__(
+        self,
+        target_size: Union[int, Sequence[int]],
+        channel_axis: Optional[int] = -1,
+        name: Optional[str] = None,
+        in_size: Optional[Sequence[int]] = None,
+    ):
+        super().__init__(
+            in_size=in_size,
+            target_size=target_size,
+            channel_axis=channel_axis,
+            num_spatial_dims=1,
+            operation=jnp.max,
+            name=name
+        )
 
 
-class AdaptiveAvgPool2d(_AdaptivePool):
+class AdaptiveMaxPool2d(_AdaptivePool):
     r"""Applies a 2D adaptive max pooling over an input signal composed of several input planes.
 
     The output is of size :math:`H_{out} \times W_{out}`, for any input size.
     The number of output features is equal to the number of input planes.
 
+    Adaptive pooling automatically computes the kernel size and stride to achieve the desired
+    output size, making it useful for creating fixed-size representations from variable-sized inputs.
+
     Shape:
         - Input: :math:`(N, H_{in}, W_{in}, C)` or :math:`(H_{in}, W_{in}, C)`.
         - Output: :math:`(N, H_{out}, W_{out}, C)` or :math:`(H_{out}, W_{out}, C)`, where
-          :math:`(H_{out}, W_{out})=\text{output\_size}`.
+          :math:`(H_{out}, W_{out})=\text{target\_size}`.
 
-    Examples:
+    Parameters
+    ----------
+    target_size : int or tuple of int
+        The target output size. If a single integer is provided, the output will be a square
+        of that size. If a tuple is provided, it specifies (H_out, W_out).
+        Use None for dimensions that should not be pooled.
+    channel_axis : int, optional
+        Axis of the spatial channels for which pooling is skipped.
+        If ``None``, there is no channel axis. Default: -1
+    name : str, optional
+        The name of the module.
+    in_size : Sequence of int, optional
+        The shape of the input tensor for shape inference.
 
-        >>> import brainstate as brainstate
-        >>> # target output size of 5x7
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate
+        >>> # Target output size of 5x7
         >>> m = AdaptiveMaxPool2d((5, 7))
         >>> input = brainstate.random.randn(1, 8, 9, 64)
         >>> output = m(input)
         >>> output.shape
         (1, 5, 7, 64)
-        >>> # target output size of 7x7 (square)
+        >>> # Target output size of 7x7 (square)
         >>> m = AdaptiveMaxPool2d(7)
         >>> input = brainstate.random.randn(1, 10, 9, 64)
         >>> output = m(input)
         >>> output.shape
         (1, 7, 7, 64)
-        >>> # target output size of 10x7
+        >>> # Target output size of 10x7
         >>> m = AdaptiveMaxPool2d((None, 7))
         >>> input = brainstate.random.randn(1, 10, 9, 64)
         >>> output = m(input)
         >>> output.shape
         (1, 10, 7, 64)
 
-    Parameters
-    ----------
-    in_size: Sequence of int
-      The shape of the input tensor.
-    target_size: int, sequence of int
-      The target output shape.
-    channel_axis: int, optional
-      Axis of the spatial channels for which pooling is skipped.
-      If ``None``, there is no channel axis.
-    name: str
-      The class name.
+    See Also
+    --------
+    MaxPool2d : Non-adaptive 2D max pooling.
+    AdaptiveAvgPool2d : Adaptive 2D average pooling.
     """
     __module__ = 'brainstate.nn'
 
-    def __init__(self,
-                 target_size: Union[int, Sequence[int]],
-                 channel_axis: Optional[int] = -1,
-                 name: Optional[str] = None,
+    def __init__(
+        self,
+        target_size: Union[int, Sequence[int]],
+        channel_axis: Optional[int] = -1,
+        name: Optional[str] = None,
+        in_size: Optional[Sequence[int]] = None,
+    ):
+        super().__init__(
+            in_size=in_size,
+            target_size=target_size,
+            channel_axis=channel_axis,
+            num_spatial_dims=2,
+            operation=jnp.max,
+            name=name
+        )
 
-                 in_size: Optional[Sequence[int]] = None, ):
-        super().__init__(in_size=in_size,
-                         target_size=target_size,
-                         channel_axis=channel_axis,
-                         num_spatial_dims=2,
-                         operation=jnp.mean,
-                         name=name)
 
-
-class AdaptiveAvgPool3d(_AdaptivePool):
+class AdaptiveMaxPool3d(_AdaptivePool):
     r"""Applies a 3D adaptive max pooling over an input signal composed of several input planes.
 
     The output is of size :math:`D_{out} \times H_{out} \times W_{out}`, for any input size.
     The number of output features is equal to the number of input planes.
 
+    Adaptive pooling automatically computes the kernel size and stride to achieve the desired
+    output size, making it useful for creating fixed-size representations from variable-sized inputs.
+
     Shape:
         - Input: :math:`(N, D_{in}, H_{in}, W_{in}, C)` or :math:`(D_{in}, H_{in}, W_{in}, C)`.
         - Output: :math:`(N, D_{out}, H_{out}, W_{out}, C)` or :math:`(D_{out}, H_{out}, W_{out}, C)`,
-          where :math:`(D_{out}, H_{out}, W_{out})=\text{output\_size}`.
+          where :math:`(D_{out}, H_{out}, W_{out})=\text{target\_size}`.
 
-    Examples:
+    Parameters
+    ----------
+    target_size : int or tuple of int
+        The target output size. If a single integer is provided, the output will be a cube
+        of that size. If a tuple is provided, it specifies (D_out, H_out, W_out).
+        Use None for dimensions that should not be pooled.
+    channel_axis : int, optional
+        Axis of the spatial channels for which pooling is skipped.
+        If ``None``, there is no channel axis. Default: -1
+    name : str, optional
+        The name of the module.
+    in_size : Sequence of int, optional
+        The shape of the input tensor for shape inference.
 
-        >>> import brainstate as brainstate
-        >>> # target output size of 5x7x9
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate
+        >>> # Target output size of 5x7x9
         >>> m = AdaptiveMaxPool3d((5, 7, 9))
         >>> input = brainstate.random.randn(1, 8, 9, 10, 64)
         >>> output = m(input)
         >>> output.shape
         (1, 5, 7, 9, 64)
-        >>> # target output size of 7x7x7 (cube)
+        >>> # Target output size of 7x7x7 (cube)
         >>> m = AdaptiveMaxPool3d(7)
         >>> input = brainstate.random.randn(1, 10, 9, 8, 64)
         >>> output = m(input)
         >>> output.shape
         (1, 7, 7, 7, 64)
-        >>> # target output size of 7x9x8
+        >>> # Target output size of 7x9x8
         >>> m = AdaptiveMaxPool3d((7, None, None))
         >>> input = brainstate.random.randn(1, 10, 9, 8, 64)
         >>> output = m(input)
         >>> output.shape
         (1, 7, 9, 8, 64)
 
-    Parameters
-    ----------
-    in_size: Sequence of int
-      The shape of the input tensor.
-    target_size: int, sequence of int
-      The target output shape.
-    channel_axis: int, optional
-      Axis of the spatial channels for which pooling is skipped.
-      If ``None``, there is no channel axis.
-    name: str
-      The class name.
+    See Also
+    --------
+    MaxPool3d : Non-adaptive 3D max pooling.
+    AdaptiveAvgPool3d : Adaptive 3D average pooling.
     """
     __module__ = 'brainstate.nn'
 
-    def __init__(self,
-                 target_size: Union[int, Sequence[int]],
-                 channel_axis: Optional[int] = -1,
-                 name: Optional[str] = None,
-                 in_size: Optional[Sequence[int]] = None, ):
-        super().__init__(in_size=in_size,
-                         target_size=target_size,
-                         channel_axis=channel_axis,
-                         num_spatial_dims=3,
-                         operation=jnp.mean,
-                         name=name)
-
-
-class AdaptiveMaxPool1d(_AdaptivePool):
-    """Adaptive one-dimensional maximum down-sampling.
-
-    Parameters
-    ----------
-    in_size: Sequence of int
-      The shape of the input tensor.
-    target_size: int, sequence of int
-      The target output shape.
-    channel_axis: int, optional
-      Axis of the spatial channels for which pooling is skipped.
-      If ``None``, there is no channel axis.
-    name: str
-      The class name.
-    """
-    __module__ = 'brainstate.nn'
-
-    def __init__(self,
-                 target_size: Union[int, Sequence[int]],
-                 channel_axis: Optional[int] = -1,
-                 name: Optional[str] = None,
-                 in_size: Optional[Sequence[int]] = None, ):
-        super().__init__(in_size=in_size,
-                         target_size=target_size,
-                         channel_axis=channel_axis,
-                         num_spatial_dims=1,
-                         operation=jnp.max,
-                         name=name)
-
-
-class AdaptiveMaxPool2d(_AdaptivePool):
-    """Adaptive two-dimensional maximum down-sampling.
-
-    Parameters
-    ----------
-    in_size: Sequence of int
-      The shape of the input tensor.
-    target_size: int, sequence of int
-      The target output shape.
-    channel_axis: int, optional
-      Axis of the spatial channels for which pooling is skipped.
-      If ``None``, there is no channel axis.
-    name: str
-      The class name.
-    """
-    __module__ = 'brainstate.nn'
-
-    def __init__(self,
-                 target_size: Union[int, Sequence[int]],
-                 channel_axis: Optional[int] = -1,
-                 name: Optional[str] = None,
-                 in_size: Optional[Sequence[int]] = None, ):
-        super().__init__(in_size=in_size,
-                         target_size=target_size,
-                         channel_axis=channel_axis,
-                         num_spatial_dims=2,
-                         operation=jnp.max,
-                         name=name)
-
-
-class AdaptiveMaxPool3d(_AdaptivePool):
-    """Adaptive three-dimensional maximum down-sampling.
-
-    Parameters
-    ----------
-    in_size: Sequence of int
-      The shape of the input tensor.
-    target_size: int, sequence of int
-      The target output shape.
-    channel_axis: int, optional
-      Axis of the spatial channels for which pooling is skipped.
-      If ``None``, there is no channel axis.
-    name: str
-      The class name.
-    """
-    __module__ = 'brainstate.nn'
-
-    def __init__(self,
-                 target_size: Union[int, Sequence[int]],
-                 channel_axis: Optional[int] = -1,
-                 name: Optional[str] = None,
-                 in_size: Optional[Sequence[int]] = None, ):
-        super().__init__(in_size=in_size,
-                         target_size=target_size,
-                         channel_axis=channel_axis,
-                         num_spatial_dims=3,
-                         operation=jnp.max,
-                         name=name)
+    def __init__(
+        self,
+        target_size: Union[int, Sequence[int]],
+        channel_axis: Optional[int] = -1,
+        name: Optional[str] = None,
+        in_size: Optional[Sequence[int]] = None,
+    ):
+        super().__init__(
+            in_size=in_size,
+            target_size=target_size,
+            channel_axis=channel_axis,
+            num_spatial_dims=3,
+            operation=jnp.max,
+            name=name
+        )

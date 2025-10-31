@@ -5,9 +5,17 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 exclude = [
-    "docs*", "tests*", "examples*", "experiments*", "benchmark*", "build*", "dist*",
-    "brainstate.egg-info*", "brainstate/__pycache__*",
-    "brainstate/__init__.py"
+    "docs*",
+    "tests*",
+    "examples*",
+    "experiments*",
+    "benchmark*",
+    "build*",
+    "dist*",
+    "dev*",
+    "brainstate.egg-info*",
+    "brainstate/__pycache__*",
+    "brainstate/__init__.py",
 ]
 
 
@@ -17,7 +25,7 @@ universal = true
 
 [project]
 name = "brainstate"
-description = "A ``State``-based Transformation System for Program Compilation and Augmentation."
+description = "A State-based Transformation System for Brain Modeling."
 readme = 'README.md'
 license = { text = 'Apache-2.0 license' }
 requires-python = '>=3.10'
@@ -44,28 +52,56 @@ classifiers = [
 
 keywords = [
     'computational neuroscience',
-    'brain-inspired computation',
-    'brain dynamics programming',
+    'brain-inspired computing',
+    'brain simulation',
+    'brain modeling',
+    'spiking neural networks',
 ]
 
 dependencies = [
-    'jax',
-    'jaxlib',
-    'numpy',
-    'brainunit>=0.0.4',
+    'numpy>=1.15',
+    'tqdm',
+    'brainunit',
     'brainevent',
 ]
 
 dynamic = ['version']
 
-[tool.flit.module]
-name = "brainstate"
+[tool.setuptools.dynamic]
+version = { attr = "brainstate.__version__" }
 
 [project.urls]
-homepage = 'http://github.com/chaobrain/brainstate'
-repository = 'http://github.com/chaobrain/brainstate'
+homepage = 'https://github.com/chaobrain/brainstate'
+repository = 'https://github.com/chaobrain/brainstate'
+"Documentation" = "https://brainstate.readthedocs.io/"
+"Source Code" = "https://github.com/chaobrain/brainstate"
+"Bug Tracker" = "https://github.com/chaobrain/brainstate/issues"
 
 [project.optional-dependencies]
+cpu = [
+    'jax[cpu]',
+    'brainunit',
+    'brainevent',
+]
+cuda12 = [
+    'jax[cuda12]',
+    'brainunit',
+    'brainevent',
+]
+cuda13 = [
+    'jax[cuda13]',
+    'brainunit',
+    'brainevent',
+]
+tpu = [
+    'jax[tpu]',
+    'brainunit',
+    'brainevent',
+]
 testing = [
+    'absl-py',
     'pytest',
+    'jax',
+    'brainunit',
+    'brainevent',
 ]

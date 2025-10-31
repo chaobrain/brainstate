@@ -1,4 +1,4 @@
-# Copyright 2024 BDP Ecosystem Limited. All Rights Reserved.
+# Copyright 2024 BrainX Ecosystem Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,10 +20,11 @@
 #   Simulation of networks of spiking neurons: a review of tools and strategies., J. Comput. Neurosci., 23, 3, 349–98
 #
 
+import braincell
 import brainunit as u
 import matplotlib.pyplot as plt
 
-import braincell
+import brainpy
 import brainstate
 
 assert braincell.__version__ >= '0.0.2'
@@ -50,7 +51,7 @@ class HH(braincell.SingleCompartment):
         self.IL = braincell.channel.IL(in_size, E=-60. * u.mV, g_max=(5. * u.nS * u.cm ** -2) * area)
 
 
-class EINet(brainstate.nn.DynamicsGroup):
+class EINet(brainstate.nn.Module):
     def __init__(self):
         super().__init__()
         self.n_exc = 3200
@@ -58,16 +59,16 @@ class EINet(brainstate.nn.DynamicsGroup):
         self.num = self.n_exc + self.n_inh
         self.N = HH(self.num)
 
-        self.E = brainstate.nn.AlignPostProj(
+        self.E = brainpy.AlignPostProj(
             comm=brainstate.nn.EventFixedProb(self.n_exc, self.num, conn_num=0.02, conn_weight=6. * u.nS),
-            syn=brainstate.nn.Expon(self.num, tau=5. * u.ms),
-            out=brainstate.nn.COBA(E=0. * u.mV),
+            syn=brainpy.Expon(self.num, tau=5. * u.ms),
+            out=brainpy.COBA(E=0. * u.mV),
             post=self.N
         )
-        self.I = brainstate.nn.AlignPostProj(
+        self.I = brainpy.AlignPostProj(
             comm=brainstate.nn.EventFixedProb(self.n_inh, self.num, conn_num=0.02, conn_weight=67. * u.nS),
-            syn=brainstate.nn.Expon(self.num, tau=10. * u.ms),
-            out=brainstate.nn.COBA(E=-80. * u.mV),
+            syn=brainpy.Expon(self.num, tau=10. * u.ms),
+            out=brainpy.COBA(E=-80. * u.mV),
             post=self.N
         )
 
@@ -87,7 +88,7 @@ brainstate.nn.init_all_states(net)
 # simulation
 with brainstate.environ.context(dt=0.1 * u.ms):
     times = u.math.arange(0. * u.ms, 100. * u.ms, brainstate.environ.get_dt())
-    spikes = brainstate.compile.for_loop(net.update, times, pbar=brainstate.compile.ProgressBar(10))
+    spikes = brainstate.transform.for_loop(net.update, times, pbar=brainstate.transform.ProgressBar(10))
 
 # visualization
 t_indices, n_indices = u.math.where(spikes)

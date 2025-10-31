@@ -1,26 +1,41 @@
-# To get started with Dependabot version updates, you'll need to specify which
-# package ecosystems to update and where the package manifests are located.
-# Please see the documentation for all configuration options:
-# https://docs.github.com/github/administering-a-repository/configuration-options-for-dependency-updates
-
+# Dependabot configuration; see https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
 version: 2
 updates:
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
-      interval: "daily"
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "UTC"
     allow:
       - dependency-type: "all"
+    groups:
+      production-dependencies:
+        dependency-type: "production"
+      development-dependencies:
+        dependency-type: "development"
     commit-message:
-      prefix: ":arrow_up:"
-    open-pull-requests-limit: 50
+      prefix: "deps"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "automerge:disabled"
+    rebase-strategy: "auto"
+    open-pull-requests-limit: 15
 
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "daily"
-    allow:
-      - dependency-type: "all"
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "UTC"
     commit-message:
-      prefix: ":arrow_up:"
-    open-pull-requests-limit: 50
+      prefix: "deps"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "automerge:disabled"
+    rebase-strategy: "auto"
+    open-pull-requests-limit: 10

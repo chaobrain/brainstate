@@ -4,7 +4,7 @@
 # The file is adapted from the Flax library (https://github.com/google/flax).
 # The credit should go to the Flax authors.
 #
-# Copyright 2024 The Flax Authors & 2024 BDP Ecosystem.
+# Copyright 2024 The Flax Authors & 2024 BrainX Ecosystem.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -24,8 +24,8 @@ import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
-import brainstate
 
+import brainstate
 
 X = np.linspace(0, 1, 100)[:, None]
 Y = 0.8 * X ** 2 + 0.1 + np.random.normal(0, 0.1, size=X.shape)
@@ -65,7 +65,9 @@ class MLP(brainstate.graph.Node):
         return x
 
 
-graphdef, params_, counts_ = brainstate.graph.treefy_split(MLP(din=1, dhidden=32, dout=1), brainstate.ParamState, Count)
+graphdef, params_, counts_ = brainstate.graph.treefy_split(
+    MLP(din=1, dhidden=32, dout=1), brainstate.ParamState, Count
+)
 
 
 @jax.jit
@@ -87,7 +89,7 @@ def train_step(params, counts, batch):
 
 
 @jax.jit
-def test_step(params, counts, batch):
+def eval_step(params, counts, batch):
     x, y = batch
     model = brainstate.graph.treefy_merge(graphdef, params, counts)
     y_pred = model(x)
@@ -100,7 +102,7 @@ for step, batch in enumerate(dataset(32)):
     params_, counts_ = train_step(params_, counts_, batch)
 
     if step % 1000 == 0:
-        logs = test_step(params_, counts_, (X, Y))
+        logs = eval_step(params_, counts_, (X, Y))
         print(f"step: {step}, loss: {logs['loss']}")
 
     if step >= total_steps - 1:

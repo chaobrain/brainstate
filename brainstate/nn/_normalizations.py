@@ -1,4 +1,4 @@
-# Copyright 2024 BDP Ecosystem Limited. All Rights Reserved.
+# Copyright 2024 BrainX Ecosystem Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,15 +17,18 @@
 
 from typing import Callable, Union, Sequence, Optional, Any
 
+import brainunit as u
 import jax
 import jax.numpy as jnp
 
-from brainstate import environ, init
+from brainstate import environ
 from brainstate._state import ParamState, BatchState
 from brainstate.typing import DTypeLike, ArrayLike, Size, Axes
+from . import init as init
 from ._module import Module
 
 __all__ = [
+    'weight_standardization',
     'BatchNorm0d',
     'BatchNorm1d',
     'BatchNorm2d',
@@ -36,29 +39,131 @@ __all__ = [
 ]
 
 
+def weight_standardization(
+    w: ArrayLike,
+    eps: float = 1e-4,
+    gain: Optional[jax.Array] = None,
+    out_axis: int = -1,
+) -> Union[jax.Array, u.Quantity]:
+    """
+    Scaled Weight Standardization.
+
+    Applies weight standardization to improve training stability, as described in
+    "Micro-Batch Training with Batch-Channel Normalization and Weight Standardization" [1]_.
+
+    Parameters
+    ----------
+    w : ArrayLike
+        The weight tensor to be standardized.
+    eps : float, optional
+        A small value added to variance to avoid division by zero. Default is 1e-4.
+    gain : jax.Array, optional
+        Optional gain parameter to scale the standardized weights. Default is None.
+    out_axis : int, optional
+        The output axis of the weight tensor. Default is -1.
+
+    Returns
+    -------
+    jax.Array or u.Quantity
+        The standardized weight tensor with the same shape as input.
+
+    References
+    ----------
+    .. [1] Qiao, S., Wang, H., Liu, C., Shen, W., & Yuille, A. (2019).
+       Micro-Batch Training with Batch-Channel Normalization and Weight Standardization.
+       arXiv preprint arXiv:1903.10520.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate as brainstate
+        >>> import jax.numpy as jnp
+        >>>
+        >>> # Standardize a weight matrix
+        >>> w = jnp.ones((3, 4))
+        >>> w_std = brainstate.nn.weight_standardization(w)
+        >>>
+        >>> # With custom gain
+        >>> gain = jnp.ones((4,))
+        >>> w_std = brainstate.nn.weight_standardization(w, gain=gain)
+    """
+    w = u.maybe_custom_array(w)
+    if out_axis < 0:
+        out_axis = w.ndim + out_axis
+    fan_in = 1  # get the fan-in of the weight tensor
+    axes = []  # get the axes of the weight tensor
+    for i in range(w.ndim):
+        if i != out_axis:
+            fan_in *= w.shape[i]
+            axes.append(i)
+    # normalize the weight
+    mean = u.math.mean(w, axis=axes, keepdims=True)
+    var = u.math.var(w, axis=axes, keepdims=True)
+
+    temp = u.math.maximum(var * fan_in, eps)
+    if isinstance(temp, u.Quantity):
+        unit = temp.unit
+        temp = temp.mantissa
+        if unit.is_unitless:
+            scale = jax.lax.rsqrt(temp)
+        else:
+            scale = u.Quantity(jax.lax.rsqrt(temp), unit=1 / unit ** 0.5)
+    else:
+        scale = jax.lax.rsqrt(temp)
+    if gain is not None:
+        scale = gain * scale
+    shift = mean * scale
+    return w * scale - shift
+
+
 def canonicalize_dtype(
     *args,
     dtype: jax.typing.DTypeLike | None = None,
     inexact: bool = True
 ) -> jax.typing.DTypeLike:
-    """Canonicalize an optional dtype to the definitive dtype.
+    """
+    Canonicalize an optional dtype to the definitive dtype.
 
-    If the ``dtype`` is None this function will infer the dtype. If it is not
-    None it will be returned unmodified or an exceptions is raised if the dtype
-    is invalid.
-    from the input arguments using ``jnp.result_type``.
+    If the ``dtype`` is None, this function will infer the dtype from the input
+    arguments using ``jnp.result_type``. If it is not None, it will be returned
+    unmodified or an exception is raised if the dtype is invalid.
 
-    Args:
-      *args: JAX array compatible values. None values
-        are ignored.
-      dtype: Optional dtype override. If specified the arguments are cast to
-        the specified dtype instead and dtype inference is disabled.
-      inexact: When True, the output dtype must be a subdtype
-      of `jnp.inexact`. Inexact dtypes are real or complex floating points. This
-      is useful when you want to apply operations that don't work directly on
-      integers like taking a mean for example.
-    Returns:
-      The dtype that *args should be cast to.
+    Parameters
+    ----------
+    *args : ArrayLike
+        JAX array compatible values. None values are ignored.
+    dtype : jax.typing.DTypeLike, optional
+        Optional dtype override. If specified, the arguments are cast to the
+        specified dtype and dtype inference is disabled. Default is None.
+    inexact : bool, optional
+        When True, the output dtype must be a subtype of ``jnp.inexact``.
+        Inexact dtypes are real or complex floating points. This is useful
+        when applying operations that don't work directly on integers like
+        taking a mean. Default is True.
+
+    Returns
+    -------
+    jax.typing.DTypeLike
+        The dtype that ``*args`` should be cast to.
+
+    Raises
+    ------
+    ValueError
+        If ``inexact=True`` and the resulting dtype is not an inexact type.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import jax.numpy as jnp
+        >>>
+        >>> # Infer dtype from arguments
+        >>> x = jnp.array([1, 2, 3])
+        >>> dtype = canonicalize_dtype(x)
+        >>>
+        >>> # Specify explicit dtype
+        >>> dtype = canonicalize_dtype(x, dtype=jnp.float64)
     """
     if dtype is None:
         args_filtered = [jnp.asarray(x) for x in args if x is not None]
@@ -112,37 +217,47 @@ def _compute_stats(
     mask: Optional[jax.Array] = None,
 ):
     """
-    Computes mean and variance statistics.
+    Compute mean and variance statistics for normalization.
 
-    This implementation takes care of a few important details:
+    This implementation includes several optimizations:
+
     - Computes in float32 precision for stability in half precision training.
-    - If ``use_fast_variance`` is ``True``, mean and variance are computed using
-      Var = E[|x|^2] - |E[x]|^2, instead of Var = E[|x - E[x]|^2]), in a single XLA fusion.
-    - Clips negative variances to zero which can happen due to
-      roundoff errors. This avoids downstream NaNs.
-    - Supports averaging across a parallel axis and subgroups of a parallel axis
-      with a single `lax.pmean` call to avoid latency.
+    - If ``use_fast_variance`` is True, uses the formula Var = E[|x|^2] - |E[x]|^2
+      instead of Var = E[|x - E[x]|^2] in a single XLA fusion.
+    - Clips negative variances to zero to avoid downstream NaNs from roundoff errors.
+    - Supports averaging across parallel axes and subgroups with a single
+      ``lax.pmean`` call to reduce latency.
 
-    Arguments:
-        x: Input array.
-        axes: The axes in ``x`` to compute mean and variance statistics for.
-        dtype: tp.Optional dtype specifying the minimal precision. Statistics
-            are always at least float32 for stability (default: dtype of x).
-        axis_name: Optional name for the pmapped axis to compute mean over. Note,
-            this is only used for pmap and shard map. For SPMD jit, you do not need to
-            manually synchronize. Just make sure that the axes are correctly annotated
-            and XLA:SPMD will insert the necessary collectives.
-        axis_index_groups: Optional axis indices.
-        use_mean: If true, calculate the mean from the input and use it when
-            computing the variance. If false, set the mean to zero and compute
-            the variance without subtracting the mean.
-        use_fast_variance: If true, use a faster, but less numerically stable,
-            calculation for the variance.
-        mask: Binary array of shape broadcastable to ``inputs`` tensor, indicating
-            the positions for which the mean and variance should be computed.
+    Parameters
+    ----------
+    x : ArrayLike
+        Input array.
+    axes : Sequence[int]
+        The axes in ``x`` to compute mean and variance statistics for.
+    dtype : DTypeLike
+        Optional dtype specifying the minimal precision. Statistics are always
+        at least float32 for stability. If None, uses the dtype of x.
+    axis_name : str, optional
+        Optional name for the pmapped axis to compute mean over. Only used for
+        pmap and shard map. For SPMD jit, axes should be correctly annotated
+        and XLA:SPMD will insert necessary collectives. Default is None.
+    axis_index_groups : Sequence[int], optional
+        Optional axis indices for grouped reductions. Default is None.
+    use_mean : bool, optional
+        If True, calculate the mean from the input and use it when computing
+        the variance. If False, set the mean to zero and compute the variance
+        without subtracting the mean. Default is True.
+    use_fast_variance : bool, optional
+        If True, use a faster but less numerically stable calculation for the
+        variance. Default is True.
+    mask : jax.Array, optional
+        Binary array of shape broadcastable to ``x``, indicating the positions
+        for which the mean and variance should be computed. Default is None.
 
-    Returns:
-      A pair ``(mean, val)``.
+    Returns
+    -------
+    tuple of jax.Array
+        A pair ``(mean, var)`` containing the computed mean and variance.
     """
     if dtype is None:
         dtype = jax.numpy.result_type(x)
@@ -197,20 +312,32 @@ def _normalize(
     dtype: DTypeLike,
     epsilon: jax.typing.ArrayLike,
 ):
-    """Normalizes the input of a normalization layer and optionally applies a learned scale and bias.
+    """
+    Normalize the input and optionally apply learned scale and bias.
 
-    Arguments:
-      x: The input.
-      mean: Mean to use for normalization.
-      var: Variance to use for normalization.
-      weights: The scale and bias parameters.
-      reduction_axes: The axes in ``x`` to reduce.
-      feature_axes: The feature axes to apply the scale and bias.
-      dtype: The dtype of the result (default: infer from input and params).
-      epsilon: Normalization epsilon.
+    Parameters
+    ----------
+    x : ArrayLike
+        The input array.
+    mean : ArrayLike, optional
+        Mean to use for normalization. If None, normalization is skipped.
+    var : ArrayLike, optional
+        Variance to use for normalization. If None, normalization is skipped.
+    weights : NormalizationParamState, optional
+        The scale and bias parameters. If None, no affine transformation is applied.
+    reduction_axes : Axes
+        The axes in ``x`` to reduce.
+    feature_axes : Axes
+        The feature axes to apply the scale and bias.
+    dtype : DTypeLike
+        The dtype of the result. If None, inferred from input and parameters.
+    epsilon : jax.typing.ArrayLike
+        A small value added to variance to avoid division by zero.
 
-    Returns:
-      The normalized input.
+    Returns
+    -------
+    jax.Array
+        The normalized input array.
     """
     if mean is not None:
         assert var is not None, 'mean and val must be both None or not None.'
@@ -356,169 +483,379 @@ class _BatchNorm(Module):
 
 
 class BatchNorm0d(_BatchNorm):
-    r"""0-D batch normalization [1]_.
+    """
+    0-D batch normalization.
 
-    The data should be of `(b, c)`, where `b` is the batch dimension, and `c` is the channel dimension.
+    Normalizes a batch of 0-D data (vectors) by fixing the mean and variance
+    of inputs on each feature (channel). This layer aims to reduce the internal
+    covariate shift of data.
 
-    %s
+    The input data should have shape ``(b, c)``, where ``b`` is the batch dimension
+    and ``c`` is the channel dimension.
+
+    The normalization is performed as:
+
+    .. math::
+        y = \\frac{x - \\mathrm{E}[x]}{\\sqrt{\\operatorname{Var}[x] + \\epsilon}} \\cdot \\gamma + \\beta
+
+    where :math:`\\gamma` and :math:`\\beta` are learnable affine parameters (if ``affine=True``).
+
+    Parameters
+    ----------
+    in_size : tuple of int
+        The input shape, without batch dimension.
+    feature_axis : int or tuple of int, optional
+        The feature or non-batch axis of the input. Default is -1.
+    track_running_stats : bool, optional
+        If True, tracks the running mean and variance. If False, uses batch
+        statistics in both training and eval modes. Default is True.
+    epsilon : float, optional
+        A value added to the denominator for numerical stability. Default is 1e-5.
+    momentum : float, optional
+        The momentum value used for the ``running_mean`` and ``running_var``
+        computation. The update rule is:
+        :math:`\\hat{x}_{\\text{new}} = \\text{momentum} \\times \\hat{x} + (1 - \\text{momentum}) \\times x_t`.
+        Default is 0.99.
+    affine : bool, optional
+        If True, this module has learnable affine parameters (scale and bias).
+        Default is True.
+    bias_initializer : ArrayLike or Callable, optional
+        Initializer for the bias (beta) parameter. Default is ``init.Constant(0.)``.
+    scale_initializer : ArrayLike or Callable, optional
+        Initializer for the scale (gamma) parameter. Default is ``init.Constant(1.)``.
+    axis_name : str or sequence of str, optional
+        The axis name(s) for parallel reduction using ``jax.pmap`` or ``jax.vmap``.
+        If specified, batch statistics are calculated across all replicas on the
+        named axes. Default is None.
+    axis_index_groups : sequence of sequence of int, optional
+        Groups of axis indices within the named axis representing subsets of
+        devices to reduce over. For example, ``[[0, 1], [2, 3]]`` would
+        independently batch-normalize over the first two and last two devices.
+        See ``jax.lax.psum`` for more details. Default is None.
+    use_fast_variance : bool, optional
+        If True, use a faster but less numerically stable calculation for
+        the variance. Default is True.
+
+    Notes
+    -----
+    The ``momentum`` parameter is different from the conventional notion of
+    momentum used in optimizers.
+
+    References
+    ----------
+    .. [1] Ioffe, S., & Szegedy, C. (2015). Batch Normalization: Accelerating
+       Deep Network Training by Reducing Internal Covariate Shift.
+       In International Conference on Machine Learning (pp. 448-456).
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate as brainstate
+        >>> import jax.numpy as jnp
+        >>>
+        >>> # Create a BatchNorm0d layer
+        >>> layer = brainstate.nn.BatchNorm0d(in_size=(10,))
+        >>>
+        >>> # Apply normalization to a batch of data
+        >>> x = jnp.ones((32, 10))  # batch_size=32, features=10
+        >>> y = layer(x)
+        >>>
+        >>> # Check output shape
+        >>> print(y.shape)
+        (32, 10)
     """
     __module__ = 'brainstate.nn'
     num_spatial_dims: int = 0
 
 
 class BatchNorm1d(_BatchNorm):
-    r"""1-D batch normalization [1]_.
+    """
+    1-D batch normalization.
 
-    The data should be of `(b, l, c)`, where `b` is the batch dimension,
-    `l` is the layer dimension, and `c` is the channel dimension.
+    Normalizes a batch of 1-D data by fixing the mean and variance of inputs
+    on each feature (channel). This layer aims to reduce the internal covariate
+    shift of data.
 
-    %s
+    The input data should have shape ``(b, l, c)``, where ``b`` is the batch
+    dimension, ``l`` is the spatial/sequence dimension, and ``c`` is the channel
+    dimension.
+
+    Parameters
+    ----------
+    in_size : tuple of int
+        The input shape, without batch dimension. For 1-D data, typically ``(l, c)``.
+    feature_axis : int or tuple of int, optional
+        The feature or non-batch axis of the input. Default is -1.
+    track_running_stats : bool, optional
+        If True, tracks the running mean and variance. If False, uses batch
+        statistics in both training and eval modes. Default is True.
+    epsilon : float, optional
+        A value added to the denominator for numerical stability. Default is 1e-5.
+    momentum : float, optional
+        The momentum value for running statistics computation. Default is 0.99.
+    affine : bool, optional
+        If True, has learnable affine parameters (scale and bias). Default is True.
+    bias_initializer : ArrayLike or Callable, optional
+        Initializer for the bias parameter. Default is ``init.Constant(0.)``.
+    scale_initializer : ArrayLike or Callable, optional
+        Initializer for the scale parameter. Default is ``init.Constant(1.)``.
+    axis_name : str or sequence of str, optional
+        Axis name(s) for parallel reduction. Default is None.
+    axis_index_groups : sequence of sequence of int, optional
+        Groups of axis indices for device-grouped reduction. Default is None.
+    use_fast_variance : bool, optional
+        If True, use faster but less stable variance calculation. Default is True.
+
+    References
+    ----------
+    .. [1] Ioffe, S., & Szegedy, C. (2015). Batch Normalization: Accelerating
+       Deep Network Training by Reducing Internal Covariate Shift.
+       In International Conference on Machine Learning (pp. 448-456).
+
+    See Also
+    --------
+    BatchNorm0d : 0-D batch normalization
+    BatchNorm2d : 2-D batch normalization
+    BatchNorm3d : 3-D batch normalization
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate as brainstate
+        >>> import jax.numpy as jnp
+        >>>
+        >>> # Create a BatchNorm1d layer for sequence data
+        >>> layer = brainstate.nn.BatchNorm1d(in_size=(100, 64))  # length=100, channels=64
+        >>>
+        >>> # Apply normalization
+        >>> x = jnp.ones((8, 100, 64))  # batch_size=8
+        >>> y = layer(x)
+        >>> print(y.shape)
+        (8, 100, 64)
     """
     __module__ = 'brainstate.nn'
     num_spatial_dims: int = 1
 
 
 class BatchNorm2d(_BatchNorm):
-    r"""2-D batch normalization [1]_.
+    """
+    2-D batch normalization.
 
-    The data should be of `(b, h, w, c)`, where `b` is the batch dimension,
-    `h` is the height dimension, `w` is the width dimension, and `c` is the
-    channel dimension.
+    Normalizes a batch of 2-D data (e.g., images) by fixing the mean and variance
+    of inputs on each feature (channel). This layer aims to reduce the internal
+    covariate shift of data.
 
-    %s
+    The input data should have shape ``(b, h, w, c)``, where ``b`` is the batch
+    dimension, ``h`` is the height dimension, ``w`` is the width dimension, and
+    ``c`` is the channel dimension.
+
+    Parameters
+    ----------
+    in_size : tuple of int
+        The input shape, without batch dimension. For 2-D data, typically ``(h, w, c)``.
+    feature_axis : int or tuple of int, optional
+        The feature or non-batch axis of the input. Default is -1.
+    track_running_stats : bool, optional
+        If True, tracks the running mean and variance. If False, uses batch
+        statistics in both training and eval modes. Default is True.
+    epsilon : float, optional
+        A value added to the denominator for numerical stability. Default is 1e-5.
+    momentum : float, optional
+        The momentum value for running statistics computation. Default is 0.99.
+    affine : bool, optional
+        If True, has learnable affine parameters (scale and bias). Default is True.
+    bias_initializer : ArrayLike or Callable, optional
+        Initializer for the bias parameter. Default is ``init.Constant(0.)``.
+    scale_initializer : ArrayLike or Callable, optional
+        Initializer for the scale parameter. Default is ``init.Constant(1.)``.
+    axis_name : str or sequence of str, optional
+        Axis name(s) for parallel reduction. Default is None.
+    axis_index_groups : sequence of sequence of int, optional
+        Groups of axis indices for device-grouped reduction. Default is None.
+    use_fast_variance : bool, optional
+        If True, use faster but less stable variance calculation. Default is True.
+
+    References
+    ----------
+    .. [1] Ioffe, S., & Szegedy, C. (2015). Batch Normalization: Accelerating
+       Deep Network Training by Reducing Internal Covariate Shift.
+       In International Conference on Machine Learning (pp. 448-456).
+
+    See Also
+    --------
+    BatchNorm0d : 0-D batch normalization
+    BatchNorm1d : 1-D batch normalization
+    BatchNorm3d : 3-D batch normalization
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate as brainstate
+        >>> import jax.numpy as jnp
+        >>>
+        >>> # Create a BatchNorm2d layer for image data
+        >>> layer = brainstate.nn.BatchNorm2d(in_size=(28, 28, 3))  # 28x28 RGB images
+        >>>
+        >>> # Apply normalization
+        >>> x = jnp.ones((16, 28, 28, 3))  # batch_size=16
+        >>> y = layer(x)
+        >>> print(y.shape)
+        (16, 28, 28, 3)
     """
     __module__ = 'brainstate.nn'
     num_spatial_dims: int = 2
 
 
 class BatchNorm3d(_BatchNorm):
-    r"""3-D batch normalization [1]_.
+    """
+    3-D batch normalization.
 
-    The data should be of `(b, h, w, d, c)`, where `b` is the batch dimension,
-    `h` is the height dimension, `w` is the width dimension, `d` is the depth
-    dimension, and `c` is the channel dimension.
+    Normalizes a batch of 3-D data (e.g., video or volumetric data) by fixing
+    the mean and variance of inputs on each feature (channel). This layer aims
+    to reduce the internal covariate shift of data.
 
-    %s
+    The input data should have shape ``(b, h, w, d, c)``, where ``b`` is the
+    batch dimension, ``h`` is the height dimension, ``w`` is the width dimension,
+    ``d`` is the depth dimension, and ``c`` is the channel dimension.
+
+    Parameters
+    ----------
+    in_size : tuple of int
+        The input shape, without batch dimension. For 3-D data, typically ``(h, w, d, c)``.
+    feature_axis : int or tuple of int, optional
+        The feature or non-batch axis of the input. Default is -1.
+    track_running_stats : bool, optional
+        If True, tracks the running mean and variance. If False, uses batch
+        statistics in both training and eval modes. Default is True.
+    epsilon : float, optional
+        A value added to the denominator for numerical stability. Default is 1e-5.
+    momentum : float, optional
+        The momentum value for running statistics computation. Default is 0.99.
+    affine : bool, optional
+        If True, has learnable affine parameters (scale and bias). Default is True.
+    bias_initializer : ArrayLike or Callable, optional
+        Initializer for the bias parameter. Default is ``init.Constant(0.)``.
+    scale_initializer : ArrayLike or Callable, optional
+        Initializer for the scale parameter. Default is ``init.Constant(1.)``.
+    axis_name : str or sequence of str, optional
+        Axis name(s) for parallel reduction. Default is None.
+    axis_index_groups : sequence of sequence of int, optional
+        Groups of axis indices for device-grouped reduction. Default is None.
+    use_fast_variance : bool, optional
+        If True, use faster but less stable variance calculation. Default is True.
+
+    References
+    ----------
+    .. [1] Ioffe, S., & Szegedy, C. (2015). Batch Normalization: Accelerating
+       Deep Network Training by Reducing Internal Covariate Shift.
+       In International Conference on Machine Learning (pp. 448-456).
+
+    See Also
+    --------
+    BatchNorm0d : 0-D batch normalization
+    BatchNorm1d : 1-D batch normalization
+    BatchNorm2d : 2-D batch normalization
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate as brainstate
+        >>> import jax.numpy as jnp
+        >>>
+        >>> # Create a BatchNorm3d layer for volumetric data
+        >>> layer = brainstate.nn.BatchNorm3d(in_size=(32, 32, 32, 1))  # 32x32x32 volumes
+        >>>
+        >>> # Apply normalization
+        >>> x = jnp.ones((4, 32, 32, 32, 1))  # batch_size=4
+        >>> y = layer(x)
+        >>> print(y.shape)
+        (4, 32, 32, 32, 1)
     """
     __module__ = 'brainstate.nn'
     num_spatial_dims: int = 3
 
 
-_bn_doc = r'''
-
-  This layer aims to reduce the internal covariant shift of data. It
-  normalizes a batch of data by fixing the mean and variance of inputs
-  on each feature (channel). Most commonly, the first axis of the data
-  is the batch, and the last is the channel. However, users can specify
-  the axes to be normalized.
-
-  .. math::
-     y=\frac{x-\mathrm{E}[x]}{\sqrt{\operatorname{Var}[x]+\epsilon}} * \gamma+\beta
-
-  .. note::
-      This :attr:`momentum` argument is different from one used in optimizer
-      classes and the conventional notion of momentum. Mathematically, the
-      update rule for running statistics here is
-      :math:`\hat{x}_\text{new} = \text{momentum} \times \hat{x} + (1-\text{momentum}) \times x_t`,
-      where :math:`\hat{x}` is the estimated statistic and :math:`x_t` is the
-      new observed value.
-
-  Parameters
-  ----------
-  in_size: sequence of int
-    The input shape, without batch size.
-  feature_axis: int, tuple, list
-    The feature or non-batch axis of the input.
-  track_running_stats: bool
-    A boolean value that when set to ``True``, this module tracks the running mean and variance, 
-    and when set to ``False``, this module does not track such statistics, and initializes 
-    statistics buffers ``running_mean`` and ``running_var`` as ``None``. When these buffers are ``None``, 
-    this module always uses batch statistics. in both training and eval modes. Default: ``True``.
-  momentum: float
-    The value used for the ``running_mean`` and ``running_var`` computation. Default: 0.99
-  epsilon: float
-    A value added to the denominator for numerical stability. Default: 1e-5
-  affine: bool
-    A boolean value that when set to ``True``, this module has
-    learnable affine parameters. Default: ``True``
-  bias_initializer: ArrayLike, Callable
-    An initializer generating the original translation matrix. If not ``None``, bias (beta) is added. 
-    Default: ``init.Constant(0.)``
-  scale_initializer: ArrayLike, Callable
-    An initializer generating the original scaling matrix. If not ``None``, multiply by scale (gamma).
-    Default: ``init.Constant(1.)``
-  axis_name: optional, str, sequence of str
-    If not ``None``, it should be a string (or sequence of
-    strings) representing the axis name(s) over which this module is being
-    run within a jax map (e.g. ``jax.pmap`` or ``jax.vmap``). Supplying this
-    argument means that batch statistics are calculated across all replicas
-    on the named axes.
-  axis_index_groups: optional, sequence
-    Specifies how devices are grouped. Valid
-    only within ``jax.pmap`` collectives.
-    Groups of axis indices within that named axis
-    representing subsets of devices to reduce over (default: None). For
-    example, `[[0, 1], [2, 3]]` would independently batch-normalize over
-    the examples on the first two and last two devices. See `jax.lax.psum`
-    for more details.
-  use_fast_variance: If true, use a faster, but less numerically stable,
-    calculation for the variance.
-    
-    
-  References
-  ----------
-  .. [1] Ioffe, Sergey and Christian Szegedy. “Batch Normalization: Accelerating Deep Network Training
-         by Reducing Internal Covariate Shift.” ArXiv abs/1502.03167 (2015): n. pag.
-
-'''
-
-BatchNorm1d.__doc__ = BatchNorm1d.__doc__ % _bn_doc
-BatchNorm2d.__doc__ = BatchNorm2d.__doc__ % _bn_doc
-BatchNorm3d.__doc__ = BatchNorm3d.__doc__ % _bn_doc
-
-
 class LayerNorm(Module):
     """
-    Layer normalization (https://arxiv.org/abs/1607.06450).
+    Layer normalization layer [1]_.
 
-    LayerNorm normalizes the activations of the layer for each given example in a
-    batch independently, rather than across a batch like Batch Normalization.
-    i.e. applies a transformation that maintains the mean activation within
-    each example close to 0 and the activation standard deviation close to 1.
+    LayerNorm normalizes the activations of the layer for each given example in
+    a batch independently, rather than across a batch like Batch Normalization.
+    It applies a transformation that maintains the mean activation within each
+    example close to 0 and the activation standard deviation close to 1.
 
-    Example usage::
+    Parameters
+    ----------
+    in_size : tuple of int
+        The input shape, without batch dimension.
+    reduction_axes : int or tuple of int, optional
+        Axes for computing normalization statistics. It is recommended to use
+        negative integers, as positive integers may cause issues when batch
+        dimensions are present. Default is -1.
+    feature_axes : int or tuple of int, optional
+        Feature axes for learned bias and scaling. Default is -1.
+    epsilon : float, optional
+        A small value added to variance to avoid division by zero. Default is 1e-6.
+    use_bias : bool, optional
+        If True, bias (beta) is added. Default is True.
+    use_scale : bool, optional
+        If True, multiply by scale (gamma). When the next layer is linear
+        (e.g., nn.relu), this can be disabled since scaling will be done by
+        the next layer. Default is True.
+    bias_init : Callable, optional
+        Initializer for bias parameter. Default is ``init.ZeroInit()``.
+    scale_init : Callable, optional
+        Initializer for scale parameter. Default is ``init.Constant(1.0)``.
+    axis_name : str, optional
+        The axis name used to combine batch statistics from multiple devices.
+        See ``jax.pmap`` for axis name description. Only needed if the model
+        is subdivided across devices. Default is None.
+    axis_index_groups : sequence, optional
+        Groups of axis indices within the named axis representing subsets of
+        devices to reduce over. For example, ``[[0, 1], [2, 3]]`` would
+        independently normalize over the first two and last two devices.
+        See ``jax.lax.psum`` for details. Default is None.
+    use_fast_variance : bool, optional
+        If True, use a faster but less numerically stable calculation for
+        the variance. Default is True.
+    dtype : jax.typing.DTypeLike, optional
+        The dtype of the result. If None, inferred from input and parameters.
+        Default is None.
 
-      >>> import brainstate as brainstate
-      >>> x = brainstate.random.normal(size=(3, 4, 5, 6))
-      >>> layer = brainstate.nn.LayerNorm(x.shape)
-      >>> layer.states()
-      >>> y = layer(x)
+    References
+    ----------
+    .. [1] Ba, J. L., Kiros, J. R., & Hinton, G. E. (2016). Layer normalization.
+       arXiv preprint arXiv:1607.06450.
 
-    Attributes:
-      in_size: The input shape, without batch size.
-      epsilon: A small float added to variance to avoid dividing by zero.
-      dtype: the dtype of the result (default: infer from input and params).
-      use_bias:  If True, bias (beta) is added.
-      use_scale: If True, multiply by scale (gamma). When the next layer is linear
-          (also e.g. nnx.relu), this can be disabled since the scaling will be done
-          by the next layer.
-      bias_init: Initializer for bias, by default, zero.
-      scale_init: Initializer for scale, by default, one.
-      reduction_axes: Axes for computing normalization statistics. It is recommended
-            to use the negative integer, since when the batch dimension is used,
-            the reduction_axes may be wrong when using the positive integer.
-      feature_axes: Feature axes for learned bias and scaling.
-      axis_name: the axis name used to combine batch statistics from multiple
-          devices. See ``jax.pmap`` for a description of axis names (default: None).
-          This is only needed if the model is subdivided across devices, i.e. the
-          array being normalized is sharded across devices within a pmap.
-      axis_index_groups: groups of axis indices within that named axis
-          representing subsets of devices to reduce over (default: None). For
-          example, ``[[0, 1], [2, 3]]`` would independently batch-normalize over
-          the examples on the first two and last two devices. See ``jax.lax.psum``
-          for more details.
-      use_fast_variance: If true, use a faster, but less numerically stable,
-          calculation for the variance.
+    See Also
+    --------
+    RMSNorm : Root Mean Square Layer Normalization
+    GroupNorm : Group Normalization
+    BatchNorm1d : 1-D Batch Normalization
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate as brainstate
+        >>>
+        >>> # Create a LayerNorm layer
+        >>> x = brainstate.random.normal(size=(3, 4, 5, 6))
+        >>> layer = brainstate.nn.LayerNorm(x.shape)
+        >>>
+        >>> # Apply normalization
+        >>> y = layer(x)
+        >>> print(y.shape)
+        (3, 4, 5, 6)
+        >>>
+        >>> # Normalize only the last dimension
+        >>> layer = brainstate.nn.LayerNorm((10, 20), reduction_axes=-1, feature_axes=-1)
+        >>> x = brainstate.random.normal((5, 10, 20))
+        >>> y = layer(x)
     """
 
     def __init__(
@@ -574,13 +911,21 @@ class LayerNorm(Module):
         self.use_fast_variance = use_fast_variance
 
     def update(self, x, *, mask: Optional[jax.Array] = None):
-        """Applies layer normalization on the input.
+        """
+        Apply layer normalization on the input.
 
-        Args:
-          x: the inputs
+        Parameters
+        ----------
+        x : jax.Array
+            The input array.
+        mask : jax.Array, optional
+            Binary array of shape broadcastable to ``x``, indicating the
+            positions for which normalization should be computed. Default is None.
 
-        Returns:
-          Normalized inputs (the same shape as inputs).
+        Returns
+        -------
+        jax.Array
+            Normalized inputs with the same shape as the input.
         """
         mean, var = _compute_stats(
             x,
@@ -606,45 +951,75 @@ class LayerNorm(Module):
 
 class RMSNorm(Module):
     """
-    RMS Layer normalization (https://arxiv.org/abs/1910.07467).
+    Root Mean Square Layer Normalization [1]_.
 
     RMSNorm normalizes the activations of the layer for each given example in a
     batch independently, rather than across a batch like Batch Normalization.
-    Unlike LayerNorm which re-centers the mean to be 0 and normalizes by the
-    standard deviation of the activations, RMSNorm does not re-center at all
-    and instead normalizes by the root mean square of the activations.
+    Unlike LayerNorm which re-centers the mean to 0 and normalizes by the standard
+    deviation, RMSNorm does not re-center at all and instead normalizes by the
+    root mean square of the activations.
 
-    Example usage::
+    Parameters
+    ----------
+    in_size : tuple of int
+        The input shape, without batch dimension.
+    epsilon : float, optional
+        A small value added to variance to avoid division by zero. Default is 1e-6.
+    dtype : jax.typing.DTypeLike, optional
+        The dtype of the result. If None, inferred from input and parameters.
+        Default is None.
+    use_scale : bool, optional
+        If True, multiply by scale (gamma). When the next layer is linear
+        (e.g., nn.relu), this can be disabled since scaling will be done by
+        the next layer. Default is True.
+    scale_init : Callable, optional
+        Initializer for scale parameter. Default is ``init.Constant(1.0)``.
+    reduction_axes : int or tuple of int, optional
+        Axes for computing normalization statistics. It is recommended to use
+        negative integers. Default is -1.
+    feature_axes : int or tuple of int, optional
+        Feature axes for learned scaling. Default is -1.
+    axis_name : str, optional
+        The axis name used to combine batch statistics from multiple devices.
+        See ``jax.pmap`` for details. Default is None.
+    axis_index_groups : sequence, optional
+        Groups of axis indices within the named axis representing subsets of
+        devices to reduce over. For example, ``[[0, 1], [2, 3]]`` would
+        independently normalize over the first two and last two devices.
+        Default is None.
+    use_fast_variance : bool, optional
+        If True, use a faster but less numerically stable calculation for
+        the variance. Default is True.
 
-      >>> import brainstate as brainstate
-      >>> x = brainstate.random.normal(size=(5, 6))
-      >>> layer = brainstate.nn.RMSNorm(num_features=6)
-      >>> layer.states()
-      >>> y = layer(x)
+    References
+    ----------
+    .. [1] Zhang, B., & Sennrich, R. (2019). Root Mean Square Layer Normalization.
+       Advances in Neural Information Processing Systems, 32.
 
-    Attributes:
-        in_size: The input shape, without batch size.
-        epsilon: A small float added to variance to avoid dividing by zero.
-        dtype: the dtype of the result (default: infer from input and params).
-        use_scale: If True, multiply by scale (gamma). When the next layer is linear
-            (also e.g. nn.relu), this can be disabled since the scaling will be done
-            by the next layer.
-        scale_init: Initializer for scale, by default, one.
-        reduction_axes: Axes for computing normalization statistics. It is recommended
-            to use the negative integer, since when the batch dimension is used,
-            the reduction_axes may be wrong when using the positive integer.
-        feature_axes: Feature axes for learned bias and scaling.
-        axis_name: the axis name used to combine batch statistics from multiple
-            devices. See ``jax.pmap`` for a description of axis names (default: None).
-            This is only needed if the model is subdivided across devices, i.e. the
-            array being normalized is sharded across devices within a pmap.
-        axis_index_groups: groups of axis indices within that named axis
-            representing subsets of devices to reduce over (default: None). For
-            example, ``[[0, 1], [2, 3]]`` would independently batch-normalize over
-            the examples on the first two and last two devices. See ``jax.lax.psum``
-            for more details.
-        use_fast_variance: If true, use a faster, but less numerically stable,
-            calculation for the variance.
+    See Also
+    --------
+    LayerNorm : Layer Normalization
+    GroupNorm : Group Normalization
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate as brainstate
+        >>>
+        >>> # Create an RMSNorm layer
+        >>> x = brainstate.random.normal(size=(5, 6))
+        >>> layer = brainstate.nn.RMSNorm(in_size=(6,))
+        >>>
+        >>> # Apply normalization
+        >>> y = layer(x)
+        >>> print(y.shape)
+        (5, 6)
+        >>>
+        >>> # Without scaling
+        >>> layer = brainstate.nn.RMSNorm(in_size=(10,), use_scale=False)
+        >>> x = brainstate.random.normal((3, 10))
+        >>> y = layer(x)
     """
 
     def __init__(
@@ -690,14 +1065,21 @@ class RMSNorm(Module):
         self.use_fast_variance = use_fast_variance
 
     def update(self, x, *, mask: Optional[jax.Array] = None):
-        """Applies layer normalization on the input.
+        """
+        Apply RMS normalization on the input.
 
-        Args:
-          x: the inputs
-          mask: the mask
+        Parameters
+        ----------
+        x : jax.Array
+            The input array.
+        mask : jax.Array, optional
+            Binary array of shape broadcastable to ``x``, indicating the
+            positions for which normalization should be computed. Default is None.
 
-        Returns:
-          Normalized inputs (the same shape as inputs).
+        Returns
+        -------
+        jax.Array
+            Normalized inputs with the same shape as the input.
         """
         mean, var = _compute_stats(
             x,
@@ -724,65 +1106,93 @@ class RMSNorm(Module):
 
 class GroupNorm(Module):
     """
-    Group normalization (arxiv.org/abs/1803.08494).
+    Group Normalization layer [1]_.
 
-    This op is similar to batch normalization, but statistics are shared across
-    equally-sized groups of channels and not shared across batch dimension.
-    Thus, group normalization does not depend on the batch composition and does
-    not require maintaining internal state for storing statistics.
-    The user should either specify the total number of channel groups or the
-    number of channels per group.
+    Group normalization is similar to batch normalization, but statistics are
+    shared across equally-sized groups of channels and not shared across the
+    batch dimension. Thus, group normalization does not depend on the batch
+    composition and does not require maintaining internal state for storing statistics.
 
-    .. note::
-      LayerNorm is a special case of GroupNorm where ``num_groups=1``.
+    The user should specify either the total number of channel groups (``num_groups``)
+    or the number of channels per group (``group_size``).
 
-    Example usage::
+    Parameters
+    ----------
+    in_size : tuple of int
+        The input shape, without batch dimension.
+    feature_axis : int or tuple of int, optional
+        The feature axis of the input. Default is -1.
+    num_groups : int, optional
+        The total number of channel groups. The default value of 32 is proposed
+        by the original group normalization paper. Either ``num_groups`` or
+        ``group_size`` must be specified, but not both. Default is 32.
+    group_size : int, optional
+        The number of channels in each group. Either ``num_groups`` or
+        ``group_size`` must be specified, but not both. Default is None.
+    epsilon : float, optional
+        A small value added to variance to avoid division by zero. Default is 1e-6.
+    dtype : jax.typing.DTypeLike, optional
+        The dtype of the result. If None, inferred from input and parameters.
+        Default is None.
+    use_bias : bool, optional
+        If True, bias (beta) is added. Default is True.
+    use_scale : bool, optional
+        If True, multiply by scale (gamma). When the next layer is linear
+        (e.g., nn.relu), this can be disabled. Default is True.
+    bias_init : Callable, optional
+        Initializer for bias parameter. Default is ``init.ZeroInit()``.
+    scale_init : Callable, optional
+        Initializer for scale parameter. Default is ``init.Constant(1.)``.
+    reduction_axes : int or tuple of int, optional
+        List of axes used for computing normalization statistics. Must include
+        the final dimension (feature axis). It is recommended to use negative
+        integers. Default is None.
+    axis_name : str, optional
+        The axis name used to combine batch statistics from multiple devices.
+        See ``jax.pmap`` for details. Default is None.
+    axis_index_groups : sequence, optional
+        Groups of axis indices within the named axis representing subsets of
+        devices to reduce over. For example, ``[[0, 1], [2, 3]]`` would
+        independently normalize over the first two and last two devices.
+        Default is None.
+    use_fast_variance : bool, optional
+        If True, use a faster but less numerically stable calculation for
+        the variance. Default is True.
 
-      >>> import numpy as np
-      >>> import brainstate as brainstate
-      ...
-      >>> x = brainstate.random.normal(size=(3, 4, 5, 6))
-      >>> layer = brainstate.nn.GroupNorm(x.shape, num_groups=3)
-      >>> layer.states()
-      >>> y = layer(x)
-      >>> y = brainstate.nn.GroupNorm(x.shape, num_groups=1)(x)
-      >>> y2 = brainstate.nn.LayerNorm(x.shape, reduction_axes=(1, 2, 3))(x)
-      >>> np.testing.assert_allclose(y, y2)
+    Notes
+    -----
+    LayerNorm is a special case of GroupNorm where ``num_groups=1``.
 
-    Attributes:
-      in_size: The input shape, without batch size.
-      num_groups: the total number of channel groups. The default value of 32 is
-        proposed by the original group normalization paper.
-      group_size: the number of channels in a group.
-      epsilon: A small float added to variance to avoid dividing by zero.
-      dtype: the dtype of the result (default: infer from input and params).
-      use_bias:  If True, bias (beta) is added.
-      use_scale: If True, multiply by scale (gamma). When the next layer is linear
-        (also e.g. nn.relu), this can be disabled since the scaling will be done
-        by the next layer.
-      bias_init: Initializer for bias, by default, zero.
-      scale_init: Initializer for scale, by default, one.
-      reduction_axes: List of axes used for computing normalization statistics.
-        This list must include the final dimension, which is assumed to be the
-        feature axis. Furthermore, if the input used at call time has additional
-        leading axes compared to the data used for initialisation, for example due
-        to batching, then the reduction axes need to be defined explicitly.
-        It is recommended to use the negative integer, since when the batch dimension is used,
-        the reduction_axes may be wrong when using the positive integer.
-      axis_name: the axis name used to combine batch statistics from multiple
-        devices. See ``jax.pmap`` for a description of axis names (default: None).
-        This is only needed if the model is subdivided across devices, i.e. the
-        array being normalized is sharded across devices within a pmap or shard
-        map. For SPMD jit, you do not need to manually synchronize. Just make sure
-        that the axes are correctly annotated and XLA:SPMD will insert the
-        necessary collectives.
-      axis_index_groups: groups of axis indices within that named axis
-        representing subsets of devices to reduce over (default: None). For
-        example, ``[[0, 1], [2, 3]]`` would independently batch-normalize over the
-        examples on the first two and last two devices. See ``jax.lax.psum`` for
-        more details.
-      use_fast_variance: If true, use a faster, but less numerically stable,
-        calculation for the variance.
+    References
+    ----------
+    .. [1] Wu, Y., & He, K. (2018). Group Normalization.
+       In Proceedings of the European Conference on Computer Vision (ECCV)
+       (pp. 3-19).
+
+    See Also
+    --------
+    LayerNorm : Layer Normalization
+    BatchNorm2d : 2-D Batch Normalization
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import numpy as np
+        >>> import brainstate as brainstate
+        >>>
+        >>> # Create a GroupNorm layer with 3 groups
+        >>> x = brainstate.random.normal(size=(3, 4, 5, 6))
+        >>> layer = brainstate.nn.GroupNorm(x.shape, num_groups=3)
+        >>> y = layer(x)
+        >>>
+        >>> # GroupNorm with num_groups=1 is equivalent to LayerNorm
+        >>> y1 = brainstate.nn.GroupNorm(x.shape, num_groups=1)(x)
+        >>> y2 = brainstate.nn.LayerNorm(x.shape, reduction_axes=(1, 2, 3))(x)
+        >>> np.testing.assert_allclose(y1, y2, rtol=1e-5)
+        >>>
+        >>> # Specify group_size instead of num_groups
+        >>> layer = brainstate.nn.GroupNorm((12,), num_groups=None, group_size=4)
     """
 
     def __init__(
@@ -870,20 +1280,26 @@ class GroupNorm(Module):
         self.use_fast_variance = use_fast_variance
 
     def update(self, x, *, mask: Optional[jax.Array] = None):
-        """Applies group normalization to the input (arxiv.org/abs/1803.08494).
+        """
+        Apply group normalization to the input.
 
-        Args:
-          x: the input of shape ``...self.num_features`` where ``self.num_features``
-            is a channels dimension and ``...`` represents an arbitrary number of
-            extra dimensions that can be used to accumulate statistics over. If no
-            reduction axes have been specified then all additional dimensions ``...``
-            will be used to accumulate statistics apart from the leading dimension
-            which is assumed to represent the batch.
-          mask: Binary array of shape broadcastable to ``inputs`` tensor, indicating
-            the positions for which the mean and variance should be computed.
+        Parameters
+        ----------
+        x : jax.Array
+            The input of shape ``...C`` where ``C`` is the channels dimension
+            and ``...`` represents an arbitrary number of extra dimensions. If no
+            reduction axes have been specified, all additional dimensions will be
+            used to accumulate statistics apart from the leading dimension which
+            is assumed to represent the batch.
+        mask : jax.Array, optional
+            Binary array of shape broadcastable to ``x``, indicating the
+            positions for which the mean and variance should be computed.
+            Default is None.
 
-        Returns:
-          Normalized inputs (the same shape as inputs).
+        Returns
+        -------
+        jax.Array
+            Normalized inputs with the same shape as the input.
         """
         if self.reduction_axes is not None:
             reduction_axes = self.reduction_axes
