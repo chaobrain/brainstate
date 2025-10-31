@@ -32,7 +32,7 @@ shutil.rmtree('apis/generated', ignore_errors=True)
 shutil.rmtree('_build', ignore_errors=True)
 shutil.copy('../changelog.md', './changelog.md')
 
-from highlight_test_lexer import fix_ipython2_lexer_in_notebooks
+from highlight_lexer import fix_ipython2_lexer_in_notebooks
 fix_ipython2_lexer_in_notebooks(os.path.dirname(os.path.abspath(__file__)))
 
 # -- Project information -----------------------------------------------------
