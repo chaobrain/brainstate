@@ -245,6 +245,10 @@ def constant_fold(jaxpr: Jaxpr) -> Jaxpr:
 
     for original, folded_out in zip(jaxpr.outvars, result.outvars):
         needs_bridge = False
+        if isinstance(original, Literal):
+            # Literal outputs can remain literals; no bridge required.
+            continue
+
         if isinstance(folded_out, Literal):
             needs_bridge = True
         elif isinstance(folded_out, Var):
