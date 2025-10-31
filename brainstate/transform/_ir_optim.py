@@ -20,6 +20,7 @@ import jax
 import numpy as np
 from jax import lax
 from jax._src.core import JaxprEqnContext
+from jax.extend import source_info_util
 
 from brainstate._compatible_import import (Literal, Var, Jaxpr, ClosedJaxpr, JaxprEqn, )
 
@@ -98,6 +99,14 @@ class IdentitySet(MutableSet):
 
 
 _constant_fold_blacklist = {'broadcast_in_dim', 'broadcast'}
+
+
+def _fallback_source_info(eqns: Sequence[JaxprEqn]) -> source_info_util.SourceInfo:
+    if eqns:
+        source_info = eqns[-1].source_info
+        if source_info is not None:
+            return source_info
+    return source_info_util.new_source_info()
 
 
 def _partial_eval_jaxpr(jaxpr, env):
@@ -231,7 +240,7 @@ def constant_fold(jaxpr: Jaxpr) -> Jaxpr:
     # trailing copy equation so eval_jaxpr can still bind the original Var.
     existing_eqns = list(result.eqns)
     extra_eqns = []
-    source_info = existing_eqns[-1].source_info if existing_eqns else None
+    source_info = _fallback_source_info(existing_eqns)
     ctx = existing_eqns[-1].ctx if existing_eqns else JaxprEqnContext(None, True)
 
     for original, folded_out in zip(jaxpr.outvars, result.outvars):
@@ -423,7 +432,7 @@ def common_subexpression_elimination(jaxpr: Jaxpr) -> Jaxpr:
                 lax.convert_element_type_p,
                 {'new_dtype': outvar.aval.dtype, 'weak_type': False},
                 set(),
-                new_eqns[-1].source_info if new_eqns else None,
+                _fallback_source_info(new_eqns),
                 new_eqns[-1].ctx if new_eqns else JaxprEqnContext(None, True),
             )
             final_eqns.append(eqn)
@@ -681,6 +690,7 @@ def algebraic_simplification(jaxpr: Jaxpr) -> Jaxpr:
     if outvars_need_identity:
         for outvar, canonical in outvars_need_identity:
             # Create an identity equation: outvar = identity(canonical)
+            source_info = _fallback_source_info(new_eqns)
             if isinstance(canonical, Literal):
                 # If canonical is a literal, we need to materialize it
                 eqn = JaxprEqn(
@@ -689,7 +699,7 @@ def algebraic_simplification(jaxpr: Jaxpr) -> Jaxpr:
                     lax.convert_element_type_p,
                     {'new_dtype': outvar.aval.dtype, 'weak_type': False},
                     set(),
-                    new_eqns[-1].source_info if new_eqns else None,
+                    source_info,
                     new_eqns[-1].ctx if new_eqns else JaxprEqnContext(None, True)
                 )
             else:
@@ -700,7 +710,7 @@ def algebraic_simplification(jaxpr: Jaxpr) -> Jaxpr:
                     lax.convert_element_type_p,
                     {'new_dtype': outvar.aval.dtype, 'weak_type': False},
                     set(),
-                    new_eqns[-1].source_info if new_eqns else None,
+                    source_info,
                     new_eqns[-1].ctx if new_eqns else JaxprEqnContext(None, True)
                 )
             final_eqns.append(eqn)
