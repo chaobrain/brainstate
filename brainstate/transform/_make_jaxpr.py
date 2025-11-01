@@ -76,7 +76,7 @@ from brainstate._state import State, StateTraceStack
 from brainstate._utils import set_module_as
 from brainstate.typing import PyTree
 from brainstate.util import PrettyObject
-from ._ir_optim import optimize_jaxpr
+from ._ir_optim_v2 import constant_fold
 
 __all__ = [
     "StatefulFunction",
@@ -1556,7 +1556,7 @@ def _make_jaxpr(
                 stack.enter_context(extend_axis_env_nd(axis_env))
             jaxpr, out_type, consts = pe.trace_to_jaxpr_dynamic2(f)
         closed_jaxpr = ClosedJaxpr(jaxpr, consts)
-        closed_jaxpr = optimize_jaxpr(closed_jaxpr, max_iterations=1, optimizations=['constant_fold'])
+        closed_jaxpr = closed_jaxpr.replace(jaxpr=constant_fold(closed_jaxpr.jaxpr))
         if return_shape:
             out_avals, _ = unzip2(out_type)
             out_shapes_flat = [jax.ShapeDtypeStruct(a.shape, a.dtype) for a in out_avals]

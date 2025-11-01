@@ -24,10 +24,8 @@ from ._error_if import *
 from ._error_if import __all__ as _error_if_all
 from ._find_state import *
 from ._find_state import __all__ as _find_all
-from ._mapping_old import *
-from ._mapping_old import __all__ as _find_state_vmap
-from ._ir_optim import *
-from ._ir_optim import __all__ as _constant_fold_all
+from ._ir_optim_v2 import *
+from ._ir_optim_v2 import __all__ as _constant_fold_all
 from ._jit import *
 from ._jit import __all__ as _jit_all
 from ._loop_collect_return import *
@@ -38,6 +36,8 @@ from ._make_jaxpr import *
 from ._make_jaxpr import __all__ as _make_jaxpr_all
 from ._mapping import *
 from ._mapping import __all__ as _mapping_all
+from ._mapping_old import *
+from ._mapping_old import __all__ as _find_state_vmap
 from ._progress_bar import *
 from ._progress_bar import __all__ as _progress_bar_all
 from ._unvmap import *

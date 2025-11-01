@@ -18,16 +18,10 @@ exclude = [
     "brainstate/__init__.py",
 ]
 
-
-[tool.distutils.bdist_wheel]
-universal = true
-
-
 [project]
 name = "brainstate"
 description = "A State-based Transformation System for Brain Modeling."
 readme = 'README.md'
-license = { text = 'Apache-2.0 license' }
 requires-python = '>=3.10'
 authors = [{ name = 'BrainState Developers', email = 'chao.brain@qq.com' }]
 classifiers = [
@@ -41,7 +35,6 @@ classifiers = [
     'Programming Language :: Python :: 3.11',
     'Programming Language :: Python :: 3.12',
     'Programming Language :: Python :: 3.13',
-    'License :: OSI Approved :: Apache Software License',
     'Programming Language :: Python',
     'Topic :: Scientific/Engineering :: Bio-Informatics',
     'Topic :: Scientific/Engineering :: Mathematics',
