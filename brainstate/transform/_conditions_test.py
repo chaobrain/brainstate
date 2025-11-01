@@ -166,16 +166,18 @@ class TestSwitch(unittest.TestCase):
 class TestIfElse(unittest.TestCase):
     def test1(self):
         def f(a):
-            return brainstate.transform.ifelse(conditions=[a < 0,
-                                                         a >= 0 and a < 2,
-                                                         a >= 2 and a < 5,
-                                                         a >= 5 and a < 10,
-                                                         a >= 10],
-                                             branches=[lambda: 1,
-                                                       lambda: 2,
-                                                       lambda: 3,
-                                                       lambda: 4,
-                                                       lambda: 5])
+            return brainstate.transform.ifelse(
+                conditions=[a < 0,
+                            a >= 0 and a < 2,
+                            a >= 2 and a < 5,
+                            a >= 5 and a < 10,
+                            a >= 10],
+                branches=[lambda: 1,
+                          lambda: 2,
+                          lambda: 3,
+                          lambda: 4,
+                          lambda: 5]
+            )
 
         self.assertTrue(f(3) == 3)
         self.assertTrue(f(1) == 2)
@@ -183,17 +185,19 @@ class TestIfElse(unittest.TestCase):
 
     def test_vmap(self):
         def f(operands):
-            f = lambda a: brainstate.transform.ifelse([a > 10,
-                                                     jnp.logical_and(a <= 10, a > 5),
-                                                     jnp.logical_and(a <= 5, a > 2),
-                                                     jnp.logical_and(a <= 2, a > 0),
-                                                     a <= 0],
-                                                    [lambda _: 1,
-                                                     lambda _: 2,
-                                                     lambda _: 3,
-                                                     lambda _: 4,
-                                                     lambda _: 5, ],
-                                                    a)
+            f = lambda a: brainstate.transform.ifelse(
+                [a > 10,
+                 jnp.logical_and(a <= 10, a > 5),
+                 jnp.logical_and(a <= 5, a > 2),
+                 jnp.logical_and(a <= 2, a > 0),
+                 a <= 0],
+                [lambda _: 1,
+                 lambda _: 2,
+                 lambda _: 3,
+                 lambda _: 4,
+                 lambda _: 5, ],
+                a
+            )
             return jax.vmap(f)(operands)
 
         r = f(brainstate.random.randint(-20, 20, 200))
@@ -201,20 +205,24 @@ class TestIfElse(unittest.TestCase):
 
     def test_grad1(self):
         def F2(x):
-            return brainstate.transform.ifelse((x >= 10, x < 10),
-                                             [lambda x: x, lambda x: x ** 2, ],
-                                             x)
+            return brainstate.transform.ifelse(
+                (x >= 10, x < 10),
+                [lambda x: x, lambda x: x ** 2, ],
+                x
+            )
 
         self.assertTrue(jax.grad(F2)(9.0) == 18.)
         self.assertTrue(jax.grad(F2)(11.0) == 1.)
 
     def test_grad2(self):
         def F3(x):
-            return brainstate.transform.ifelse((x >= 10, jnp.logical_and(x >= 0, x < 10), x < 0),
-                                             [lambda x: x,
-                                              lambda x: x ** 2,
-                                              lambda x: x ** 4, ],
-                                             x)
+            return brainstate.transform.ifelse(
+                (x >= 10, jnp.logical_and(x >= 0, x < 10), x < 0),
+                [lambda x: x,
+                 lambda x: x ** 2,
+                 lambda x: x ** 4, ],
+                x
+            )
 
         self.assertTrue(jax.grad(F3)(9.0) == 18.)
         self.assertTrue(jax.grad(F3)(11.0) == 1.)

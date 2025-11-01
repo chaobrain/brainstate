@@ -35,15 +35,18 @@ __all__ = [
 
 
 def _fallback_source_info(eqns: Sequence[JaxprEqn]) -> source_info_util.SourceInfo:
-    if eqns:
+    if len(eqns) > 0:
         source_info = eqns[-1].source_info
         if source_info is not None:
             return source_info
     return source_info_util.new_source_info()
 
 
-def assign_literal(literal: Literal, outvar: Var, source_info) -> JaxprEqn:
-    default_ctx = JaxprEqnContext(None, True)
+def assign_literal(
+    literal: Literal,
+    outvar: Var,
+    source_info: source_info_util.SourceInfo
+) -> JaxprEqn:
     eqn = JaxprEqn(
         [literal],
         [outvar],
@@ -51,15 +54,15 @@ def assign_literal(literal: Literal, outvar: Var, source_info) -> JaxprEqn:
         {'new_dtype': outvar.aval.dtype, 'weak_type': False, 'sharding': None},
         set(),
         source_info,
-        default_ctx
+        JaxprEqnContext(None, True),
     )
     return eqn
 
 
-def replace_in_out_vars(result: Jaxpr, jaxpr: Jaxpr):
+def preserve_invars_outvars(result: Jaxpr, jaxpr: Jaxpr):
     eqns = list(result.eqns)
     for v1, v2 in zip(result.outvars, jaxpr.outvars):
-        if isinstance(v1, Literal):
+        if isinstance(v1, Literal) and isinstance(v2, Var):
             eqns.append(assign_literal(v1, v2, _fallback_source_info(eqns)))
     # Ensure invars and outvars are preserved
     return result.replace(eqns=eqns, invars=jaxpr.invars, outvars=jaxpr.outvars)
@@ -189,7 +192,8 @@ def _partial_eval_jaxpr(jaxpr, env):
     invars_still_used = IdentitySet()
     for eqn in out_eqns:
         for var in eqn.invars:
-            invars_still_used.add(var)
+            if not isinstance(var, Literal):
+                invars_still_used.add(var)
 
     invars = tuple(var for var in jaxpr.invars if var in invars_still_used)
 
@@ -252,7 +256,7 @@ def constant_fold(jaxpr: Jaxpr) -> Jaxpr:
     >>> optimized_jaxpr = constant_fold(original_jaxpr)
     """
     result = _partial_eval_jaxpr(jaxpr, {})
-    return replace_in_out_vars(result, jaxpr)
+    return preserve_invars_outvars(result, jaxpr)
 
 
 def dead_code_elimination(jaxpr: Jaxpr) -> Jaxpr:
