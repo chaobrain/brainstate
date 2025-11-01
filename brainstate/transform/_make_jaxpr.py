@@ -1556,7 +1556,7 @@ def _make_jaxpr(
                 stack.enter_context(extend_axis_env_nd(axis_env))
             jaxpr, out_type, consts = pe.trace_to_jaxpr_dynamic2(f)
         closed_jaxpr = ClosedJaxpr(jaxpr, consts)
-        closed_jaxpr = optimize_jaxpr(closed_jaxpr, max_iterations=1, optimizations=['constant_fold'])
+        # closed_jaxpr = optimize_jaxpr(closed_jaxpr, max_iterations=1, optimizations=['constant_fold'])
         if return_shape:
             out_avals, _ = unzip2(out_type)
             out_shapes_flat = [jax.ShapeDtypeStruct(a.shape, a.dtype) for a in out_avals]
