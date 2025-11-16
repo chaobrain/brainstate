@@ -18,7 +18,7 @@ from brainstate._compatible_import import is_jit_primitive
 
 def _is_brainevent_jit_connection(eqn):
     """Check if equation is a jit-wrapped brainevent operation that should be a connection"""
-    if is_jit_primitive(eqn.primitive):
+    if is_jit_primitive(eqn):
         # Check if the function name starts with 'brainevent'
         if 'name' in eqn.params:
             name = eqn.params['name']

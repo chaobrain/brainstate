@@ -13,7 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 
-import gdiist_bpu
+from . import gdiist_bpu
 from ._main import *
 from ._main import __all__ as export_all
 from ._wrapper import *
