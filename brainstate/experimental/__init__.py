@@ -14,8 +14,8 @@
 # ==============================================================================
 
 from . import gdiist_bpu
-from ._main import *
-from ._main import __all__ as export_all
+from .impl import *
+from .impl import __all__ as export_all
 from ._wrapper import *
 from ._wrapper import __all__ as wrapper_all
 

@@ -163,7 +163,7 @@ class Parser:
     def _find_operation_by_variable(self, var, expanded_eqns):
         """Find which operation produces or consumes a given variable"""
         for operation in self.operations:
-            for eqn in operation.eqns:
+            for eqn in operation.jaxpr.eqns:
                 # Check if this equation produces the variable
                 if var in eqn.outvars:
                     return operation
@@ -173,7 +173,7 @@ class Parser:
         """Find which operations use a given variable as input"""
         using_operations = []
         for operation in self.operations:
-            for eqn in operation.eqns:
+            for eqn in operation.jaxpr.eqns:
                 # Check if this equation uses the variable as input
                 if var in eqn.invars:
                     using_operations.append(operation)

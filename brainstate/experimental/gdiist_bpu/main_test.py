@@ -15,7 +15,6 @@
 
 
 import brainunit as u
-
 import brainpy
 import braintools
 import brainstate

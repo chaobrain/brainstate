@@ -16,7 +16,7 @@
 from typing import Callable, Optional, Union
 
 from brainstate.typing import Missing
-from ._main import *
+from .impl import *
 
 __all__ = [
     'ForLoop',

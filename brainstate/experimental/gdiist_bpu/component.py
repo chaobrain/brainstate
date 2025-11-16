@@ -32,11 +32,15 @@ class Node(NamedTuple):
     in_states: List[State]
     out_states: List[State]
 
+    @property
+    def eqns(self):
+        return self.jaxpr.eqns
+
 
 class Connection(NamedTuple):
     pre: Node
     post: Node
-    jaxpr: ClosedJaxpr
+    jaxpr: Jaxpr
 
 
 class Output(NamedTuple):

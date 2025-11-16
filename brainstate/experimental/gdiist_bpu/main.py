@@ -387,29 +387,27 @@ def _text_display(
 
     # Detailed operation analysis
     print(f"\nNode Analysis:")
+    print('----------------------------------------')
     for i, operation in enumerate(operations):
-        print(f"\n  Node {i}:")
+        print(f"\nNode {i}:")
         formater = _no_formatter(len(operation.eqns))
         for j, eqn in enumerate(operation.eqns):
             _text_one_eqn(eqn, formater.format(j))
 
     # Connection analysis
     print(f"\nConnection Analysis:")
+    print('----------------------------------------')
     for i, conn in enumerate(connections):
-        print(f"\n  Connection {i}:")
+        print(f"\nConnection {i}:")
         print(f"     - From: {conn.pre.name} ({len(conn.pre.eqns)} ops)")
         print(f"     - To: {conn.post.name} ({len(conn.post.eqns)} ops)")
 
         # Show complete jaxpr equations if available
-        if hasattr(conn.jaxpr, 'jaxpr') and len(conn.jaxpr.jaxpr.eqns) > 0:
-            inner_eqns = conn.jaxpr.jaxpr.eqns
-            print(f"     - Connection equations ({len(inner_eqns)} total):")
-            formater = _no_formatter(len(inner_eqns))
-            for j, eqn in enumerate(inner_eqns):
-                _text_one_eqn(eqn, formater.format(j))
-
-        else:
-            print(f"     - Connection JAXpr: No inner equations found")
+        inner_eqns = conn.jaxpr.eqns
+        print(f"     - Connection equations ({len(inner_eqns)} total):")
+        formater = _no_formatter(len(inner_eqns))
+        for j, eqn in enumerate(inner_eqns):
+            _text_one_eqn(eqn, formater.format(j))
 
 
 def _text_one_eqn(eqn: JaxprEqn, no):
@@ -425,7 +423,7 @@ def _text_one_eqn(eqn: JaxprEqn, no):
             output_info = " -> [" + ", ".join(outvar_infos) + "]"
     # Get input count
     input_count = len(eqn.invars)
-    print(f"       [{no}] {eqn.primitive.name}({input_count} inputs){output_info}")
+    print(f"     [{no}] {eqn.primitive.name}({input_count} inputs){output_info}")
 
     # Show parameters if they exist and are interesting
     if eqn.params:
@@ -448,7 +446,7 @@ def _text_one_eqn(eqn: JaxprEqn, no):
             ]:
                 interesting_params[key] = value
         if interesting_params:
-            print(f"           params: {interesting_params}")
+            print(f"         params: {interesting_params}")
 
 
 def _no_formatter(num):
