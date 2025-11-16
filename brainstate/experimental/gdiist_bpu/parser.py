@@ -352,6 +352,15 @@ class GdiistBpuParser:
 
             # Show all equations in this operation
             print(f"     - All equations:")
+
+            if len(operation.eqns) < 10:
+                formater = '{:1d}'
+            elif len(operation.eqns) < 100:
+                formater = '{:2d}'
+            elif len(operation.eqns) < 1000:
+                formater = '{:3d}'
+            else:
+                formater = '{:4d}'
             for j, eqn in enumerate(operation.eqns):
                 # Get output info
                 output_info = ""
@@ -363,7 +372,7 @@ class GdiistBpuParser:
                 # Get input count
                 input_count = len(eqn.invars)
 
-                print(f"       [{j:2d}] {eqn.primitive.name}({input_count} inputs){output_info}")
+                print(f"       [{formater.format(j)}] {eqn.primitive.name}({input_count} inputs){output_info}")
 
                 # Show parameters if they exist and are interesting
                 if hasattr(eqn, 'params') and eqn.params:
@@ -385,6 +394,14 @@ class GdiistBpuParser:
             if hasattr(conn.jaxpr, 'jaxpr') and len(conn.jaxpr.jaxpr.eqns) > 0:
                 inner_eqns = conn.jaxpr.jaxpr.eqns
                 print(f"     - Connection equations ({len(inner_eqns)} total):")
+                if len(inner_eqns) < 10:
+                    formater = '{:1d}'
+                elif len(inner_eqns) < 100:
+                    formater = '{:2d}'
+                elif len(inner_eqns) < 1000:
+                    formater = '{:3d}'
+                else:
+                    formater = '{:4d}'
 
                 for j, eqn in enumerate(inner_eqns):
                     # Get output info
@@ -397,15 +414,21 @@ class GdiistBpuParser:
                     # Get input count
                     input_count = len(eqn.invars)
 
-                    print(f"       [{j:2d}] {eqn.primitive.name}({input_count} inputs){output_info}")
+                    print(f"       [{formater.format(j)}] {eqn.primitive.name}({input_count} inputs){output_info}")
 
                     # Show parameters if they exist and are interesting
                     if hasattr(eqn, 'params') and eqn.params:
                         interesting_params = {}
                         for key, value in eqn.params.items():
-                            if key in ['limit_indices', 'start_indices', 'strides', 'dimension_numbers', 'axes',
-                                       'shape',
-                                       'broadcast_dimensions']:
+                            if key in [
+                                'limit_indices',
+                                'start_indices',
+                                'strides',
+                                'dimension_numbers',
+                                'axes',
+                                'shape',
+                                'broadcast_dimensions'
+                            ]:
                                 interesting_params[key] = value
                         if interesting_params:
                             print(f"            params: {interesting_params}")
