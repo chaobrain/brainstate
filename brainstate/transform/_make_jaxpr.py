@@ -55,7 +55,6 @@ import functools
 import inspect
 import operator
 import threading
-from collections import OrderedDict
 from collections.abc import Hashable, Iterable, Sequence
 from contextlib import ExitStack
 from typing import Any, Callable, Dict, Optional, Tuple, Union
@@ -77,6 +76,7 @@ from brainstate._utils import set_module_as
 from brainstate.typing import PyTree
 from brainstate.util import PrettyObject
 from brainstate.util._cache import BoundedCache
+from ._ir_optim_v2 import optimize_jaxpr
 
 __all__ = [
     "StatefulFunction",
@@ -89,7 +89,6 @@ AxisName = Hashable
 class hashabledict(dict):
     def __hash__(self):
         return hash(tuple(sorted(self.items())))
-
 
 
 def _ensure_str(x: str) -> str:
@@ -297,6 +296,7 @@ class StatefulFunction(PrettyObject):
         abstracted_axes: Optional[Any] = None,
         name: Optional[str] = None,
         return_only_write: bool = True,
+        ir_optimizations: Union[str, Sequence[str]] = None
     ):
         # explicit parameters
         self.fun = fun
@@ -306,6 +306,7 @@ class StatefulFunction(PrettyObject):
         self.abstracted_axes = abstracted_axes
         self.name = name
         self.return_only_write = return_only_write
+        self.ir_optimizations = ir_optimizations
 
         # implicit parameters - thread-safe bounded caches
         self._cached_jaxpr = BoundedCache(maxsize=128)
@@ -830,6 +831,7 @@ class StatefulFunction(PrettyObject):
                     axis_env=self.axis_env,
                     return_shape=True,
                     abstracted_axes=self.abstracted_axes,
+                    ir_optimizations=self.ir_optimizations,
                 )(*args, **dyn_kwargs)
 
                 # returns
@@ -1224,6 +1226,7 @@ def _make_jaxpr(
     axis_env: Sequence[tuple[AxisName, int]] | None = None,
     return_shape: bool = False,
     abstracted_axes: Any | None = None,
+    ir_optimizations: Union[str, Sequence[str]] = None,
 ) -> Callable[..., (ClosedJaxpr | tuple[ClosedJaxpr, Any])]:
     """
     Create a function that produces its jaxpr given example args (internal implementation).
@@ -1254,6 +1257,9 @@ def _make_jaxpr(
         attributes representing the corresponding types of the output leaves.
     abstracted_axes : Any, optional
         Axes specifications for abstract interpretation.
+    ir_optimizations: str or sequence of str, optional
+        A string or sequence of strings specifying IR optimizations to apply
+        during jaxpr tracing. If None, no optimizations are applied.
 
     Returns
     -------
@@ -1325,7 +1331,10 @@ def _make_jaxpr(
                 stack.enter_context(extend_axis_env_nd(axis_env))
             jaxpr, out_type, consts = pe.trace_to_jaxpr_dynamic2(f)
         closed_jaxpr = ClosedJaxpr(jaxpr, consts)
-        # closed_jaxpr = closed_jaxpr.replace(jaxpr=constant_fold(closed_jaxpr.jaxpr))
+        if ir_optimizations is not None:
+            closed_jaxpr = closed_jaxpr.replace(
+                jaxpr=optimize_jaxpr(closed_jaxpr.jaxpr, optimizations=ir_optimizations)
+            )
         if return_shape:
             out_avals, _ = unzip2(out_type)
             out_shapes_flat = [jax.ShapeDtypeStruct(a.shape, a.dtype) for a in out_avals]

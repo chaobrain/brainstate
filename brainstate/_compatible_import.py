@@ -342,7 +342,6 @@ def to_concrete_aval(aval):
     return aval
 
 
-
 def is_jit_primitive(eqn: JaxprEqn) -> bool:
     assert isinstance(eqn, JaxprEqn)
     if jax.__version_info__ < (0, 7, 0):

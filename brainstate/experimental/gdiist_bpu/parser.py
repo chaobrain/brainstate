@@ -13,7 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 
-from typing import Callable, NamedTuple, Dict, List, Any
+from typing import Callable, NamedTuple, Dict, List, Any, Tuple
 
 import jax
 from jax.api_util import shaped_abstractify
@@ -28,30 +28,21 @@ __all__ = [
 ]
 
 
-class Operation(NamedTuple):
+class Node(NamedTuple):
     name: str
-    eqns: list[ClosedJaxpr]
+    eqns: List[ClosedJaxpr]
 
 
 class Connection(NamedTuple):
-    pre: Operation
-    post: Operation
+    pre: Node
+    post: Node
     jaxpr: ClosedJaxpr
 
 
-class GdiistBpuParser:
-    """
-    Parser for BPU operations and connections.
-
-    This class is responsible for parsing the operations and connections in a BPU model.
-    """
-
-    def __init__(self, fn: Callable, target: str = 'jit'):
-        self.fn = fn
-        self.stateful_fn = StatefulFunction(self.fn, return_only_write=False)
-        self.target = target
-        assert target in ['jit', 'forloop'], f"Target must be either 'jit' or 'forloop', got {target}"
-        self.compiled_graph = BoundedCache()
+class Parser:
+    def __init__(self, stateful_fn: StatefulFunction, inputs: Tuple):
+        self.stateful_fn = stateful_fn
+        self.inputs = inputs
 
         self.operations = []
         self.connections = []
@@ -68,7 +59,7 @@ class GdiistBpuParser:
     def _build_state_mappings(self, closed_jaxpr, states, out_shapes):
         """
         Build mappings between state variables and JAXpr input/output variables
-        
+
         This implementation is inspired by brainscale's _etrace_compiler_module_info.py
         which provides more accurate state mapping by considering the actual model structure
         """
@@ -143,7 +134,7 @@ class GdiistBpuParser:
         """Finalize the current operation and add it to operations list"""
         if self.current_operation_eqns:
             operation_name = f"operation_{self.operation_counter}"
-            operation = Operation(name=operation_name, eqns=self.current_operation_eqns.copy())
+            operation = Node(name=operation_name, eqns=self.current_operation_eqns.copy())
             self.operations.append(operation)
             self.operation_counter += 1
             self.current_operation_eqns.clear()
@@ -152,7 +143,7 @@ class GdiistBpuParser:
 
     def _expand_nested_jaxpr(self, eqn):
         """Expand nested JAXpr (like jit) by replacing them with their inner equations
-        
+
         Exception: brainevent jit operations are kept as-is for connection detection
         """
         expanded_eqns = []
@@ -206,8 +197,7 @@ class GdiistBpuParser:
 
         # Avoid duplicate connections
         for existing_conn in self.connections:
-            if (existing_conn.pre == pre_operation and
-                existing_conn.post == post_operation):
+            if existing_conn.pre == pre_operation and existing_conn.post == post_operation:
                 return existing_conn
 
         # Create new connection
@@ -229,15 +219,18 @@ class GdiistBpuParser:
         for eqn in expanded_eqns:
             # Check if this equation should split the current operation
             if self._should_split_operation(eqn):
+
                 # Finalize current operation before the split
                 self._finalize_current_operation()
 
                 # If it's a brainevent connection, don't add to operations - we'll handle separately
                 if _is_brainevent_jit_connection(eqn):
                     continue
+
                 # If it's a slice, add it as a new operation
                 elif eqn.primitive.name == 'slice':
                     self.current_operation_eqns.append(eqn)
+
             else:
                 # Regular equation - add to current operation
                 self.current_operation_eqns.append(eqn)
@@ -279,6 +272,40 @@ class GdiistBpuParser:
                         if post_operation != pre_operation:  # Avoid self-connections
                             self._create_connection(pre_operation, post_operation, eqn)
 
+    def parse(self):
+        jaxpr = self.stateful_fn.get_jaxpr(*self.inputs[0], **self.inputs[1])
+        states = self.stateful_fn.get_states(*self.inputs[0], **self.inputs[1])
+        out_shapes = self.stateful_fn.get_out_shapes(*self.inputs[0], **self.inputs[1])
+
+        # Build state mappings
+        self._build_state_mappings(jaxpr, states, out_shapes)
+        state_mapping = {
+            'invars_to_state': self.invars_to_state,
+            'state_to_invars': self.state_to_invars,
+            'outvars_to_state': self.outvars_to_state,
+            'state_to_outvars': self.state_to_outvars,
+        }
+
+        # Parse equations to identify groups and connections
+        self._parse_equations(jaxpr)
+
+        return self.operations, self.connections, state_mapping
+
+
+class GdiistBpuParser:
+    """
+    Parser for BPU operations and connections.
+
+    This class is responsible for parsing the operations and connections in a BPU model.
+    """
+
+    def __init__(self, fn: Callable, target: str = 'jit'):
+        self.fn = fn
+        self.stateful_fn = StatefulFunction(self.fn, return_only_write=False, ir_optimizations='all')
+        self.target = target
+        assert target in ['jit', 'forloop'], f"Target must be either 'jit' or 'forloop', got {target}"
+        self.compiled_graph = BoundedCache()
+
     def cache_key(self, *args, **kwargs):
         if self.target == 'forloop':
             args, kwargs = jax.tree.map(lambda x: x[0], (args, kwargs))
@@ -295,34 +322,22 @@ class GdiistBpuParser:
         # Get the JAXpr and states from the stateful function
         if self.target == 'forloop':
             args, kwargs = jax.tree.map(lambda x: x[0], (args, kwargs))
-        jaxpr = self.stateful_fn.get_jaxpr(*args, **kwargs)
-        states = self.stateful_fn.get_states(*args, **kwargs)
 
-        # Build state mappings
-        self._build_state_mappings(jaxpr, states, self.stateful_fn.get_out_shapes(*args, **kwargs))
-
-        # Parse equations to identify groups and connections
-        self._parse_equations(jaxpr)
-
-        res = self.operations, self.connections, {
-            'invars_to_state': self.invars_to_state,
-            'state_to_invars': self.state_to_invars,
-            'outvars_to_state': self.outvars_to_state,
-            'state_to_outvars': self.state_to_outvars,
-        }
-        self.compiled_graph.set(key, res)
+        # IR parsing
+        nodes, connections, state_mapping = Parser(self.stateful_fn, (args, kwargs)).parse()
+        self.compiled_graph.set(key, (nodes, connections, state_mapping))
 
         return self.compiled_graph.get(key)
 
     def __call__(self, *args, **kwargs):
         return self.parse(*args, **kwargs)
 
-    def display_analysis_results(self, *args, **kwargs):
+    def display_analysis(self, *args, **kwargs):
         """
-        Display comprehensive analysis results for BPU Operation Connection Parser
+        Display comprehensive analysis results for BPU Node Connection Parser
         """
         operations, connections, state_mappings = self.parse(*args, **kwargs)
-        operations: List[Operation]
+        operations: List[Node]
         connections: List[Connection]
         state_mappings: Dict[str, Any]
 
@@ -336,9 +351,9 @@ class GdiistBpuParser:
             f"   - State mappings: {len(state_mappings.get('invars_to_state', {}))} inputs, {len(state_mappings.get('outvars_to_state', {}))} outputs")
 
         # Detailed operation analysis
-        print(f"\nDetailed Operation Analysis:")
+        print(f"\nDetailed Node Analysis:")
         for i, operation in enumerate(operations):
-            print(f"\n   Operation {i} ({operation.name}):")
+            print(f"\n   Node {i} ({operation.name}):")
             print(f"     - Total equations: {len(operation.eqns)}")
 
             # Show equation types and shapes
