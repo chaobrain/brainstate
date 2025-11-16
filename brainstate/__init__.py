@@ -54,7 +54,7 @@ _augment_apis = {
 }
 
 augment = create_deprecated_module_proxy(
-    deprecated_name='brainstate.transform',
+    deprecated_name='brainstate.augment',
     replacement_module=transform,
     replacement_name='brainstate.transform',
     scoped_apis=_augment_apis
