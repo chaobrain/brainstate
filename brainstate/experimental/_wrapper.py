@@ -13,7 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 
-from typing import Callable, Optional, Union
+from typing import Callable, Optional, Union, Dict
 
 from brainstate.typing import Missing
 from .impl import *
@@ -56,9 +56,11 @@ class ForLoop:
         self,
         fn: Union[Callable, Missing] = Missing(),
         device: str = 'cpu',
+        **kwargs
     ):
         self._device = device
         self._call_count = 0
+        self.kwargs = kwargs
 
         if device not in get_registered_devices():
             available = get_registered_devices()
@@ -103,13 +105,13 @@ class ForLoop:
                     "When using ForLoop as a decorator, it must be called with a single callable argument."
                 )
             fn = args[0]
-            return ForLoop(fn=fn, device=self._device)
+            return ForLoop(fn=fn, device=self._device, **self.kwargs)
 
         if self._fn is None:
             raise RuntimeError("ForLoop function not set. This should not happen.")
 
         self._call_count += 1
-        return get_forloop_impl(self._device)(self._fn, *args, **kwargs)
+        return get_forloop_impl(self._device)(self._fn, **self.kwargs)(*args, **kwargs)
 
     def __repr__(self) -> str:
         fn_name = self._fn.__name__ if self._fn and hasattr(self._fn, '__name__') else str(self._fn)
@@ -156,12 +158,14 @@ class JIT:
         self,
         fn: Union[Callable, Missing] = Missing(),
         device: str = 'cpu',
-        **jit_kwargs,
+        jit_kwargs: Optional[Dict] = None,
+        **kwargs
     ):
         self._device = device
         self._jit_kwargs = jit_kwargs
         self._call_count = 0
         self._compiled_fn = None
+        self.kwargs = kwargs
 
         if device not in get_registered_devices():
             available = get_registered_devices()
@@ -189,9 +193,9 @@ class JIT:
         if self._fn is not None:
             jit_impl = get_jit_impl(self._device)
             if self._jit_kwargs:
-                self._compiled_fn = jit_impl(self._fn, **self._jit_kwargs)
+                self._compiled_fn = jit_impl(self._fn, **self._jit_kwargs, **self.kwargs)
             else:
-                self._compiled_fn = jit_impl(self._fn)
+                self._compiled_fn = jit_impl(self._fn, **self.kwargs)
 
     @property
     def fn(self) -> Optional[Callable]:
@@ -224,7 +228,8 @@ class JIT:
             return JIT(
                 fn=fn,
                 device=self._device,
-                **self._jit_kwargs
+                jit_kwargs=self._jit_kwargs,
+                **self.kwargs
             )
 
         if self._compiled_fn is None:
@@ -232,27 +237,6 @@ class JIT:
 
         self._call_count += 1
         return self._compiled_fn(*args, **kwargs)
-
-    def recompile(self, **new_jit_kwargs) -> 'JIT':
-        """
-        Create a new JIT instance with updated compilation options.
-
-        Parameters
-        ----------
-        **new_jit_kwargs
-            New JIT keyword arguments to merge with existing ones.
-
-        Returns
-        -------
-        JIT
-            A new JIT instance with updated options.
-        """
-        merged_kwargs = {**self._jit_kwargs, **new_jit_kwargs}
-        return JIT(
-            fn=self._fn,
-            device=self._device,
-            **merged_kwargs
-        )
 
     def __repr__(self) -> str:
         fn_name = self._fn.__name__ if self._fn and hasattr(self._fn, '__name__') else str(self._fn)

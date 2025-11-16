@@ -58,7 +58,17 @@ def register_jit_impl(device: str, impl: Callable):
     registered_devices[device]['jit'] = impl
 
 
-for d in ['cpu', 'gpu', 'tpu']:
-    register_forloop_impl(d, for_loop)
-    register_jit_impl(d, jit)
+def _for_loop_wrapper(fn: Callable, **kwargs) -> Callable:
+    def run(*args, **kwargs):
+        return for_loop(fn, *args, **kwargs)
 
+    return run
+
+
+def _jit_wrapper(fn: Callable, **jit_kwargs) -> Callable:
+    return jit(fn, **jit_kwargs)
+
+
+for d in ['cpu', 'gpu', 'tpu']:
+    register_forloop_impl(d, _for_loop_wrapper)
+    register_jit_impl(d, _jit_wrapper)

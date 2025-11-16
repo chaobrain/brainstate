@@ -14,9 +14,10 @@
 # ==============================================================================
 
 
-import brainunit as u
 import brainpy
 import braintools
+import brainunit as u
+
 import brainstate
 from brainstate.experimental.gdiist_bpu import GdiistBPUParser
 
@@ -56,20 +57,23 @@ class EINet(brainstate.nn.Module):
             return self.N.get_spike()
 
 
-# network
-net = EINet()
-brainstate.nn.init_all_states(net)
+def test_parse():
+    # network
+    net = EINet()
+    brainstate.nn.init_all_states(net)
 
-t = 0. * u.ms
-inp = 20. * u.mA
+    t = 0. * u.ms
+    inp = 20. * u.mA
+
+    def run_step(t, inp):
+        with brainstate.environ.context(t=t):
+            spikes = net.update(t, inp)
+            return spikes
+
+    parser = GdiistBPUParser(run_step)
+    parser.parse(t, inp, display='text')
 
 
-def run_step(t):
-    with brainstate.environ.context(t=t):
-        spikes = net.update(t, inp)
-        return spikes
-
-
-parser = GdiistBPUParser(net)
-parser.parse(t, inp, display='text')
+def test_debug():
+    pass
 
