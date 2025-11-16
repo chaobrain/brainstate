@@ -22,9 +22,10 @@ from .data import Operation, Connection
 from .utils import _is_brainevent_jit_connection
 
 
-class BpuOperationConnectionParser:
+class BpuParser:
     """
     Parser for BPU operations and connections.
+
     This class is responsible for parsing the operations and connections in a BPU model.
     """
 
@@ -46,7 +47,7 @@ class BpuOperationConnectionParser:
         self.current_operation_name = None
         self.operation_counter = 0
 
-    def _build_state_mappings(self, closed_jaxpr, states, cache_key, stateful_module):
+    def _build_state_mappings(self, closed_jaxpr, states, out_shapes):
         """
         Build mappings between state variables and JAXpr input/output variables
         
@@ -64,7 +65,7 @@ class BpuOperationConnectionParser:
         jaxpr = closed_jaxpr.jaxpr
 
         # Get output shapes to understand the structure
-        out_shapes = stateful_module.get_out_shapes(cache_key)[0]
+        out_shapes = out_shapes[0]
 
         # Flatten inputs and outputs to understand structure
         # This follows the pattern from brainscale
@@ -262,13 +263,16 @@ class BpuOperationConnectionParser:
 
     def parse(self, *args, **kwargs):
         """Main parsing function that analyzes JAXpr and builds groups and connections"""
-        stateful_module = StatefulFunction(self.fn)
-        stateful_module.make_jaxpr(*args, **kwargs)
-        jaxpr = stateful_module.get_jaxpr(*args, **kwargs)
-        states = stateful_module.get_states(*args, **kwargs)
+
+        if self.target == 'forloop':
+            args, kwargs = jax.tree.map(lambda x: x[0], (args, kwargs))
+
+        # Get the JAXpr and states from the stateful function
+        jaxpr = self.stateful_fn.get_jaxpr(*args, **kwargs)
+        states = self.stateful_fn.get_states(*args, **kwargs)
 
         # Build state mappings
-        self._build_state_mappings(jaxpr, states, cache_key, stateful_module)
+        self._build_state_mappings(jaxpr, states, self.stateful_fn.get_out_shapes(*args, **kwargs))
 
         # Parse equations to identify groups and connections
         self._parse_equations(jaxpr)
@@ -280,13 +284,6 @@ class BpuOperationConnectionParser:
             'state_to_outvars': self.state_to_outvars,
         }
 
-    def debug_raw_jaxpr(self, *args, **kwargs):
-        """Debug function to print raw JAXpr for inspection"""
-        stateful_module = StatefulFunction(self.fn)
-        stateful_module.make_jaxpr(*args, **kwargs)
-        jaxpr = stateful_module.get_jaxpr(*args, **kwargs)
+    def __call__(self, *args, **kwargs):
+        return self.parse(*args, **kwargs)
 
-        print("Raw JAXpr:")
-        print(jaxpr)
-
-        return jaxpr

@@ -14,12 +14,12 @@
 # ==============================================================================
 
 
-from .main import BpuOperationConnectionParser
+from .parser import BpuParser
 from .._main import register_jit_impl, register_forloop_impl
 
 
-register_jit_impl('bpu', lambda fn: BpuOperationConnectionParser(fn, target='jit'))
-register_forloop_impl('bpu', lambda fn: BpuOperationConnectionParser(fn, target='forloop'))
+register_jit_impl('bpu', lambda fn: BpuParser(fn, target='jit'))
+register_forloop_impl('bpu', lambda fn: BpuParser(fn, target='forloop'))
 
 
 
