@@ -72,5 +72,5 @@ def run_step(t):
 
 
 parser = GdiistBpuParser(net)
-parser.display_analysis(t, inp)
+parser.parse(t, inp, display='text')
 

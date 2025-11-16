@@ -30,7 +30,7 @@ __all__ = [
 
 class Node(NamedTuple):
     name: str
-    eqns: List[ClosedJaxpr]
+    eqns: List[JaxprEqn]
 
 
 class Connection(NamedTuple):
@@ -311,7 +311,7 @@ class GdiistBpuParser:
             args, kwargs = jax.tree.map(lambda x: x[0], (args, kwargs))
         return _make_hashable(jax.tree.map(shaped_abstractify, (args, kwargs)))
 
-    def parse(self, *args, **kwargs):
+    def parse(self, *args, display=None, **kwargs):
         """
         Main parsing function that analyzes JAXpr and builds groups and connections.
         """
@@ -327,56 +327,92 @@ class GdiistBpuParser:
         nodes, connections, state_mapping = Parser(self.stateful_fn, (args, kwargs)).parse()
         self.compiled_graph.set(key, (nodes, connections, state_mapping))
 
+        if display is None:
+            pass
+        elif display == 'text':
+            text_display(nodes, connections, state_mapping)
+        else:
+            raise NotImplementedError
+
         return self.compiled_graph.get(key)
 
     def __call__(self, *args, **kwargs):
         return self.parse(*args, **kwargs)
 
-    def display_analysis(self, *args, **kwargs):
-        """
-        Display comprehensive analysis results for BPU Node Connection Parser
-        """
-        operations, connections, state_mappings = self.parse(*args, **kwargs)
-        operations: List[Node]
-        connections: List[Connection]
-        state_mappings: Dict[str, Any]
 
-        print("BPU Operation Connection Parser - Comprehensive Analysis")
-        print("=" * 60)
+def text_display(
+    operations: List[Node],
+    connections: List[Connection],
+    state_mappings: Dict[str, Any]
+):
+    """
+    Display comprehensive analysis results for BPU Node Connection Parser
+    """
 
-        print(f"\nAnalysis Complete!")
-        print(f"   - Operations identified: {len(operations)}")
-        print(f"   - Connections found: {len(connections)}")
-        print(
-            f"   - State mappings: {len(state_mappings.get('invars_to_state', {}))} inputs, {len(state_mappings.get('outvars_to_state', {}))} outputs")
+    print(f"\nSummary:")
+    print(f"   The BPU parser successfully analyzed the neural network into:")
+    print(f"   - {len(operations)} computational operations")
+    print(f"   - {len(connections)} inter-operation connections")
 
-        # Detailed operation analysis
-        print(f"\nDetailed Node Analysis:")
-        for i, operation in enumerate(operations):
-            print(f"\n   Node {i} ({operation.name}):")
-            print(f"     - Total equations: {len(operation.eqns)}")
+    # Detailed operation analysis
+    print(f"\nNode Analysis:")
+    for i, operation in enumerate(operations):
+        print(f"\n  Node {i}:")
 
-            # Show equation types and shapes
-            eq_types = {}
-            for eqn in operation.eqns:
-                eqn: JaxprEqn
-                prim_name = eqn.primitive.name
-                eq_types[prim_name] = eq_types.get(prim_name, 0) + 1
+        # Show all equations in this operation
+        if len(operation.eqns) < 10:
+            formater = '{:1d}'
+        elif len(operation.eqns) < 100:
+            formater = '{:2d}'
+        elif len(operation.eqns) < 1000:
+            formater = '{:3d}'
+        else:
+            formater = '{:4d}'
+        for j, eqn in enumerate(operation.eqns):
+            # Get output info
+            output_info = ""
+            if len(eqn.outvars) > 0:
+                if len(eqn.outvars) == 1:
+                    output_info = f" -> {eqn.outvars[0].aval.dtype}{list(eqn.outvars[0].aval.shape)}"
+                else:
+                    outvar_infos = []
+                    for outvar in eqn.outvars:
+                        outvar_infos.append(f"{outvar.aval.dtype}{list(outvar.aval.shape)}")
+                    output_info = " -> [" + ", ".join(outvar_infos) + "]"
+            # Get input count
+            input_count = len(eqn.invars)
+            print(f"     [{formater.format(j)}] {eqn.primitive.name}({input_count} inputs){output_info}")
 
-            print(f"     - Primitive summary: {dict(eq_types)}")
+            # Show parameters if they exist and are interesting
+            if eqn.params:
+                interesting_params = {}
+                for key, value in eqn.params.items():
+                    if key in ['limit_indices', 'start_indices', 'strides', 'dimension_numbers', 'axes']:
+                        interesting_params[key] = value
+                if interesting_params:
+                    print(f"         params: {interesting_params}")
 
-            # Show all equations in this operation
-            print(f"     - All equations:")
+    # Connection analysis
+    print(f"\nConnection Analysis:")
+    for i, conn in enumerate(connections):
+        print(f"\n  Connection {i}:")
+        print(f"     - From: {conn.pre.name} ({len(conn.pre.eqns)} ops)")
+        print(f"     - To: {conn.post.name} ({len(conn.post.eqns)} ops)")
 
-            if len(operation.eqns) < 10:
+        # Show complete jaxpr equations if available
+        if hasattr(conn.jaxpr, 'jaxpr') and len(conn.jaxpr.jaxpr.eqns) > 0:
+            inner_eqns = conn.jaxpr.jaxpr.eqns
+            print(f"     - Connection equations ({len(inner_eqns)} total):")
+            if len(inner_eqns) < 10:
                 formater = '{:1d}'
-            elif len(operation.eqns) < 100:
+            elif len(inner_eqns) < 100:
                 formater = '{:2d}'
-            elif len(operation.eqns) < 1000:
+            elif len(inner_eqns) < 1000:
                 formater = '{:3d}'
             else:
                 formater = '{:4d}'
-            for j, eqn in enumerate(operation.eqns):
+
+            for j, eqn in enumerate(inner_eqns):
                 # Get output info
                 output_info = ""
                 if len(eqn.outvars) > 0:
@@ -393,148 +429,17 @@ class GdiistBpuParser:
                 if hasattr(eqn, 'params') and eqn.params:
                     interesting_params = {}
                     for key, value in eqn.params.items():
-                        if key in ['limit_indices', 'start_indices', 'strides', 'dimension_numbers', 'axes']:
+                        if key in [
+                            'limit_indices',
+                            'start_indices',
+                            'strides',
+                            'dimension_numbers',
+                            'axes',
+                            'shape',
+                            'broadcast_dimensions'
+                        ]:
                             interesting_params[key] = value
                     if interesting_params:
                         print(f"            params: {interesting_params}")
-
-        # Connection analysis
-        print(f"\nConnection Analysis:")
-        for i, conn in enumerate(connections):
-            print(f"\n   Connection {i}:")
-            print(f"     - From: {conn.pre.name} ({len(conn.pre.eqns)} ops)")
-            print(f"     - To: {conn.post.name} ({len(conn.post.eqns)} ops)")
-
-            # Show complete jaxpr equations if available
-            if hasattr(conn.jaxpr, 'jaxpr') and len(conn.jaxpr.jaxpr.eqns) > 0:
-                inner_eqns = conn.jaxpr.jaxpr.eqns
-                print(f"     - Connection equations ({len(inner_eqns)} total):")
-                if len(inner_eqns) < 10:
-                    formater = '{:1d}'
-                elif len(inner_eqns) < 100:
-                    formater = '{:2d}'
-                elif len(inner_eqns) < 1000:
-                    formater = '{:3d}'
-                else:
-                    formater = '{:4d}'
-
-                for j, eqn in enumerate(inner_eqns):
-                    # Get output info
-                    output_info = ""
-                    if len(eqn.outvars) > 0:
-                        outvar = eqn.outvars[0]
-                        if hasattr(outvar, 'aval'):
-                            output_info = f" -> {outvar.aval.dtype}{list(outvar.aval.shape)}"
-
-                    # Get input count
-                    input_count = len(eqn.invars)
-
-                    print(f"       [{formater.format(j)}] {eqn.primitive.name}({input_count} inputs){output_info}")
-
-                    # Show parameters if they exist and are interesting
-                    if hasattr(eqn, 'params') and eqn.params:
-                        interesting_params = {}
-                        for key, value in eqn.params.items():
-                            if key in [
-                                'limit_indices',
-                                'start_indices',
-                                'strides',
-                                'dimension_numbers',
-                                'axes',
-                                'shape',
-                                'broadcast_dimensions'
-                            ]:
-                                interesting_params[key] = value
-                        if interesting_params:
-                            print(f"            params: {interesting_params}")
-            else:
-                print(f"     - Connection JAXpr: No inner equations found")
-
-        # State mapping analysis
-        print(f"\nState Mapping Analysis:")
-        state_types = {}
-        for state in state_mappings.get('state_to_invars', {}).keys():
-            state_type = type(state).__name__
-            state_types[state_type] = state_types.get(state_type, 0) + 1
-
-        print(f"   - State types: {dict(state_types)}")
-
-        # Show detailed state mappings for both input and output variables
-        print(f"   - Detailed mappings:")
-
-        # Input variable mappings
-        print(f"     Input State Mappings:")
-        for i, (state, invars) in enumerate(state_mappings.get('state_to_invars', {}).items()):
-            state_type = type(state).__name__
-            # Try to get state value info
-            state_info = ""
-            if hasattr(state, 'value') and hasattr(state.value, 'shape'):
-                shape = state.value.shape
-                dtype = str(state.value.dtype) if hasattr(state.value, 'dtype') else 'unknown'
-                state_info = f" [{dtype}{list(shape)}]"
-
-            print(f"       State {i} ({state_type}{state_info}):")
-
-            if isinstance(invars, list):
-                for j, var in enumerate(invars):
-                    var_info = ""
-                    if hasattr(var, 'aval'):
-                        shape = var.aval.shape
-                        dtype = str(var.aval.dtype) if hasattr(var.aval, 'dtype') else 'unknown'
-                        var_info = f" -> {dtype}{list(shape)}"
-                    print(f"         - Input var {j}: Var(id={id(var)}){var_info}")
-            else:
-                var_info = ""
-                if hasattr(invars, 'aval'):
-                    shape = invars.aval.shape
-                    dtype = str(invars.aval.dtype) if hasattr(invars.aval, 'dtype') else 'unknown'
-                    var_info = f" -> {dtype}{list(shape)}"
-                print(f"         - Input var: Var(id={id(invars)}){var_info}")
-
-        # Output variable mappings
-        print(f"     Output State Mappings:")
-        for i, (state, outvars) in enumerate(state_mappings.get('state_to_outvars', {}).items()):
-            state_type = type(state).__name__
-            # Try to get state value info
-            state_info = ""
-            if hasattr(state, 'value') and hasattr(state.value, 'shape'):
-                shape = state.value.shape
-                dtype = str(state.value.dtype) if hasattr(state.value, 'dtype') else 'unknown'
-                state_info = f" [{dtype}{list(shape)}]"
-
-            print(f"       State {i} ({state_type}{state_info}):")
-
-            if isinstance(outvars, list):
-                for j, var in enumerate(outvars):
-                    var_info = ""
-                    if hasattr(var, 'aval'):
-                        shape = var.aval.shape
-                        dtype = str(var.aval.dtype) if hasattr(var.aval, 'dtype') else 'unknown'
-                        var_info = f" -> {dtype}{list(shape)}"
-                    print(f"         - Output var {j}: Var(id={id(var)}){var_info}")
-            else:
-                var_info = ""
-                if hasattr(outvars, 'aval'):
-                    shape = outvars.aval.shape
-                    dtype = str(outvars.aval.dtype) if hasattr(outvars.aval, 'dtype') else 'unknown'
-                    var_info = f" -> {dtype}{list(shape)}"
-                print(f"         - Output var: Var(id={id(outvars)}){var_info}")
-
-        # Validation
-        print(f"\nValidation Results:")
-
-        # Check operation coverage
-        total_eqns = sum(len(operation.eqns) for operation in operations)
-        print(f"   - Equation coverage: {total_eqns} equations in operations")
-
-        # Check state mapping completeness
-        total_state_vars = len(state_mappings.get('invars_to_state', {})) + len(
-            state_mappings.get('outvars_to_state', {}))
-        print(f"   - State mappings: {total_state_vars} total variable mappings")
-
-        print(f"\nSummary:")
-        print(f"   The BPU parser successfully analyzed the neural network into:")
-        print(f"   - {len(operations)} computational operations")
-        print(f"   - {len(connections)} inter-operation connections")
-        print(f"   - Complete state variable mappings")
-        print(f"   This structure is ready for BPU compilation and optimization!")
+        else:
+            print(f"     - Connection JAXpr: No inner equations found")
