@@ -13,11 +13,14 @@
 # limitations under the License.
 # ==============================================================================
 
-import jax
 from typing import Callable
 
+import jax
+from jax.api_util import shaped_abstractify
+
 from brainstate._compatible_import import is_jit_primitive
-from brainstate.transform import StatefulFunction
+from brainstate.transform._make_jaxpr import StatefulFunction, _make_hashable
+from brainstate.util._cache import BoundedCache
 from .data import Operation, Connection
 from .utils import _is_brainevent_jit_connection
 
@@ -34,6 +37,7 @@ class BpuParser:
         self.stateful_fn = StatefulFunction(self.fn)
         self.target = target
         assert target in ['jit', 'forloop'], f"Target must be either 'jit' or 'forloop', got {target}"
+        self.compiled_graph = BoundedCache()
 
         self.operations = []
         self.connections = []
@@ -261,8 +265,15 @@ class BpuParser:
                         if post_operation != pre_operation:  # Avoid self-connections
                             self._create_connection(pre_operation, post_operation, eqn)
 
+    def cache_key(self, *args, **kwargs):
+        if self.target == 'forloop':
+            args, kwargs = jax.tree.map(lambda x: x[0], (args, kwargs))
+        return _make_hashable(jax.tree.map(shaped_abstractify, (args, kwargs)))
+
     def parse(self, *args, **kwargs):
-        """Main parsing function that analyzes JAXpr and builds groups and connections"""
+        """
+        Main parsing function that analyzes JAXpr and builds groups and connections.
+        """
 
         if self.target == 'forloop':
             args, kwargs = jax.tree.map(lambda x: x[0], (args, kwargs))
@@ -276,14 +287,17 @@ class BpuParser:
 
         # Parse equations to identify groups and connections
         self._parse_equations(jaxpr)
-
-        return self.operations, self.connections, {
+        
+        res = self.operations, self.connections, {
             'invars_to_state': self.invars_to_state,
             'state_to_invars': self.state_to_invars,
             'outvars_to_state': self.outvars_to_state,
             'state_to_outvars': self.state_to_outvars,
         }
+        key = self.cache_key(*args, **kwargs)
+        self.compiled_graph.set(key, res)
+
+        return self.compiled_graph.get(key)
 
     def __call__(self, *args, **kwargs):
         return self.parse(*args, **kwargs)
-

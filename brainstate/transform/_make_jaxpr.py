@@ -76,7 +76,6 @@ from brainstate._state import State, StateTraceStack
 from brainstate._utils import set_module_as
 from brainstate.typing import PyTree
 from brainstate.util import PrettyObject
-from ._ir_optim_v2 import constant_fold
 from brainstate.util._cache import BoundedCache
 
 __all__ = [
