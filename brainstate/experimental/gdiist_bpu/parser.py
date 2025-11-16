@@ -13,17 +13,15 @@
 # limitations under the License.
 # ==============================================================================
 
-import json
-from typing import Callable, Dict, List, Any, Tuple, Optional
+from typing import Tuple
 
 import jax
-from jax.api_util import shaped_abstractify
 
-from brainstate._compatible_import import is_jit_primitive, JaxprEqn
-from brainstate.transform._make_jaxpr import StatefulFunction, _make_hashable
-from brainstate.util._cache import BoundedCache
+from brainstate._compatible_import import is_jit_primitive
+from brainstate.transform._make_jaxpr import StatefulFunction
 from .component import Node, Connection
 from .utils import _is_connection, eqns_to_jaxpr, find_in_states, find_out_states
+
 
 class Parser:
     def __init__(self, stateful_fn: StatefulFunction, inputs: Tuple):
@@ -186,7 +184,7 @@ class Parser:
         """Create a connection between two operations using the inner jaxpr from jit"""
         # Extract the inner jaxpr from the jit equation
         if 'jaxpr' in jit_eqn.params:
-            inner_jaxpr = jit_eqn.params['jaxpr']
+            inner_jaxpr = jit_eqn.params['jaxpr'].jaxpr
         else:
             # Fallback - use the jit equation itself
             inner_jaxpr = jit_eqn
@@ -287,4 +285,3 @@ class Parser:
         self._parse_equations(jaxpr)
 
         return self.operations, self.connections, state_mapping
-
