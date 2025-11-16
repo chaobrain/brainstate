@@ -13,41 +13,12 @@
 # limitations under the License.
 # ==============================================================================
 
-from typing import Callable
-
 import gdiist_bpu
 from ._main import *
 from ._main import __all__ as export_all
+from ._wrapper import *
+from ._wrapper import __all__ as wrapper_all
 
-__all__ = ['ForLoop', 'JIT', 'gdiist_bpu'] + export_all
-
-
-class ForLoop:
-    def __init__(
-        self,
-        fn: Callable,
-        device: str,
-    ):
-        self.fn = fn
-        self.device = device
-        if device not in get_registered_devices():
-            raise ValueError(f"Device '{device}' is not registered.")
-
-    def __call__(self, *args, **kwargs):
-        return get_forloop_impl(self.device)(self.fn, *args, **kwargs)
-
-
-class JIT:
-    def __init__(
-        self,
-        fn: Callable,
-        device: str,
-    ):
-        self.fn = fn
-        self.device = device
-
-        if device not in get_registered_devices():
-            raise ValueError(f"Device '{device}' is not registered.")
-
-    def __call__(self, *args, **kwargs):
-        return get_jit_impl(self.device)(self.fn, *args, **kwargs)
+__all__ = ['gdiist_bpu'] + export_all + wrapper_all
+del export_all
+del wrapper_all
