@@ -1,4 +1,4 @@
-# Copyright 2024 BrainX Ecosystem Limited. All Rights Reserved.
+# Copyright 2025 BrainX Ecosystem Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,8 +14,34 @@
 # ==============================================================================
 
 
-from brainstate.experimental.impl import register_jit_impl, register_forloop_impl
-from .main import GdiistBPUParser
+from typing import NamedTuple, List
 
-register_jit_impl('bpu', lambda fn: GdiistBPUParser(fn, target='jit'))
-register_forloop_impl('bpu', lambda fn: GdiistBPUParser(fn, target='forloop'))
+from brainstate._state import State
+from brainstate._compatible_import import ClosedJaxpr, JaxprEqn, Jaxpr
+
+__all__ = [
+    'Node',
+    'Connection',
+    'Output',
+]
+
+
+class Node(NamedTuple):
+    name: str
+    jaxpr: Jaxpr
+    in_states: List[State]
+    out_states: List[State]
+
+    @property
+    def eqns(self):
+        return self.jaxpr.eqns
+
+
+class Connection(NamedTuple):
+    pre: Node
+    post: Node
+    jaxpr: Jaxpr
+
+
+class Output(NamedTuple):
+    pass

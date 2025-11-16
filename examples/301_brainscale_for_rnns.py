@@ -43,11 +43,9 @@ args, _ = parser.parse_known_args()
 
 # training method
 if args.method != 'bptt':
-    parser.add_argument("--vjp_time", type=str, default='t', choices=['t', 't_minus_1'],
-                        help="The VJP time,should be t or t-1.")
+    parser.add_argument("--vjp_time", type=str, default='t', choices=['t', 't_minus_1'], help="The VJP time")
     if args.method != 'diag':
-        parser.add_argument("--etrace_decay", type=float, default=0.9,
-                            help="The time constant of eligibility trace ")
+        parser.add_argument("--etrace_decay", type=float, default=0.9, help="The time constant of eligibility trace ")
 
 # Learning parameters
 parser.add_argument("--lr", type=float, default=5e-4, help="Learning rate.")

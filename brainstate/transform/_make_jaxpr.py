@@ -55,7 +55,6 @@ import functools
 import inspect
 import operator
 import threading
-from collections import OrderedDict
 from collections.abc import Hashable, Iterable, Sequence
 from contextlib import ExitStack
 from typing import Any, Callable, Dict, Optional, Tuple, Union
@@ -76,7 +75,8 @@ from brainstate._state import State, StateTraceStack
 from brainstate._utils import set_module_as
 from brainstate.typing import PyTree
 from brainstate.util import PrettyObject
-from ._ir_optim_v2 import constant_fold
+from brainstate.util._cache import BoundedCache
+from ._ir_optim_v2 import optimize_jaxpr
 
 __all__ = [
     "StatefulFunction",
@@ -89,238 +89,6 @@ AxisName = Hashable
 class hashabledict(dict):
     def __hash__(self):
         return hash(tuple(sorted(self.items())))
-
-
-class _BoundedCache:
-    """
-    A thread-safe LRU cache with bounded size.
-
-    This cache stores a limited number of items and evicts the least recently used item
-    when the cache reaches its maximum size. All operations are thread-safe.
-
-    Parameters
-    ----------
-    maxsize : int, default 128
-        Maximum number of items to store in the cache.
-    """
-
-    def __init__(self, maxsize: int = 128):
-        self._cache = OrderedDict()
-        self._maxsize = maxsize
-        self._lock = threading.RLock()
-        self._hits = 0
-        self._misses = 0
-
-    def get(
-        self,
-        key: Any,
-        default: Any = None,
-        raise_on_miss: bool = False,
-        error_context: str = "item"
-    ) -> Any:
-        """
-        Get an item from the cache.
-
-        Parameters
-        ----------
-        key : Any
-            The cache key.
-        default : Any, optional
-            The default value to return if the key is not found.
-        raise_on_miss : bool, optional
-            If True, raise a detailed ValueError when the key is not found.
-        error_context : str, optional
-            Context description for the error message (e.g., "Function", "JAX expression").
-
-        Returns
-        -------
-        Any
-            The cached value or the default value.
-
-        Raises
-        ------
-        ValueError
-            If raise_on_miss is True and the key is not found.
-        """
-        with self._lock:
-            if key in self._cache:
-                self._cache.move_to_end(key)
-                self._hits += 1
-                return self._cache[key]
-            self._misses += 1
-
-            if raise_on_miss:
-                available_keys = list(self._cache.keys())
-                error_msg = [
-                    f"{error_context} not compiled for the requested cache key.",
-                    f"",
-                    f"Requested key:",
-                    f"  {key}",
-                    f"",
-                    f"Available {{len(available_keys)}} keys:",
-                ]
-                if available_keys:
-                    for i, k in enumerate(available_keys, 1):
-                        error_msg.append(f"  [{i}] {k}")
-                else:
-                    error_msg.append("  (none - not compiled yet)")
-                error_msg.append("")
-                error_msg.append("Call make_jaxpr() first with matching arguments.")
-                raise ValueError("\n".join(error_msg))
-
-            return default
-
-    def set(self, key: Any, value: Any) -> None:
-        """
-        Set an item in the cache.
-
-        Parameters
-        ----------
-        key : Any
-            The cache key.
-        value : Any
-            The value to cache.
-
-        Raises
-        ------
-        ValueError
-            If the key already exists in the cache.
-        """
-        with self._lock:
-            if key in self._cache:
-                raise ValueError(
-                    f"Cache key already exists: {key}. "
-                    f"Cannot overwrite existing cached value. "
-                    f"Clear the cache first if you need to recompile."
-                )
-            if len(self._cache) >= self._maxsize:
-                self._cache.popitem(last=False)
-            self._cache[key] = value
-
-    def pop(self, key: Any, default: Any = None) -> Any:
-        """
-        Remove and return an item from the cache.
-
-        Parameters
-        ----------
-        key : Any
-            The cache key to remove.
-        default : Any, optional
-            The default value to return if the key is not found.
-
-        Returns
-        -------
-        Any
-            The cached value or the default value if the key is not found.
-        """
-        with self._lock:
-            if key in self._cache:
-                return self._cache.pop(key)
-            return default
-
-    def replace(self, key: Any, value: Any) -> None:
-        """
-        Replace an existing item in the cache.
-
-        Parameters
-        ----------
-        key : Any
-            The cache key to replace.
-        value : Any
-            The new value to cache.
-
-        Raises
-        ------
-        KeyError
-            If the key does not exist in the cache.
-        """
-        with self._lock:
-            if key not in self._cache:
-                raise KeyError(
-                    f"Cache key does not exist: {key}. "
-                    f"Cannot replace non-existent cached value. "
-                    f"Use set() to add a new cache entry."
-                )
-            self._cache[key] = value
-            self._cache.move_to_end(key)
-
-    def __contains__(self, key: Any) -> bool:
-        """
-        Check if a key exists in the cache.
-
-        Parameters
-        ----------
-        key : Any
-            The cache key to check.
-
-        Returns
-        -------
-        bool
-            True if the key exists in the cache, False otherwise.
-        """
-        with self._lock:
-            return key in self._cache
-
-    def __len__(self) -> int:
-        """
-        Get the number of items in the cache.
-
-        Returns
-        -------
-        int
-            The number of items currently in the cache.
-        """
-        with self._lock:
-            return len(self._cache)
-
-    def clear(self) -> None:
-        """
-        Clear all items from the cache and reset statistics.
-
-        This method removes all cached items and resets hit/miss counters to zero.
-        """
-        with self._lock:
-            self._cache.clear()
-            self._hits = 0
-            self._misses = 0
-
-    def keys(self):
-        """
-        Return all keys in the cache.
-
-        Returns
-        -------
-        list
-            A list of all keys currently in the cache.
-        """
-        with self._lock:
-            return list(self._cache.keys())
-
-    def get_stats(self) -> Dict[str, Any]:
-        """
-        Get cache statistics.
-
-        Returns
-        -------
-        dict
-            A dictionary with cache statistics including:
-
-            - 'size': Current number of items in cache
-            - 'maxsize': Maximum cache size
-            - 'hits': Number of cache hits
-            - 'misses': Number of cache misses
-            - 'hit_rate': Hit rate percentage (0-100)
-        """
-        with self._lock:
-            total = self._hits + self._misses
-            hit_rate = (self._hits / total * 100) if total > 0 else 0.0
-            return {
-                'size': len(self._cache),
-                'maxsize': self._maxsize,
-                'hits': self._hits,
-                'misses': self._misses,
-                'hit_rate': hit_rate,
-            }
 
 
 def _ensure_str(x: str) -> str:
@@ -528,6 +296,7 @@ class StatefulFunction(PrettyObject):
         abstracted_axes: Optional[Any] = None,
         name: Optional[str] = None,
         return_only_write: bool = True,
+        ir_optimizations: Union[str, Sequence[str]] = None
     ):
         # explicit parameters
         self.fun = fun
@@ -537,12 +306,13 @@ class StatefulFunction(PrettyObject):
         self.abstracted_axes = abstracted_axes
         self.name = name
         self.return_only_write = return_only_write
+        self.ir_optimizations = ir_optimizations
 
         # implicit parameters - thread-safe bounded caches
-        self._cached_jaxpr = _BoundedCache(maxsize=128)
-        self._cached_out_shapes = _BoundedCache(maxsize=128)
-        self._cached_jaxpr_out_tree = _BoundedCache(maxsize=128)
-        self._cached_state_trace = _BoundedCache(maxsize=128)
+        self._cached_jaxpr = BoundedCache(maxsize=128)
+        self._cached_out_shapes = BoundedCache(maxsize=128)
+        self._cached_jaxpr_out_tree = BoundedCache(maxsize=128)
+        self._cached_state_trace = BoundedCache(maxsize=128)
         self._cache_lock = threading.RLock()
 
     def __pretty_repr_item__(self, k, v):
@@ -1061,6 +831,7 @@ class StatefulFunction(PrettyObject):
                     axis_env=self.axis_env,
                     return_shape=True,
                     abstracted_axes=self.abstracted_axes,
+                    ir_optimizations=self.ir_optimizations,
                 )(*args, **dyn_kwargs)
 
                 # returns
@@ -1455,6 +1226,7 @@ def _make_jaxpr(
     axis_env: Sequence[tuple[AxisName, int]] | None = None,
     return_shape: bool = False,
     abstracted_axes: Any | None = None,
+    ir_optimizations: Union[str, Sequence[str]] = None,
 ) -> Callable[..., (ClosedJaxpr | tuple[ClosedJaxpr, Any])]:
     """
     Create a function that produces its jaxpr given example args (internal implementation).
@@ -1485,6 +1257,9 @@ def _make_jaxpr(
         attributes representing the corresponding types of the output leaves.
     abstracted_axes : Any, optional
         Axes specifications for abstract interpretation.
+    ir_optimizations: str or sequence of str, optional
+        A string or sequence of strings specifying IR optimizations to apply
+        during jaxpr tracing. If None, no optimizations are applied.
 
     Returns
     -------
@@ -1556,7 +1331,10 @@ def _make_jaxpr(
                 stack.enter_context(extend_axis_env_nd(axis_env))
             jaxpr, out_type, consts = pe.trace_to_jaxpr_dynamic2(f)
         closed_jaxpr = ClosedJaxpr(jaxpr, consts)
-        closed_jaxpr = closed_jaxpr.replace(jaxpr=constant_fold(closed_jaxpr.jaxpr))
+        if ir_optimizations is not None:
+            closed_jaxpr = closed_jaxpr.replace(
+                jaxpr=optimize_jaxpr(closed_jaxpr.jaxpr, optimizations=ir_optimizations)
+            )
         if return_shape:
             out_avals, _ = unzip2(out_type)
             out_shapes_flat = [jax.ShapeDtypeStruct(a.shape, a.dtype) for a in out_avals]

@@ -798,6 +798,20 @@ def optimize_jaxpr(
         >>> # Then apply CSE and more DCE
         >>> stage2 = optimize_jaxpr(stage1, optimizations=['cse', 'dce'])
     """
+    if optimizations is None:
+        optimizations = []
+    elif isinstance(optimizations, str):
+        if optimizations == 'all':
+            optimizations = [
+                'constant_fold',
+                'algebraic_simplification',
+                'copy_propagation',
+                'cse',
+                'dce',
+            ]
+        else:
+            optimizations = [optimizations]
+
     # Parse input
     if isinstance(jaxpr, Jaxpr):
         closed_jaxpr = None

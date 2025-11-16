@@ -31,7 +31,7 @@ from brainstate.typing import Missing, Filter
 from brainstate.util import NestedDict
 from brainstate.util.filter import to_predicate
 from ._loop_collect_return import scan
-from ._make_jaxpr import StatefulFunction, _BoundedCache
+from ._make_jaxpr import StatefulFunction, BoundedCache
 
 __all__ = [
     'StatefulMapping',
@@ -225,10 +225,10 @@ class StatefulMapping(StatefulFunction):
         self.unexpected_out_state_mapping = unexpected_out_state_mapping
 
         # Cache for discovered state-to-axis mappings
-        self._cached_map_dim_to_in_states = _BoundedCache(maxsize=128)
-        self._cached_map_dim_to_out_states = _BoundedCache(maxsize=128)
-        self._cached_map_state_trace = _BoundedCache(maxsize=128)
-        self._cached_map_batch_size = _BoundedCache(maxsize=128)
+        self._cached_map_dim_to_in_states = BoundedCache(maxsize=128)
+        self._cached_map_dim_to_out_states = BoundedCache(maxsize=128)
+        self._cached_map_state_trace = BoundedCache(maxsize=128)
+        self._cached_map_batch_size = BoundedCache(maxsize=128)
 
     def __infer_batch_size(self, args, in_axes):
         def get_batch_size_from_arg(arg_, axis_):
