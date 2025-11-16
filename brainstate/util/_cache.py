@@ -41,6 +41,11 @@ class BoundedCache:
         self._hits = 0
         self._misses = 0
 
+    @property
+    def maxsize(self) -> int:
+        """Get the maximum size of the cache."""
+        return self._maxsize
+
     def get(
         self,
         key: Any,

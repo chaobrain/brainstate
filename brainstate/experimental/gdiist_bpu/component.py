@@ -1,4 +1,4 @@
-# Copyright 2024 BrainX Ecosystem Limited. All Rights Reserved.
+# Copyright 2025 BrainX Ecosystem Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,7 +14,30 @@
 # ==============================================================================
 
 
-from typing import NamedTuple, Dict, List, Any
+from typing import NamedTuple, List
 
-from brainstate._compatible_import import ClosedJaxpr, JaxprEqn
+from brainstate._state import State
+from brainstate._compatible_import import ClosedJaxpr, JaxprEqn, Jaxpr
 
+__all__ = [
+    'Node',
+    'Connection',
+    'Output',
+]
+
+
+class Node(NamedTuple):
+    name: str
+    jaxpr: Jaxpr
+    in_states: List[State]
+    out_states: List[State]
+
+
+class Connection(NamedTuple):
+    pre: Node
+    post: Node
+    jaxpr: ClosedJaxpr
+
+
+class Output(NamedTuple):
+    pass
