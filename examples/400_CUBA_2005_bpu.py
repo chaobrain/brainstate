@@ -75,8 +75,8 @@ def run_step(t):
         spikes = net.update(t, inp)
         return spikes
 
-from brainstate.experimental.gdiist_bpu.parser import BpuOperationConnectionParser
-from brainstate.experimental.gdiist_bpu.data import display_analysis_results
+from brainstate.experimental._gdiist_bpu.parser import BpuOperationConnectionParser
+from brainstate.experimental._gdiist_bpu.data import display_analysis_results
 parser = BpuOperationConnectionParser(net)
 with brainstate.environ.context(dt=0.1 * u.ms):
     raw_jaxpr = parser.debug_raw_jaxpr(t, inp)
