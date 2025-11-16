@@ -358,39 +358,9 @@ def text_display(
     print(f"\nNode Analysis:")
     for i, operation in enumerate(operations):
         print(f"\n  Node {i}:")
-
-        # Show all equations in this operation
-        if len(operation.eqns) < 10:
-            formater = '{:1d}'
-        elif len(operation.eqns) < 100:
-            formater = '{:2d}'
-        elif len(operation.eqns) < 1000:
-            formater = '{:3d}'
-        else:
-            formater = '{:4d}'
+        formater = _no_formatter(len(operation.eqns))
         for j, eqn in enumerate(operation.eqns):
-            # Get output info
-            output_info = ""
-            if len(eqn.outvars) > 0:
-                if len(eqn.outvars) == 1:
-                    output_info = f" -> {eqn.outvars[0].aval.dtype}{list(eqn.outvars[0].aval.shape)}"
-                else:
-                    outvar_infos = []
-                    for outvar in eqn.outvars:
-                        outvar_infos.append(f"{outvar.aval.dtype}{list(outvar.aval.shape)}")
-                    output_info = " -> [" + ", ".join(outvar_infos) + "]"
-            # Get input count
-            input_count = len(eqn.invars)
-            print(f"     [{formater.format(j)}] {eqn.primitive.name}({input_count} inputs){output_info}")
-
-            # Show parameters if they exist and are interesting
-            if eqn.params:
-                interesting_params = {}
-                for key, value in eqn.params.items():
-                    if key in ['limit_indices', 'start_indices', 'strides', 'dimension_numbers', 'axes']:
-                        interesting_params[key] = value
-                if interesting_params:
-                    print(f"         params: {interesting_params}")
+            _text_one_eqn(eqn, formater.format(j))
 
     # Connection analysis
     print(f"\nConnection Analysis:")
@@ -403,43 +373,60 @@ def text_display(
         if hasattr(conn.jaxpr, 'jaxpr') and len(conn.jaxpr.jaxpr.eqns) > 0:
             inner_eqns = conn.jaxpr.jaxpr.eqns
             print(f"     - Connection equations ({len(inner_eqns)} total):")
-            if len(inner_eqns) < 10:
-                formater = '{:1d}'
-            elif len(inner_eqns) < 100:
-                formater = '{:2d}'
-            elif len(inner_eqns) < 1000:
-                formater = '{:3d}'
-            else:
-                formater = '{:4d}'
-
+            formater = _no_formatter(len(inner_eqns))
             for j, eqn in enumerate(inner_eqns):
-                # Get output info
-                output_info = ""
-                if len(eqn.outvars) > 0:
-                    outvar = eqn.outvars[0]
-                    if hasattr(outvar, 'aval'):
-                        output_info = f" -> {outvar.aval.dtype}{list(outvar.aval.shape)}"
+                _text_one_eqn(eqn, formater.format(j))
 
-                # Get input count
-                input_count = len(eqn.invars)
-
-                print(f"       [{formater.format(j)}] {eqn.primitive.name}({input_count} inputs){output_info}")
-
-                # Show parameters if they exist and are interesting
-                if hasattr(eqn, 'params') and eqn.params:
-                    interesting_params = {}
-                    for key, value in eqn.params.items():
-                        if key in [
-                            'limit_indices',
-                            'start_indices',
-                            'strides',
-                            'dimension_numbers',
-                            'axes',
-                            'shape',
-                            'broadcast_dimensions'
-                        ]:
-                            interesting_params[key] = value
-                    if interesting_params:
-                        print(f"            params: {interesting_params}")
         else:
             print(f"     - Connection JAXpr: No inner equations found")
+
+
+def _text_one_eqn(eqn: JaxprEqn, no):
+    # Get output info
+    output_info = ""
+    if len(eqn.outvars) > 0:
+        if len(eqn.outvars) == 1:
+            output_info = f" -> {eqn.outvars[0].aval.dtype}{list(eqn.outvars[0].aval.shape)}"
+        else:
+            outvar_infos = []
+            for outvar in eqn.outvars:
+                outvar_infos.append(f"{outvar.aval.dtype}{list(outvar.aval.shape)}")
+            output_info = " -> [" + ", ".join(outvar_infos) + "]"
+    # Get input count
+    input_count = len(eqn.invars)
+    print(f"       [{no}] {eqn.primitive.name}({input_count} inputs){output_info}")
+
+    # Show parameters if they exist and are interesting
+    if eqn.params:
+        interesting_params = {}
+        for key, value in eqn.params.items():
+            if key in [
+                'limit_indices',
+                'start_indices',
+                'strides',
+                'dimension_numbers',
+                'axes',
+
+                'limit_indices',
+                'start_indices',
+                'strides',
+                'dimension_numbers',
+                'axes',
+                'shape',
+                'broadcast_dimensions'
+            ]:
+                interesting_params[key] = value
+        if interesting_params:
+            print(f"           params: {interesting_params}")
+
+
+def _no_formatter(num):
+    if num < 10:
+        formater = '{:1d}'
+    elif num < 100:
+        formater = '{:2d}'
+    elif num < 1000:
+        formater = '{:3d}'
+    else:
+        formater = '{:4d}'
+    return formater
