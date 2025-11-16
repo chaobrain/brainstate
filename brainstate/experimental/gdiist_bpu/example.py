@@ -19,8 +19,7 @@ import brainunit as u
 import brainpy
 import braintools
 import brainstate
-from brainstate.experimental.gdiist_bpu.data import display_analysis_results
-from brainstate.experimental.gdiist_bpu.parser import BpuParser
+from brainstate.experimental.gdiist_bpu import GdiistBpuParser
 
 
 class EINet(brainstate.nn.DynamicsGroup):
@@ -70,7 +69,7 @@ def run_step(t):
         return spikes
 
 
-parser = BpuParser(net)
+parser = GdiistBpuParser(net)
 with brainstate.environ.context(dt=0.1 * u.ms):
     raw_jaxpr = parser.debug_raw_jaxpr(t, inp)
     operations, connections, state_mappings = parser.parse(t, inp)

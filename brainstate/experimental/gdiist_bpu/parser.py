@@ -25,7 +25,7 @@ from .data import Operation, Connection
 from .utils import _is_brainevent_jit_connection
 
 
-class BpuParser:
+class GdiistBpuParser:
     """
     Parser for BPU operations and connections.
 
