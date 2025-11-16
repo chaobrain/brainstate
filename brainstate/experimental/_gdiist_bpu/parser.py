@@ -12,11 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-from brainevent import get_all_primitive_names
 
-import brainstate.compile
-from .data import Operation, Connection
 import jax
+
+from brainstate.transform import StatefulFunction
+from .data import Operation, Connection
+from brainstate._compatible_import import is_jit_primitive
 
 
 class BpuOperationConnectionParser:
@@ -36,7 +37,7 @@ class BpuOperationConnectionParser:
         self.state_to_invars = dict()
         self.outvars_to_state = dict()
         self.state_to_outvars = dict()
-        
+
         # Track current operation state
         self.current_operation_eqns = []
         self.current_operation_name = None
@@ -53,55 +54,55 @@ class BpuOperationConnectionParser:
         self.state_to_invars.clear()
         self.outvars_to_state.clear()
         self.state_to_outvars.clear()
-        
+
         # Extract the actual jaxpr from ClosedJaxpr
         jaxpr = closed_jaxpr.jaxpr
-        
+
         # Get output shapes to understand the structure
         out_shapes = stateful_module.get_out_shapes(cache_key)[0]
-        
+
         # Flatten inputs and outputs to understand structure
         # This follows the pattern from brainscale
         state_vals = [state.value for state in states]
-        out_avals, _ = jax.tree.flatten(out_shapes) 
+        out_avals, _ = jax.tree.flatten(out_shapes)
         num_out = len(out_avals)
-        
+
         # Get state structure information
         state_avals, state_tree = jax.tree.flatten(state_vals)
         num_inputs_before_states = len(jaxpr.invars) - len(state_avals)
-        
+
         # Map state tree to invars and outvars
         # Input variables: the last len(state_avals) invars correspond to states
         state_tree_invars = jax.tree.unflatten(
-            state_tree, 
+            state_tree,
             jaxpr.invars[num_inputs_before_states:]
         )
-        
+
         # Output variables: after the main outputs, the rest correspond to state updates
         state_tree_outvars = jax.tree.unflatten(
             state_tree,
             jaxpr.outvars[num_out:]
         )
-        
+
         # Build mappings using the tree structure
         # This ensures proper correspondence between states and their JAXpr variables
         for state, invar, outvar in zip(states, state_tree_invars, state_tree_outvars):
             # Always flatten the tree structure to get individual variables
             invar_leaves = jax.tree.leaves(invar)
             outvar_leaves = jax.tree.leaves(outvar)
-            
+
             # Store the relationships
             for var in invar_leaves:
                 self.invars_to_state[var] = state
             for var in outvar_leaves:
                 self.outvars_to_state[var] = state
-            
+
             # Store the reverse mappings
             if len(invar_leaves) == 1:
                 self.state_to_invars[state] = invar_leaves[0]
             else:
                 self.state_to_invars[state] = invar_leaves
-                
+
             if len(outvar_leaves) == 1:
                 self.state_to_outvars[state] = outvar_leaves[0]
             else:
@@ -109,7 +110,7 @@ class BpuOperationConnectionParser:
 
     def _is_brainevent_jit_connection(self, eqn):
         """Check if equation is a jit-wrapped brainevent operation that should be a connection"""
-        if eqn.primitive.name == 'jit':
+        if is_jit_primitive(eqn.primitive):
             # Check if the function name starts with 'brainevent'
             if 'name' in eqn.params:
                 name = eqn.params['name']
@@ -122,11 +123,11 @@ class BpuOperationConnectionParser:
         # slice operations should cause a split and become their own operation
         if eqn.primitive.name == 'slice':
             return True
-        
+
         # brainevent jit connections should cause a split (but don't become operations themselves)
         if self._is_brainevent_jit_connection(eqn):
             return True
-            
+
         # All other operations can be merged into the current operation
         return False
 
@@ -147,8 +148,8 @@ class BpuOperationConnectionParser:
         Exception: brainevent jit operations are kept as-is for connection detection
         """
         expanded_eqns = []
-        
-        if eqn.primitive.name == 'jit':
+
+        if is_jit_primitive(eqn.primitive):
             # Check if this is a brainevent connection - if so, keep it as-is
             if self._is_brainevent_jit_connection(eqn):
                 expanded_eqns.append(eqn)
@@ -163,7 +164,7 @@ class BpuOperationConnectionParser:
                     expanded_eqns.append(eqn)
         else:
             expanded_eqns.append(eqn)
-            
+
         return expanded_eqns
 
     def _find_operation_by_variable(self, var, expanded_eqns):
@@ -174,7 +175,7 @@ class BpuOperationConnectionParser:
                 if var in eqn.outvars:
                     return operation
         return None
-    
+
     def _find_operations_using_variable(self, var, expanded_eqns):
         """Find which operations use a given variable as input"""
         using_operations = []
@@ -194,13 +195,13 @@ class BpuOperationConnectionParser:
         else:
             # Fallback - use the jit equation itself
             inner_jaxpr = jit_eqn
-        
+
         # Avoid duplicate connections
         for existing_conn in self.connections:
-            if (existing_conn.pre == pre_operation and 
+            if (existing_conn.pre == pre_operation and
                 existing_conn.post == post_operation):
                 return existing_conn
-        
+
         # Create new connection
         connection = Connection(pre=pre_operation, post=post_operation, jaxpr=inner_jaxpr)
         self.connections.append(connection)
@@ -211,18 +212,18 @@ class BpuOperationConnectionParser:
         # Extract the actual jaxpr from ClosedJaxpr
         jaxpr = closed_jaxpr.jaxpr
         expanded_eqns = []
-        
+
         # First expand all nested JAXpr
         for eqn in jaxpr.eqns:
             expanded_eqns.extend(self._expand_nested_jaxpr(eqn))
-        
+
         # First pass: create operations and identify connections
         for eqn in expanded_eqns:
             # Check if this equation should split the current operation
             if self._should_split_operation(eqn):
                 # Finalize current operation before the split
                 self._finalize_current_operation()
-                
+
                 # If it's a brainevent connection, don't add to operations - we'll handle separately
                 if self._is_brainevent_jit_connection(eqn):
                     continue
@@ -232,29 +233,29 @@ class BpuOperationConnectionParser:
             else:
                 # Regular equation - add to current operation
                 self.current_operation_eqns.append(eqn)
-        
+
         # Finalize the last operation
         self._finalize_current_operation()
-        
+
         # Second pass: create connections based on data flow analysis
         for i, eqn in enumerate(expanded_eqns):
             if self._is_brainevent_jit_connection(eqn):
                 # Analyze data flow for this connection
                 pre_operation = None
                 post_operations = []
-                
+
                 # Find pre_operation: which operation produces the input variables for this connection
                 for input_var in eqn.invars:
                     producer = self._find_operation_by_variable(input_var, expanded_eqns)
                     if producer:
                         pre_operation = producer
                         break  # Use the first producer we find
-                
+
                 # Find post_operations: which operations use the output variables from this connection
                 for output_var in eqn.outvars:
                     consumers = self._find_operations_using_variable(output_var, expanded_eqns)
                     post_operations.extend(consumers)
-                
+
                 # Remove duplicates from post_operations
                 seen = set()
                 unique_post_operations = []
@@ -263,28 +264,27 @@ class BpuOperationConnectionParser:
                         seen.add(id(op))
                         unique_post_operations.append(op)
                 post_operations = unique_post_operations
-                
+
                 # Create connections from pre_operation to each post_operation
                 if pre_operation is not None:
                     for post_operation in post_operations:
                         if post_operation != pre_operation:  # Avoid self-connections
                             self._create_connection(pre_operation, post_operation, eqn)
-    
 
     def parse(self, *args, **kwargs):
         """Main parsing function that analyzes JAXpr and builds groups and connections"""
-        stateful_module = brainstate.compile.StatefulFunction(self.module_instance)
+        stateful_module = StatefulFunction(self.module_instance)
         stateful_module.make_jaxpr(*args, **kwargs)
         cache_key = stateful_module.get_arg_cache_key(*args, **kwargs)
         jaxpr = stateful_module.get_jaxpr(cache_key)
         states = stateful_module.get_states(cache_key)
-        
+
         # Build state mappings
         self._build_state_mappings(jaxpr, states, cache_key, stateful_module)
-        
+
         # Parse equations to identify groups and connections
         self._parse_equations(jaxpr)
-        
+
         return self.operations, self.connections, {
             'invars_to_state': self.invars_to_state,
             'state_to_invars': self.state_to_invars,
@@ -294,7 +294,7 @@ class BpuOperationConnectionParser:
 
     def debug_raw_jaxpr(self, *args, **kwargs):
         """Debug function to print raw JAXpr for inspection"""
-        stateful_module = brainstate.compile.StatefulFunction(self.module_instance)
+        stateful_module = StatefulFunction(self.module_instance)
         stateful_module.make_jaxpr(*args, **kwargs)
         cache_key = stateful_module.get_arg_cache_key(*args, **kwargs)
         jaxpr = stateful_module.get_jaxpr(cache_key)

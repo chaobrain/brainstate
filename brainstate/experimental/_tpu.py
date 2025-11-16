@@ -15,7 +15,7 @@
 
 from brainstate.transform._jit import jit
 from brainstate.transform._loop_collect_return import for_loop
-from ._export import register_jit_impl, register_forloop_impl
+from ._main import register_jit_impl, register_forloop_impl
 
 register_forloop_impl('tpu', for_loop)
 register_jit_impl('tpu', jit)

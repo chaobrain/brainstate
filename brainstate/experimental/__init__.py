@@ -15,8 +15,8 @@
 
 from typing import Callable
 
-from ._export import *
-from ._export import __all__ as export_all
+from ._main import *
+from ._main import __all__ as export_all
 
 __all__ = ['ForLoop', 'JIT'] + export_all
 
