@@ -70,6 +70,8 @@ __all__ = [
     'Literal',
 
     'make_iota', 'to_elt', 'BatchTracer', 'BatchTrace',
+
+    'is_jit_primitive',
 ]
 
 T = TypeVar("T")
@@ -338,3 +340,13 @@ def to_concrete_aval(aval):
     if isinstance(aval, Tracer):
         return aval.to_concrete_value()
     return aval
+
+
+
+def is_jit_primitive(eqn: JaxprEqn) -> bool:
+    if jax.__version_info__ < (0, 7, 0):
+        return eqn.primitive.name == 'pjit'
+    else:
+        return eqn.primitive.name == 'jit'
+
+
