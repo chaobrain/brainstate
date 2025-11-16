@@ -20,7 +20,9 @@ A ``State``-based Transformation System for Program Compilation and Augmentation
 __version__ = "0.2.7"
 __versio_info__ = (0, 2, 7)
 
+
 from . import environ
+from . import experimental
 from . import graph
 from . import mixin
 from . import nn
@@ -52,7 +54,7 @@ _augment_apis = {
 }
 
 augment = create_deprecated_module_proxy(
-    deprecated_name='brainstate.augment',
+    deprecated_name='brainstate.transform',
     replacement_module=transform,
     replacement_name='brainstate.transform',
     scoped_apis=_augment_apis
@@ -150,6 +152,7 @@ def __getattr__(name):
 
 __all__ = [
     'environ',
+    'experimental',
     'graph',
     'mixin',
     'nn',

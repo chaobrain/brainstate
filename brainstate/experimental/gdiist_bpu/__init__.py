@@ -1,4 +1,4 @@
-# Copyright 2025 BrainX Ecosystem Limited. All Rights Reserved.
+# Copyright 2024 BrainX Ecosystem Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,9 +13,14 @@
 # limitations under the License.
 # ==============================================================================
 
-from brainstate.transform._jit import jit
-from brainstate.transform._loop_collect_return import for_loop
-from ._main import register_jit_impl, register_forloop_impl
 
-register_forloop_impl('gpu', for_loop)
-register_jit_impl('gpu', jit)
+from .main import BpuOperationConnectionParser
+from .._main import register_jit_impl, register_forloop_impl
+
+
+register_jit_impl('bpu', lambda fn: BpuOperationConnectionParser(fn, target='jit'))
+register_forloop_impl('bpu', lambda fn: BpuOperationConnectionParser(fn, target='forloop'))
+
+
+
+

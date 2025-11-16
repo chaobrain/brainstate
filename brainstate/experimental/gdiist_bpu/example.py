@@ -13,26 +13,17 @@
 # limitations under the License.
 # ==============================================================================
 
-#
-# Implementation of the paper:
-#
-# - Brette, R., Rudolph, M., Carnevale, T., Hines, M., Beeman, D., Bower, J. M., et al. (2007),
-#   Simulation of networks of spiking neurons: a review of tools and strategies., J. Comput. Neurosci., 23, 3, 349–98
-#
-# which is based on the balanced network proposed by:
-#
-# - Vogels, T. P. and Abbott, L. F. (2005), Signal propagation and logic gating in networks of integrate-and-fire neurons., J. Neurosci., 25, 46, 10786–95
-#
 
+import brainunit as u
 
 import brainpy
-import brainunit as u
-import matplotlib.pyplot as plt
 import braintools
 import brainstate
+from brainstate.experimental.gdiist_bpu.data import display_analysis_results
+from brainstate.experimental.gdiist_bpu.main import BpuOperationConnectionParser
 
 
-class EINet(brainstate.nn.Module):
+class EINet(brainstate.nn.DynamicsGroup):
     def __init__(self):
         super().__init__()
         self.n_exc = 3200
@@ -79,15 +70,9 @@ def run_step(t):
         return spikes
 
 
-# simulation
+parser = BpuOperationConnectionParser(net)
 with brainstate.environ.context(dt=0.1 * u.ms):
-    times = u.math.arange(0. * u.ms, 1000. * u.ms, brainstate.environ.get_dt())
-    runner = brainstate.experimental.ForLoop(lambda t: net.update(t, 20. * u.mA), device='cpu')
-    spikes = runner(times)
+    raw_jaxpr = parser.debug_raw_jaxpr(t, inp)
+    operations, connections, state_mappings = parser.parse(t, inp)
 
-# visualization
-t_indices, n_indices = u.math.where(spikes)
-plt.scatter(times[t_indices], n_indices, s=1)
-plt.xlabel('Time (ms)')
-plt.ylabel('Neuron index')
-plt.show()
+display_analysis_results(operations, connections, state_mappings)

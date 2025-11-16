@@ -1,4 +1,4 @@
-# Copyright 2024 BDP Ecosystem Limited. All Rights Reserved.
+# Copyright 2024 BrainX Ecosystem Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,10 +14,12 @@
 # ==============================================================================
 
 import jax
+from typing import Callable
 
+from brainstate._compatible_import import is_jit_primitive
 from brainstate.transform import StatefulFunction
 from .data import Operation, Connection
-from brainstate._compatible_import import is_jit_primitive
+from .utils import _is_brainevent_jit_connection
 
 
 class BpuOperationConnectionParser:
@@ -26,11 +28,12 @@ class BpuOperationConnectionParser:
     This class is responsible for parsing the operations and connections in a BPU model.
     """
 
-    def __init__(
-        self,
-        module_instance,
-    ):
-        self.module_instance = module_instance
+    def __init__(self, fn: Callable, target: str = 'jit'):
+        self.fn = fn
+        self.stateful_fn = StatefulFunction(self.fn)
+        self.target = target
+        assert target in ['jit', 'forloop'], f"Target must be either 'jit' or 'forloop', got {target}"
+
         self.operations = []
         self.connections = []
         self.invars_to_state = dict()
@@ -44,11 +47,13 @@ class BpuOperationConnectionParser:
         self.operation_counter = 0
 
     def _build_state_mappings(self, closed_jaxpr, states, cache_key, stateful_module):
-        """Build mappings between state variables and JAXpr input/output variables
+        """
+        Build mappings between state variables and JAXpr input/output variables
         
         This implementation is inspired by brainscale's _etrace_compiler_module_info.py
         which provides more accurate state mapping by considering the actual model structure
         """
+
         # Clear previous mappings
         self.invars_to_state.clear()
         self.state_to_invars.clear()
@@ -73,16 +78,10 @@ class BpuOperationConnectionParser:
 
         # Map state tree to invars and outvars
         # Input variables: the last len(state_avals) invars correspond to states
-        state_tree_invars = jax.tree.unflatten(
-            state_tree,
-            jaxpr.invars[num_inputs_before_states:]
-        )
+        state_tree_invars = jax.tree.unflatten(state_tree, jaxpr.invars[num_inputs_before_states:])
 
         # Output variables: after the main outputs, the rest correspond to state updates
-        state_tree_outvars = jax.tree.unflatten(
-            state_tree,
-            jaxpr.outvars[num_out:]
-        )
+        state_tree_outvars = jax.tree.unflatten(state_tree, jaxpr.outvars[num_out:])
 
         # Build mappings using the tree structure
         # This ensures proper correspondence between states and their JAXpr variables
@@ -108,16 +107,6 @@ class BpuOperationConnectionParser:
             else:
                 self.state_to_outvars[state] = outvar_leaves
 
-    def _is_brainevent_jit_connection(self, eqn):
-        """Check if equation is a jit-wrapped brainevent operation that should be a connection"""
-        if is_jit_primitive(eqn.primitive):
-            # Check if the function name starts with 'brainevent'
-            if 'name' in eqn.params:
-                name = eqn.params['name']
-                if isinstance(name, str) and name.startswith('brainevent'):
-                    return True
-        return False
-
     def _should_split_operation(self, eqn):
         """Check if equation should cause a split in current operation"""
         # slice operations should cause a split and become their own operation
@@ -125,7 +114,7 @@ class BpuOperationConnectionParser:
             return True
 
         # brainevent jit connections should cause a split (but don't become operations themselves)
-        if self._is_brainevent_jit_connection(eqn):
+        if _is_brainevent_jit_connection(eqn):
             return True
 
         # All other operations can be merged into the current operation
@@ -151,7 +140,7 @@ class BpuOperationConnectionParser:
 
         if is_jit_primitive(eqn.primitive):
             # Check if this is a brainevent connection - if so, keep it as-is
-            if self._is_brainevent_jit_connection(eqn):
+            if _is_brainevent_jit_connection(eqn):
                 expanded_eqns.append(eqn)
             else:
                 # Expand other jit operations
@@ -225,7 +214,7 @@ class BpuOperationConnectionParser:
                 self._finalize_current_operation()
 
                 # If it's a brainevent connection, don't add to operations - we'll handle separately
-                if self._is_brainevent_jit_connection(eqn):
+                if _is_brainevent_jit_connection(eqn):
                     continue
                 # If it's a slice, add it as a new operation
                 elif eqn.primitive.name == 'slice':
@@ -239,7 +228,7 @@ class BpuOperationConnectionParser:
 
         # Second pass: create connections based on data flow analysis
         for i, eqn in enumerate(expanded_eqns):
-            if self._is_brainevent_jit_connection(eqn):
+            if _is_brainevent_jit_connection(eqn):
                 # Analyze data flow for this connection
                 pre_operation = None
                 post_operations = []
@@ -273,11 +262,10 @@ class BpuOperationConnectionParser:
 
     def parse(self, *args, **kwargs):
         """Main parsing function that analyzes JAXpr and builds groups and connections"""
-        stateful_module = StatefulFunction(self.module_instance)
+        stateful_module = StatefulFunction(self.fn)
         stateful_module.make_jaxpr(*args, **kwargs)
-        cache_key = stateful_module.get_arg_cache_key(*args, **kwargs)
-        jaxpr = stateful_module.get_jaxpr(cache_key)
-        states = stateful_module.get_states(cache_key)
+        jaxpr = stateful_module.get_jaxpr(*args, **kwargs)
+        states = stateful_module.get_states(*args, **kwargs)
 
         # Build state mappings
         self._build_state_mappings(jaxpr, states, cache_key, stateful_module)
@@ -294,10 +282,9 @@ class BpuOperationConnectionParser:
 
     def debug_raw_jaxpr(self, *args, **kwargs):
         """Debug function to print raw JAXpr for inspection"""
-        stateful_module = StatefulFunction(self.module_instance)
+        stateful_module = StatefulFunction(self.fn)
         stateful_module.make_jaxpr(*args, **kwargs)
-        cache_key = stateful_module.get_arg_cache_key(*args, **kwargs)
-        jaxpr = stateful_module.get_jaxpr(cache_key)
+        jaxpr = stateful_module.get_jaxpr(*args, **kwargs)
 
         print("Raw JAXpr:")
         print(jaxpr)

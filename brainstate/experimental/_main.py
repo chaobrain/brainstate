@@ -1,4 +1,4 @@
-# Copyright 2024 BDP Ecosystem Limited. All Rights Reserved.
+# Copyright 2024 BrainX Ecosystem Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,6 +15,9 @@
 
 
 from typing import Callable
+
+from brainstate.transform._jit import jit
+from brainstate.transform._loop_collect_return import for_loop
 
 __all__ = [
     "get_registered_devices",
@@ -53,3 +56,9 @@ def register_jit_impl(device: str, impl: Callable):
     if device not in registered_devices:
         registered_devices[device] = {}
     registered_devices[device]['jit'] = impl
+
+
+for d in ['cpu', 'gpu', 'tpu']:
+    register_forloop_impl(d, for_loop)
+    register_jit_impl(d, jit)
+

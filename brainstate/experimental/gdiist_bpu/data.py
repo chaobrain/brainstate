@@ -1,4 +1,4 @@
-# Copyright 2024 BDP Ecosystem Limited. All Rights Reserved.
+# Copyright 2024 BrainX Ecosystem Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -30,8 +30,11 @@ class Connection(NamedTuple):
     jaxpr: ClosedJaxpr
 
 
-def display_analysis_results(operations: List[Operation], connections: List[Connection],
-                             state_mappings: Dict[str, Any]):
+def display_analysis_results(
+    operations: List[Operation],
+    connections: List[Connection],
+    state_mappings: Dict[str, Any]
+):
     """
     Display comprehensive analysis results for BPU Operation Connection Parser
     
