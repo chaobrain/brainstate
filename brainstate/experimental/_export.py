@@ -17,45 +17,39 @@
 from typing import Callable
 
 __all__ = [
-    'ForLoop',
-    'JIT',
+    "get_registered_devices",
+    'get_forloop_impl',
+    'get_jit_impl',
+    'register_forloop_impl',
+    'register_jit_impl',
 ]
 
-registered_devices = {
-    'cpu': None,
-    'gpu': None,
-    'tpu': None,
-}
+registered_devices = {}
 
 
-class ForLoop:
-    def __init__(
-        self,
-        fn: Callable,
-        device: str,
-    ):
-        self.fn = fn
-        self.device = device
-
-        if device == 'bpu':
-            pass
-
-    def __call__(self, *args, **kwargs):
-        pass
+def get_registered_devices():
+    return list(registered_devices.keys())
 
 
-class JIT:
-    def __init__(
-        self,
-        fn: Callable,
-        device: str,
-    ):
-        self.fn = fn
-        self.device = device
+def get_forloop_impl(device: str) -> Callable:
+    if device not in registered_devices:
+        raise ValueError(f"Device '{device}' is not registered.")
+    return registered_devices[device]['forloop']
 
-        if device not in registered_devices:
-            raise ValueError(f"Device '{device}' is not registered.")
-        self.device = device
 
-    def __call__(self, *args, **kwargs):
-        pass
+def get_jit_impl(device: str) -> Callable:
+    if device not in registered_devices:
+        raise ValueError(f"Device '{device}' is not registered.")
+    return registered_devices[device]['jit']
+
+
+def register_forloop_impl(device: str, impl: Callable):
+    if device not in registered_devices:
+        registered_devices[device] = {}
+    registered_devices[device]['forloop'] = impl
+
+
+def register_jit_impl(device: str, impl: Callable):
+    if device not in registered_devices:
+        registered_devices[device] = {}
+    registered_devices[device]['jit'] = impl

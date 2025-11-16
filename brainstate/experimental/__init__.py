@@ -13,8 +13,40 @@
 # limitations under the License.
 # ==============================================================================
 
+from typing import Callable
+
 from ._export import *
 from ._export import __all__ as export_all
 
-__all__ = export_all
-del export_all
+__all__ = ['ForLoop', 'JIT'] + export_all
+
+
+class ForLoop:
+    def __init__(
+        self,
+        fn: Callable,
+        device: str,
+    ):
+        self.fn = fn
+        self.device = device
+        if device not in get_registered_devices():
+            raise ValueError(f"Device '{device}' is not registered.")
+
+    def __call__(self, *args, **kwargs):
+        return get_forloop_impl(self.device)(self.fn, *args, **kwargs)
+
+
+class JIT:
+    def __init__(
+        self,
+        fn: Callable,
+        device: str,
+    ):
+        self.fn = fn
+        self.device = device
+
+        if device not in get_registered_devices():
+            raise ValueError(f"Device '{device}' is not registered.")
+
+    def __call__(self, *args, **kwargs):
+        return get_jit_impl(self.device)(self.fn, *args, **kwargs)
