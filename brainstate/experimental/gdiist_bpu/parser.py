@@ -17,14 +17,18 @@ from typing import Tuple
 
 import jax
 
-from brainstate._compatible_import import is_jit_primitive
 from brainstate.transform._make_jaxpr import StatefulFunction
 from .component import Node, Connection
 from .utils import _is_connection, eqns_to_jaxpr, find_in_states, find_out_states
 
 
 class Parser:
-    def __init__(self, stateful_fn: StatefulFunction, inputs: Tuple):
+    def __init__(
+        self,
+        stateful_fn: StatefulFunction,
+        inputs: Tuple,
+    ):
+        assert isinstance(stateful_fn, StatefulFunction), "stateful_fn must be an instance of StatefulFunction"
         self.stateful_fn = stateful_fn
         self.inputs = inputs
 
@@ -139,20 +143,26 @@ class Parser:
         """
         expanded_eqns = []
 
-        if is_jit_primitive(eqn):
-            if _is_connection(eqn):
-                expanded_eqns.append(eqn)
+        # if is_jit_primitive(eqn):
+        #     if _is_connection(eqn):
+        #         expanded_eqns.append(eqn)
+        #
+        #     # Expand other jit operations
+        #     elif 'jaxpr' in eqn.params:
+        #         nested_jaxpr = eqn.params['jaxpr']
+        #         # Recursively process nested equations
+        #         for nested_eqn in nested_jaxpr.eqns:
+        #             expanded_eqns.extend(self._expand_nested_jaxpr(nested_eqn))
+        #     else:
+        #         expanded_eqns.append(eqn)
+        #
+        # elif _is_connection(eqn):
+        #     expanded_eqns.append(eqn)
+        #
+        # else:
+        #     expanded_eqns.append(eqn)
 
-            # Expand other jit operations
-            elif 'jaxpr' in eqn.params:
-                nested_jaxpr = eqn.params['jaxpr']
-                # Recursively process nested equations
-                for nested_eqn in nested_jaxpr.eqns:
-                    expanded_eqns.extend(self._expand_nested_jaxpr(nested_eqn))
-            else:
-                expanded_eqns.append(eqn)
-
-        elif _is_connection(eqn):
+        if _is_connection(eqn):
             expanded_eqns.append(eqn)
 
         else:
@@ -204,9 +214,8 @@ class Parser:
 
         # Extract the actual jaxpr from ClosedJaxpr
         jaxpr = closed_jaxpr.jaxpr
-        expanded_eqns = []
-
         # First expand all nested JAXpr
+        expanded_eqns = []
         for eqn in jaxpr.eqns:
             expanded_eqns.extend(self._expand_nested_jaxpr(eqn))
 

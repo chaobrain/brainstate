@@ -53,7 +53,8 @@ class GdiistBPUParser:
         cache_size: int = 128,
     ):
         self.fn = fn
-        self.stateful_fn = StatefulFunction(self.fn, return_only_write=False, ir_optimizations='all')
+        # self.stateful_fn = StatefulFunction(self.fn, return_only_write=False, ir_optimizations='all')
+        self.stateful_fn = StatefulFunction(self.fn, return_only_write=False)
         self.target = target
         if target not in ['jit', 'forloop']:
             raise ValueError(f"Target must be either 'jit' or 'forloop', got {target}")
@@ -88,9 +89,9 @@ class GdiistBPUParser:
 
         Args:
             *args: Positional arguments for the function
+            **kwargs: Keyword arguments for the function
             display: Display mode ('text', 'summary', 'graph', or None)
             verbose: If True, show additional parsing information
-            **kwargs: Keyword arguments for the function
 
         Returns:
             Tuple of (nodes, connections, state_mapping)
@@ -115,7 +116,6 @@ class GdiistBPUParser:
             nodes, connections, state_mapping = Parser(self.stateful_fn, (parse_args, parse_kwargs)).parse()
             self.compiled_graph.set(key, (nodes, connections, state_mapping))
             result = (nodes, connections, state_mapping)
-
         self._last_parse_result = result
 
         # Handle display options
@@ -124,11 +124,7 @@ class GdiistBPUParser:
 
         return result
 
-    def display(
-        self,
-        result: Optional[Tuple] = None,
-        mode: str = 'text'
-    ) -> None:
+    def display(self, result: Tuple, mode: str = 'text') -> None:
         """
         Display the parsed results in various formats.
 
@@ -136,11 +132,6 @@ class GdiistBPUParser:
             result: Parse result tuple, uses last parse result if None
             mode: Display mode ('text', 'summary', 'graph')
         """
-        if result is None:
-            if self._last_parse_result is None:
-                raise ValueError("No parse result available. Call parse() first.")
-            result = self._last_parse_result
-
         nodes, connections, state_mapping = result
 
         if mode == 'text':
@@ -389,7 +380,34 @@ def _text_display(
     print(f"\nNode Analysis:")
     print('----------------------------------------')
     for i, operation in enumerate(operations):
-        print(f"\nNode {i}:")
+        print(f"\nNode {i}: {operation.name}")
+
+        # Display input states
+        if operation.in_states:
+            print(f"     Input States ({len(operation.in_states)}):")
+            for state in operation.in_states:
+                state_info = f"{state.__class__.__name__}"
+                if hasattr(state, 'value') and hasattr(state.value, 'shape'):
+                    state_info += f" {state.value.dtype}{list(state.value.shape)}"
+                print(f"       - {state_info}")
+        else:
+            print(f"     Input States: None")
+        print()
+
+        # Display output states
+        if operation.out_states:
+            print(f"     Output States ({len(operation.out_states)}):")
+            for state in operation.out_states:
+                state_info = f"{state.__class__.__name__}"
+                if hasattr(state, 'value') and hasattr(state.value, 'shape'):
+                    state_info += f" {state.value.dtype}{list(state.value.shape)}"
+                print(f"       - {state_info}")
+        else:
+            print(f"     Output States: None")
+        print()
+
+        # Display equations
+        print(f"     Equations ({len(operation.eqns)}):")
         formater = _no_formatter(len(operation.eqns))
         for j, eqn in enumerate(operation.eqns):
             _text_one_eqn(eqn, formater.format(j))

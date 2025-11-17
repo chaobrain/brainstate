@@ -202,6 +202,9 @@ class StatefulFunction(PrettyObject):
         If True, only return states that were written to during execution
         (not just read). This can reduce memory usage when you only care
         about modified states. Default is True.
+    ir_optimizations: str or sequence of str, optional
+        The IR optimizations to apply to the generated jaxpr. Can be a single
+        optimization name or a sequence of names. If None, no optimizations are applied.
 
     Attributes
     ----------

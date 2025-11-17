@@ -82,6 +82,8 @@ class ForLoop:
             self._fn = fn
             self._is_decorator = False
 
+        self._compiled_fn = None
+
     @property
     def fn(self) -> Optional[Callable]:
         """The wrapped function."""
@@ -109,9 +111,11 @@ class ForLoop:
 
         if self._fn is None:
             raise RuntimeError("ForLoop function not set. This should not happen.")
+        if self._compiled_fn is None:
+            self._compiled_fn = get_forloop_impl(self._device)(self._fn, **self.kwargs)
 
         self._call_count += 1
-        return get_forloop_impl(self._device)(self._fn, **self.kwargs)(*args, **kwargs)
+        return self._compiled_fn(*args, **kwargs)
 
     def __repr__(self) -> str:
         fn_name = self._fn.__name__ if self._fn and hasattr(self._fn, '__name__') else str(self._fn)

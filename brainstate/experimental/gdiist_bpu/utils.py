@@ -70,11 +70,9 @@ def eqns_to_jaxpr(
     # Infer invars if not provided
     if invars is None:
         # Collect all variables that are used but not produced by equations
-        produced_vars = set()
         for eqn in eqns:
             produced_vars.update(eqn.outvars)
 
-        used_outvars = set()
         used_vars = []
         for eqn in eqns:
             for var in eqn.invars:
@@ -139,6 +137,7 @@ def find_in_states(
         if var in in_var_to_state:
             st = in_var_to_state[var]
             if id(st) not in in_state_ids:
+                in_state_ids.add(id(st))
                 in_states.append(st)
     return in_states
 
@@ -153,5 +152,6 @@ def find_out_states(
         if var in out_var_to_state:
             st = out_var_to_state[var]
             if id(st) not in out_state_ids:
+                out_state_ids.add(id(st))
                 out_states.append(st)
     return out_states
