@@ -14,12 +14,10 @@
 # ==============================================================================
 
 
-# python
-import numpy as np
 import jax
 import jax.numpy as jnp
+import numpy as np
 from jax import make_jaxpr
-import pytest
 
 from brainstate.transform._ir_inline_jit import inline_jit
 
@@ -41,6 +39,7 @@ def expand_small_jits(max_eqns: int = 5):
         if call_jaxpr is None:
             return False
         return count_equations(call_jaxpr) <= max_eqns
+
     return predicate
 
 
@@ -50,6 +49,7 @@ def expand_without_primitive(primitive_name: str):
         if call_jaxpr is None:
             return False
         return not has_primitive(call_jaxpr, primitive_name)
+
     return predicate
 
 
@@ -211,4 +211,3 @@ def test_custom_predicate_expands_only_selected_jits():
     assert np.allclose(np.array(orig_out), np.array(exp_out))
     # Some calls should be expanded according to the custom predicate
     assert count_call_equations(expanded) <= count_call_equations(jaxpr.jaxpr)
-
