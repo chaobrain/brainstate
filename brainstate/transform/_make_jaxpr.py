@@ -76,7 +76,7 @@ from brainstate._utils import set_module_as
 from brainstate.typing import PyTree
 from brainstate.util import PrettyObject
 from brainstate.util._cache import BoundedCache
-from ._ir_optim_v2 import optimize_jaxpr
+from ._ir_optim import optimize_jaxpr
 
 __all__ = [
     "StatefulFunction",
