@@ -19,6 +19,7 @@ from typing import (Any, Callable, Union)
 
 import jax
 from jax._src import sharding_impls
+from jax.stages import Traced
 
 from brainstate._compatible_import import Device
 from brainstate._utils import set_module_as
@@ -41,6 +42,7 @@ class JittedFunction(Callable):
     eval_shape: Callable  # evaluate the shape of the jitted function
     compile: Callable  # lower the jitted function
     trace: Callable  # trace the jitted
+    lower: Callable  # lower the jitted
 
     def __call__(self, *args, **kwargs):
         pass
@@ -115,11 +117,40 @@ def _get_jitted_fun(
         except AttributeError:
             pass
 
-    def eval_shape():
-        raise NotImplementedError
+    def eval_shape(*args, **params):
+        state_trace = fun.get_state_trace(*args, **params, compile_if_miss=True)
+        read_state_vals = state_trace.get_read_state_values(True)
+        write_state_vals = state_trace.get_write_state_values(True)
+        ret = jit_fun.eval_shape(state_trace.get_state_values(), *args, **params)
+        state_trace.assign_state_vals_v2(read_state_vals, write_state_vals)
+        return ret
 
-    def trace():
-        """Trace this function explicitly for the given arguments.
+    def lower(*args, **params) -> jax.stages.Lowered:
+        """
+        Lower this function explicitly for the given arguments.
+
+        A lowered function is staged out of Python and translated to a
+        compiler's input language, possibly in a backend-dependent
+        manner. It is ready for compilation but not yet compiled.
+
+        Returns:
+          A ``Lowered`` instance representing the lowering.
+        """
+        # compile the function and get the state trace
+        state_trace = fun.get_state_trace(*args, **params, compile_if_miss=True)
+        read_state_vals = state_trace.get_read_state_values(True)
+        write_state_vals = state_trace.get_write_state_values(True)
+
+        # compile the model
+        lowered = jit_fun.lower(state_trace.get_state_values(), *args, **params)
+
+        # write the state values back to the states
+        state_trace.assign_state_vals_v2(read_state_vals, write_state_vals)
+        return lowered
+
+    def trace(*args, **params) -> Traced:
+        """
+        Trace this function explicitly for the given arguments.
 
         A traced function is staged out of Python and translated to a jaxpr. It is
         ready for lowering but not yet lowered.
@@ -127,7 +158,17 @@ def _get_jitted_fun(
         Returns:
           A ``Traced`` instance representing the tracing.
         """
-        raise NotImplementedError
+        # compile the function and get the state trace
+        state_trace = fun.get_state_trace(*args, **params, compile_if_miss=True)
+        read_state_vals = state_trace.get_read_state_values(True)
+        write_state_vals = state_trace.get_write_state_values(True)
+
+        # call the jitted function
+        traced = jit_fun.trace(state_trace.get_state_values(), *args, **params)
+
+        # write the state values back to the states
+        state_trace.assign_state_vals_v2(read_state_vals, write_state_vals)
+        return traced
 
     def compile(*args, **params):
         """Lower this function explicitly for the given arguments.
@@ -165,13 +206,10 @@ def _get_jitted_fun(
     # clear cache
     jitted_fun.clear_cache = clear_cache
 
-    # evaluate the shape of the jitted function
-    jitted_fun.eval_shape = eval_shape
-
     # compile the jitted function
+    jitted_fun.eval_shape = eval_shape
     jitted_fun.compile = compile
-
-    # trace the jitted function
+    jitted_fun.lower = lower
     jitted_fun.trace = trace
 
     return jitted_fun
