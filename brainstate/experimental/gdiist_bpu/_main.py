@@ -23,7 +23,7 @@ from brainstate._compatible_import import JaxprEqn
 from brainstate.transform._make_jaxpr import StatefulFunction, _make_hashable
 from brainstate.util._cache import BoundedCache
 from ._data import Dynamics, Connection
-from ._parser import Parser
+from ._parser import ParserV2
 
 __all__ = [
     'GdiistBPUParser',
@@ -54,12 +54,10 @@ class GdiistBPUParser:
         self.fn = fn
         self.stateful_fn = StatefulFunction(self.fn, ir_optimizations='dce')
         # self.stateful_fn = StatefulFunction(self.fn)
-        self.target = target
         if target not in ['jit', 'forloop']:
             raise ValueError(f"Target must be either 'jit' or 'forloop', got {target}")
+        self.target = target
         self.compiled_graph = BoundedCache(maxsize=cache_size)
-        self._last_parse_result = None
-        self._last_cache_key = None
 
     def cache_key(self, *args, **kwargs) -> Any:
         """
@@ -96,7 +94,6 @@ class GdiistBPUParser:
             Tuple of (nodes, connections, state_mapping)
         """
         key = self.cache_key(*args, **kwargs)
-        self._last_cache_key = key
 
         if key in self.compiled_graph:
             if verbose:
@@ -112,10 +109,9 @@ class GdiistBPUParser:
                 parse_args, parse_kwargs = jax.tree.map(lambda x: x[0], (args, kwargs))
 
             # IR parsing
-            nodes, connections, state_mapping = Parser(self.stateful_fn, (parse_args, parse_kwargs)).parse()
+            nodes, connections, state_mapping = ParserV2(self.stateful_fn, (parse_args, parse_kwargs)).parse()
             self.compiled_graph.set(key, (nodes, connections, state_mapping))
             result = (nodes, connections, state_mapping)
-        self._last_parse_result = result
 
         # Handle display options
         if display is not None:
@@ -132,7 +128,6 @@ class GdiistBPUParser:
             mode: Display mode ('text', 'summary', 'graph')
         """
         nodes, connections, state_mapping = result
-
         if mode == 'text':
             _text_display(nodes, connections, state_mapping)
         else:
@@ -140,22 +135,7 @@ class GdiistBPUParser:
 
     def clear_cache(self) -> None:
         """Clear the entire cache."""
-        self.compiled_graph = BoundedCache(maxsize=self.compiled_graph.maxsize)
-        self._last_parse_result = None
-        self._last_cache_key = None
-
-    def cache_info(self) -> Dict[str, Any]:
-        """
-        Get information about the cache status.
-
-        Returns:
-            Dictionary with cache statistics
-        """
-        return {
-            'size': len(self.compiled_graph),
-            'maxsize': self.compiled_graph.maxsize,
-            'last_key': self._last_cache_key,
-        }
+        self.compiled_graph.clear()
 
     def __call__(self, *args, **kwargs):
         """Alias for parse() method."""
@@ -164,9 +144,11 @@ class GdiistBPUParser:
     def __repr__(self) -> str:
         """String representation of the parser."""
         return (
-            f"GdiistBPUParser(target='{self.target}', "
+            f"{self.__class__.__name__}("
+            f"target='{self.target}', "
             f"cache_size={self.compiled_graph.maxsize}, "
-            f"cached_graphs={len(self.compiled_graph)})"
+            f"cached_graphs={len(self.compiled_graph)}"
+            f")"
         )
 
 
@@ -247,6 +229,7 @@ def _text_one_eqn(eqn: JaxprEqn, no):
             for outvar in eqn.outvars:
                 outvar_infos.append(f"{outvar.aval.dtype}{list(outvar.aval.shape)}")
             output_info = " -> [" + ", ".join(outvar_infos) + "]"
+
     # Get input count
     input_count = len(eqn.invars)
     print(f"     [{no}] {eqn.primitive.name}({input_count} inputs){output_info}")

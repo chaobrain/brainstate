@@ -22,13 +22,13 @@ from brainstate._state import State
 __all__ = [
     'Dynamics',
     'Connection',
+    'Projection',
     'Output',
     'Spike',
 ]
 
 
 class Dynamics(NamedTuple):
-    name: str
     jaxpr: Jaxpr
     in_states: List[State]
     out_states: List[State]
@@ -43,18 +43,35 @@ class Dynamics(NamedTuple):
     def has_in_var(self, invar: Var):
         return invar in self.jaxpr.invars
 
+    def has_in_state(self, state: State):
+        state_id = id(state)
+        return any(id(s) == state_id for s in self.in_states)
+
+    def has_out_state(self, state: State):
+        state_id = id(state)
+        return any(id(s) == state_id for s in self.out_states)
+
 
 class Connection(NamedTuple):
+    """
+    """
+    state: State
+    jaxpr: Jaxpr
+
+
+class Projection(NamedTuple):
     pre: Dynamics
     post: Dynamics
     jaxpr: Jaxpr
 
 
 class Output(NamedTuple):
-    pass
+    jaxpr: Jaxpr
+    states: List[State]
 
 
 class Spike(NamedTuple):
     # 包含
     #   heaviside_surrogate_gradient
-    pass
+    state: State
+    jaxpr: Jaxpr

@@ -13,17 +13,27 @@
 # limitations under the License.
 # ==============================================================================
 
-from typing import Tuple
+from typing import Tuple, Dict
 
 import jax
 
+from brainstate.transform._ir_inline_jit import inline_jit
 from brainstate.transform._make_jaxpr import StatefulFunction
 from ._data import Dynamics, Connection
 from ._utils import _is_connection, eqns_to_jaxpr, find_in_states, find_out_states
 
 
-class Parser:
-    def __init__(self, stateful_fn: StatefulFunction, inputs: Tuple):
+class ParserV2:
+    """
+    Parser for BPU (second generation) operations and connections.
+    """
+
+    def __init__(
+        self,
+        stateful_fn: StatefulFunction,
+        inputs: Tuple,
+        jit_inline: bool = True,
+    ):
         assert isinstance(stateful_fn, StatefulFunction), "stateful_fn must be an instance of StatefulFunction"
         self.stateful_fn = stateful_fn
         assert stateful_fn.return_only_write, (
@@ -33,22 +43,54 @@ class Parser:
 
         self.nodes = []
         self.connections = []
-        self.invar_to_state = dict()
-        self.state_to_invars = dict()
-        self.outvar_to_state = dict()
-        self.state_to_outvars = dict()
 
         # Track current operation state
         self.current_eqns = []
         self.current_operation_name = None
         self.node_counter = 0
 
+        # jaxpr
+        jaxpr = self.stateful_fn.get_jaxpr(*self.inputs[0], **self.inputs[1])
+        if jit_inline:
+            jaxpr = inline_jit(jaxpr, _is_connection)
+
+        # Build state mappings
+        in_states = self.stateful_fn.get_states(*self.inputs[0], **self.inputs[1])
+        out_states = self.stateful_fn.get_write_states(*self.inputs[0], **self.inputs[1])
+        self.state_mapping = _build_state_mapping(jaxpr, in_states, out_states)
+
+        # Parse equations to identify groups and connections
+        self._parse_equations(jaxpr)
+
+    @property
+    def invar_to_state(self):
+        return self.state_mapping['invar_to_state']
+
+    @property
+    def state_to_invars(self):
+        return self.state_mapping['state_to_invars']
+
+    @property
+    def outvar_to_state(self):
+        return self.state_mapping['outvar_to_state']
+
+    @property
+    def state_to_outvars(self):
+        return self.state_mapping['state_to_outvars']
+
+    @property
+    def in_states(self):
+        return self.state_mapping['in_states']
+
+    @property
+    def out_states(self):
+        return self.state_mapping['out_states']
+
     def _finalize_current_operation(self):
         """Finalize the current operation and add it to operations list"""
         if len(self.current_eqns) > 0:
             jaxpr = eqns_to_jaxpr(self.current_eqns)
             node = Dynamics(
-                name=f"node{self.node_counter}",
                 jaxpr=jaxpr,
                 in_states=find_in_states(self.invar_to_state, jaxpr.invars),
                 out_states=find_out_states(self.outvar_to_state, jaxpr.outvars),
@@ -194,29 +236,6 @@ class Parser:
                         if post_operation != pre_operation:  # Avoid self-connections
                             self._create_connection(pre_operation, post_operation, eqn)
 
-    def parse(self):
-        jaxpr = self.stateful_fn.get_jaxpr(*self.inputs[0], **self.inputs[1])
-
-        # Build state mappings
-        in_states = self.stateful_fn.get_states(*self.inputs[0], **self.inputs[1])
-        out_states = self.stateful_fn.get_write_states(*self.inputs[0], **self.inputs[1])
-        self.invar_to_state, self.state_to_invars, self.outvar_to_state, self.state_to_outvars = \
-            _build_state_mapping(jaxpr, in_states, out_states)
-
-        # Parse equations to identify groups and connections
-        self._parse_equations(jaxpr)
-
-        return self.nodes, self.connections, self.state_mapping
-
-    @property
-    def state_mapping(self):
-        return {
-            'invar_to_state': self.invar_to_state,
-            'state_to_invars': self.state_to_invars,
-            'outvar_to_state': self.outvar_to_state,
-            'state_to_outvars': self.state_to_outvars,
-        }
-
 
 def _should_split_operation(eqn):
     """Check if equation should cause a split in current operation"""
@@ -232,7 +251,7 @@ def _should_split_operation(eqn):
     return False
 
 
-def _build_state_mapping(closed_jaxpr, in_states, out_states):
+def _build_state_mapping(closed_jaxpr, in_states, out_states) -> Dict:
     # Clear previous mappings
     invar_to_state = dict()
     state_to_invars = dict()
@@ -281,8 +300,8 @@ def _build_state_mapping(closed_jaxpr, in_states, out_states):
 
     # Output variables: after the main outputs, the rest correspond to state updates
     state_tree_outvars = jax.tree.unflatten(out_state_tree, jaxpr.outvars[n_out_before_states:])
-    assert len(out_states) == len(
-        state_tree_outvars), 'Mismatch between number of output states and state tree outvars'
+    assert len(out_states) == len(state_tree_outvars), \
+        'Mismatch between number of output states and state tree outvars'
 
     # Build mappings using the tree structure
     # This ensures proper correspondence between states and their JAXpr variables
@@ -298,4 +317,11 @@ def _build_state_mapping(closed_jaxpr, in_states, out_states):
         else:
             state_to_outvars[state] = outvar_leaves
 
-    return invar_to_state, state_to_invars, outvar_to_state, state_to_outvars
+    return {
+        'invar_to_state': invar_to_state,
+        'state_to_invars': state_to_invars,
+        'outvar_to_state': outvar_to_state,
+        'state_to_outvars': state_to_outvars,
+        'in_states': in_states,
+        'out_states': out_states,
+    }

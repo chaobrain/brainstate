@@ -19,7 +19,6 @@ from jax.extend.core.primitives import dot_general_p, conv_general_dilated_p
 
 from brainstate._compatible_import import is_jit_primitive, JaxprEqn, Jaxpr, ClosedJaxpr, Var
 from brainstate._state import State
-from brainstate.transform._ir_optim_v2 import optimize_jaxpr
 
 __all__ = [
     'eqns_to_jaxpr',
@@ -27,7 +26,7 @@ __all__ = [
 ]
 
 
-def _is_connection(eqn):
+def _is_connection(eqn: JaxprEqn) -> bool:
     # Check if equation is a jit-wrapped brainevent operation that should be a connection
     if is_jit_primitive(eqn):
         # Check if the function name starts with 'brainevent'
