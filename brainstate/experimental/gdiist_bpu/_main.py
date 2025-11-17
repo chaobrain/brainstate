@@ -14,7 +14,6 @@
 # ==============================================================================
 
 
-import json
 from typing import Callable, Dict, List, Any, Tuple, Optional
 
 import jax
@@ -23,7 +22,7 @@ from jax.api_util import shaped_abstractify
 from brainstate._compatible_import import JaxprEqn
 from brainstate.transform._make_jaxpr import StatefulFunction, _make_hashable
 from brainstate.util._cache import BoundedCache
-from ._data import Node, Connection
+from ._data import Dynamics, Connection
 from ._parser import Parser
 
 __all__ = [
@@ -53,8 +52,8 @@ class GdiistBPUParser:
         cache_size: int = 128,
     ):
         self.fn = fn
-        # self.stateful_fn = StatefulFunction(self.fn, return_only_write=False, ir_optimizations='all')
-        self.stateful_fn = StatefulFunction(self.fn)
+        self.stateful_fn = StatefulFunction(self.fn, ir_optimizations='dce')
+        # self.stateful_fn = StatefulFunction(self.fn)
         self.target = target
         if target not in ['jit', 'forloop']:
             raise ValueError(f"Target must be either 'jit' or 'forloop', got {target}")
@@ -83,7 +82,7 @@ class GdiistBPUParser:
         display: Optional[str] = None,
         verbose: bool = False,
         **kwargs
-    ) -> Tuple[List[Node], List[Connection], Dict[str, Any]]:
+    ) -> Tuple[List[Dynamics], List[Connection], Dict[str, Any]]:
         """
         Main parsing function that analyzes JAXpr and builds groups and connections.
 
@@ -139,152 +138,6 @@ class GdiistBPUParser:
         else:
             raise ValueError(f"Unknown display mode: {mode}. Choose from 'text', 'summary', 'graph'")
 
-    def get_statistics(
-        self,
-        result: Optional[Tuple] = None
-    ) -> Dict[str, Any]:
-        """
-        Compute statistics about the parsed graph.
-
-        Args:
-            result: Parse result tuple, uses last parse result if None
-
-        Returns:
-            Dictionary containing various statistics
-        """
-        if result is None:
-            if self._last_parse_result is None:
-                raise ValueError("No parse result available. Call parse() first.")
-            result = self._last_parse_result
-
-        nodes, connections, state_mapping = result
-
-        # Basic counts
-        num_nodes = len(nodes)
-        num_connections = len(connections)
-        total_eqns = sum(len(node.eqns) for node in nodes)
-
-        # Operation type distribution
-        op_types = {}
-        for node in nodes:
-            for eqn in node.eqns:
-                op_name = eqn.primitive.name
-                op_types[op_name] = op_types.get(op_name, 0) + 1
-
-        # Connection statistics
-        connection_sources = {}
-        connection_targets = {}
-        for conn in connections:
-            connection_sources[conn.pre.name] = connection_sources.get(conn.pre.name, 0) + 1
-            connection_targets[conn.post.name] = connection_targets.get(conn.post.name, 0) + 1
-
-        # Node complexity (number of equations per node)
-        node_complexities = {node.name: len(node.eqns) for node in nodes}
-        avg_complexity = total_eqns / num_nodes if num_nodes > 0 else 0
-
-        # State mapping statistics
-        num_states = len(state_mapping.get('invar_to_state', {}))
-
-        return {
-            'num_nodes': num_nodes,
-            'num_connections': num_connections,
-            'total_equations': total_eqns,
-            'average_node_complexity': avg_complexity,
-            'operation_types': op_types,
-            'connection_sources': connection_sources,
-            'connection_targets': connection_targets,
-            'node_complexities': node_complexities,
-            'num_states': num_states,
-        }
-
-    def to_dict(
-        self,
-        result: Optional[Tuple] = None,
-        include_details: bool = True
-    ) -> Dict[str, Any]:
-        """
-        Convert the parsed result to a dictionary format.
-
-        Args:
-            result: Parse result tuple, uses last parse result if None
-            include_details: If True, include detailed equation information
-
-        Returns:
-            Dictionary representation of the parse result
-        """
-        if result is None:
-            if self._last_parse_result is None:
-                raise ValueError("No parse result available. Call parse() first.")
-            result = self._last_parse_result
-
-        nodes, connections, state_mapping = result
-
-        # Convert nodes
-        nodes_dict = []
-        for node in nodes:
-            node_info = {
-                'name': node.name,
-                'num_equations': len(node.eqns),
-            }
-            if include_details:
-                eqns_info = []
-                for eqn in node.eqns:
-                    eqn_info = {
-                        'primitive': eqn.primitive.name,
-                        'num_inputs': len(eqn.invars),
-                        'num_outputs': len(eqn.outvars),
-                    }
-                    # Add output shapes
-                    if len(eqn.outvars) > 0:
-                        output_shapes = []
-                        for outvar in eqn.outvars:
-                            if hasattr(outvar, 'aval'):
-                                output_shapes.append({
-                                    'dtype': str(outvar.aval.dtype),
-                                    'shape': list(outvar.aval.shape)
-                                })
-                        eqn_info['outputs'] = output_shapes
-                    eqns_info.append(eqn_info)
-                node_info['equations'] = eqns_info
-            nodes_dict.append(node_info)
-
-        # Convert connections
-        connections_dict = []
-        for conn in connections:
-            conn_info = {
-                'source': conn.pre.name,
-                'target': conn.post.name,
-            }
-            if include_details and hasattr(conn.jaxpr, 'jaxpr'):
-                conn_info['num_inner_equations'] = len(conn.jaxpr.jaxpr.eqns)
-            connections_dict.append(conn_info)
-
-        return {
-            'nodes': nodes_dict,
-            'connections': connections_dict,
-            'statistics': self.get_statistics(result),
-        }
-
-    def to_json(
-        self,
-        result: Optional[Tuple] = None,
-        include_details: bool = True,
-        indent: int = 2
-    ) -> str:
-        """
-        Convert the parsed result to JSON format.
-
-        Args:
-            result: Parse result tuple, uses last parse result if None
-            include_details: If True, include detailed equation information
-            indent: JSON indentation level
-
-        Returns:
-            JSON string representation
-        """
-        data = self.to_dict(result, include_details)
-        return json.dumps(data, indent=indent, default=str)
-
     def clear_cache(self) -> None:
         """Clear the entire cache."""
         self.compiled_graph = BoundedCache(maxsize=self.compiled_graph.maxsize)
@@ -304,51 +157,6 @@ class GdiistBPUParser:
             'last_key': self._last_cache_key,
         }
 
-    def validate(self, result: Optional[Tuple] = None) -> List[str]:
-        """
-        Validate the parsed result for potential issues.
-
-        Args:
-            result: Parse result tuple, uses last parse result if None
-
-        Returns:
-            List of warning messages (empty if no issues found)
-        """
-        if result is None:
-            if self._last_parse_result is None:
-                raise ValueError("No parse result available. Call parse() first.")
-            result = self._last_parse_result
-
-        nodes, connections, state_mapping = result
-        warnings_list = []
-
-        # Check for empty nodes
-        for node in nodes:
-            if len(node.eqns) == 0:
-                warnings_list.append(f"Node '{node.name}' has no equations")
-
-        # Check for isolated nodes (no connections)
-        connected_nodes = set()
-        for conn in connections:
-            connected_nodes.add(conn.pre.name)
-            connected_nodes.add(conn.post.name)
-
-        for node in nodes:
-            if node.name not in connected_nodes and len(nodes) > 1:
-                warnings_list.append(f"Node '{node.name}' is isolated (no connections)")
-
-        # Check for self-loops
-        for conn in connections:
-            if conn.pre.name == conn.post.name:
-                warnings_list.append(f"Self-loop detected in node '{conn.pre.name}'")
-
-        # Check for duplicate connections
-        conn_pairs = [(conn.pre.name, conn.post.name) for conn in connections]
-        if len(conn_pairs) != len(set(conn_pairs)):
-            warnings_list.append("Duplicate connections detected")
-
-        return warnings_list
-
     def __call__(self, *args, **kwargs):
         """Alias for parse() method."""
         return self.parse(*args, **kwargs)
@@ -363,7 +171,7 @@ class GdiistBPUParser:
 
 
 def _text_display(
-    operations: List[Node],
+    operations: List[Dynamics],
     connections: List[Connection],
     state_mappings: Dict[str, Any]
 ):

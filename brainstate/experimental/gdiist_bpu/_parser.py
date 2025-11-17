@@ -18,7 +18,7 @@ from typing import Tuple
 import jax
 
 from brainstate.transform._make_jaxpr import StatefulFunction
-from ._data import Node, Connection
+from ._data import Dynamics, Connection
 from ._utils import _is_connection, eqns_to_jaxpr, find_in_states, find_out_states
 
 
@@ -47,7 +47,7 @@ class Parser:
         """Finalize the current operation and add it to operations list"""
         if len(self.current_eqns) > 0:
             jaxpr = eqns_to_jaxpr(self.current_eqns)
-            node = Node(
+            node = Dynamics(
                 name=f"node{self.node_counter}",
                 jaxpr=jaxpr,
                 in_states=find_in_states(self.invar_to_state, jaxpr.invars),
@@ -96,7 +96,7 @@ class Parser:
     def _find_node_has_outvar(self, var):
         """Find which operation produces or consumes a given variable"""
         for node in self.nodes:
-            node: Node
+            node: Dynamics
             if node.has_out_var(var):
                 return node
         return None

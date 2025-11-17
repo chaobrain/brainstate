@@ -16,17 +16,18 @@
 
 from typing import NamedTuple, List
 
+from brainstate._compatible_import import Jaxpr, Var
 from brainstate._state import State
-from brainstate._compatible_import import ClosedJaxpr, JaxprEqn, Jaxpr, Var
 
 __all__ = [
-    'Node',
+    'Dynamics',
     'Connection',
     'Output',
+    'Spike',
 ]
 
 
-class Node(NamedTuple):
+class Dynamics(NamedTuple):
     name: str
     jaxpr: Jaxpr
     in_states: List[State]
@@ -44,10 +45,16 @@ class Node(NamedTuple):
 
 
 class Connection(NamedTuple):
-    pre: Node
-    post: Node
+    pre: Dynamics
+    post: Dynamics
     jaxpr: Jaxpr
 
 
 class Output(NamedTuple):
+    pass
+
+
+class Spike(NamedTuple):
+    # 包含
+    #   heaviside_surrogate_gradient
     pass
