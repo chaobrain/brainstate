@@ -19,7 +19,7 @@ import jax
 import jax.numpy as jnp
 
 from brainstate._compatible_import import Jaxpr, ClosedJaxpr
-from brainstate.experimental.gdiist_bpu.utils import eqns_to_jaxpr, eqns_to_closed_jaxpr
+from brainstate.experimental.gdiist_bpu._utils import eqns_to_jaxpr, eqns_to_closed_jaxpr
 
 
 class TestEqnsToJaxpr(unittest.TestCase):

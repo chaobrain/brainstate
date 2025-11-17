@@ -15,7 +15,7 @@
 
 
 from brainstate.experimental._impl import register_jit_impl, register_forloop_impl
-from .main import GdiistBPUParser
+from ._main import GdiistBPUParser
 
 register_jit_impl('bpu', lambda fn: GdiistBPUParser(fn, target='jit'))
 register_forloop_impl('bpu', lambda fn: GdiistBPUParser(fn, target='forloop'))

@@ -23,8 +23,8 @@ from jax.api_util import shaped_abstractify
 from brainstate._compatible_import import JaxprEqn
 from brainstate.transform._make_jaxpr import StatefulFunction, _make_hashable
 from brainstate.util._cache import BoundedCache
-from .component import Node, Connection
-from .parser import Parser
+from ._data import Node, Connection
+from ._parser import Parser
 
 __all__ = [
     'GdiistBPUParser',
