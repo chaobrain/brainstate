@@ -19,6 +19,7 @@ from jax.extend.core.primitives import dot_general_p, conv_general_dilated_p
 
 from brainstate._compatible_import import is_jit_primitive, JaxprEqn, Jaxpr, ClosedJaxpr, Var
 from brainstate._state import State
+from brainstate.transform._ir_optim_v2 import optimize_jaxpr
 
 __all__ = [
     'eqns_to_jaxpr',

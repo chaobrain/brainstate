@@ -54,7 +54,7 @@ class GdiistBPUParser:
     ):
         self.fn = fn
         # self.stateful_fn = StatefulFunction(self.fn, return_only_write=False, ir_optimizations='all')
-        self.stateful_fn = StatefulFunction(self.fn, return_only_write=False)
+        self.stateful_fn = StatefulFunction(self.fn)
         self.target = target
         if target not in ['jit', 'forloop']:
             raise ValueError(f"Target must be either 'jit' or 'forloop', got {target}")
@@ -183,7 +183,7 @@ class GdiistBPUParser:
         avg_complexity = total_eqns / num_nodes if num_nodes > 0 else 0
 
         # State mapping statistics
-        num_states = len(state_mapping.get('invars_to_state', {}))
+        num_states = len(state_mapping.get('invar_to_state', {}))
 
         return {
             'num_nodes': num_nodes,

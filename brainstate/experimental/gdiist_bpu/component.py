@@ -17,7 +17,7 @@
 from typing import NamedTuple, List
 
 from brainstate._state import State
-from brainstate._compatible_import import ClosedJaxpr, JaxprEqn, Jaxpr
+from brainstate._compatible_import import ClosedJaxpr, JaxprEqn, Jaxpr, Var
 
 __all__ = [
     'Node',
@@ -35,6 +35,12 @@ class Node(NamedTuple):
     @property
     def eqns(self):
         return self.jaxpr.eqns
+
+    def has_out_var(self, outvar: Var):
+        return outvar in self.jaxpr.outvars
+
+    def has_in_var(self, invar: Var):
+        return invar in self.jaxpr.invars
 
 
 class Connection(NamedTuple):
