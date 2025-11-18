@@ -1206,7 +1206,7 @@ def _step6_build_outputs(
 # Call Order Analysis
 # ============================================================================
 
-def _step7_build_call_orders(
+def _step7_build_call_graph(
     jaxpr: Jaxpr,
     groups: List[Group],
     projections: List[Projection],
@@ -1231,7 +1231,7 @@ def _step7_build_call_orders(
         for eqn in proj.jaxpr.eqns:
             eqn_to_component[id(eqn)] = proj
 
-    # Process equations in order and add components to call_orders
+    # Process equations in order and add components to call_graph
     seen_components = set()
     for eqn in jaxpr.eqns:
         eqn_id = id(eqn)
@@ -1406,7 +1406,7 @@ def compile(
     )
 
     # Step 7: Determine call order
-    call_orders = _step7_build_call_orders(jaxpr, groups, projections, inputs, outputs)
+    call_orders = _step7_build_call_graph(jaxpr, groups, projections, inputs, outputs)
 
     # Step 8: Validate the compilation
     _step8_validate_compilation(

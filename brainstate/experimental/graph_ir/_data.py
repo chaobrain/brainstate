@@ -151,7 +151,7 @@ class Spike(NamedTuple):
     jaxpr: ClosedJaxpr
 
 
-# Type alias for elements that can appear in call_orders
+# Type alias for elements that can appear in call_graph
 CallOrderElement = Union[Group, Projection, Input, Output]
 
 
@@ -168,14 +168,13 @@ class CompiledGraph(NamedTuple):
         projections: Projection bundles (connections between groups).
         inputs: External inputs bound to individual groups.
         outputs: Output taps that expose group values to callers.
-        call_orders: Ordered sequence of :class:`CallOrderElement` objects that
-            describes how the compiled program should be executed.
+        call_graph:
     """
     groups: List[Group]
     projections: List[Projection]
     inputs: List[Input]
     outputs: List[Output]
-    call_orders: List[CallOrderElement]
+    call_graph: List[CallOrderElement]
 
     def display(self, mode='text'):
         """Render the compiled graph with the requested presentation.
@@ -218,7 +217,7 @@ class CompiledGraph(NamedTuple):
         print(f"  Projections: {len(self.projections)}")
         print(f"  Inputs:      {len(self.inputs)}")
         print(f"  Outputs:     {len(self.outputs)}")
-        print(f"  Call orders: {len(self.call_orders)}")
+        print(f"  Call orders: {len(self.call_graph)}")
 
         # Groups
         if self.groups:
@@ -295,7 +294,7 @@ class CompiledGraph(NamedTuple):
         print("EXECUTION ORDER")
         print("=" * 80)
         print()
-        for i, component in enumerate(self.call_orders):
+        for i, component in enumerate(self.call_graph):
             comp_type = type(component).__name__
             if isinstance(component, Group):
                 print(f"{i:2d}. [Group]      {component.name}")
@@ -343,7 +342,7 @@ class CompiledGraph(NamedTuple):
         # Show execution order
         print("Execution Order:")
         print()
-        for i, component in enumerate(self.call_orders):
+        for i, component in enumerate(self.call_graph):
             indent = "  " * min(i, 3)  # Limit indentation
             if isinstance(component, Group):
                 comp_id, comp_name = comp_to_id[id(component)]

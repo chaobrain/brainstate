@@ -96,7 +96,7 @@ class ParsedResults(NamedTuple):
         """
         Run the network using the compiled graph structure.
 
-        This executes components in call_orders, maintaining a variable environment.
+        This executes components in call_graph, maintaining a variable environment.
         """
         # Build variable environment: Var -> value mapping
         var_env = {}
@@ -104,8 +104,8 @@ class ParsedResults(NamedTuple):
         # Step 1: Initialize environment with input arguments
         self._initialize_var_env(var_env, args)
 
-        # Step 2: Execute components in call_orders
-        for component in self.compiled.call_orders:
+        # Step 2: Execute components in call_graph
+        for component in self.compiled.call_graph:
             if isinstance(component, Input):
                 self._execute_input(component, var_env)
             elif isinstance(component, Group):
