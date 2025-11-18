@@ -15,12 +15,14 @@
 
 """Typed containers and visualization helpers for the experimental graph IR."""
 
-from typing import NamedTuple, List, Union
+from dataclasses import dataclass
+from typing import List, Union, NamedTuple
 
 from brainstate._compatible_import import ClosedJaxpr, Var
 from brainstate._state import State
 
 __all__ = [
+    'GraphElem',
     'Group',
     'Connection',
     'Projection',
@@ -31,7 +33,15 @@ __all__ = [
 ]
 
 
-class Group(NamedTuple):
+@dataclass
+class GraphElem:
+    """Base class for compiled graph elements."""
+
+    jaxpr: ClosedJaxpr
+
+
+@dataclass
+class Group(GraphElem):
     """Logical container for a compiled neuron group.
 
     Attributes:
@@ -42,7 +52,6 @@ class Group(NamedTuple):
         input_vars: JAXPR variables describing runtime inputs for the group.
         name: Human-readable label used in diagnostics and visualizations.
     """
-    jaxpr: ClosedJaxpr
     hidden_states: List[State]
     in_states: List[State]
     out_states: List[State]
@@ -78,13 +87,15 @@ class Group(NamedTuple):
         return any(id(s) == state_id for s in self.hidden_states)
 
 
-class Connection(NamedTuple):
+@dataclass
+class Connection(GraphElem):
     """Describes the primitives that shuttle activity between two groups."""
 
-    jaxpr: ClosedJaxpr
+    pass
 
 
-class Projection(NamedTuple):
+@dataclass
+class Projection(GraphElem):
     """Connection bundle that transfers activity between two groups.
 
     Attributes:
@@ -97,7 +108,6 @@ class Projection(NamedTuple):
     """
     hidden_states: List[State]
     in_states: List[State]
-    jaxpr: ClosedJaxpr
     connections: List[Connection]
     pre_group: Group
     post_group: Group
@@ -113,19 +123,19 @@ class Projection(NamedTuple):
         return self.post_group
 
 
-class Output(NamedTuple):
+@dataclass
+class Output(GraphElem):
     """Description of how values are extracted from a group."""
 
-    jaxpr: ClosedJaxpr
     hidden_states: List[State]
     in_states: List[State]
     group: Group
 
 
-class Input(NamedTuple):
+@dataclass
+class Input(GraphElem):
     """Description of how external values are injected into a group."""
 
-    jaxpr: ClosedJaxpr
     group: Group
 
 
