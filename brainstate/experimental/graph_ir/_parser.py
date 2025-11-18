@@ -14,9 +14,10 @@
 # ==============================================================================
 
 from functools import partial
-from typing import Tuple, Dict, NamedTuple, Sequence, Any, Callable, Hashable
+from typing import Tuple, Dict, NamedTuple, Sequence, Any, Callable, Hashable, List
 
 import jax
+from jax._src.core import ClosedJaxpr
 
 from brainstate._compatible_import import Jaxpr, Var
 from brainstate._state import State
@@ -287,8 +288,30 @@ def parse(
     return call
 
 
-def _build_state_mapping(closed_jaxpr, in_states, out_states) -> Dict:
-    # Clear previous mappings
+def _build_state_mapping(
+    closed_jaxpr: ClosedJaxpr,
+    in_states: List[State],
+    out_states: List[State],
+) -> Dict:
+    # --- validations ---
+    if not isinstance(closed_jaxpr, ClosedJaxpr):
+        raise TypeError(f"closed_jaxpr must be a ClosedJaxpr, got {type(closed_jaxpr)}")
+
+    if not all(isinstance(s, State) for s in in_states):
+        bad = [type(s) for s in in_states if not isinstance(s, State)]
+        raise TypeError(f"in_states must contain only State instances, got {bad}")
+
+    if not all(isinstance(s, State) for s in out_states):
+        bad = [type(s) for s in out_states if not isinstance(s, State)]
+        raise TypeError(f"out_states must contain only State instances, got {bad}")
+
+    missing_out = [s for s in out_states if s not in in_states]
+    if missing_out:
+        raise ValueError(
+            f"All out_states must be present in in_states. Missing: {[repr(s) for s in missing_out]}"
+        )
+
+    # empty initialization
     invar_to_state = dict()
     state_to_invars = dict()
     outvar_to_state = dict()
