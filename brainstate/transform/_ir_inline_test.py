@@ -19,7 +19,7 @@ import jax.numpy as jnp
 import numpy as np
 from jax import make_jaxpr
 
-from brainstate.transform._ir_inline_jit import inline_jit
+from brainstate.transform._ir_inline import inline_jit
 
 
 def has_primitive(jaxpr, primitive_name: str) -> bool:

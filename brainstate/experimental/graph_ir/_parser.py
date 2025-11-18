@@ -20,7 +20,7 @@ import jax
 
 from brainstate._compatible_import import Jaxpr, Var
 from brainstate._state import State
-from brainstate.transform._ir_inline_jit import inline_jit
+from brainstate.transform._ir_inline import inline_jit
 from brainstate.transform._make_jaxpr import StatefulFunction, get_arg_cache_key
 from ._compiler import compile
 from ._data import CompiledGraph, Group, Projection, Input, Output
