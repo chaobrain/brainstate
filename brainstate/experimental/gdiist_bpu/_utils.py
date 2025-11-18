@@ -13,17 +13,13 @@
 # limitations under the License.
 # ==============================================================================
 
-from typing import Sequence, Dict
+from collections import defaultdict
+from typing import Sequence, Dict, List, Set
 
 from jax.extend.core.primitives import dot_general_p, conv_general_dilated_p
 
-from brainstate._compatible_import import is_jit_primitive, JaxprEqn, Jaxpr, ClosedJaxpr, Var
+from brainstate._compatible_import import is_jit_primitive, JaxprEqn, Var
 from brainstate._state import State
-
-__all__ = [
-    'eqns_to_jaxpr',
-    'eqns_to_closed_jaxpr',
-]
 
 
 def _is_connection(eqn: JaxprEqn) -> bool:
@@ -73,87 +69,51 @@ def _is_connection(eqn: JaxprEqn) -> bool:
     return False
 
 
-def eqns_to_jaxpr(
-    eqns: Sequence[JaxprEqn],
-    invars: Sequence[Var] = None,
-    outvars: Sequence[Var] = None,
-    constvars: Sequence[Var] = None,
-) -> Jaxpr:
-    """
-    Convert a sequence of JaxprEqn into a Jaxpr.
+class UnionFind:
+    """Union-Find (Disjoint Set Union) data structure for grouping states."""
 
-    Args:
-        eqns: Sequence of Jaxpr equations to convert
-        invars: Input variables. If None, will be inferred from equations
-        outvars: Output variables. If None, will be inferred from equations
-        constvars: Constant variables. If None, defaults to empty list
+    def __init__(self):
+        self.parent = {}
+        self.rank = {}
 
-    Returns:
-        Jaxpr: A Jaxpr object constructed from the equations
-    """
-    if constvars is None:
-        constvars = []
+    def make_set(self, x):
+        """Create a new set containing only x."""
+        if x not in self.parent:
+            self.parent[x] = x
+            self.rank[x] = 0
 
-    produced_vars = set()
-    used_outvars = set()
-    # Infer invars if not provided
-    if invars is None:
-        # Collect all variables that are used but not produced by equations
-        for eqn in eqns:
-            produced_vars.update(eqn.outvars)
+    def find(self, x):
+        """Find the representative of the set containing x."""
+        if x not in self.parent:
+            self.make_set(x)
+        if self.parent[x] != x:
+            self.parent[x] = self.find(self.parent[x])  # Path compression
+        return self.parent[x]
 
-        used_vars = []
-        for eqn in eqns:
-            for var in eqn.invars:
-                if isinstance(var, Var):
-                    if var not in produced_vars and var not in used_vars:
-                        used_vars.append(var)
-                    if var in produced_vars:
-                        used_outvars.add(var)
+    def union(self, x, y):
+        """Merge the sets containing x and y."""
+        root_x = self.find(x)
+        root_y = self.find(y)
 
-        invars = used_vars
+        if root_x == root_y:
+            return
 
-    # Infer outvars if not provided
-    if outvars is None:
-        # Use the output variables of the last equation
-        if eqns:
-            outvars = list(produced_vars.difference(used_outvars))
+        # Union by rank
+        if self.rank[root_x] < self.rank[root_y]:
+            self.parent[root_x] = root_y
+        elif self.rank[root_x] > self.rank[root_y]:
+            self.parent[root_y] = root_x
         else:
-            outvars = []
+            self.parent[root_y] = root_x
+            self.rank[root_x] += 1
 
-    return Jaxpr(
-        constvars=list(constvars),
-        invars=list(invars),
-        outvars=list(outvars),
-        eqns=list(eqns),
-    )
-
-
-def eqns_to_closed_jaxpr(
-    eqns: Sequence[JaxprEqn],
-    invars: Sequence[Var] = None,
-    outvars: Sequence[Var] = None,
-    constvars: Sequence[Var] = None,
-    consts: Sequence = None,
-) -> ClosedJaxpr:
-    """
-    Convert a sequence of JaxprEqn into a ClosedJaxpr.
-
-    Args:
-        eqns: Sequence of Jaxpr equations to convert
-        invars: Input variables. If None, will be inferred from equations
-        outvars: Output variables. If None, will be inferred from equations
-        constvars: Constant variables. If None, defaults to empty list
-        consts: Constant values corresponding to constvars. If None, defaults to empty list
-
-    Returns:
-        ClosedJaxpr: A ClosedJaxpr object constructed from the equations
-    """
-    if consts is None:
-        consts = []
-
-    jaxpr = eqns_to_jaxpr(eqns, invars, outvars, constvars)
-    return ClosedJaxpr(jaxpr, list(consts))
+    def get_groups(self) -> List[Set]:
+        """Get all groups as a list of sets."""
+        groups_dict = defaultdict(set)
+        for x in self.parent.keys():
+            root = self.find(x)
+            groups_dict[root].add(x)
+        return list(groups_dict.values())
 
 
 def find_in_states(

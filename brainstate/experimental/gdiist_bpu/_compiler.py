@@ -26,8 +26,9 @@ from typing import List, Dict, Set, Tuple
 
 from brainstate._compatible_import import ClosedJaxpr, Jaxpr, Var, JaxprEqn
 from brainstate._state import State
+from brainstate.transform._ir_processing import eqns_to_jaxpr
 from ._data import Group, Connection, Projection, Input, Output, CompiledGraph
-from ._utils import _is_connection, eqns_to_jaxpr
+from ._utils import _is_connection, UnionFind
 
 __all__ = [
     'compile',
@@ -41,61 +42,10 @@ class CompilationError(Exception):
 
 
 # ============================================================================
-# Helper Classes
-# ============================================================================
-
-class UnionFind:
-    """Union-Find (Disjoint Set Union) data structure for grouping states."""
-
-    def __init__(self):
-        self.parent = {}
-        self.rank = {}
-
-    def make_set(self, x):
-        """Create a new set containing only x."""
-        if x not in self.parent:
-            self.parent[x] = x
-            self.rank[x] = 0
-
-    def find(self, x):
-        """Find the representative of the set containing x."""
-        if x not in self.parent:
-            self.make_set(x)
-        if self.parent[x] != x:
-            self.parent[x] = self.find(self.parent[x])  # Path compression
-        return self.parent[x]
-
-    def union(self, x, y):
-        """Merge the sets containing x and y."""
-        root_x = self.find(x)
-        root_y = self.find(y)
-
-        if root_x == root_y:
-            return
-
-        # Union by rank
-        if self.rank[root_x] < self.rank[root_y]:
-            self.parent[root_x] = root_y
-        elif self.rank[root_x] > self.rank[root_y]:
-            self.parent[root_y] = root_x
-        else:
-            self.parent[root_y] = root_x
-            self.rank[root_x] += 1
-
-    def get_groups(self) -> List[Set]:
-        """Get all groups as a list of sets."""
-        groups_dict = defaultdict(set)
-        for x in self.parent.keys():
-            root = self.find(x)
-            groups_dict[root].add(x)
-        return list(groups_dict.values())
-
-
-# ============================================================================
 # State Grouping Analysis
 # ============================================================================
 
-def _analyze_state_dependencies(
+def _step1_analyze_state_dependencies(
     jaxpr: Jaxpr,
     hidden_states: Tuple[State, ...],
     invar_to_state: Dict[Var, State],
@@ -278,7 +228,7 @@ def _can_reach(jaxpr: Jaxpr, from_var: Var, to_var: Var, var_to_eqns: dict) -> b
 # Group Construction
 # ============================================================================
 
-def _build_groups(
+def _step2_build_groups(
     jaxpr: Jaxpr,
     state_groups: List[Set[State]],
     in_states: Tuple[State, ...],
@@ -413,7 +363,7 @@ def _build_groups(
 # Connection and Projection Analysis
 # ============================================================================
 
-def _extract_connections(jaxpr: Jaxpr) -> List[Tuple[JaxprEqn, Connection]]:
+def _step3_extract_connections(jaxpr: Jaxpr) -> List[Tuple[JaxprEqn, Connection]]:
     """
     Extract all connection equations and create Connection objects.
 
@@ -434,7 +384,7 @@ def _extract_connections(jaxpr: Jaxpr) -> List[Tuple[JaxprEqn, Connection]]:
     return connections
 
 
-def _build_projections(
+def _step4_build_projections(
     jaxpr: Jaxpr,
     groups: List[Group],
     connections: List[Tuple[JaxprEqn, Connection]],
@@ -535,7 +485,7 @@ def _build_projections(
 # Input and Output Analysis
 # ============================================================================
 
-def _build_inputs(
+def _step5_build_inputs(
     jaxpr: Jaxpr,
     groups: List[Group],
     invar_to_state: Dict[Var, State],
@@ -584,7 +534,7 @@ def _build_inputs(
     return inputs
 
 
-def _build_outputs(
+def _step6_build_outputs(
     jaxpr: Jaxpr,
     groups: List[Group],
     outvar_to_state: Dict[Var, State],
@@ -680,7 +630,7 @@ def _build_outputs(
 # Call Order Analysis
 # ============================================================================
 
-def _build_call_orders(
+def _step7_build_call_orders(
     jaxpr: Jaxpr,
     groups: List[Group],
     projections: List[Projection],
@@ -729,90 +679,7 @@ def _build_call_orders(
     return call_orders
 
 
-# ============================================================================
-# Main Compilation Function
-# ============================================================================
-
-def compile(
-    closed_jaxpr: ClosedJaxpr,
-    in_states: Tuple[State, ...],
-    out_states: Tuple[State, ...],
-    invar_to_state: Dict[Var, State],
-    outvar_to_state: Dict[Var, State],
-    state_to_invars: Dict[State, Tuple[Var, ...]],
-    state_to_outvars: Dict[State, Tuple[Var, ...]],
-) -> CompiledGraph:
-    """
-    Compile a ClosedJaxpr representing an SNN single-step update into structured components.
-
-    Args:
-        closed_jaxpr: The ClosedJaxpr to compile
-        in_states: Input states (t-1)
-        out_states: Output states (t)
-        invar_to_state: Mapping from input vars to input states
-        outvar_to_state: Mapping from output vars to output states
-        state_to_invars: Mapping from input states to their vars
-        state_to_outvars: Mapping from output states to their vars
-
-    Returns:
-        CompiledGraph object containing all components and execution order
-
-    Raises:
-        CompilationError: If compilation fails due to invalid structure
-    """
-    jaxpr = closed_jaxpr.jaxpr
-
-    # Determine hidden_states (states that are both input and output)
-    hidden_states = tuple(s for s in out_states if s in in_states)
-
-    # Step 1: Analyze state dependencies and group states
-    state_groups = _analyze_state_dependencies(
-        jaxpr, hidden_states, invar_to_state, outvar_to_state
-    )
-
-    # Step 2: Build Group objects
-    groups = _build_groups(
-        jaxpr, state_groups, in_states, out_states,
-        invar_to_state, outvar_to_state,
-        state_to_invars, state_to_outvars
-    )
-
-    # Step 3: Extract connections
-    connections = _extract_connections(jaxpr)
-
-    # Step 4: Build Projection objects
-    projections = _build_projections(
-        jaxpr, groups, connections,
-        invar_to_state, state_to_invars
-    )
-
-    # Step 5: Build Input objects
-    inputs = _build_inputs(jaxpr, groups, invar_to_state)
-
-    # Step 6: Build Output objects
-    outputs = _build_outputs(
-        jaxpr, groups, outvar_to_state, state_to_outvars
-    )
-
-    # Step 7: Determine call order
-    call_orders = _build_call_orders(jaxpr, groups, projections, inputs, outputs)
-
-    # Step 8: Validate the compilation
-    _validate_compilation(
-        closed_jaxpr, groups, projections, inputs, outputs,
-        in_states, out_states, invar_to_state
-    )
-
-    return CompiledGraph(
-        groups=groups,
-        projections=projections,
-        inputs=inputs,
-        outputs=outputs,
-        call_orders=call_orders,
-    )
-
-
-def _validate_compilation(
+def _step8_validate_compilation(
     closed_jaxpr: ClosedJaxpr,
     groups: List[Group],
     projections: List[Projection],
@@ -895,3 +762,85 @@ def _validate_compilation(
                 raise CompilationError(
                     f"Projection depends on state {state} which belongs to multiple groups"
                 )
+
+
+# ============================================================================
+# Main Compilation Function
+# ============================================================================
+
+def compile(
+    closed_jaxpr: ClosedJaxpr,
+    in_states: Tuple[State, ...],
+    out_states: Tuple[State, ...],
+    invar_to_state: Dict[Var, State],
+    outvar_to_state: Dict[Var, State],
+    state_to_invars: Dict[State, Tuple[Var, ...]],
+    state_to_outvars: Dict[State, Tuple[Var, ...]],
+) -> CompiledGraph:
+    """
+    Compile a ClosedJaxpr representing an SNN single-step update into structured components.
+
+    Args:
+        closed_jaxpr: The ClosedJaxpr to compile
+        in_states: Input states (t-1)
+        out_states: Output states (t)
+        invar_to_state: Mapping from input vars to input states
+        outvar_to_state: Mapping from output vars to output states
+        state_to_invars: Mapping from input states to their vars
+        state_to_outvars: Mapping from output states to their vars
+
+    Returns:
+        CompiledGraph object containing all components and execution order
+
+    Raises:
+        CompilationError: If compilation fails due to invalid structure
+    """
+    jaxpr = closed_jaxpr.jaxpr
+
+    # Determine hidden_states (states that are both input and output)
+    hidden_states = tuple(s for s in out_states if s in in_states)
+
+    # Step 1: Analyze state dependencies and group states
+    state_groups = _step1_analyze_state_dependencies(
+        jaxpr, hidden_states, invar_to_state, outvar_to_state
+    )
+
+    # Step 2: Build Group objects
+    groups = _step2_build_groups(
+        jaxpr, state_groups, in_states, out_states,
+        invar_to_state, outvar_to_state,
+        state_to_invars, state_to_outvars
+    )
+
+    # Step 3: Extract connections
+    connections = _step3_extract_connections(jaxpr)
+
+    # Step 4: Build Projection objects
+    projections = _step4_build_projections(
+        jaxpr, groups, connections, invar_to_state, state_to_invars
+    )
+
+    # Step 5: Build Input objects
+    inputs = _step5_build_inputs(jaxpr, groups, invar_to_state)
+
+    # Step 6: Build Output objects
+    outputs = _step6_build_outputs(
+        jaxpr, groups, outvar_to_state, state_to_outvars
+    )
+
+    # Step 7: Determine call order
+    call_orders = _step7_build_call_orders(jaxpr, groups, projections, inputs, outputs)
+
+    # Step 8: Validate the compilation
+    _step8_validate_compilation(
+        closed_jaxpr, groups, projections, inputs, outputs,
+        in_states, out_states, invar_to_state
+    )
+
+    return CompiledGraph(
+        groups=groups,
+        projections=projections,
+        inputs=inputs,
+        outputs=outputs,
+        call_orders=call_orders,
+    )

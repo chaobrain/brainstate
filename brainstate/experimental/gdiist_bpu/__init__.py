@@ -15,9 +15,9 @@
 
 
 from brainstate.experimental._impl import register_jit_impl, register_forloop_impl
-from ._main import GdiistBPUParser
 from ._compiler import compile, CompilationError
 from ._data import Group, Connection, Projection, Input, Output, CompiledGraph
+from ._main import GdiistBPUParser
 
 register_jit_impl('bpu', lambda fn: GdiistBPUParser(fn, target='jit'))
 register_forloop_impl('bpu', lambda fn: GdiistBPUParser(fn, target='forloop'))
