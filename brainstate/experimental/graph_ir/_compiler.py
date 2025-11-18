@@ -27,7 +27,7 @@ from typing import List, Dict, Set, Tuple
 from brainstate._compatible_import import ClosedJaxpr, Jaxpr, Var, JaxprEqn
 from brainstate._state import State
 from brainstate.transform._ir_processing import eqns_to_closed_jaxpr
-from ._data import Group, Connection, Projection, Input, Output, CompiledGraph
+from ._data import Graph, CallOrderElement, Group, Connection, Projection, Input, Output, CompiledGraph
 from ._utils import _is_connection, UnionFind
 
 __all__ = [
@@ -1212,47 +1212,64 @@ def _step7_build_call_graph(
     projections: List[Projection],
     inputs: List[Input],
     outputs: List[Output],
-) -> List:
+) -> Graph:
     """
     Determine the execution order of components based on the original Jaxpr equation order.
     """
-    call_orders = []
+    call_graph = Graph()
 
-    # Create a mapping from equations to components
-    eqn_to_component = {}
+    # Ensure inputs come first
+    for inp in inputs:
+        call_graph.add_node(inp)
 
-    # Map group equations
+    # Create a mapping from equations/vars to components
+    eqn_to_component: Dict[int, CallOrderElement] = {}
+    var_to_component: Dict[Var, CallOrderElement] = {}
+
     for group in groups:
         for eqn in group.jaxpr.eqns:
             eqn_to_component[id(eqn)] = group
-
-    # Map projection equations
     for proj in projections:
         for eqn in proj.jaxpr.eqns:
             eqn_to_component[id(eqn)] = proj
 
-    # Process equations in order and add components to call_graph
+    # Process equations in order and add components + edges
     seen_components = set()
     for eqn in jaxpr.eqns:
-        eqn_id = id(eqn)
-        if eqn_id in eqn_to_component:
-            component = eqn_to_component[eqn_id]
-            component_id = id(component)
-            if component_id not in seen_components:
-                seen_components.add(component_id)
-                call_orders.append(component)
+        component = eqn_to_component.get(id(eqn))
+        if component is None:
+            continue
 
-    # Add inputs at the beginning
-    for inp in inputs:
-        if inp not in call_orders:
-            call_orders.insert(0, inp)
+        component_id = id(component)
+        if component_id not in seen_components:
+            seen_components.add(component_id)
+            call_graph.add_node(component)
 
-    # Add outputs at the end
+        # Link dependencies based on variable producers
+        for in_var in eqn.invars:
+            if isinstance(in_var, Var):
+                producer = var_to_component.get(in_var)
+                if producer is not None and producer is not component:
+                    call_graph.add_edge(producer, component)
+
+        for out_var in eqn.outvars:
+            if isinstance(out_var, Var):
+                var_to_component[out_var] = component
+
+    # Outputs are appended to maintain display parity with previous behavior
     for out in outputs:
-        if out not in call_orders:
-            call_orders.append(out)
+        call_graph.add_node(out)
 
-    return call_orders
+    # Structural dependencies derived from graph metadata
+    for inp in inputs:
+        call_graph.add_edge(inp, inp.group)
+    for proj in projections:
+        call_graph.add_edge(proj.pre_group, proj)
+        call_graph.add_edge(proj, proj.post_group)
+    for out in outputs:
+        call_graph.add_edge(out.group, out)
+
+    return call_graph
 
 
 def _step8_validate_compilation(
@@ -1406,7 +1423,7 @@ def compile(
     )
 
     # Step 7: Determine call order
-    call_orders = _step7_build_call_graph(jaxpr, groups, projections, inputs, outputs)
+    call_graph = _step7_build_call_graph(jaxpr, groups, projections, inputs, outputs)
 
     # Step 8: Validate the compilation
     _step8_validate_compilation(
@@ -1419,5 +1436,5 @@ def compile(
         projections=projections,
         inputs=inputs,
         outputs=outputs,
-        call_orders=call_orders,
+        call_graph=call_graph,
     )

@@ -15,7 +15,7 @@
 
 
 from ._compiler import compile, CompilationError
-from ._data import Group, Connection, Projection, Input, Output, CompiledGraph
+from ._data import Graph, GraphElem, Group, Connection, Projection, Input, Output, CompiledGraph
 from ._parser import parse
 
 __all__ = [
@@ -26,5 +26,7 @@ __all__ = [
     'Projection',
     'Input',
     'Output',
+    'GraphElem',
+    'Graph',
     'CompiledGraph',
 ]

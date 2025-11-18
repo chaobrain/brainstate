@@ -15,14 +15,16 @@
 
 """Typed containers and visualization helpers for the experimental graph IR."""
 
+from collections import defaultdict
 from dataclasses import dataclass
-from typing import List, Union, NamedTuple
+from typing import Dict, Iterable, Iterator, List, NamedTuple, Set, Tuple, Union
 
 from brainstate._compatible_import import ClosedJaxpr, Var
 from brainstate._state import State
 
 __all__ = [
     'GraphElem',
+    'Graph',
     'Group',
     'Connection',
     'Projection',
@@ -151,8 +153,70 @@ class Spike(NamedTuple):
     jaxpr: ClosedJaxpr
 
 
-# Type alias for elements that can appear in call_graph
-CallOrderElement = Union[Group, Projection, Input, Output]
+class Graph:
+    """Directed graph capturing dependencies between compiled elements."""
+
+    def __init__(self):
+        self._nodes: List[GraphElem] = []
+        self._id_to_index: Dict[int, int] = {}
+        self._forward_edges: Dict[int, Set[int]] = defaultdict(set)
+        self._reverse_edges: Dict[int, Set[int]] = defaultdict(set)
+
+    def add_node(self, node: GraphElem) -> None:
+        """Register a node in insertion order, ignoring duplicates."""
+        self._ensure_node(node)
+
+    def add_edge(self, source: GraphElem, target: GraphElem) -> None:
+        """Add a directed edge indicating that ``target`` depends on ``source``."""
+        source_idx = self._ensure_node(source)
+        target_idx = self._ensure_node(target)
+        if target_idx not in self._forward_edges[source_idx]:
+            self._forward_edges[source_idx].add(target_idx)
+            self._reverse_edges[target_idx].add(source_idx)
+
+    def nodes(self) -> Tuple[GraphElem, ...]:
+        """Return nodes in their recorded execution order."""
+        return tuple(self._nodes)
+
+    def edges(self) -> Iterable[Tuple[GraphElem, GraphElem]]:
+        """Iterate over all directed edges."""
+        for source_idx, targets in self._forward_edges.items():
+            for target_idx in targets:
+                yield (self._nodes[source_idx], self._nodes[target_idx])
+
+    def predecessors(self, node: GraphElem) -> Tuple[GraphElem, ...]:
+        """Return nodes that must execute before ``node``."""
+        node_idx = self._id_to_index.get(id(node))
+        if node_idx is None:
+            return tuple()
+        return tuple(self._nodes[i] for i in self._reverse_edges.get(node_idx, ()))
+
+    def successors(self, node: GraphElem) -> Tuple[GraphElem, ...]:
+        """Return nodes that depend on ``node``."""
+        node_idx = self._id_to_index.get(id(node))
+        if node_idx is None:
+            return tuple()
+        return tuple(self._nodes[i] for i in self._forward_edges.get(node_idx, ()))
+
+    def edge_count(self) -> int:
+        """Return the number of directed edges."""
+        return sum(len(targets) for targets in self._forward_edges.values())
+
+    def __len__(self) -> int:
+        return len(self._nodes)
+
+    def __iter__(self) -> Iterator[GraphElem]:
+        return iter(self._nodes)
+
+    def _ensure_node(self, node: GraphElem) -> int:
+        node_id = id(node)
+        existing = self._id_to_index.get(node_id)
+        if existing is not None:
+            return existing
+        index = len(self._nodes)
+        self._nodes.append(node)
+        self._id_to_index[node_id] = index
+        return index
 
 
 class CompiledGraph(NamedTuple):
@@ -168,13 +232,13 @@ class CompiledGraph(NamedTuple):
         projections: Projection bundles (connections between groups).
         inputs: External inputs bound to individual groups.
         outputs: Output taps that expose group values to callers.
-        call_graph:
+        graph: Graph describing execution order and dependencies.
     """
     groups: List[Group]
     projections: List[Projection]
     inputs: List[Input]
     outputs: List[Output]
-    call_graph: List[CallOrderElement]
+    graph: Graph
 
     def display(self, mode='text'):
         """Render the compiled graph with the requested presentation.
@@ -217,7 +281,7 @@ class CompiledGraph(NamedTuple):
         print(f"  Projections: {len(self.projections)}")
         print(f"  Inputs:      {len(self.inputs)}")
         print(f"  Outputs:     {len(self.outputs)}")
-        print(f"  Call orders: {len(self.call_graph)}")
+        print(f"  Call graph:  {len(self.graph)} nodes, {self.graph.edge_count()} edges")
 
         # Groups
         if self.groups:
@@ -289,12 +353,12 @@ class CompiledGraph(NamedTuple):
                         print(f"    - {_format_state(state)}")
                 print(f"  Equations:     {len(out.jaxpr.jaxpr.eqns)}")
 
-        # Call orders
+        # Call graph order
         print("\n" + "=" * 80)
         print("EXECUTION ORDER")
         print("=" * 80)
         print()
-        for i, component in enumerate(self.call_graph):
+        for i, component in enumerate(self.graph):
             comp_type = type(component).__name__
             if isinstance(component, Group):
                 print(f"{i:2d}. [Group]      {component.name}")
@@ -342,7 +406,7 @@ class CompiledGraph(NamedTuple):
         # Show execution order
         print("Execution Order:")
         print()
-        for i, component in enumerate(self.call_graph):
+        for i, component in enumerate(self.graph):
             indent = "  " * min(i, 3)  # Limit indentation
             if isinstance(component, Group):
                 comp_id, comp_name = comp_to_id[id(component)]
@@ -426,4 +490,3 @@ def _format_state(state: State) -> str:
             shape_str = f"value={val}"
         return f"{type(state).__name__}({shape_str})"
     return f"{type(state).__name__}()"
-
