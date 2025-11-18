@@ -8,7 +8,7 @@ import brainstate as bst
 import brainunit as u
 import brainpy
 
-from brainstate.experimental.gdiist_bpu import parse
+from brainstate.experimental.graph_ir import parse
 from brainstate.transform import StatefulFunction
 
 bst.environ.set(dt=0.1 * u.ms)

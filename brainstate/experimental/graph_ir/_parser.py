@@ -299,10 +299,7 @@ def _build_state_mapping(closed_jaxpr, in_states, out_states) -> Dict:
             invar_to_state[var] = state
 
         # Store the reverse mappings
-        if len(invar_leaves) == 1:
-            state_to_invars[state] = invar_leaves[0]
-        else:
-            state_to_invars[state] = invar_leaves
+        state_to_invars[state] = invar_leaves
 
     # output states <---> output variables #
     # ------------------------------------ #
@@ -326,10 +323,7 @@ def _build_state_mapping(closed_jaxpr, in_states, out_states) -> Dict:
         # Store the relationships
         for var in outvar_leaves:
             outvar_to_state[var] = state
-        if len(outvar_leaves) == 1:
-            state_to_outvars[state] = outvar_leaves[0]
-        else:
-            state_to_outvars[state] = outvar_leaves
+        state_to_outvars[state] = outvar_leaves
 
     return {
         'invar_to_state': invar_to_state,

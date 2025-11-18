@@ -252,20 +252,12 @@ def _step2_build_groups(
         # Collect all input vars for these hidden states
         group_hidden_in_vars = []
         for state in group_hidden_states:
-            vars = state_to_invars.get(state)
-            if isinstance(vars, (list, tuple)):
-                group_hidden_in_vars.extend(vars)
-            else:
-                group_hidden_in_vars.append(vars)
+            group_hidden_in_vars.extend(state_to_invars.get(state))
 
         # Collect all output vars for these hidden states
         group_hidden_out_vars = []
         for state in group_hidden_states:
-            vars = state_to_outvars.get(state)
-            if isinstance(vars, (list, tuple)):
-                group_hidden_out_vars.extend(vars)
-            else:
-                group_hidden_out_vars.append(vars)
+            group_hidden_out_vars.extend(state_to_outvars.get(state))
 
         # Find equations that produce these output vars
         relevant_eqns = []
@@ -336,13 +328,9 @@ def _step2_build_groups(
         for state in out_states:
             if id(state) not in group_hidden_state_ids:
                 # Check if this group produces this state
-                state_out_vars = state_to_outvars.get(state, ())
-                if isinstance(state_out_vars, (list, tuple)):
-                    if any(v in group_hidden_out_vars for v in state_out_vars):
-                        group_out_states.append(state)
-                else:
-                    if state_out_vars in group_hidden_out_vars:
-                        group_out_states.append(state)
+                state_out_vars = state_to_outvars.get(state)
+                if any(v in group_hidden_out_vars for v in state_out_vars):
+                    group_out_states.append(state)
         del group_hidden_state_ids
 
         # Generate a name for this group based on its hidden states
@@ -458,11 +446,7 @@ def _step4_build_projections(
         # Add states used by this connection
         proj_hidden_states = conn_input_states
         for state in proj_hidden_states:
-            vars = state_to_invars.get(state, ())
-            if isinstance(vars, (list, tuple)):
-                proj_invars.extend(vars)
-            else:
-                proj_invars.append(vars)
+            proj_invars.extend(state_to_invars[state])
 
         proj_jaxpr = eqns_to_jaxpr(
             eqns=proj_eqns,
@@ -605,11 +589,7 @@ def _step6_build_outputs(
         # Determine invars for the output jaxpr
         output_invars = []
         for state in all_dependent_states:
-            vars = state_to_outvars.get(state, ())
-            if isinstance(vars, (list, tuple)):
-                output_invars.extend(vars)
-            else:
-                output_invars.append(vars)
+            output_invars.extend(state_to_outvars[state])
 
         output_jaxpr = eqns_to_jaxpr(
             eqns=output_eqns,
