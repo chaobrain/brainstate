@@ -126,3 +126,15 @@ class CompiledGraph(NamedTuple):
     inputs: List[Input]
     outputs: List[Output]
     call_orders: List[CallOrderElement]
+
+    def display(self, mode='text'):
+        pass
+
+    def _text_display(self):
+        pass
+
+    def _vis_display(self):
+        pass
+
+
+

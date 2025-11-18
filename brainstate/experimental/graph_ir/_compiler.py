@@ -263,21 +263,30 @@ def _step2_build_groups(
         relevant_eqns = []
         produced_vars = set(group_hidden_out_vars)
         queue = list(group_hidden_out_vars)
+        # Track variables that come from connections (should be input_vars)
+        connection_output_vars = set()
 
         # Backward traversal to find all equations needed to compute group outputs
         while queue:
             var = queue.pop(0)
             for eqn in jaxpr.eqns:
                 if var in eqn.outvars and eqn not in relevant_eqns:
+                    # Don't include connection equations in group
+                    if _is_connection(eqn):
+                        # Mark its outputs as connection outputs (input_vars for this group)
+                        for out_var in eqn.outvars:
+                            connection_output_vars.add(out_var)
+                        # Don't traverse further through connections
+                        continue
+
                     relevant_eqns.append(eqn)
                     # Add input vars to queue if not already processed
                     for in_var in eqn.invars:
                         if isinstance(in_var, Var) and in_var not in produced_vars:
                             produced_vars.add(in_var)
-                            # Don't traverse beyond input state vars or if it's a connection
+                            # Don't traverse beyond input state vars
                             if in_var not in group_hidden_in_vars:
-                                if not _is_connection(eqn):
-                                    queue.append(in_var)
+                                queue.append(in_var)
 
         # Sort equations by their original order in jaxpr
         eqn_order = {id(eqn): i for i, eqn in enumerate(jaxpr.eqns)}
@@ -303,6 +312,11 @@ def _step2_build_groups(
         for var in required_vars:
             if var in group_hidden_in_vars:
                 continue  # Already added
+            elif var in connection_output_vars:
+                # This is a connection output (input_var for this group)
+                if var not in group_input_vars:
+                    group_input_vars.append(var)
+                    group_invars.append(var)
             elif var in invar_to_state:
                 # This is an input state (read-only)
                 state = invar_to_state[var]
@@ -375,96 +389,332 @@ def _step3_extract_connections(jaxpr: Jaxpr) -> List[Tuple[JaxprEqn, Connection]
 
 
 def _step4_build_projections(
-    jaxpr: Jaxpr,
+    jaxpr: ClosedJaxpr,
     groups: List[Group],
     connections: List[Tuple[JaxprEqn, Connection]],
     invar_to_state: Dict[Var, State],
     state_to_invars: Dict[State, Tuple[Var, ...]],
 ) -> List[Projection]:
     """
-    Build Projection objects by analyzing connections between groups.
+    Build Projection objects by iterating over jaxpr.eqns and analyzing connections between groups.
 
     A Projection:
     1. Takes hidden_states from a pre_group
-    2. Applies one or more Connections
+    2. Applies one or more equations (including connections and preprocessing)
     3. Produces outputs that flow into post_group as input currents
+
+    Strategy:
+    - Iterate over all equations in jaxpr.eqns
+    - For each group's input_vars, trace back to find source group
+    - Group all equations in the path from pre_group to post_group into a Projection
     """
     projections = []
 
-    # For each connection, determine which group it connects from and to
-    for conn_eqn, connection in connections:
-        # Find which group(s) produce the inputs to this connection
-        pre_groups = []
-        conn_input_states = []
+    # Extract actual jaxpr and consts
+    if isinstance(jaxpr, ClosedJaxpr):
+        actual_jaxpr = jaxpr.jaxpr
+        jaxpr_consts = jaxpr.consts
+        jaxpr_constvars = jaxpr.jaxpr.constvars
+    else:
+        actual_jaxpr = jaxpr
+        jaxpr_consts = []
+        jaxpr_constvars = []
 
-        for in_var in conn_eqn.invars:
-            if not isinstance(in_var, Var):
+    # Build a mapping: var -> equation that produces it
+    var_to_producer_eqn = {}
+    for eqn in actual_jaxpr.eqns:
+        for out_var in eqn.outvars:
+            var_to_producer_eqn[out_var] = eqn
+
+    # Build a mapping: group_id -> set of input_vars consumed by the group
+    group_to_input_vars = {}
+    for group in groups:
+        group_to_input_vars[id(group)] = set(group.input_vars)
+
+    # For each group (as post_group), trace back its input_vars to find projections
+    for post_group in groups:
+        if not post_group.input_vars:
+            continue
+
+        # For each input_var of this post_group, trace back to find the source
+        for input_var in post_group.input_vars:
+            # Skip if this input_var is not produced by any equation
+            # (it might be an external input)
+            if input_var not in var_to_producer_eqn:
                 continue
 
-            # Check if this var is a state var
-            if in_var in invar_to_state:
-                state = invar_to_state[in_var]
-                conn_input_states.append(state)
+            # Trace back from input_var to find:
+            # 1. All equations involved in producing this input_var
+            # 2. The source group (pre_group) whose hidden_states are used
+            # 3. Any connection operations involved
 
-                # Find which group has this state as hidden_state
-                for group in groups:
-                    if group.has_hidden_state(state):
-                        if group not in pre_groups:
-                            pre_groups.append(group)
+            proj_info = _trace_projection_path(
+                input_var=input_var,
+                post_group=post_group,
+                groups=groups,
+                jaxpr=jaxpr,
+                var_to_producer_eqn=var_to_producer_eqn,
+                invar_to_state=invar_to_state,
+                connections=connections,
+            )
 
-        # Find which group(s) consume the outputs of this connection
-        post_groups = []
-        for out_var in conn_eqn.outvars:
-            # Check which groups have this var in their input_vars
-            for group in groups:
-                if out_var in group.input_vars:
-                    if group not in post_groups:
-                        post_groups.append(group)
+            if proj_info is None:
+                # No valid projection found (might be from external input)
+                continue
 
-        # Validate: should have exactly one pre_group and one post_group
-        if len(pre_groups) != 1:
-            # This might be a more complex projection, skip for now or handle specially
-            continue
+            pre_group, proj_eqns, proj_hidden_states, proj_in_states, proj_connections = proj_info
 
-        if len(post_groups) != 1:
-            # Output might go to multiple groups or nowhere, skip for now
-            continue
+            # Check if we already have a projection from pre_group to post_group
+            # If so, merge the equations
+            existing_proj = None
+            for proj in projections:
+                if proj.pre_group == pre_group and proj.post_group == post_group:
+                    existing_proj = proj
+                    break
 
-        pre_group = pre_groups[0]
-        post_group = post_groups[0]
+            if existing_proj is not None:
+                # Merge equations and states into existing projection
+                # We need to reconstruct the projection with merged data
+                merged_eqns = list(existing_proj.jaxpr.eqns)
+                merged_hidden_states = list(existing_proj.hidden_states)
+                merged_in_states = list(existing_proj.in_states)
+                merged_connections = list(existing_proj.connections)
 
-        # Build the projection Jaxpr
-        # For now, assume the projection is just the connection itself
-        # In more complex cases, we'd need to trace backward from the connection inputs
+                for eqn in proj_eqns:
+                    if eqn not in merged_eqns:
+                        merged_eqns.append(eqn)
 
-        # Find all equations involved in computing the projection
-        # This includes the connection and any preprocessing of states
-        proj_eqns = [conn_eqn]
-        proj_invars = []
-        proj_in_states = []
+                for state in proj_hidden_states:
+                    if state not in merged_hidden_states:
+                        merged_hidden_states.append(state)
 
-        # Add states used by this connection
-        proj_hidden_states = conn_input_states
-        for state in proj_hidden_states:
-            proj_invars.extend(state_to_invars[state])
+                for state in proj_in_states:
+                    if state not in merged_in_states:
+                        merged_in_states.append(state)
 
-        proj_jaxpr = eqns_to_jaxpr(
-            eqns=proj_eqns,
-            invars=proj_invars,
-            outvars=list(conn_eqn.outvars),
-        )
+                for conn in proj_connections:
+                    if conn not in merged_connections:
+                        merged_connections.append(conn)
 
-        projection = Projection(
-            hidden_states=proj_hidden_states,
-            in_states=proj_in_states,
-            jaxpr=proj_jaxpr,
-            connections=[connection],
-            pre_group=pre_group,
-            post_group=post_group,
-        )
-        projections.append(projection)
+                # Sort equations by original order
+                eqn_order = {id(eqn): i for i, eqn in enumerate(jaxpr.eqns)}
+                merged_eqns.sort(key=lambda e: eqn_order[id(e)])
+
+                # Collect all invars needed by merged_eqns
+                proj_invars_needed = set()
+                proj_produced_vars = set()
+
+                # First collect all vars produced by merged_eqns
+                for eqn in merged_eqns:
+                    for out_var in eqn.outvars:
+                        proj_produced_vars.add(out_var)
+
+                # Then collect all vars needed but not produced
+                for eqn in merged_eqns:
+                    for in_var in eqn.invars:
+                        if isinstance(in_var, Var) and in_var not in proj_produced_vars:
+                            proj_invars_needed.add(in_var)
+
+                # Convert state invars to actual vars
+                proj_invars = []
+                # First add hidden_states
+                for state in merged_hidden_states:
+                    for var in state_to_invars[state]:
+                        if var in proj_invars_needed:
+                            proj_invars.append(var)
+                            proj_invars_needed.remove(var)
+                # Then add in_states
+                for state in merged_in_states:
+                    for var in state_to_invars[state]:
+                        if var in proj_invars_needed:
+                            proj_invars.append(var)
+                            proj_invars_needed.remove(var)
+
+                # Add any remaining needed vars that aren't from states
+                proj_invars.extend(sorted(proj_invars_needed, key=lambda v: str(v)))
+
+                # Build outvars from merged equations
+                proj_outvars = []
+                for eqn in merged_eqns:
+                    for out_var in eqn.outvars:
+                        if out_var in group_to_input_vars[id(post_group)]:
+                            if out_var not in proj_outvars:
+                                proj_outvars.append(out_var)
+
+                # Create new jaxpr
+                proj_jaxpr = eqns_to_jaxpr(
+                    eqns=merged_eqns,
+                    invars=proj_invars,
+                    outvars=proj_outvars,
+                )
+
+                # Replace existing projection
+                new_proj = Projection(
+                    hidden_states=merged_hidden_states,
+                    in_states=merged_in_states,
+                    jaxpr=proj_jaxpr,
+                    connections=merged_connections,
+                    pre_group=pre_group,
+                    post_group=post_group,
+                )
+                projections[projections.index(existing_proj)] = new_proj
+
+            else:
+                # Create new projection
+                # Collect all invars needed by proj_eqns
+                proj_invars_needed = set()
+                proj_produced_vars = set()
+
+                # First collect all vars produced by proj_eqns
+                for eqn in proj_eqns:
+                    for out_var in eqn.outvars:
+                        proj_produced_vars.add(out_var)
+
+                # Then collect all vars needed but not produced
+                for eqn in proj_eqns:
+                    for in_var in eqn.invars:
+                        if isinstance(in_var, Var) and in_var not in proj_produced_vars:
+                            proj_invars_needed.add(in_var)
+
+                # Convert state invars to actual vars
+                proj_invars = []
+                # First add hidden_states
+                for state in proj_hidden_states:
+                    for var in state_to_invars[state]:
+                        if var in proj_invars_needed:
+                            proj_invars.append(var)
+                            proj_invars_needed.remove(var)
+                # Then add in_states
+                for state in proj_in_states:
+                    for var in state_to_invars[state]:
+                        if var in proj_invars_needed:
+                            proj_invars.append(var)
+                            proj_invars_needed.remove(var)
+
+                # Add any remaining needed vars that aren't from states
+                proj_invars.extend(sorted(proj_invars_needed, key=lambda v: str(v)))
+
+                proj_outvars = []
+                for eqn in proj_eqns:
+                    for out_var in eqn.outvars:
+                        if out_var in group_to_input_vars[id(post_group)]:
+                            if out_var not in proj_outvars:
+                                proj_outvars.append(out_var)
+
+                proj_jaxpr = eqns_to_jaxpr(
+                    eqns=proj_eqns,
+                    invars=proj_invars,
+                    outvars=proj_outvars,
+                )
+
+                projection = Projection(
+                    hidden_states=proj_hidden_states,
+                    in_states=proj_in_states,
+                    jaxpr=proj_jaxpr,
+                    connections=proj_connections,
+                    pre_group=pre_group,
+                    post_group=post_group,
+                )
+                projections.append(projection)
 
     return projections
+
+
+def _trace_projection_path(
+    input_var: Var,
+    post_group: Group,
+    groups: List[Group],
+    jaxpr: Jaxpr,
+    var_to_producer_eqn: Dict[Var, JaxprEqn],
+    invar_to_state: Dict[Var, State],
+    connections: List[Tuple[JaxprEqn, Connection]],
+) -> Tuple[Group, List[JaxprEqn], List[State], List[State], List[Connection]] | None:
+    """
+    Trace back from an input_var to find the complete projection path.
+
+    Returns:
+        (pre_group, equations, hidden_states, in_states, connections) or None if no valid projection
+    """
+    # Build connection equation set for quick lookup
+    conn_eqns = {id(eqn): conn for eqn, conn in connections}
+
+    # Trace back from input_var to collect all equations
+    visited_vars = set()
+    visited_eqns = set()
+    proj_eqns = []
+    proj_hidden_states = []
+    proj_in_states = []
+    proj_connections = []
+    queue = [input_var]
+
+    # Track which group is the source
+    source_groups = []
+
+    while queue:
+        var = queue.pop(0)
+        if var in visited_vars:
+            continue
+        visited_vars.add(var)
+
+        # Check if this var is a jaxpr invar (boundary of tracing)
+        if var in jaxpr.invars:
+            # Check if it's a state var
+            if var in invar_to_state:
+                state = invar_to_state[var]
+                # Find which group has this state
+                source_found = False
+                for group in groups:
+                    if group.has_hidden_state(state):
+                        if group not in source_groups:
+                            source_groups.append(group)
+                        if state not in proj_hidden_states:
+                            proj_hidden_states.append(state)
+                        source_found = True
+                        break
+
+                # If not in any group's hidden_states, it's an in_state for the projection
+                if not source_found and state not in proj_in_states:
+                    proj_in_states.append(state)
+            continue
+
+        # Find the equation that produces this var
+        if var not in var_to_producer_eqn:
+            continue
+
+        eqn = var_to_producer_eqn[var]
+        eqn_id = id(eqn)
+
+        if eqn_id in visited_eqns:
+            continue
+        visited_eqns.add(eqn_id)
+
+        # Add this equation to projection
+        proj_eqns.append(eqn)
+
+        # Check if this is a connection equation
+        if eqn_id in conn_eqns:
+            proj_connections.append(conn_eqns[eqn_id])
+
+        # Add input vars of this equation to queue
+        for in_var in eqn.invars:
+            if isinstance(in_var, Var) and in_var not in visited_vars:
+                queue.append(in_var)
+
+    # Validate: should have exactly one source group
+    if len(source_groups) != 1:
+        return None
+
+    pre_group = source_groups[0]
+
+    # Don't create projection if pre_group == post_group (internal connection)
+    if pre_group == post_group:
+        return None
+
+    # Sort equations by original order
+    eqn_order = {id(eqn): i for i, eqn in enumerate(jaxpr.eqns)}
+    proj_eqns.sort(key=lambda e: eqn_order[id(e)])
+
+    return pre_group, proj_eqns, proj_hidden_states, proj_in_states, proj_connections
 
 
 # ============================================================================

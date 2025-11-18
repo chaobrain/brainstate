@@ -169,10 +169,32 @@ class ParsedOutput(NamedTuple):
     def _execute_projection(self, projection: Projection, var_env: Dict[Var, Any]) -> None:
         """Execute a Projection component."""
         # Gather input values from environment
-        input_vals = [var_env[var] for var in projection.jaxpr.invars]
+        from brainstate._compatible_import import ClosedJaxpr
+
+        # Check if jaxpr is ClosedJaxpr or regular Jaxpr
+        if isinstance(projection.jaxpr, ClosedJaxpr):
+            jaxpr = projection.jaxpr.jaxpr
+            consts = projection.jaxpr.consts
+        else:
+            jaxpr = projection.jaxpr
+            # Use the main jaxpr's consts if projection jaxpr doesn't have them
+            consts = self.jaxpr.consts if isinstance(self.jaxpr, ClosedJaxpr) else []
+
+        input_vals = []
+        for var in jaxpr.invars:
+            if var in var_env:
+                input_vals.append(var_env[var])
+            else:
+                # This might be a constvar, check in the original jaxpr
+                if var in self.jaxpr.jaxpr.constvars if isinstance(self.jaxpr, ClosedJaxpr) else []:
+                    # Find the index and use the corresponding const
+                    idx = self.jaxpr.jaxpr.constvars.index(var)
+                    input_vals.append(self.jaxpr.consts[idx])
+                else:
+                    raise RuntimeError(f"Variable {var} not found in environment or constvars")
 
         # Execute the projection jaxpr
-        results = jax.core.eval_jaxpr(projection.jaxpr, [], *input_vals)
+        results = jax.core.eval_jaxpr(jaxpr, consts, *input_vals)
 
         # Handle single vs multiple outputs
         if not isinstance(results, (tuple, list)):

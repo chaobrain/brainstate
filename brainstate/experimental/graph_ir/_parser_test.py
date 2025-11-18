@@ -22,17 +22,12 @@ import brainunit as u
 
 import brainstate
 from brainstate.experimental.gdiist_bpu import GdiistBPUParser
+from brainstate.experimental.graph_ir import parse
+
+brainstate.environ.set(dt=0.1 * u.ms)
 
 
 def test_simple_lif():
-    """Test compiler with a simple LIF neuron."""
-    print("\n" + "=" * 80)
-    print("Test 1: Simple LIF Neuron")
-    print("=" * 80)
-
-    # Create a simple LIF neuron
-    brainstate.environ.set(dt=0.1 * u.ms)
-
     lif = brainpy.state.LIFRef(
         10,
         V_rest=-65. * u.mV,
@@ -62,13 +57,6 @@ def test_simple_lif():
 
 
 def test_two_populations():
-    """Test compiler with two connected populations."""
-    print("\n" + "=" * 80)
-    print("Test 2: Two Connected Populations")
-    print("=" * 80)
-
-    brainstate.environ.set(dt=0.1 * u.ms)
-
     class TwoPopNet(brainstate.nn.Module):
         def __init__(self):
             super().__init__()
@@ -121,13 +109,17 @@ def test_two_populations():
     def update(t, inp_exc, inp_inh):
         return net.update(t, inp_exc, inp_inh)
 
-    parser = GdiistBPUParser(update)
-
     t = 0. * u.ms
     inp_exc = 5. * u.mA
     inp_inh = 3. * u.mA
 
-    out = parser.parse(t, inp_exc, inp_inh, display='text', verbose=True)
-    print(f"\n[PASS] Parsing successful!")
+    parser = parse(brainstate.transform.StatefulFunction(update, ir_optimizations='dce'))
+    out = parser(t, inp_exc, inp_inh)
     print(f"  - Groups: {len(out.compiled.groups)}")
     print(f"  - Projections: {len(out.compiled.projections)}")
+    print(f"  - Inputs: {len(out.compiled.inputs)}")
+    print(f"  - Outputs: {len(out.compiled.outputs)}")
+
+    run_results = out.run(t, inp_exc, inp_inh)
+    print(run_results)
+
