@@ -354,10 +354,19 @@ def _step2_build_groups(
                 if isinstance(in_var, Var):
                     required_vars.add(in_var)
 
+        # Find vars produced by relevant equations (these are intermediate, not inputs)
+        vars_produced_by_group = set()
+        for eqn in relevant_eqns:
+            for out_var in eqn.outvars:
+                vars_produced_by_group.add(out_var)
+
         # Classify required vars
         for var in required_vars:
             if var in group_hidden_in_vars:
                 continue  # Already added
+            elif var in vars_produced_by_group:
+                # This variable is produced by the group itself, not an input
+                continue
             elif var in connection_output_vars:
                 # This is a connection output (input_var for this group)
                 if var not in group_input_vars:
@@ -371,7 +380,6 @@ def _step2_build_groups(
                     group_invars.append(var)
             else:
                 # This is an external input variable (not a state, not a connection)
-                # Add it to group_input_vars regardless of whether it's in produced_vars
                 if var not in group_input_vars:
                     group_input_vars.append(var)
                     group_invars.append(var)
