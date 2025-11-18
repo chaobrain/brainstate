@@ -1559,3 +1559,15 @@ if pydot_is_installed:
                 for e in eqns
             ]
         )
+
+else:
+    def draw(*args, **kwargs):
+        raise NotImplementedError('pydot is not installed. ')
+
+
+    def view_pydot(*args, **kwargs):
+        raise NotImplementedError('pydot is not installed. ')
+
+
+    def draw_dot_graph(*args, **kwargs):
+        raise NotImplementedError('pydot is not installed. ')
