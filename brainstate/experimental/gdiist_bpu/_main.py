@@ -20,10 +20,10 @@ import jax
 from jax.api_util import shaped_abstractify
 
 from brainstate._compatible_import import JaxprEqn
+from brainstate.experimental.graph_ir._data import Group, Connection
+from brainstate.experimental.graph_ir._parser import parse, ParsedOutput
 from brainstate.transform._make_jaxpr import StatefulFunction, _make_hashable
 from brainstate.util._cache import BoundedCache
-from ._data import Group, Connection
-from ._parser import parse, ParsedOutput
 
 __all__ = [
     'GdiistBPUParser',

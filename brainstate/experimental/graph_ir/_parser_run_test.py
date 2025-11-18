@@ -2,7 +2,7 @@
 
 import sys
 
-sys.path.insert(0, '.')
+sys.path.insert(0, '../gdiist_bpu')
 
 import brainstate as bst
 import brainunit as u
