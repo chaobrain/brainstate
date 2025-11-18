@@ -1,4 +1,4 @@
-# Test the ParsedOutput.run function
+# Test the ParsedResults.run function
 
 import sys
 
@@ -17,7 +17,7 @@ bst.environ.set(dt=0.1 * u.ms)
 def test_simple_lif_run():
     """Test run function with a simple LIF neuron."""
     print("\n" + "=" * 80)
-    print("Test: ParsedOutput.run with Simple LIF")
+    print("Test: ParsedResults.run with Simple LIF")
     print("=" * 80)
 
     # Create LIF neuron
@@ -50,7 +50,7 @@ def test_simple_lif_run():
 def test_two_populations_run():
     """Test run function with two connected populations."""
     print("\n" + "=" * 80)
-    print("Test: ParsedOutput.run with Two Populations")
+    print("Test: ParsedResults.run with Two Populations")
     print("=" * 80)
 
     class TwoPopNet(bst.nn.Module):

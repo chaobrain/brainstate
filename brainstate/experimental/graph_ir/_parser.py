@@ -28,12 +28,12 @@ from ._data import CompiledGraph, Group, Projection, Input, Output
 from ._utils import _is_connection
 
 __all__ = [
-    'ParsedOutput',
+    'ParsedResults',
     'parse',
 ]
 
 
-class ParsedOutput(NamedTuple):
+class ParsedResults(NamedTuple):
     static_argnames: Sequence
     static_argnums: Sequence
     cache_fn: Callable
@@ -239,7 +239,7 @@ class ParsedOutput(NamedTuple):
 def parse(
     stateful_fn: StatefulFunction,
     jit_inline: bool = True,
-) -> Callable[..., ParsedOutput]:
+) -> Callable[..., ParsedResults]:
     assert isinstance(stateful_fn, StatefulFunction), "stateful_fn must be an instance of StatefulFunction"
     assert stateful_fn.return_only_write, (
         "Parser currently only supports stateful functions that return only write states. "
@@ -269,7 +269,7 @@ def parse(
         cache_fn = partial(get_arg_cache_key, stateful_fn.static_argnums, stateful_fn.static_argnames)
         cache_key = stateful_fn.get_arg_cache_key(*args, **kwargs)
 
-        return ParsedOutput(
+        return ParsedResults(
             static_argnums=stateful_fn.static_argnums,
             static_argnames=stateful_fn.static_argnames,
             out_treedef=stateful_fn.get_out_treedef_by_cache(cache_key),

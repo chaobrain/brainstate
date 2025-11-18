@@ -21,7 +21,7 @@ from jax.api_util import shaped_abstractify
 
 from brainstate._compatible_import import JaxprEqn
 from brainstate.experimental.graph_ir._data import Group, Connection
-from brainstate.experimental.graph_ir._parser import parse, ParsedOutput
+from brainstate.experimental.graph_ir._parser import parse, ParsedResults
 from brainstate.transform._make_jaxpr import StatefulFunction, _make_hashable
 from brainstate.util._cache import BoundedCache
 
@@ -80,7 +80,7 @@ class GdiistBPUParser:
         display: Optional[str] = None,
         verbose: bool = False,
         **kwargs
-    ) -> ParsedOutput:
+    ) -> ParsedResults:
         """
         Main parsing function that analyzes JAXpr and builds groups and connections.
 
