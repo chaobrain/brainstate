@@ -26,7 +26,7 @@ import jax.numpy as jnp
 import numpy as np
 from jax._src.sharding_impls import UNSPECIFIED
 
-from brainstate._compatible_imports import Literal, Var, Jaxpr
+from brainstate._compatible_import import Literal, Var, Jaxpr
 
 
 __all__ = [

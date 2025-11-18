@@ -20,7 +20,7 @@ from typing import Tuple, Union, List
 
 import jax
 
-from ._compatible_imports import Var
+from brainstate._compatible_import import Var
 
 pydot_is_installed = importlib.util.find_spec("pydot") is not None
 
