@@ -19,7 +19,7 @@ import jax
 
 from brainstate.transform._ir_inline_jit import inline_jit
 from brainstate.transform._make_jaxpr import StatefulFunction
-from ._data import Dynamics, Connection
+from ._data import Group, Connection
 from ._utils import _is_connection, eqns_to_jaxpr, find_in_states, find_out_states
 
 
@@ -40,14 +40,6 @@ class ParserV2:
             "Parser currently only supports stateful functions that return only write states. "
         )
         self.inputs = inputs
-
-        self.nodes = []
-        self.connections = []
-
-        # Track current operation state
-        self.current_eqns = []
-        self.current_operation_name = None
-        self.node_counter = 0
 
         # jaxpr
         jaxpr = self.stateful_fn.get_jaxpr(*self.inputs[0], **self.inputs[1])
@@ -86,155 +78,9 @@ class ParserV2:
     def out_states(self):
         return self.state_mapping['out_states']
 
-    def _finalize_current_operation(self):
-        """Finalize the current operation and add it to operations list"""
-        if len(self.current_eqns) > 0:
-            jaxpr = eqns_to_jaxpr(self.current_eqns)
-            node = Dynamics(
-                jaxpr=jaxpr,
-                in_states=find_in_states(self.invar_to_state, jaxpr.invars),
-                out_states=find_out_states(self.outvar_to_state, jaxpr.outvars),
-            )
-            self.nodes.append(node)
-            self.node_counter += 1
-            self.current_eqns.clear()
-            return node
-        return None
-
-    def _expand_nested_jaxpr(self, eqn):
-        """Expand nested JAXpr (like jit) by replacing them with their inner equations
-
-        Exception: brainevent jit operations are kept as-is for connection detection
-        """
-        expanded_eqns = []
-
-        # if is_jit_primitive(eqn):
-        #     if _is_connection(eqn):
-        #         expanded_eqns.append(eqn)
-        #
-        #     # Expand other jit operations
-        #     elif 'jaxpr' in eqn.params:
-        #         nested_jaxpr = eqn.params['jaxpr']
-        #         # Recursively process nested equations
-        #         for nested_eqn in nested_jaxpr.eqns:
-        #             expanded_eqns.extend(self._expand_nested_jaxpr(nested_eqn))
-        #     else:
-        #         expanded_eqns.append(eqn)
-        #
-        # elif _is_connection(eqn):
-        #     expanded_eqns.append(eqn)
-        #
-        # else:
-        #     expanded_eqns.append(eqn)
-
-        if _is_connection(eqn):
-            expanded_eqns.append(eqn)
-
-        else:
-            expanded_eqns.append(eqn)
-
-        return expanded_eqns
-
-    def _find_node_has_outvar(self, var):
-        """Find which operation produces or consumes a given variable"""
-        for node in self.nodes:
-            node: Dynamics
-            if node.has_out_var(var):
-                return node
-        return None
-
-    def _find_operations_using_variable(self, var):
-        """Find which operations use a given variable as input"""
-        using_operations = []
-        for operation in self.nodes:
-            for eqn in operation.jaxpr.eqns:
-                # Check if this equation uses the variable as input
-                if var in eqn.invars:
-                    using_operations.append(operation)
-                    break  # Don't add the same operation multiple times
-        return using_operations
-
-    def _create_connection(self, pre_operation, post_operation, jit_eqn):
-        """Create a connection between two operations using the inner jaxpr from jit"""
-        # Extract the inner jaxpr from the jit equation
-        if 'jaxpr' in jit_eqn.params:
-            inner_jaxpr = jit_eqn.params['jaxpr'].jaxpr
-        else:
-            # Fallback - use the jit equation itself
-            inner_jaxpr = jit_eqn
-
-        # Avoid duplicate connections
-        for existing_conn in self.connections:
-            if existing_conn.pre == pre_operation and existing_conn.post == post_operation:
-                return existing_conn
-
-        # Create new connection
-        connection = Connection(pre=pre_operation, post=post_operation, jaxpr=inner_jaxpr)
-        self.connections.append(connection)
-        return connection
-
     def _parse_equations(self, closed_jaxpr):
-        """Parse JAXpr equations to identify operations and connections"""
-
-        # Extract the actual jaxpr from ClosedJaxpr
-        # First expand all nested JAXpr
-        jaxpr = closed_jaxpr.jaxpr
-        expanded_eqns = []
-        for eqn in jaxpr.eqns:
-            expanded_eqns.extend(self._expand_nested_jaxpr(eqn))
-
-        # First pass: create operations and identify connections
-        for eqn in expanded_eqns:
-            # Check if this equation should split the current operation
-            if _should_split_operation(eqn):
-
-                # Finalize current operation before the split
-                self._finalize_current_operation()
-
-                # If it's a brainevent connection, don't add to operations - we'll handle separately
-                if _is_connection(eqn):
-                    continue
-
-            else:
-                # Regular equation - add to current operation
-                self.current_eqns.append(eqn)
-
-        # Finalize the last operation
-        self._finalize_current_operation()
-
-        # Second pass: create connections based on data flow analysis
-        for i, eqn in enumerate(expanded_eqns):
-            if _is_connection(eqn):
-                # Analyze data flow for this connection
-                pre_operation = None
-                post_operations = []
-
-                # Find pre_operation: which operation produces the input variables for this connection
-                for input_var in eqn.invars:
-                    producer = self._find_node_has_outvar(input_var)
-                    if producer is not None:
-                        pre_operation = producer
-                        break  # Use the first producer we find
-
-                # Find post_operations: which operations use the output variables from this connection
-                for output_var in eqn.outvars:
-                    consumers = self._find_operations_using_variable(output_var)
-                    post_operations.extend(consumers)
-
-                # Remove duplicates from post_operations
-                seen = set()
-                unique_post_operations = []
-                for op in post_operations:
-                    if id(op) not in seen:
-                        seen.add(id(op))
-                        unique_post_operations.append(op)
-                post_operations = unique_post_operations
-
-                # Create connections from pre_operation to each post_operation
-                if pre_operation is not None:
-                    for post_operation in post_operations:
-                        if post_operation != pre_operation:  # Avoid self-connections
-                            self._create_connection(pre_operation, post_operation, eqn)
+        # TODO
+        pass
 
 
 def _should_split_operation(eqn):
@@ -324,4 +170,5 @@ def _build_state_mapping(closed_jaxpr, in_states, out_states) -> Dict:
         'state_to_outvars': state_to_outvars,
         'in_states': in_states,
         'out_states': out_states,
+        'hidden_states': [s for s in out_states],
     }

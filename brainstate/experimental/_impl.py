@@ -21,7 +21,7 @@ of core transformations like JIT compilation and for-loops. It allows registrati
 of custom implementations for different compute devices (CPU, GPU, TPU, etc.).
 """
 
-from typing import Callable, Dict, List, Optional, Any
+from typing import Callable, Dict, List, Any
 
 from brainstate.transform._jit import jit
 from brainstate.transform._loop_collect_return import for_loop
@@ -321,8 +321,9 @@ def _for_loop_wrapper(fn: Callable, **kwargs: Any) -> Callable:
     -----
     This is an internal implementation used as the default for 'cpu', 'gpu', and 'tpu' devices.
     """
+
     def run(*args: Any, **run_kwargs: Any) -> Any:
-        return for_loop(fn, *args, **{**kwargs, **run_kwargs})
+        return for_loop(fn, *args, **run_kwargs)
 
     return run
 

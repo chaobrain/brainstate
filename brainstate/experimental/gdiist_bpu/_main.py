@@ -22,7 +22,7 @@ from jax.api_util import shaped_abstractify
 from brainstate._compatible_import import JaxprEqn
 from brainstate.transform._make_jaxpr import StatefulFunction, _make_hashable
 from brainstate.util._cache import BoundedCache
-from ._data import Dynamics, Connection
+from ._data import Group, Connection
 from ._parser import ParserV2
 
 __all__ = [
@@ -80,7 +80,7 @@ class GdiistBPUParser:
         display: Optional[str] = None,
         verbose: bool = False,
         **kwargs
-    ) -> Tuple[List[Dynamics], List[Connection], Dict[str, Any]]:
+    ) -> Tuple[List[Group], List[Connection], Dict[str, Any]]:
         """
         Main parsing function that analyzes JAXpr and builds groups and connections.
 
@@ -153,7 +153,7 @@ class GdiistBPUParser:
 
 
 def _text_display(
-    operations: List[Dynamics],
+    operations: List[Group],
     connections: List[Connection],
     state_mappings: Dict[str, Any]
 ):
