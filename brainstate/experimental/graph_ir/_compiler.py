@@ -399,11 +399,13 @@ def _step4_build_projections(
     Build Projection objects by iterating over jaxpr.eqns and analyzing connections between groups.
 
     A Projection:
+
     1. Takes hidden_states from a pre_group
     2. Applies one or more equations (including connections and preprocessing)
     3. Produces outputs that flow into post_group as input currents
 
     Strategy:
+
     - Iterate over all equations in jaxpr.eqns
     - For each group's input_vars, trace back to find source group
     - Group all equations in the path from pre_group to post_group into a Projection
@@ -413,12 +415,8 @@ def _step4_build_projections(
     # Extract actual jaxpr and consts
     if isinstance(jaxpr, ClosedJaxpr):
         actual_jaxpr = jaxpr.jaxpr
-        jaxpr_consts = jaxpr.consts
-        jaxpr_constvars = jaxpr.jaxpr.constvars
     else:
         actual_jaxpr = jaxpr
-        jaxpr_consts = []
-        jaxpr_constvars = []
 
     # Build a mapping: var -> equation that produces it
     var_to_producer_eqn = {}
@@ -624,7 +622,7 @@ def _trace_projection_path(
     input_var: Var,
     post_group: Group,
     groups: List[Group],
-    jaxpr: Jaxpr,
+    jaxpr: Jaxpr | ClosedJaxpr,
     var_to_producer_eqn: Dict[Var, JaxprEqn],
     invar_to_state: Dict[Var, State],
     connections: List[Tuple[JaxprEqn, Connection]],
@@ -635,6 +633,9 @@ def _trace_projection_path(
     Returns:
         (pre_group, equations, hidden_states, in_states, connections) or None if no valid projection
     """
+    if isinstance(jaxpr, ClosedJaxpr):
+        jaxpr = jaxpr.jaxpr
+
     # Build connection equation set for quick lookup
     conn_eqns = {id(eqn): conn for eqn, conn in connections}
 
@@ -721,6 +722,75 @@ def _trace_projection_path(
 # Input and Output Analysis
 # ============================================================================
 
+def _trace_input_forward(
+    input_var: Var,
+    jaxpr: Jaxpr,
+    groups: List[Group],
+    var_to_consumer_eqns: Dict[Var, List[JaxprEqn]],
+    group_input_vars_sets: Dict[int, Set[Var]],
+) -> Tuple[Var, Group, List[JaxprEqn], List[Var]] | None:
+    """
+    Forward trace from an input_var to find which group it flows into.
+
+    Algorithm:
+    1. Start with input_var as the current frontier
+    2. Expand frontier by finding equations that consume these vars
+    3. Stop when all vars in frontier are input_vars of a single group
+
+    Returns:
+        (input_var, target_group, equations, outvars) or None if no group found
+    """
+    visited_vars = set()
+    visited_eqns = set()
+    equations_in_path = []
+
+    # Current frontier of variables being traced
+    current_frontier = {input_var}
+
+    while current_frontier:
+        # Check if all vars in current frontier belong to a single group's input_vars
+        target_group = None
+        for group in groups:
+            group_input_set = group_input_vars_sets[id(group)]
+            if all(var in group_input_set for var in current_frontier):
+                # All frontier vars are input_vars of this group (stopping condition)
+                target_group = group
+                break
+
+        if target_group is not None:
+            # Stopping condition met: all outvars are invars of this group
+            return input_var, target_group, equations_in_path, list(current_frontier)
+
+        # Expand frontier
+        next_frontier = set()
+
+        for var in current_frontier:
+            if var in visited_vars:
+                continue
+            visited_vars.add(var)
+
+            # Get equations that consume this var
+            consumer_eqns = var_to_consumer_eqns.get(var, [])
+
+            for eqn in consumer_eqns:
+                eqn_id = id(eqn)
+                if eqn_id in visited_eqns:
+                    continue
+                visited_eqns.add(eqn_id)
+
+                # Add this equation to the path
+                equations_in_path.append(eqn)
+
+                # Add output vars to next frontier
+                for out_var in eqn.outvars:
+                    next_frontier.add(out_var)
+
+        current_frontier = next_frontier
+
+    # No group found (input doesn't flow into any group)
+    return None
+
+
 def _step5_build_inputs(
     jaxpr: Jaxpr,
     groups: List[Group],
@@ -728,8 +798,13 @@ def _step5_build_inputs(
 ) -> List[Input]:
     """
     Build Input objects that describe how external inputs flow into groups.
+
+    Algorithm:
+    1. For each input_var, forward trace through jaxpr.eqns
+    2. Stop when all outvars are invars of some group
+    3. Each Input corresponds to exactly one Group
+    4. A Group can have multiple Inputs
     """
-    inputs = []
 
     # Determine which vars are input_variables (not state vars)
     input_vars = []
@@ -738,27 +813,76 @@ def _step5_build_inputs(
             input_vars.append(var)
 
     if not input_vars:
-        return inputs
+        return []
 
-    # For each group, check which input_vars flow into it
+    # Build a mapping: var -> equations that consume it
+    var_to_consumer_eqns = defaultdict(list)
+    for eqn in jaxpr.eqns:
+        for in_var in eqn.invars:
+            if isinstance(in_var, Var):
+                var_to_consumer_eqns[in_var].append(eqn)
+
+    # Build a mapping: group -> set of input_vars (for quick lookup)
+    group_input_vars_sets = {}
     for group in groups:
-        group_input_vars_from_external = []
+        group_input_vars_sets[id(group)] = set(group.input_vars)
 
-        for input_var in input_vars:
-            # Check if this input_var flows into the group's input_vars
-            if input_var in group.input_vars:
-                group_input_vars_from_external.append(input_var)
+    # For each input_var, trace forward to find which group(s) it flows into
+    input_traces = []  # List of (input_var, target_group, equations, outvars)
 
-        if not group_input_vars_from_external:
-            continue
+    for input_var in input_vars:
+        # Forward trace from this input_var
+        trace_result = _trace_input_forward(
+            input_var=input_var,
+            jaxpr=jaxpr,
+            groups=groups,
+            var_to_consumer_eqns=var_to_consumer_eqns,
+            group_input_vars_sets=group_input_vars_sets,
+        )
 
-        # Build Input object
-        # The jaxpr is essentially an identity or transformation
-        # For now, assume it's an identity (just passes through)
+        if trace_result is not None:
+            input_traces.append(trace_result)
+
+    # Group traces by target group (use group id as key)
+    group_id_to_traces = defaultdict(list)
+    id_to_group = {}
+
+    for input_var, target_group, equations, outvars in input_traces:
+        group_id = id(target_group)
+        id_to_group[group_id] = target_group
+        group_id_to_traces[group_id].append((input_var, equations, outvars))
+
+    # Create Input objects for each group
+    # Note: A group can have multiple Inputs (one for each input_var or set of input_vars)
+    inputs = []
+
+    for group_id, traces in group_id_to_traces.items():
+        group = id_to_group[group_id]
+
+        # Collect all input vars, equations, and output vars for this group
+        all_input_vars = []
+        all_equations = []
+        all_output_vars = []
+
+        for input_var, equations, outvars in traces:
+            if input_var not in all_input_vars:
+                all_input_vars.append(input_var)
+            for eqn in equations:
+                if eqn not in all_equations:
+                    all_equations.append(eqn)
+            for var in outvars:
+                if var not in all_output_vars:
+                    all_output_vars.append(var)
+
+        # Sort equations by their original order in jaxpr
+        eqn_order = {id(eqn): i for i, eqn in enumerate(jaxpr.eqns)}
+        all_equations.sort(key=lambda e: eqn_order[id(e)])
+
+        # Create the input jaxpr
         input_jaxpr = eqns_to_jaxpr(
-            eqns=[],  # No transformation
-            invars=group_input_vars_from_external,
-            outvars=group_input_vars_from_external,
+            eqns=all_equations,
+            invars=all_input_vars,
+            outvars=all_output_vars,
         )
 
         input_obj = Input(
@@ -775,82 +899,229 @@ def _step6_build_outputs(
     groups: List[Group],
     outvar_to_state: Dict[Var, State],
     state_to_outvars: Dict[State, Tuple[Var, ...]],
+    invar_to_state: Dict[Var, State],
+    state_to_invars: Dict[State, Tuple[Var, ...]],
 ) -> List[Output]:
     """
     Build Output objects that describe how to extract network outputs from group states.
-    """
-    outputs = []
 
-    # Determine which vars are output_variables (not state vars)
-    output_vars = []
-    for var in jaxpr.outvars:
-        if var not in outvar_to_state:
-            output_vars.append(var)
+    Algorithm:
+    1. For each output_var, backward trace through jaxpr.eqns
+    2. Stop when we reach state outvars or state invars
+    3. Find corresponding hidden_states and in_states from these state vars
+    4. Verify no dependencies on intermediate variables (raise error if found)
+    """
+
+    # Identify state outvars (variables that correspond to state outputs)
+    state_outvars_set = set([v for outvars in state_to_outvars.values() for v in outvars])
+
+    # Identify state invars (variables that correspond to state inputs)
+    state_invars_set = set(invar_to_state.keys())
+
+    # Get output_vars (jaxpr outvars that are not state outvars)
+    output_vars = [v for v in jaxpr.outvars if v not in state_outvars_set]
 
     if not output_vars:
-        return outputs
+        return []
 
-    # For each output var, trace back to find which states it depends on
-    var_dependencies = _build_var_dependencies(jaxpr)
+    # Build a mapping: var -> equation that produces it
+    var_to_producer_eqn = {}
+    for eqn in jaxpr.eqns:
+        for out_var in eqn.outvars:
+            var_to_producer_eqn[out_var] = eqn
 
-    # Group output vars by which group they depend on
-    group_output_mapping = defaultdict(list)
+    # Group output vars by which group they depend on (use group id as key)
+    group_id_output_mapping = defaultdict(list)
+    id_to_group = {}
 
+    # For each output_var, backward trace to find dependencies
     for out_var in output_vars:
-        deps = var_dependencies.get(out_var, set())
+        # Backward trace from out_var
+        dependent_state_outvars = []
+        dependent_state_invars = []
+        equations_needed = []
 
-        # Find which group's hidden states this depends on
+        # Use worklist algorithm for backward tracing
+        visited_vars = set()
+        worklist = [out_var]
+
+        while worklist:
+            var = worklist.pop()
+
+            if var in visited_vars:
+                continue
+            visited_vars.add(var)
+
+            # Stopping condition 1: this is a state outvar
+            if var in state_outvars_set:
+                if var not in dependent_state_outvars:
+                    dependent_state_outvars.append(var)
+                continue
+
+            # Stopping condition 2: this is a state invar
+            if var in state_invars_set:
+                if var not in dependent_state_invars:
+                    dependent_state_invars.append(var)
+                continue
+
+            # If this var is not produced by any equation, it must be a jaxpr invar
+            if var not in var_to_producer_eqn:
+                if var in jaxpr.invars:
+                    # This is an external input (not a state)
+                    raise CompilationError(
+                        f"Output variable {out_var} depends on external input {var}, "
+                        "which is not a state variable. Outputs must only depend on state variables."
+                    )
+                else:
+                    raise CompilationError(
+                        f"Output variable {out_var} depends on unknown variable {var}"
+                    )
+
+            # Get the equation that produces this var and add it
+            eqn = var_to_producer_eqn[var]
+            if eqn not in equations_needed:
+                equations_needed.append(eqn)
+
+            # Add all input vars of this equation to the worklist for further tracing
+            for in_var in eqn.invars:
+                if isinstance(in_var, Var) and in_var not in visited_vars:
+                    worklist.append(in_var)
+
+        # Verify that all inputs to equations_needed are either:
+        # 1. state_outvars
+        # 2. state_invars
+        # 3. produced by one of the equations_needed (intermediate vars within this output computation)
+
+        # Collect all vars produced by equations_needed
+        produced_vars = set()
+        for eqn in equations_needed:
+            for out_v in eqn.outvars:
+                produced_vars.add(out_v)
+
+        # Check all inputs to ensure no invalid dependencies
+        for eqn in equations_needed:
+            for in_var in eqn.invars:
+                if isinstance(in_var, Var):
+                    # Check if it's a state outvar or state invar (valid boundary)
+                    if in_var in state_outvars_set or in_var in state_invars_set:
+                        continue
+                    # Check if it's produced by one of our equations (valid intermediate)
+                    if in_var in produced_vars:
+                        continue
+                    # If we get here, it's an invalid dependency on external intermediate variable
+                    raise CompilationError(
+                        f"Output variable {out_var} depends on intermediate variable {in_var} "
+                        "that is not a state variable and not produced by output equations. "
+                        "This indicates an invalid output computation path."
+                    )
+
+        # Find corresponding hidden_states and in_states from dependent state vars
+        dependent_hidden_states = []
+        dependent_in_states = []
         dependent_groups = []
-        dependent_states = []
 
-        for dep_var in deps:
-            if dep_var in outvar_to_state:
-                state = outvar_to_state[dep_var]
+        # Process state outvars to find hidden states
+        for var in dependent_state_outvars:
+            if var in outvar_to_state:
+                state = outvar_to_state[var]
+                # Check if this is a hidden state (in some group)
                 for group in groups:
                     if group.has_hidden_state(state):
                         if group not in dependent_groups:
                             dependent_groups.append(group)
-                        if state not in dependent_states:
-                            dependent_states.append(state)
+                        if state not in dependent_hidden_states:
+                            dependent_hidden_states.append(state)
+                        break
 
-        if len(dependent_groups) == 1:
-            group_output_mapping[dependent_groups[0]].append((out_var, dependent_states))
+        # Process state invars to find hidden states or in states
+        for var in dependent_state_invars:
+            if var in invar_to_state:
+                state = invar_to_state[var]
+                # Check if this is a hidden state
+                found = False
+                for group in groups:
+                    if group.has_hidden_state(state):
+                        if group not in dependent_groups:
+                            dependent_groups.append(group)
+                        if state not in dependent_hidden_states:
+                            dependent_hidden_states.append(state)
+                        found = True
+                        break
+
+                # If not a hidden state, it's an in_state
+                if not found:
+                    if state not in dependent_in_states:
+                        dependent_in_states.append(state)
+
+        # Validate: each output should depend on exactly one group
+        if len(dependent_groups) == 0:
+            raise CompilationError(
+                f"Output variable {out_var} does not depend on any group"
+            )
         elif len(dependent_groups) > 1:
             raise CompilationError(
                 f"Output variable {out_var} depends on multiple groups: {dependent_groups}. "
                 "Each output should depend on only one group."
             )
 
-    # Create Output objects for each group
-    for group, output_info in group_output_mapping.items():
-        output_vars_for_group = [ov for ov, _ in output_info]
-        all_dependent_states = []
-        for _, states in output_info:
-            for state in states:
-                if state not in all_dependent_states:
-                    all_dependent_states.append(state)
+        group = dependent_groups[0]
+        group_id = id(group)
+        id_to_group[group_id] = group
+        group_id_output_mapping[group_id].append((
+            out_var,
+            dependent_hidden_states,
+            dependent_in_states,
+            equations_needed
+        ))
 
-        # Find equations that compute these output vars
-        output_eqns = []
-        for eqn in jaxpr.eqns:
-            if any(ov in eqn.outvars for ov in output_vars_for_group):
-                output_eqns.append(eqn)
+    # Create Output objects for each group
+    outputs = []
+    for group_id, output_info in group_id_output_mapping.items():
+        group = id_to_group[group_id]
+        output_vars_for_group = [ov for ov, _, _, _ in output_info]
+        all_dependent_hidden_states = []
+        all_dependent_in_states = []
+        all_equations = []
+
+        # Collect all states and equations
+        for _, hidden_states, in_states, equations in output_info:
+            for state in hidden_states:
+                if state not in all_dependent_hidden_states:
+                    all_dependent_hidden_states.append(state)
+            for state in in_states:
+                if state not in all_dependent_in_states:
+                    all_dependent_in_states.append(state)
+            for eqn in equations:
+                if eqn not in all_equations:
+                    all_equations.append(eqn)
+
+        # Sort equations by their original order in jaxpr
+        eqn_order = {id(eqn): i for i, eqn in enumerate(jaxpr.eqns)}
+        all_equations.sort(key=lambda e: eqn_order[id(e)])
 
         # Determine invars for the output jaxpr
+        # We need to use state outvars for hidden states and state invars for in states
         output_invars = []
-        for state in all_dependent_states:
+
+        # Add hidden state outvars
+        for state in all_dependent_hidden_states:
             output_invars.extend(state_to_outvars[state])
 
+        # Add in state invars
+        for state in all_dependent_in_states:
+            output_invars.extend(state_to_invars[state])
+
+        # Create the output jaxpr
         output_jaxpr = eqns_to_jaxpr(
-            eqns=output_eqns,
+            eqns=all_equations,
             invars=output_invars,
             outvars=output_vars_for_group,
         )
 
         output_obj = Output(
             jaxpr=output_jaxpr,
-            hidden_states=all_dependent_states,
-            in_states=[],  # TODO: handle in_states if needed
+            hidden_states=all_dependent_hidden_states,
+            in_states=all_dependent_in_states,
             group=group,
         )
         outputs.append(output_obj)
@@ -1056,7 +1327,7 @@ def compile(
 
     # Step 6: Build Output objects
     outputs = _step6_build_outputs(
-        jaxpr, groups, outvar_to_state, state_to_outvars
+        jaxpr, groups, outvar_to_state, state_to_outvars, invar_to_state, state_to_invars
     )
 
     # Step 7: Determine call order

@@ -21,7 +21,6 @@ import brainpy
 import brainunit as u
 
 import brainstate
-from brainstate.experimental.gdiist_bpu import GdiistBPUParser
 from brainstate.experimental.graph_ir import parse
 
 brainstate.environ.set(dt=0.1 * u.ms)
@@ -44,16 +43,16 @@ def test_simple_lif():
             lif(inp)
             return lif.get_spike()
 
-    # Parse using Parser
-    parser = GdiistBPUParser(update)
-
     t = 0. * u.ms
     inp = 5. * u.mA
 
-    out = parser.parse(t, inp, display='text', verbose=True)
+    parser = parse(brainstate.transform.StatefulFunction(update, ir_optimizations='dce'))
+    out = parser(t, inp)
+    print(out.compiled)
     print(f"\n[PASS] Parsing successful!")
     print(f"  - Groups: {len(out.compiled.groups)}")
     print(f"  - Projections: {len(out.compiled.projections)}")
+    print(f"  - Outputs: {len(out.compiled.outputs)}")
 
 
 def test_two_populations():
@@ -122,4 +121,3 @@ def test_two_populations():
 
     run_results = out.run(t, inp_exc, inp_inh)
     print(run_results)
-
