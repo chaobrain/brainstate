@@ -14,9 +14,9 @@
 # ==============================================================================
 
 
-from brainstate.experimental.graph_ir._compiler import compile, CompilationError
-from brainstate.experimental.graph_ir._data import Group, Connection, Projection, Input, Output, CompiledGraph
-from brainstate.experimental.graph_ir._parser import parse
+from ._compiler import compile, CompilationError
+from ._data import Group, Connection, Projection, Input, Output, CompiledGraph
+from ._parser import parse
 
 __all__ = [
     'parse',
