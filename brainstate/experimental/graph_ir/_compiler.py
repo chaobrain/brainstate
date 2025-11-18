@@ -13,8 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 
-"""
-SNN Compiler for GDI-IST BPU
+"""SNN Compiler for GDI-IST BPU
 
 This module implements a compiler that transforms a ClosedJaxpr representation
 of a spiking neural network (SNN) single-step update into structured computation
@@ -27,7 +26,7 @@ from typing import List, Dict, Set, Tuple
 from brainstate._compatible_import import ClosedJaxpr, Jaxpr, Var, JaxprEqn
 from brainstate._state import State
 from brainstate.transform._ir_processing import eqns_to_closed_jaxpr
-from ._data import Graph, CallOrderElement, Group, Connection, Projection, Input, Output, CompiledGraph
+from ._data import Graph, Group, Connection, Projection, Input, Output, CompiledGraph
 from ._utils import _is_connection, UnionFind
 
 __all__ = [
@@ -37,7 +36,7 @@ __all__ = [
 
 
 class CompilationError(Exception):
-    """Exception raised during SNN compilation."""
+    """ """
     pass
 
 
@@ -46,7 +45,21 @@ def _extract_consts_for_vars(
     original_jaxpr: Jaxpr,
     original_consts: List,
 ) -> List:
-    """Extract consts corresponding to the given constvars from original jaxpr."""
+    """Extract consts corresponding to the given constvars from original jaxpr.
+
+    Parameters
+    ----------
+    constvars: List[Var] :
+        
+    original_jaxpr: Jaxpr :
+        
+    original_consts: List :
+        
+
+    Returns
+    -------
+
+    """
     if not constvars:
         return []
 
@@ -72,7 +85,25 @@ def _make_closed_jaxpr(
     original_jaxpr: Jaxpr,
     original_consts: List,
 ) -> ClosedJaxpr:
-    """Create a ClosedJaxpr from equations, extracting consts from original jaxpr."""
+    """Create a ClosedJaxpr from equations, extracting consts from original jaxpr.
+
+    Parameters
+    ----------
+    eqns: List[JaxprEqn] :
+        
+    invars: List[Var] :
+        
+    outvars: List[Var] :
+        
+    original_jaxpr: Jaxpr :
+        
+    original_consts: List :
+        
+
+    Returns
+    -------
+
+    """
     # Create ClosedJaxpr (will auto-extract constvars)
     closed_jaxpr = eqns_to_closed_jaxpr(eqns=eqns, invars=invars, outvars=outvars)
 
@@ -96,23 +127,42 @@ def _step1_analyze_state_dependencies(
     invar_to_state: Dict[Var, State],
     outvar_to_state: Dict[Var, State],
 ) -> List[Set[State]]:
-    """
-    Analyze dependencies between hidden states and group them.
-
+    """Analyze dependencies between hidden states and group them.
+    
     States are grouped together if:
     1. State s1's update depends on state s2's value (element-wise)
     2. State s2's update depends on state s1's value (element-wise)
     3. Transitive closure: if {s1, s2} and {s2, s3} have dependencies,
        then {s1, s2, s3} should be in the same group
 
-    Args:
-        jaxpr: The Jaxpr to analyze
-        hidden_states: States that are both inputs and outputs
-        invar_to_state: Mapping from input vars to states
-        outvar_to_state: Mapping from output vars to states
+    Parameters
+    ----------
+    jaxpr :
+        The Jaxpr to analyze
+    hidden_states :
+        States that are both inputs and outputs
+    invar_to_state :
+        Mapping from input vars to states
+    outvar_to_state :
+        Mapping from output vars to states
+    jaxpr: Jaxpr :
+        
+    hidden_states: Tuple[State :
+        
+    ...] :
+        
+    invar_to_state: Dict[Var :
+        
+    State] :
+        
+    outvar_to_state: Dict[Var :
+        
 
-    Returns:
+    Returns
+    -------
+    
         List of state groups (each group is a set of states)
+
     """
     # Create a mapping from state to its ID for efficient comparison
     state_to_id = {id(state): state for state in hidden_states}
@@ -169,11 +219,18 @@ def _step1_analyze_state_dependencies(
 
 
 def _build_var_dependencies(jaxpr: Jaxpr) -> Dict[Var, Set[Var]]:
-    """
-    Build a dependency graph: for each variable, track which input variables it depends on.
+    """Build a dependency graph: for each variable, track which input variables it depends on.
 
-    Returns:
+    Parameters
+    ----------
+    jaxpr: Jaxpr :
+        
+
+    Returns
+    -------
+    
         Dict mapping each var to the set of input vars it transitively depends on
+
     """
     dependencies = {}
 
@@ -196,11 +253,22 @@ def _build_var_dependencies(jaxpr: Jaxpr) -> Dict[Var, Set[Var]]:
 
 
 def _has_connection_between(jaxpr: Jaxpr, in_var: Var, out_var: Var) -> bool:
-    """
-    Check if there's a connection operation in the computation path from in_var to out_var.
+    """Check if there's a connection operation in the computation path from in_var to out_var.
 
-    Returns:
+    Parameters
+    ----------
+    jaxpr: Jaxpr :
+        
+    in_var: Var :
+        
+    out_var: Var :
+        
+
+    Returns
+    -------
+    
         True if a connection operation exists in the path, False otherwise
+
     """
     # Build forward dependency graph
     var_to_eqns = defaultdict(list)
@@ -245,7 +313,23 @@ def _has_connection_between(jaxpr: Jaxpr, in_var: Var, out_var: Var) -> bool:
 
 
 def _can_reach(jaxpr: Jaxpr, from_var: Var, to_var: Var, var_to_eqns: dict) -> bool:
-    """Check if from_var can reach to_var through the computation graph."""
+    """Check if from_var can reach to_var through the computation graph.
+
+    Parameters
+    ----------
+    jaxpr: Jaxpr :
+        
+    from_var: Var :
+        
+    to_var: Var :
+        
+    var_to_eqns: dict :
+        
+
+    Returns
+    -------
+
+    """
     if from_var == to_var:
         return True
 
@@ -284,10 +368,42 @@ def _step2_build_groups(
     state_to_outvars: Dict[State, Tuple[Var, ...]],
     original_consts: List,
 ) -> List[Group]:
-    """
-    Build Group objects from state groups.
-
+    """Build Group objects from state groups.
+    
     For each state group, construct a ClosedJaxpr that describes the state update logic.
+
+    Parameters
+    ----------
+    jaxpr: Jaxpr :
+        
+    state_groups: List[Set[State]] :
+        
+    in_states: Tuple[State :
+        
+    ...] :
+        
+    out_states: Tuple[State :
+        
+    invar_to_state: Dict[Var :
+        
+    State] :
+        
+    outvar_to_state: Dict[Var :
+        
+    state_to_invars: Dict[State :
+        
+    Tuple[Var :
+        
+    ...]] :
+        
+    state_to_outvars: Dict[State :
+        
+    original_consts: List :
+        
+
+    Returns
+    -------
+
     """
     groups = []
 
@@ -428,11 +544,20 @@ def _step3_extract_connections(
     jaxpr: Jaxpr,
     original_consts: List,
 ) -> List[Tuple[JaxprEqn, Connection]]:
-    """
-    Extract all connection equations and create Connection objects.
+    """Extract all connection equations and create Connection objects.
 
-    Returns:
+    Parameters
+    ----------
+    jaxpr: Jaxpr :
+        
+    original_consts: List :
+        
+
+    Returns
+    -------
+    
         List of (equation, Connection) tuples
+
     """
     connections = []
     for eqn in jaxpr.eqns:
@@ -458,20 +583,46 @@ def _step4_build_projections(
     state_to_invars: Dict[State, Tuple[Var, ...]],
     original_consts: List,
 ) -> List[Projection]:
-    """
-    Build Projection objects by iterating over jaxpr.eqns and analyzing connections between groups.
-
+    """Build Projection objects by iterating over jaxpr.eqns and analyzing connections between groups.
+    
     A Projection:
-
+    
     1. Takes hidden_states from a pre_group
     2. Applies one or more equations (including connections and preprocessing)
     3. Produces outputs that flow into post_group as input currents
-
+    
     Strategy:
-
+    
     - Iterate over all equations in jaxpr.eqns
     - For each group's input_vars, trace back to find source group
     - Group all equations in the path from pre_group to post_group into a Projection
+
+    Parameters
+    ----------
+    jaxpr: Jaxpr :
+        
+    groups: List[Group] :
+        
+    connections: List[Tuple[JaxprEqn :
+        
+    Connection]] :
+        
+    invar_to_state: Dict[Var :
+        
+    State] :
+        
+    state_to_invars: Dict[State :
+        
+    Tuple[Var :
+        
+    ...]] :
+        
+    original_consts: List :
+        
+
+    Returns
+    -------
+
     """
     projections = []
 
@@ -694,11 +845,36 @@ def _trace_projection_path(
     invar_to_state: Dict[Var, State],
     connections: List[Tuple[JaxprEqn, Connection]],
 ) -> Tuple[Group, List[JaxprEqn], List[State], List[State], List[Connection]] | None:
-    """
-    Trace back from an input_var to find the complete projection path.
+    """Trace back from an input_var to find the complete projection path.
 
-    Returns:
+    Parameters
+    ----------
+    input_var: Var :
+        
+    post_group: Group :
+        
+    groups: List[Group] :
+        
+    jaxpr: Jaxpr | ClosedJaxpr :
+        
+    var_to_producer_eqn: Dict[Var :
+        
+    JaxprEqn] :
+        
+    invar_to_state: Dict[Var :
+        
+    State] :
+        
+    connections: List[Tuple[JaxprEqn :
+        
+    Connection]] :
+        
+
+    Returns
+    -------
+    
         (pre_group, equations, hidden_states, in_states, connections) or None if no valid projection
+
     """
     if isinstance(jaxpr, ClosedJaxpr):
         jaxpr = jaxpr.jaxpr
@@ -796,16 +972,35 @@ def _trace_input_forward(
     var_to_consumer_eqns: Dict[Var, List[JaxprEqn]],
     group_input_vars_sets: Dict[int, Set[Var]],
 ) -> Tuple[Var, Group, List[JaxprEqn], List[Var]] | None:
-    """
-    Forward trace from an input_var to find which group it flows into.
-
+    """Forward trace from an input_var to find which group it flows into.
+    
     Algorithm:
     1. Start with input_var as the current frontier
     2. Expand frontier by finding equations that consume these vars
     3. Stop when all vars in frontier are input_vars of a single group
 
-    Returns:
+    Parameters
+    ----------
+    input_var: Var :
+        
+    jaxpr: Jaxpr :
+        
+    groups: List[Group] :
+        
+    var_to_consumer_eqns: Dict[Var :
+        
+    List[JaxprEqn]] :
+        
+    group_input_vars_sets: Dict[int :
+        
+    Set[Var]] :
+        
+
+    Returns
+    -------
+    
         (input_var, target_group, equations, outvars) or None if no group found
+
     """
     visited_vars = set()
     visited_eqns = set()
@@ -864,14 +1059,30 @@ def _step5_build_inputs(
     invar_to_state: Dict[Var, State],
     original_consts: List,
 ) -> List[Input]:
-    """
-    Build Input objects that describe how external inputs flow into groups.
-
+    """Build Input objects that describe how external inputs flow into groups.
+    
     Algorithm:
     1. For each input_var, forward trace through jaxpr.eqns
     2. Stop when all outvars are invars of some group
     3. Each Input corresponds to exactly one Group
     4. A Group can have multiple Inputs
+
+    Parameters
+    ----------
+    jaxpr: Jaxpr :
+        
+    groups: List[Group] :
+        
+    invar_to_state: Dict[Var :
+        
+    State] :
+        
+    original_consts: List :
+        
+
+    Returns
+    -------
+
     """
 
     # Determine which vars are input_variables (not state vars)
@@ -973,14 +1184,40 @@ def _step6_build_outputs(
     state_to_invars: Dict[State, Tuple[Var, ...]],
     original_consts: List,
 ) -> List[Output]:
-    """
-    Build Output objects that describe how to extract network outputs from group states.
-
+    """Build Output objects that describe how to extract network outputs from group states.
+    
     Algorithm:
     1. For each output_var, backward trace through jaxpr.eqns
     2. Stop when we reach state outvars or state invars
     3. Find corresponding hidden_states and in_states from these state vars
     4. Verify no dependencies on intermediate variables (raise error if found)
+
+    Parameters
+    ----------
+    jaxpr: Jaxpr :
+        
+    groups: List[Group] :
+        
+    outvar_to_state: Dict[Var :
+        
+    State] :
+        
+    state_to_outvars: Dict[State :
+        
+    Tuple[Var :
+        
+    ...]] :
+        
+    invar_to_state: Dict[Var :
+        
+    state_to_invars: Dict[State :
+        
+    original_consts: List :
+        
+
+    Returns
+    -------
+
     """
 
     # Identify state outvars (variables that correspond to state outputs)
@@ -1213,8 +1450,24 @@ def _step7_build_graph(
     inputs: List[Input],
     outputs: List[Output],
 ) -> Graph:
-    """
-    Determine the execution order of components based on the original Jaxpr equation order.
+    """Determine the execution order of components based on the original Jaxpr equation order.
+
+    Parameters
+    ----------
+    jaxpr: Jaxpr :
+        
+    groups: List[Group] :
+        
+    projections: List[Projection] :
+        
+    inputs: List[Input] :
+        
+    outputs: List[Output] :
+        
+
+    Returns
+    -------
+
     """
     call_graph = Graph()
 
@@ -1282,15 +1535,41 @@ def _step8_validate_compilation(
     out_states: Tuple[State, ...],
     invar_to_state: Dict[Var, State],
 ):
-    """
-    Validate the compiled SNN structure.
-
+    """Validate the compiled SNN structure.
+    
     Checks:
     1. All hidden_states are assigned to some group
     2. All input_variables are used by some Input
     3. All output_variables are produced by some Output
     4. Projections have valid pre/post groups
     5. No orphaned connections
+
+    Parameters
+    ----------
+    closed_jaxpr: ClosedJaxpr :
+        
+    groups: List[Group] :
+        
+    projections: List[Projection] :
+        
+    inputs: List[Input] :
+        
+    outputs: List[Output] :
+        
+    in_states: Tuple[State :
+        
+    ...] :
+        
+    out_states: Tuple[State :
+        
+    invar_to_state: Dict[Var :
+        
+    State] :
+        
+
+    Returns
+    -------
+
     """
     jaxpr = closed_jaxpr.jaxpr
 
@@ -1370,23 +1649,57 @@ def compile(
     state_to_invars: Dict[State, Tuple[Var, ...]],
     state_to_outvars: Dict[State, Tuple[Var, ...]],
 ) -> CompiledGraph:
-    """
-    Compile a ClosedJaxpr representing an SNN single-step update into structured components.
+    """Compile a ClosedJaxpr representing an SNN single-step update into structured components.
 
-    Args:
-        closed_jaxpr: The ClosedJaxpr to compile
-        in_states: Input states (t-1)
-        out_states: Output states (t)
-        invar_to_state: Mapping from input vars to input states
-        outvar_to_state: Mapping from output vars to output states
-        state_to_invars: Mapping from input states to their vars
-        state_to_outvars: Mapping from output states to their vars
+    Parameters
+    ----------
+    closed_jaxpr :
+        The ClosedJaxpr to compile
+    in_states :
+        Input states (t-1)
+    out_states :
+        Output states (t)
+    invar_to_state :
+        Mapping from input vars to input states
+    outvar_to_state :
+        Mapping from output vars to output states
+    state_to_invars :
+        Mapping from input states to their vars
+    state_to_outvars :
+        Mapping from output states to their vars
+    closed_jaxpr: ClosedJaxpr :
+        
+    in_states: Tuple[State :
+        
+    ...] :
+        
+    out_states: Tuple[State :
+        
+    invar_to_state: Dict[Var :
+        
+    State] :
+        
+    outvar_to_state: Dict[Var :
+        
+    state_to_invars: Dict[State :
+        
+    Tuple[Var :
+        
+    ...]] :
+        
+    state_to_outvars: Dict[State :
+        
 
-    Returns:
+    Returns
+    -------
+    
         CompiledGraph object containing all components and execution order
 
-    Raises:
-        CompilationError: If compilation fails due to invalid structure
+    Raises
+    ------
+    CompilationError
+        If compilation fails due to invalid structure
+
     """
     jaxpr = closed_jaxpr.jaxpr
     consts = closed_jaxpr.consts
@@ -1436,5 +1749,5 @@ def compile(
         projections=projections,
         inputs=inputs,
         outputs=outputs,
-        call_graph=call_graph,
+        graph=call_graph,
     )

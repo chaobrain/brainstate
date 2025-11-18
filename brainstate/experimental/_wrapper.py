@@ -25,9 +25,8 @@ __all__ = [
 
 
 class ForLoop:
-    """
-    A device-aware for-loop wrapper.
-
+    """A device-aware for-loop wrapper.
+    
     This class wraps a function for execution in a for-loop pattern on a specific device.
 
     Parameters
@@ -37,15 +36,18 @@ class ForLoop:
     device : str, default 'cpu'
         The target device for execution ('cpu', 'gpu', 'tpu').
 
+    Returns
+    -------
+
     Examples
     --------
     Direct usage:
-
+    
+    
+    As a decorator:
     >>> loop = ForLoop(my_func, device='gpu')
     >>> result = loop(xs, length=100)
-
-    As a decorator:
-
+    
     >>> @ForLoop(device='gpu')
     ... def my_func(x):
     ...     return x * 2
@@ -123,9 +125,8 @@ class ForLoop:
 
 
 class JIT:
-    """
-    A device-aware JIT compilation wrapper.
-
+    """A device-aware JIT compilation wrapper.
+    
     This class wraps a function for just-in-time compilation on a specific device.
 
     Parameters
@@ -134,25 +135,29 @@ class JIT:
         The function to be JIT compiled. If Missing, returns a decorator.
     device : str, default 'cpu'
         The target device for compilation ('cpu', 'gpu', 'tpu').
-    **jit_kwargs
+    **jit_kwargs :
         Additional keyword arguments passed to the underlying JIT implementation.
+
+    Returns
+    -------
 
     Examples
     --------
     Direct usage:
-
+    
+    
+    As a decorator:
+    
+    
+    With additional JIT options:
     >>> jit_fn = JIT(my_func, device='gpu')
     >>> result = jit_fn(x, y)
-
-    As a decorator:
-
+    
     >>> @JIT(device='gpu')
     ... def my_func(x, y):
     ...     return x + y
     >>> result = my_func(x, y)
-
-    With additional JIT options:
-
+    
     >>> @JIT(device='cpu', static_argnums=(1,))
     ... def my_func(x, n):
     ...     return x ** n

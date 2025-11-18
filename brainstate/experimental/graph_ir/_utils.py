@@ -23,19 +23,25 @@ from brainstate._state import State
 
 
 def _is_connection(eqn: JaxprEqn) -> bool:
-    """
-    Determine if a JaxprEqn represents a connection operation.
-
+    """Determine if a JaxprEqn represents a connection operation.
+    
     Connection operations include:
     1. JIT-wrapped brainevent operations (e.g., brainevent.binary_fixed_num_mv_p_call)
     2. Inline brainevent primitives (e.g., binary_fixed_num_mv)
     3. Standard matrix operations (dot_general, conv_general_dilated)
 
-    Args:
-        eqn: A JaxprEqn to check
+    Parameters
+    ----------
+    eqn :
+        A JaxprEqn to check
+    eqn: JaxprEqn :
+        
 
-    Returns:
+    Returns
+    -------
+    
         True if this equation represents a connection, False otherwise
+
     """
     # Check if equation is a jit-wrapped brainevent operation that should be a connection
     if is_jit_primitive(eqn):
@@ -77,13 +83,33 @@ class UnionFind:
         self.rank = {}
 
     def make_set(self, x):
-        """Create a new set containing only x."""
+        """Create a new set containing only x.
+
+        Parameters
+        ----------
+        x :
+            
+
+        Returns
+        -------
+
+        """
         if x not in self.parent:
             self.parent[x] = x
             self.rank[x] = 0
 
     def find(self, x):
-        """Find the representative of the set containing x."""
+        """Find the representative of the set containing x.
+
+        Parameters
+        ----------
+        x :
+            
+
+        Returns
+        -------
+
+        """
         if x not in self.parent:
             self.make_set(x)
         if self.parent[x] != x:
@@ -91,7 +117,19 @@ class UnionFind:
         return self.parent[x]
 
     def union(self, x, y):
-        """Merge the sets containing x and y."""
+        """Merge the sets containing x and y.
+
+        Parameters
+        ----------
+        x :
+            
+        y :
+            
+
+        Returns
+        -------
+
+        """
         root_x = self.find(x)
         root_y = self.find(y)
 
@@ -120,6 +158,21 @@ def find_in_states(
     in_var_to_state: Dict[Var, State],
     in_vars: Sequence[Var]
 ):
+    """
+
+    Parameters
+    ----------
+    in_var_to_state: Dict[Var :
+        
+    State] :
+        
+    in_vars: Sequence[Var] :
+        
+
+    Returns
+    -------
+
+    """
     in_states = []
     in_state_ids = set()
     for var in in_vars:
@@ -135,6 +188,21 @@ def find_out_states(
     out_var_to_state: Dict[Var, State],
     out_vars: Sequence[Var]
 ):
+    """
+
+    Parameters
+    ----------
+    out_var_to_state: Dict[Var :
+        
+    State] :
+        
+    out_vars: Sequence[Var] :
+        
+
+    Returns
+    -------
+
+    """
     out_states = []
     out_state_ids = set()
     for var in out_vars:

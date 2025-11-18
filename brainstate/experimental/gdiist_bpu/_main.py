@@ -31,17 +31,22 @@ __all__ = [
 
 
 class GdiistBPUParser:
-    """
-    Parser for BPU (second generation) operations and connections.
-
+    """Parser for BPU (second generation) operations and connections.
+    
     This class is responsible for parsing the operations and connections in a BPU model.
     It provides comprehensive analysis capabilities including:
-
+    
     - Operation and connection parsing
     - Statistics and metrics computation
     - Multiple display formats (text, summary, graph)
     - Export capabilities (dict, JSON)
     - Cache management
+
+    Parameters
+    ----------
+
+    Returns
+    -------
 
     """
 
@@ -60,15 +65,20 @@ class GdiistBPUParser:
         self.compiled_graph = BoundedCache(maxsize=cache_size)
 
     def cache_key(self, *args, **kwargs) -> Any:
-        """
-        Generate a hashable cache key from the input arguments.
+        """Generate a hashable cache key from the input arguments.
 
-        Args:
-            *args: Positional arguments
-            **kwargs: Keyword arguments
+        Parameters
+        ----------
+        *args :
+            Positional arguments
+        **kwargs :
+            Keyword arguments
 
-        Returns:
+        Returns
+        -------
+        
             A hashable key for caching
+
         """
         if self.target == 'forloop':
             args, kwargs = jax.tree.map(lambda x: x[0], (args, kwargs))
@@ -81,17 +91,28 @@ class GdiistBPUParser:
         verbose: bool = False,
         **kwargs
     ) -> ParsedResults:
-        """
-        Main parsing function that analyzes JAXpr and builds groups and connections.
+        """Main parsing function that analyzes JAXpr and builds groups and connections.
 
-        Args:
-            *args: Positional arguments for the function
-            **kwargs: Keyword arguments for the function
-            display: Display mode ('text', 'summary', 'graph', or None)
-            verbose: If True, show additional parsing information
+        Parameters
+        ----------
+        *args :
+            Positional arguments for the function
+        **kwargs :
+            Keyword arguments for the function
+        display :
+            Display mode ('text', 'summary', 'graph', or None)
+        verbose :
+            If True, show additional parsing information
+        display: Optional[str] :
+             (Default value = None)
+        verbose: bool :
+             (Default value = False)
 
-        Returns:
+        Returns
+        -------
+        
             Tuple of (nodes, connections, state_mapping)
+
         """
         key = self.cache_key(*args, **kwargs)
 
@@ -119,12 +140,22 @@ class GdiistBPUParser:
         return result
 
     def display(self, result: Tuple, mode: str = 'text') -> None:
-        """
-        Display the parsed results in various formats.
+        """Display the parsed results in various formats.
 
-        Args:
-            result: Parse result tuple, uses last parse result if None
-            mode: Display mode ('text', 'summary', 'graph')
+        Parameters
+        ----------
+        result :
+            Parse result tuple, uses last parse result if None
+        mode :
+            Display mode ('text', 'summary', 'graph')
+        result: Tuple :
+            
+        mode: str :
+             (Default value = 'text')
+
+        Returns
+        -------
+
         """
         nodes, connections, state_mapping = result
         if mode == 'text':
@@ -156,8 +187,22 @@ def _text_display(
     connections: List[Connection],
     state_mappings: Dict[str, Any]
 ):
-    """
-    Display comprehensive analysis results for BPU Node Connection Parser
+    """Display comprehensive analysis results for BPU Node Connection Parser
+
+    Parameters
+    ----------
+    operations: List[Group] :
+        
+    connections: List[Connection] :
+        
+    state_mappings: Dict[str :
+        
+    Any] :
+        
+
+    Returns
+    -------
+
     """
 
     print(f"\nSummary:")
@@ -218,6 +263,19 @@ def _text_display(
 
 
 def _text_one_eqn(eqn: JaxprEqn, no):
+    """
+
+    Parameters
+    ----------
+    eqn: JaxprEqn :
+        
+    no :
+        
+
+    Returns
+    -------
+
+    """
     # Get output info
     output_info = ""
     if len(eqn.outvars) > 0:
@@ -258,6 +316,17 @@ def _text_one_eqn(eqn: JaxprEqn, no):
 
 
 def _no_formatter(num):
+    """
+
+    Parameters
+    ----------
+    num :
+        
+
+    Returns
+    -------
+
+    """
     if num < 10:
         formater = '{:1d}'
     elif num < 100:

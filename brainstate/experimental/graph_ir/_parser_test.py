@@ -13,9 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 
-"""
-Test cases for the SNN compiler.
-"""
+"""Test cases for the SNN compiler."""
 
 import brainpy
 import brainunit as u
@@ -27,6 +25,7 @@ brainstate.environ.set(dt=0.1 * u.ms)
 
 
 def test_simple_lif():
+    """ """
     lif = brainpy.state.LIFRef(
         10,
         V_rest=-65. * u.mV,
@@ -39,6 +38,19 @@ def test_simple_lif():
 
     # Define update function
     def update(t, inp):
+        """
+
+        Parameters
+        ----------
+        t :
+            
+        inp :
+            
+
+        Returns
+        -------
+
+        """
         with brainstate.environ.context(t=t):
             lif(inp)
             return lif.get_spike()
@@ -56,7 +68,9 @@ def test_simple_lif():
 
 
 def test_two_populations():
+    """ """
     class TwoPopNet(brainstate.nn.Module):
+        """ """
         def __init__(self):
             super().__init__()
             self.n_exc = 100
@@ -95,6 +109,21 @@ def test_two_populations():
             )
 
         def update(self, t, inp_exc, inp_inh):
+            """
+
+            Parameters
+            ----------
+            t :
+                
+            inp_exc :
+                
+            inp_inh :
+                
+
+            Returns
+            -------
+
+            """
             with brainstate.environ.context(t=t):
                 exc_spk = self.exc.get_spike() != 0.
                 self.exc2inh(exc_spk)
@@ -106,6 +135,21 @@ def test_two_populations():
     brainstate.nn.init_all_states(net)
 
     def update(t, inp_exc, inp_inh):
+        """
+
+        Parameters
+        ----------
+        t :
+            
+        inp_exc :
+            
+        inp_inh :
+            
+
+        Returns
+        -------
+
+        """
         return net.update(t, inp_exc, inp_inh)
 
     t = 0. * u.ms

@@ -13,8 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 
-"""
-Device-specific implementation registry for JIT compilation and loop transformations.
+"""Device-specific implementation registry for JIT compilation and loop transformations.
 
 This module provides a registry system for managing device-specific implementations
 of core transformations like JIT compilation and for-loops. It allows registration
@@ -45,8 +44,10 @@ registered_devices: DeviceRegistry = {}
 
 
 def get_registered_devices() -> List[str]:
-    """
-    Get a list of all registered device names.
+    """Get a list of all registered device names.
+
+    Parameters
+    ----------
 
     Returns
     -------
@@ -64,13 +65,14 @@ def get_registered_devices() -> List[str]:
 
 
 def is_device_registered(device: str) -> bool:
-    """
-    Check if a device is registered in the system.
+    """Check if a device is registered in the system.
 
     Parameters
     ----------
     device : str
         The device name to check.
+    device: str :
+        
 
     Returns
     -------
@@ -88,13 +90,14 @@ def is_device_registered(device: str) -> bool:
 
 
 def get_forloop_impl(device: str) -> Callable:
-    """
-    Get the for-loop implementation for a specific device.
+    """Get the for-loop implementation for a specific device.
 
     Parameters
     ----------
     device : str
         The target device name (e.g., 'cpu', 'gpu', 'tpu').
+    device: str :
+        
 
     Returns
     -------
@@ -130,13 +133,14 @@ def get_forloop_impl(device: str) -> Callable:
 
 
 def get_jit_impl(device: str) -> Callable:
-    """
-    Get the JIT compilation implementation for a specific device.
+    """Get the JIT compilation implementation for a specific device.
 
     Parameters
     ----------
     device : str
         The target device name (e.g., 'cpu', 'gpu', 'tpu').
+    device: str :
+        
 
     Returns
     -------
@@ -172,8 +176,7 @@ def get_jit_impl(device: str) -> Callable:
 
 
 def register_forloop_impl(device: str, impl: Callable) -> None:
-    """
-    Register a for-loop implementation for a specific device.
+    """Register a for-loop implementation for a specific device.
 
     Parameters
     ----------
@@ -182,6 +185,13 @@ def register_forloop_impl(device: str, impl: Callable) -> None:
     impl : Callable
         The implementation function that wraps functions for for-loop execution.
         Should accept a function and return a wrapped callable.
+    device: str :
+        
+    impl: Callable :
+        
+
+    Returns
+    -------
 
     Raises
     ------
@@ -190,15 +200,14 @@ def register_forloop_impl(device: str, impl: Callable) -> None:
 
     Examples
     --------
+    Notes
+    -----
+    If the device already has a for-loop implementation, it will be overwritten.
     >>> def my_forloop_impl(fn, **kwargs):
     ...     def wrapper(*args, **kw):
     ...         return for_loop(fn, *args, **kw)
     ...     return wrapper
     >>> register_forloop_impl('custom_device', my_forloop_impl)
-
-    Notes
-    -----
-    If the device already has a for-loop implementation, it will be overwritten.
     """
     if not callable(impl):
         raise TypeError(
@@ -212,8 +221,7 @@ def register_forloop_impl(device: str, impl: Callable) -> None:
 
 
 def register_jit_impl(device: str, impl: Callable) -> None:
-    """
-    Register a JIT compilation implementation for a specific device.
+    """Register a JIT compilation implementation for a specific device.
 
     Parameters
     ----------
@@ -222,6 +230,13 @@ def register_jit_impl(device: str, impl: Callable) -> None:
     impl : Callable
         The implementation function that JIT-compiles functions.
         Should accept a function and optional kwargs, returning a compiled callable.
+    device: str :
+        
+    impl: Callable :
+        
+
+    Returns
+    -------
 
     Raises
     ------
@@ -230,13 +245,12 @@ def register_jit_impl(device: str, impl: Callable) -> None:
 
     Examples
     --------
-    >>> def my_jit_impl(fn, **jit_kwargs):
-    ...     return jit(fn, **jit_kwargs)
-    >>> register_jit_impl('custom_device', my_jit_impl)
-
     Notes
     -----
     If the device already has a JIT implementation, it will be overwritten.
+    >>> def my_jit_impl(fn, **jit_kwargs):
+    ...     return jit(fn, **jit_kwargs)
+    >>> register_jit_impl('custom_device', my_jit_impl)
     """
     if not callable(impl):
         raise TypeError(
@@ -250,13 +264,14 @@ def register_jit_impl(device: str, impl: Callable) -> None:
 
 
 def unregister_device(device: str) -> bool:
-    """
-    Unregister a device and remove all its implementations.
+    """Unregister a device and remove all its implementations.
 
     Parameters
     ----------
     device : str
         The device name to unregister.
+    device: str :
+        
 
     Returns
     -------
@@ -278,30 +293,33 @@ def unregister_device(device: str) -> bool:
 
 
 def clear_all_registrations() -> None:
-    """
-    Clear all device registrations from the system.
-
+    """Clear all device registrations from the system.
+    
     This removes all registered devices and their implementations.
     Use with caution as this will affect all code relying on registered devices.
 
+    Parameters
+    ----------
+
+    Returns
+    -------
+
     Examples
     --------
-    >>> clear_all_registrations()
-    >>> get_registered_devices()
-    []
-
     Notes
     -----
     This is primarily useful for testing or when you need to completely
     reset the device registry state.
+    >>> clear_all_registrations()
+    >>> get_registered_devices()
+    []
     """
     registered_devices.clear()
 
 
 def _for_loop_wrapper(fn: Callable, **kwargs: Any) -> Callable:
-    """
-    Default for-loop wrapper implementation.
-
+    """Default for-loop wrapper implementation.
+    
     This function wraps a given function to execute using BrainState's for_loop
     transformation. It serves as the default implementation for all standard devices.
 
@@ -311,6 +329,10 @@ def _for_loop_wrapper(fn: Callable, **kwargs: Any) -> Callable:
         The function to be wrapped for for-loop execution.
     **kwargs : Any
         Additional keyword arguments to pass to the for_loop transformation.
+    fn: Callable :
+        
+    **kwargs: Any :
+        
 
     Returns
     -------
@@ -323,15 +345,27 @@ def _for_loop_wrapper(fn: Callable, **kwargs: Any) -> Callable:
     """
 
     def run(*args: Any, **run_kwargs: Any) -> Any:
+        """
+
+        Parameters
+        ----------
+        *args: Any :
+            
+        **run_kwargs: Any :
+            
+
+        Returns
+        -------
+
+        """
         return for_loop(fn, *args, **run_kwargs)
 
     return run
 
 
 def _jit_wrapper(fn: Callable, **jit_kwargs: Any) -> Callable:
-    """
-    Default JIT compilation wrapper implementation.
-
+    """Default JIT compilation wrapper implementation.
+    
     This function wraps a given function with BrainState's JIT compiler.
     It serves as the default implementation for all standard devices.
 
@@ -341,6 +375,10 @@ def _jit_wrapper(fn: Callable, **jit_kwargs: Any) -> Callable:
         The function to be JIT-compiled.
     **jit_kwargs : Any
         Additional keyword arguments to pass to the JIT compiler.
+    fn: Callable :
+        
+    **jit_kwargs: Any :
+        
 
     Returns
     -------
@@ -355,11 +393,16 @@ def _jit_wrapper(fn: Callable, **jit_kwargs: Any) -> Callable:
 
 
 def _register_default_devices() -> None:
-    """
-    Register default device implementations for standard compute devices.
-
+    """Register default device implementations for standard compute devices.
+    
     This function registers the default for-loop and JIT implementations
     for CPU, GPU, and TPU devices. It is called automatically on module import.
+
+    Parameters
+    ----------
+
+    Returns
+    -------
 
     Notes
     -----

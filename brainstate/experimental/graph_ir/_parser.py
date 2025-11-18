@@ -34,12 +34,13 @@ __all__ = [
 
 
 class ParsedResults(NamedTuple):
+    """ """
     static_argnames: Sequence
     static_argnums: Sequence
     cache_fn: Callable
     cache_key: Hashable
     out_treedef: Any
-    jaxpr: Jaxpr
+    jaxpr: ClosedJaxpr
     in_states: Sequence[State]
     out_states: Sequence[State]
     invar_to_state: Dict[Var, State]
@@ -49,6 +50,21 @@ class ParsedResults(NamedTuple):
     compiled: CompiledGraph
 
     def run(self, *args, mode: str = 'compiled', **kwargs) -> Any:
+        """
+
+        Parameters
+        ----------
+        *args :
+            
+        mode: str :
+             (Default value = 'compiled')
+        **kwargs :
+            
+
+        Returns
+        -------
+
+        """
         if mode == 'compiled':
             return self.run_compiled_graph(*args, **kwargs)
 
@@ -64,12 +80,53 @@ class ParsedResults(NamedTuple):
             raise ValueError(f"Unknown mode: {mode}")
 
     def run_original_jaxpr(self, *args, **kwargs) -> Any:
+        """
+
+        Parameters
+        ----------
+        *args :
+            
+        **kwargs :
+            
+
+        Returns
+        -------
+
+        """
         return self._run_impl(lambda *data: jax.core.eval_jaxpr(self.jaxpr.jaxpr, self.jaxpr.consts, *data), *args, **kwargs)
 
     def run_compiled_graph(self, *args, **kwargs) -> Any:
+        """
+
+        Parameters
+        ----------
+        *args :
+            
+        **kwargs :
+            
+
+        Returns
+        -------
+
+        """
         return self._run_impl(self._run_graph, *args, **kwargs)
 
     def _run_impl(self, impl, *args, **kwargs) -> Any:
+        """
+
+        Parameters
+        ----------
+        impl :
+            
+        *args :
+            
+        **kwargs :
+            
+
+        Returns
+        -------
+
+        """
         # data check
         if self.cache_fn(*args, **kwargs) != self.cache_key:
             raise ValueError("Cache key mismatch. The function has been called with different arguments.")
@@ -93,10 +150,18 @@ class ParsedResults(NamedTuple):
         return out
 
     def _run_graph(self, *args) -> Any:
-        """
-        Run the network using the compiled graph structure.
-
+        """Run the network using the compiled graph structure.
+        
         This executes components in graph, maintaining a variable environment.
+
+        Parameters
+        ----------
+        *args :
+            
+
+        Returns
+        -------
+
         """
         # Build variable environment: Var -> value mapping
         var_env = {}
@@ -121,7 +186,21 @@ class ParsedResults(NamedTuple):
         return outputs
 
     def _initialize_var_env(self, var_env: Dict[Var, Any], args: Tuple) -> None:
-        """Initialize variable environment with input arguments and state values."""
+        """Initialize variable environment with input arguments and state values.
+
+        Parameters
+        ----------
+        var_env: Dict[Var :
+            
+        Any] :
+            
+        args: Tuple :
+            
+
+        Returns
+        -------
+
+        """
         # Map to jaxpr invars
         assert len(args) == len(self.jaxpr.jaxpr.invars), (
             f"Argument count mismatch: expected {len(self.jaxpr.jaxpr.invars)}, got {len(args)}"
@@ -130,7 +209,21 @@ class ParsedResults(NamedTuple):
             var_env[var] = val
 
     def _execute_input(self, input_comp: Input, var_env: Dict[Var, Any]) -> None:
-        """Execute an Input component."""
+        """Execute an Input component.
+
+        Parameters
+        ----------
+        input_comp: Input :
+            
+        var_env: Dict[Var :
+            
+        Any] :
+            
+
+        Returns
+        -------
+
+        """
         # Gather input values from environment
         input_vals = [var_env[var] for var in input_comp.jaxpr.jaxpr.invars]
 
@@ -146,7 +239,21 @@ class ParsedResults(NamedTuple):
             var_env[var] = val
 
     def _execute_group(self, group: Group, var_env: Dict[Var, Any]) -> None:
-        """Execute a Group component."""
+        """Execute a Group component.
+
+        Parameters
+        ----------
+        group: Group :
+            
+        var_env: Dict[Var :
+            
+        Any] :
+            
+
+        Returns
+        -------
+
+        """
         # Gather input values from environment
         input_vals = []
         for var in group.jaxpr.jaxpr.invars:
@@ -168,7 +275,21 @@ class ParsedResults(NamedTuple):
             var_env[var] = val
 
     def _execute_projection(self, projection: Projection, var_env: Dict[Var, Any]) -> None:
-        """Execute a Projection component."""
+        """Execute a Projection component.
+
+        Parameters
+        ----------
+        projection: Projection :
+            
+        var_env: Dict[Var :
+            
+        Any] :
+            
+
+        Returns
+        -------
+
+        """
         # Gather input values from environment
         input_vals = []
         for var in projection.jaxpr.jaxpr.invars:
@@ -195,7 +316,21 @@ class ParsedResults(NamedTuple):
             var_env[var] = val
 
     def _execute_output(self, output: Output, var_env: Dict[Var, Any]) -> None:
-        """Execute an Output component."""
+        """Execute an Output component.
+
+        Parameters
+        ----------
+        output: Output :
+            
+        var_env: Dict[Var :
+            
+        Any] :
+            
+
+        Returns
+        -------
+
+        """
         # Gather input values from environment
         input_vals = [var_env[var] for var in output.jaxpr.jaxpr.invars]
 
@@ -211,7 +346,19 @@ class ParsedResults(NamedTuple):
             var_env[var] = val
 
     def _collect_outputs(self, var_env: Dict[Var, Any]) -> Any:
-        """Collect output values from the variable environment."""
+        """Collect output values from the variable environment.
+
+        Parameters
+        ----------
+        var_env: Dict[Var :
+            
+        Any] :
+            
+
+        Returns
+        -------
+
+        """
         output_vals = []
         for var in self.jaxpr.jaxpr.outvars:
             if var not in var_env:
@@ -229,12 +376,38 @@ def parse(
     stateful_fn: StatefulFunction,
     jit_inline: bool = True,
 ) -> Callable[..., ParsedResults]:
+    """
+
+    Parameters
+    ----------
+    stateful_fn: StatefulFunction :
+        
+    jit_inline: bool :
+         (Default value = True)
+
+    Returns
+    -------
+
+    """
     assert isinstance(stateful_fn, StatefulFunction), "stateful_fn must be an instance of StatefulFunction"
     assert stateful_fn.return_only_write, (
         "Parser currently only supports stateful functions that return only write states. "
     )
 
     def call(*args, **kwargs):
+        """
+
+        Parameters
+        ----------
+        *args :
+            
+        **kwargs :
+            
+
+        Returns
+        -------
+
+        """
         # jaxpr
         jaxpr = stateful_fn.get_jaxpr(*args, **kwargs)
         if jit_inline:
@@ -282,6 +455,21 @@ def _build_state_mapping(
     in_states: List[State],
     out_states: List[State],
 ) -> Dict:
+    """
+
+    Parameters
+    ----------
+    closed_jaxpr: ClosedJaxpr :
+        
+    in_states: List[State] :
+        
+    out_states: List[State] :
+        
+
+    Returns
+    -------
+
+    """
     # --- validations ---
     if not isinstance(closed_jaxpr, ClosedJaxpr):
         raise TypeError(f"closed_jaxpr must be a ClosedJaxpr, got {type(closed_jaxpr)}")

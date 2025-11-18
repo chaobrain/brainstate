@@ -44,16 +44,7 @@ class GraphElem:
 
 @dataclass
 class Group(GraphElem):
-    """Logical container for a compiled neuron group.
-
-    Attributes:
-        jaxpr: Functional representation of the group in ClosedJaxpr form.
-        hidden_states: States that are scoped to the group itself.
-        in_states: States that need to be provided by upstream groups.
-        out_states: States emitted for downstream consumers.
-        input_vars: JAXPR variables describing runtime inputs for the group.
-        name: Human-readable label used in diagnostics and visualizations.
-    """
+    """Logical container for a compiled neuron group."""
     hidden_states: List[State]
     in_states: List[State]
     out_states: List[State]
@@ -62,29 +53,89 @@ class Group(GraphElem):
 
     @property
     def eqns(self):
-        """Return the equations that define the group's computation."""
+        """ """
         return self.jaxpr.jaxpr.eqns
 
     def has_outvar(self, outvar: Var) -> bool:
-        """Return True if the group produces the given JAXPR variable."""
+        """
+
+        Parameters
+        ----------
+        outvar: Var :
+            
+
+        Returns
+        -------
+        type
+            
+
+        """
         return outvar in self.jaxpr.jaxpr.outvars
 
     def has_invar(self, invar: Var) -> bool:
-        """Return True if the group consumes the given JAXPR variable."""
+        """
+
+        Parameters
+        ----------
+        invar: Var :
+            
+
+        Returns
+        -------
+        type
+            
+
+        """
         return invar in self.jaxpr.jaxpr.invars
 
     def has_in_state(self, state: State) -> bool:
-        """Return True if the provided state feeds into the group."""
+        """
+
+        Parameters
+        ----------
+        state: State :
+            
+
+        Returns
+        -------
+        type
+            
+
+        """
         state_id = id(state)
         return any(id(s) == state_id for s in self.in_states)
 
     def has_out_state(self, state: State) -> bool:
-        """Return True if the provided state is emitted by the group."""
+        """
+
+        Parameters
+        ----------
+        state: State :
+            
+
+        Returns
+        -------
+        type
+            
+
+        """
         state_id = id(state)
         return any(id(s) == state_id for s in self.out_states)
 
     def has_hidden_state(self, state: State) -> bool:
-        """Return True if the provided state is internal to the group."""
+        """
+
+        Parameters
+        ----------
+        state: State :
+            
+
+        Returns
+        -------
+        type
+            
+
+        """
         state_id = id(state)
         return any(id(s) == state_id for s in self.hidden_states)
 
@@ -98,16 +149,7 @@ class Connection(GraphElem):
 
 @dataclass
 class Projection(GraphElem):
-    """Connection bundle that transfers activity between two groups.
-
-    Attributes:
-        hidden_states: Intermediate states introduced by the projection.
-        in_states: States consumed when the projection is executed.
-        jaxpr: Functional representation of the projection.
-        connections: Underlying low-level connection primitives.
-        pre_group: Source group emitting activity into the projection.
-        post_group: Destination group receiving the activity.
-    """
+    """Connection bundle that transfers activity between two groups."""
     hidden_states: List[State]
     in_states: List[State]
     connections: List[Connection]
@@ -143,10 +185,17 @@ class Input(GraphElem):
 
 class Spike(NamedTuple):
     """Opaque surrogate-gradient spike representation used by the compiler.
-
+    
     Notes:
         The backing JAXPR commonly corresponds to a Heaviside surrogate
         gradient such as ``heaviside_surrogate_gradient``.
+
+    Parameters
+    ----------
+
+    Returns
+    -------
+
     """
 
     state: State
@@ -199,14 +248,118 @@ class Graph:
         return tuple(self._nodes[i] for i in self._forward_edges.get(node_idx, ()))
 
     def edge_count(self) -> int:
-        """Return the number of directed edges."""
+        """Return number of directed edges in the graph."""
         return sum(len(targets) for targets in self._forward_edges.values())
 
     def __len__(self) -> int:
         return len(self._nodes)
 
+    def __repr__(self) -> str:
+        num_nodes = len(self._nodes)
+        num_edges = self.edge_count()
+        return f"<Graph with {num_nodes} nodes and {num_edges} edges>"
+
     def __iter__(self) -> Iterator[GraphElem]:
         return iter(self._nodes)
+
+    def visualize(
+        self,
+        *,
+        title: str = "Compiled Call Graph",
+        formatter: Optional[Callable[[GraphElem], str]] = None,
+        highlight: Optional[Iterable[GraphElem]] = None,
+        positions: Optional['np.ndarray'] = None,
+        width: int = 900,
+        height: int = 600,
+        **kwargs,
+    ):
+        """Visualize the graph using :mod:`braintools.visualize` helpers."""
+        if not self._nodes:
+            raise ValueError("Graph is empty; nothing to visualize.")
+
+        try:
+            from braintools.visualize import interactive_network
+        except ImportError as exc:
+            raise ImportError(
+                "braintools.visualize is required for graph visualization. "
+                "Install it with `pip install braintools[visualize]`."
+            ) from exc
+
+        import numpy as np
+
+        adjacency = self._build_adjacency_matrix(np)
+        labels = [self._format_node_label(node, formatter) for node in self._nodes]
+        node_colors = self._build_node_colors(np, highlight)
+        if positions is None:
+            positions = self._default_positions(np)
+        else:
+            positions = np.asarray(positions, dtype=float)
+            expected = (len(self._nodes), 2)
+            if positions.shape != expected:
+                raise ValueError(f"positions must have shape {expected}, got {positions.shape}")
+
+        return interactive_network(
+            adjacency=adjacency,
+            positions=positions,
+            node_labels=labels,
+            node_colors=node_colors,
+            title=title,
+            width=width,
+            height=height,
+            **kwargs,
+        )
+
+    def _build_adjacency_matrix(self, np_mod):
+        adjacency = np_mod.zeros((len(self._nodes), len(self._nodes)), dtype=float)
+        for source_idx, targets in self._forward_edges.items():
+            for target_idx in targets:
+                adjacency[source_idx, target_idx] = 1.0
+        return adjacency
+
+    def _format_node_label(
+        self, node: GraphElem, formatter: Optional[Callable[[GraphElem], str]]
+    ) -> str:
+        if formatter is not None:
+            return formatter(node)
+        if isinstance(node, Input):
+            return f"Input → {node.group.name}"
+        if isinstance(node, Group):
+            return node.name
+        if isinstance(node, Projection):
+            return f"{node.pre_group.name} → {node.post_group.name}"
+        if isinstance(node, Output):
+            return f"{node.group.name} → Output"
+        return type(node).__name__
+
+    def _build_node_colors(self, np_mod, highlight: Optional[Iterable[GraphElem]]):
+        type_buckets = {
+            Input: 0.0,
+            Group: 1.0,
+            Projection: 2.0,
+            Output: 3.0,
+        }
+        highlight_ids = {id(node) for node in highlight} if highlight else set()
+        colors = []
+        for node in self._nodes:
+            base = type_buckets.get(type(node), 4.0)
+            if id(node) in highlight_ids:
+                base += 4.0
+            colors.append(base)
+        return np_mod.asarray(colors, dtype=float)
+
+    def _default_positions(self, np_mod):
+        levels = {
+            Input: 0.0,
+            Group: 1.0,
+            Projection: 2.0,
+            Output: 3.0,
+        }
+        y = np_mod.asarray([levels.get(type(node), 4.0) for node in self._nodes], dtype=float)
+        if y.size:
+            max_level = max(y.max(), 1.0)
+            y = 1.0 - y / max_level
+        x = np_mod.linspace(0.0, 1.0, len(self._nodes), endpoint=True)
+        return np_mod.column_stack((x, y))
 
     def _ensure_node(self, node: GraphElem) -> int:
         node_id = id(node)
@@ -221,18 +374,18 @@ class Graph:
 
 class CompiledGraph(NamedTuple):
     """Compiled representation of a Spiking Neural Network.
-
+    
     The object captures the decomposed computation graph emitted by the IR
     compiler, organized into type-safe containers for groups, projections,
     inputs, and outputs. It also tracks the execution order that evaluation
     and visualization utilities reuse.
 
-    Attributes:
-        groups: All neuron groups in the network.
-        projections: Projection bundles (connections between groups).
-        inputs: External inputs bound to individual groups.
-        outputs: Output taps that expose group values to callers.
-        graph: Graph describing execution order and dependencies.
+    Parameters
+    ----------
+
+    Returns
+    -------
+
     """
     groups: List[Group]
     projections: List[Projection]
@@ -243,18 +396,27 @@ class CompiledGraph(NamedTuple):
     def display(self, mode='text'):
         """Render the compiled graph with the requested presentation.
 
-        Args:
-            mode: Display mode to use. Supported values are ``'text'`` for
-                the verbose textual summary, ``'ascii'`` for the lightweight
-                ASCII-art visualization, and ``'visualization'``/``'viz'`` for
-                a Graphviz ``Digraph`` (if the optional dependency is present).
+        Parameters
+        ----------
+        mode :
+            Display mode to use. Supported values are ``'text'`` for
+            the verbose textual summary, ``'ascii'`` for the lightweight
+            ASCII-art visualization, and ``'visualization'``/``'viz'`` for
+            a Graphviz ``Digraph`` (if the optional dependency is present). (Default value = 'text')
 
-        Returns:
-            graphviz.Digraph | None: A Digraph instance for ``visualization``
+        Returns
+        -------
+        graphviz.Digraph | None
+            A Digraph instance for ``visualization``
+        graphviz.Digraph | None
+            A Digraph instance for ``visualization``
             mode, or ``None`` for purely textual displays that print to stdout.
 
-        Raises:
-            ValueError: If an unsupported mode string is provided.
+        Raises
+        ------
+        ValueError
+            If an unsupported mode string is provided.
+
         """
         if mode == 'text':
             return self._text_display()
@@ -267,9 +429,16 @@ class CompiledGraph(NamedTuple):
 
     def _text_display(self):
         """Print a detailed, sectioned summary of the compiled graph.
-
+        
         The output enumerates every group, projection, input, and output along
         with the derived metadata (state counts, primitive names, etc.).
+
+        Parameters
+        ----------
+
+        Returns
+        -------
+
         """
         print("=" * 80)
         print("COMPILED GRAPH STRUCTURE")
@@ -379,9 +548,16 @@ class CompiledGraph(NamedTuple):
 
     def _ascii_display(self):
         """Render a compact ASCII-art visualization of the compiled graph.
-
+        
         The output includes a legend, execution order, and a simplified data
         flow diagram that can be consumed directly in a terminal.
+
+        Parameters
+        ----------
+
+        Returns
+        -------
+
         """
         print("=" * 80)
         print("COMPILED GRAPH - ASCII VISUALIZATION")
@@ -477,10 +653,19 @@ class CompiledGraph(NamedTuple):
 
 
 def _format_state(state: State) -> str:
-    """Return a compact description of a ``State`` for display helpers.
+    """
 
-    Shapes are preferred when present to avoid spamming huge tensors, while
-    scalars fall back to their raw value.
+    Parameters
+    ----------
+    state: State :
+        
+
+    Returns
+    -------
+    type
+        Shapes are preferred when present to avoid spamming huge tensors, while
+        scalars fall back to their raw value.
+
     """
     if hasattr(state, 'value'):
         val = state.value
