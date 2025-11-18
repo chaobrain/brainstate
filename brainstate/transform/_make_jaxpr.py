@@ -142,6 +142,35 @@ def _jax_v04_new_jax_trace():
     return frame, trace
 
 
+def get_arg_cache_key(static_argnums, static_argnames, *args, **kwargs) -> hashabledict:
+    static_args, dyn_args = [], []
+    for i, arg in enumerate(args):
+        if i in static_argnums:
+            static_args.append(arg)
+        else:
+            dyn_args.append(arg)
+    dyn_args = jax.tree.map(shaped_abstractify, dyn_args)
+    static_kwargs, dyn_kwargs = [], []
+    for k, v in sorted(kwargs.items()):
+        if k in static_argnames:
+            static_kwargs.append((k, v))
+        else:
+            dyn_kwargs.append((k, jax.tree.map(shaped_abstractify, v)))
+
+    static_args = _make_hashable(tuple(static_args))
+    dyn_args = _make_hashable(tuple(dyn_args))
+    static_kwargs = _make_hashable(static_kwargs)
+    dyn_kwargs = _make_hashable(dyn_kwargs)
+
+    cache_key = hashabledict(
+        static_args=static_args,
+        dyn_args=dyn_args,
+        static_kwargs=static_kwargs,
+        dyn_kwargs=dyn_kwargs,
+    )
+    return cache_key
+
+
 class StatefulFunction(PrettyObject):
     """
     A wrapper class for functions that tracks state reads and writes during execution.
@@ -654,35 +683,9 @@ class StatefulFunction(PrettyObject):
             ... )
             >>> cache_key = sf.get_arg_cache_key(jnp.array([1.0, 2.0]), 2)
         """
-        static_args, dyn_args = [], []
-        for i, arg in enumerate(args):
-            if i in self.static_argnums:
-                static_args.append(arg)
-            else:
-                dyn_args.append(arg)
-        dyn_args = jax.tree.map(shaped_abstractify, dyn_args)
-        static_kwargs, dyn_kwargs = [], []
-        for k, v in sorted(kwargs.items()):
-            if k in self.static_argnames:
-                static_kwargs.append((k, v))
-            else:
-                dyn_kwargs.append((k, jax.tree.map(shaped_abstractify, v)))
-
-        static_args = _make_hashable(tuple(static_args))
-        dyn_args = _make_hashable(tuple(dyn_args))
-        static_kwargs = _make_hashable(static_kwargs)
-        dyn_kwargs = _make_hashable(dyn_kwargs)
-
-        cache_key = hashabledict(
-            static_args=static_args,
-            dyn_args=dyn_args,
-            static_kwargs=static_kwargs,
-            dyn_kwargs=dyn_kwargs,
-        )
-
+        cache_key = get_arg_cache_key(self.static_argnums, self.static_argnames, *args, **kwargs)
         if cache_key not in self._cached_state_trace and compile_if_miss:
             self.make_jaxpr(*args, **kwargs)
-
         return cache_key
 
     def clear_cache(self) -> None:
