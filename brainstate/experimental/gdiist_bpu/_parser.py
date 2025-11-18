@@ -13,20 +13,31 @@
 # limitations under the License.
 # ==============================================================================
 
-from typing import Tuple, Dict, NamedTuple, Sequence
+from functools import partial
+from typing import Tuple, Dict, NamedTuple, Sequence, Any, Callable, Hashable
 
 import jax
 
 from brainstate._compatible_import import Jaxpr, Var
 from brainstate._state import State
 from brainstate.transform._ir_inline_jit import inline_jit
-from brainstate.transform._make_jaxpr import StatefulFunction
+from brainstate.transform._make_jaxpr import StatefulFunction, get_arg_cache_key
 from ._compiler import compile
-from ._data import CompiledGraph
+from ._data import CompiledGraph, Group, Projection, Input, Output
 from ._utils import _is_connection
 
+__all__ = [
+    'ParsedOutput',
+    'parse',
+]
 
-class ParseOutput(NamedTuple):
+
+class ParsedOutput(NamedTuple):
+    static_argnames: Sequence
+    static_argnums: Sequence
+    cache_fn: Callable
+    cache_key: Hashable
+    out_treedef: Any
     jaxpr: Jaxpr
     in_states: Sequence[State]
     out_states: Sequence[State]
@@ -36,47 +47,222 @@ class ParseOutput(NamedTuple):
     state_to_outvars: Dict[State, Sequence[Var]]
     compiled: CompiledGraph
 
+    def run(self, *args, mode: str = 'compiled', **kwargs) -> Any:
+        if mode == 'compiled':
+            return self.run_compiled_graph(*args, **kwargs)
+
+        elif mode == 'original':
+            return self.run_original_jaxpr(*args, **kwargs)
+
+        elif mode == 'debug':
+            result = self.run_original_jaxpr(*args, **kwargs)
+            compiled = self.run_compiled_graph(*args, **kwargs)
+            return result, compiled
+
+        else:
+            raise ValueError(f"Unknown mode: {mode}")
+
+    def run_original_jaxpr(self, *args, **kwargs) -> Any:
+        return self._run_impl(lambda *data: jax.core.eval_jaxpr(self.jaxpr, [], *data), *args, **kwargs)
+
+    def run_compiled_graph(self, *args, **kwargs) -> Any:
+        return self._run_impl(self._run_graph, *args, **kwargs)
+
+    def _run_impl(self, impl, *args, **kwargs) -> Any:
+        # data check
+        if self.cache_fn(*args, **kwargs) != self.cache_key:
+            raise ValueError("Cache key mismatch. The function has been called with different arguments.")
+
+        # inputs
+        in_state_val = [st.value for st in self.in_states]
+        kwargs = {k: v for k, v in kwargs.items() if k not in self.static_argnames}  # remove static kwargs
+        args = tuple(args[i] for i in range(len(args)) if i not in self.static_argnums)
+        args = jax.tree.flatten((args, kwargs, in_state_val))[0]
+
+        # run jaxpr
+        jaxpr_outs = impl(*args)
+
+        # outputs
+        out, new_state_vals = self.out_treedef.unflatten(jaxpr_outs)
+        if len(new_state_vals) != len(self.out_states):
+            raise ValueError(f'State length mismatch in output: expected '
+                             f'{len(self.out_states)} states, got {len(new_state_vals)}')
+        for st, val in zip(self.out_states, new_state_vals):
+            st.restore_value(val)
+        return out
+
+    def _run_graph(self, *args) -> Any:
+        """
+        Run the network using the compiled graph structure.
+
+        This executes components in call_orders, maintaining a variable environment.
+        """
+        # Build variable environment: Var -> value mapping
+        var_env = {}
+
+        # Step 1: Initialize environment with input arguments
+        self._initialize_var_env(var_env, args)
+
+        # Step 2: Execute components in call_orders
+        for component in self.compiled.call_orders:
+            if isinstance(component, Input):
+                self._execute_input(component, var_env)
+            elif isinstance(component, Group):
+                self._execute_group(component, var_env)
+            elif isinstance(component, Projection):
+                self._execute_projection(component, var_env)
+            elif isinstance(component, Output):
+                self._execute_output(component, var_env)
+
+        # Step 3: Collect outputs from environment
+        outputs = self._collect_outputs(var_env)
+
+        return outputs
+
+    def _initialize_var_env(self, var_env: Dict[Var, Any], args: Tuple) -> None:
+        """Initialize variable environment with input arguments and state values."""
+        # Map to jaxpr invars
+        assert len(args) == len(self.jaxpr.invars), (
+            f"Argument count mismatch: expected {len(self.jaxpr.invars)}, got {len(args)}"
+        )
+        for var, val in zip(self.jaxpr.invars, args):
+            var_env[var] = val
+
+    def _execute_input(self, input_comp: Input, var_env: Dict[Var, Any]) -> None:
+        """Execute an Input component."""
+        # Gather input values from environment
+        input_vals = [var_env[var] for var in input_comp.jaxpr.invars]
+
+        # Execute the input jaxpr
+        results = jax.core.eval_jaxpr(input_comp.jaxpr, [], *input_vals)
+
+        # Handle single vs multiple outputs
+        if not isinstance(results, (tuple, list)):
+            results = (results,)
+
+        # Store results in environment
+        for var, val in zip(input_comp.jaxpr.outvars, results):
+            var_env[var] = val
+
+    def _execute_group(self, group: Group, var_env: Dict[Var, Any]) -> None:
+        """Execute a Group component."""
+        # Gather input values from environment
+        input_vals = []
+        for var in group.jaxpr.invars:
+            if var not in var_env:
+                raise RuntimeError(
+                    f"Variable {var} not found in environment when executing {group.name}"
+                )
+            input_vals.append(var_env[var])
+
+        # Execute the group jaxpr
+        results = jax.core.eval_jaxpr(group.jaxpr, [], *input_vals)
+
+        # Handle single vs multiple outputs
+        if not isinstance(results, (tuple, list)):
+            results = (results,)
+
+        # Store results in environment
+        for var, val in zip(group.jaxpr.outvars, results):
+            var_env[var] = val
+
+    def _execute_projection(self, projection: Projection, var_env: Dict[Var, Any]) -> None:
+        """Execute a Projection component."""
+        # Gather input values from environment
+        input_vals = [var_env[var] for var in projection.jaxpr.invars]
+
+        # Execute the projection jaxpr
+        results = jax.core.eval_jaxpr(projection.jaxpr, [], *input_vals)
+
+        # Handle single vs multiple outputs
+        if not isinstance(results, (tuple, list)):
+            results = (results,)
+
+        # Store results in environment
+        for var, val in zip(projection.jaxpr.outvars, results):
+            var_env[var] = val
+
+    def _execute_output(self, output: Output, var_env: Dict[Var, Any]) -> None:
+        """Execute an Output component."""
+        # Gather input values from environment
+        input_vals = [var_env[var] for var in output.jaxpr.invars]
+
+        # Execute the output jaxpr
+        results = jax.core.eval_jaxpr(output.jaxpr, [], *input_vals)
+
+        # Handle single vs multiple outputs
+        if not isinstance(results, (tuple, list)):
+            results = (results,)
+
+        # Store results in environment
+        for var, val in zip(output.jaxpr.outvars, results):
+            var_env[var] = val
+
+    def _collect_outputs(self, var_env: Dict[Var, Any]) -> Any:
+        """Collect output values from the variable environment."""
+        output_vals = []
+        for var in self.jaxpr.outvars:
+            if var not in var_env:
+                raise RuntimeError(f"Output variable {var} not found in environment")
+            output_vals.append(var_env[var])
+
+        # Return single value or tuple based on output count
+        if len(output_vals) == 1:
+            return output_vals[0]
+        else:
+            return tuple(output_vals)
+
 
 def parse(
     stateful_fn: StatefulFunction,
-    inputs: Tuple,
     jit_inline: bool = True,
-):
+) -> Callable[..., ParsedOutput]:
     assert isinstance(stateful_fn, StatefulFunction), "stateful_fn must be an instance of StatefulFunction"
     assert stateful_fn.return_only_write, (
         "Parser currently only supports stateful functions that return only write states. "
     )
 
-    # jaxpr
-    jaxpr = stateful_fn.get_jaxpr(*inputs[0], **inputs[1])
-    if jit_inline:
-        jaxpr = inline_jit(jaxpr, _is_connection)
+    def call(*args, **kwargs):
+        # jaxpr
+        jaxpr = stateful_fn.get_jaxpr(*args, **kwargs)
+        if jit_inline:
+            jaxpr = inline_jit(jaxpr, _is_connection)
 
-    # Build state mappings
-    in_states = stateful_fn.get_states(*inputs[0], **inputs[1])
-    out_states = stateful_fn.get_write_states(*inputs[0], **inputs[1])
-    state_mapping = _build_state_mapping(jaxpr, in_states, out_states)
+        # Build state mappings
+        in_states = stateful_fn.get_states(*args, **kwargs)
+        out_states = stateful_fn.get_write_states(*args, **kwargs)
+        state_mapping = _build_state_mapping(jaxpr, in_states, out_states)
 
-    # Compile the SNN
-    compiled_snn = compile(
-        closed_jaxpr=jaxpr,
-        in_states=in_states,
-        out_states=out_states,
-        invar_to_state=state_mapping['invar_to_state'],
-        outvar_to_state=state_mapping['outvar_to_state'],
-        state_to_invars=state_mapping['state_to_invars'],
-        state_to_outvars=state_mapping['state_to_outvars'],
-    )
-    return ParseOutput(
-        jaxpr=jaxpr,
-        in_states=in_states,
-        out_states=out_states,
-        invar_to_state=state_mapping['invar_to_state'],
-        outvar_to_state=state_mapping['outvar_to_state'],
-        state_to_invars=state_mapping['state_to_invars'],
-        state_to_outvars=state_mapping['state_to_outvars'],
-        compiled=compiled_snn,
-    )
+        # Compile the SNN
+        compiled_snn = compile(
+            closed_jaxpr=jaxpr,
+            in_states=in_states,
+            out_states=out_states,
+            invar_to_state=state_mapping['invar_to_state'],
+            outvar_to_state=state_mapping['outvar_to_state'],
+            state_to_invars=state_mapping['state_to_invars'],
+            state_to_outvars=state_mapping['state_to_outvars'],
+        )
+        cache_fn = partial(get_arg_cache_key, stateful_fn.static_argnums, stateful_fn.static_argnames)
+        cache_key = stateful_fn.get_arg_cache_key(*args, **kwargs)
+
+        return ParsedOutput(
+            static_argnums=stateful_fn.static_argnums,
+            static_argnames=stateful_fn.static_argnames,
+            out_treedef=stateful_fn.get_out_treedef_by_cache(cache_key),
+            cache_fn=cache_fn,
+            cache_key=cache_key,
+            jaxpr=jaxpr,
+            in_states=in_states,
+            out_states=out_states,
+            invar_to_state=state_mapping['invar_to_state'],
+            outvar_to_state=state_mapping['outvar_to_state'],
+            state_to_invars=state_mapping['state_to_invars'],
+            state_to_outvars=state_mapping['state_to_outvars'],
+            compiled=compiled_snn,
+        )
+
+    return call
 
 
 def _build_state_mapping(closed_jaxpr, in_states, out_states) -> Dict:

@@ -23,7 +23,7 @@ from brainstate._compatible_import import JaxprEqn
 from brainstate.transform._make_jaxpr import StatefulFunction, _make_hashable
 from brainstate.util._cache import BoundedCache
 from ._data import Group, Connection
-from ._parser import parse, ParseOutput
+from ._parser import parse, ParsedOutput
 
 __all__ = [
     'GdiistBPUParser',
@@ -80,7 +80,7 @@ class GdiistBPUParser:
         display: Optional[str] = None,
         verbose: bool = False,
         **kwargs
-    ) -> ParseOutput:
+    ) -> ParsedOutput:
         """
         Main parsing function that analyzes JAXpr and builds groups and connections.
 
@@ -109,7 +109,7 @@ class GdiistBPUParser:
                 parse_args, parse_kwargs = jax.tree.map(lambda x: x[0], (args, kwargs))
 
             # IR parsing
-            result = parse(self.stateful_fn, (parse_args, parse_kwargs))
+            result = parse(self.stateful_fn)(*parse_args, **parse_kwargs)
             self.compiled_graph.set(key, result)
 
         # # Handle display options
