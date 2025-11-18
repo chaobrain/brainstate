@@ -252,7 +252,7 @@ def _step2_build_groups(
         # Collect all input vars for these hidden states
         group_hidden_in_vars = []
         for state in group_hidden_states:
-            vars = state_to_invars.get(state, ())
+            vars = state_to_invars.get(state)
             if isinstance(vars, (list, tuple)):
                 group_hidden_in_vars.extend(vars)
             else:
@@ -261,7 +261,7 @@ def _step2_build_groups(
         # Collect all output vars for these hidden states
         group_hidden_out_vars = []
         for state in group_hidden_states:
-            vars = state_to_outvars.get(state, ())
+            vars = state_to_outvars.get(state)
             if isinstance(vars, (list, tuple)):
                 group_hidden_out_vars.extend(vars)
             else:
@@ -332,8 +332,9 @@ def _step2_build_groups(
 
         # Determine out_states (states produced but not consumed)
         group_out_states = []
+        group_hidden_state_ids = {id(s) for s in group_hidden_states}
         for state in out_states:
-            if id(state) not in {id(s) for s in group_hidden_states}:
+            if id(state) not in group_hidden_state_ids:
                 # Check if this group produces this state
                 state_out_vars = state_to_outvars.get(state, ())
                 if isinstance(state_out_vars, (list, tuple)):
@@ -342,6 +343,7 @@ def _step2_build_groups(
                 else:
                     if state_out_vars in group_hidden_out_vars:
                         group_out_states.append(state)
+        del group_hidden_state_ids
 
         # Generate a name for this group based on its hidden states
         group_name = f"Group_{len(groups)}"
@@ -808,8 +810,7 @@ def compile(
     # Step 2: Build Group objects
     groups = _step2_build_groups(
         jaxpr, state_groups, in_states, out_states,
-        invar_to_state, outvar_to_state,
-        state_to_invars, state_to_outvars
+        invar_to_state, outvar_to_state, state_to_invars, state_to_outvars
     )
 
     # Step 3: Extract connections
