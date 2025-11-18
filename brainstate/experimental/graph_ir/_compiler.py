@@ -1206,7 +1206,7 @@ def _step6_build_outputs(
 # Call Order Analysis
 # ============================================================================
 
-def _step7_build_call_graph(
+def _step7_build_graph(
     jaxpr: Jaxpr,
     groups: List[Group],
     projections: List[Projection],
@@ -1423,7 +1423,7 @@ def compile(
     )
 
     # Step 7: Determine call order
-    call_graph = _step7_build_call_graph(jaxpr, groups, projections, inputs, outputs)
+    call_graph = _step7_build_graph(jaxpr, groups, projections, inputs, outputs)
 
     # Step 8: Validate the compilation
     _step8_validate_compilation(
