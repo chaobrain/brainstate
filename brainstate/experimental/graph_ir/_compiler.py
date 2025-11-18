@@ -26,7 +26,7 @@ from typing import List, Dict, Set, Tuple
 
 from brainstate._compatible_import import ClosedJaxpr, Jaxpr, Var, JaxprEqn
 from brainstate._state import State
-from brainstate.transform._ir_processing import eqns_to_jaxpr
+from brainstate.transform._ir_processing import eqns_to_closed_jaxpr
 from ._data import Group, Connection, Projection, Input, Output, CompiledGraph
 from ._utils import _is_connection, UnionFind
 
@@ -39,6 +39,51 @@ __all__ = [
 class CompilationError(Exception):
     """Exception raised during SNN compilation."""
     pass
+
+
+def _extract_consts_for_vars(
+    constvars: List[Var],
+    original_jaxpr: Jaxpr,
+    original_consts: List,
+) -> List:
+    """Extract consts corresponding to the given constvars from original jaxpr."""
+    if not constvars:
+        return []
+
+    # Build mapping from original constvars to consts
+    constvar_to_const = dict(zip(original_jaxpr.constvars, original_consts))
+
+    # Extract consts for the requested constvars
+    consts = []
+    for var in constvars:
+        if var in constvar_to_const:
+            consts.append(constvar_to_const[var])
+        else:
+            # This constvar is not in the original jaxpr, which shouldn't happen
+            raise CompilationError(f"Constvar {var} not found in original jaxpr")
+
+    return consts
+
+
+def _make_closed_jaxpr(
+    eqns: List[JaxprEqn],
+    invars: List[Var],
+    outvars: List[Var],
+    original_jaxpr: Jaxpr,
+    original_consts: List,
+) -> ClosedJaxpr:
+    """Create a ClosedJaxpr from equations, extracting consts from original jaxpr."""
+    # Create ClosedJaxpr (will auto-extract constvars)
+    closed_jaxpr = eqns_to_closed_jaxpr(eqns=eqns, invars=invars, outvars=outvars)
+
+    # Extract corresponding consts for the auto-extracted constvars
+    if closed_jaxpr.jaxpr.constvars:
+        consts = _extract_consts_for_vars(
+            closed_jaxpr.jaxpr.constvars, original_jaxpr, original_consts
+        )
+        return ClosedJaxpr(closed_jaxpr.jaxpr, consts)
+    else:
+        return closed_jaxpr
 
 
 # ============================================================================
@@ -237,11 +282,12 @@ def _step2_build_groups(
     outvar_to_state: Dict[Var, State],
     state_to_invars: Dict[State, Tuple[Var, ...]],
     state_to_outvars: Dict[State, Tuple[Var, ...]],
+    original_consts: List,
 ) -> List[Group]:
     """
     Build Group objects from state groups.
 
-    For each state group, construct a Jaxpr that describes the state update logic.
+    For each state group, construct a ClosedJaxpr that describes the state update logic.
     """
     groups = []
 
@@ -324,16 +370,19 @@ def _step2_build_groups(
                     group_in_states.append(state)
                     group_invars.append(var)
             else:
-                # This is an input current variable (not a state)
-                if var not in produced_vars and var not in group_input_vars:
+                # This is an external input variable (not a state, not a connection)
+                # Add it to group_input_vars regardless of whether it's in produced_vars
+                if var not in group_input_vars:
                     group_input_vars.append(var)
                     group_invars.append(var)
 
-        # Create the group jaxpr
-        group_jaxpr = eqns_to_jaxpr(
+        # Create the group ClosedJaxpr
+        group_jaxpr = _make_closed_jaxpr(
             eqns=relevant_eqns,
             invars=group_invars,
             outvars=group_hidden_out_vars,
+            original_jaxpr=jaxpr,
+            original_consts=original_consts,
         )
 
         # Determine out_states (states produced but not consumed)
@@ -367,7 +416,10 @@ def _step2_build_groups(
 # Connection and Projection Analysis
 # ============================================================================
 
-def _step3_extract_connections(jaxpr: Jaxpr) -> List[Tuple[JaxprEqn, Connection]]:
+def _step3_extract_connections(
+    jaxpr: Jaxpr,
+    original_consts: List,
+) -> List[Tuple[JaxprEqn, Connection]]:
     """
     Extract all connection equations and create Connection objects.
 
@@ -377,11 +429,13 @@ def _step3_extract_connections(jaxpr: Jaxpr) -> List[Tuple[JaxprEqn, Connection]
     connections = []
     for eqn in jaxpr.eqns:
         if _is_connection(eqn):
-            # Create a simple Jaxpr for this connection
-            conn_jaxpr = eqns_to_jaxpr(
+            # Create a ClosedJaxpr for this connection
+            conn_jaxpr = _make_closed_jaxpr(
                 eqns=[eqn],
                 invars=list(eqn.invars),
                 outvars=list(eqn.outvars),
+                original_jaxpr=jaxpr,
+                original_consts=original_consts,
             )
             connection = Connection(jaxpr=conn_jaxpr)
             connections.append((eqn, connection))
@@ -389,11 +443,12 @@ def _step3_extract_connections(jaxpr: Jaxpr) -> List[Tuple[JaxprEqn, Connection]
 
 
 def _step4_build_projections(
-    jaxpr: ClosedJaxpr,
+    jaxpr: Jaxpr,
     groups: List[Group],
     connections: List[Tuple[JaxprEqn, Connection]],
     invar_to_state: Dict[Var, State],
     state_to_invars: Dict[State, Tuple[Var, ...]],
+    original_consts: List,
 ) -> List[Projection]:
     """
     Build Projection objects by iterating over jaxpr.eqns and analyzing connections between groups.
@@ -539,11 +594,13 @@ def _step4_build_projections(
                             if out_var not in proj_outvars:
                                 proj_outvars.append(out_var)
 
-                # Create new jaxpr
-                proj_jaxpr = eqns_to_jaxpr(
+                # Create new ClosedJaxpr
+                proj_jaxpr = _make_closed_jaxpr(
                     eqns=merged_eqns,
                     invars=proj_invars,
                     outvars=proj_outvars,
+                    original_jaxpr=jaxpr,
+                    original_consts=original_consts,
                 )
 
                 # Replace existing projection
@@ -599,10 +656,12 @@ def _step4_build_projections(
                             if out_var not in proj_outvars:
                                 proj_outvars.append(out_var)
 
-                proj_jaxpr = eqns_to_jaxpr(
+                proj_jaxpr = _make_closed_jaxpr(
                     eqns=proj_eqns,
                     invars=proj_invars,
                     outvars=proj_outvars,
+                    original_jaxpr=jaxpr,
+                    original_consts=original_consts,
                 )
 
                 projection = Projection(
@@ -795,6 +854,7 @@ def _step5_build_inputs(
     jaxpr: Jaxpr,
     groups: List[Group],
     invar_to_state: Dict[Var, State],
+    original_consts: List,
 ) -> List[Input]:
     """
     Build Input objects that describe how external inputs flow into groups.
@@ -878,11 +938,13 @@ def _step5_build_inputs(
         eqn_order = {id(eqn): i for i, eqn in enumerate(jaxpr.eqns)}
         all_equations.sort(key=lambda e: eqn_order[id(e)])
 
-        # Create the input jaxpr
-        input_jaxpr = eqns_to_jaxpr(
+        # Create the input ClosedJaxpr
+        input_jaxpr = _make_closed_jaxpr(
             eqns=all_equations,
             invars=all_input_vars,
             outvars=all_output_vars,
+            original_jaxpr=jaxpr,
+            original_consts=original_consts,
         )
 
         input_obj = Input(
@@ -901,6 +963,7 @@ def _step6_build_outputs(
     state_to_outvars: Dict[State, Tuple[Var, ...]],
     invar_to_state: Dict[Var, State],
     state_to_invars: Dict[State, Tuple[Var, ...]],
+    original_consts: List,
 ) -> List[Output]:
     """
     Build Output objects that describe how to extract network outputs from group states.
@@ -1111,11 +1174,13 @@ def _step6_build_outputs(
         for state in all_dependent_in_states:
             output_invars.extend(state_to_invars[state])
 
-        # Create the output jaxpr
-        output_jaxpr = eqns_to_jaxpr(
+        # Create the output ClosedJaxpr
+        output_jaxpr = _make_closed_jaxpr(
             eqns=all_equations,
             invars=output_invars,
             outvars=output_vars_for_group,
+            original_jaxpr=jaxpr,
+            original_consts=original_consts,
         )
 
         output_obj = Output(
@@ -1299,6 +1364,7 @@ def compile(
         CompilationError: If compilation fails due to invalid structure
     """
     jaxpr = closed_jaxpr.jaxpr
+    consts = closed_jaxpr.consts
 
     # Determine hidden_states (states that are both input and output)
     hidden_states = tuple(s for s in out_states if s in in_states)
@@ -1311,23 +1377,24 @@ def compile(
     # Step 2: Build Group objects
     groups = _step2_build_groups(
         jaxpr, state_groups, in_states, out_states,
-        invar_to_state, outvar_to_state, state_to_invars, state_to_outvars
+        invar_to_state, outvar_to_state, state_to_invars, state_to_outvars,
+        consts
     )
 
     # Step 3: Extract connections
-    connections = _step3_extract_connections(jaxpr)
+    connections = _step3_extract_connections(jaxpr, consts)
 
     # Step 4: Build Projection objects
     projections = _step4_build_projections(
-        jaxpr, groups, connections, invar_to_state, state_to_invars
+        jaxpr, groups, connections, invar_to_state, state_to_invars, consts
     )
 
     # Step 5: Build Input objects
-    inputs = _step5_build_inputs(jaxpr, groups, invar_to_state)
+    inputs = _step5_build_inputs(jaxpr, groups, invar_to_state, consts)
 
     # Step 6: Build Output objects
     outputs = _step6_build_outputs(
-        jaxpr, groups, outvar_to_state, state_to_outvars, invar_to_state, state_to_invars
+        jaxpr, groups, outvar_to_state, state_to_outvars, invar_to_state, state_to_invars, consts
     )
 
     # Step 7: Determine call order

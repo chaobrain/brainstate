@@ -13,10 +13,11 @@
 # limitations under the License.
 # ==============================================================================
 
+"""Typed containers and visualization helpers for the experimental graph IR."""
 
 from typing import NamedTuple, List, Union
 
-from brainstate._compatible_import import Jaxpr, Var
+from brainstate._compatible_import import ClosedJaxpr, Var
 from brainstate._state import State
 
 __all__ = [
@@ -31,7 +32,17 @@ __all__ = [
 
 
 class Group(NamedTuple):
-    jaxpr: Jaxpr
+    """Logical container for a compiled neuron group.
+
+    Attributes:
+        jaxpr: Functional representation of the group in ClosedJaxpr form.
+        hidden_states: States that are scoped to the group itself.
+        in_states: States that need to be provided by upstream groups.
+        out_states: States emitted for downstream consumers.
+        input_vars: JAXPR variables describing runtime inputs for the group.
+        name: Human-readable label used in diagnostics and visualizations.
+    """
+    jaxpr: ClosedJaxpr
     hidden_states: List[State]
     in_states: List[State]
     out_states: List[State]
@@ -40,35 +51,53 @@ class Group(NamedTuple):
 
     @property
     def eqns(self):
-        return self.jaxpr.eqns
+        """Return the equations that define the group's computation."""
+        return self.jaxpr.jaxpr.eqns
 
     def has_outvar(self, outvar: Var) -> bool:
-        return outvar in self.jaxpr.outvars
+        """Return True if the group produces the given JAXPR variable."""
+        return outvar in self.jaxpr.jaxpr.outvars
 
     def has_invar(self, invar: Var) -> bool:
-        return invar in self.jaxpr.invars
+        """Return True if the group consumes the given JAXPR variable."""
+        return invar in self.jaxpr.jaxpr.invars
 
     def has_in_state(self, state: State) -> bool:
+        """Return True if the provided state feeds into the group."""
         state_id = id(state)
         return any(id(s) == state_id for s in self.in_states)
 
     def has_out_state(self, state: State) -> bool:
+        """Return True if the provided state is emitted by the group."""
         state_id = id(state)
         return any(id(s) == state_id for s in self.out_states)
 
     def has_hidden_state(self, state: State) -> bool:
+        """Return True if the provided state is internal to the group."""
         state_id = id(state)
         return any(id(s) == state_id for s in self.hidden_states)
 
 
 class Connection(NamedTuple):
-    jaxpr: Jaxpr
+    """Describes the primitives that shuttle activity between two groups."""
+
+    jaxpr: ClosedJaxpr
 
 
 class Projection(NamedTuple):
+    """Connection bundle that transfers activity between two groups.
+
+    Attributes:
+        hidden_states: Intermediate states introduced by the projection.
+        in_states: States consumed when the projection is executed.
+        jaxpr: Functional representation of the projection.
+        connections: Underlying low-level connection primitives.
+        pre_group: Source group emitting activity into the projection.
+        post_group: Destination group receiving the activity.
+    """
     hidden_states: List[State]
     in_states: List[State]
-    jaxpr: Jaxpr
+    jaxpr: ClosedJaxpr
     connections: List[Connection]
     pre_group: Group
     post_group: Group
@@ -85,22 +114,31 @@ class Projection(NamedTuple):
 
 
 class Output(NamedTuple):
-    jaxpr: Jaxpr
+    """Description of how values are extracted from a group."""
+
+    jaxpr: ClosedJaxpr
     hidden_states: List[State]
     in_states: List[State]
     group: Group
 
 
 class Input(NamedTuple):
-    jaxpr: Jaxpr
+    """Description of how external values are injected into a group."""
+
+    jaxpr: ClosedJaxpr
     group: Group
 
 
 class Spike(NamedTuple):
-    # 包含
-    #   heaviside_surrogate_gradient
+    """Opaque surrogate-gradient spike representation used by the compiler.
+
+    Notes:
+        The backing JAXPR commonly corresponds to a Heaviside surrogate
+        gradient such as ``heaviside_surrogate_gradient``.
+    """
+
     state: State
-    jaxpr: Jaxpr
+    jaxpr: ClosedJaxpr
 
 
 # Type alias for elements that can appear in call_orders
@@ -110,16 +148,18 @@ CallOrderElement = Union[Group, Projection, Input, Output]
 class CompiledGraph(NamedTuple):
     """Compiled representation of a Spiking Neural Network.
 
-    This structure represents the decomposed computation graph of an SNN,
-    organized into groups, projections, inputs, and outputs with their
-    execution order.
+    The object captures the decomposed computation graph emitted by the IR
+    compiler, organized into type-safe containers for groups, projections,
+    inputs, and outputs. It also tracks the execution order that evaluation
+    and visualization utilities reuse.
 
     Attributes:
-        groups: All neuron groups in the network
-        projections: All projections (connections between groups)
-        inputs: All input injections (external inputs to groups)
-        outputs: All output extractions (from groups to network outputs)
-        call_orders: Execution order of components (references to actual objects)
+        groups: All neuron groups in the network.
+        projections: Projection bundles (connections between groups).
+        inputs: External inputs bound to individual groups.
+        outputs: Output taps that expose group values to callers.
+        call_orders: Ordered sequence of :class:`CallOrderElement` objects that
+            describes how the compiled program should be executed.
     """
     groups: List[Group]
     projections: List[Projection]
@@ -128,19 +168,20 @@ class CompiledGraph(NamedTuple):
     call_orders: List[CallOrderElement]
 
     def display(self, mode='text'):
-        """
-        Display the compiled graph structure.
+        """Render the compiled graph with the requested presentation.
 
         Args:
-            mode: Display mode
-
-                - 'text': Detailed text display
-                - 'visualization' or 'viz': Graphviz visualization (requires graphviz)
-                - 'ascii': Simple ASCII art visualization
+            mode: Display mode to use. Supported values are ``'text'`` for
+                the verbose textual summary, ``'ascii'`` for the lightweight
+                ASCII-art visualization, and ``'visualization'``/``'viz'`` for
+                a Graphviz ``Digraph`` (if the optional dependency is present).
 
         Returns:
-            For 'text' and 'ascii' modes: None (prints to stdout)
-            For 'visualization' mode: graphviz.Digraph object (or None if graphviz not available)
+            graphviz.Digraph | None: A Digraph instance for ``visualization``
+            mode, or ``None`` for purely textual displays that print to stdout.
+
+        Raises:
+            ValueError: If an unsupported mode string is provided.
         """
         if mode == 'text':
             return self._text_display()
@@ -152,7 +193,11 @@ class CompiledGraph(NamedTuple):
             raise ValueError(f"Unknown display mode: {mode}. Use 'text', 'ascii', or 'visualization'")
 
     def _text_display(self):
-        """Display compiled graph as formatted text."""
+        """Print a detailed, sectioned summary of the compiled graph.
+
+        The output enumerates every group, projection, input, and output along
+        with the derived metadata (state counts, primitive names, etc.).
+        """
         print("=" * 80)
         print("COMPILED GRAPH STRUCTURE")
         print("=" * 80)
@@ -185,7 +230,7 @@ class CompiledGraph(NamedTuple):
                     for state in group.out_states:
                         print(f"    - {_format_state(state)}")
                 print(f"  Input vars:    {len(group.input_vars)}")
-                print(f"  Equations:     {len(group.jaxpr.eqns)}")
+                print(f"  Equations:     {len(group.jaxpr.jaxpr.eqns)}")
 
         # Projections
         if self.projections:
@@ -203,13 +248,13 @@ class CompiledGraph(NamedTuple):
                     for state in proj.in_states:
                         print(f"    - {_format_state(state)}")
                 print(f"  Connections:   {len(proj.connections)}")
-                print(f"  Equations:     {len(proj.jaxpr.eqns)}")
+                print(f"  Equations:     {len(proj.jaxpr.jaxpr.eqns)}")
                 # Show connection primitive names
                 if proj.connections:
                     print(f"  Connection ops:")
                     for conn in proj.connections:
-                        if conn.jaxpr.eqns:
-                            for eqn in conn.jaxpr.eqns:
+                        if conn.jaxpr.jaxpr.eqns:
+                            for eqn in conn.jaxpr.jaxpr.eqns:
                                 print(f"    - {eqn.primitive.name}")
 
         # Inputs
@@ -219,8 +264,8 @@ class CompiledGraph(NamedTuple):
             print("=" * 80)
             for i, inp in enumerate(self.inputs):
                 print(f"\n[{i}] Input -> {inp.group.name}")
-                print(f"  Input vars:    {len(inp.jaxpr.invars)}")
-                print(f"  Equations:     {len(inp.jaxpr.eqns)}")
+                print(f"  Input vars:    {len(inp.jaxpr.jaxpr.invars)}")
+                print(f"  Equations:     {len(inp.jaxpr.jaxpr.eqns)}")
 
         # Outputs
         if self.outputs:
@@ -233,7 +278,7 @@ class CompiledGraph(NamedTuple):
                 if out.hidden_states:
                     for state in out.hidden_states:
                         print(f"    - {_format_state(state)}")
-                print(f"  Equations:     {len(out.jaxpr.eqns)}")
+                print(f"  Equations:     {len(out.jaxpr.jaxpr.eqns)}")
 
         # Call orders
         print("\n" + "=" * 80)
@@ -256,10 +301,15 @@ class CompiledGraph(NamedTuple):
         print("\n" + "=" * 80)
 
     def _vis_display(self):
+        """Placeholder for a future Graphviz-based visualization."""
         raise NotImplementedError("Visualization display is not implemented.")
 
     def _ascii_display(self):
-        """Display compiled graph as ASCII art."""
+        """Render a compact ASCII-art visualization of the compiled graph.
+
+        The output includes a legend, execution order, and a simplified data
+        flow diagram that can be consumed directly in a terminal.
+        """
         print("=" * 80)
         print("COMPILED GRAPH - ASCII VISUALIZATION")
         print("=" * 80)
@@ -318,7 +368,7 @@ class CompiledGraph(NamedTuple):
 
             if id(proj.pre_group) not in drawn_groups:
                 print(f"  [{pre_id}] {pre_name}")
-                print(f"    | ({len(proj.pre_group.hidden_states)} states, {len(proj.pre_group.jaxpr.eqns)} eqns)")
+                print(f"    | ({len(proj.pre_group.hidden_states)} states, {len(proj.pre_group.jaxpr.jaxpr.eqns)} eqns)")
                 drawn_groups.add(id(proj.pre_group))
 
             # Show projection
@@ -330,7 +380,7 @@ class CompiledGraph(NamedTuple):
 
             if id(proj.post_group) not in drawn_groups:
                 print(f"  [{post_id}] {post_name}")
-                print(f"    | ({len(proj.post_group.hidden_states)} states, {len(proj.post_group.jaxpr.eqns)} eqns)")
+                print(f"    | ({len(proj.post_group.hidden_states)} states, {len(proj.post_group.jaxpr.jaxpr.eqns)} eqns)")
                 drawn_groups.add(id(proj.post_group))
             print()
 
@@ -339,7 +389,7 @@ class CompiledGraph(NamedTuple):
             if id(group) not in drawn_groups:
                 group_id, group_name = comp_to_id[id(group)]
                 print(f"  [{group_id}] {group_name}")
-                print(f"    ({len(group.hidden_states)} states, {len(group.jaxpr.eqns)} eqns)")
+                print(f"    ({len(group.hidden_states)} states, {len(group.jaxpr.jaxpr.eqns)} eqns)")
                 print()
 
         # Draw outputs
@@ -354,7 +404,11 @@ class CompiledGraph(NamedTuple):
 
 
 def _format_state(state: State) -> str:
-    """Format a State object for display."""
+    """Return a compact description of a ``State`` for display helpers.
+
+    Shapes are preferred when present to avoid spamming huge tensors, while
+    scalars fall back to their raw value.
+    """
     if hasattr(state, 'value'):
         val = state.value
         if hasattr(val, 'shape'):

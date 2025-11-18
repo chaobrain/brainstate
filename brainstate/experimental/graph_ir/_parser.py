@@ -64,7 +64,7 @@ class ParsedResults(NamedTuple):
             raise ValueError(f"Unknown mode: {mode}")
 
     def run_original_jaxpr(self, *args, **kwargs) -> Any:
-        return self._run_impl(lambda *data: jax.core.eval_jaxpr(self.jaxpr, [], *data), *args, **kwargs)
+        return self._run_impl(lambda *data: jax.core.eval_jaxpr(self.jaxpr.jaxpr, self.jaxpr.consts, *data), *args, **kwargs)
 
     def run_compiled_graph(self, *args, **kwargs) -> Any:
         return self._run_impl(self._run_graph, *args, **kwargs)
@@ -123,33 +123,33 @@ class ParsedResults(NamedTuple):
     def _initialize_var_env(self, var_env: Dict[Var, Any], args: Tuple) -> None:
         """Initialize variable environment with input arguments and state values."""
         # Map to jaxpr invars
-        assert len(args) == len(self.jaxpr.invars), (
-            f"Argument count mismatch: expected {len(self.jaxpr.invars)}, got {len(args)}"
+        assert len(args) == len(self.jaxpr.jaxpr.invars), (
+            f"Argument count mismatch: expected {len(self.jaxpr.jaxpr.invars)}, got {len(args)}"
         )
-        for var, val in zip(self.jaxpr.invars, args):
+        for var, val in zip(self.jaxpr.jaxpr.invars, args):
             var_env[var] = val
 
     def _execute_input(self, input_comp: Input, var_env: Dict[Var, Any]) -> None:
         """Execute an Input component."""
         # Gather input values from environment
-        input_vals = [var_env[var] for var in input_comp.jaxpr.invars]
+        input_vals = [var_env[var] for var in input_comp.jaxpr.jaxpr.invars]
 
         # Execute the input jaxpr
-        results = jax.core.eval_jaxpr(input_comp.jaxpr, [], *input_vals)
+        results = jax.core.eval_jaxpr(input_comp.jaxpr.jaxpr, input_comp.jaxpr.consts, *input_vals)
 
         # Handle single vs multiple outputs
         if not isinstance(results, (tuple, list)):
             results = (results,)
 
         # Store results in environment
-        for var, val in zip(input_comp.jaxpr.outvars, results):
+        for var, val in zip(input_comp.jaxpr.jaxpr.outvars, results):
             var_env[var] = val
 
     def _execute_group(self, group: Group, var_env: Dict[Var, Any]) -> None:
         """Execute a Group component."""
         # Gather input values from environment
         input_vals = []
-        for var in group.jaxpr.invars:
+        for var in group.jaxpr.jaxpr.invars:
             if var not in var_env:
                 raise RuntimeError(
                     f"Variable {var} not found in environment when executing {group.name}"
@@ -157,37 +157,26 @@ class ParsedResults(NamedTuple):
             input_vals.append(var_env[var])
 
         # Execute the group jaxpr
-        results = jax.core.eval_jaxpr(group.jaxpr, [], *input_vals)
+        results = jax.core.eval_jaxpr(group.jaxpr.jaxpr, group.jaxpr.consts, *input_vals)
 
         # Handle single vs multiple outputs
         if not isinstance(results, (tuple, list)):
             results = (results,)
 
         # Store results in environment
-        for var, val in zip(group.jaxpr.outvars, results):
+        for var, val in zip(group.jaxpr.jaxpr.outvars, results):
             var_env[var] = val
 
     def _execute_projection(self, projection: Projection, var_env: Dict[Var, Any]) -> None:
         """Execute a Projection component."""
         # Gather input values from environment
-        from brainstate._compatible_import import ClosedJaxpr
-
-        # Check if jaxpr is ClosedJaxpr or regular Jaxpr
-        if isinstance(projection.jaxpr, ClosedJaxpr):
-            jaxpr = projection.jaxpr.jaxpr
-            consts = projection.jaxpr.consts
-        else:
-            jaxpr = projection.jaxpr
-            # Use the main jaxpr's consts if projection jaxpr doesn't have them
-            consts = self.jaxpr.consts if isinstance(self.jaxpr, ClosedJaxpr) else []
-
         input_vals = []
-        for var in jaxpr.invars:
+        for var in projection.jaxpr.jaxpr.invars:
             if var in var_env:
                 input_vals.append(var_env[var])
             else:
                 # This might be a constvar, check in the original jaxpr
-                if var in self.jaxpr.jaxpr.constvars if isinstance(self.jaxpr, ClosedJaxpr) else []:
+                if var in self.jaxpr.jaxpr.constvars:
                     # Find the index and use the corresponding const
                     idx = self.jaxpr.jaxpr.constvars.index(var)
                     input_vals.append(self.jaxpr.consts[idx])
@@ -195,36 +184,36 @@ class ParsedResults(NamedTuple):
                     raise RuntimeError(f"Variable {var} not found in environment or constvars")
 
         # Execute the projection jaxpr
-        results = jax.core.eval_jaxpr(jaxpr, consts, *input_vals)
+        results = jax.core.eval_jaxpr(projection.jaxpr.jaxpr, projection.jaxpr.consts, *input_vals)
 
         # Handle single vs multiple outputs
         if not isinstance(results, (tuple, list)):
             results = (results,)
 
         # Store results in environment
-        for var, val in zip(projection.jaxpr.outvars, results):
+        for var, val in zip(projection.jaxpr.jaxpr.outvars, results):
             var_env[var] = val
 
     def _execute_output(self, output: Output, var_env: Dict[Var, Any]) -> None:
         """Execute an Output component."""
         # Gather input values from environment
-        input_vals = [var_env[var] for var in output.jaxpr.invars]
+        input_vals = [var_env[var] for var in output.jaxpr.jaxpr.invars]
 
         # Execute the output jaxpr
-        results = jax.core.eval_jaxpr(output.jaxpr, [], *input_vals)
+        results = jax.core.eval_jaxpr(output.jaxpr.jaxpr, output.jaxpr.consts, *input_vals)
 
         # Handle single vs multiple outputs
         if not isinstance(results, (tuple, list)):
             results = (results,)
 
         # Store results in environment
-        for var, val in zip(output.jaxpr.outvars, results):
+        for var, val in zip(output.jaxpr.jaxpr.outvars, results):
             var_env[var] = val
 
     def _collect_outputs(self, var_env: Dict[Var, Any]) -> Any:
         """Collect output values from the variable environment."""
         output_vals = []
-        for var in self.jaxpr.outvars:
+        for var in self.jaxpr.jaxpr.outvars:
             if var not in var_env:
                 raise RuntimeError(f"Output variable {var} not found in environment")
             output_vals.append(var_env[var])
