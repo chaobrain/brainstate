@@ -27,6 +27,20 @@ __all__ = [
 
 
 def _is_connection(eqn: JaxprEqn) -> bool:
+    """
+    Determine if a JaxprEqn represents a connection operation.
+
+    Connection operations include:
+    1. JIT-wrapped brainevent operations (e.g., brainevent.binary_fixed_num_mv_p_call)
+    2. Inline brainevent primitives (e.g., binary_fixed_num_mv)
+    3. Standard matrix operations (dot_general, conv_general_dilated)
+
+    Args:
+        eqn: A JaxprEqn to check
+
+    Returns:
+        True if this equation represents a connection, False otherwise
+    """
     # Check if equation is a jit-wrapped brainevent operation that should be a connection
     if is_jit_primitive(eqn):
         # Check if the function name starts with 'brainevent'
@@ -35,12 +49,27 @@ def _is_connection(eqn: JaxprEqn) -> bool:
             if isinstance(name, str) and name.startswith('brainevent'):
                 return True
 
-    # check for connection primitives
+    # Check for brainevent primitive names (after inline_jit)
+    # These are the actual brainevent connection primitives
+    primitive_name = eqn.primitive.name
+    if any(keyword in primitive_name for keyword in [
+        'binary_fixed_num_mv',
+        'event_ell_mv',
+        'event_csr_matvec',
+        'event_coo_matvec',
+        'taichi_mv',
+        'mv_prob',
+        'mv_',  # General matrix-vector operations from brainevent
+    ]):
+        return True
+
+    # check for standard connection primitives
     if eqn.primitive in [
         dot_general_p,
         conv_general_dilated_p,
     ]:
         return True
+
     return False
 
 

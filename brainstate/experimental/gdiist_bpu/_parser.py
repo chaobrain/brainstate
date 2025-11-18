@@ -13,88 +13,70 @@
 # limitations under the License.
 # ==============================================================================
 
-from typing import Tuple, Dict
+from typing import Tuple, Dict, NamedTuple, Sequence
 
 import jax
 
+from brainstate._compatible_import import Jaxpr, Var
+from brainstate._state import State
 from brainstate.transform._ir_inline_jit import inline_jit
 from brainstate.transform._make_jaxpr import StatefulFunction
-from ._data import Group, Connection
-from ._utils import _is_connection, eqns_to_jaxpr, find_in_states, find_out_states
+from ._compiler import compile
+from ._data import CompiledGraph
+from ._utils import _is_connection
 
 
-class ParserV2:
-    """
-    Parser for BPU (second generation) operations and connections.
-    """
-
-    def __init__(
-        self,
-        stateful_fn: StatefulFunction,
-        inputs: Tuple,
-        jit_inline: bool = True,
-    ):
-        assert isinstance(stateful_fn, StatefulFunction), "stateful_fn must be an instance of StatefulFunction"
-        self.stateful_fn = stateful_fn
-        assert stateful_fn.return_only_write, (
-            "Parser currently only supports stateful functions that return only write states. "
-        )
-        self.inputs = inputs
-
-        # jaxpr
-        jaxpr = self.stateful_fn.get_jaxpr(*self.inputs[0], **self.inputs[1])
-        if jit_inline:
-            jaxpr = inline_jit(jaxpr, _is_connection)
-
-        # Build state mappings
-        in_states = self.stateful_fn.get_states(*self.inputs[0], **self.inputs[1])
-        out_states = self.stateful_fn.get_write_states(*self.inputs[0], **self.inputs[1])
-        self.state_mapping = _build_state_mapping(jaxpr, in_states, out_states)
-
-        # Parse equations to identify groups and connections
-        self._parse_equations(jaxpr)
-
-    @property
-    def invar_to_state(self):
-        return self.state_mapping['invar_to_state']
-
-    @property
-    def state_to_invars(self):
-        return self.state_mapping['state_to_invars']
-
-    @property
-    def outvar_to_state(self):
-        return self.state_mapping['outvar_to_state']
-
-    @property
-    def state_to_outvars(self):
-        return self.state_mapping['state_to_outvars']
-
-    @property
-    def in_states(self):
-        return self.state_mapping['in_states']
-
-    @property
-    def out_states(self):
-        return self.state_mapping['out_states']
-
-    def _parse_equations(self, closed_jaxpr):
-        # TODO
-        pass
+class ParseOutput(NamedTuple):
+    jaxpr: Jaxpr
+    in_states: Sequence[State]
+    out_states: Sequence[State]
+    invar_to_state: Dict[Var, State]
+    outvar_to_state: Dict[Var, State]
+    state_to_invars: Dict[State, Sequence[Var]]
+    state_to_outvars: Dict[State, Sequence[Var]]
+    compiled: CompiledGraph
 
 
-def _should_split_operation(eqn):
-    """Check if equation should cause a split in current operation"""
-    # slice operations should cause a split and become their own operation
-    if eqn.primitive.name == 'slice':
-        return True
+def parse(
+    stateful_fn: StatefulFunction,
+    inputs: Tuple,
+    jit_inline: bool = True,
+):
+    assert isinstance(stateful_fn, StatefulFunction), "stateful_fn must be an instance of StatefulFunction"
+    assert stateful_fn.return_only_write, (
+        "Parser currently only supports stateful functions that return only write states. "
+    )
 
-    # brainevent jit connections should cause a split (but don't become operations themselves)
-    if _is_connection(eqn):
-        return True
+    # jaxpr
+    jaxpr = stateful_fn.get_jaxpr(*inputs[0], **inputs[1])
+    if jit_inline:
+        jaxpr = inline_jit(jaxpr, _is_connection)
 
-    # All other operations can be merged into the current operation
-    return False
+    # Build state mappings
+    in_states = stateful_fn.get_states(*inputs[0], **inputs[1])
+    out_states = stateful_fn.get_write_states(*inputs[0], **inputs[1])
+    state_mapping = _build_state_mapping(jaxpr, in_states, out_states)
+
+    # Compile the SNN
+    compiled_snn = compile(
+        closed_jaxpr=jaxpr,
+        in_states=in_states,
+        out_states=out_states,
+        invar_to_state=state_mapping['invar_to_state'],
+        outvar_to_state=state_mapping['outvar_to_state'],
+        state_to_invars=state_mapping['state_to_invars'],
+        state_to_outvars=state_mapping['state_to_outvars'],
+    )
+    return ParseOutput(
+        jaxpr=jaxpr,
+        in_states=in_states,
+        out_states=out_states,
+        invar_to_state=state_mapping['invar_to_state'],
+        outvar_to_state=state_mapping['outvar_to_state'],
+        state_to_invars=state_mapping['state_to_invars'],
+        state_to_outvars=state_mapping['state_to_outvars'],
+        compiled=compiled_snn,
+    )
 
 
 def _build_state_mapping(closed_jaxpr, in_states, out_states) -> Dict:

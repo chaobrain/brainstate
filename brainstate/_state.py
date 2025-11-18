@@ -2222,11 +2222,11 @@ class ArrayParam(ParamState, u.CustomArray):
     --------
     Using ArrayParam with identity transform (no transformation):
 
-    >>> import brainstate as bst
+    >>> import brainstate as brainstate
     >>> import jax.numpy as jnp
     >>>
     >>> # Simple parameter without transformation
-    >>> param = bst.ArrayParam(jnp.array([1.0, 2.0, 3.0]))
+    >>> param = brainstate.ArrayParam(jnp.array([1.0, 2.0, 3.0]))
     >>> print(param.data)  # Access constrained value
     [1. 2. 3.]
     >>> print(param.value)  # Access unconstrained value (same as data for identity)
@@ -2242,7 +2242,7 @@ class ArrayParam(ParamState, u.CustomArray):
     ...         return jnp.log(value)  # constrained (positive) -> unconstrained
     >>>
     >>> # Parameter that stays positive
-    >>> positive_param = bst.ArrayParam(jnp.array([1.0, 2.0]), transform=ExpTransform())
+    >>> positive_param = brainstate.ArrayParam(jnp.array([1.0, 2.0]), transform=ExpTransform())
     >>> print(positive_param.data)  # Positive values
     [1. 2.]
     >>> print(positive_param.value)  # Log space (unconstrained)

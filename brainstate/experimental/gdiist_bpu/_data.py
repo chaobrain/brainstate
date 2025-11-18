@@ -14,7 +14,7 @@
 # ==============================================================================
 
 
-from typing import NamedTuple, List
+from typing import NamedTuple, List, Union
 
 from brainstate._compatible_import import Jaxpr, Var
 from brainstate._state import State
@@ -24,7 +24,9 @@ __all__ = [
     'Connection',
     'Projection',
     'Output',
+    'Input',
     'Spike',
+    'CompiledGraph',
 ]
 
 
@@ -34,6 +36,7 @@ class Group(NamedTuple):
     in_states: List[State]
     out_states: List[State]
     input_vars: List[Var]
+    name: str = "Group"  # Add name field with default value
 
     @property
     def eqns(self):
@@ -70,6 +73,16 @@ class Projection(NamedTuple):
     pre_group: Group
     post_group: Group
 
+    @property
+    def pre(self):
+        """Alias for pre_group for backward compatibility with display functions."""
+        return self.pre_group
+
+    @property
+    def post(self):
+        """Alias for post_group for backward compatibility with display functions."""
+        return self.post_group
+
 
 class Output(NamedTuple):
     jaxpr: Jaxpr
@@ -88,3 +101,31 @@ class Spike(NamedTuple):
     #   heaviside_surrogate_gradient
     state: State
     jaxpr: Jaxpr
+
+
+# Type alias for elements that can appear in call_orders
+CallOrderElement = Union[Group, Projection, Input, Output]
+
+
+class CompiledGraph(NamedTuple):
+    """Compiled representation of a Spiking Neural Network.
+
+    This structure represents the decomposed computation graph of an SNN,
+    organized into groups, projections, inputs, and outputs with their
+    execution order.
+
+    Attributes:
+        groups: All neuron groups in the network
+        projections: All projections (connections between groups)
+        inputs: All input injections (external inputs to groups)
+        outputs: All output extractions (from groups to network outputs)
+        call_orders: Execution order of components (references to actual objects)
+    """
+    groups: List[Group]
+    projections: List[Projection]
+    inputs: List[Input]
+    outputs: List[Output]
+    call_orders: List[CallOrderElement]
+
+
+
