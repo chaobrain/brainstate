@@ -463,133 +463,65 @@ class NeuroGraph:
 
     def visualize(
         self,
-        backend='matplotlib',
-        layout='hierarchical',
-        interactive=True,
-        show_details=True,
-        node_size='auto',
-        edge_width='auto',
-        colorscheme='default',
-        export_path=None,
-        figsize='auto',
+        layout: str = 'auto',
+        figsize: Tuple[float, float] = (12, 8),
         **kwargs
     ):
-        """Visualize the graph using various backends and layout algorithms.
+        """Visualize the graph structure using matplotlib.
+
+        This method creates an interactive visualization of the graph showing:
+        - Different node types (Group, Input, Output, Projection) with distinct styles
+        - Hierarchical relationships between nodes
+        - Different edge styles for Projection vs Input/Output connections
+        - Click-to-highlight functionality for exploring connections
 
         Parameters
         ----------
-        backend : {'matplotlib', 'plotly', 'graphviz', 'networkx'}, optional
-            Visualization backend. Default is 'matplotlib'.
-
-            * 'matplotlib': Static publication-quality plots
-            * 'plotly': Interactive web-based visualization with hover tooltips, zoom, and pan
-            * 'graphviz': Professional hierarchical layouts using Graphviz engine
-            * 'networkx': Advanced layout algorithms (spring, spectral, etc.)
-
         layout : str, optional
-            Layout algorithm. Default is 'hierarchical'.
+            Layout algorithm to use for positioning nodes:
 
-            * For matplotlib/plotly: 'hierarchical' (topological layers)
-            * For graphviz: 'dot', 'neato', 'fdp', 'sfdp', 'circo', 'twopi'
-            * For networkx: 'spring', 'kamada_kawai', 'spectral', 'circular', 'shell'
+            - 'lr' or 'left-right': Left-to-right hierarchical layout (Input on left, Output on right)
+            - 'tb' or 'top-bottom': Top-to-bottom hierarchical layout (Input on top, Output on bottom)
+            - 'auto' or 'force': Force-directed layout with automatic node positioning
 
-        interactive : bool, optional
-            Enable interactive features for plotly backend. Default is True.
-        show_details : bool, optional
-            Show detailed node/edge metadata in tooltips or labels. Default is True.
-        node_size : str or dict, optional
-            Node sizing strategy. Default is 'auto'.
-
-            * 'auto': Size nodes by complexity (equation/state count)
-            * 'uniform': All nodes same size
-            * dict: Custom mapping ``{node_idx: size}``
-
-        edge_width : str or dict, optional
-            Edge width strategy. Default is 'auto' (uniform).
-        colorscheme : str, optional
-            Color scheme: 'default', 'pastel', 'vibrant', 'colorblind'. Default is 'default'.
-        export_path : str, optional
-            Export path. Format inferred from extension (.png, .pdf, .svg, .html).
-        figsize : tuple or 'auto', optional
-            Figure size as (width, height). Default is 'auto'.
-        ax : matplotlib.axes.Axes, optional
-            Matplotlib axes (only for matplotlib backend).
+            Default is 'auto'.
+        figsize : Tuple[float, float], optional
+            Figure size as (width, height) in inches. Default is (12, 8).
         **kwargs
-            Additional backend-specific options.
+            Additional keyword arguments passed to the layout algorithm.
+            For force-directed layout, you can specify 'iterations' (default: 100).
 
         Returns
         -------
-        object
-            Backend-specific return value:
-
-            * matplotlib: Figure object
-            * plotly: plotly.graph_objects.Figure
-            * graphviz: graphviz.Digraph
-            * networkx: matplotlib Figure
-
-        Raises
-        ------
-        ValueError
-            If unsupported backend or layout is specified.
-        RuntimeError
-            If required backend library is not installed.
+        matplotlib.figure.Figure
+            The matplotlib figure containing the visualization. You can display it
+            with ``plt.show()`` or save it with ``fig.savefig(filename)``.
 
         Examples
         --------
-        Basic matplotlib visualization::
+        >>> graph.visualize(layout='lr')  # Left-to-right layout
+        >>> plt.show()
 
-            fig = graph.visualize()
-            plt.show()
+        >>> graph.visualize(layout='tb', figsize=(16, 10))  # Top-to-bottom with custom size
+        >>> plt.show()
 
-        Interactive Plotly with export::
+        >>> graph.visualize(layout='auto', iterations=200)  # Force-directed with more iterations
+        >>> plt.show()
 
-            fig = graph.visualize(backend='plotly', export_path='graph.html')
-            fig.show()
-
-        Graphviz with force-directed layout::
-
-            dot = graph.visualize(backend='graphviz', layout='fdp')
-            dot.render('graph', format='pdf')
-
-        NetworkX spring layout::
-
-            fig = graph.visualize(backend='networkx', layout='spring')
-            plt.show()
-
-        Custom colorscheme::
-
-            fig = graph.visualize(colorscheme='colorblind')
-
+        Notes
+        -----
+        - **Group nodes** are shown as large blue circles with their names displayed prominently
+        - **Input nodes** are shown as smaller green rounded rectangles with input count
+        - **Output nodes** are shown as smaller orange rounded rectangles with output count
+        - **Projection nodes** are shown as small purple diamonds on edges between Groups
+        - **Projection connections** use solid purple lines
+        - **Input/Output connections** use dashed gray lines
+        - Click any node to highlight its immediate predecessors and successors
+        - Click empty space to clear highlights
         """
-        # Use new backend system for non-matplotlib backends
         from ._display import GraphDisplayer
-        visualizer = GraphDisplayer(self)
-        if backend == 'plotly':
-            return visualizer.visualize_plotly(
-                layout=layout, interactive=interactive, show_details=show_details,
-                node_size=node_size, edge_width=edge_width, colorscheme=colorscheme,
-                export_path=export_path, figsize=figsize, **kwargs
-            )
-        elif backend == 'graphviz':
-            return visualizer.visualize_graphviz(
-                layout=layout, show_details=show_details, colorscheme=colorscheme,
-                export_path=export_path, **kwargs
-            )
-        elif backend == 'networkx':
-            return visualizer.visualize_networkx(
-                layout=layout, node_size=node_size, edge_width=edge_width,
-                colorscheme=colorscheme, figsize=figsize, show_details=show_details,
-                export_path=export_path, **kwargs
-            )
-
-        elif backend == 'matplotlib':
-            return visualizer.visualzie_matplotlib()
-
-        else:
-            raise ValueError(
-                f"Unsupported backend: {backend}. "
-                f"Choose from 'matplotlib', 'plotly', 'graphviz', or 'networkx'."
-            )
+        displayer = GraphDisplayer(self)
+        return displayer.display(layout=layout, figsize=figsize, **kwargs)
 
 
 class CompiledGraphIR(NamedTuple):
@@ -624,6 +556,7 @@ class CompiledGraphIR(NamedTuple):
     jaxpr: ClosedJaxpr
     in_states: Sequence[State]
     out_states: Sequence[State]
+    write_states: Sequence[State]
     invar_to_state: Dict[Var, State]
     outvar_to_state: Dict[Var, State]
     state_to_invars: Dict[State, Sequence[Var]]
@@ -690,12 +623,15 @@ class CompiledGraphIR(NamedTuple):
 
         # outputs
         out, new_state_vals = self.out_treedef.unflatten(jaxpr_outs)
-        if len(new_state_vals) != len(self.out_states):
-            raise ValueError(f'State length mismatch in output: expected '
-                             f'{len(self.out_states)} states, got {len(new_state_vals)}')
+        if len(new_state_vals) != len(self.write_states):
+            raise ValueError(
+                f'State length mismatch in output: expected '
+                f'{len(self.write_states)} states, got {len(new_state_vals)}'
+            )
         if assign_state_val:
-            for st, val in zip(self.out_states, new_state_vals):
-                st.restore_value(val)
+            for st, val in zip(self.write_states, new_state_vals):
+                if st is not None:
+                    st.restore_value(val)
         return out
 
     def _run_graph(self, *args) -> Any:
@@ -727,6 +663,8 @@ class CompiledGraphIR(NamedTuple):
                 self._execute_projection(component, var_env)
             elif isinstance(component, Output):
                 self._execute_output(component, var_env)
+            else:
+                raise ValueError(f"Unknown component type: {type(component)}")
 
         # Step 3: Collect outputs from environment
         outputs = self._collect_outputs(var_env)
@@ -793,18 +731,7 @@ class CompiledGraphIR(NamedTuple):
     def _execute_projection(self, projection: Projection, var_env: Dict[Var, Any]) -> None:
         """Evaluate a :class:`Projection` component, including const fallbacks."""
         # Gather input values from environment
-        input_vals = []
-        for var in projection.jaxpr.jaxpr.invars:
-            if var in var_env:
-                input_vals.append(var_env[var])
-            else:
-                # This might be a constvar, check in the original jaxpr
-                if var in self.jaxpr.jaxpr.constvars:
-                    # Find the index and use the corresponding const
-                    idx = self.jaxpr.jaxpr.constvars.index(var)
-                    input_vals.append(self.jaxpr.consts[idx])
-                else:
-                    raise RuntimeError(f"Variable {var} not found in environment or constvars")
+        input_vals = [var_env[var] for var in projection.jaxpr.jaxpr.invars]
 
         # Execute the projection jaxpr
         results = jax.core.eval_jaxpr(projection.jaxpr.jaxpr, projection.jaxpr.consts, *input_vals)
@@ -833,7 +760,7 @@ class CompiledGraphIR(NamedTuple):
         for var, val in zip(output.jaxpr.jaxpr.outvars, results):
             var_env[var] = val
 
-    def _collect_outputs(self, var_env: Dict[Var, Any]) -> Any:
+    def _collect_outputs(self, var_env: Dict[Var, Any]) -> Sequence[jax.typing.ArrayLike]:
         """Assemble model outputs from the variable environment.
 
         Parameters
@@ -851,12 +778,7 @@ class CompiledGraphIR(NamedTuple):
             if var not in var_env:
                 raise RuntimeError(f"Output variable {var} not found in environment")
             output_vals.append(var_env[var])
-
-        # Return single value or tuple based on output count
-        if len(output_vals) == 1:
-            return output_vals[0]
-        else:
-            return tuple(output_vals)
+        return output_vals
 
     def __repr__(self) -> str:
         """Return a concise summary of the compiled graph IR.

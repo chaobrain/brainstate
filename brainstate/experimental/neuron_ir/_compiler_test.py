@@ -67,6 +67,7 @@ def test_two_populations_run():
                 V_reset=-60. * u.mV,
                 tau=20. * u.ms,
                 tau_ref=5. * u.ms,
+                V_initializer=braintools.init.Uniform(-70., -40., unit=u.mV)
             )
 
             self.inh = brainpy.state.LIFRef(
@@ -76,6 +77,7 @@ def test_two_populations_run():
                 V_reset=-60. * u.mV,
                 tau=10. * u.ms,
                 tau_ref=5. * u.ms,
+                V_initializer=braintools.init.Uniform(-70., -40., unit=u.mV)
             )
 
             self.exc2inh = brainpy.state.AlignPostProj(
@@ -109,9 +111,10 @@ def test_two_populations_run():
     inp_inh = 3. * u.mA
 
     parse_output = compile_fn(update)(t, inp_exc, inp_inh)
-    result = parse_output.run(t, inp_exc, inp_inh)
+    true_out, compiled_out = parse_output.run(t, inp_exc, inp_inh, mode='debug')
 
-    print(result)
+    print(true_out)
+    print(compiled_out)
 
 
 def test_simple_lif():

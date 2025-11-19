@@ -1667,6 +1667,7 @@ def compile_fn(
             jaxpr=jaxpr,
             in_states=in_states,
             out_states=out_states,
+            write_states=stateful_fn.get_state_trace_by_cache(cache_key).get_write_states(True),
             invar_to_state=state_mapping['invar_to_state'],
             outvar_to_state=state_mapping['outvar_to_state'],
             state_to_invars=state_mapping['state_to_invars'],

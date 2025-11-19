@@ -16,7 +16,8 @@
 """Advanced visualization backends for Graph IR."""
 
 from collections import defaultdict, deque
-from typing import Dict, Tuple
+from typing import Dict, Tuple, List, Set, Optional, Any
+import numpy as np
 
 from ._data import NeuroGraph, GraphElem, Group, Projection, Input, Output, Connection
 
@@ -38,777 +39,526 @@ class GraphDisplayer:
             The graph to visualize.
         """
         self.graph = graph
+        self._node_positions: Dict[GraphElem, Tuple[float, float]] = {}
+        self._highlighted_nodes: Set[GraphElem] = set()
+        self._fig = None
+        self._ax = None
 
-    def visualize_plotly(
-        self,
-        layout='hierarchical',
-        interactive=True,
-        show_details=True,
-        node_size='auto',
-        edge_width='auto',
-        colorscheme='default',
-        export_path=None,
-        figsize='auto',
-        **kwargs
-    ):
-        """Create interactive Plotly visualization.
-
-        Parameters
-        ----------
-        layout : str
-            Layout algorithm ('hierarchical').
-        interactive : bool
-            Enable interactive features.
-        show_details : bool
-            Show tooltips with node metadata.
-        node_size : str or dict
-            Node sizing strategy.
-        edge_width : str or dict
-            Edge width strategy.
-        colorscheme : str
-            Color scheme name.
-        export_path : str, optional
-            Path to export HTML file.
-        figsize : tuple or 'auto'
-            Figure size.
-        **kwargs
-            Additional Plotly-specific options.
+    def _compute_hierarchical_layers(self) -> Dict[GraphElem, int]:
+        """Compute hierarchical layers for nodes using topological ordering.
 
         Returns
         -------
-        plotly.graph_objects.Figure
-            Interactive Plotly figure.
-
-        Raises
-        ------
-        RuntimeError
-            If plotly is not installed.
+        Dict[GraphElem, int]
+            Mapping from node to its layer index.
         """
-        try:
-            import plotly.graph_objects as go
-        except ImportError as exc:
-            raise RuntimeError(
-                "Plotly backend requires plotly to be installed. "
-                "Install with: pip install plotly"
-            ) from exc
+        # Compute in-degree for each node
+        in_degree = {node: len(self.graph.predecessors(node)) for node in self.graph.nodes()}
 
-        from ._data import Group, Projection
+        # Initialize queue with nodes having zero in-degree
+        queue = deque([node for node in self.graph.nodes() if in_degree[node] == 0])
 
-        if not self.graph._nodes:
-            # Empty graph
-            fig = go.Figure()
-            fig.add_annotation(
-                text="Graph is empty",
-                xref="paper", yref="paper",
-                x=0.5, y=0.5,
-                showarrow=False,
-                font=dict(size=14)
-            )
-            fig.update_layout(
-                xaxis=dict(visible=False),
-                yaxis=dict(visible=False),
-                showlegend=False,
-            )
-            return fig
+        # Layer assignment
+        layers: Dict[GraphElem, int] = {}
 
-        # Compute layout
-        if layout == 'hierarchical':
-            x_pos, y_pos, num_layers, max_width = self._compute_hierarchical_layout()
-        else:
-            raise ValueError(f"Unsupported layout for Plotly: {layout}")
+        while queue:
+            node = queue.popleft()
 
-        # Get color scheme
-        colors = self._get_color_scheme(colorscheme)
+            # Compute layer as max of predecessors' layers + 1
+            pred_layers = [layers[pred] for pred in self.graph.predecessors(node) if pred in layers]
+            current_layer = max(pred_layers, default=-1) + 1
+            layers[node] = current_layer
 
-        # Prepare node traces
-        node_x = []
-        node_y = []
-        node_colors = []
-        node_text = []
-        node_hovertext = []
-        node_sizes = []
+            # Update successors
+            for succ in self.graph.successors(node):
+                in_degree[succ] -= 1
+                if in_degree[succ] == 0:
+                    queue.append(succ)
 
-        for idx, node in enumerate(self.graph._nodes):
-            node_x.append(x_pos.get(idx, 0.0))
-            node_y.append(y_pos.get(idx, 0.0))
+        return layers
 
-            # Color
-            fill_color, _ = self._get_node_style(node, colorscheme)
-            node_colors.append(fill_color)
-
-            # Label
-            node_text.append(self._get_node_label(node, show_details))
-
-            # Hover text
-            if show_details:
-                metadata = self._get_node_metadata(node)
-                hover_lines = [f"<b>{self._get_node_label(node, False).replace(chr(10), ' ')}</b>"]
-                for key, value in metadata.items():
-                    if key != 'Type':  # Type is already in label
-                        hover_lines.append(f"{key}: {value}")
-                node_hovertext.append("<br>".join(hover_lines))
-            else:
-                node_hovertext.append(self._get_node_label(node, False))
-
-            # Size
-            if node_size == 'auto':
-                # Size by complexity
-                if isinstance(node, (Group, Projection)):
-                    complexity = len(node.jaxpr.jaxpr.eqns) + len(getattr(node, 'hidden_states', []))
-                    node_sizes.append(20 + min(complexity * 2, 40))
-                else:
-                    node_sizes.append(25)
-            elif isinstance(node_size, dict):
-                node_sizes.append(node_size.get(idx, 25))
-            else:
-                node_sizes.append(25)
-
-        # Create edge traces
-        edge_x = []
-        edge_y = []
-
-        for source_idx, targets in self.graph._forward_edges.items():
-            sx = x_pos.get(source_idx, 0.0)
-            sy = y_pos.get(source_idx, 0.0)
-            for target_idx in targets:
-                tx = x_pos.get(target_idx, 0.0)
-                ty = y_pos.get(target_idx, 0.0)
-
-                # Add arrow line
-                edge_x.extend([sx, tx, None])
-                edge_y.extend([sy, ty, None])
-
-        # Create edge trace
-        edge_trace = go.Scatter(
-            x=edge_x,
-            y=edge_y,
-            mode='lines',
-            line=dict(width=2 if edge_width == 'auto' else edge_width, color='#546E7A'),
-            hoverinfo='none',
-            showlegend=False,
-        )
-
-        # Create node trace
-        node_trace = go.Scatter(
-            x=node_x,
-            y=node_y,
-            mode='markers+text',
-            marker=dict(
-                size=node_sizes,
-                color=node_colors,
-                line=dict(width=2, color='#263238'),
-                symbol='square',
-            ),
-            text=[label.replace('\\n', '<br>') for label in node_text],
-            textposition="middle center",
-            textfont=dict(size=9, color='#263238'),
-            hovertext=node_hovertext,
-            hoverinfo='text',
-            showlegend=False,
-        )
-
-        # Create figure
-        fig = go.Figure(data=[edge_trace, node_trace])
-
-        # Update layout
-        if figsize == 'auto':
-            width = max(600, max_width * 200)
-            height = max(400, num_layers * 150)
-        else:
-            width, height = figsize
-
-        fig.update_layout(
-            title=dict(
-                text="Model Dependency Graph",
-                x=0.5,
-                xanchor='center',
-                font=dict(size=16, color='#263238')
-            ),
-            showlegend=False,
-            hovermode='closest',
-            margin=dict(b=20, l=20, r=20, t=60),
-            xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-            yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-            plot_bgcolor='white',
-            width=width,
-            height=height,
-        )
-
-        # Export if requested
-        if export_path:
-            if export_path.endswith('.html'):
-                fig.write_html(export_path)
-            elif export_path.endswith('.png'):
-                fig.write_image(export_path)
-            elif export_path.endswith('.pdf'):
-                fig.write_image(export_path)
-            elif export_path.endswith('.svg'):
-                fig.write_image(export_path)
-
-        return fig
-
-    def visualize_graphviz(
-        self,
-        layout='dot',
-        show_details=True,
-        colorscheme='default',
-        export_path=None,
-        **kwargs
-    ):
-        """Create Graphviz visualization with professional layouts.
-
-        Parameters
-        ----------
-        layout : str
-            Graphviz layout engine: 'dot', 'neato', 'fdp', 'sfdp', 'circo', 'twopi'.
-        show_details : bool
-            Include detailed node information.
-        colorscheme : str
-            Color scheme name.
-        export_path : str, optional
-            Path to export (format inferred from extension).
-        **kwargs
-            Additional Graphviz attributes.
+    def _layout_hierarchical_lr(self) -> Dict[GraphElem, Tuple[float, float]]:
+        """Compute left-to-right hierarchical layout.
 
         Returns
         -------
-        graphviz.Digraph
-            Graphviz diagram object.
-
-        Raises
-        ------
-        RuntimeError
-            If graphviz is not installed.
+        Dict[GraphElem, Tuple[float, float]]
+            Mapping from node to (x, y) position.
         """
-        try:
-            from graphviz import Digraph
-        except ImportError as exc:
-            raise RuntimeError(
-                "Graphviz backend requires graphviz to be installed. "
-                "Install with: pip install graphviz"
-            ) from exc
+        layers = self._compute_hierarchical_layers()
 
-        # Create digraph with specified engine
-        valid_engines = ['dot', 'neato', 'fdp', 'sfdp', 'circo', 'twopi']
-        if layout not in valid_engines:
-            raise ValueError(f"Invalid Graphviz layout: {layout}. Choose from {valid_engines}")
+        # Group nodes by layer
+        layer_nodes: Dict[int, List[GraphElem]] = defaultdict(list)
+        for node, layer in layers.items():
+            layer_nodes[layer].append(node)
 
-        dot = Digraph(engine=layout, comment='Model Dependency Graph')
-        dot.attr(rankdir='TB', splines='spline')
-        dot.attr('node', shape='box', style='rounded,filled', fontname='Arial')
-        dot.attr('edge', fontname='Arial')
+        positions = {}
+        x_spacing = 2.0
+        y_spacing = 1.5
 
-        # Apply custom attributes from kwargs
-        for key, value in kwargs.items():
-            dot.attr(key, value)
+        for layer_idx, nodes in layer_nodes.items():
+            x = layer_idx * x_spacing
+            num_nodes = len(nodes)
 
-        colors = self._get_color_scheme(colorscheme)
+            # Sort nodes for consistent positioning (Input, Group, Projection, Output)
+            def node_sort_key(n):
+                if isinstance(n, Input):
+                    return (0, n.name if hasattr(n, 'name') else '')
+                elif isinstance(n, Group):
+                    return (1, n.name)
+                elif isinstance(n, Projection):
+                    return (2, n.name)
+                else:  # Output
+                    return (3, n.name if hasattr(n, 'name') else '')
 
-        # Add nodes
-        for idx, node in enumerate(self.graph._nodes):
-            node_id = str(idx)
-            label = self._get_node_label(node, False).replace('\\n', '\n')
+            sorted_nodes = sorted(nodes, key=node_sort_key)
 
-            if show_details:
-                metadata = self._get_node_metadata(node)
-                detail_lines = [label]
-                for key, value in metadata.items():
-                    if key != 'Type':
-                        detail_lines.append(f"{key}: {value}")
-                label = '\n'.join(detail_lines)
+            for i, node in enumerate(sorted_nodes):
+                y = (i - num_nodes / 2.0) * y_spacing
+                positions[node] = (x, y)
 
-            fill_color, edge_color = self._get_node_style(node, colorscheme)
+        return positions
 
-            dot.node(
-                node_id,
-                label,
-                fillcolor=fill_color,
-                color=edge_color,
-                fontsize='10',
-            )
+    def _layout_hierarchical_tb(self) -> Dict[GraphElem, Tuple[float, float]]:
+        """Compute top-to-bottom hierarchical layout.
 
-        # Add edges
-        for source_idx, targets in self.graph._forward_edges.items():
-            for target_idx in targets:
-                dot.edge(str(source_idx), str(target_idx), color='#546E7A')
+        Returns
+        -------
+        Dict[GraphElem, Tuple[float, float]]
+            Mapping from node to (x, y) position.
+        """
+        # Reuse left-right layout but swap x and y, and negate y
+        lr_positions = self._layout_hierarchical_lr()
+        return {node: (y, -x) for node, (x, y) in lr_positions.items()}
 
-        # Export if requested
-        if export_path:
-            # Infer format from extension
-            if '.' in export_path:
-                fmt = export_path.rsplit('.', 1)[1]
-                base = export_path.rsplit('.', 1)[0]
-                dot.render(base, format=fmt, cleanup=True)
+    def _layout_force_directed(self, iterations: int = 100) -> Dict[GraphElem, Tuple[float, float]]:
+        """Compute force-directed layout using simplified spring algorithm.
+
+        Parameters
+        ----------
+        iterations : int
+            Number of iterations for force-directed algorithm.
+
+        Returns
+        -------
+        Dict[GraphElem, Tuple[float, float]]
+            Mapping from node to (x, y) position.
+        """
+        # Start with hierarchical layout as initial positions
+        positions = self._layout_hierarchical_lr()
+
+        nodes = list(self.graph.nodes())
+        node_to_idx = {node: i for i, node in enumerate(nodes)}
+
+        # Convert to numpy arrays for efficient computation
+        pos_array = np.array([positions[node] for node in nodes], dtype=float)
+
+        # Parameters
+        k = 1.0  # Optimal distance
+        c_spring = 0.1  # Spring constant
+        c_repel = 0.5  # Repulsion constant
+        damping = 0.9
+
+        for iteration in range(iterations):
+            forces = np.zeros_like(pos_array)
+
+            # Repulsive forces between all pairs
+            for i in range(len(nodes)):
+                for j in range(i + 1, len(nodes)):
+                    delta = pos_array[i] - pos_array[j]
+                    dist = np.linalg.norm(delta)
+                    if dist > 0:
+                        force = c_repel * k * k / (dist * dist) * (delta / dist)
+                        forces[i] += force
+                        forces[j] -= force
+
+            # Attractive forces for edges
+            for source, target in self.graph.edges():
+                i = node_to_idx[source]
+                j = node_to_idx[target]
+                delta = pos_array[j] - pos_array[i]
+                dist = np.linalg.norm(delta)
+                if dist > 0:
+                    force = c_spring * (dist - k) * (delta / dist)
+                    forces[i] += force
+                    forces[j] -= force
+
+            # Update positions
+            pos_array += forces * damping
+            damping *= 0.99
+
+        # Convert back to dictionary
+        return {node: tuple(pos_array[i]) for i, node in enumerate(nodes)}
+
+    def _get_node_style(self, node: GraphElem) -> Dict[str, Any]:
+        """Get visual style for a node based on its type.
+
+        Parameters
+        ----------
+        node : GraphElem
+            The node to style.
+
+        Returns
+        -------
+        Dict[str, Any]
+            Style dictionary with keys: shape, color, size, edge_color, edge_width.
+        """
+        is_highlighted = node in self._highlighted_nodes
+
+        if isinstance(node, Group):
+            return {
+                'shape': 'circle',
+                'color': '#3498db' if not is_highlighted else '#e74c3c',
+                'size': 1200,
+                'edge_color': '#2c3e50',
+                'edge_width': 3 if is_highlighted else 2,
+                'alpha': 1.0 if is_highlighted else 0.9,
+            }
+        elif isinstance(node, Input):
+            return {
+                'shape': 'roundbox',
+                'color': '#2ecc71' if not is_highlighted else '#e74c3c',
+                'size': 600,
+                'edge_color': '#27ae60',
+                'edge_width': 2 if is_highlighted else 1,
+                'alpha': 1.0 if is_highlighted else 0.7,
+            }
+        elif isinstance(node, Output):
+            return {
+                'shape': 'roundbox',
+                'color': '#f39c12' if not is_highlighted else '#e74c3c',
+                'size': 600,
+                'edge_color': '#e67e22',
+                'edge_width': 2 if is_highlighted else 1,
+                'alpha': 1.0 if is_highlighted else 0.7,
+            }
+        elif isinstance(node, Projection):
+            # Projection nodes are shown as small diamonds on edges
+            return {
+                'shape': 'diamond',
+                'color': '#9b59b6' if not is_highlighted else '#e74c3c',
+                'size': 300,
+                'edge_color': '#8e44ad',
+                'edge_width': 2 if is_highlighted else 1,
+                'alpha': 1.0 if is_highlighted else 0.8,
+            }
+        else:
+            return {
+                'shape': 'circle',
+                'color': '#95a5a6',
+                'size': 400,
+                'edge_color': '#7f8c8d',
+                'edge_width': 1,
+                'alpha': 0.7,
+            }
+
+    def _get_node_label(self, node: GraphElem) -> str:
+        """Get label text for a node.
+
+        Parameters
+        ----------
+        node : GraphElem
+            The node to label.
+
+        Returns
+        -------
+        str
+            Label text.
+        """
+        if isinstance(node, Group):
+            return node.name
+        elif isinstance(node, Input):
+            # Count number of input variables
+            num_inputs = len(node.input_vars) if hasattr(node, 'input_vars') else 0
+            return f"Input\n#{num_inputs}"
+        elif isinstance(node, Output):
+            # Count number of outputs (from jaxpr outvars)
+            num_outputs = len(node.jaxpr.jaxpr.outvars) if hasattr(node, 'jaxpr') else 0
+            return f"Output\n#{num_outputs}"
+        elif isinstance(node, Projection):
+            # Count connections
+            num_conns = len(node.connections) if hasattr(node, 'connections') else 0
+            return f"{num_conns}"
+        else:
+            return str(type(node).__name__)
+
+    def _draw_node(self, ax, node: GraphElem, pos: Tuple[float, float], style: Dict[str, Any]):
+        """Draw a single node on the axes.
+
+        Parameters
+        ----------
+        ax : matplotlib.axes.Axes
+            The axes to draw on.
+        node : GraphElem
+            The node to draw.
+        pos : Tuple[float, float]
+            The (x, y) position.
+        style : Dict[str, Any]
+            Visual style dictionary.
+        """
+        import matplotlib.pyplot as plt
+        import matplotlib.patches as mpatches
+
+        x, y = pos
+        shape = style['shape']
+        size = style['size']
+        radius = np.sqrt(size / np.pi) * 0.01  # Scale size to radius
+
+        if shape == 'circle':
+            patch = mpatches.Circle((x, y), radius,
+                                   facecolor=style['color'],
+                                   edgecolor=style['edge_color'],
+                                   linewidth=style['edge_width'],
+                                   alpha=style['alpha'],
+                                   picker=True)
+        elif shape == 'roundbox':
+            patch = mpatches.FancyBboxPatch((x - radius, y - radius * 0.6),
+                                           radius * 2, radius * 1.2,
+                                           boxstyle="round,pad=0.05",
+                                           facecolor=style['color'],
+                                           edgecolor=style['edge_color'],
+                                           linewidth=style['edge_width'],
+                                           alpha=style['alpha'],
+                                           picker=True)
+        elif shape == 'diamond':
+            # Diamond shape using polygon
+            points = np.array([
+                [x, y + radius],
+                [x + radius, y],
+                [x, y - radius],
+                [x - radius, y]
+            ])
+            patch = mpatches.Polygon(points,
+                                    facecolor=style['color'],
+                                    edgecolor=style['edge_color'],
+                                    linewidth=style['edge_width'],
+                                    alpha=style['alpha'],
+                                    picker=True)
+        else:
+            # Default to circle
+            patch = mpatches.Circle((x, y), radius,
+                                   facecolor=style['color'],
+                                   edgecolor=style['edge_color'],
+                                   linewidth=style['edge_width'],
+                                   alpha=style['alpha'],
+                                   picker=True)
+
+        patch.set_gid(str(id(node)))  # Store node ID for click handling
+        ax.add_patch(patch)
+
+        # Add label
+        label = self._get_node_label(node)
+        fontsize = 10 if isinstance(node, Group) else 8
+        fontweight = 'bold' if isinstance(node, Group) else 'normal'
+        ax.text(x, y, label,
+               ha='center', va='center',
+               fontsize=fontsize, fontweight=fontweight,
+               color='white' if isinstance(node, Group) else 'black')
+
+    def _draw_edge(self, ax, source: GraphElem, target: GraphElem,
+                   source_pos: Tuple[float, float], target_pos: Tuple[float, float],
+                   is_projection: bool = False):
+        """Draw an edge between two nodes.
+
+        Parameters
+        ----------
+        ax : matplotlib.axes.Axes
+            The axes to draw on.
+        source : GraphElem
+            Source node.
+        target : GraphElem
+            Target node.
+        source_pos : Tuple[float, float]
+            Source position.
+        target_pos : Tuple[float, float]
+            Target position.
+        is_projection : bool
+            Whether this edge represents a Projection connection.
+        """
+        import matplotlib.pyplot as plt
+        import matplotlib.patches as mpatches
+
+        is_highlighted = source in self._highlighted_nodes or target in self._highlighted_nodes
+
+        if is_projection:
+            # Solid thick arrow for Projection
+            color = '#e74c3c' if is_highlighted else '#9b59b6'
+            linewidth = 3 if is_highlighted else 2
+            linestyle = '-'
+            alpha = 1.0 if is_highlighted else 0.7
+        else:
+            # Dashed thinner arrow for Input/Output connections
+            color = '#e74c3c' if is_highlighted else '#95a5a6'
+            linewidth = 2 if is_highlighted else 1.5
+            linestyle = '--'
+            alpha = 1.0 if is_highlighted else 0.5
+
+        # Draw curved arrow
+        arrow = mpatches.FancyArrowPatch(
+            source_pos, target_pos,
+            arrowstyle='->,head_width=0.4,head_length=0.8',
+            connectionstyle='arc3,rad=0.1',
+            color=color,
+            linewidth=linewidth,
+            linestyle=linestyle,
+            alpha=alpha,
+            zorder=1
+        )
+        ax.add_patch(arrow)
+
+    def _on_click(self, event):
+        """Handle click events on nodes for highlighting.
+
+        Parameters
+        ----------
+        event : matplotlib.backend_bases.MouseEvent
+            The click event.
+        """
+        if event.inaxes != self._ax:
+            return
+
+        # Find clicked node
+        clicked_node = None
+        for artist in self._ax.patches:
+            if artist.contains(event)[0]:
+                gid = artist.get_gid()
+                if gid:
+                    node_id = int(gid)
+                    for node in self.graph.nodes():
+                        if id(node) == node_id:
+                            clicked_node = node
+                            break
+                break
+
+        if clicked_node is None:
+            # Clear highlights
+            if self._highlighted_nodes:
+                self._highlighted_nodes.clear()
+                self._redraw()
+        else:
+            # Toggle highlight
+            if clicked_node in self._highlighted_nodes:
+                self._highlighted_nodes.clear()
             else:
-                dot.render(export_path, cleanup=True)
+                # Highlight clicked node and its neighbors
+                self._highlighted_nodes.clear()
+                self._highlighted_nodes.add(clicked_node)
+                self._highlighted_nodes.update(self.graph.predecessors(clicked_node))
+                self._highlighted_nodes.update(self.graph.successors(clicked_node))
 
-        return dot
+            self._redraw()
 
-    def visualize_networkx(
-        self,
-        layout='spring',
-        node_size='auto',
-        edge_width='auto',
-        colorscheme='default',
-        figsize='auto',
-        show_details=True,
-        export_path=None,
-        **kwargs
-    ):
-        """Visualize using NetworkX with advanced layout algorithms.
+    def _redraw(self):
+        """Redraw the graph with current highlight state."""
+        if self._ax is None or self._fig is None:
+            return
+
+        self._ax.clear()
+        self._draw_graph_elements()
+        self._fig.canvas.draw()
+
+    def _draw_graph_elements(self):
+        """Draw all graph elements (nodes and edges) on the current axes."""
+        # Draw edges first (so they appear behind nodes)
+        projection_edges = set()
+
+        # Identify which edges connect to Projections
+        for node in self.graph.nodes():
+            if isinstance(node, Projection):
+                # Edges from pre_group to projection and projection to post_group
+                if hasattr(node, 'pre_group') and hasattr(node, 'post_group'):
+                    projection_edges.add((node.pre_group, node))
+                    projection_edges.add((node, node.post_group))
+
+        for source, target in self.graph.edges():
+            is_proj = (source, target) in projection_edges
+            self._draw_edge(self._ax, source, target,
+                          self._node_positions[source],
+                          self._node_positions[target],
+                          is_projection=is_proj)
+
+        # Draw nodes
+        for node in self.graph.nodes():
+            style = self._get_node_style(node)
+            self._draw_node(self._ax, node, self._node_positions[node], style)
+
+        # Set axis properties
+        self._ax.set_aspect('equal')
+        self._ax.axis('off')
+
+        # Set appropriate limits with padding
+        if self._node_positions:
+            positions = list(self._node_positions.values())
+            xs, ys = zip(*positions)
+            margin = 1.0
+            self._ax.set_xlim(min(xs) - margin, max(xs) + margin)
+            self._ax.set_ylim(min(ys) - margin, max(ys) + margin)
+
+    def display(self, layout: str = 'auto', figsize: Tuple[float, float] = (12, 8), **kwargs):
+        """Display the graph using matplotlib.
 
         Parameters
         ----------
         layout : str
-            NetworkX layout: 'spring', 'kamada_kawai', 'spectral', 'circular', 'shell'.
-        node_size : str or dict
-            Node sizing strategy.
-        edge_width : str or dict
-            Edge width strategy.
-        colorscheme : str
-            Color scheme name.
-        figsize : tuple or 'auto'
-            Figure size.
-        show_details : bool
-            Show node labels.
-        export_path : str, optional
-            Path to export image.
+            Layout algorithm to use:
+            - 'lr' or 'left-right': Left-to-right hierarchical layout
+            - 'tb' or 'top-bottom': Top-to-bottom hierarchical layout
+            - 'auto' or 'force': Force-directed layout
+        figsize : Tuple[float, float]
+            Figure size (width, height) in inches.
         **kwargs
-            Additional NetworkX layout parameters.
+            Additional arguments passed to layout algorithm.
 
         Returns
         -------
         matplotlib.figure.Figure
-            Matplotlib figure.
-
-        Raises
-        ------
-        RuntimeError
-            If networkx or matplotlib is not installed.
+            The created figure.
         """
-        try:
-            import networkx as nx
-            import matplotlib.pyplot as plt
-            from matplotlib.patches import FancyBboxPatch
-        except ImportError as exc:
-            raise RuntimeError(
-                "NetworkX backend requires networkx and matplotlib. "
-                "Install with: pip install networkx matplotlib"
-            ) from exc
-
-        from ._data import Group, Projection
-
-        # Build NetworkX graph
-        G = nx.DiGraph()
-        for idx in range(len(self.graph._nodes)):
-            G.add_node(idx)
-
-        for source_idx, targets in self.graph._forward_edges.items():
-            for target_idx in targets:
-                G.add_edge(source_idx, target_idx)
+        import matplotlib.pyplot as plt
 
         # Compute layout
-        layout_funcs = {
-            'spring': nx.spring_layout,
-            'kamada_kawai': nx.kamada_kawai_layout,
-            'spectral': nx.spectral_layout,
-            'circular': nx.circular_layout,
-            'shell': nx.shell_layout,
-        }
-
-        if layout not in layout_funcs:
-            raise ValueError(f"Unsupported NetworkX layout: {layout}. Choose from {list(layout_funcs.keys())}")
-
-        pos = layout_funcs[layout](G, **kwargs)
+        if layout in ('lr', 'left-right'):
+            self._node_positions = self._layout_hierarchical_lr()
+        elif layout in ('tb', 'top-bottom'):
+            self._node_positions = self._layout_hierarchical_tb()
+        elif layout in ('auto', 'force'):
+            iterations = kwargs.get('iterations', 100)
+            self._node_positions = self._layout_force_directed(iterations=iterations)
+        else:
+            raise ValueError(f"Unknown layout: {layout}. Use 'lr', 'tb', or 'auto'.")
 
         # Create figure
-        if figsize == 'auto':
-            num_nodes = len(self.graph._nodes)
-            fig_size = max(8, min(num_nodes * 0.8, 20))
-            fig, ax = plt.subplots(figsize=(fig_size, fig_size))
-        else:
-            fig, ax = plt.subplots(figsize=figsize)
+        self._fig, self._ax = plt.subplots(figsize=figsize)
 
-        # Prepare node sizes
-        if node_size == 'auto':
-            sizes = []
-            for node in self.graph._nodes:
-                if isinstance(node, (Group, Projection)):
-                    complexity = len(node.jaxpr.jaxpr.eqns) + len(getattr(node, 'hidden_states', []))
-                    sizes.append(2000 + min(complexity * 100, 3000))
-                else:
-                    sizes.append(2000)
-        elif isinstance(node_size, dict):
-            sizes = [node_size.get(i, 2000) for i in range(len(self.graph._nodes))]
-        else:
-            sizes = 2000
+        # Draw graph
+        self._draw_graph_elements()
 
-        # Prepare node colors
-        colors = []
-        for node in self.graph._nodes:
-            fill_color, _ = self._get_node_style(node, colorscheme)
-            colors.append(fill_color)
+        # Connect click handler
+        self._fig.canvas.mpl_connect('button_press_event', self._on_click)
 
-        # Draw edges
-        nx.draw_networkx_edges(
-            G, pos, ax=ax,
-            edge_color='#546E7A',
-            width=2 if edge_width == 'auto' else edge_width,
-            arrowsize=20,
-            arrowstyle='-|>',
-            node_size=sizes if isinstance(sizes, list) else [sizes] * len(G.nodes()),
-        )
+        # Add title and legend
+        self._ax.set_title('NeuroGraph Visualization\n(Click nodes to highlight connections)',
+                          fontsize=14, fontweight='bold', pad=20)
 
-        # Draw nodes
-        nx.draw_networkx_nodes(
-            G,
-            pos,
-            ax=ax,
-            node_color=colors,
-            node_size=sizes,
-            node_shape='s',
-            edgecolors='#263238',
-            linewidths=2,
-        )
+        # Create legend
+        import matplotlib.patches as mpatches
+        legend_elements = [
+            mpatches.Patch(facecolor='#3498db', edgecolor='#2c3e50', label='Group (Neurons)'),
+            mpatches.Patch(facecolor='#2ecc71', edgecolor='#27ae60', label='Input'),
+            mpatches.Patch(facecolor='#f39c12', edgecolor='#e67e22', label='Output'),
+            mpatches.Patch(facecolor='#9b59b6', edgecolor='#8e44ad', label='Projection'),
+            mpatches.Patch(facecolor='none', edgecolor='#9b59b6',
+                          linestyle='-', linewidth=2, label='Projection Connection'),
+            mpatches.Patch(facecolor='none', edgecolor='#95a5a6',
+                          linestyle='--', linewidth=1.5, label='Input/Output Connection'),
+        ]
+        self._ax.legend(handles=legend_elements, loc='upper left',
+                       bbox_to_anchor=(1.02, 1), fontsize=9)
 
-        # Draw labels
-        if show_details:
-            labels = {}
-            for idx, node in enumerate(self.graph._nodes):
-                labels[idx] = self._get_node_label(node, False).replace('\\n', '\n')
+        plt.tight_layout()
 
-            nx.draw_networkx_labels(
-                G, pos, labels, ax=ax,
-                font_size=8,
-                font_color='#263238',
-            )
+        return self._fig
 
-        ax.set_title("Model Dependency Graph", fontsize=14, fontweight='bold')
-        ax.axis('off')
-        fig.tight_layout()
-
-        # Export if requested
-        if export_path:
-            fig.savefig(export_path, dpi=300, bbox_inches='tight')
-
-        return fig
-
-    def visualzie_matplotlib(
-        self,
-        ax=None,
-    ):
-        # Original matplotlib implementation
-        try:
-            import matplotlib.pyplot as plt
-            from matplotlib.patches import FancyBboxPatch
-        except ImportError as exc:  # pragma: no cover - optional dependency
-            raise RuntimeError(
-                "Matplotlib backend requires matplotlib to be installed."
-            ) from exc
-
-        if not self.graph._nodes:
-            fig, ax = plt.subplots(figsize=(4, 3))
-            ax.text(
-                0.5,
-                0.5,
-                "Graph is empty",
-                ha='center',
-                va='center',
-                fontsize=12,
-            )
-            ax.axis('off')
-            fig.tight_layout()
-            return fig
-
-        num_nodes = len(self.graph._nodes)
-        in_degree = {i: len(self.graph._reverse_edges.get(i, ())) for i in range(num_nodes)}
-        levels = {i: 0 for i in range(num_nodes)}
-        queue = deque(sorted(idx for idx, deg in in_degree.items() if deg == 0))
-        if not queue:
-            queue = deque(range(num_nodes))
-        enqueued = set(queue)
-        processed = set()
-        while queue:
-            idx = queue.popleft()
-            processed.add(idx)
-            for succ in sorted(self.graph._forward_edges.get(idx, ())):
-                levels[succ] = max(levels.get(succ, 0), levels[idx] + 1)
-                in_degree[succ] = in_degree.get(succ, 0) - 1
-                if in_degree[succ] <= 0 and succ not in processed and succ not in enqueued:
-                    queue.append(succ)
-                    enqueued.add(succ)
-
-        if len(processed) != num_nodes:
-            remaining = set(range(num_nodes)) - processed
-            for idx in remaining:
-                preds = self.graph._reverse_edges.get(idx, ())
-                if preds:
-                    max_pred = max(levels.get(pred, 0) for pred in preds)
-                    levels[idx] = max(levels.get(idx, 0), max_pred + 1)
-                else:
-                    levels[idx] = 0
-
-        layer_map = defaultdict(list)
-        for idx, level in levels.items():
-            layer_map[level].append(idx)
-        normalized_layers = []
-        for _, nodes in sorted(layer_map.items(), key=lambda item: item[0]):
-            normalized_layers.append(sorted(nodes))
-
-        num_layers = len(normalized_layers)
-        max_width = max((len(layer) for layer in normalized_layers), default=1)
-        x_gap = 2.5
-        y_gap = 2.0
-        node_width = 1.8
-        node_height = 0.9
-
-        x_positions: Dict[int, float] = {}
-        y_positions: Dict[int, float] = {}
-        for layer_idx, layer_nodes in enumerate(normalized_layers):
-            if not layer_nodes:
-                continue
-            row_width = len(layer_nodes)
-            x_offset = (max_width - row_width) * 0.5 * x_gap
-            y_val = (num_layers - layer_idx - 1) * y_gap
-            for pos, node_idx in enumerate(layer_nodes):
-                x_positions[node_idx] = x_offset + pos * x_gap
-                y_positions[node_idx] = y_val
-
-        if ax is None:
-            fig_width = max(6.0, max_width * 1.6)
-            fig_height = max(4.0, num_layers * 1.5)
-            fig, ax = plt.subplots(figsize=(fig_width, fig_height))
-        else:
-            fig = ax.figure
-
-        def _node_label(node: GraphElem) -> str:
-            if isinstance(node, Group):
-                return f"Group\\n{node.name}"
-            if isinstance(node, Projection):
-                return f"Projection\\n{node.pre_group.name} → {node.post_group.name}"
-            if isinstance(node, Input):
-                return f"Input\\n→ {node.group.name}"
-            if isinstance(node, Output):
-                return f"Output\\n{node.group.name} →"
-            if isinstance(node, Connection):
-                return f"Connection\\n{node.jaxpr.jaxpr.name if hasattr(node.jaxpr, 'jaxpr') else ''}"
-            return type(node).__name__
-
-        def _node_style(node: GraphElem) -> Tuple[str, str]:
-            if isinstance(node, Input):
-                return "#E3F2FD", "#1565C0"
-            if isinstance(node, Output):
-                return "#FCE4EC", "#AD1457"
-            if isinstance(node, Projection):
-                return "#FFF3E0", "#E65100"
-            if isinstance(node, Connection):
-                return "#EDE7F6", "#5E35B1"
-            return "#E8F5E9", "#1B5E20"  # Groups and fallbacks
-
-        for idx, node in enumerate(self.graph._nodes):
-            x = x_positions.get(idx, 0.0)
-            y = y_positions.get(idx, 0.0)
-            facecolor, edgecolor = _node_style(node)
-            patch = FancyBboxPatch(
-                (x - node_width / 2, y - node_height / 2),
-                node_width,
-                node_height,
-                boxstyle='round,pad=0.25',
-                linewidth=1.4,
-                facecolor=facecolor,
-                edgecolor=edgecolor,
-            )
-            ax.add_patch(patch)
-            ax.text(
-                x,
-                y,
-                _node_label(node),
-                ha='center',
-                va='center',
-                fontsize=9,
-                color='#263238',
-            )
-
-        for source_idx, targets in self.graph._forward_edges.items():
-            sx = x_positions.get(source_idx, 0.0)
-            sy = y_positions.get(source_idx, 0.0)
-            for target_idx in targets:
-                tx = x_positions.get(target_idx, 0.0)
-                ty = y_positions.get(target_idx, 0.0)
-                ax.annotate(
-                    '',
-                    xy=(tx, ty + node_height / 2),
-                    xytext=(sx, sy - node_height / 2),
-                    arrowprops=dict(
-                        arrowstyle='-|>',
-                        color='#546E7A',
-                        linewidth=1.2,
-                        shrinkA=0,
-                        shrinkB=0,
-                    ),
-                )
-
-        min_x = min(x_positions.values(), default=0.0) - x_gap
-        max_x = max(x_positions.values(), default=0.0) + x_gap
-        ax.set_xlim(min_x, max_x)
-        ax.set_ylim(-y_gap, num_layers * y_gap + y_gap)
-        ax.set_xticks([])
-        ax.set_yticks([])
-        ax.set_title("Model Dependency Graph", fontsize=12, fontweight='bold')
-        ax.axis('off')
-        fig.tight_layout()
-        return fig
-
-    def _compute_hierarchical_layout(self):
-        """Compute hierarchical layout positions."""
-        num_nodes = len(self.graph._nodes)
-        if num_nodes == 0:
-            return {}, {}, 0, 0
-
-        # Compute topological levels
-        in_degree = {i: len(self.graph._reverse_edges.get(i, ())) for i in range(num_nodes)}
-        levels = {i: 0 for i in range(num_nodes)}
-        queue = deque(sorted(idx for idx, deg in in_degree.items() if deg == 0))
-        if not queue:
-            queue = deque(range(num_nodes))
-        enqueued = set(queue)
-        processed = set()
-
-        while queue:
-            idx = queue.popleft()
-            processed.add(idx)
-            for succ in sorted(self.graph._forward_edges.get(idx, ())):
-                levels[succ] = max(levels.get(succ, 0), levels[idx] + 1)
-                in_degree[succ] = in_degree.get(succ, 0) - 1
-                if in_degree[succ] <= 0 and succ not in processed and succ not in enqueued:
-                    queue.append(succ)
-                    enqueued.add(succ)
-
-        # Handle cycles
-        if len(processed) != num_nodes:
-            remaining = set(range(num_nodes)) - processed
-            for idx in remaining:
-                preds = self.graph._reverse_edges.get(idx, ())
-                if preds:
-                    max_pred = max(levels.get(pred, 0) for pred in preds)
-                    levels[idx] = max(levels.get(idx, 0), max_pred + 1)
-                else:
-                    levels[idx] = 0
-
-        # Group by level
-        layer_map = defaultdict(list)
-        for idx, level in levels.items():
-            layer_map[level].append(idx)
-        normalized_layers = []
-        for _, nodes in sorted(layer_map.items()):
-            normalized_layers.append(sorted(nodes))
-
-        num_layers = len(normalized_layers)
-        max_width = max((len(layer) for layer in normalized_layers), default=1)
-
-        # Compute positions
-        x_gap = 2.5
-        y_gap = 2.0
-        x_positions = {}
-        y_positions = {}
-
-        for layer_idx, layer_nodes in enumerate(normalized_layers):
-            if not layer_nodes:
-                continue
-            row_width = len(layer_nodes)
-            x_offset = (max_width - row_width) * 0.5 * x_gap
-            y_val = (num_layers - layer_idx - 1) * y_gap
-            for pos, node_idx in enumerate(layer_nodes):
-                x_positions[node_idx] = x_offset + pos * x_gap
-                y_positions[node_idx] = y_val
-
-        return x_positions, y_positions, num_layers, max_width
-
-    def _get_node_label(self, node, show_details=True):
-        """Get display label for a node."""
-        from ._data import Group, Projection, Input, Output, Connection
-
-        if isinstance(node, Group):
-            return f"Group\\n{node.name}"
-        if isinstance(node, Projection):
-            return f"Projection\\n{node.pre_group.name} → {node.post_group.name}"
-        if isinstance(node, Input):
-            return f"Input\\n→ {node.group.name}"
-        if isinstance(node, Output):
-            return f"Output\\n{node.group.name} →"
-        if isinstance(node, Connection):
-            return f"Connection\\n{node.jaxpr.jaxpr.name if hasattr(node.jaxpr, 'jaxpr') else ''}"
-        return type(node).__name__
-
-    def _get_node_metadata(self, node):
-        """Extract metadata from a node."""
-        from ._data import Group, Projection, Input, Output
-
-        metadata = {'Type': type(node).__name__}
-
-        if isinstance(node, Group):
-            metadata['Name'] = node.name
-            metadata['Hidden States'] = str(len(node.hidden_states))
-            metadata['In States'] = str(len(node.in_states))
-            metadata['Out States'] = str(len(node.out_states))
-            metadata['Equations'] = str(len(node.jaxpr.jaxpr.eqns))
-            metadata['Input Vars'] = str(len(node.input_vars))
-        elif isinstance(node, Projection):
-            metadata['From'] = node.pre_group.name
-            metadata['To'] = node.post_group.name
-            metadata['Hidden States'] = str(len(node.hidden_states))
-            metadata['In States'] = str(len(node.in_states))
-            metadata['Connections'] = str(len(node.connections))
-            metadata['Equations'] = str(len(node.jaxpr.jaxpr.eqns))
-        elif isinstance(node, Input):
-            metadata['Target Group'] = node.group.name
-            metadata['Equations'] = str(len(node.jaxpr.jaxpr.eqns))
-        elif isinstance(node, Output):
-            metadata['Source Group'] = node.group.name
-            metadata['Hidden States'] = str(len(node.hidden_states))
-            metadata['Equations'] = str(len(node.jaxpr.jaxpr.eqns))
-
-        return metadata
-
-    def _get_color_scheme(self, colorscheme='default'):
-        """Get color scheme for node types."""
-        schemes = {
-            'default': {
-                'Input': ("#E3F2FD", "#1565C0"),
-                'Output': ("#FCE4EC", "#AD1457"),
-                'Projection': ("#FFF3E0", "#E65100"),
-                'Connection': ("#EDE7F6", "#5E35B1"),
-                'Group': ("#E8F5E9", "#1B5E20"),
-            },
-            'pastel': {
-                'Input': ("#BBDEFB", "#2196F3"),
-                'Output': ("#F8BBD0", "#E91E63"),
-                'Projection': ("#FFE0B2", "#FF9800"),
-                'Connection': ("#D1C4E9", "#673AB7"),
-                'Group': ("#C8E6C9", "#4CAF50"),
-            },
-            'vibrant': {
-                'Input': ("#2196F3", "#0D47A1"),
-                'Output': ("#E91E63", "#880E4F"),
-                'Projection': ("#FF9800", "#E65100"),
-                'Connection': ("#673AB7", "#311B92"),
-                'Group': ("#4CAF50", "#1B5E20"),
-            },
-            'colorblind': {
-                'Input': ("#0173B2", "#023858"),
-                'Output': ("#DE8F05", "#7C4F00"),
-                'Projection': ("#CC78BC", "#6E3F64"),
-                'Connection': ("#029E73", "#015040"),
-                'Group': ("#ECE133", "#7A6F1A"),
-            },
-        }
-        return schemes.get(colorscheme, schemes['default'])
-
-    def _get_node_style(self, node, colorscheme='default'):
-        """Get fill and edge colors for a node."""
-        colors = self._get_color_scheme(colorscheme)
-        node_type = type(node).__name__
-        return colors.get(node_type, colors['Group'])
 
 
 class TextDisplayer:
