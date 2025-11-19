@@ -1,14 +1,11 @@
 # Test the ParsedResults.run function
 
-import sys
-
-sys.path.insert(0, '../gdiist_bpu')
-
-import brainstate
-import brainunit as u
 import brainpy
 import braintools
+import brainunit as u
 import matplotlib.pyplot as plt
+
+import brainstate
 from brainstate.experimental.neuron_ir import compile_fn
 
 brainstate.environ.set(dt=0.1 * u.ms)
