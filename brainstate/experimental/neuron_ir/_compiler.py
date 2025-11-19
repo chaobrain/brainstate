@@ -30,7 +30,7 @@ from brainstate._state import State
 from brainstate.transform._ir_inline import inline_jit
 from brainstate.transform._ir_processing import eqns_to_closed_jaxpr
 from brainstate.transform._make_jaxpr import StatefulFunction, get_arg_cache_key
-from ._data import Graph, GraphIRElem, GroupIR, ConnectionIR, ProjectionIR, InputIR, OutputIR, CompiledGraphIR
+from ._data import NeuroGraph, GraphIRElem, GroupIR, ConnectionIR, ProjectionIR, InputIR, OutputIR, CompiledGraphIR
 from ._utils import _is_connection, UnionFind
 
 __all__ = [
@@ -1368,7 +1368,7 @@ class GraphIRCompiler:
         projections: List[ProjectionIR],
         inputs: List[InputIR],
         outputs: List[OutputIR],
-    ) -> Graph:
+    ) -> NeuroGraph:
         """Derive an execution graph that preserves the original equation order.
 
         Parameters
@@ -1384,10 +1384,10 @@ class GraphIRCompiler:
 
         Returns
         -------
-        Graph
+        NeuroGraph
             Directed acyclic graph with nodes ordered for execution/visualization.
         """
-        call_graph = Graph()
+        call_graph = NeuroGraph()
 
         # Ensure inputs come first
         for inp in inputs:
@@ -1506,7 +1506,7 @@ class GraphIRCompiler:
                 f"ProjectionIR, InputIR, or Output."
             )
 
-    def compile(self) -> Tuple[List[GroupIR], List[ProjectionIR], List[InputIR], List[OutputIR], Graph]:
+    def compile(self) -> Tuple[List[GroupIR], List[ProjectionIR], List[InputIR], List[OutputIR], NeuroGraph]:
         """Execute the complete compilation pipeline.
 
         Returns

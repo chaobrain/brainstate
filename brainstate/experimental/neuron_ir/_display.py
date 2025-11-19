@@ -18,7 +18,7 @@
 from collections import defaultdict, deque
 from typing import Dict, Tuple
 
-from ._data import Graph, GraphIRElem, GroupIR, ProjectionIR, InputIR, OutputIR, ConnectionIR
+from ._data import NeuroGraph, GraphIRElem, GroupIR, ProjectionIR, InputIR, OutputIR, ConnectionIR
 
 __all__ = [
     'GraphDisplayer',
@@ -29,12 +29,12 @@ __all__ = [
 class GraphDisplayer:
     """Provides multiple visualization backends for Graph objects."""
 
-    def __init__(self, graph: Graph):
+    def __init__(self, graph: NeuroGraph):
         """Initialize visualizer with a graph instance.
 
         Parameters
         ----------
-        graph : Graph
+        graph : NeuroGraph
             The graph to visualize.
         """
         self.graph = graph

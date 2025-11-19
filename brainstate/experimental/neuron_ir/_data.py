@@ -27,7 +27,7 @@ from ._utils import get_hidden_name
 
 __all__ = [
     'GraphIRElem',
-    'Graph',
+    'NeuroGraph',
     'GroupIR',
     'ConnectionIR',
     'ProjectionIR',
@@ -322,7 +322,7 @@ class SpikeIR(GraphIRElem):
         )
 
 
-class Graph:
+class NeuroGraph:
     """Directed graph capturing dependencies between compiled elements."""
 
     def __init__(self):
@@ -593,7 +593,7 @@ class Graph:
 
 
 class CompiledGraphIR(NamedTuple):
-    """Structured result returned by :func:`graph_ir.compile`.
+    """Structured result returned by :func:`neuron_ir.compile`.
 
     Attributes
     ----------
@@ -605,7 +605,7 @@ class CompiledGraphIR(NamedTuple):
         External inputs traced through the jaxpr.
     outputs : list[OutputIR]
         Observations that should be reported to the caller.
-    graph : Graph
+    graph : NeuroGraph
         Execution order for all components.
     """
     # graph IR data
@@ -613,7 +613,7 @@ class CompiledGraphIR(NamedTuple):
     projections: List[ProjectionIR]
     inputs: List[InputIR]
     outputs: List[OutputIR]
-    graph: Graph
+    graph: NeuroGraph
 
     # others
     static_argnames: Sequence

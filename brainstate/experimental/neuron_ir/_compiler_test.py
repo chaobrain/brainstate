@@ -9,7 +9,7 @@ import brainunit as u
 import brainpy
 import braintools
 import matplotlib.pyplot as plt
-from brainstate.experimental.graph_ir import compile_fn
+from brainstate.experimental.neuron_ir import compile_fn
 
 brainstate.environ.set(dt=0.1 * u.ms)
 

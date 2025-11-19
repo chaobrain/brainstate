@@ -13,13 +13,13 @@
 # limitations under the License.
 # ==============================================================================
 
-from . import graph_ir
+from . import neuron_ir
 from . import _gdiist_bpu
 from ._impl import *
 from ._impl import __all__ as export_all
 from ._wrapper import *
 from ._wrapper import __all__ as wrapper_all
 
-__all__ = ['gdiist_bpu', 'graph_ir'] + export_all + wrapper_all
+__all__ = ['gdiist_bpu', 'neuron_ir'] + export_all + wrapper_all
 del export_all
 del wrapper_all

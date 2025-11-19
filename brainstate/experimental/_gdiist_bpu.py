@@ -23,7 +23,7 @@ from brainstate._compatible_import import JaxprEqn
 from brainstate.transform._make_jaxpr import StatefulFunction, _make_hashable
 from brainstate.util._cache import BoundedCache
 from ._impl import register_jit_impl, register_forloop_impl
-from .graph_ir import GroupIR, ConnectionIR, compile_fn, CompiledGraphIR
+from .neuron_ir import GroupIR, ConnectionIR, compile_fn, CompiledGraphIR
 
 __all__ = [
     'GdiistBPUParser',
