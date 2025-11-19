@@ -15,16 +15,16 @@
 
 
 from ._compiler import compile_jaxpr, CompilationError, compile_fn
-from ._data import Graph, GraphIRElem, Group, Connection, Projection, Input, Output, CompiledGraphIR
+from ._data import Graph, GraphIRElem, GroupIR, ConnectionIR, ProjectionIR, InputIR, OutputIR, CompiledGraphIR
 
 __all__ = [
     'compile_fn',
     'CompilationError',
-    'Group',
-    'Connection',
-    'Projection',
-    'Input',
-    'Output',
+    'GroupIR',
+    'ConnectionIR',
+    'ProjectionIR',
+    'InputIR',
+    'OutputIR',
     'GraphIRElem',
     'Graph',
     'CompiledGraphIR',

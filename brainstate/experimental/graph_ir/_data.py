@@ -27,11 +27,11 @@ from brainstate._state import State
 __all__ = [
     'GraphIRElem',
     'Graph',
-    'Group',
-    'Connection',
-    'Projection',
-    'Output',
-    'Input',
+    'GroupIR',
+    'ConnectionIR',
+    'ProjectionIR',
+    'OutputIR',
+    'InputIR',
     'Spike',
     'CompiledGraphIR',
 ]
@@ -45,7 +45,7 @@ class GraphIRElem:
 
 
 @dataclass
-class Group(GraphIRElem):
+class GroupIR(GraphIRElem):
     """Logical container for a compiled neuron group."""
     hidden_states: List[State]
     in_states: List[State]
@@ -138,20 +138,20 @@ class Group(GraphIRElem):
 
 
 @dataclass
-class Connection(GraphIRElem):
+class ConnectionIR(GraphIRElem):
     """Describes the primitives that shuttle activity between two groups."""
 
     pass
 
 
 @dataclass
-class Projection(GraphIRElem):
-    """Connection bundle that transfers activity between two groups."""
+class ProjectionIR(GraphIRElem):
+    """ConnectionIR bundle that transfers activity between two groups."""
     hidden_states: List[State]
     in_states: List[State]
-    connections: List[Connection]
-    pre_group: Group
-    post_group: Group
+    connections: List[ConnectionIR]
+    pre_group: GroupIR
+    post_group: GroupIR
 
     @property
     def pre(self):
@@ -165,34 +165,32 @@ class Projection(GraphIRElem):
 
 
 @dataclass
-class Output(GraphIRElem):
+class OutputIR(GraphIRElem):
     """Description of how values are extracted from a group."""
 
     hidden_states: List[State]
     in_states: List[State]
-    group: Group
+    group: GroupIR
 
 
 @dataclass
-class Input(GraphIRElem):
+class InputIR(GraphIRElem):
     """Description of how external values are injected into a group."""
 
-    group: Group
+    group: GroupIR
 
 
-class Spike(NamedTuple):
+class SpikeIR(GraphIRElem):
     """Opaque surrogate-gradient spike primitive used by the compiler.
 
     Parameters
     ----------
-    state : State
+    hidden_state : State
         Logical state that emitted the spike surrogate.
     jaxpr : ClosedJaxpr
         ClosedJaxpr that implements the surrogate-gradient primitive.
     """
-
-    state: State
-    jaxpr: ClosedJaxpr
+    hidden_state: State
 
 
 class Graph:
@@ -467,22 +465,22 @@ class CompiledGraphIR(NamedTuple):
 
     Attributes
     ----------
-    groups : list[Group]
+    groups : list[GroupIR]
         Neuron groups that own the state-update subgraphs.
-    projections : list[Projection]
-        Connection pipelines between groups.
-    inputs : list[Input]
+    projections : list[ProjectionIR]
+        ConnectionIR pipelines between groups.
+    inputs : list[InputIR]
         External inputs traced through the jaxpr.
-    outputs : list[Output]
+    outputs : list[OutputIR]
         Observations that should be reported to the caller.
     graph : Graph
         Execution order for all components.
     """
     # graph IR data
-    groups: List[Group]
-    projections: List[Projection]
-    inputs: List[Input]
-    outputs: List[Output]
+    groups: List[GroupIR]
+    projections: List[ProjectionIR]
+    inputs: List[InputIR]
+    outputs: List[OutputIR]
     graph: Graph
 
     # others
@@ -589,13 +587,13 @@ class CompiledGraphIR(NamedTuple):
 
         # Step 2: Execute components in graph
         for component in self.graph:
-            if isinstance(component, Input):
+            if isinstance(component, InputIR):
                 self._execute_input(component, var_env)
-            elif isinstance(component, Group):
+            elif isinstance(component, GroupIR):
                 self._execute_group(component, var_env)
-            elif isinstance(component, Projection):
+            elif isinstance(component, ProjectionIR):
                 self._execute_projection(component, var_env)
-            elif isinstance(component, Output):
+            elif isinstance(component, OutputIR):
                 self._execute_output(component, var_env)
 
         # Step 3: Collect outputs from environment
@@ -622,8 +620,8 @@ class CompiledGraphIR(NamedTuple):
         for var, val in zip(self.jaxpr.constvars, self.jaxpr.consts):
             var_env[var] = val
 
-    def _execute_input(self, input_comp: Input, var_env: Dict[Var, Any]) -> None:
-        """Evaluate an :class:`Input` component and store its outputs."""
+    def _execute_input(self, input_comp: InputIR, var_env: Dict[Var, Any]) -> None:
+        """Evaluate an :class:`InputIR` component and store its outputs."""
         # Gather input values from environment
         input_vals = [var_env[var] for var in input_comp.jaxpr.jaxpr.invars]
 
@@ -638,8 +636,8 @@ class CompiledGraphIR(NamedTuple):
         for var, val in zip(input_comp.jaxpr.jaxpr.outvars, results):
             var_env[var] = val
 
-    def _execute_group(self, group: Group, var_env: Dict[Var, Any]) -> None:
-        """Evaluate a :class:`Group` subgraph using values from ``var_env``."""
+    def _execute_group(self, group: GroupIR, var_env: Dict[Var, Any]) -> None:
+        """Evaluate a :class:`GroupIR` subgraph using values from ``var_env``."""
         # Gather input values from environment
         input_vals = []
         for var in group.jaxpr.jaxpr.invars:
@@ -660,8 +658,8 @@ class CompiledGraphIR(NamedTuple):
         for var, val in zip(group.jaxpr.jaxpr.outvars, results):
             var_env[var] = val
 
-    def _execute_projection(self, projection: Projection, var_env: Dict[Var, Any]) -> None:
-        """Evaluate a :class:`Projection` component, including const fallbacks."""
+    def _execute_projection(self, projection: ProjectionIR, var_env: Dict[Var, Any]) -> None:
+        """Evaluate a :class:`ProjectionIR` component, including const fallbacks."""
         # Gather input values from environment
         input_vals = []
         for var in projection.jaxpr.jaxpr.invars:
@@ -687,7 +685,7 @@ class CompiledGraphIR(NamedTuple):
         for var, val in zip(projection.jaxpr.jaxpr.outvars, results):
             var_env[var] = val
 
-    def _execute_output(self, output: Output, var_env: Dict[Var, Any]) -> None:
+    def _execute_output(self, output: OutputIR, var_env: Dict[Var, Any]) -> None:
         """Evaluate an :class:`Output` component using values in ``var_env``."""
         # Gather input values from environment
         input_vals = [var_env[var] for var in output.jaxpr.jaxpr.invars]

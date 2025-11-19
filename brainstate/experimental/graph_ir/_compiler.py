@@ -30,7 +30,7 @@ from brainstate._state import State
 from brainstate.transform._ir_inline import inline_jit
 from brainstate.transform._ir_processing import eqns_to_closed_jaxpr
 from brainstate.transform._make_jaxpr import StatefulFunction, get_arg_cache_key
-from ._data import Graph, GraphIRElem, Group, Connection, Projection, Input, Output, CompiledGraphIR
+from ._data import Graph, GraphIRElem, GroupIR, ConnectionIR, ProjectionIR, InputIR, OutputIR, CompiledGraphIR
 from ._utils import _is_connection, UnionFind
 
 __all__ = [
@@ -110,7 +110,7 @@ def _build_var_dependencies(jaxpr: Jaxpr) -> Dict[Var, Set[Var]]:
     """
     dependencies = {}
 
-    # Input vars depend only on themselves
+    # InputIR vars depend only on themselves
     for var in jaxpr.invars:
         dependencies[var] = {var}
 
@@ -288,7 +288,7 @@ def _build_state_mapping(
     n_inp_before_states = len(jaxpr.invars) - len(in_state_avals)
 
     # Map state tree to invars and outvars
-    # Input variables: the last len(state_avals) invars correspond to states
+    # InputIR variables: the last len(state_avals) invars correspond to states
     state_tree_invars = jax.tree.unflatten(in_state_tree, jaxpr.invars[n_inp_before_states:])
 
     # Build mappings using the tree structure
@@ -356,7 +356,7 @@ class Compiler:
     closed_jaxpr : ClosedJaxpr
         The JAX program to compile.
     in_states : tuple[State, ...]
-        Input states for the program.
+        InputIR states for the program.
     out_states : tuple[State, ...]
         Output states produced by the program.
     invar_to_state : dict[Var, State]
@@ -463,7 +463,7 @@ class Compiler:
         Returns
         -------
         list[set[State]]
-            Sets of states that must be compiled into the same :class:`Group`.
+            Sets of states that must be compiled into the same :class:`GroupIR`.
         """
         # Create a mapping from state to its ID for efficient comparison
         state_to_id = {id(state): state for state in self.hidden_states}
@@ -515,7 +515,7 @@ class Compiler:
 
         return state_groups
 
-    def step2_build_groups(self, state_groups: List[Set[State]]) -> List[Group]:
+    def step2_build_groups(self, state_groups: List[Set[State]]) -> List[GroupIR]:
         """Materialize :class:`Group` objects for each mutually dependent state set.
 
         Parameters
@@ -525,7 +525,7 @@ class Compiler:
 
         Returns
         -------
-        list[Group]
+        list[GroupIR]
             One :class:`Group` per state cluster containing a ClosedJaxpr slice and
             metadata about its dependencies.
         """
@@ -645,7 +645,7 @@ class Compiler:
             # Generate a name for this group based on its hidden states
             group_name = f"Group_{len(groups)}"
 
-            group = Group(
+            group = GroupIR(
                 jaxpr=group_jaxpr,
                 hidden_states=group_hidden_states,
                 in_states=group_in_states,
@@ -657,12 +657,12 @@ class Compiler:
 
         return groups
 
-    def step3_extract_connections(self) -> List[Tuple[JaxprEqn, Connection]]:
+    def step3_extract_connections(self) -> List[Tuple[JaxprEqn, ConnectionIR]]:
         """Identify connection equations and wrap them as :class:`Connection` objects.
 
         Returns
         -------
-        list[tuple[JaxprEqn, Connection]]
+        list[tuple[JaxprEqn, ConnectionIR]]
             Pairs of the original equation and a :class:`Connection` wrapper that
             holds its ClosedJaxpr slice.
         """
@@ -675,27 +675,27 @@ class Compiler:
                     invars=list(eqn.invars),
                     outvars=list(eqn.outvars),
                 )
-                connection = Connection(jaxpr=conn_jaxpr)
+                connection = ConnectionIR(jaxpr=conn_jaxpr)
                 connections.append((eqn, connection))
         return connections
 
     def step4_build_projections(
         self,
-        groups: List[Group],
-        connections: List[Tuple[JaxprEqn, Connection]],
-    ) -> List[Projection]:
+        groups: List[GroupIR],
+        connections: List[Tuple[JaxprEqn, ConnectionIR]],
+    ) -> List[ProjectionIR]:
         """Create :class:`Projection` objects that ferry spikes between groups.
 
         Parameters
         ----------
-        groups : list[Group]
+        groups : list[GroupIR]
             Groups created in :meth:`step2_build_groups`.
-        connections : list[tuple[JaxprEqn, Connection]]
+        connections : list[tuple[JaxprEqn, ConnectionIR]]
             Connection equations identified by :meth:`step3_extract_connections`.
 
         Returns
         -------
-        list[Projection]
+        list[ProjectionIR]
             Projection descriptors that own the equations/connection metadata for
             a pre→post group path.
         """
@@ -764,7 +764,7 @@ class Compiler:
                     )
 
                     # Replace existing projection
-                    new_proj = Projection(
+                    new_proj = ProjectionIR(
                         hidden_states=merged_hidden_states,
                         in_states=merged_in_states,
                         jaxpr=proj_jaxpr,
@@ -780,7 +780,7 @@ class Compiler:
                         proj_eqns, proj_hidden_states, proj_in_states, post_group, group_to_input_vars
                     )
 
-                    projection = Projection(
+                    projection = ProjectionIR(
                         hidden_states=proj_hidden_states,
                         in_states=proj_in_states,
                         jaxpr=proj_jaxpr,
@@ -795,10 +795,10 @@ class Compiler:
     def _trace_projection_path(
         self,
         input_var: Var,
-        post_group: Group,
-        groups: List[Group],
+        post_group: GroupIR,
+        groups: List[GroupIR],
         var_to_producer_eqn: Dict[Var, JaxprEqn],
-        connections: List[Tuple[JaxprEqn, Connection]],
+        connections: List[Tuple[JaxprEqn, ConnectionIR]],
     ):
         """Trace the computation that produces ``input_var`` for a group."""
         # Build connection equation set for quick lookup
@@ -884,11 +884,11 @@ class Compiler:
 
     def _merge_projection_data(
         self,
-        existing_proj: Projection,
+        existing_proj: ProjectionIR,
         proj_eqns: List[JaxprEqn],
         proj_hidden_states: List[State],
         proj_in_states: List[State],
-        proj_connections: List[Connection],
+        proj_connections: List[ConnectionIR],
     ):
         """Merge new projection data with existing projection."""
         merged_eqns = list(existing_proj.jaxpr.jaxpr.eqns)
@@ -923,7 +923,7 @@ class Compiler:
         proj_eqns: List[JaxprEqn],
         proj_hidden_states: List[State],
         proj_in_states: List[State],
-        post_group: Group,
+        post_group: GroupIR,
         group_to_input_vars: Dict[int, Set[Var]],
     ):
         """Build a ClosedJaxpr for a projection."""
@@ -977,17 +977,17 @@ class Compiler:
 
         return proj_jaxpr, proj_outvars
 
-    def step5_build_inputs(self, groups: List[Group]) -> List[Input]:
+    def step5_build_inputs(self, groups: List[GroupIR]) -> List[InputIR]:
         """Create :class:`Input` descriptors for external variables.
 
         Parameters
         ----------
-        groups : list[Group]
+        groups : list[GroupIR]
             Group descriptors receiving the inputs.
 
         Returns
         -------
-        list[Input]
+        list[InputIR]
             Input descriptors grouped by their destination group.
         """
         # Determine which vars are input_variables (not state vars)
@@ -1026,7 +1026,7 @@ class Compiler:
             if trace_result is not None:
                 input_traces.append(trace_result)
 
-        # Group traces by target group (use group id as key)
+        # GroupIR traces by target group (use group id as key)
         group_id_to_traces = defaultdict(list)
         id_to_group = {}
 
@@ -1035,7 +1035,7 @@ class Compiler:
             id_to_group[group_id] = target_group
             group_id_to_traces[group_id].append((input_var, equations, outvars))
 
-        # Create Input objects for each group
+        # Create InputIR objects for each group
         inputs = []
 
         for group_id, traces in group_id_to_traces.items():
@@ -1067,7 +1067,7 @@ class Compiler:
                 outvars=all_output_vars,
             )
 
-            input_obj = Input(
+            input_obj = InputIR(
                 jaxpr=input_jaxpr,
                 group=group,
             )
@@ -1078,7 +1078,7 @@ class Compiler:
     def _trace_input_forward(
         self,
         input_var: Var,
-        groups: List[Group],
+        groups: List[GroupIR],
         var_to_consumer_eqns: Dict[Var, List[JaxprEqn]],
         group_input_vars_sets: Dict[int, Set[Var]],
     ):
@@ -1133,17 +1133,17 @@ class Compiler:
         # No group found (input doesn't flow into any group)
         return None
 
-    def step6_build_outputs(self, groups: List[Group]) -> List[Output]:
+    def step6_build_outputs(self, groups: List[GroupIR]) -> List[OutputIR]:
         """Describe how model outputs are assembled from group state variables.
 
         Parameters
         ----------
-        groups : list[Group]
+        groups : list[GroupIR]
             Groups that may contribute to outputs.
 
         Returns
         -------
-        list[Output]
+        list[OutputIR]
             Output descriptors paired with the responsible group.
 
         Raises
@@ -1169,7 +1169,7 @@ class Compiler:
             for out_var in eqn.outvars:
                 var_to_producer_eqn[out_var] = eqn
 
-        # Group output vars by which group they depend on (use group id as key)
+        # GroupIR output vars by which group they depend on (use group id as key)
         group_id_output_mapping = defaultdict(list)
         id_to_group = {}
 
@@ -1352,7 +1352,7 @@ class Compiler:
                 outvars=output_vars_for_group,
             )
 
-            output_obj = Output(
+            output_obj = OutputIR(
                 jaxpr=output_jaxpr,
                 hidden_states=all_dependent_hidden_states,
                 in_states=all_dependent_in_states,
@@ -1364,22 +1364,22 @@ class Compiler:
 
     def step7_build_graph(
         self,
-        groups: List[Group],
-        projections: List[Projection],
-        inputs: List[Input],
-        outputs: List[Output],
+        groups: List[GroupIR],
+        projections: List[ProjectionIR],
+        inputs: List[InputIR],
+        outputs: List[OutputIR],
     ) -> Graph:
         """Derive an execution graph that preserves the original equation order.
 
         Parameters
         ----------
-        groups : list[Group]
+        groups : list[GroupIR]
             Computation blocks that produce state updates.
-        projections : list[Projection]
-            Connection pipelines between groups.
-        inputs : list[Input]
+        projections : list[ProjectionIR]
+            ConnectionIR pipelines between groups.
+        inputs : list[InputIR]
             External inputs to the network.
-        outputs : list[Output]
+        outputs : list[OutputIR]
             Objects describing how observable values are extracted.
 
         Returns
@@ -1444,10 +1444,10 @@ class Compiler:
 
     def step8_validate_compilation(
         self,
-        groups: List[Group],
-        projections: List[Projection],
-        inputs: List[Input],
-        outputs: List[Output],
+        groups: List[GroupIR],
+        projections: List[ProjectionIR],
+        inputs: List[InputIR],
+        outputs: List[OutputIR],
     ) -> None:
         """Run structural checks on the assembled compilation result.
 
@@ -1479,20 +1479,20 @@ class Compiler:
         for proj in projections:
             if not proj.connections:
                 raise CompilationError(
-                    f"Projection from {proj.pre_group} to {proj.post_group} has no connections"
+                    f"ProjectionIR from {proj.pre_group} to {proj.post_group} has no connections"
                 )
 
-        # Check 3: Projection hidden_states should belong to exactly one group
+        # Check 3: ProjectionIR hidden_states should belong to exactly one group
         for proj in projections:
             for state in proj.hidden_states:
                 count = sum(1 for g in groups if g.has_hidden_state(state))
                 if count == 0:
                     raise CompilationError(
-                        f"Projection depends on state {state} which is not in any group"
+                        f"ProjectionIR depends on state {state} which is not in any group"
                     )
                 elif count > 1:
                     raise CompilationError(
-                        f"Projection depends on state {state} which belongs to multiple groups"
+                        f"ProjectionIR depends on state {state} which belongs to multiple groups"
                     )
 
         # Check 4: All equations should be used
@@ -1502,20 +1502,20 @@ class Compiler:
             raise CompilationError(
                 f"Not all equations were used in compilation. "
                 f"Unused equation indices: {unused_indices}. "
-                f"This may indicate that some computations are not part of any Group, "
-                f"Projection, Input, or Output."
+                f"This may indicate that some computations are not part of any GroupIR, "
+                f"ProjectionIR, InputIR, or Output."
             )
 
-    def compile(self) -> Tuple[List[Group], List[Projection], List[Input], List[Output], Graph]:
+    def compile(self) -> Tuple[List[GroupIR], List[ProjectionIR], List[InputIR], List[OutputIR], Graph]:
         """Execute the complete compilation pipeline.
 
         Returns
         -------
         tuple
             A 5-tuple containing:
-            - groups : list[Group]
-            - projections : list[Projection]
-            - inputs : list[Input]
+            - groups : list[GroupIR]
+            - projections : list[ProjectionIR]
+            - inputs : list[InputIR]
             - outputs : list[Output]
             - graph : Graph
 
@@ -1527,16 +1527,16 @@ class Compiler:
         # Step 1: Analyze state dependencies and group states
         state_groups = self.step1_analyze_state_dependencies()
 
-        # Step 2: Build Group objects
+        # Step 2: Build GroupIR objects
         groups = self.step2_build_groups(state_groups)
 
         # Step 3: Extract connections
         connections = self.step3_extract_connections()
 
-        # Step 4: Build Projection objects
+        # Step 4: Build ProjectionIR objects
         projections = self.step4_build_projections(groups, connections)
 
-        # Step 5: Build Input objects
+        # Step 5: Build InputIR objects
         inputs = self.step5_build_inputs(groups)
 
         # Step 6: Build Output objects

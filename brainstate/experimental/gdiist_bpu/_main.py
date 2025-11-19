@@ -20,7 +20,7 @@ import jax
 from jax.api_util import shaped_abstractify
 
 from brainstate._compatible_import import JaxprEqn
-from brainstate.experimental.graph_ir import Group, Connection, compile_fn, CompiledGraphIR
+from brainstate.experimental.graph_ir import GroupIR, ConnectionIR, compile_fn, CompiledGraphIR
 from brainstate.transform._make_jaxpr import StatefulFunction, _make_hashable
 from brainstate.util._cache import BoundedCache
 
@@ -120,8 +120,8 @@ class GdiistBPUParser:
 
 
 def _text_display(
-    operations: List[Group],
-    connections: List[Connection],
+    operations: List[GroupIR],
+    connections: List[ConnectionIR],
     state_mappings: Dict[str, Any]
 ):
     print(f"\nSummary:")
