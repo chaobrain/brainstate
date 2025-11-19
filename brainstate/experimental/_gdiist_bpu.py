@@ -14,16 +14,15 @@
 # ==============================================================================
 
 
-from typing import Callable, Dict, List, Any, Tuple, Optional
+from typing import Callable, Any
 
 import jax
 from jax.api_util import shaped_abstractify
 
-from brainstate._compatible_import import JaxprEqn
 from brainstate.transform._make_jaxpr import StatefulFunction, _make_hashable
 from brainstate.util._cache import BoundedCache
 from ._impl import register_jit_impl, register_forloop_impl
-from .neuron_ir import Group, Connection, compile_fn, CompiledGraphIR
+from .neuron_ir import compile_fn, CompiledGraphIR
 
 __all__ = [
     'GdiistBPUParser',
@@ -48,8 +47,12 @@ class GdiistBPUParser:
         fn: Callable,
         target: str = 'jit',
         cache_size: int = 128,
+        jit_inline: bool = True,
+        debug: bool = False,
     ):
         self.fn = fn
+        self.debug = debug
+        self.jit_inline = jit_inline
         self.stateful_fn = StatefulFunction(self.fn, ir_optimizations='dce')
         # self.stateful_fn = StatefulFunction(self.fn)
         if target not in ['jit', 'forloop']:
@@ -62,19 +65,13 @@ class GdiistBPUParser:
             args, kwargs = jax.tree.map(lambda x: x[0], (args, kwargs))
         return _make_hashable(jax.tree.map(shaped_abstractify, (args, kwargs)))
 
-    def parse(
-        self,
-        *args,
-        display: Optional[str] = None,
-        verbose: bool = False,
-        **kwargs
-    ) -> CompiledGraphIR:
+    def compile(self, *args, verbose: bool = False, **kwargs) -> CompiledGraphIR:
         key = self.cache_key(*args, **kwargs)
 
         if key in self.compiled_graph:
             if verbose:
                 print(f"Cache hit for key: {key}")
-            result = self.compiled_graph.get(key)
+            compiled = self.compiled_graph.get(key)
         else:
             if verbose:
                 print(f"Cache miss for key: {key}, parsing...")
@@ -85,29 +82,21 @@ class GdiistBPUParser:
                 parse_args, parse_kwargs = jax.tree.map(lambda x: x[0], (args, kwargs))
 
             # IR parsing
-            result = compile_fn(self.stateful_fn)(*parse_args, **parse_kwargs)
-            self.compiled_graph.set(key, result)
+            compiled = compile_fn(self.stateful_fn, jit_inline=self.jit_inline)(*parse_args, **parse_kwargs)
+            self.compiled_graph.set(key, compiled)
 
-        # # Handle display options
-        # if display is not None:
-        #     self.display(result, mode=display)
-
-        return result
-
-    def display(self, result: Tuple, mode: str = 'text') -> None:
-        nodes, connections, state_mapping = result
-        if mode == 'text':
-            _text_display(nodes, connections, state_mapping)
-        else:
-            raise ValueError(f"Unknown display mode: {mode}. Choose from 'text', 'summary', 'graph'")
+        return compiled
 
     def clear_cache(self) -> None:
         """Clear the entire cache."""
         self.compiled_graph.clear()
 
     def __call__(self, *args, **kwargs):
-        """Alias for parse() method."""
-        return self.parse(*args, **kwargs)
+        compiled = self.compile(*args, **kwargs)
+        if self.debug:
+            return compiled.run_compiled_graph(*args, **kwargs)
+        else:
+            raise NotImplementedError
 
     def __repr__(self) -> str:
         """String representation of the parser."""
@@ -121,126 +110,12 @@ class GdiistBPUParser:
 
 
 def _jit_wrapper(fn, debug: bool = False, **kwargs):
-    return GdiistBPUParser(fn, target='jit')
+    return GdiistBPUParser(fn, target='jit', debug=debug)
 
 
 def _forloop_wrapper(fn, debug: bool = False, **kwargs):
-    return GdiistBPUParser(fn, target='forloop')
+    return GdiistBPUParser(fn, target='forloop', debug=debug)
 
 
 register_jit_impl('bpu', _jit_wrapper)
 register_forloop_impl('bpu', _forloop_wrapper)
-
-
-def _text_display(
-    operations: List[Group],
-    connections: List[Connection],
-    state_mappings: Dict[str, Any]
-):
-    print(f"\nSummary:")
-    print(f"   The BPU parser successfully analyzed the neural network into:")
-    print(f"   - {len(operations)} computational operations")
-    print(f"   - {len(connections)} inter-operation connections")
-
-    # Detailed operation analysis
-    print(f"\nNode Analysis:")
-    print('----------------------------------------')
-    for i, operation in enumerate(operations):
-        print(f"\nNode {i}: {operation.name}")
-
-        # Display input states
-        if operation.in_states:
-            print(f"     Input States ({len(operation.in_states)}):")
-            for state in operation.in_states:
-                state_info = f"{state.__class__.__name__}"
-                if hasattr(state, 'value') and hasattr(state.value, 'shape'):
-                    state_info += f" {state.value.dtype}{list(state.value.shape)}"
-                print(f"       - {state_info}")
-        else:
-            print(f"     Input States: None")
-        print()
-
-        # Display output states
-        if operation.out_states:
-            print(f"     Output States ({len(operation.out_states)}):")
-            for state in operation.out_states:
-                state_info = f"{state.__class__.__name__}"
-                if hasattr(state, 'value') and hasattr(state.value, 'shape'):
-                    state_info += f" {state.value.dtype}{list(state.value.shape)}"
-                print(f"       - {state_info}")
-        else:
-            print(f"     Output States: None")
-        print()
-
-        # Display equations
-        print(f"     Equations ({len(operation.eqns)}):")
-        formater = _no_formatter(len(operation.eqns))
-        for j, eqn in enumerate(operation.eqns):
-            _text_one_eqn(eqn, formater.format(j))
-
-    # Connection analysis
-    print(f"\nConnection Analysis:")
-    print('----------------------------------------')
-    for i, conn in enumerate(connections):
-        print(f"\nConnection {i}:")
-        print(f"     - From: {conn.pre.name} ({len(conn.pre.eqns)} ops)")
-        print(f"     - To: {conn.post.name} ({len(conn.post.eqns)} ops)")
-
-        # Show complete jaxpr equations if available
-        inner_eqns = conn.jaxpr.eqns
-        print(f"     - Connection equations ({len(inner_eqns)} total):")
-        formater = _no_formatter(len(inner_eqns))
-        for j, eqn in enumerate(inner_eqns):
-            _text_one_eqn(eqn, formater.format(j))
-
-
-def _text_one_eqn(eqn: JaxprEqn, no):
-    # Get output info
-    output_info = ""
-    if len(eqn.outvars) > 0:
-        if len(eqn.outvars) == 1:
-            output_info = f" -> {eqn.outvars[0].aval.dtype}{list(eqn.outvars[0].aval.shape)}"
-        else:
-            outvar_infos = []
-            for outvar in eqn.outvars:
-                outvar_infos.append(f"{outvar.aval.dtype}{list(outvar.aval.shape)}")
-            output_info = " -> [" + ", ".join(outvar_infos) + "]"
-
-    # Get input count
-    input_count = len(eqn.invars)
-    print(f"     [{no}] {eqn.primitive.name}({input_count} inputs){output_info}")
-
-    # Show parameters if they exist and are interesting
-    if eqn.params:
-        interesting_params = {}
-        for key, value in eqn.params.items():
-            if key in [
-                'limit_indices',
-                'start_indices',
-                'strides',
-                'dimension_numbers',
-                'axes',
-
-                'limit_indices',
-                'start_indices',
-                'strides',
-                'dimension_numbers',
-                'axes',
-                'shape',
-                'broadcast_dimensions'
-            ]:
-                interesting_params[key] = value
-        if interesting_params:
-            print(f"         params: {interesting_params}")
-
-
-def _no_formatter(num):
-    if num < 10:
-        formater = '{:1d}'
-    elif num < 100:
-        formater = '{:2d}'
-    elif num < 1000:
-        formater = '{:3d}'
-    else:
-        formater = '{:4d}'
-    return formater
