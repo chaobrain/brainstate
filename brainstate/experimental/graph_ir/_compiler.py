@@ -30,7 +30,7 @@ from brainstate._state import State
 from brainstate.transform._ir_inline import inline_jit
 from brainstate.transform._ir_processing import eqns_to_closed_jaxpr
 from brainstate.transform._make_jaxpr import StatefulFunction, get_arg_cache_key
-from ._data import Graph, GraphElem, Group, Connection, Projection, Input, Output, CompiledGraph
+from ._data import Graph, GraphIRElem, Group, Connection, Projection, Input, Output, CompiledGraphIR
 from ._utils import _is_connection, UnionFind
 
 __all__ = [
@@ -1394,8 +1394,8 @@ class Compiler:
             call_graph.add_node(inp)
 
         # Create a mapping from equations/vars to components
-        eqn_to_component: Dict[int, GraphElem] = {}
-        var_to_component: Dict[Var, GraphElem] = {}
+        eqn_to_component: Dict[int, GraphIRElem] = {}
+        var_to_component: Dict[Var, GraphIRElem] = {}
 
         for group in groups:
             for eqn in group.jaxpr.jaxpr.eqns:
@@ -1603,7 +1603,7 @@ def compile_jaxpr(
 def compile_fn(
     target: StatefulFunction | Callable,
     jit_inline: bool = True,
-) -> Callable[..., CompiledGraph]:
+) -> Callable[..., CompiledGraphIR]:
     """Create a compiler that compiles ``stateful_fn`` into graph IR.
 
     Parameters
@@ -1616,9 +1616,9 @@ def compile_fn(
 
     Returns
     -------
-    Callable[..., CompiledGraph]
+    Callable[..., CompiledGraphIR]
         Function that, when invoked with runtime arguments, returns
-        :class:`CompiledGraph`.
+        :class:`CompiledGraphIR`.
     """
     if isinstance(target, StatefulFunction):
         stateful_fn = target
@@ -1658,7 +1658,7 @@ def compile_fn(
         cache_fn = partial(get_arg_cache_key, stateful_fn.static_argnums, stateful_fn.static_argnames)
         cache_key = stateful_fn.get_arg_cache_key(*args, **kwargs)
 
-        return CompiledGraph(
+        return CompiledGraphIR(
             static_argnums=stateful_fn.static_argnums,
             static_argnames=stateful_fn.static_argnames,
             out_treedef=stateful_fn.get_out_treedef_by_cache(cache_key),

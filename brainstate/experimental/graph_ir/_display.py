@@ -18,7 +18,7 @@
 from collections import defaultdict, deque
 from typing import Dict, Tuple
 
-from ._data import Graph, GraphElem, Group, Projection, Input, Output, Connection
+from ._data import Graph, GraphIRElem, Group, Projection, Input, Output, Connection
 
 __all__ = [
     'GraphDisplayer',
@@ -581,7 +581,7 @@ class GraphDisplayer:
         else:
             fig = ax.figure
 
-        def _node_label(node: GraphElem) -> str:
+        def _node_label(node: GraphIRElem) -> str:
             if isinstance(node, Group):
                 return f"Group\\n{node.name}"
             if isinstance(node, Projection):
@@ -594,7 +594,7 @@ class GraphDisplayer:
                 return f"Connection\\n{node.jaxpr.jaxpr.name if hasattr(node.jaxpr, 'jaxpr') else ''}"
             return type(node).__name__
 
-        def _node_style(node: GraphElem) -> Tuple[str, str]:
+        def _node_style(node: GraphIRElem) -> Tuple[str, str]:
             if isinstance(node, Input):
                 return "#E3F2FD", "#1565C0"
             if isinstance(node, Output):

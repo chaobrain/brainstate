@@ -25,7 +25,7 @@ from brainstate._compatible_import import ClosedJaxpr, Var
 from brainstate._state import State
 
 __all__ = [
-    'GraphElem',
+    'GraphIRElem',
     'Graph',
     'Group',
     'Connection',
@@ -33,19 +33,19 @@ __all__ = [
     'Output',
     'Input',
     'Spike',
-    'CompiledGraph',
+    'CompiledGraphIR',
 ]
 
 
 @dataclass
-class GraphElem:
-    """Base class for compiled graph elements."""
+class GraphIRElem:
+    """Base class for compiled graph IR elements."""
 
     jaxpr: ClosedJaxpr
 
 
 @dataclass
-class Group(GraphElem):
+class Group(GraphIRElem):
     """Logical container for a compiled neuron group."""
     hidden_states: List[State]
     in_states: List[State]
@@ -138,14 +138,14 @@ class Group(GraphElem):
 
 
 @dataclass
-class Connection(GraphElem):
+class Connection(GraphIRElem):
     """Describes the primitives that shuttle activity between two groups."""
 
     pass
 
 
 @dataclass
-class Projection(GraphElem):
+class Projection(GraphIRElem):
     """Connection bundle that transfers activity between two groups."""
     hidden_states: List[State]
     in_states: List[State]
@@ -165,7 +165,7 @@ class Projection(GraphElem):
 
 
 @dataclass
-class Output(GraphElem):
+class Output(GraphIRElem):
     """Description of how values are extracted from a group."""
 
     hidden_states: List[State]
@@ -174,7 +174,7 @@ class Output(GraphElem):
 
 
 @dataclass
-class Input(GraphElem):
+class Input(GraphIRElem):
     """Description of how external values are injected into a group."""
 
     group: Group
@@ -199,17 +199,17 @@ class Graph:
     """Directed graph capturing dependencies between compiled elements."""
 
     def __init__(self):
-        self._nodes: List[GraphElem] = []
+        self._nodes: List[GraphIRElem] = []
         self._id_to_index: Dict[int, int] = {}
         self._forward_edges: Dict[int, Set[int]] = defaultdict(set)
         self._reverse_edges: Dict[int, Set[int]] = defaultdict(set)
 
-    def _ensure_node(self, node: GraphElem) -> int:
+    def _ensure_node(self, node: GraphIRElem) -> int:
         """Ensure ``node`` exists in internal arrays and return its index.
 
         Parameters
         ----------
-        node : GraphElem
+        node : GraphIRElem
             Element to track.
 
         Returns
@@ -226,24 +226,24 @@ class Graph:
         self._id_to_index[node_id] = index
         return index
 
-    def add_node(self, node: GraphElem) -> None:
+    def add_node(self, node: GraphIRElem) -> None:
         """Register ``node`` in insertion order, ignoring duplicates.
 
         Parameters
         ----------
-        node : GraphElem
+        node : GraphIRElem
             Element to insert into the graph.
         """
         self._ensure_node(node)
 
-    def add_edge(self, source: GraphElem, target: GraphElem) -> None:
+    def add_edge(self, source: GraphIRElem, target: GraphIRElem) -> None:
         """Add a directed edge indicating that ``target`` depends on ``source``.
 
         Parameters
         ----------
-        source : GraphElem
+        source : GraphIRElem
             Upstream element that produces data.
-        target : GraphElem
+        target : GraphIRElem
             Downstream element that consumes data.
         """
         source_idx = self._ensure_node(source)
@@ -252,34 +252,34 @@ class Graph:
             self._forward_edges[source_idx].add(target_idx)
             self._reverse_edges[target_idx].add(source_idx)
 
-    def nodes(self) -> Tuple[GraphElem, ...]:
+    def nodes(self) -> Tuple[GraphIRElem, ...]:
         """Return nodes in their recorded execution order.
 
         Returns
         -------
-        tuple[GraphElem, ...]
+        tuple[GraphIRElem, ...]
             Sequence of every node encountered during compilation.
         """
         return tuple(self._nodes)
 
-    def edges(self) -> Iterable[Tuple[GraphElem, GraphElem]]:
+    def edges(self) -> Iterable[Tuple[GraphIRElem, GraphIRElem]]:
         """Iterate over all directed edges.
 
         Returns
         -------
-        Iterable[tuple[GraphElem, GraphElem]]
+        Iterable[tuple[GraphIRElem, GraphIRElem]]
             Generator yielding ``(source, target)`` pairs.
         """
         for source_idx, targets in self._forward_edges.items():
             for target_idx in targets:
                 yield (self._nodes[source_idx], self._nodes[target_idx])
 
-    def predecessors(self, node: GraphElem) -> Tuple[GraphElem, ...]:
+    def predecessors(self, node: GraphIRElem) -> Tuple[GraphIRElem, ...]:
         """Return nodes that must execute before ``node``.
 
         Parameters
         ----------
-        node : GraphElem
+        node : GraphIRElem
             Target element.
 
         Returns
@@ -292,12 +292,12 @@ class Graph:
             return tuple()
         return tuple(self._nodes[i] for i in self._reverse_edges.get(node_idx, ()))
 
-    def successors(self, node: GraphElem) -> Tuple[GraphElem, ...]:
+    def successors(self, node: GraphIRElem) -> Tuple[GraphIRElem, ...]:
         """Return nodes that depend on ``node``.
 
         Parameters
         ----------
-        node : GraphElem
+        node : GraphIRElem
             Origin element.
 
         Returns
@@ -328,7 +328,7 @@ class Graph:
         num_edges = self.edge_count()
         return f"<Graph with {num_nodes} nodes and {num_edges} edges>"
 
-    def __iter__(self) -> Iterator[GraphElem]:
+    def __iter__(self) -> Iterator[GraphIRElem]:
         return iter(self._nodes)
 
     def visualize(
@@ -462,7 +462,7 @@ class Graph:
             )
 
 
-class CompiledGraph(NamedTuple):
+class CompiledGraphIR(NamedTuple):
     """Structured result returned by :func:`graph_ir.compile`.
 
     Attributes

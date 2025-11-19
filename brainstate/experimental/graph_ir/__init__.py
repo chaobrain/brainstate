@@ -15,7 +15,7 @@
 
 
 from ._compiler import compile_jaxpr, CompilationError, compile_fn
-from ._data import Graph, GraphElem, Group, Connection, Projection, Input, Output, CompiledGraph
+from ._data import Graph, GraphIRElem, Group, Connection, Projection, Input, Output, CompiledGraphIR
 
 __all__ = [
     'compile_fn',
@@ -25,7 +25,7 @@ __all__ = [
     'Projection',
     'Input',
     'Output',
-    'GraphElem',
+    'GraphIRElem',
     'Graph',
-    'CompiledGraph',
+    'CompiledGraphIR',
 ]
