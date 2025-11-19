@@ -62,8 +62,16 @@ class GraphElem:
         parts.append(")")
         return " ".join(parts)
 
+    def __hash__(self) -> int:
+        """Return hash based on object identity for use in sets and dicts."""
+        return hash(id(self))
 
-@dataclass
+    def __eq__(self, other) -> bool:
+        """Check equality based on object identity."""
+        return self is other
+
+
+@dataclass(eq=False)
 class Group(GraphElem):
     """Logical container for a compiled neuron group."""
     hidden_states: List[State]
@@ -179,7 +187,7 @@ class Group(GraphElem):
         )
 
 
-@dataclass
+@dataclass(eq=False)
 class Connection(GraphElem):
     """Describes the primitives that shuttle activity between two groups."""
 
@@ -204,7 +212,7 @@ class Connection(GraphElem):
         )
 
 
-@dataclass
+@dataclass(eq=False)
 class Projection(GraphElem):
     """Connection bundle that transfers activity between two groups."""
     hidden_states: List[State]
@@ -244,7 +252,7 @@ class Projection(GraphElem):
         )
 
 
-@dataclass
+@dataclass(eq=False)
 class Output(GraphElem):
     """Description of how values are extracted from a group."""
 
@@ -272,7 +280,7 @@ class Output(GraphElem):
         )
 
 
-@dataclass
+@dataclass(eq=False)
 class Input(GraphElem):
     """Description of how external values are injected into a group."""
 
@@ -296,7 +304,7 @@ class Input(GraphElem):
         )
 
 
-@dataclass
+@dataclass(eq=False)
 class Spike(GraphElem):
     """Opaque surrogate-gradient spike primitive used by the compiler.
 

@@ -16,10 +16,11 @@
 """Advanced visualization backends for Graph IR."""
 
 from collections import defaultdict, deque
-from typing import Dict, Tuple, List, Set, Optional, Any
+from typing import Dict, Tuple, List, Set, Any
+
 import numpy as np
 
-from ._data import NeuroGraph, GraphElem, Group, Projection, Input, Output, Connection
+from ._data import NeuroGraph, GraphElem, Group, Projection, Input, Output
 
 __all__ = [
     'GraphDisplayer',
@@ -40,7 +41,7 @@ class GraphDisplayer:
         """
         self.graph = graph
         self._node_positions: Dict[GraphElem, Tuple[float, float]] = {}
-        self._highlighted_nodes: Set[GraphElem] = set()
+        self._highlighted_node_ids: Set[int] = set()  # Store node IDs instead of nodes
         self._fig = None
         self._ax = None
 
@@ -103,13 +104,16 @@ class GraphDisplayer:
             # Sort nodes for consistent positioning (Input, Group, Projection, Output)
             def node_sort_key(n):
                 if isinstance(n, Input):
-                    return (0, n.name if hasattr(n, 'name') else '')
+                    return (0, getattr(n, 'name', ''))
                 elif isinstance(n, Group):
-                    return (1, n.name)
+                    return (1, getattr(n, 'name', ''))
                 elif isinstance(n, Projection):
-                    return (2, n.name)
+                    # Projections don't have name, use pre_group and post_group names
+                    pre_name = getattr(n.pre_group, 'name', '') if hasattr(n, 'pre_group') else ''
+                    post_name = getattr(n.post_group, 'name', '') if hasattr(n, 'post_group') else ''
+                    return (2, f"{pre_name}->{post_name}")
                 else:  # Output
-                    return (3, n.name if hasattr(n, 'name') else '')
+                    return (3, getattr(n, 'name', ''))
 
             sorted_nodes = sorted(nodes, key=node_sort_key)
 
@@ -203,7 +207,7 @@ class GraphDisplayer:
         Dict[str, Any]
             Style dictionary with keys: shape, color, size, edge_color, edge_width.
         """
-        is_highlighted = node in self._highlighted_nodes
+        is_highlighted = id(node) in self._highlighted_node_ids
 
         if isinstance(node, Group):
             return {
@@ -266,7 +270,9 @@ class GraphDisplayer:
             Label text.
         """
         if isinstance(node, Group):
-            return node.name
+            # Show group name with number of hidden states (neurons)
+            num_hidden = len(node.hidden_states) if hasattr(node, 'hidden_states') else 0
+            return f"{node.name}\n#{num_hidden}"
         elif isinstance(node, Input):
             # Count number of input variables
             num_inputs = len(node.input_vars) if hasattr(node, 'input_vars') else 0
@@ -296,7 +302,6 @@ class GraphDisplayer:
         style : Dict[str, Any]
             Visual style dictionary.
         """
-        import matplotlib.pyplot as plt
         import matplotlib.patches as mpatches
 
         x, y = pos
@@ -306,20 +311,23 @@ class GraphDisplayer:
 
         if shape == 'circle':
             patch = mpatches.Circle((x, y), radius,
-                                   facecolor=style['color'],
-                                   edgecolor=style['edge_color'],
-                                   linewidth=style['edge_width'],
-                                   alpha=style['alpha'],
-                                   picker=True)
+                                    facecolor=style['color'],
+                                    edgecolor=style['edge_color'],
+                                    linewidth=style['edge_width'],
+                                    alpha=style['alpha'],
+                                    picker=True,
+                                    zorder=2)
         elif shape == 'roundbox':
             patch = mpatches.FancyBboxPatch((x - radius, y - radius * 0.6),
-                                           radius * 2, radius * 1.2,
-                                           boxstyle="round,pad=0.05",
-                                           facecolor=style['color'],
-                                           edgecolor=style['edge_color'],
-                                           linewidth=style['edge_width'],
-                                           alpha=style['alpha'],
-                                           picker=True)
+                                            radius * 2,
+                                            radius * 1.2,
+                                            boxstyle="round,pad=0.05",
+                                            facecolor=style['color'],
+                                            edgecolor=style['edge_color'],
+                                            linewidth=style['edge_width'],
+                                            alpha=style['alpha'],
+                                            picker=True,
+                                            zorder=2)
         elif shape == 'diamond':
             # Diamond shape using polygon
             points = np.array([
@@ -329,19 +337,22 @@ class GraphDisplayer:
                 [x - radius, y]
             ])
             patch = mpatches.Polygon(points,
+                                     facecolor=style['color'],
+                                     edgecolor=style['edge_color'],
+                                     linewidth=style['edge_width'],
+                                     alpha=style['alpha'],
+                                     picker=True,
+                                     zorder=2)
+        else:
+            # Default to circle
+            patch = mpatches.Circle((x, y),
+                                    radius,
                                     facecolor=style['color'],
                                     edgecolor=style['edge_color'],
                                     linewidth=style['edge_width'],
                                     alpha=style['alpha'],
-                                    picker=True)
-        else:
-            # Default to circle
-            patch = mpatches.Circle((x, y), radius,
-                                   facecolor=style['color'],
-                                   edgecolor=style['edge_color'],
-                                   linewidth=style['edge_width'],
-                                   alpha=style['alpha'],
-                                   picker=True)
+                                    picker=True,
+                                    zorder=2)
 
         patch.set_gid(str(id(node)))  # Store node ID for click handling
         ax.add_patch(patch)
@@ -350,14 +361,20 @@ class GraphDisplayer:
         label = self._get_node_label(node)
         fontsize = 10 if isinstance(node, Group) else 8
         fontweight = 'bold' if isinstance(node, Group) else 'normal'
-        ax.text(x, y, label,
-               ha='center', va='center',
-               fontsize=fontsize, fontweight=fontweight,
-               color='white' if isinstance(node, Group) else 'black')
+        ax.text(
+            x, y, label,
+            ha='center',
+            va='center',
+            fontsize=fontsize,
+            fontweight=fontweight,
+            color='white' if isinstance(node, Group) else 'black'
+        )
 
-    def _draw_edge(self, ax, source: GraphElem, target: GraphElem,
-                   source_pos: Tuple[float, float], target_pos: Tuple[float, float],
-                   is_projection: bool = False):
+    def _draw_edge(
+        self, ax, source: GraphElem, target: GraphElem,
+        source_pos: Tuple[float, float], target_pos: Tuple[float, float],
+        is_projection: bool = False
+    ):
         """Draw an edge between two nodes.
 
         Parameters
@@ -375,34 +392,37 @@ class GraphDisplayer:
         is_projection : bool
             Whether this edge represents a Projection connection.
         """
-        import matplotlib.pyplot as plt
         import matplotlib.patches as mpatches
 
-        is_highlighted = source in self._highlighted_nodes or target in self._highlighted_nodes
+        is_highlighted = id(source) in self._highlighted_node_ids or id(target) in self._highlighted_node_ids
 
         if is_projection:
-            # Solid thick arrow for Projection
+            # Solid thick arrow for Projection - more prominent for data flow
             color = '#e74c3c' if is_highlighted else '#9b59b6'
-            linewidth = 3 if is_highlighted else 2
+            linewidth = 3.5 if is_highlighted else 2.5
             linestyle = '-'
-            alpha = 1.0 if is_highlighted else 0.7
+            alpha = 1.0 if is_highlighted else 0.85
+            # Larger arrow head for projection connections
+            arrowstyle = '->,head_width=0.6,head_length=1.0'
         else:
-            # Dashed thinner arrow for Input/Output connections
-            color = '#e74c3c' if is_highlighted else '#95a5a6'
-            linewidth = 2 if is_highlighted else 1.5
+            # Dashed arrow for Input/Output connections - still visible but distinct
+            color = '#e74c3c' if is_highlighted else '#7f8c8d'
+            linewidth = 2.5 if is_highlighted else 2.0
             linestyle = '--'
-            alpha = 1.0 if is_highlighted else 0.5
+            alpha = 1.0 if is_highlighted else 0.7
+            # Medium arrow head for input/output connections
+            arrowstyle = '->,head_width=0.5,head_length=0.9'
 
-        # Draw curved arrow
+        # Draw curved arrow with prominent head
         arrow = mpatches.FancyArrowPatch(
             source_pos, target_pos,
-            arrowstyle='->,head_width=0.4,head_length=0.8',
+            arrowstyle=arrowstyle,
             connectionstyle='arc3,rad=0.1',
             color=color,
             linewidth=linewidth,
             linestyle=linestyle,
             alpha=alpha,
-            zorder=1
+            zorder=3  # Draw arrows on top of nodes
         )
         ax.add_patch(arrow)
 
@@ -432,19 +452,22 @@ class GraphDisplayer:
 
         if clicked_node is None:
             # Clear highlights
-            if self._highlighted_nodes:
-                self._highlighted_nodes.clear()
+            if self._highlighted_node_ids:
+                self._highlighted_node_ids.clear()
                 self._redraw()
         else:
             # Toggle highlight
-            if clicked_node in self._highlighted_nodes:
-                self._highlighted_nodes.clear()
+            if id(clicked_node) in self._highlighted_node_ids:
+                self._highlighted_node_ids.clear()
             else:
                 # Highlight clicked node and its neighbors
-                self._highlighted_nodes.clear()
-                self._highlighted_nodes.add(clicked_node)
-                self._highlighted_nodes.update(self.graph.predecessors(clicked_node))
-                self._highlighted_nodes.update(self.graph.successors(clicked_node))
+                self._highlighted_node_ids.clear()
+                self._highlighted_node_ids.add(id(clicked_node))
+                # Add IDs of predecessors and successors
+                for pred in self.graph.predecessors(clicked_node):
+                    self._highlighted_node_ids.add(id(pred))
+                for succ in self.graph.successors(clicked_node):
+                    self._highlighted_node_ids.add(id(succ))
 
             self._redraw()
 
@@ -472,10 +495,12 @@ class GraphDisplayer:
 
         for source, target in self.graph.edges():
             is_proj = (source, target) in projection_edges
-            self._draw_edge(self._ax, source, target,
-                          self._node_positions[source],
-                          self._node_positions[target],
-                          is_projection=is_proj)
+            self._draw_edge(self._ax,
+                            source,
+                            target,
+                            self._node_positions[source],
+                            self._node_positions[target],
+                            is_projection=is_proj)
 
         # Draw nodes
         for node in self.graph.nodes():
@@ -538,27 +563,31 @@ class GraphDisplayer:
 
         # Add title and legend
         self._ax.set_title('NeuroGraph Visualization\n(Click nodes to highlight connections)',
-                          fontsize=14, fontweight='bold', pad=20)
+                           fontsize=14,
+                           fontweight='bold',
+                           pad=20)
 
         # Create legend
         import matplotlib.patches as mpatches
+        import matplotlib.lines as mlines
         legend_elements = [
             mpatches.Patch(facecolor='#3498db', edgecolor='#2c3e50', label='Group (Neurons)'),
             mpatches.Patch(facecolor='#2ecc71', edgecolor='#27ae60', label='Input'),
             mpatches.Patch(facecolor='#f39c12', edgecolor='#e67e22', label='Output'),
             mpatches.Patch(facecolor='#9b59b6', edgecolor='#8e44ad', label='Projection'),
-            mpatches.Patch(facecolor='none', edgecolor='#9b59b6',
-                          linestyle='-', linewidth=2, label='Projection Connection'),
-            mpatches.Patch(facecolor='none', edgecolor='#95a5a6',
-                          linestyle='--', linewidth=1.5, label='Input/Output Connection'),
+            mlines.Line2D([], [], color='#9b59b6', marker='>', markersize=8,
+                          linestyle='-', linewidth=2.5, label='Data Flow (Projection)'),
+            mlines.Line2D([], [], color='#7f8c8d', marker='>', markersize=7,
+                          linestyle='--', linewidth=2.0, label='Data Flow (Input/Output)'),
         ]
-        self._ax.legend(handles=legend_elements, loc='upper left',
-                       bbox_to_anchor=(1.02, 1), fontsize=9)
+        self._ax.legend(handles=legend_elements,
+                        loc='upper left',
+                        bbox_to_anchor=(1.02, 1),
+                        fontsize=9)
 
         plt.tight_layout()
 
         return self._fig
-
 
 
 class TextDisplayer:
