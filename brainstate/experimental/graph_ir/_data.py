@@ -15,9 +15,11 @@
 
 """Typed containers and visualization helpers for the experimental graph IR."""
 
+
+import jax
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Dict, Iterable, Iterator, List, NamedTuple, Set, Tuple
+from typing import Iterable, Iterator, Set, Tuple, Dict, NamedTuple, Sequence, Any, Callable, Hashable, List
 
 from brainstate._compatible_import import ClosedJaxpr, Var
 from brainstate._state import State
@@ -481,3 +483,239 @@ class CompiledGraph(NamedTuple):
     inputs: List[Input]
     outputs: List[Output]
     graph: Graph
+
+    static_argnames: Sequence
+    static_argnums: Sequence
+    cache_fn: Callable
+    cache_key: Hashable
+    out_treedef: Any
+    jaxpr: ClosedJaxpr
+    in_states: Sequence[State]
+    out_states: Sequence[State]
+    invar_to_state: Dict[Var, State]
+    outvar_to_state: Dict[Var, State]
+    state_to_invars: Dict[State, Sequence[Var]]
+    state_to_outvars: Dict[State, Sequence[Var]]
+
+    def run(self, *args, mode: str = 'compiled', **kwargs) -> Any:
+        """Execute the parsed function in the requested mode.
+
+        Parameters
+        ----------
+        *args, **kwargs
+            Runtime arguments forwarded to the original stateful function.
+        mode : {'compiled', 'original', 'debug'}, optional
+            Execution mode. ``'compiled'`` (default) uses the graph IR,
+            ``'original'`` evals the raw ClosedJaxpr, and ``'debug'`` returns a
+            tuple with both results.
+
+        Returns
+        -------
+        Any
+            Result of the selected execution path. ``'debug'`` returns a tuple
+            ``(original, compiled)``.
+        """
+        if mode == 'compiled':
+            return self.run_compiled_graph(*args, **kwargs)
+
+        elif mode == 'original':
+            return self.run_original_jaxpr(*args, **kwargs)
+
+        elif mode == 'debug':
+            result = self.run_original_jaxpr(*args, **kwargs)
+            compiled = self.run_compiled_graph(*args, **kwargs)
+            return result, compiled
+
+        else:
+            raise ValueError(f"Unknown mode: {mode}")
+
+    def run_original_jaxpr(self, *args, **kwargs) -> Any:
+        """Evaluate the original ClosedJaxpr for comparison/debugging."""
+        return self._run_impl(lambda *data: jax.core.eval_jaxpr(self.jaxpr.jaxpr, self.jaxpr.consts, *data), *args, **kwargs)
+
+    def run_compiled_graph(self, *args, **kwargs) -> Any:
+        """Execute the compiled graph IR representation."""
+        return self._run_impl(self._run_graph, *args, **kwargs)
+
+    def _run_impl(self, impl, *args, **kwargs) -> Any:
+        """Shared argument/treedef handling for the execution helpers."""
+        # data check
+        if self.cache_fn(*args, **kwargs) != self.cache_key:
+            raise ValueError("Cache key mismatch. The function has been called with different arguments.")
+
+        # inputs
+        in_state_val = [st.value for st in self.in_states]
+        kwargs = {k: v for k, v in kwargs.items() if k not in self.static_argnames}  # remove static kwargs
+        args = tuple(args[i] for i in range(len(args)) if i not in self.static_argnums)
+        args = jax.tree.flatten((args, kwargs, in_state_val))[0]
+
+        # run jaxpr
+        jaxpr_outs = impl(*args)
+
+        # outputs
+        out, new_state_vals = self.out_treedef.unflatten(jaxpr_outs)
+        if len(new_state_vals) != len(self.out_states):
+            raise ValueError(f'State length mismatch in output: expected '
+                             f'{len(self.out_states)} states, got {len(new_state_vals)}')
+        for st, val in zip(self.out_states, new_state_vals):
+            st.restore_value(val)
+        return out
+
+    def _run_graph(self, *args) -> Any:
+        """Run the compiled graph while maintaining a variable environment.
+
+        Parameters
+        ----------
+        *args
+            Flattened inputs expected by the ClosedJaxpr.
+
+        Returns
+        -------
+        Any
+            Reconstructed model outputs.
+        """
+        # Build variable environment: Var -> value mapping
+        var_env = {}
+
+        # Step 1: Initialize environment with input arguments
+        self._initialize_var_env(var_env, args)
+
+        # Step 2: Execute components in graph
+        for component in self.graph:
+            if isinstance(component, Input):
+                self._execute_input(component, var_env)
+            elif isinstance(component, Group):
+                self._execute_group(component, var_env)
+            elif isinstance(component, Projection):
+                self._execute_projection(component, var_env)
+            elif isinstance(component, Output):
+                self._execute_output(component, var_env)
+
+        # Step 3: Collect outputs from environment
+        outputs = self._collect_outputs(var_env)
+
+        return outputs
+
+    def _initialize_var_env(self, var_env: Dict[Var, Any], args: Tuple) -> None:
+        """Seed the variable environment with the function inputs.
+
+        Parameters
+        ----------
+        var_env : dict[Var, Any]
+            Mutable mapping from variables to runtime values.
+        args : tuple
+            Positional arguments following the ClosedJaxpr order.
+        """
+        # Map to jaxpr invars
+        assert len(args) == len(self.jaxpr.jaxpr.invars), (
+            f"Argument count mismatch: expected {len(self.jaxpr.jaxpr.invars)}, got {len(args)}"
+        )
+        for var, val in zip(self.jaxpr.jaxpr.invars, args):
+            var_env[var] = val
+
+    def _execute_input(self, input_comp: Input, var_env: Dict[Var, Any]) -> None:
+        """Evaluate an :class:`Input` component and store its outputs."""
+        # Gather input values from environment
+        input_vals = [var_env[var] for var in input_comp.jaxpr.jaxpr.invars]
+
+        # Execute the input jaxpr
+        results = jax.core.eval_jaxpr(input_comp.jaxpr.jaxpr, input_comp.jaxpr.consts, *input_vals)
+
+        # Handle single vs multiple outputs
+        if not isinstance(results, (tuple, list)):
+            results = (results,)
+
+        # Store results in environment
+        for var, val in zip(input_comp.jaxpr.jaxpr.outvars, results):
+            var_env[var] = val
+
+    def _execute_group(self, group: Group, var_env: Dict[Var, Any]) -> None:
+        """Evaluate a :class:`Group` subgraph using values from ``var_env``."""
+        # Gather input values from environment
+        input_vals = []
+        for var in group.jaxpr.jaxpr.invars:
+            if var not in var_env:
+                raise RuntimeError(
+                    f"Variable {var} not found in environment when executing {group.name}"
+                )
+            input_vals.append(var_env[var])
+
+        # Execute the group jaxpr
+        results = jax.core.eval_jaxpr(group.jaxpr.jaxpr, group.jaxpr.consts, *input_vals)
+
+        # Handle single vs multiple outputs
+        if not isinstance(results, (tuple, list)):
+            results = (results,)
+
+        # Store results in environment
+        for var, val in zip(group.jaxpr.jaxpr.outvars, results):
+            var_env[var] = val
+
+    def _execute_projection(self, projection: Projection, var_env: Dict[Var, Any]) -> None:
+        """Evaluate a :class:`Projection` component, including const fallbacks."""
+        # Gather input values from environment
+        input_vals = []
+        for var in projection.jaxpr.jaxpr.invars:
+            if var in var_env:
+                input_vals.append(var_env[var])
+            else:
+                # This might be a constvar, check in the original jaxpr
+                if var in self.jaxpr.jaxpr.constvars:
+                    # Find the index and use the corresponding const
+                    idx = self.jaxpr.jaxpr.constvars.index(var)
+                    input_vals.append(self.jaxpr.consts[idx])
+                else:
+                    raise RuntimeError(f"Variable {var} not found in environment or constvars")
+
+        # Execute the projection jaxpr
+        results = jax.core.eval_jaxpr(projection.jaxpr.jaxpr, projection.jaxpr.consts, *input_vals)
+
+        # Handle single vs multiple outputs
+        if not isinstance(results, (tuple, list)):
+            results = (results,)
+
+        # Store results in environment
+        for var, val in zip(projection.jaxpr.jaxpr.outvars, results):
+            var_env[var] = val
+
+    def _execute_output(self, output: Output, var_env: Dict[Var, Any]) -> None:
+        """Evaluate an :class:`Output` component using values in ``var_env``."""
+        # Gather input values from environment
+        input_vals = [var_env[var] for var in output.jaxpr.jaxpr.invars]
+
+        # Execute the output jaxpr
+        results = jax.core.eval_jaxpr(output.jaxpr.jaxpr, output.jaxpr.consts, *input_vals)
+
+        # Handle single vs multiple outputs
+        if not isinstance(results, (tuple, list)):
+            results = (results,)
+
+        # Store results in environment
+        for var, val in zip(output.jaxpr.jaxpr.outvars, results):
+            var_env[var] = val
+
+    def _collect_outputs(self, var_env: Dict[Var, Any]) -> Any:
+        """Assemble model outputs from the variable environment.
+
+        Parameters
+        ----------
+        var_env : dict[Var, Any]
+            Environment after graph execution.
+
+        Returns
+        -------
+        Any
+            Single value or tuple that mirrors the original function's outputs.
+        """
+        output_vals = []
+        for var in self.jaxpr.jaxpr.outvars:
+            if var not in var_env:
+                raise RuntimeError(f"Output variable {var} not found in environment")
+            output_vals.append(var_env[var])
+
+        # Return single value or tuple based on output count
+        if len(output_vals) == 1:
+            return output_vals[0]
+        else:
+            return tuple(output_vals)
+

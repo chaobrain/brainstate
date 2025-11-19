@@ -20,16 +20,25 @@ graph components (Groups, Projections, Inputs, Outputs).
 """
 
 from collections import defaultdict
-from typing import Dict, List, Set, Tuple, Union
+from functools import partial
+from typing import Set
+from typing import Tuple, Dict, Callable, List
 
-from brainstate._compatible_import import ClosedJaxpr, Jaxpr, Var, JaxprEqn
+import jax
+from jax._src.core import ClosedJaxpr
+
+from brainstate._compatible_import import Jaxpr, Var
+from brainstate._compatible_import import JaxprEqn
 from brainstate._state import State
+from brainstate.transform._ir_inline import inline_jit
 from brainstate.transform._ir_processing import eqns_to_closed_jaxpr
+from brainstate.transform._make_jaxpr import StatefulFunction, get_arg_cache_key
 from ._data import Graph, GraphElem, Group, Connection, Projection, Input, Output, CompiledGraph
 from ._utils import _is_connection, UnionFind
 
 __all__ = [
     'compile',
+    'parse',
     'CompilationError',
 ]
 
@@ -1558,6 +1567,122 @@ def _step8_validate_compilation(
                 )
 
 
+def _build_state_mapping(
+    closed_jaxpr: ClosedJaxpr,
+    in_states: List[State],
+    out_states: List[State],
+) -> Dict:
+    """Map JAXPR variables to their corresponding ``State`` instances.
+
+    Parameters
+    ----------
+    closed_jaxpr : ClosedJaxpr
+        Program emitted by ``StatefulFunction``.
+    in_states, out_states : list[State]
+        Ordered state lists returned by the stateful function.
+
+    Returns
+    -------
+    dict
+        Dictionary containing ``invar_to_state``, ``outvar_to_state``,
+        ``state_to_invars``, ``state_to_outvars``, and the original state lists.
+
+    Raises
+    ------
+    TypeError
+        If ``closed_jaxpr`` is not a :class:`ClosedJaxpr` or the states are not
+        :class:`State` instances.
+    ValueError
+        If ``out_states`` is not a subset of ``in_states``.
+    """
+    # --- validations ---
+    if not isinstance(closed_jaxpr, ClosedJaxpr):
+        raise TypeError(f"closed_jaxpr must be a ClosedJaxpr, got {type(closed_jaxpr)}")
+
+    if not all(isinstance(s, State) for s in in_states):
+        bad = [type(s) for s in in_states if not isinstance(s, State)]
+        raise TypeError(f"in_states must contain only State instances, got {bad}")
+
+    if not all(isinstance(s, State) for s in out_states):
+        bad = [type(s) for s in out_states if not isinstance(s, State)]
+        raise TypeError(f"out_states must contain only State instances, got {bad}")
+
+    missing_out = [s for s in out_states if s not in in_states]
+    if missing_out:
+        raise ValueError(
+            f"All out_states must be present in in_states. Missing: {[repr(s) for s in missing_out]}"
+        )
+
+    # empty initialization
+    invar_to_state = dict()
+    state_to_invars = dict()
+    outvar_to_state = dict()
+    state_to_outvars = dict()
+
+    # Extract the actual jaxpr from ClosedJaxpr
+    jaxpr = closed_jaxpr.jaxpr
+
+    # input states <---> input variables #
+    # ---------------------------------- #
+
+    # Get state structure information
+    in_state_vals = [state.value for state in in_states]
+    in_state_avals, in_state_tree = jax.tree.flatten(in_state_vals)
+    n_inp_before_states = len(jaxpr.invars) - len(in_state_avals)
+
+    # Map state tree to invars and outvars
+    # Input variables: the last len(state_avals) invars correspond to states
+    state_tree_invars = jax.tree.unflatten(in_state_tree, jaxpr.invars[n_inp_before_states:])
+
+    # Build mappings using the tree structure
+    # This ensures proper correspondence between states and their JAXpr variables
+    assert len(in_states) == len(state_tree_invars), "Mismatch between number of input states and state tree invars"
+    for state, invar in zip(in_states, state_tree_invars):
+        # Always flatten the tree structure to get individual variables
+        invar_leaves = jax.tree.leaves(invar)
+
+        # Store the relationships
+        for var in invar_leaves:
+            invar_to_state[var] = state
+
+        # Store the reverse mappings
+        state_to_invars[state] = invar_leaves
+
+    # output states <---> output variables #
+    # ------------------------------------ #
+
+    # Get state structure information
+    out_state_vals = [state.value for state in out_states]
+    out_state_avals, out_state_tree = jax.tree.flatten(out_state_vals)
+    n_out_before_states = len(jaxpr.outvars) - len(out_state_avals)
+
+    # Output variables: after the main outputs, the rest correspond to state updates
+    state_tree_outvars = jax.tree.unflatten(out_state_tree, jaxpr.outvars[n_out_before_states:])
+    assert len(out_states) == len(state_tree_outvars), \
+        'Mismatch between number of output states and state tree outvars'
+
+    # Build mappings using the tree structure
+    # This ensures proper correspondence between states and their JAXpr variables
+    for state, outvar in zip(out_states, state_tree_outvars):
+        # Always flatten the tree structure to get individual variables
+        outvar_leaves = jax.tree.leaves(outvar)
+
+        # Store the relationships
+        for var in outvar_leaves:
+            outvar_to_state[var] = state
+        state_to_outvars[state] = outvar_leaves
+
+    return {
+        'invar_to_state': invar_to_state,
+        'state_to_invars': state_to_invars,
+        'outvar_to_state': outvar_to_state,
+        'state_to_outvars': state_to_outvars,
+        'in_states': in_states,
+        'out_states': out_states,
+        'hidden_states': [s for s in out_states],
+    }
+
+
 # ============================================================================
 # Main Compilation Function
 # ============================================================================
@@ -1570,7 +1695,7 @@ def compile(
     outvar_to_state: Dict[Var, State],
     state_to_invars: Dict[State, Tuple[Var, ...]],
     state_to_outvars: Dict[State, Tuple[Var, ...]],
-) -> CompiledGraph:
+):
     """Compile a ClosedJaxpr single-step update into Graph IR containers.
 
     Parameters
@@ -1584,11 +1709,6 @@ def compile(
     state_to_invars, state_to_outvars : dict[State, tuple[Var, ...]]
         Reverse mappings needed to reconstruct per-state programs.
 
-    Returns
-    -------
-    CompiledGraph
-        Structured representation containing groups, projections, inputs,
-        outputs, and execution ordering.
 
     Raises
     ------
@@ -1639,10 +1759,77 @@ def compile(
         in_states, out_states, invar_to_state
     )
 
-    return CompiledGraph(
-        groups=groups,
-        projections=projections,
-        inputs=inputs,
-        outputs=outputs,
-        graph=call_graph,
+    return groups, projections, inputs, outputs, call_graph
+
+
+def parse(
+    stateful_fn: StatefulFunction,
+    jit_inline: bool = True,
+) -> Callable[..., CompiledGraph]:
+    """Create a parser that compiles ``stateful_fn`` into graph IR.
+
+    Parameters
+    ----------
+    stateful_fn : StatefulFunction
+        Stateful function wrapper to parse.
+    jit_inline : bool, optional
+        When ``True`` the parser inlines JIT-wrapped connection primitives
+        before compilation.
+
+    Returns
+    -------
+    Callable[..., ParsedResults]
+        Function that, when invoked with runtime arguments, returns
+        :class:`ParsedResults`.
+    """
+    assert isinstance(stateful_fn, StatefulFunction), "stateful_fn must be an instance of StatefulFunction"
+    assert stateful_fn.return_only_write, (
+        "Parser currently only supports stateful functions that return only write states. "
     )
+
+    def call(*args, **kwargs):
+        """Run the parser for the provided arguments."""
+        # jaxpr
+        jaxpr = stateful_fn.get_jaxpr(*args, **kwargs)
+        if jit_inline:
+            jaxpr = inline_jit(jaxpr, _is_connection)
+
+        # Build state mappings
+        in_states = stateful_fn.get_states(*args, **kwargs)
+        out_states = stateful_fn.get_write_states(*args, **kwargs)
+        state_mapping = _build_state_mapping(jaxpr, in_states, out_states)
+
+        # Compile the SNN
+        groups, projections, inputs, outputs, graph = compile(
+            closed_jaxpr=jaxpr,
+            in_states=in_states,
+            out_states=out_states,
+            invar_to_state=state_mapping['invar_to_state'],
+            outvar_to_state=state_mapping['outvar_to_state'],
+            state_to_invars=state_mapping['state_to_invars'],
+            state_to_outvars=state_mapping['state_to_outvars'],
+        )
+        cache_fn = partial(get_arg_cache_key, stateful_fn.static_argnums, stateful_fn.static_argnames)
+        cache_key = stateful_fn.get_arg_cache_key(*args, **kwargs)
+
+        return CompiledGraph(
+            static_argnums=stateful_fn.static_argnums,
+            static_argnames=stateful_fn.static_argnames,
+            out_treedef=stateful_fn.get_out_treedef_by_cache(cache_key),
+            cache_fn=cache_fn,
+            cache_key=cache_key,
+            jaxpr=jaxpr,
+            in_states=in_states,
+            out_states=out_states,
+            invar_to_state=state_mapping['invar_to_state'],
+            outvar_to_state=state_mapping['outvar_to_state'],
+            state_to_invars=state_mapping['state_to_invars'],
+            state_to_outvars=state_mapping['state_to_outvars'],
+            groups=groups,
+            projections=projections,
+            inputs=inputs,
+            outputs=outputs,
+            graph=graph,
+        )
+
+    return call

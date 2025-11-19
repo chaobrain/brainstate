@@ -33,19 +33,6 @@ def test_simple_lif_run():
 
     # Define update function
     def update(t, inp):
-        """
-
-        Parameters
-        ----------
-        t :
-            
-        inp :
-            
-
-        Returns
-        -------
-
-        """
         with bst.environ.context(t=t):
             lif(inp)
             return lif.get_spike()
@@ -103,21 +90,6 @@ def test_two_populations_run():
             )
 
         def update(self, t, inp_exc, inp_inh):
-            """
-
-            Parameters
-            ----------
-            t :
-                
-            inp_exc :
-                
-            inp_inh :
-                
-
-            Returns
-            -------
-
-            """
             with bst.environ.context(t=t):
                 exc_spk = self.exc.get_spike() != 0.
                 self.exc2inh(exc_spk)
@@ -129,21 +101,6 @@ def test_two_populations_run():
     bst.nn.init_all_states(net)
 
     def update(t, inp_exc, inp_inh):
-        """
-
-        Parameters
-        ----------
-        t :
-            
-        inp_exc :
-            
-        inp_inh :
-            
-
-        Returns
-        -------
-
-        """
         return net.update(t, inp_exc, inp_inh)
 
     # Parse
