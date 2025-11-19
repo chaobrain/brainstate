@@ -15,11 +15,11 @@
 
 """Typed containers and visualization helpers for the experimental graph IR."""
 
-
-import jax
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Iterable, Iterator, Set, Tuple, Dict, NamedTuple, Sequence, Any, Callable, Hashable, List
+
+import jax
 
 from brainstate._compatible_import import ClosedJaxpr, Var
 from brainstate._state import State
@@ -452,7 +452,7 @@ class Graph:
                 export_path=export_path, **kwargs
             )
 
-        elif backend != 'matplotlib':
+        elif backend == 'matplotlib':
             return visualizer.visualzie_matplotlib()
 
         else:
@@ -518,14 +518,14 @@ class CompiledGraph(NamedTuple):
             ``(original, compiled)``.
         """
         if mode == 'compiled':
-            return self.run_compiled_graph(*args, **kwargs)
+            return self.run_compiled_graph(*args, **kwargs, assign_state_val=True)
 
         elif mode == 'original':
-            return self.run_original_jaxpr(*args, **kwargs)
+            return self.run_original_jaxpr(*args, **kwargs, assign_state_val=True)
 
         elif mode == 'debug':
-            result = self.run_original_jaxpr(*args, **kwargs)
-            compiled = self.run_compiled_graph(*args, **kwargs)
+            result = self.run_original_jaxpr(*args, **kwargs, assign_state_val=False)
+            compiled = self.run_compiled_graph(*args, **kwargs, assign_state_val=False)
             return result, compiled
 
         else:
@@ -533,13 +533,17 @@ class CompiledGraph(NamedTuple):
 
     def run_original_jaxpr(self, *args, **kwargs) -> Any:
         """Evaluate the original ClosedJaxpr for comparison/debugging."""
-        return self._run_impl(lambda *data: jax.core.eval_jaxpr(self.jaxpr.jaxpr, self.jaxpr.consts, *data), *args, **kwargs)
+        return self._run_impl(
+            lambda *data: jax.core.eval_jaxpr(self.jaxpr.jaxpr, self.jaxpr.consts, *data),
+            *args,
+            **kwargs,
+        )
 
     def run_compiled_graph(self, *args, **kwargs) -> Any:
         """Execute the compiled graph IR representation."""
         return self._run_impl(self._run_graph, *args, **kwargs)
 
-    def _run_impl(self, impl, *args, **kwargs) -> Any:
+    def _run_impl(self, impl, *args, assign_state_val: bool = True, **kwargs) -> Any:
         """Shared argument/treedef handling for the execution helpers."""
         # data check
         if self.cache_fn(*args, **kwargs) != self.cache_key:
@@ -559,8 +563,9 @@ class CompiledGraph(NamedTuple):
         if len(new_state_vals) != len(self.out_states):
             raise ValueError(f'State length mismatch in output: expected '
                              f'{len(self.out_states)} states, got {len(new_state_vals)}')
-        for st, val in zip(self.out_states, new_state_vals):
-            st.restore_value(val)
+        if assign_state_val:
+            for st, val in zip(self.out_states, new_state_vals):
+                st.restore_value(val)
         return out
 
     def _run_graph(self, *args) -> Any:
@@ -613,6 +618,8 @@ class CompiledGraph(NamedTuple):
             f"Argument count mismatch: expected {len(self.jaxpr.jaxpr.invars)}, got {len(args)}"
         )
         for var, val in zip(self.jaxpr.jaxpr.invars, args):
+            var_env[var] = val
+        for var, val in zip(self.jaxpr.constvars, self.jaxpr.consts):
             var_env[var] = val
 
     def _execute_input(self, input_comp: Input, var_env: Dict[Var, Any]) -> None:
@@ -720,4 +727,3 @@ class CompiledGraph(NamedTuple):
             return output_vals[0]
         else:
             return tuple(output_vals)
-

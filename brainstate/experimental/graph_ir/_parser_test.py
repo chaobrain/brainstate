@@ -16,6 +16,7 @@
 """Test cases for the SNN compiler."""
 
 import brainpy
+import braintools.init
 import brainunit as u
 import matplotlib.pyplot as plt
 
@@ -27,12 +28,13 @@ brainstate.environ.set(dt=0.1 * u.ms)
 
 def test_simple_lif():
     lif = brainpy.state.LIFRef(
-        10,
+        2,
         V_rest=-65. * u.mV,
         V_th=-50. * u.mV,
         V_reset=-60. * u.mV,
         tau=20. * u.ms,
         tau_ref=5. * u.ms,
+        V_initializer=braintools.init.Constant(-65. * u.mV)
     )
     brainstate.nn.init_all_states(lif)
 
@@ -40,18 +42,22 @@ def test_simple_lif():
     def update(t, inp):
         with brainstate.environ.context(t=t):
             lif(inp)
-            return lif.get_spike()
+            return lif.get_spike(), lif.V.value
 
     t = 0. * u.ms
     inp = 5. * u.mA
 
     parser = compile_fn(update)
-    out = parser(t, inp)
+    compiled = parser(t, inp)
 
-    print(f"  - Groups: {len(out.groups)}")
-    print(f"  - Projections: {len(out.projections)}")
-    print(f"  - Inputs: {len(out.inputs)}")
-    print(f"  - Outputs: {len(out.outputs)}")
+    print(f"  - Groups: {len(compiled.groups)}")
+    print(f"  - Projections: {len(compiled.projections)}")
+    print(f"  - Inputs: {len(compiled.inputs)}")
+    print(f"  - Outputs: {len(compiled.outputs)}")
+
+    r = compiled.run(t, inp, mode='debug')
+    print(r[0])
+    print(r[1])
 
 
 def test_two_populations():

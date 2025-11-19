@@ -16,10 +16,9 @@
 """Advanced visualization backends for Graph IR."""
 
 from collections import defaultdict, deque
-from typing import Dict, Tuple, TYPE_CHECKING
+from typing import Dict, Tuple
 
-if TYPE_CHECKING:
-    from ._data import Graph, GraphElem, Group, Projection, Input, Output, Connection
+from ._data import Graph, GraphElem, Group, Projection, Input, Output, Connection
 
 __all__ = [
     'GraphDisplayer',
