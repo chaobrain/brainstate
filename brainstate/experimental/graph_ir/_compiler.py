@@ -13,8 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 
-"""SNN Compiler for GDI-IST BPU
-
+"""
 This module implements a compiler that transforms a ClosedJaxpr representation
 of a spiking neural network (SNN) single-step update into structured computation
 graph components (Groups, Projections, Inputs, Outputs).
