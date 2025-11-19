@@ -70,52 +70,54 @@ class TwoPopNet(brainstate.nn.Module):
             return self.exc.get_spike(), self.inh.get_spike()
 
 
-def test_visualize():
-    net = TwoPopNet()
-    brainstate.nn.init_all_states(net)
+class TestDisplayer:
+    def test_visualize(self):
+        net = TwoPopNet()
+        brainstate.nn.init_all_states(net)
 
-    def update(t, inp_exc, inp_inh):
-        return net.update(t, inp_exc, inp_inh)
+        def update(t, inp_exc, inp_inh):
+            return net.update(t, inp_exc, inp_inh)
 
-    t = 0. * u.ms
-    inp_exc = 5. * u.mA
-    inp_inh = 3. * u.mA
+        t = 0. * u.ms
+        inp_exc = 5. * u.mA
+        inp_inh = 3. * u.mA
 
-    parser = compile_fn(update)
-    compiled = parser(t, inp_exc, inp_inh)
+        parser = compile_fn(update)
+        compiled = parser(t, inp_exc, inp_inh)
 
-    fig = compiled.graph.visualize(layout='tb')
-    plt.show()
-    plt.close()
+        fig = compiled.graph.visualize(layout='tb')
+        plt.show()
+        plt.close()
 
 
-def test_text():
-    net = TwoPopNet()
-    brainstate.nn.init_all_states(net)
+class TestTextDisplayer:
+    def test_text(self):
+        net = TwoPopNet()
+        brainstate.nn.init_all_states(net)
 
-    def update(t, inp_exc, inp_inh):
-        return net.update(t, inp_exc, inp_inh)
+        def update(t, inp_exc, inp_inh):
+            return net.update(t, inp_exc, inp_inh)
 
-    t = 0. * u.ms
-    inp_exc = 5. * u.mA
-    inp_inh = 3. * u.mA
+        t = 0. * u.ms
+        inp_exc = 5. * u.mA
+        inp_inh = 3. * u.mA
 
-    parser = compile_fn(update)
-    compiled = parser(t, inp_exc, inp_inh)
+        parser = compile_fn(update)
+        compiled = parser(t, inp_exc, inp_inh)
 
-    # Test 1: Basic text display (default)
-    print("=== Test 1: Basic Display ===")
-    print(compiled.graph)
-    print()
+        # Test 1: Basic text display (default)
+        print("=== Test 1: Basic Display ===")
+        print(compiled.graph)
+        print()
 
-    # Test 2: Verbose display
-    print("=== Test 2: Verbose Display ===")
-    from brainstate.experimental.neuron_ir import TextDisplayer
-    displayer = TextDisplayer(compiled.graph)
-    print(displayer.display(verbose=True))
-    print()
+        # Test 2: Verbose display
+        print("=== Test 2: Verbose Display ===")
+        from brainstate.experimental.neuron_ir import TextDisplayer
+        displayer = TextDisplayer(compiled.graph)
+        print(displayer.display(verbose=True))
+        print()
 
-    # Test 3: With JAXPR (first 3 lines only to keep output manageable)
-    print("=== Test 3: Display with JAXPR (showing first 50 lines) ===")
-    full_output = displayer.display(verbose=False, show_jaxpr=True)
-    print(full_output)
+        # Test 3: With JAXPR (first 3 lines only to keep output manageable)
+        print("=== Test 3: Display with JAXPR (showing first 50 lines) ===")
+        full_output = displayer.display(verbose=False, show_jaxpr=True)
+        print(full_output)

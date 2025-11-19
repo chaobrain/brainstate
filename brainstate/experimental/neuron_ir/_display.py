@@ -135,7 +135,7 @@ class GraphDisplayer:
         lr_positions = self._layout_hierarchical_lr()
         return {node: (y, -x) for node, (x, y) in lr_positions.items()}
 
-    def _layout_force_directed(self, iterations: int = 100) -> Dict[GraphElem, Tuple[float, float]]:
+    def _layout_force_directed(self, iterations: int = 100) -> Dict[GraphElem, Tuple]:
         """Compute force-directed layout using simplified spring algorithm.
 
         Parameters
@@ -310,24 +310,28 @@ class GraphDisplayer:
         radius = np.sqrt(size / np.pi) * 0.01  # Scale size to radius
 
         if shape == 'circle':
-            patch = mpatches.Circle((x, y), radius,
-                                    facecolor=style['color'],
-                                    edgecolor=style['edge_color'],
-                                    linewidth=style['edge_width'],
-                                    alpha=style['alpha'],
-                                    picker=True,
-                                    zorder=2)
+            patch = mpatches.Circle(
+                (x, y), radius,
+                facecolor=style['color'],
+                edgecolor=style['edge_color'],
+                linewidth=style['edge_width'],
+                alpha=style['alpha'],
+                picker=True,
+                zorder=2
+            )
         elif shape == 'roundbox':
-            patch = mpatches.FancyBboxPatch((x - radius, y - radius * 0.6),
-                                            radius * 2,
-                                            radius * 1.2,
-                                            boxstyle="round,pad=0.05",
-                                            facecolor=style['color'],
-                                            edgecolor=style['edge_color'],
-                                            linewidth=style['edge_width'],
-                                            alpha=style['alpha'],
-                                            picker=True,
-                                            zorder=2)
+            patch = mpatches.FancyBboxPatch(
+                (x - radius, y - radius * 0.6),
+                radius * 2,
+                radius * 1.2,
+                boxstyle="round,pad=0.05",
+                facecolor=style['color'],
+                edgecolor=style['edge_color'],
+                linewidth=style['edge_width'],
+                alpha=style['alpha'],
+                picker=True,
+                zorder=2
+            )
         elif shape == 'diamond':
             # Diamond shape using polygon
             points = np.array([
@@ -336,23 +340,27 @@ class GraphDisplayer:
                 [x, y - radius],
                 [x - radius, y]
             ])
-            patch = mpatches.Polygon(points,
-                                     facecolor=style['color'],
-                                     edgecolor=style['edge_color'],
-                                     linewidth=style['edge_width'],
-                                     alpha=style['alpha'],
-                                     picker=True,
-                                     zorder=2)
+            patch = mpatches.Polygon(
+                points,
+                facecolor=style['color'],
+                edgecolor=style['edge_color'],
+                linewidth=style['edge_width'],
+                alpha=style['alpha'],
+                picker=True,
+                zorder=2
+            )
         else:
             # Default to circle
-            patch = mpatches.Circle((x, y),
-                                    radius,
-                                    facecolor=style['color'],
-                                    edgecolor=style['edge_color'],
-                                    linewidth=style['edge_width'],
-                                    alpha=style['alpha'],
-                                    picker=True,
-                                    zorder=2)
+            patch = mpatches.Circle(
+                (x, y),
+                radius,
+                facecolor=style['color'],
+                edgecolor=style['edge_color'],
+                linewidth=style['edge_width'],
+                alpha=style['alpha'],
+                picker=True,
+                zorder=2
+            )
 
         patch.set_gid(str(id(node)))  # Store node ID for click handling
         ax.add_patch(patch)
@@ -562,10 +570,12 @@ class GraphDisplayer:
         self._fig.canvas.mpl_connect('button_press_event', self._on_click)
 
         # Add title and legend
-        self._ax.set_title('NeuroGraph Visualization\n(Click nodes to highlight connections)',
-                           fontsize=14,
-                           fontweight='bold',
-                           pad=20)
+        self._ax.set_title(
+            'NeuroGraph Visualization\n(Click nodes to highlight connections)',
+            fontsize=14,
+            fontweight='bold',
+            pad=20
+        )
 
         # Create legend
         import matplotlib.patches as mpatches
@@ -575,15 +585,21 @@ class GraphDisplayer:
             mpatches.Patch(facecolor='#2ecc71', edgecolor='#27ae60', label='Input'),
             mpatches.Patch(facecolor='#f39c12', edgecolor='#e67e22', label='Output'),
             mpatches.Patch(facecolor='#9b59b6', edgecolor='#8e44ad', label='Projection'),
-            mlines.Line2D([], [], color='#9b59b6', marker='>', markersize=8,
-                          linestyle='-', linewidth=2.5, label='Data Flow (Projection)'),
-            mlines.Line2D([], [], color='#7f8c8d', marker='>', markersize=7,
-                          linestyle='--', linewidth=2.0, label='Data Flow (Input/Output)'),
+            mlines.Line2D(
+                [], [], color='#9b59b6', marker='>', markersize=8,
+                linestyle='-', linewidth=2.5, label='Data Flow (Projection)'
+            ),
+            mlines.Line2D(
+                [], [], color='#7f8c8d', marker='>', markersize=7,
+                linestyle='--', linewidth=2.0, label='Data Flow (Input/Output)'
+            ),
         ]
-        self._ax.legend(handles=legend_elements,
-                        loc='upper left',
-                        bbox_to_anchor=(1.02, 1),
-                        fontsize=9)
+        self._ax.legend(
+            handles=legend_elements,
+            loc='upper left',
+            bbox_to_anchor=(1.02, 1),
+            fontsize=9
+        )
 
         plt.tight_layout()
 
@@ -753,8 +769,10 @@ class TextDisplayer:
                 lines.append(main_line)
 
         elif isinstance(node, Projection):
-            pre_name = node.pre_group.name if hasattr(node, 'pre_group') and hasattr(node.pre_group, 'name') else 'Group'
-            post_name = node.post_group.name if hasattr(node, 'post_group') and hasattr(node.post_group, 'name') else 'Group'
+            pre_name = node.pre_group.name if hasattr(node, 'pre_group') and hasattr(node.pre_group,
+                                                                                     'name') else 'Group'
+            post_name = node.post_group.name if hasattr(node, 'post_group') and hasattr(node.post_group,
+                                                                                        'name') else 'Group'
             num_conns = len(node.connections) if hasattr(node, 'connections') else 0
             main_line = f"  [{index}] Projection({pre_name} → {post_name}) #{num_conns} connections"
             if verbose:
@@ -821,8 +839,10 @@ class TextDisplayer:
         if isinstance(node, Group):
             return f"Group({node.name})"
         elif isinstance(node, Projection):
-            pre_name = node.pre_group.name if hasattr(node, 'pre_group') and hasattr(node.pre_group, 'name') else 'Group'
-            post_name = node.post_group.name if hasattr(node, 'post_group') and hasattr(node.post_group, 'name') else 'Group'
+            pre_name = node.pre_group.name if hasattr(node, 'pre_group') and hasattr(node.pre_group,
+                                                                                     'name') else 'Group'
+            post_name = node.post_group.name if hasattr(node, 'post_group') and hasattr(node.post_group,
+                                                                                        'name') else 'Group'
             return f"Projection({pre_name} → {post_name})"
         elif isinstance(node, Input):
             group_name = node.group.name if hasattr(node, 'group') and hasattr(node.group, 'name') else 'Group'
