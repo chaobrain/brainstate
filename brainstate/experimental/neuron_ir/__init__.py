@@ -18,6 +18,8 @@ from ._compiler import *
 from ._compiler import __all__ as compiler_all
 from ._data import *
 from ._data import __all__ as data_all
+from ._display import *
+from ._display import __all__ as display_all
 
-__all__ = compiler_all + data_all
-del compiler_all, data_all
+__all__ = compiler_all + data_all + display_all
+del compiler_all, data_all, display_all

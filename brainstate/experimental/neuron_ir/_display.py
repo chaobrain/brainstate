@@ -591,5 +591,300 @@ class GraphDisplayer:
 
 
 class TextDisplayer:
-    def __init__(self, graph):
+    """Text-based visualization for NeuroGraph structures."""
+
+    def __init__(self, graph: NeuroGraph):
+        """Initialize the text displayer.
+
+        Parameters
+        ----------
+        graph : NeuroGraph
+            The graph to visualize.
+        """
         self.graph = graph
+
+    def display(self, verbose: bool = False, show_jaxpr: bool = False) -> str:
+        """Generate a text-based visualization of the graph.
+
+        Parameters
+        ----------
+        verbose : bool
+            If True, show detailed node information. Default: False.
+        show_jaxpr : bool
+            If True, show jaxpr equations for each node. Default: False.
+
+        Returns
+        -------
+        str
+            Formatted text representation of the graph.
+        """
+        sections = []
+
+        # 1. Summary section
+        sections.append(self._build_summary())
+
+        # 2. Nodes section
+        sections.append(self._build_nodes_section(verbose, show_jaxpr))
+
+        # 3. Dependencies section
+        sections.append(self._build_edges_section())
+
+        return '\n\n'.join(sections)
+
+    def _get_node_type_counts(self) -> Dict[str, int]:
+        """Count nodes by type.
+
+        Returns
+        -------
+        Dict[str, int]
+            Mapping from node type name to count.
+        """
+        counts = {'Group': 0, 'Projection': 0, 'Input': 0, 'Output': 0, 'Other': 0}
+        for node in self.graph.nodes():
+            if isinstance(node, Group):
+                counts['Group'] += 1
+            elif isinstance(node, Projection):
+                counts['Projection'] += 1
+            elif isinstance(node, Input):
+                counts['Input'] += 1
+            elif isinstance(node, Output):
+                counts['Output'] += 1
+            else:
+                counts['Other'] += 1
+        return counts
+
+    def _build_summary(self) -> str:
+        """Build the summary section showing graph statistics.
+
+        Returns
+        -------
+        str
+            Formatted summary string.
+        """
+        num_nodes = len(self.graph)
+        num_edges = self.graph.edge_count()
+        type_counts = self._get_node_type_counts()
+
+        # Build type summary
+        type_parts = []
+        if type_counts['Group'] > 0:
+            type_parts.append(f"{type_counts['Group']} Group{'s' if type_counts['Group'] > 1 else ''}")
+        if type_counts['Projection'] > 0:
+            type_parts.append(f"{type_counts['Projection']} Projection{'s' if type_counts['Projection'] > 1 else ''}")
+        if type_counts['Input'] > 0:
+            type_parts.append(f"{type_counts['Input']} Input{'s' if type_counts['Input'] > 1 else ''}")
+        if type_counts['Output'] > 0:
+            type_parts.append(f"{type_counts['Output']} Output{'s' if type_counts['Output'] > 1 else ''}")
+        if type_counts['Other'] > 0:
+            type_parts.append(f"{type_counts['Other']} Other")
+
+        type_summary = ', '.join(type_parts) if type_parts else 'empty'
+
+        return f"NeuroGraph Summary:\n  Nodes: {num_nodes} ({type_summary})\n  Edges: {num_edges}"
+
+    def _build_nodes_section(self, verbose: bool, show_jaxpr: bool) -> str:
+        """Build the nodes section showing each node with details.
+
+        Parameters
+        ----------
+        verbose : bool
+            Show detailed node information.
+        show_jaxpr : bool
+            Show jaxpr equations.
+
+        Returns
+        -------
+        str
+            Formatted nodes section.
+        """
+        lines = ["Nodes (execution order):"]
+
+        nodes = self.graph.nodes()
+        for idx, node in enumerate(nodes):
+            node_str = self._format_node(node, idx, verbose, show_jaxpr)
+            lines.append(node_str)
+
+            # Show successors with tree structure
+            successors = self.graph.successors(node)
+            if successors:
+                for i, succ in enumerate(successors):
+                    # Find successor index
+                    succ_idx = nodes.index(succ) if succ in nodes else -1
+                    if i == len(successors) - 1:
+                        lines.append(f"      └─> [{succ_idx}] {self._get_node_short_name(succ)}")
+                    else:
+                        lines.append(f"      ├─> [{succ_idx}] {self._get_node_short_name(succ)}")
+
+        return '\n'.join(lines)
+
+    def _format_node(self, node: GraphElem, index: int, verbose: bool, show_jaxpr: bool) -> str:
+        """Format a single node for display.
+
+        Parameters
+        ----------
+        node : GraphElem
+            The node to format.
+        index : int
+            The node's index in execution order.
+        verbose : bool
+            Show detailed information.
+        show_jaxpr : bool
+            Show jaxpr equations.
+
+        Returns
+        -------
+        str
+            Formatted node string.
+        """
+        lines = []
+
+        # Main node line
+        if isinstance(node, Group):
+            num_hidden = len(node.hidden_states) if hasattr(node, 'hidden_states') else 0
+            main_line = f"  [{index}] Group({node.name}) #{num_hidden} neurons"
+            if verbose:
+                num_in = len(node.in_states) if hasattr(node, 'in_states') else 0
+                num_out = len(node.out_states) if hasattr(node, 'out_states') else 0
+                num_eqns = len(node.jaxpr.jaxpr.eqns)
+                lines.append(main_line)
+                lines.append(f"      Hidden States: {num_hidden}, In States: {num_in}, Out States: {num_out}")
+                lines.append(f"      Equations: {num_eqns}")
+            else:
+                lines.append(main_line)
+
+        elif isinstance(node, Projection):
+            pre_name = node.pre_group.name if hasattr(node, 'pre_group') and hasattr(node.pre_group, 'name') else 'Group'
+            post_name = node.post_group.name if hasattr(node, 'post_group') and hasattr(node.post_group, 'name') else 'Group'
+            num_conns = len(node.connections) if hasattr(node, 'connections') else 0
+            main_line = f"  [{index}] Projection({pre_name} → {post_name}) #{num_conns} connections"
+            if verbose:
+                num_hidden = len(node.hidden_states) if hasattr(node, 'hidden_states') else 0
+                num_in = len(node.in_states) if hasattr(node, 'in_states') else 0
+                num_eqns = len(node.jaxpr.jaxpr.eqns)
+                lines.append(main_line)
+                lines.append(f"      Hidden States: {num_hidden}, In States: {num_in}")
+                lines.append(f"      Equations: {num_eqns}")
+            else:
+                lines.append(main_line)
+
+        elif isinstance(node, Input):
+            group_name = node.group.name if hasattr(node, 'group') and hasattr(node.group, 'name') else 'Group'
+            num_invars = len(node.jaxpr.jaxpr.invars) if hasattr(node, 'jaxpr') else 0
+            main_line = f"  [{index}] Input → {group_name} (#{num_invars} vars)"
+            if verbose:
+                num_outvars = len(node.jaxpr.jaxpr.outvars) if hasattr(node, 'jaxpr') else 0
+                num_eqns = len(node.jaxpr.jaxpr.eqns)
+                lines.append(main_line)
+                lines.append(f"      In Vars: {num_invars}, Out Vars: {num_outvars}, Equations: {num_eqns}")
+            else:
+                lines.append(main_line)
+
+        elif isinstance(node, Output):
+            group_name = 'Unknown'
+            if hasattr(node, 'group') and hasattr(node.group, 'name'):
+                group_name = node.group.name
+            num_outvars = len(node.jaxpr.jaxpr.outvars) if hasattr(node, 'jaxpr') else 0
+            main_line = f"  [{index}] Output from {group_name} (#{num_outvars} vars)"
+            if verbose:
+                num_hidden = len(node.hidden_states) if hasattr(node, 'hidden_states') else 0
+                num_in = len(node.in_states) if hasattr(node, 'in_states') else 0
+                num_eqns = len(node.jaxpr.jaxpr.eqns)
+                lines.append(main_line)
+                lines.append(f"      Hidden States: {num_hidden}, In States: {num_in}, Equations: {num_eqns}")
+            else:
+                lines.append(main_line)
+
+        else:
+            lines.append(f"  [{index}] {type(node).__name__}")
+
+        # Add jaxpr details if requested
+        if show_jaxpr:
+            jaxpr_str = self._format_jaxpr(node)
+            if jaxpr_str:
+                lines.append(jaxpr_str)
+
+        return '\n'.join(lines)
+
+    def _get_node_short_name(self, node: GraphElem) -> str:
+        """Get a short name for a node for use in tree display.
+
+        Parameters
+        ----------
+        node : GraphElem
+            The node.
+
+        Returns
+        -------
+        str
+            Short name string.
+        """
+        if isinstance(node, Group):
+            return f"Group({node.name})"
+        elif isinstance(node, Projection):
+            pre_name = node.pre_group.name if hasattr(node, 'pre_group') and hasattr(node.pre_group, 'name') else 'Group'
+            post_name = node.post_group.name if hasattr(node, 'post_group') and hasattr(node.post_group, 'name') else 'Group'
+            return f"Projection({pre_name} → {post_name})"
+        elif isinstance(node, Input):
+            group_name = node.group.name if hasattr(node, 'group') and hasattr(node.group, 'name') else 'Group'
+            return f"Input → {group_name}"
+        elif isinstance(node, Output):
+            group_name = 'Unknown'
+            if hasattr(node, 'group') and hasattr(node.group, 'name'):
+                group_name = node.group.name
+            return f"Output from {group_name}"
+        else:
+            return type(node).__name__
+
+    def _format_jaxpr(self, node: GraphElem) -> str:
+        """Format jaxpr equations for a node.
+
+        Parameters
+        ----------
+        node : GraphElem
+            The node.
+
+        Returns
+        -------
+        str
+            Formatted jaxpr string, or empty if no equations.
+        """
+        if not hasattr(node, 'jaxpr') or not node.jaxpr:
+            return ""
+
+        eqns = node.jaxpr.jaxpr.eqns
+        if not eqns:
+            return ""
+
+        lines = ["      JAXPR Equations:"]
+        for i, eqn in enumerate(eqns[:10]):  # Limit to first 10 equations
+            # Format equation as: outvars = primitive invars
+            outvars_str = ', '.join(str(v) for v in eqn.outvars)
+            invars_str = ', '.join(str(v) for v in eqn.invars)
+            lines.append(f"        [{i}] {outvars_str} = {eqn.primitive.name}({invars_str})")
+
+        if len(eqns) > 10:
+            lines.append(f"        ... ({len(eqns) - 10} more equations)")
+
+        return '\n'.join(lines)
+
+    def _build_edges_section(self) -> str:
+        """Build the edges/dependencies section.
+
+        Returns
+        -------
+        str
+            Formatted edges section.
+        """
+        lines = [f"Dependencies ({self.graph.edge_count()} edges):"]
+
+        edges = list(self.graph.edges())
+        if not edges:
+            lines.append("  (no edges)")
+            return '\n'.join(lines)
+
+        for source, target in edges:
+            source_name = self._get_node_short_name(source)
+            target_name = self._get_node_short_name(target)
+            lines.append(f"  {source_name} → {target_name}")
+
+        return '\n'.join(lines)
