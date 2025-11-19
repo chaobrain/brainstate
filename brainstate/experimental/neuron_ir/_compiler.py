@@ -30,7 +30,7 @@ from brainstate._state import State
 from brainstate.transform._ir_inline import inline_jit
 from brainstate.transform._ir_processing import eqns_to_closed_jaxpr
 from brainstate.transform._make_jaxpr import StatefulFunction, get_arg_cache_key
-from ._data import NeuroGraph, GraphIRElem, GroupIR, ConnectionIR, ProjectionIR, InputIR, OutputIR, CompiledGraphIR
+from ._data import NeuroGraph, GraphElem, Group, Connection, Projection, Input, Output, CompiledGraphIR
 from ._utils import _is_connection, UnionFind
 
 __all__ = [
@@ -110,7 +110,7 @@ def _build_var_dependencies(jaxpr: Jaxpr) -> Dict[Var, Set[Var]]:
     """
     dependencies = {}
 
-    # InputIR vars depend only on themselves
+    # Input vars depend only on themselves
     for var in jaxpr.invars:
         dependencies[var] = {var}
 
@@ -288,7 +288,7 @@ def _build_state_mapping(
     n_inp_before_states = len(jaxpr.invars) - len(in_state_avals)
 
     # Map state tree to invars and outvars
-    # InputIR variables: the last len(state_avals) invars correspond to states
+    # Input variables: the last len(state_avals) invars correspond to states
     state_tree_invars = jax.tree.unflatten(in_state_tree, jaxpr.invars[n_inp_before_states:])
 
     # Build mappings using the tree structure
@@ -356,7 +356,7 @@ class NeuronIRCompiler:
     closed_jaxpr : ClosedJaxpr
         The JAX program to compile.
     in_states : tuple[State, ...]
-        InputIR states for the program.
+        Input states for the program.
     out_states : tuple[State, ...]
         Output states produced by the program.
     invar_to_state : dict[Var, State]
@@ -463,7 +463,7 @@ class NeuronIRCompiler:
         Returns
         -------
         list[set[State]]
-            Sets of states that must be compiled into the same :class:`GroupIR`.
+            Sets of states that must be compiled into the same :class:`Group`.
         """
         # Create a mapping from state to its ID for efficient comparison
         state_to_id = {id(state): state for state in self.hidden_states}
@@ -515,7 +515,7 @@ class NeuronIRCompiler:
 
         return state_groups
 
-    def step2_build_groups(self, state_groups: List[Set[State]]) -> List[GroupIR]:
+    def step2_build_groups(self, state_groups: List[Set[State]]) -> List[Group]:
         """Materialize :class:`Group` objects for each mutually dependent state set.
 
         Parameters
@@ -525,7 +525,7 @@ class NeuronIRCompiler:
 
         Returns
         -------
-        list[GroupIR]
+        list[Group]
             One :class:`Group` per state cluster containing a ClosedJaxpr slice and
             metadata about its dependencies.
         """
@@ -645,7 +645,7 @@ class NeuronIRCompiler:
             # Generate a name for this group based on its hidden states
             group_name = f"Group_{len(groups)}"
 
-            group = GroupIR(
+            group = Group(
                 jaxpr=group_jaxpr,
                 hidden_states=group_hidden_states,
                 in_states=group_in_states,
@@ -657,12 +657,12 @@ class NeuronIRCompiler:
 
         return groups
 
-    def step3_extract_connections(self) -> List[Tuple[JaxprEqn, ConnectionIR]]:
+    def step3_extract_connections(self) -> List[Tuple[JaxprEqn, Connection]]:
         """Identify connection equations and wrap them as :class:`Connection` objects.
 
         Returns
         -------
-        list[tuple[JaxprEqn, ConnectionIR]]
+        list[tuple[JaxprEqn, Connection]]
             Pairs of the original equation and a :class:`Connection` wrapper that
             holds its ClosedJaxpr slice.
         """
@@ -675,20 +675,20 @@ class NeuronIRCompiler:
                     invars=list(eqn.invars),
                     outvars=list(eqn.outvars),
                 )
-                connection = ConnectionIR(jaxpr=conn_jaxpr)
+                connection = Connection(jaxpr=conn_jaxpr)
                 connections.append((eqn, connection))
         return connections
 
     def step4_build_projections(
         self,
-        groups: List[GroupIR],
-        connections: List[Tuple[JaxprEqn, ConnectionIR]],
-    ) -> List[ProjectionIR]:
+        groups: List[Group],
+        connections: List[Tuple[JaxprEqn, Connection]],
+    ) -> List[Projection]:
         """Create :class:`Projection` objects that ferry spikes between groups.
 
         Parameters
         ----------
-        groups : list[GroupIR]
+        groups : list[Group]
             Groups created in :meth:`step2_build_groups`.
         connections : list[tuple[JaxprEqn, ConnectionIR]]
             Connection equations identified by :meth:`step3_extract_connections`.
@@ -764,7 +764,7 @@ class NeuronIRCompiler:
                     )
 
                     # Replace existing projection
-                    new_proj = ProjectionIR(
+                    new_proj = Projection(
                         hidden_states=merged_hidden_states,
                         in_states=merged_in_states,
                         jaxpr=proj_jaxpr,
@@ -780,7 +780,7 @@ class NeuronIRCompiler:
                         proj_eqns, proj_hidden_states, proj_in_states, post_group, group_to_input_vars
                     )
 
-                    projection = ProjectionIR(
+                    projection = Projection(
                         hidden_states=proj_hidden_states,
                         in_states=proj_in_states,
                         jaxpr=proj_jaxpr,
@@ -795,10 +795,10 @@ class NeuronIRCompiler:
     def _trace_projection_path(
         self,
         input_var: Var,
-        post_group: GroupIR,
-        groups: List[GroupIR],
+        post_group: Group,
+        groups: List[Group],
         var_to_producer_eqn: Dict[Var, JaxprEqn],
-        connections: List[Tuple[JaxprEqn, ConnectionIR]],
+        connections: List[Tuple[JaxprEqn, Connection]],
     ):
         """Trace the computation that produces ``input_var`` for a group."""
         # Build connection equation set for quick lookup
@@ -884,11 +884,11 @@ class NeuronIRCompiler:
 
     def _merge_projection_data(
         self,
-        existing_proj: ProjectionIR,
+        existing_proj: Projection,
         proj_eqns: List[JaxprEqn],
         proj_hidden_states: List[State],
         proj_in_states: List[State],
-        proj_connections: List[ConnectionIR],
+        proj_connections: List[Connection],
     ):
         """Merge new projection data with existing projection."""
         merged_eqns = list(existing_proj.jaxpr.jaxpr.eqns)
@@ -923,7 +923,7 @@ class NeuronIRCompiler:
         proj_eqns: List[JaxprEqn],
         proj_hidden_states: List[State],
         proj_in_states: List[State],
-        post_group: GroupIR,
+        post_group: Group,
         group_to_input_vars: Dict[int, Set[Var]],
     ):
         """Build a ClosedJaxpr for a projection."""
@@ -977,17 +977,17 @@ class NeuronIRCompiler:
 
         return proj_jaxpr, proj_outvars
 
-    def step5_build_inputs(self, groups: List[GroupIR]) -> List[InputIR]:
+    def step5_build_inputs(self, groups: List[Group]) -> List[Input]:
         """Create :class:`Input` descriptors for external variables.
 
         Parameters
         ----------
-        groups : list[GroupIR]
+        groups : list[Group]
             Group descriptors receiving the inputs.
 
         Returns
         -------
-        list[InputIR]
+        list[Input]
             Input descriptors grouped by their destination group.
         """
         # Determine which vars are input_variables (not state vars)
@@ -1026,7 +1026,7 @@ class NeuronIRCompiler:
             if trace_result is not None:
                 input_traces.append(trace_result)
 
-        # GroupIR traces by target group (use group id as key)
+        # Group traces by target group (use group id as key)
         group_id_to_traces = defaultdict(list)
         id_to_group = {}
 
@@ -1035,7 +1035,7 @@ class NeuronIRCompiler:
             id_to_group[group_id] = target_group
             group_id_to_traces[group_id].append((input_var, equations, outvars))
 
-        # Create InputIR objects for each group
+        # Create Input objects for each group
         inputs = []
 
         for group_id, traces in group_id_to_traces.items():
@@ -1067,7 +1067,7 @@ class NeuronIRCompiler:
                 outvars=all_output_vars,
             )
 
-            input_obj = InputIR(
+            input_obj = Input(
                 jaxpr=input_jaxpr,
                 group=group,
             )
@@ -1078,7 +1078,7 @@ class NeuronIRCompiler:
     def _trace_input_forward(
         self,
         input_var: Var,
-        groups: List[GroupIR],
+        groups: List[Group],
         var_to_consumer_eqns: Dict[Var, List[JaxprEqn]],
         group_input_vars_sets: Dict[int, Set[Var]],
     ):
@@ -1133,17 +1133,17 @@ class NeuronIRCompiler:
         # No group found (input doesn't flow into any group)
         return None
 
-    def step6_build_outputs(self, groups: List[GroupIR]) -> List[OutputIR]:
+    def step6_build_outputs(self, groups: List[Group]) -> List[Output]:
         """Describe how model outputs are assembled from group state variables.
 
         Parameters
         ----------
-        groups : list[GroupIR]
+        groups : list[Group]
             Groups that may contribute to outputs.
 
         Returns
         -------
-        list[OutputIR]
+        list[Output]
             Output descriptors paired with the responsible group.
 
         Raises
@@ -1169,7 +1169,7 @@ class NeuronIRCompiler:
             for out_var in eqn.outvars:
                 var_to_producer_eqn[out_var] = eqn
 
-        # GroupIR output vars by which group they depend on (use group id as key)
+        # Group output vars by which group they depend on (use group id as key)
         group_id_output_mapping = defaultdict(list)
         id_to_group = {}
 
@@ -1352,7 +1352,7 @@ class NeuronIRCompiler:
                 outvars=output_vars_for_group,
             )
 
-            output_obj = OutputIR(
+            output_obj = Output(
                 jaxpr=output_jaxpr,
                 hidden_states=all_dependent_hidden_states,
                 in_states=all_dependent_in_states,
@@ -1364,22 +1364,22 @@ class NeuronIRCompiler:
 
     def step7_build_graph(
         self,
-        groups: List[GroupIR],
-        projections: List[ProjectionIR],
-        inputs: List[InputIR],
-        outputs: List[OutputIR],
+        groups: List[Group],
+        projections: List[Projection],
+        inputs: List[Input],
+        outputs: List[Output],
     ) -> NeuroGraph:
         """Derive an execution graph that preserves the original equation order.
 
         Parameters
         ----------
-        groups : list[GroupIR]
+        groups : list[Group]
             Computation blocks that produce state updates.
         projections : list[ProjectionIR]
             ConnectionIR pipelines between groups.
         inputs : list[InputIR]
             External inputs to the network.
-        outputs : list[OutputIR]
+        outputs : list[Output]
             Objects describing how observable values are extracted.
 
         Returns
@@ -1394,8 +1394,8 @@ class NeuronIRCompiler:
             call_graph.add_node(inp)
 
         # Create a mapping from equations/vars to components
-        eqn_to_component: Dict[int, GraphIRElem] = {}
-        var_to_component: Dict[Var, GraphIRElem] = {}
+        eqn_to_component: Dict[int, GraphElem] = {}
+        var_to_component: Dict[Var, GraphElem] = {}
 
         for group in groups:
             for eqn in group.jaxpr.jaxpr.eqns:
@@ -1444,10 +1444,10 @@ class NeuronIRCompiler:
 
     def step8_validate_compilation(
         self,
-        groups: List[GroupIR],
-        projections: List[ProjectionIR],
-        inputs: List[InputIR],
-        outputs: List[OutputIR],
+        groups: List[Group],
+        projections: List[Projection],
+        inputs: List[Input],
+        outputs: List[Output],
     ) -> None:
         """Run structural checks on the assembled compilation result.
 
@@ -1479,20 +1479,20 @@ class NeuronIRCompiler:
         for proj in projections:
             if not proj.connections:
                 raise CompilationError(
-                    f"ProjectionIR from {proj.pre_group} to {proj.post_group} has no connections"
+                    f"Projection from {proj.pre_group} to {proj.post_group} has no connections"
                 )
 
-        # Check 3: ProjectionIR hidden_states should belong to exactly one group
+        # Check 3: Projection hidden_states should belong to exactly one group
         for proj in projections:
             for state in proj.hidden_states:
                 count = sum(1 for g in groups if g.has_hidden_state(state))
                 if count == 0:
                     raise CompilationError(
-                        f"ProjectionIR depends on state {state} which is not in any group"
+                        f"Projection depends on state {state} which is not in any group"
                     )
                 elif count > 1:
                     raise CompilationError(
-                        f"ProjectionIR depends on state {state} which belongs to multiple groups"
+                        f"Projection depends on state {state} which belongs to multiple groups"
                     )
 
         # Check 4: All equations should be used
@@ -1502,20 +1502,20 @@ class NeuronIRCompiler:
             raise CompilationError(
                 f"Not all equations were used in compilation. "
                 f"Unused equation indices: {unused_indices}. "
-                f"This may indicate that some computations are not part of any GroupIR, "
-                f"ProjectionIR, InputIR, or Output."
+                f"This may indicate that some computations are not part of any Group, "
+                f"Projection, Input, or Output."
             )
 
-    def compile(self) -> Tuple[List[GroupIR], List[ProjectionIR], List[InputIR], List[OutputIR], NeuroGraph]:
+    def compile(self) -> Tuple[List[Group], List[Projection], List[Input], List[Output], NeuroGraph]:
         """Execute the complete compilation pipeline.
 
         Returns
         -------
         tuple
             A 5-tuple containing:
-            - groups : list[GroupIR]
-            - projections : list[ProjectionIR]
-            - inputs : list[InputIR]
+            - groups : list[Group]
+            - projections : list[Projection]
+            - inputs : list[Input]
             - outputs : list[Output]
             - graph : Graph
 
@@ -1527,16 +1527,16 @@ class NeuronIRCompiler:
         # Step 1: Analyze state dependencies and group states
         state_groups = self.step1_analyze_state_dependencies()
 
-        # Step 2: Build GroupIR objects
+        # Step 2: Build Group objects
         groups = self.step2_build_groups(state_groups)
 
         # Step 3: Extract connections
         connections = self.step3_extract_connections()
 
-        # Step 4: Build ProjectionIR objects
+        # Step 4: Build Projection objects
         projections = self.step4_build_projections(groups, connections)
 
-        # Step 5: Build InputIR objects
+        # Step 5: Build Input objects
         inputs = self.step5_build_inputs(groups)
 
         # Step 6: Build Output objects

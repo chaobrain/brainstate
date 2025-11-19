@@ -18,7 +18,7 @@
 from collections import defaultdict, deque
 from typing import Dict, Tuple
 
-from ._data import NeuroGraph, GraphIRElem, GroupIR, ProjectionIR, InputIR, OutputIR, ConnectionIR
+from ._data import NeuroGraph, GraphElem, Group, Projection, Input, Output, Connection
 
 __all__ = [
     'GraphDisplayer',
@@ -92,7 +92,7 @@ class GraphDisplayer:
                 "Install with: pip install plotly"
             ) from exc
 
-        from ._data import GroupIR, ProjectionIR
+        from ._data import Group, Projection
 
         if not self.graph._nodes:
             # Empty graph
@@ -153,7 +153,7 @@ class GraphDisplayer:
             # Size
             if node_size == 'auto':
                 # Size by complexity
-                if isinstance(node, (GroupIR, ProjectionIR)):
+                if isinstance(node, (Group, Projection)):
                     complexity = len(node.jaxpr.jaxpr.eqns) + len(getattr(node, 'hidden_states', []))
                     node_sizes.append(20 + min(complexity * 2, 40))
                 else:
@@ -396,7 +396,7 @@ class GraphDisplayer:
                 "Install with: pip install networkx matplotlib"
             ) from exc
 
-        from ._data import GroupIR, ProjectionIR
+        from ._data import Group, Projection
 
         # Build NetworkX graph
         G = nx.DiGraph()
@@ -433,7 +433,7 @@ class GraphDisplayer:
         if node_size == 'auto':
             sizes = []
             for node in self.graph._nodes:
-                if isinstance(node, (GroupIR, ProjectionIR)):
+                if isinstance(node, (Group, Projection)):
                     complexity = len(node.jaxpr.jaxpr.eqns) + len(getattr(node, 'hidden_states', []))
                     sizes.append(2000 + min(complexity * 100, 3000))
                 else:
@@ -581,27 +581,27 @@ class GraphDisplayer:
         else:
             fig = ax.figure
 
-        def _node_label(node: GraphIRElem) -> str:
-            if isinstance(node, GroupIR):
-                return f"GroupIR\\n{node.name}"
-            if isinstance(node, ProjectionIR):
-                return f"ProjectionIR\\n{node.pre_group.name} → {node.post_group.name}"
-            if isinstance(node, InputIR):
-                return f"InputIR\\n→ {node.group.name}"
-            if isinstance(node, OutputIR):
-                return f"OutputIR\\n{node.group.name} →"
-            if isinstance(node, ConnectionIR):
-                return f"ConnectionIR\\n{node.jaxpr.jaxpr.name if hasattr(node.jaxpr, 'jaxpr') else ''}"
+        def _node_label(node: GraphElem) -> str:
+            if isinstance(node, Group):
+                return f"Group\\n{node.name}"
+            if isinstance(node, Projection):
+                return f"Projection\\n{node.pre_group.name} → {node.post_group.name}"
+            if isinstance(node, Input):
+                return f"Input\\n→ {node.group.name}"
+            if isinstance(node, Output):
+                return f"Output\\n{node.group.name} →"
+            if isinstance(node, Connection):
+                return f"Connection\\n{node.jaxpr.jaxpr.name if hasattr(node.jaxpr, 'jaxpr') else ''}"
             return type(node).__name__
 
-        def _node_style(node: GraphIRElem) -> Tuple[str, str]:
-            if isinstance(node, InputIR):
+        def _node_style(node: GraphElem) -> Tuple[str, str]:
+            if isinstance(node, Input):
                 return "#E3F2FD", "#1565C0"
-            if isinstance(node, OutputIR):
+            if isinstance(node, Output):
                 return "#FCE4EC", "#AD1457"
-            if isinstance(node, ProjectionIR):
+            if isinstance(node, Projection):
                 return "#FFF3E0", "#E65100"
-            if isinstance(node, ConnectionIR):
+            if isinstance(node, Connection):
                 return "#EDE7F6", "#5E35B1"
             return "#E8F5E9", "#1B5E20"  # Groups and fallbacks
 
@@ -726,44 +726,44 @@ class GraphDisplayer:
 
     def _get_node_label(self, node, show_details=True):
         """Get display label for a node."""
-        from ._data import GroupIR, ProjectionIR, InputIR, OutputIR, ConnectionIR
+        from ._data import Group, Projection, Input, Output, Connection
 
-        if isinstance(node, GroupIR):
-            return f"GroupIR\\n{node.name}"
-        if isinstance(node, ProjectionIR):
-            return f"ProjectionIR\\n{node.pre_group.name} → {node.post_group.name}"
-        if isinstance(node, InputIR):
-            return f"InputIR\\n→ {node.group.name}"
-        if isinstance(node, OutputIR):
-            return f"OutputIR\\n{node.group.name} →"
-        if isinstance(node, ConnectionIR):
-            return f"ConnectionIR\\n{node.jaxpr.jaxpr.name if hasattr(node.jaxpr, 'jaxpr') else ''}"
+        if isinstance(node, Group):
+            return f"Group\\n{node.name}"
+        if isinstance(node, Projection):
+            return f"Projection\\n{node.pre_group.name} → {node.post_group.name}"
+        if isinstance(node, Input):
+            return f"Input\\n→ {node.group.name}"
+        if isinstance(node, Output):
+            return f"Output\\n{node.group.name} →"
+        if isinstance(node, Connection):
+            return f"Connection\\n{node.jaxpr.jaxpr.name if hasattr(node.jaxpr, 'jaxpr') else ''}"
         return type(node).__name__
 
     def _get_node_metadata(self, node):
         """Extract metadata from a node."""
-        from ._data import GroupIR, ProjectionIR, InputIR, OutputIR
+        from ._data import Group, Projection, Input, Output
 
         metadata = {'Type': type(node).__name__}
 
-        if isinstance(node, GroupIR):
+        if isinstance(node, Group):
             metadata['Name'] = node.name
             metadata['Hidden States'] = str(len(node.hidden_states))
             metadata['In States'] = str(len(node.in_states))
             metadata['Out States'] = str(len(node.out_states))
             metadata['Equations'] = str(len(node.jaxpr.jaxpr.eqns))
-            metadata['InputIR Vars'] = str(len(node.input_vars))
-        elif isinstance(node, ProjectionIR):
+            metadata['Input Vars'] = str(len(node.input_vars))
+        elif isinstance(node, Projection):
             metadata['From'] = node.pre_group.name
             metadata['To'] = node.post_group.name
             metadata['Hidden States'] = str(len(node.hidden_states))
             metadata['In States'] = str(len(node.in_states))
             metadata['Connections'] = str(len(node.connections))
             metadata['Equations'] = str(len(node.jaxpr.jaxpr.eqns))
-        elif isinstance(node, InputIR):
+        elif isinstance(node, Input):
             metadata['Target Group'] = node.group.name
             metadata['Equations'] = str(len(node.jaxpr.jaxpr.eqns))
-        elif isinstance(node, OutputIR):
+        elif isinstance(node, Output):
             metadata['Source Group'] = node.group.name
             metadata['Hidden States'] = str(len(node.hidden_states))
             metadata['Equations'] = str(len(node.jaxpr.jaxpr.eqns))
@@ -774,32 +774,32 @@ class GraphDisplayer:
         """Get color scheme for node types."""
         schemes = {
             'default': {
-                'InputIR': ("#E3F2FD", "#1565C0"),
-                'OutputIR': ("#FCE4EC", "#AD1457"),
-                'ProjectionIR': ("#FFF3E0", "#E65100"),
-                'ConnectionIR': ("#EDE7F6", "#5E35B1"),
-                'GroupIR': ("#E8F5E9", "#1B5E20"),
+                'Input': ("#E3F2FD", "#1565C0"),
+                'Output': ("#FCE4EC", "#AD1457"),
+                'Projection': ("#FFF3E0", "#E65100"),
+                'Connection': ("#EDE7F6", "#5E35B1"),
+                'Group': ("#E8F5E9", "#1B5E20"),
             },
             'pastel': {
-                'InputIR': ("#BBDEFB", "#2196F3"),
-                'OutputIR': ("#F8BBD0", "#E91E63"),
-                'ProjectionIR': ("#FFE0B2", "#FF9800"),
-                'ConnectionIR': ("#D1C4E9", "#673AB7"),
-                'GroupIR': ("#C8E6C9", "#4CAF50"),
+                'Input': ("#BBDEFB", "#2196F3"),
+                'Output': ("#F8BBD0", "#E91E63"),
+                'Projection': ("#FFE0B2", "#FF9800"),
+                'Connection': ("#D1C4E9", "#673AB7"),
+                'Group': ("#C8E6C9", "#4CAF50"),
             },
             'vibrant': {
-                'InputIR': ("#2196F3", "#0D47A1"),
-                'OutputIR': ("#E91E63", "#880E4F"),
-                'ProjectionIR': ("#FF9800", "#E65100"),
-                'ConnectionIR': ("#673AB7", "#311B92"),
-                'GroupIR': ("#4CAF50", "#1B5E20"),
+                'Input': ("#2196F3", "#0D47A1"),
+                'Output': ("#E91E63", "#880E4F"),
+                'Projection': ("#FF9800", "#E65100"),
+                'Connection': ("#673AB7", "#311B92"),
+                'Group': ("#4CAF50", "#1B5E20"),
             },
             'colorblind': {
-                'InputIR': ("#0173B2", "#023858"),
-                'OutputIR': ("#DE8F05", "#7C4F00"),
-                'ProjectionIR': ("#CC78BC", "#6E3F64"),
-                'ConnectionIR': ("#029E73", "#015040"),
-                'GroupIR': ("#ECE133", "#7A6F1A"),
+                'Input': ("#0173B2", "#023858"),
+                'Output': ("#DE8F05", "#7C4F00"),
+                'Projection': ("#CC78BC", "#6E3F64"),
+                'Connection': ("#029E73", "#015040"),
+                'Group': ("#ECE133", "#7A6F1A"),
             },
         }
         return schemes.get(colorscheme, schemes['default'])
@@ -808,7 +808,7 @@ class GraphDisplayer:
         """Get fill and edge colors for a node."""
         colors = self._get_color_scheme(colorscheme)
         node_type = type(node).__name__
-        return colors.get(node_type, colors['GroupIR'])
+        return colors.get(node_type, colors['Group'])
 
 
 class TextDisplayer:

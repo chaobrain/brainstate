@@ -115,7 +115,7 @@ _DEPRECATED_NAMES = {
     'DeltaProj': 'brainpy.state.DeltaProj',
     'CurrentProj': 'brainpy.state.CurrentProj',
     'align_pre_projection': 'brainpy.state.align_pre_projection',
-    'ProjectionIR': 'brainpy.state.ProjectionIR',
+    'Projection': 'brainpy.state.Projection',
     'SymmetryGapJunction': 'brainpy.state.SymmetryGapJunction',
     'AsymmetryGapJunction': 'brainpy.state.AsymmetryGapJunction',
 }

@@ -23,7 +23,7 @@ from brainstate._compatible_import import JaxprEqn
 from brainstate.transform._make_jaxpr import StatefulFunction, _make_hashable
 from brainstate.util._cache import BoundedCache
 from ._impl import register_jit_impl, register_forloop_impl
-from .neuron_ir import GroupIR, ConnectionIR, compile_fn, CompiledGraphIR
+from .neuron_ir import Group, Connection, compile_fn, CompiledGraphIR
 
 __all__ = [
     'GdiistBPUParser',
@@ -133,8 +133,8 @@ register_forloop_impl('bpu', _forloop_wrapper)
 
 
 def _text_display(
-    operations: List[GroupIR],
-    connections: List[ConnectionIR],
+    operations: List[Group],
+    connections: List[Connection],
     state_mappings: Dict[str, Any]
 ):
     print(f"\nSummary:")

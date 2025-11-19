@@ -26,20 +26,20 @@ from brainstate._state import State
 from ._utils import get_hidden_name
 
 __all__ = [
-    'GraphIRElem',
+    'GraphElem',
     'NeuroGraph',
-    'GroupIR',
-    'ConnectionIR',
-    'ProjectionIR',
-    'OutputIR',
-    'InputIR',
-    'SpikeIR',
+    'Group',
+    'Connection',
+    'Projection',
+    'Output',
+    'Input',
+    'Spike',
     'CompiledGraphIR',
 ]
 
 
 @dataclass
-class GraphIRElem:
+class GraphElem:
     """Base class for compiled graph IR elements."""
 
     jaxpr: ClosedJaxpr
@@ -64,7 +64,7 @@ class GraphIRElem:
 
 
 @dataclass
-class GroupIR(GraphIRElem):
+class Group(GraphElem):
     """Logical container for a compiled neuron group."""
     hidden_states: List[State]
     in_states: List[State]
@@ -180,7 +180,7 @@ class GroupIR(GraphIRElem):
 
 
 @dataclass
-class ConnectionIR(GraphIRElem):
+class Connection(GraphElem):
     """Describes the primitives that shuttle activity between two groups."""
 
     def __repr__(self) -> str:
@@ -197,7 +197,7 @@ class ConnectionIR(GraphIRElem):
         n_outvars = len(self.jaxpr.jaxpr.outvars)
 
         return (
-            f"ConnectionIR("
+            f"Connection("
             f"prim={prim_name}, "
             f"invars={n_invars}, "
             f"outvars={n_outvars})"
@@ -205,13 +205,13 @@ class ConnectionIR(GraphIRElem):
 
 
 @dataclass
-class ProjectionIR(GraphIRElem):
-    """ConnectionIR bundle that transfers activity between two groups."""
+class Projection(GraphElem):
+    """Connection bundle that transfers activity between two groups."""
     hidden_states: List[State]
     in_states: List[State]
-    connections: List[ConnectionIR]
-    pre_group: GroupIR
-    post_group: GroupIR
+    connections: List[Connection]
+    pre_group: Group
+    post_group: Group
 
     @property
     def pre(self):
@@ -235,7 +235,7 @@ class ProjectionIR(GraphIRElem):
         post_name = self.post_group.name if hasattr(self.post_group, 'name') else 'Group'
 
         return (
-            f"ProjectionIR("
+            f"Projection("
             f"{pre_name} → {post_name}, "
             f"conns={n_conns}, "
             f"eqns={n_eqns}, "
@@ -245,12 +245,12 @@ class ProjectionIR(GraphIRElem):
 
 
 @dataclass
-class OutputIR(GraphIRElem):
+class Output(GraphElem):
     """Description of how values are extracted from a group."""
 
     hidden_states: List[State]
     in_states: List[State]
-    group: GroupIR
+    group: Group
 
     def __repr__(self) -> str:
         """Return a representation showing output extraction details."""
@@ -263,7 +263,7 @@ class OutputIR(GraphIRElem):
         group_name = self.group.name if hasattr(self.group, 'name') else 'Group'
 
         return (
-            f"OutputIR("
+            f"Output("
             f"from={group_name}, "
             f"outvars={n_outvars}, "
             f"eqns={n_eqns}, "
@@ -273,10 +273,10 @@ class OutputIR(GraphIRElem):
 
 
 @dataclass
-class InputIR(GraphIRElem):
+class Input(GraphElem):
     """Description of how external values are injected into a group."""
 
-    group: GroupIR
+    group: Group
 
     def __repr__(self) -> str:
         """Return a representation showing input injection details."""
@@ -288,7 +288,7 @@ class InputIR(GraphIRElem):
         group_name = self.group.name if hasattr(self.group, 'name') else 'Group'
 
         return (
-            f"InputIR("
+            f"Input("
             f"to={group_name}, "
             f"invars={n_invars}, "
             f"outvars={n_outvars}, "
@@ -297,7 +297,7 @@ class InputIR(GraphIRElem):
 
 
 @dataclass
-class SpikeIR(GraphIRElem):
+class Spike(GraphElem):
     """Opaque surrogate-gradient spike primitive used by the compiler.
 
     Parameters
@@ -316,7 +316,7 @@ class SpikeIR(GraphIRElem):
         state_name = get_hidden_name(self.hidden_state)
 
         return (
-            f"SpikeIR("
+            f"Spike("
             f"state={state_name}, "
             f"eqns={n_eqns})"
         )
@@ -326,17 +326,17 @@ class NeuroGraph:
     """Directed graph capturing dependencies between compiled elements."""
 
     def __init__(self):
-        self._nodes: List[GraphIRElem] = []
+        self._nodes: List[GraphElem] = []
         self._id_to_index: Dict[int, int] = {}
         self._forward_edges: Dict[int, Set[int]] = defaultdict(set)
         self._reverse_edges: Dict[int, Set[int]] = defaultdict(set)
 
-    def _ensure_node(self, node: GraphIRElem) -> int:
+    def _ensure_node(self, node: GraphElem) -> int:
         """Ensure ``node`` exists in internal arrays and return its index.
 
         Parameters
         ----------
-        node : GraphIRElem
+        node : GraphElem
             Element to track.
 
         Returns
@@ -353,24 +353,24 @@ class NeuroGraph:
         self._id_to_index[node_id] = index
         return index
 
-    def add_node(self, node: GraphIRElem) -> None:
+    def add_node(self, node: GraphElem) -> None:
         """Register ``node`` in insertion order, ignoring duplicates.
 
         Parameters
         ----------
-        node : GraphIRElem
+        node : GraphElem
             Element to insert into the graph.
         """
         self._ensure_node(node)
 
-    def add_edge(self, source: GraphIRElem, target: GraphIRElem) -> None:
+    def add_edge(self, source: GraphElem, target: GraphElem) -> None:
         """Add a directed edge indicating that ``target`` depends on ``source``.
 
         Parameters
         ----------
-        source : GraphIRElem
+        source : GraphElem
             Upstream element that produces data.
-        target : GraphIRElem
+        target : GraphElem
             Downstream element that consumes data.
         """
         source_idx = self._ensure_node(source)
@@ -379,34 +379,34 @@ class NeuroGraph:
             self._forward_edges[source_idx].add(target_idx)
             self._reverse_edges[target_idx].add(source_idx)
 
-    def nodes(self) -> Tuple[GraphIRElem, ...]:
+    def nodes(self) -> Tuple[GraphElem, ...]:
         """Return nodes in their recorded execution order.
 
         Returns
         -------
-        tuple[GraphIRElem, ...]
+        tuple[GraphElem, ...]
             Sequence of every node encountered during compilation.
         """
         return tuple(self._nodes)
 
-    def edges(self) -> Iterable[Tuple[GraphIRElem, GraphIRElem]]:
+    def edges(self) -> Iterable[Tuple[GraphElem, GraphElem]]:
         """Iterate over all directed edges.
 
         Returns
         -------
-        Iterable[tuple[GraphIRElem, GraphIRElem]]
+        Iterable[tuple[GraphElem, GraphElem]]
             Generator yielding ``(source, target)`` pairs.
         """
         for source_idx, targets in self._forward_edges.items():
             for target_idx in targets:
                 yield (self._nodes[source_idx], self._nodes[target_idx])
 
-    def predecessors(self, node: GraphIRElem) -> Tuple[GraphIRElem, ...]:
+    def predecessors(self, node: GraphElem) -> Tuple[GraphElem, ...]:
         """Return nodes that must execute before ``node``.
 
         Parameters
         ----------
-        node : GraphIRElem
+        node : GraphElem
             Target element.
 
         Returns
@@ -419,12 +419,12 @@ class NeuroGraph:
             return tuple()
         return tuple(self._nodes[i] for i in self._reverse_edges.get(node_idx, ()))
 
-    def successors(self, node: GraphIRElem) -> Tuple[GraphIRElem, ...]:
+    def successors(self, node: GraphElem) -> Tuple[GraphElem, ...]:
         """Return nodes that depend on ``node``.
 
         Parameters
         ----------
-        node : GraphIRElem
+        node : GraphElem
             Origin element.
 
         Returns
@@ -458,7 +458,7 @@ class NeuroGraph:
         num_edges = self.edge_count()
         return f"<Graph with {num_nodes} nodes and {num_edges} edges>"
 
-    def __iter__(self) -> Iterator[GraphIRElem]:
+    def __iter__(self) -> Iterator[GraphElem]:
         return iter(self._nodes)
 
     def visualize(
@@ -597,22 +597,22 @@ class CompiledGraphIR(NamedTuple):
 
     Attributes
     ----------
-    groups : list[GroupIR]
+    groups : list[Group]
         Neuron groups that own the state-update subgraphs.
-    projections : list[ProjectionIR]
+    projections : list[Projection]
         ConnectionIR pipelines between groups.
-    inputs : list[InputIR]
+    inputs : list[Input]
         External inputs traced through the jaxpr.
-    outputs : list[OutputIR]
+    outputs : list[Output]
         Observations that should be reported to the caller.
     graph : NeuroGraph
         Execution order for all components.
     """
     # graph IR data
-    groups: List[GroupIR]
-    projections: List[ProjectionIR]
-    inputs: List[InputIR]
-    outputs: List[OutputIR]
+    groups: List[Group]
+    projections: List[Projection]
+    inputs: List[Input]
+    outputs: List[Output]
     graph: NeuroGraph
 
     # others
@@ -719,13 +719,13 @@ class CompiledGraphIR(NamedTuple):
 
         # Step 2: Execute components in graph
         for component in self.graph:
-            if isinstance(component, InputIR):
+            if isinstance(component, Input):
                 self._execute_input(component, var_env)
-            elif isinstance(component, GroupIR):
+            elif isinstance(component, Group):
                 self._execute_group(component, var_env)
-            elif isinstance(component, ProjectionIR):
+            elif isinstance(component, Projection):
                 self._execute_projection(component, var_env)
-            elif isinstance(component, OutputIR):
+            elif isinstance(component, Output):
                 self._execute_output(component, var_env)
 
         # Step 3: Collect outputs from environment
@@ -752,8 +752,8 @@ class CompiledGraphIR(NamedTuple):
         for var, val in zip(self.jaxpr.constvars, self.jaxpr.consts):
             var_env[var] = val
 
-    def _execute_input(self, input_comp: InputIR, var_env: Dict[Var, Any]) -> None:
-        """Evaluate an :class:`InputIR` component and store its outputs."""
+    def _execute_input(self, input_comp: Input, var_env: Dict[Var, Any]) -> None:
+        """Evaluate an :class:`Input` component and store its outputs."""
         # Gather input values from environment
         input_vals = [var_env[var] for var in input_comp.jaxpr.jaxpr.invars]
 
@@ -768,8 +768,8 @@ class CompiledGraphIR(NamedTuple):
         for var, val in zip(input_comp.jaxpr.jaxpr.outvars, results):
             var_env[var] = val
 
-    def _execute_group(self, group: GroupIR, var_env: Dict[Var, Any]) -> None:
-        """Evaluate a :class:`GroupIR` subgraph using values from ``var_env``."""
+    def _execute_group(self, group: Group, var_env: Dict[Var, Any]) -> None:
+        """Evaluate a :class:`Group` subgraph using values from ``var_env``."""
         # Gather input values from environment
         input_vals = []
         for var in group.jaxpr.jaxpr.invars:
@@ -790,8 +790,8 @@ class CompiledGraphIR(NamedTuple):
         for var, val in zip(group.jaxpr.jaxpr.outvars, results):
             var_env[var] = val
 
-    def _execute_projection(self, projection: ProjectionIR, var_env: Dict[Var, Any]) -> None:
-        """Evaluate a :class:`ProjectionIR` component, including const fallbacks."""
+    def _execute_projection(self, projection: Projection, var_env: Dict[Var, Any]) -> None:
+        """Evaluate a :class:`Projection` component, including const fallbacks."""
         # Gather input values from environment
         input_vals = []
         for var in projection.jaxpr.jaxpr.invars:
@@ -817,7 +817,7 @@ class CompiledGraphIR(NamedTuple):
         for var, val in zip(projection.jaxpr.jaxpr.outvars, results):
             var_env[var] = val
 
-    def _execute_output(self, output: OutputIR, var_env: Dict[Var, Any]) -> None:
+    def _execute_output(self, output: Output, var_env: Dict[Var, Any]) -> None:
         """Evaluate an :class:`Output` component using values in ``var_env``."""
         # Gather input values from environment
         input_vals = [var_env[var] for var in output.jaxpr.jaxpr.invars]
