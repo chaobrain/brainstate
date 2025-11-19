@@ -29,7 +29,7 @@ __all__ = [
 class GraphDisplayer:
     """Provides multiple visualization backends for Graph objects."""
 
-    def __init__(self, graph: 'Graph'):
+    def __init__(self, graph: Graph):
         """Initialize visualizer with a graph instance.
 
         Parameters
@@ -589,7 +589,7 @@ class GraphDisplayer:
             if isinstance(node, InputIR):
                 return f"InputIR\\n→ {node.group.name}"
             if isinstance(node, OutputIR):
-                return f"Output\\n{node.group.name} →"
+                return f"OutputIR\\n{node.group.name} →"
             if isinstance(node, ConnectionIR):
                 return f"ConnectionIR\\n{node.jaxpr.jaxpr.name if hasattr(node.jaxpr, 'jaxpr') else ''}"
             return type(node).__name__
@@ -735,7 +735,7 @@ class GraphDisplayer:
         if isinstance(node, InputIR):
             return f"InputIR\\n→ {node.group.name}"
         if isinstance(node, OutputIR):
-            return f"Output\\n{node.group.name} →"
+            return f"OutputIR\\n{node.group.name} →"
         if isinstance(node, ConnectionIR):
             return f"ConnectionIR\\n{node.jaxpr.jaxpr.name if hasattr(node.jaxpr, 'jaxpr') else ''}"
         return type(node).__name__
@@ -775,28 +775,28 @@ class GraphDisplayer:
         schemes = {
             'default': {
                 'InputIR': ("#E3F2FD", "#1565C0"),
-                'Output': ("#FCE4EC", "#AD1457"),
+                'OutputIR': ("#FCE4EC", "#AD1457"),
                 'ProjectionIR': ("#FFF3E0", "#E65100"),
                 'ConnectionIR': ("#EDE7F6", "#5E35B1"),
                 'GroupIR': ("#E8F5E9", "#1B5E20"),
             },
             'pastel': {
                 'InputIR': ("#BBDEFB", "#2196F3"),
-                'Output': ("#F8BBD0", "#E91E63"),
+                'OutputIR': ("#F8BBD0", "#E91E63"),
                 'ProjectionIR': ("#FFE0B2", "#FF9800"),
                 'ConnectionIR': ("#D1C4E9", "#673AB7"),
                 'GroupIR': ("#C8E6C9", "#4CAF50"),
             },
             'vibrant': {
                 'InputIR': ("#2196F3", "#0D47A1"),
-                'Output': ("#E91E63", "#880E4F"),
+                'OutputIR': ("#E91E63", "#880E4F"),
                 'ProjectionIR': ("#FF9800", "#E65100"),
                 'ConnectionIR': ("#673AB7", "#311B92"),
                 'GroupIR': ("#4CAF50", "#1B5E20"),
             },
             'colorblind': {
                 'InputIR': ("#0173B2", "#023858"),
-                'Output': ("#DE8F05", "#7C4F00"),
+                'OutputIR': ("#DE8F05", "#7C4F00"),
                 'ProjectionIR': ("#CC78BC", "#6E3F64"),
                 'ConnectionIR': ("#029E73", "#015040"),
                 'GroupIR': ("#ECE133", "#7A6F1A"),

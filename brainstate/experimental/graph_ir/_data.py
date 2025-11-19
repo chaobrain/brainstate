@@ -451,6 +451,9 @@ class Graph:
         return len(self._nodes)
 
     def __repr__(self) -> str:
+        # from ._display import TextDisplayer
+        # return TextDisplayer(self).display()
+
         num_nodes = len(self._nodes)
         num_edges = self.edge_count()
         return f"<Graph with {num_nodes} nodes and {num_edges} edges>"
