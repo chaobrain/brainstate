@@ -21,11 +21,11 @@ __all__ = [
     'compile_fn',
     'CompilationError',
     'GroupIR',
+    'GraphIRElem',
     'ConnectionIR',
     'ProjectionIR',
     'InputIR',
     'OutputIR',
-    'GraphIRElem',
     'Graph',
     'CompiledGraphIR',
 ]

@@ -32,7 +32,7 @@ __all__ = [
     'ProjectionIR',
     'OutputIR',
     'InputIR',
-    'Spike',
+    'SpikeIR',
     'CompiledGraphIR',
 ]
 
