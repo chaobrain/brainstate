@@ -138,6 +138,11 @@ def test_simple_lif():
     parser = compile_fn(update)
     compiled = parser(t, inp)
 
+    print(compiled.groups)
+    print(compiled.projections)
+    print(compiled.inputs)
+    print(compiled.outputs)
+
     print(f"  - Groups: {len(compiled.groups)}")
     print(f"  - Projections: {len(compiled.projections)}")
     print(f"  - Inputs: {len(compiled.inputs)}")

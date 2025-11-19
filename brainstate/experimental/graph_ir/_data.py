@@ -23,6 +23,7 @@ import jax
 
 from brainstate._compatible_import import ClosedJaxpr, Var
 from brainstate._state import State
+from ._utils import get_hidden_name
 
 __all__ = [
     'GraphIRElem',
@@ -42,6 +43,24 @@ class GraphIRElem:
     """Base class for compiled graph IR elements."""
 
     jaxpr: ClosedJaxpr
+
+    def __repr__(self) -> str:
+        """Return a concise representation showing jaxpr signature."""
+        n_eqns = len(self.jaxpr.jaxpr.eqns)
+        n_invars = len(self.jaxpr.jaxpr.invars)
+        n_outvars = len(self.jaxpr.jaxpr.outvars)
+        n_constvars = len(self.jaxpr.jaxpr.constvars)
+
+        parts = [
+            f"{self.__class__.__name__}(",
+            f"eqns={n_eqns}",
+            f"invars={n_invars}",
+            f"outvars={n_outvars}",
+        ]
+        if n_constvars > 0:
+            parts.append(f"constvars={n_constvars}")
+        parts.append(")")
+        return " ".join(parts)
 
 
 @dataclass
@@ -136,12 +155,53 @@ class GroupIR(GraphIRElem):
         state_id = id(state)
         return any(id(s) == state_id for s in self.hidden_states)
 
+    def __repr__(self) -> str:
+        """Return a detailed representation showing group configuration."""
+        n_eqns = len(self.jaxpr.jaxpr.eqns)
+        n_hidden = len(self.hidden_states)
+        n_in = len(self.in_states)
+        n_out = len(self.out_states)
+        n_inputs = len(self.input_vars)
+
+        # Get state names if available
+        hidden_names = [get_hidden_name(s) for s in self.hidden_states[:3]]
+        if len(self.hidden_states) > 3:
+            hidden_names.append('...')
+        hidden_str = ', '.join(hidden_names)
+
+        return (
+            f"{self.name}("
+            f"hidden=[{hidden_str}], "
+            f"n_eqns={n_eqns}, "
+            f"in_states={n_in}, "
+            f"out_states={n_out}, "
+            f"inputs={n_inputs})"
+        )
+
 
 @dataclass
 class ConnectionIR(GraphIRElem):
     """Describes the primitives that shuttle activity between two groups."""
 
-    pass
+    def __repr__(self) -> str:
+        """Return a representation showing connection signature."""
+        n_eqns = len(self.jaxpr.jaxpr.eqns)
+        # Get the primitive name from the first equation if available
+        prim_name = "unknown"
+        if n_eqns > 0:
+            first_eqn = self.jaxpr.jaxpr.eqns[0]
+            prim_name = str(first_eqn.primitive.name) if hasattr(first_eqn.primitive, 'name') else str(
+                first_eqn.primitive)
+
+        n_invars = len(self.jaxpr.jaxpr.invars)
+        n_outvars = len(self.jaxpr.jaxpr.outvars)
+
+        return (
+            f"ConnectionIR("
+            f"prim={prim_name}, "
+            f"invars={n_invars}, "
+            f"outvars={n_outvars})"
+        )
 
 
 @dataclass
@@ -163,6 +223,26 @@ class ProjectionIR(GraphIRElem):
         """Alias for post_group for backward compatibility with display functions."""
         return self.post_group
 
+    def __repr__(self) -> str:
+        """Return a representation showing projection path."""
+        n_conns = len(self.connections)
+        n_eqns = len(self.jaxpr.jaxpr.eqns)
+        n_hidden = len(self.hidden_states)
+        n_in = len(self.in_states)
+
+        # Get group names
+        pre_name = self.pre_group.name if hasattr(self.pre_group, 'name') else 'Group'
+        post_name = self.post_group.name if hasattr(self.post_group, 'name') else 'Group'
+
+        return (
+            f"ProjectionIR("
+            f"{pre_name} → {post_name}, "
+            f"conns={n_conns}, "
+            f"eqns={n_eqns}, "
+            f"hidden={n_hidden}, "
+            f"in_states={n_in})"
+        )
+
 
 @dataclass
 class OutputIR(GraphIRElem):
@@ -172,6 +252,25 @@ class OutputIR(GraphIRElem):
     in_states: List[State]
     group: GroupIR
 
+    def __repr__(self) -> str:
+        """Return a representation showing output extraction details."""
+        n_eqns = len(self.jaxpr.jaxpr.eqns)
+        n_outvars = len(self.jaxpr.jaxpr.outvars)
+        n_hidden = len(self.hidden_states)
+        n_in = len(self.in_states)
+
+        # Get group name
+        group_name = self.group.name if hasattr(self.group, 'name') else 'Group'
+
+        return (
+            f"OutputIR("
+            f"from={group_name}, "
+            f"outvars={n_outvars}, "
+            f"eqns={n_eqns}, "
+            f"hidden={n_hidden}, "
+            f"in_states={n_in})"
+        )
+
 
 @dataclass
 class InputIR(GraphIRElem):
@@ -179,7 +278,25 @@ class InputIR(GraphIRElem):
 
     group: GroupIR
 
+    def __repr__(self) -> str:
+        """Return a representation showing input injection details."""
+        n_eqns = len(self.jaxpr.jaxpr.eqns)
+        n_invars = len(self.jaxpr.jaxpr.invars)
+        n_outvars = len(self.jaxpr.jaxpr.outvars)
 
+        # Get group name
+        group_name = self.group.name if hasattr(self.group, 'name') else 'Group'
+
+        return (
+            f"InputIR("
+            f"to={group_name}, "
+            f"invars={n_invars}, "
+            f"outvars={n_outvars}, "
+            f"eqns={n_eqns})"
+        )
+
+
+@dataclass
 class SpikeIR(GraphIRElem):
     """Opaque surrogate-gradient spike primitive used by the compiler.
 
@@ -191,6 +308,18 @@ class SpikeIR(GraphIRElem):
         ClosedJaxpr that implements the surrogate-gradient primitive.
     """
     hidden_state: State
+
+    def __repr__(self) -> str:
+        """Return a representation showing spike surrogate details."""
+        n_eqns = len(self.jaxpr.jaxpr.eqns)
+        # Get state name if available
+        state_name = get_hidden_name(self.hidden_state)
+
+        return (
+            f"SpikeIR("
+            f"state={state_name}, "
+            f"eqns={n_eqns})"
+        )
 
 
 class Graph:
@@ -725,3 +854,39 @@ class CompiledGraphIR(NamedTuple):
             return output_vals[0]
         else:
             return tuple(output_vals)
+
+    def __repr__(self) -> str:
+        """Return a concise summary of the compiled graph IR.
+
+        Returns
+        -------
+        str
+            Human-readable representation showing compilation statistics.
+        """
+        n_groups = len(self.groups)
+        n_projections = len(self.projections)
+        n_inputs = len(self.inputs)
+        n_outputs = len(self.outputs)
+        n_graph_nodes = len(self.graph)
+        n_in_states = len(self.in_states)
+        n_out_states = len(self.out_states)
+
+        # Get total equation count
+        total_eqns = len(self.jaxpr.jaxpr.eqns)
+
+        # Build group summary
+        group_names = [g.name for g in self.groups[:3]]
+        if n_groups > 3:
+            group_names.append('...')
+        groups_str = ', '.join(group_names)
+
+        return (
+            f"<CompiledGraphIR: "
+            f"groups={n_groups}({groups_str}), "
+            f"projs={n_projections}, "
+            f"inputs={n_inputs}, "
+            f"outputs={n_outputs}, "
+            f"states={n_in_states}→{n_out_states}, "
+            f"total_eqns={total_eqns}, "
+            f"graph_nodes={n_graph_nodes}>"
+        )

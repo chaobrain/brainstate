@@ -22,6 +22,14 @@ from brainstate._compatible_import import is_jit_primitive, JaxprEqn, Var
 from brainstate._state import State
 
 
+def get_hidden_name(hidden: State):
+    name = getattr(hidden, 'name', None)
+    if name:
+        return name
+    else:
+        return f'State@{id(hidden):x}'
+
+
 def _is_connection(eqn: JaxprEqn) -> bool:
     """Return ``True`` if ``eqn`` performs a connection-like data transfer.
 
