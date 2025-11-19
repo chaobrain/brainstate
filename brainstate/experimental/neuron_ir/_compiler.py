@@ -37,7 +37,7 @@ __all__ = [
     'compile_jaxpr',
     'compile_fn',
     'CompilationError',
-    'GraphIRCompiler',
+    'NeuronIRCompiler',
 ]
 
 
@@ -344,7 +344,7 @@ def _build_state_mapping(
 # Compiler Class
 # ============================================================================
 
-class GraphIRCompiler:
+class NeuronIRCompiler:
     """Compiler for transforming ClosedJaxpr into structured Graph IR.
 
     This class encapsulates the entire compilation process, tracking equation
@@ -1588,7 +1588,7 @@ def compile_jaxpr(
         If the ClosedJaxpr violates the IR assumptions (e.g. outputs depend on
         multiple groups, or not all equations are used).
     """
-    compiler = GraphIRCompiler(
+    compiler = NeuronIRCompiler(
         closed_jaxpr=closed_jaxpr,
         in_states=in_states,
         out_states=out_states,
