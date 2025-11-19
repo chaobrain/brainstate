@@ -14,18 +14,10 @@
 # ==============================================================================
 
 
-from ._compiler import compile_jaxpr, CompilationError, compile_fn
-from ._data import Graph, GraphIRElem, GroupIR, ConnectionIR, ProjectionIR, InputIR, OutputIR, CompiledGraphIR
+from ._compiler import *
+from ._compiler import __all__ as compiler_all
+from ._data import *
+from ._data import __all__ as data_all
 
-__all__ = [
-    'compile_fn',
-    'CompilationError',
-    'GroupIR',
-    'GraphIRElem',
-    'ConnectionIR',
-    'ProjectionIR',
-    'InputIR',
-    'OutputIR',
-    'Graph',
-    'CompiledGraphIR',
-]
+__all__ = compiler_all + data_all
+del compiler_all, data_all
