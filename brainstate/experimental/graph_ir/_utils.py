@@ -23,25 +23,18 @@ from brainstate._state import State
 
 
 def _is_connection(eqn: JaxprEqn) -> bool:
-    """Determine if a JaxprEqn represents a connection operation.
-    
-    Connection operations include:
-    1. JIT-wrapped brainevent operations (e.g., brainevent.binary_fixed_num_mv_p_call)
-    2. Inline brainevent primitives (e.g., binary_fixed_num_mv)
-    3. Standard matrix operations (dot_general, conv_general_dilated)
+    """Return ``True`` if ``eqn`` performs a connection-like data transfer.
 
     Parameters
     ----------
-    eqn :
-        A JaxprEqn to check
-    eqn: JaxprEqn :
-        
+    eqn : JaxprEqn
+        Equation emitted in the step JAXPR.
 
     Returns
     -------
-    
-        True if this equation represents a connection, False otherwise
-
+    bool
+        ``True`` when the primitive corresponds to a brainevent connection or a
+        dense/conv primitive, ``False`` otherwise.
     """
     # Check if equation is a jit-wrapped brainevent operation that should be a connection
     if is_jit_primitive(eqn):
@@ -83,33 +76,13 @@ class UnionFind:
         self.rank = {}
 
     def make_set(self, x):
-        """Create a new set containing only x.
-
-        Parameters
-        ----------
-        x :
-            
-
-        Returns
-        -------
-
-        """
+        """Create a singleton set containing ``x`` if it does not exist."""
         if x not in self.parent:
             self.parent[x] = x
             self.rank[x] = 0
 
     def find(self, x):
-        """Find the representative of the set containing x.
-
-        Parameters
-        ----------
-        x :
-            
-
-        Returns
-        -------
-
-        """
+        """Return the canonical representative for the set containing ``x``."""
         if x not in self.parent:
             self.make_set(x)
         if self.parent[x] != x:
@@ -117,19 +90,7 @@ class UnionFind:
         return self.parent[x]
 
     def union(self, x, y):
-        """Merge the sets containing x and y.
-
-        Parameters
-        ----------
-        x :
-            
-        y :
-            
-
-        Returns
-        -------
-
-        """
+        """Merge the sets containing ``x`` and ``y`` using union-by-rank."""
         root_x = self.find(x)
         root_y = self.find(y)
 
@@ -146,7 +107,7 @@ class UnionFind:
             self.rank[root_x] += 1
 
     def get_groups(self) -> List[Set]:
-        """Get all groups as a list of sets."""
+        """Return the current disjoint sets as a list of ``set`` objects."""
         groups_dict = defaultdict(set)
         for x in self.parent.keys():
             root = self.find(x)
@@ -158,21 +119,7 @@ def find_in_states(
     in_var_to_state: Dict[Var, State],
     in_vars: Sequence[Var]
 ):
-    """
-
-    Parameters
-    ----------
-    in_var_to_state: Dict[Var :
-        
-    State] :
-        
-    in_vars: Sequence[Var] :
-        
-
-    Returns
-    -------
-
-    """
+    """Return the list of :class:`State` objects referenced by ``in_vars``."""
     in_states = []
     in_state_ids = set()
     for var in in_vars:
@@ -188,21 +135,7 @@ def find_out_states(
     out_var_to_state: Dict[Var, State],
     out_vars: Sequence[Var]
 ):
-    """
-
-    Parameters
-    ----------
-    out_var_to_state: Dict[Var :
-        
-    State] :
-        
-    out_vars: Sequence[Var] :
-        
-
-    Returns
-    -------
-
-    """
+    """Return the list of :class:`State` objects referenced by ``out_vars``."""
     out_states = []
     out_state_ids = set()
     for var in out_vars:

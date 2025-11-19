@@ -25,7 +25,6 @@ brainstate.environ.set(dt=0.1 * u.ms)
 
 
 class EINet(brainstate.nn.Module):
-    """ """
     def __init__(self):
         super().__init__()
         self.n_exc = 3200
@@ -50,19 +49,6 @@ class EINet(brainstate.nn.Module):
         )
 
     def update(self, t, inp):
-        """
-
-        Parameters
-        ----------
-        t :
-            
-        inp :
-            
-
-        Returns
-        -------
-
-        """
         with brainstate.environ.context(t=t):
             spk = self.N.get_spike() != 0.
             self.E(spk[:self.n_exc])
@@ -72,7 +58,6 @@ class EINet(brainstate.nn.Module):
 
 
 def test_parse():
-    """ """
     # network
     net = EINet()
     brainstate.nn.init_all_states(net)
@@ -81,19 +66,6 @@ def test_parse():
     inp = 20. * u.mA
 
     def run_step(t, inp):
-        """
-
-        Parameters
-        ----------
-        t :
-            
-        inp :
-            
-
-        Returns
-        -------
-
-        """
         with brainstate.environ.context(t=t):
             spikes = net.update(t, inp)
             return spikes

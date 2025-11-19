@@ -41,13 +41,6 @@ class GdiistBPUParser:
     - Multiple display formats (text, summary, graph)
     - Export capabilities (dict, JSON)
     - Cache management
-
-    Parameters
-    ----------
-
-    Returns
-    -------
-
     """
 
     def __init__(
@@ -65,21 +58,6 @@ class GdiistBPUParser:
         self.compiled_graph = BoundedCache(maxsize=cache_size)
 
     def cache_key(self, *args, **kwargs) -> Any:
-        """Generate a hashable cache key from the input arguments.
-
-        Parameters
-        ----------
-        *args :
-            Positional arguments
-        **kwargs :
-            Keyword arguments
-
-        Returns
-        -------
-        
-            A hashable key for caching
-
-        """
         if self.target == 'forloop':
             args, kwargs = jax.tree.map(lambda x: x[0], (args, kwargs))
         return _make_hashable(jax.tree.map(shaped_abstractify, (args, kwargs)))
@@ -91,29 +69,6 @@ class GdiistBPUParser:
         verbose: bool = False,
         **kwargs
     ) -> ParsedResults:
-        """Main parsing function that analyzes JAXpr and builds groups and connections.
-
-        Parameters
-        ----------
-        *args :
-            Positional arguments for the function
-        **kwargs :
-            Keyword arguments for the function
-        display :
-            Display mode ('text', 'summary', 'graph', or None)
-        verbose :
-            If True, show additional parsing information
-        display: Optional[str] :
-             (Default value = None)
-        verbose: bool :
-             (Default value = False)
-
-        Returns
-        -------
-        
-            Tuple of (nodes, connections, state_mapping)
-
-        """
         key = self.cache_key(*args, **kwargs)
 
         if key in self.compiled_graph:
@@ -140,23 +95,6 @@ class GdiistBPUParser:
         return result
 
     def display(self, result: Tuple, mode: str = 'text') -> None:
-        """Display the parsed results in various formats.
-
-        Parameters
-        ----------
-        result :
-            Parse result tuple, uses last parse result if None
-        mode :
-            Display mode ('text', 'summary', 'graph')
-        result: Tuple :
-            
-        mode: str :
-             (Default value = 'text')
-
-        Returns
-        -------
-
-        """
         nodes, connections, state_mapping = result
         if mode == 'text':
             _text_display(nodes, connections, state_mapping)
@@ -187,24 +125,6 @@ def _text_display(
     connections: List[Connection],
     state_mappings: Dict[str, Any]
 ):
-    """Display comprehensive analysis results for BPU Node Connection Parser
-
-    Parameters
-    ----------
-    operations: List[Group] :
-        
-    connections: List[Connection] :
-        
-    state_mappings: Dict[str :
-        
-    Any] :
-        
-
-    Returns
-    -------
-
-    """
-
     print(f"\nSummary:")
     print(f"   The BPU parser successfully analyzed the neural network into:")
     print(f"   - {len(operations)} computational operations")
@@ -263,19 +183,6 @@ def _text_display(
 
 
 def _text_one_eqn(eqn: JaxprEqn, no):
-    """
-
-    Parameters
-    ----------
-    eqn: JaxprEqn :
-        
-    no :
-        
-
-    Returns
-    -------
-
-    """
     # Get output info
     output_info = ""
     if len(eqn.outvars) > 0:
@@ -316,17 +223,6 @@ def _text_one_eqn(eqn: JaxprEqn, no):
 
 
 def _no_formatter(num):
-    """
-
-    Parameters
-    ----------
-    num :
-        
-
-    Returns
-    -------
-
-    """
     if num < 10:
         formater = '{:1d}'
     elif num < 100:

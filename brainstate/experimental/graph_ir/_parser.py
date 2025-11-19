@@ -34,7 +34,29 @@ __all__ = [
 
 
 class ParsedResults(NamedTuple):
-    """ """
+    """Structured output produced by :func:`parse`.
+
+    Attributes
+    ----------
+    static_argnames, static_argnums : Sequence
+        Indices/names of static arguments captured by ``StatefulFunction``.
+    cache_fn : Callable
+        Helper used to verify that subsequent calls use cached arguments.
+    cache_key : Hashable
+        Cached argument signature associated with the compiled artifacts.
+    out_treedef : Any
+        PyTree treedef describing how the ``stateful_fn`` packs its outputs.
+    jaxpr : ClosedJaxpr
+        Original program for the step.
+    in_states, out_states : Sequence[State]
+        State metadata extracted from ``stateful_fn``.
+    invar_to_state, outvar_to_state : Dict[Var, State]
+        Mappings between program variables and states.
+    state_to_invars, state_to_outvars : Dict[State, Sequence[Var]]
+        Reverse mappings for the state variables.
+    compiled : CompiledGraph
+        Graph-IR representation ready for execution/visualization.
+    """
     static_argnames: Sequence
     static_argnums: Sequence
     cache_fn: Callable
@@ -50,20 +72,22 @@ class ParsedResults(NamedTuple):
     compiled: CompiledGraph
 
     def run(self, *args, mode: str = 'compiled', **kwargs) -> Any:
-        """
+        """Execute the parsed function in the requested mode.
 
         Parameters
         ----------
-        *args :
-            
-        mode: str :
-             (Default value = 'compiled')
-        **kwargs :
-            
+        *args, **kwargs
+            Runtime arguments forwarded to the original stateful function.
+        mode : {'compiled', 'original', 'debug'}, optional
+            Execution mode. ``'compiled'`` (default) uses the graph IR,
+            ``'original'`` evals the raw ClosedJaxpr, and ``'debug'`` returns a
+            tuple with both results.
 
         Returns
         -------
-
+        Any
+            Result of the selected execution path. ``'debug'`` returns a tuple
+            ``(original, compiled)``.
         """
         if mode == 'compiled':
             return self.run_compiled_graph(*args, **kwargs)
@@ -80,53 +104,15 @@ class ParsedResults(NamedTuple):
             raise ValueError(f"Unknown mode: {mode}")
 
     def run_original_jaxpr(self, *args, **kwargs) -> Any:
-        """
-
-        Parameters
-        ----------
-        *args :
-            
-        **kwargs :
-            
-
-        Returns
-        -------
-
-        """
+        """Evaluate the original ClosedJaxpr for comparison/debugging."""
         return self._run_impl(lambda *data: jax.core.eval_jaxpr(self.jaxpr.jaxpr, self.jaxpr.consts, *data), *args, **kwargs)
 
     def run_compiled_graph(self, *args, **kwargs) -> Any:
-        """
-
-        Parameters
-        ----------
-        *args :
-            
-        **kwargs :
-            
-
-        Returns
-        -------
-
-        """
+        """Execute the compiled graph IR representation."""
         return self._run_impl(self._run_graph, *args, **kwargs)
 
     def _run_impl(self, impl, *args, **kwargs) -> Any:
-        """
-
-        Parameters
-        ----------
-        impl :
-            
-        *args :
-            
-        **kwargs :
-            
-
-        Returns
-        -------
-
-        """
+        """Shared argument/treedef handling for the execution helpers."""
         # data check
         if self.cache_fn(*args, **kwargs) != self.cache_key:
             raise ValueError("Cache key mismatch. The function has been called with different arguments.")
@@ -150,18 +136,17 @@ class ParsedResults(NamedTuple):
         return out
 
     def _run_graph(self, *args) -> Any:
-        """Run the network using the compiled graph structure.
-        
-        This executes components in graph, maintaining a variable environment.
+        """Run the compiled graph while maintaining a variable environment.
 
         Parameters
         ----------
-        *args :
-            
+        *args
+            Flattened inputs expected by the ClosedJaxpr.
 
         Returns
         -------
-
+        Any
+            Reconstructed model outputs.
         """
         # Build variable environment: Var -> value mapping
         var_env = {}
@@ -186,20 +171,14 @@ class ParsedResults(NamedTuple):
         return outputs
 
     def _initialize_var_env(self, var_env: Dict[Var, Any], args: Tuple) -> None:
-        """Initialize variable environment with input arguments and state values.
+        """Seed the variable environment with the function inputs.
 
         Parameters
         ----------
-        var_env: Dict[Var :
-            
-        Any] :
-            
-        args: Tuple :
-            
-
-        Returns
-        -------
-
+        var_env : dict[Var, Any]
+            Mutable mapping from variables to runtime values.
+        args : tuple
+            Positional arguments following the ClosedJaxpr order.
         """
         # Map to jaxpr invars
         assert len(args) == len(self.jaxpr.jaxpr.invars), (
@@ -209,21 +188,7 @@ class ParsedResults(NamedTuple):
             var_env[var] = val
 
     def _execute_input(self, input_comp: Input, var_env: Dict[Var, Any]) -> None:
-        """Execute an Input component.
-
-        Parameters
-        ----------
-        input_comp: Input :
-            
-        var_env: Dict[Var :
-            
-        Any] :
-            
-
-        Returns
-        -------
-
-        """
+        """Evaluate an :class:`Input` component and store its outputs."""
         # Gather input values from environment
         input_vals = [var_env[var] for var in input_comp.jaxpr.jaxpr.invars]
 
@@ -239,21 +204,7 @@ class ParsedResults(NamedTuple):
             var_env[var] = val
 
     def _execute_group(self, group: Group, var_env: Dict[Var, Any]) -> None:
-        """Execute a Group component.
-
-        Parameters
-        ----------
-        group: Group :
-            
-        var_env: Dict[Var :
-            
-        Any] :
-            
-
-        Returns
-        -------
-
-        """
+        """Evaluate a :class:`Group` subgraph using values from ``var_env``."""
         # Gather input values from environment
         input_vals = []
         for var in group.jaxpr.jaxpr.invars:
@@ -275,21 +226,7 @@ class ParsedResults(NamedTuple):
             var_env[var] = val
 
     def _execute_projection(self, projection: Projection, var_env: Dict[Var, Any]) -> None:
-        """Execute a Projection component.
-
-        Parameters
-        ----------
-        projection: Projection :
-            
-        var_env: Dict[Var :
-            
-        Any] :
-            
-
-        Returns
-        -------
-
-        """
+        """Evaluate a :class:`Projection` component, including const fallbacks."""
         # Gather input values from environment
         input_vals = []
         for var in projection.jaxpr.jaxpr.invars:
@@ -316,21 +253,7 @@ class ParsedResults(NamedTuple):
             var_env[var] = val
 
     def _execute_output(self, output: Output, var_env: Dict[Var, Any]) -> None:
-        """Execute an Output component.
-
-        Parameters
-        ----------
-        output: Output :
-            
-        var_env: Dict[Var :
-            
-        Any] :
-            
-
-        Returns
-        -------
-
-        """
+        """Evaluate an :class:`Output` component using values in ``var_env``."""
         # Gather input values from environment
         input_vals = [var_env[var] for var in output.jaxpr.jaxpr.invars]
 
@@ -346,18 +269,17 @@ class ParsedResults(NamedTuple):
             var_env[var] = val
 
     def _collect_outputs(self, var_env: Dict[Var, Any]) -> Any:
-        """Collect output values from the variable environment.
+        """Assemble model outputs from the variable environment.
 
         Parameters
         ----------
-        var_env: Dict[Var :
-            
-        Any] :
-            
+        var_env : dict[Var, Any]
+            Environment after graph execution.
 
         Returns
         -------
-
+        Any
+            Single value or tuple that mirrors the original function's outputs.
         """
         output_vals = []
         for var in self.jaxpr.jaxpr.outvars:
@@ -376,18 +298,21 @@ def parse(
     stateful_fn: StatefulFunction,
     jit_inline: bool = True,
 ) -> Callable[..., ParsedResults]:
-    """
+    """Create a parser that compiles ``stateful_fn`` into graph IR.
 
     Parameters
     ----------
-    stateful_fn: StatefulFunction :
-        
-    jit_inline: bool :
-         (Default value = True)
+    stateful_fn : StatefulFunction
+        Stateful function wrapper to parse.
+    jit_inline : bool, optional
+        When ``True`` the parser inlines JIT-wrapped connection primitives
+        before compilation.
 
     Returns
     -------
-
+    Callable[..., ParsedResults]
+        Function that, when invoked with runtime arguments, returns
+        :class:`ParsedResults`.
     """
     assert isinstance(stateful_fn, StatefulFunction), "stateful_fn must be an instance of StatefulFunction"
     assert stateful_fn.return_only_write, (
@@ -395,19 +320,7 @@ def parse(
     )
 
     def call(*args, **kwargs):
-        """
-
-        Parameters
-        ----------
-        *args :
-            
-        **kwargs :
-            
-
-        Returns
-        -------
-
-        """
+        """Run the parser for the provided arguments."""
         # jaxpr
         jaxpr = stateful_fn.get_jaxpr(*args, **kwargs)
         if jit_inline:
@@ -455,20 +368,28 @@ def _build_state_mapping(
     in_states: List[State],
     out_states: List[State],
 ) -> Dict:
-    """
+    """Map JAXPR variables to their corresponding ``State`` instances.
 
     Parameters
     ----------
-    closed_jaxpr: ClosedJaxpr :
-        
-    in_states: List[State] :
-        
-    out_states: List[State] :
-        
+    closed_jaxpr : ClosedJaxpr
+        Program emitted by ``StatefulFunction``.
+    in_states, out_states : list[State]
+        Ordered state lists returned by the stateful function.
 
     Returns
     -------
+    dict
+        Dictionary containing ``invar_to_state``, ``outvar_to_state``,
+        ``state_to_invars``, ``state_to_outvars``, and the original state lists.
 
+    Raises
+    ------
+    TypeError
+        If ``closed_jaxpr`` is not a :class:`ClosedJaxpr` or the states are not
+        :class:`State` instances.
+    ValueError
+        If ``out_states`` is not a subset of ``in_states``.
     """
     # --- validations ---
     if not isinstance(closed_jaxpr, ClosedJaxpr):

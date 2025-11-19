@@ -15,9 +15,9 @@
 
 """Typed containers and visualization helpers for the experimental graph IR."""
 
-from collections import defaultdict
+from collections import defaultdict, deque
 from dataclasses import dataclass
-from typing import Dict, Iterable, Iterator, List, NamedTuple, Set, Tuple, Union
+from typing import Dict, Iterable, Iterator, List, NamedTuple, Set, Tuple
 
 from brainstate._compatible_import import ClosedJaxpr, Var
 from brainstate._state import State
@@ -53,88 +53,83 @@ class Group(GraphElem):
 
     @property
     def eqns(self):
-        """ """
+        """list[JaxprEqn]: Equations contained in the group's ClosedJaxpr."""
         return self.jaxpr.jaxpr.eqns
 
     def has_outvar(self, outvar: Var) -> bool:
-        """
+        """Return True if ``outvar`` is produced by this group.
 
         Parameters
         ----------
-        outvar: Var :
-            
+        outvar : Var
+            Variable to test.
 
         Returns
         -------
-        type
-            
-
+        bool
+            ``True`` when the variable appears in ``jaxpr.outvars``.
         """
         return outvar in self.jaxpr.jaxpr.outvars
 
     def has_invar(self, invar: Var) -> bool:
-        """
+        """Return True if ``invar`` is consumed at the group boundary.
 
         Parameters
         ----------
-        invar: Var :
-            
+        invar : Var
+            Variable to test.
 
         Returns
         -------
-        type
-            
-
+        bool
+            ``True`` when the variable appears in ``jaxpr.invars``.
         """
         return invar in self.jaxpr.jaxpr.invars
 
     def has_in_state(self, state: State) -> bool:
-        """
+        """Return True if ``state`` is used in read-only fashion by the group.
 
         Parameters
         ----------
-        state: State :
-            
+        state : State
+            State instance to search for.
 
         Returns
         -------
-        type
-            
-
+        bool
+            ``True`` when the state appears in :attr:`in_states`.
         """
         state_id = id(state)
         return any(id(s) == state_id for s in self.in_states)
 
     def has_out_state(self, state: State) -> bool:
-        """
+        """Return True if ``state`` is produced (but not necessarily reused).
 
         Parameters
         ----------
-        state: State :
-            
+        state : State
+            State instance to search for.
 
         Returns
         -------
-        type
-            
-
+        bool
+            ``True`` when the state appears in :attr:`out_states`.
         """
         state_id = id(state)
         return any(id(s) == state_id for s in self.out_states)
 
     def has_hidden_state(self, state: State) -> bool:
-        """
+        """Return True if ``state`` belongs to the group's recurrent set.
 
         Parameters
         ----------
-        state: State :
-            
+        state : State
+            State instance to test.
 
         Returns
         -------
-        type
-            
-
+        bool
+            ``True`` when the state appears in :attr:`hidden_states`.
         """
         state_id = id(state)
         return any(id(s) == state_id for s in self.hidden_states)
@@ -184,18 +179,14 @@ class Input(GraphElem):
 
 
 class Spike(NamedTuple):
-    """Opaque surrogate-gradient spike representation used by the compiler.
-    
-    Notes:
-        The backing JAXPR commonly corresponds to a Heaviside surrogate
-        gradient such as ``heaviside_surrogate_gradient``.
+    """Opaque surrogate-gradient spike primitive used by the compiler.
 
     Parameters
     ----------
-
-    Returns
-    -------
-
+    state : State
+        Logical state that emitted the spike surrogate.
+    jaxpr : ClosedJaxpr
+        ClosedJaxpr that implements the surrogate-gradient primitive.
     """
 
     state: State
@@ -212,11 +203,25 @@ class Graph:
         self._reverse_edges: Dict[int, Set[int]] = defaultdict(set)
 
     def add_node(self, node: GraphElem) -> None:
-        """Register a node in insertion order, ignoring duplicates."""
+        """Register ``node`` in insertion order, ignoring duplicates.
+
+        Parameters
+        ----------
+        node : GraphElem
+            Element to insert into the graph.
+        """
         self._ensure_node(node)
 
     def add_edge(self, source: GraphElem, target: GraphElem) -> None:
-        """Add a directed edge indicating that ``target`` depends on ``source``."""
+        """Add a directed edge indicating that ``target`` depends on ``source``.
+
+        Parameters
+        ----------
+        source : GraphElem
+            Upstream element that produces data.
+        target : GraphElem
+            Downstream element that consumes data.
+        """
         source_idx = self._ensure_node(source)
         target_idx = self._ensure_node(target)
         if target_idx not in self._forward_edges[source_idx]:
@@ -224,31 +229,71 @@ class Graph:
             self._reverse_edges[target_idx].add(source_idx)
 
     def nodes(self) -> Tuple[GraphElem, ...]:
-        """Return nodes in their recorded execution order."""
+        """Return nodes in their recorded execution order.
+
+        Returns
+        -------
+        tuple[GraphElem, ...]
+            Sequence of every node encountered during compilation.
+        """
         return tuple(self._nodes)
 
     def edges(self) -> Iterable[Tuple[GraphElem, GraphElem]]:
-        """Iterate over all directed edges."""
+        """Iterate over all directed edges.
+
+        Returns
+        -------
+        Iterable[tuple[GraphElem, GraphElem]]
+            Generator yielding ``(source, target)`` pairs.
+        """
         for source_idx, targets in self._forward_edges.items():
             for target_idx in targets:
                 yield (self._nodes[source_idx], self._nodes[target_idx])
 
     def predecessors(self, node: GraphElem) -> Tuple[GraphElem, ...]:
-        """Return nodes that must execute before ``node``."""
+        """Return nodes that must execute before ``node``.
+
+        Parameters
+        ----------
+        node : GraphElem
+            Target element.
+
+        Returns
+        -------
+        tuple[GraphElem, ...]
+            Immediate predecessors of ``node``.
+        """
         node_idx = self._id_to_index.get(id(node))
         if node_idx is None:
             return tuple()
         return tuple(self._nodes[i] for i in self._reverse_edges.get(node_idx, ()))
 
     def successors(self, node: GraphElem) -> Tuple[GraphElem, ...]:
-        """Return nodes that depend on ``node``."""
+        """Return nodes that depend on ``node``.
+
+        Parameters
+        ----------
+        node : GraphElem
+            Origin element.
+
+        Returns
+        -------
+        tuple[GraphElem, ...]
+            Immediate successors of ``node``.
+        """
         node_idx = self._id_to_index.get(id(node))
         if node_idx is None:
             return tuple()
         return tuple(self._nodes[i] for i in self._forward_edges.get(node_idx, ()))
 
     def edge_count(self) -> int:
-        """Return number of directed edges in the graph."""
+        """Return number of directed edges in the graph.
+
+        Returns
+        -------
+        int
+            Total number of edges currently recorded.
+        """
         return sum(len(targets) for targets in self._forward_edges.values())
 
     def __len__(self) -> int:
@@ -262,106 +307,201 @@ class Graph:
     def __iter__(self) -> Iterator[GraphElem]:
         return iter(self._nodes)
 
-    def visualize(
-        self,
-        *,
-        title: str = "Compiled Call Graph",
-        formatter: Optional[Callable[[GraphElem], str]] = None,
-        highlight: Optional[Iterable[GraphElem]] = None,
-        positions: Optional['np.ndarray'] = None,
-        width: int = 900,
-        height: int = 600,
-        **kwargs,
-    ):
-        """Visualize the graph using :mod:`braintools.visualize` helpers."""
-        if not self._nodes:
-            raise ValueError("Graph is empty; nothing to visualize.")
+    def visualize(self, ax=None):
+        """Visualize node dependencies in layered top-down layout.
 
+        Parameters
+        ----------
+        ax :
+            Optional matplotlib Axes to draw on. When ``None`` a new figure and
+            axes will be created.
+
+        Returns
+        -------
+        matplotlib.figure.Figure
+            The figure that contains the visualization so callers can further
+            customize or display it (e.g. via ``plt.show()``).
+
+        Raises
+        ------
+        RuntimeError
+            If ``matplotlib`` is not installed in the current environment.
+
+        """
         try:
-            from braintools.visualize import interactive_network
-        except ImportError as exc:
-            raise ImportError(
-                "braintools.visualize is required for graph visualization. "
-                "Install it with `pip install braintools[visualize]`."
+            import matplotlib.pyplot as plt
+            from matplotlib.patches import FancyBboxPatch
+        except ImportError as exc:  # pragma: no cover - optional dependency
+            raise RuntimeError(
+                "Graph.visualize requires matplotlib to be installed."
             ) from exc
 
-        import numpy as np
+        if not self._nodes:
+            fig, ax = plt.subplots(figsize=(4, 3))
+            ax.text(
+                0.5,
+                0.5,
+                "Graph is empty",
+                ha='center',
+                va='center',
+                fontsize=12,
+            )
+            ax.axis('off')
+            fig.tight_layout()
+            return fig
 
-        adjacency = self._build_adjacency_matrix(np)
-        labels = [self._format_node_label(node, formatter) for node in self._nodes]
-        node_colors = self._build_node_colors(np, highlight)
-        if positions is None:
-            positions = self._default_positions(np)
+        num_nodes = len(self._nodes)
+        in_degree = {i: len(self._reverse_edges.get(i, ())) for i in range(num_nodes)}
+        levels = {i: 0 for i in range(num_nodes)}
+        queue = deque(sorted(idx for idx, deg in in_degree.items() if deg == 0))
+        if not queue:
+            queue = deque(range(num_nodes))
+        enqueued = set(queue)
+        processed = set()
+        while queue:
+            idx = queue.popleft()
+            processed.add(idx)
+            for succ in sorted(self._forward_edges.get(idx, ())):
+                levels[succ] = max(levels.get(succ, 0), levels[idx] + 1)
+                in_degree[succ] = in_degree.get(succ, 0) - 1
+                if in_degree[succ] <= 0 and succ not in processed and succ not in enqueued:
+                    queue.append(succ)
+                    enqueued.add(succ)
+
+        if len(processed) != num_nodes:
+            remaining = set(range(num_nodes)) - processed
+            for idx in remaining:
+                preds = self._reverse_edges.get(idx, ())
+                if preds:
+                    max_pred = max(levels.get(pred, 0) for pred in preds)
+                    levels[idx] = max(levels.get(idx, 0), max_pred + 1)
+                else:
+                    levels[idx] = 0
+
+        layer_map = defaultdict(list)
+        for idx, level in levels.items():
+            layer_map[level].append(idx)
+        normalized_layers = []
+        for _, nodes in sorted(layer_map.items(), key=lambda item: item[0]):
+            normalized_layers.append(sorted(nodes))
+
+        num_layers = len(normalized_layers)
+        max_width = max((len(layer) for layer in normalized_layers), default=1)
+        x_gap = 2.5
+        y_gap = 2.0
+        node_width = 1.8
+        node_height = 0.9
+
+        x_positions: Dict[int, float] = {}
+        y_positions: Dict[int, float] = {}
+        for layer_idx, layer_nodes in enumerate(normalized_layers):
+            if not layer_nodes:
+                continue
+            row_width = len(layer_nodes)
+            x_offset = (max_width - row_width) * 0.5 * x_gap
+            y_val = (num_layers - layer_idx - 1) * y_gap
+            for pos, node_idx in enumerate(layer_nodes):
+                x_positions[node_idx] = x_offset + pos * x_gap
+                y_positions[node_idx] = y_val
+
+        if ax is None:
+            fig_width = max(6.0, max_width * 1.6)
+            fig_height = max(4.0, num_layers * 1.5)
+            fig, ax = plt.subplots(figsize=(fig_width, fig_height))
         else:
-            positions = np.asarray(positions, dtype=float)
-            expected = (len(self._nodes), 2)
-            if positions.shape != expected:
-                raise ValueError(f"positions must have shape {expected}, got {positions.shape}")
+            fig = ax.figure
 
-        return interactive_network(
-            adjacency=adjacency,
-            positions=positions,
-            node_labels=labels,
-            node_colors=node_colors,
-            title=title,
-            width=width,
-            height=height,
-            **kwargs,
-        )
+        def _node_label(node: GraphElem) -> str:
+            if isinstance(node, Group):
+                return f"Group\\n{node.name}"
+            if isinstance(node, Projection):
+                return f"Projection\\n{node.pre_group.name} → {node.post_group.name}"
+            if isinstance(node, Input):
+                return f"Input\\n→ {node.group.name}"
+            if isinstance(node, Output):
+                return f"Output\\n{node.group.name} →"
+            if isinstance(node, Connection):
+                return f"Connection\\n{node.jaxpr.jaxpr.name if hasattr(node.jaxpr, 'jaxpr') else ''}"
+            return type(node).__name__
 
-    def _build_adjacency_matrix(self, np_mod):
-        adjacency = np_mod.zeros((len(self._nodes), len(self._nodes)), dtype=float)
+        def _node_style(node: GraphElem) -> Tuple[str, str]:
+            if isinstance(node, Input):
+                return "#E3F2FD", "#1565C0"
+            if isinstance(node, Output):
+                return "#FCE4EC", "#AD1457"
+            if isinstance(node, Projection):
+                return "#FFF3E0", "#E65100"
+            if isinstance(node, Connection):
+                return "#EDE7F6", "#5E35B1"
+            return "#E8F5E9", "#1B5E20"  # Groups and fallbacks
+
+        for idx, node in enumerate(self._nodes):
+            x = x_positions.get(idx, 0.0)
+            y = y_positions.get(idx, 0.0)
+            facecolor, edgecolor = _node_style(node)
+            patch = FancyBboxPatch(
+                (x - node_width / 2, y - node_height / 2),
+                node_width,
+                node_height,
+                boxstyle='round,pad=0.25',
+                linewidth=1.4,
+                facecolor=facecolor,
+                edgecolor=edgecolor,
+            )
+            ax.add_patch(patch)
+            ax.text(
+                x,
+                y,
+                _node_label(node),
+                ha='center',
+                va='center',
+                fontsize=9,
+                color='#263238',
+            )
+
         for source_idx, targets in self._forward_edges.items():
+            sx = x_positions.get(source_idx, 0.0)
+            sy = y_positions.get(source_idx, 0.0)
             for target_idx in targets:
-                adjacency[source_idx, target_idx] = 1.0
-        return adjacency
+                tx = x_positions.get(target_idx, 0.0)
+                ty = y_positions.get(target_idx, 0.0)
+                ax.annotate(
+                    '',
+                    xy=(tx, ty + node_height / 2),
+                    xytext=(sx, sy - node_height / 2),
+                    arrowprops=dict(
+                        arrowstyle='-|>',
+                        color='#546E7A',
+                        linewidth=1.2,
+                        shrinkA=0,
+                        shrinkB=0,
+                    ),
+                )
 
-    def _format_node_label(
-        self, node: GraphElem, formatter: Optional[Callable[[GraphElem], str]]
-    ) -> str:
-        if formatter is not None:
-            return formatter(node)
-        if isinstance(node, Input):
-            return f"Input → {node.group.name}"
-        if isinstance(node, Group):
-            return node.name
-        if isinstance(node, Projection):
-            return f"{node.pre_group.name} → {node.post_group.name}"
-        if isinstance(node, Output):
-            return f"{node.group.name} → Output"
-        return type(node).__name__
-
-    def _build_node_colors(self, np_mod, highlight: Optional[Iterable[GraphElem]]):
-        type_buckets = {
-            Input: 0.0,
-            Group: 1.0,
-            Projection: 2.0,
-            Output: 3.0,
-        }
-        highlight_ids = {id(node) for node in highlight} if highlight else set()
-        colors = []
-        for node in self._nodes:
-            base = type_buckets.get(type(node), 4.0)
-            if id(node) in highlight_ids:
-                base += 4.0
-            colors.append(base)
-        return np_mod.asarray(colors, dtype=float)
-
-    def _default_positions(self, np_mod):
-        levels = {
-            Input: 0.0,
-            Group: 1.0,
-            Projection: 2.0,
-            Output: 3.0,
-        }
-        y = np_mod.asarray([levels.get(type(node), 4.0) for node in self._nodes], dtype=float)
-        if y.size:
-            max_level = max(y.max(), 1.0)
-            y = 1.0 - y / max_level
-        x = np_mod.linspace(0.0, 1.0, len(self._nodes), endpoint=True)
-        return np_mod.column_stack((x, y))
+        min_x = min(x_positions.values(), default=0.0) - x_gap
+        max_x = max(x_positions.values(), default=0.0) + x_gap
+        ax.set_xlim(min_x, max_x)
+        ax.set_ylim(-y_gap, num_layers * y_gap + y_gap)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.set_title("Model Dependency Graph", fontsize=12, fontweight='bold')
+        ax.axis('off')
+        fig.tight_layout()
+        return fig
 
     def _ensure_node(self, node: GraphElem) -> int:
+        """Ensure ``node`` exists in internal arrays and return its index.
+
+        Parameters
+        ----------
+        node : GraphElem
+            Element to track.
+
+        Returns
+        -------
+        int
+            Stable index assigned to ``node``.
+        """
         node_id = id(node)
         existing = self._id_to_index.get(node_id)
         if existing is not None:
@@ -373,19 +513,20 @@ class Graph:
 
 
 class CompiledGraph(NamedTuple):
-    """Compiled representation of a Spiking Neural Network.
-    
-    The object captures the decomposed computation graph emitted by the IR
-    compiler, organized into type-safe containers for groups, projections,
-    inputs, and outputs. It also tracks the execution order that evaluation
-    and visualization utilities reuse.
+    """Structured result returned by :func:`graph_ir.compile`.
 
-    Parameters
+    Attributes
     ----------
-
-    Returns
-    -------
-
+    groups : list[Group]
+        Neuron groups that own the state-update subgraphs.
+    projections : list[Projection]
+        Connection pipelines between groups.
+    inputs : list[Input]
+        External inputs traced through the jaxpr.
+    outputs : list[Output]
+        Observations that should be reported to the caller.
+    graph : Graph
+        Execution order for all components.
     """
     groups: List[Group]
     projections: List[Projection]
@@ -394,29 +535,25 @@ class CompiledGraph(NamedTuple):
     graph: Graph
 
     def display(self, mode='text'):
-        """Render the compiled graph with the requested presentation.
+        """Render the compiled graph using the requested presentation mode.
 
         Parameters
         ----------
-        mode :
-            Display mode to use. Supported values are ``'text'`` for
-            the verbose textual summary, ``'ascii'`` for the lightweight
-            ASCII-art visualization, and ``'visualization'``/``'viz'`` for
-            a Graphviz ``Digraph`` (if the optional dependency is present). (Default value = 'text')
+        mode : {'text', 'ascii', 'visualization', 'viz'}, optional
+            Presentation style. ``'text'`` prints a verbose summary,
+            ``'ascii'`` shows a minimal ASCII visualization, and
+            ``'visualization'``/``'viz'`` returns a Graphviz ``Digraph``.
 
         Returns
         -------
-        graphviz.Digraph | None
-            A Digraph instance for ``visualization``
-        graphviz.Digraph | None
-            A Digraph instance for ``visualization``
-            mode, or ``None`` for purely textual displays that print to stdout.
+        graphviz.Digraph or None
+            ``Digraph`` when ``mode`` requests the visualization backend,
+            otherwise ``None`` because the information is printed to stdout.
 
         Raises
         ------
         ValueError
             If an unsupported mode string is provided.
-
         """
         if mode == 'text':
             return self._text_display()
@@ -428,18 +565,7 @@ class CompiledGraph(NamedTuple):
             raise ValueError(f"Unknown display mode: {mode}. Use 'text', 'ascii', or 'visualization'")
 
     def _text_display(self):
-        """Print a detailed, sectioned summary of the compiled graph.
-        
-        The output enumerates every group, projection, input, and output along
-        with the derived metadata (state counts, primitive names, etc.).
-
-        Parameters
-        ----------
-
-        Returns
-        -------
-
-        """
+        """Print a detailed, sectioned summary of the compiled graph."""
         print("=" * 80)
         print("COMPILED GRAPH STRUCTURE")
         print("=" * 80)
@@ -543,22 +669,56 @@ class CompiledGraph(NamedTuple):
         print("\n" + "=" * 80)
 
     def _vis_display(self):
-        """Placeholder for a future Graphviz-based visualization."""
-        raise NotImplementedError("Visualization display is not implemented.")
-
-    def _ascii_display(self):
-        """Render a compact ASCII-art visualization of the compiled graph.
-        
-        The output includes a legend, execution order, and a simplified data
-        flow diagram that can be consumed directly in a terminal.
-
-        Parameters
-        ----------
+        """Return a Graphviz ``Digraph`` describing the execution graph.
 
         Returns
         -------
+        graphviz.Digraph
+            Graph description rendered with colors per component type.
 
+        Raises
+        ------
+        RuntimeError
+            If :mod:`graphviz` is not installed.
         """
+        try:
+            from graphviz import Digraph
+        except ImportError as exc:  # pragma: no cover - optional dependency
+            raise RuntimeError(
+                "CompiledGraph.display(mode='visualization') requires graphviz."
+            ) from exc
+
+        dot = Digraph("CompiledGraph")
+        dot.attr(rankdir='TB', splines='spline')
+
+        def _label(node: GraphElem) -> str:
+            if isinstance(node, Group):
+                return f"Group: {node.name}"
+            if isinstance(node, Projection):
+                return f"Projection: {node.pre_group.name}→{node.post_group.name}"
+            if isinstance(node, Input):
+                return f"Input → {node.group.name}"
+            if isinstance(node, Output):
+                return f"{node.group.name} → Output"
+            return type(node).__name__
+
+        for node in self.graph.nodes():
+            style = {'shape': 'box', 'style': 'rounded,filled', 'fillcolor': '#E8F5E9'}
+            if isinstance(node, Projection):
+                style['fillcolor'] = '#FFF3E0'
+            elif isinstance(node, Input):
+                style['fillcolor'] = '#E3F2FD'
+            elif isinstance(node, Output):
+                style['fillcolor'] = '#FCE4EC'
+            dot.node(str(id(node)), _label(node), **style)
+
+        for source, target in self.graph.edges():
+            dot.edge(str(id(source)), str(id(target)))
+
+        return dot
+
+    def _ascii_display(self):
+        """Render a compact ASCII-art visualization of the compiled graph."""
         print("=" * 80)
         print("COMPILED GRAPH - ASCII VISUALIZATION")
         print("=" * 80)
@@ -617,7 +777,8 @@ class CompiledGraph(NamedTuple):
 
             if id(proj.pre_group) not in drawn_groups:
                 print(f"  [{pre_id}] {pre_name}")
-                print(f"    | ({len(proj.pre_group.hidden_states)} states, {len(proj.pre_group.jaxpr.jaxpr.eqns)} eqns)")
+                print(
+                    f"    | ({len(proj.pre_group.hidden_states)} states, {len(proj.pre_group.jaxpr.jaxpr.eqns)} eqns)")
                 drawn_groups.add(id(proj.pre_group))
 
             # Show projection
@@ -629,7 +790,8 @@ class CompiledGraph(NamedTuple):
 
             if id(proj.post_group) not in drawn_groups:
                 print(f"  [{post_id}] {post_name}")
-                print(f"    | ({len(proj.post_group.hidden_states)} states, {len(proj.post_group.jaxpr.jaxpr.eqns)} eqns)")
+                print(
+                    f"    | ({len(proj.post_group.hidden_states)} states, {len(proj.post_group.jaxpr.jaxpr.eqns)} eqns)")
                 drawn_groups.add(id(proj.post_group))
             print()
 
@@ -653,20 +815,7 @@ class CompiledGraph(NamedTuple):
 
 
 def _format_state(state: State) -> str:
-    """
-
-    Parameters
-    ----------
-    state: State :
-        
-
-    Returns
-    -------
-    type
-        Shapes are preferred when present to avoid spamming huge tensors, while
-        scalars fall back to their raw value.
-
-    """
+    """Return a compact textual summary for ``state``."""
     if hasattr(state, 'value'):
         val = state.value
         if hasattr(val, 'shape'):
