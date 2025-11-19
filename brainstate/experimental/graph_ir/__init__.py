@@ -14,12 +14,11 @@
 # ==============================================================================
 
 
-from ._compiler import compile, CompilationError
+from ._compiler import compile_jaxpr, CompilationError, compile_fn
 from ._data import Graph, GraphElem, Group, Connection, Projection, Input, Output, CompiledGraph
-from ._parser import parse
 
 __all__ = [
-    'parse',
+    'compile_fn',
     'CompilationError',
     'Group',
     'Connection',

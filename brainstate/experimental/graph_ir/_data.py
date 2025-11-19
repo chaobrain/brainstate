@@ -478,12 +478,14 @@ class CompiledGraph(NamedTuple):
     graph : Graph
         Execution order for all components.
     """
+    # graph IR data
     groups: List[Group]
     projections: List[Projection]
     inputs: List[Input]
     outputs: List[Output]
     graph: Graph
 
+    # others
     static_argnames: Sequence
     static_argnums: Sequence
     cache_fn: Callable

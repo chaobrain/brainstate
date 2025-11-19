@@ -8,8 +8,7 @@ import brainstate as bst
 import brainunit as u
 import brainpy
 
-from brainstate.experimental.graph_ir import parse
-from brainstate.transform import StatefulFunction
+from brainstate.experimental.graph_ir import compile_fn
 
 bst.environ.set(dt=0.1 * u.ms)
 
@@ -38,10 +37,9 @@ def test_simple_lif_run():
             return lif.get_spike()
 
     # Parse
-    stateful_fn = StatefulFunction(update, ir_optimizations='dce')
     t = 0. * u.ms
     inp = 5. * u.mA
-    parse_output = parse(stateful_fn)(t, inp)
+    parse_output = compile_fn(update)(t, inp)
 
     result = parse_output.run(t, inp)
     print(result)
@@ -55,6 +53,7 @@ def test_two_populations_run():
 
     class TwoPopNet(bst.nn.Module):
         """ """
+
         def __init__(self):
             super().__init__()
             self.n_exc = 50
@@ -104,12 +103,11 @@ def test_two_populations_run():
         return net.update(t, inp_exc, inp_inh)
 
     # Parse
-    stateful_fn = StatefulFunction(update, ir_optimizations='dce')
     t = 0. * u.ms
     inp_exc = 5. * u.mA
     inp_inh = 3. * u.mA
 
-    parse_output = parse(stateful_fn)(t, inp_exc, inp_inh)
+    parse_output = compile_fn(update)(t, inp_exc, inp_inh)
     result = parse_output.run(t, inp_exc, inp_inh)
 
     print(result)

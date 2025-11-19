@@ -17,9 +17,10 @@
 
 import brainpy
 import brainunit as u
+import matplotlib.pyplot as plt
 
 import brainstate
-from brainstate.experimental.graph_ir import parse
+from brainstate.experimental.graph_ir import compile_fn
 
 brainstate.environ.set(dt=0.1 * u.ms)
 
@@ -44,18 +45,19 @@ def test_simple_lif():
     t = 0. * u.ms
     inp = 5. * u.mA
 
-    parser = parse(brainstate.transform.StatefulFunction(update, ir_optimizations='dce'))
+    parser = compile_fn(update)
     out = parser(t, inp)
 
-    print(f"  - Groups: {len(out.compiled.groups)}")
-    print(f"  - Projections: {len(out.compiled.projections)}")
-    print(f"  - Inputs: {len(out.compiled.inputs)}")
-    print(f"  - Outputs: {len(out.compiled.outputs)}")
+    print(f"  - Groups: {len(out.groups)}")
+    print(f"  - Projections: {len(out.projections)}")
+    print(f"  - Inputs: {len(out.inputs)}")
+    print(f"  - Outputs: {len(out.outputs)}")
 
 
 def test_two_populations():
     class TwoPopNet(brainstate.nn.Module):
         """ """
+
         def __init__(self):
             super().__init__()
             self.n_exc = 100
@@ -111,17 +113,18 @@ def test_two_populations():
     inp_exc = 5. * u.mA
     inp_inh = 3. * u.mA
 
-    parser = parse(brainstate.transform.StatefulFunction(update, ir_optimizations='dce'))
+    parser = compile_fn(update)
     out = parser(t, inp_exc, inp_inh)
 
-    out.compiled.graph.visualize().show()
+    out.graph.visualize()
+    plt.show()
 
-    print(f"  - Groups: {len(out.compiled.groups)}")
-    print(f"  - Projections: {len(out.compiled.projections)}")
-    print(f"  - Inputs: {len(out.compiled.inputs)}")
-    print(f"  - Outputs: {len(out.compiled.outputs)}")
+    print(f"  - Groups: {len(out.groups)}")
+    print(f"  - Projections: {len(out.projections)}")
+    print(f"  - Inputs: {len(out.inputs)}")
+    print(f"  - Outputs: {len(out.outputs)}")
 
-    for input in out.compiled.inputs:
+    for input in out.inputs:
         print(input.jaxpr)
         print(input.group.name)
         print()

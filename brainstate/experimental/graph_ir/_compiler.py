@@ -37,8 +37,8 @@ from ._data import Graph, GraphElem, Group, Connection, Projection, Input, Outpu
 from ._utils import _is_connection, UnionFind
 
 __all__ = [
-    'compile',
-    'parse',
+    'compile_jaxpr',
+    'compile_fn',
     'CompilationError',
 ]
 
@@ -1687,7 +1687,7 @@ def _build_state_mapping(
 # Main Compilation Function
 # ============================================================================
 
-def compile(
+def compile_jaxpr(
     closed_jaxpr: ClosedJaxpr,
     in_states: Tuple[State, ...],
     out_states: Tuple[State, ...],
@@ -1762,16 +1762,16 @@ def compile(
     return groups, projections, inputs, outputs, call_graph
 
 
-def parse(
-    stateful_fn: StatefulFunction,
+def compile_fn(
+    target: StatefulFunction | Callable,
     jit_inline: bool = True,
 ) -> Callable[..., CompiledGraph]:
     """Create a parser that compiles ``stateful_fn`` into graph IR.
 
     Parameters
     ----------
-    stateful_fn : StatefulFunction
-        Stateful function wrapper to parse.
+    target : StatefulFunction, Callable
+        Stateful function or callable target to parse.
     jit_inline : bool, optional
         When ``True`` the parser inlines JIT-wrapped connection primitives
         before compilation.
@@ -1782,7 +1782,14 @@ def parse(
         Function that, when invoked with runtime arguments, returns
         :class:`ParsedResults`.
     """
-    assert isinstance(stateful_fn, StatefulFunction), "stateful_fn must be an instance of StatefulFunction"
+    if isinstance(target, StatefulFunction):
+        stateful_fn = target
+    elif callable(target):
+        stateful_fn = StatefulFunction(target, return_only_write=True, ir_optimizations='dce')
+    else:
+        raise TypeError(
+            "Target must be either a StatefulFunction or a callable object."
+        )
     assert stateful_fn.return_only_write, (
         "Parser currently only supports stateful functions that return only write states. "
     )
@@ -1800,7 +1807,7 @@ def parse(
         state_mapping = _build_state_mapping(jaxpr, in_states, out_states)
 
         # Compile the SNN
-        groups, projections, inputs, outputs, graph = compile(
+        groups, projections, inputs, outputs, graph = compile_jaxpr(
             closed_jaxpr=jaxpr,
             in_states=in_states,
             out_states=out_states,

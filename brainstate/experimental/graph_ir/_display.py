@@ -462,7 +462,9 @@ class GraphDisplayer:
 
         # Draw nodes
         nx.draw_networkx_nodes(
-            G, pos, ax=ax,
+            G,
+            pos,
+            ax=ax,
             node_color=colors,
             node_size=sizes,
             node_shape='s',
