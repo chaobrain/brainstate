@@ -25,33 +25,37 @@ __all__ = [
 
 
 class ForLoop:
-    """A device-aware for-loop wrapper.
-    
-    This class wraps a function for execution in a for-loop pattern on a specific device.
+    """Device-aware decorator/adapter for ``for_loop`` transformations.
 
     Parameters
     ----------
-    fn : Callable or Missing
-        The function to be executed in the for-loop. If Missing, returns a decorator.
-    device : str, default 'cpu'
-        The target device for execution ('cpu', 'gpu', 'tpu').
+    fn : Callable or Missing, optional
+        Function to wrap immediately. When omitted (the default), the instance
+        behaves as a decorator and expects a callable later.
+    device : str, default='cpu'
+        Target device identifier registered via :func:`register_forloop_impl`.
+    **kwargs
+        Additional arguments forwarded to the device-specific implementation.
 
-    Returns
-    -------
+    Notes
+    -----
+    The object is callable. If it was created without ``fn`` it returns a new
+    :class:`ForLoop` configured for the provided function when used as a
+    decorator.
 
     Examples
     --------
-    Direct usage:
-    
-    
-    As a decorator:
-    >>> loop = ForLoop(my_func, device='gpu')
-    >>> result = loop(xs, length=100)
-    
+    Wrap a function directly:
+
+    >>> loop = ForLoop(step_fn, device='gpu')
+    >>> loop(xs, length=100)
+
+    Use as a decorator:
+
     >>> @ForLoop(device='gpu')
-    ... def my_func(x):
+    ... def step(x):
     ...     return x * 2
-    >>> result = my_func(xs)
+    >>> step(xs)
     """
 
     def __init__(
@@ -125,42 +129,38 @@ class ForLoop:
 
 
 class JIT:
-    """A device-aware JIT compilation wrapper.
-    
-    This class wraps a function for just-in-time compilation on a specific device.
+    """Device-aware decorator/adapter for just-in-time compilation.
 
     Parameters
     ----------
-    fn : Callable or Missing
-        The function to be JIT compiled. If Missing, returns a decorator.
-    device : str, default 'cpu'
-        The target device for compilation ('cpu', 'gpu', 'tpu').
-    **jit_kwargs :
-        Additional keyword arguments passed to the underlying JIT implementation.
+    fn : Callable or Missing, optional
+        Function to compile immediately. When omitted, the instance works as a
+        decorator.
+    device : str, default='cpu'
+        Target device identifier registered via :func:`register_jit_impl`.
+    jit_kwargs : dict, optional
+        Keyword arguments passed to the registered JIT factory upon compilation.
+    **kwargs
+        Additional keyword arguments forwarded to the implementation.
 
-    Returns
-    -------
+    Notes
+    -----
+    The class compiles the function during instantiation in decorator mode and
+    caches the compiled callable for subsequent invocations.
 
     Examples
     --------
     Direct usage:
-    
-    
+
+    >>> jit_step = JIT(step_fn, device='gpu')
+    >>> jit_step(x, y)
+
     As a decorator:
-    
-    
-    With additional JIT options:
-    >>> jit_fn = JIT(my_func, device='gpu')
-    >>> result = jit_fn(x, y)
-    
-    >>> @JIT(device='gpu')
-    ... def my_func(x, y):
-    ...     return x + y
-    >>> result = my_func(x, y)
-    
-    >>> @JIT(device='cpu', static_argnums=(1,))
-    ... def my_func(x, n):
+
+    >>> @JIT(device='cpu', jit_kwargs={'static_argnums': (1,)})
+    ... def power(x, n):
     ...     return x ** n
+    >>> power(2, 3)
     """
 
     def __init__(
