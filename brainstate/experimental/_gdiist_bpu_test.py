@@ -19,7 +19,7 @@ import braintools
 import brainunit as u
 
 import brainstate
-from brainstate.experimental.gdiist_bpu import GdiistBPUParser
+from brainstate.experimental._gdiist_bpu import GdiistBPUParser
 
 brainstate.environ.set(dt=0.1 * u.ms)
 

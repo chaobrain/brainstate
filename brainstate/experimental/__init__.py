@@ -14,7 +14,7 @@
 # ==============================================================================
 
 from . import graph_ir
-from . import gdiist_bpu
+from . import _gdiist_bpu
 from ._impl import *
 from ._impl import __all__ as export_all
 from ._wrapper import *

@@ -20,9 +20,10 @@ import jax
 from jax.api_util import shaped_abstractify
 
 from brainstate._compatible_import import JaxprEqn
-from brainstate.experimental.graph_ir import GroupIR, ConnectionIR, compile_fn, CompiledGraphIR
 from brainstate.transform._make_jaxpr import StatefulFunction, _make_hashable
 from brainstate.util._cache import BoundedCache
+from ._impl import register_jit_impl, register_forloop_impl
+from .graph_ir import GroupIR, ConnectionIR, compile_fn, CompiledGraphIR
 
 __all__ = [
     'GdiistBPUParser',
@@ -117,6 +118,18 @@ class GdiistBPUParser:
             f"cached_graphs={len(self.compiled_graph)}"
             f")"
         )
+
+
+def _jit_wrapper(fn, debug: bool = False, **kwargs):
+    return GdiistBPUParser(fn, target='jit')
+
+
+def _forloop_wrapper(fn, debug: bool = False, **kwargs):
+    return GdiistBPUParser(fn, target='forloop')
+
+
+register_jit_impl('bpu', _jit_wrapper)
+register_forloop_impl('bpu', _forloop_wrapper)
 
 
 def _text_display(
