@@ -20,8 +20,9 @@ graph components (Groups, Projections, Inputs, Outputs).
 """
 
 from collections import defaultdict
-from functools import partial
-from typing import Set, Tuple, Dict, Callable, List
+from dataclasses import dataclass
+from functools import partial, cached_property
+from typing import Set, Tuple, Dict, Callable, List, Optional
 
 import jax
 
@@ -38,6 +39,7 @@ __all__ = [
     'compile_fn',
     'CompilationError',
     'NeuronIRCompiler',
+    'CompilationContext',
 ]
 
 
@@ -84,12 +86,21 @@ def _extract_consts_for_vars(
 
     # Extract consts for the requested constvars
     consts = []
-    for var in constvars:
+    for idx, var in enumerate(constvars):
         if var in constvar_to_const:
             consts.append(constvar_to_const[var])
         else:
             # This constvar is not in the original jaxpr, which shouldn't happen
-            raise CompilationError(f"Constvar {var} not found in original jaxpr")
+            available_vars = [str(v) for v in original_jaxpr.constvars[:5]]
+            if len(original_jaxpr.constvars) > 5:
+                available_vars.append('...')
+            raise CompilationError(
+                f"Constvar {var} (at index {idx}) not found in original jaxpr.\n"
+                f"  Requested: {var}\n"
+                f"  Available constvars ({len(original_jaxpr.constvars)}): {', '.join(available_vars)}\n"
+                f"  Expected {len(constvars)} constvars, but {len(original_consts)} consts provided.\n"
+                f"  This may indicate a mismatch between equation extraction and const extraction."
+            )
 
     return consts
 
@@ -340,6 +351,39 @@ def _build_state_mapping(
     }
 
 
+@dataclass
+class CompilationContext:
+    """Container for compilation state and metadata.
+
+    This dataclass encapsulates all the state mappings and metadata needed
+    for compilation, simplifying the NeuronIRCompiler API.
+
+    Parameters
+    ----------
+    closed_jaxpr : ClosedJaxpr
+        The JAX program to compile.
+    in_states : tuple[State, ...]
+        Input states for the program.
+    out_states : tuple[State, ...]
+        Output states produced by the program.
+    invar_to_state : dict[Var, State]
+        Mapping from input variables to their states.
+    outvar_to_state : dict[Var, State]
+        Mapping from output variables to their states.
+    state_to_invars : dict[State, tuple[Var, ...]]
+        Mapping from states to their input variables.
+    state_to_outvars : dict[State, tuple[Var, ...]]
+        Mapping from states to their output variables.
+    """
+    closed_jaxpr: ClosedJaxpr
+    in_states: Tuple[State, ...]
+    out_states: Tuple[State, ...]
+    invar_to_state: Dict[Var, State]
+    outvar_to_state: Dict[Var, State]
+    state_to_invars: Dict[State, Tuple[Var, ...]]
+    state_to_outvars: Dict[State, Tuple[Var, ...]]
+
+
 # ============================================================================
 # Compiler Class
 # ============================================================================
@@ -406,6 +450,81 @@ class NeuronIRCompiler:
         self.eqn_to_id = {id(eqn): idx for idx, eqn in enumerate(self.jaxpr.eqns)}
         self.used_eqn_ids = set()  # Set of equation object ids that have been used
 
+    @classmethod
+    def from_context(cls, context: CompilationContext) -> 'NeuronIRCompiler':
+        """Create a compiler from a CompilationContext.
+
+        This is an alternative constructor that accepts a CompilationContext
+        dataclass instead of individual parameters, providing a cleaner API.
+
+        Parameters
+        ----------
+        context : CompilationContext
+            Container with all compilation state and metadata.
+
+        Returns
+        -------
+        NeuronIRCompiler
+            Compiler instance initialized with the context data.
+
+        Examples
+        --------
+        >>> context = CompilationContext(
+        ...     closed_jaxpr=jaxpr,
+        ...     in_states=in_states,
+        ...     out_states=out_states,
+        ...     invar_to_state=mappings['invar_to_state'],
+        ...     outvar_to_state=mappings['outvar_to_state'],
+        ...     state_to_invars=mappings['state_to_invars'],
+        ...     state_to_outvars=mappings['state_to_outvars'],
+        ... )
+        >>> compiler = NeuronIRCompiler.from_context(context)
+        """
+        return cls(
+            closed_jaxpr=context.closed_jaxpr,
+            in_states=context.in_states,
+            out_states=context.out_states,
+            invar_to_state=context.invar_to_state,
+            outvar_to_state=context.outvar_to_state,
+            state_to_invars=context.state_to_invars,
+            state_to_outvars=context.state_to_outvars,
+        )
+
+    @cached_property
+    def _var_to_producer_eqn(self) -> Dict[Var, JaxprEqn]:
+        """Build a mapping from variable to the equation that produces it.
+
+        This cached property avoids O(n) linear searches during compilation.
+
+        Returns
+        -------
+        dict[Var, JaxprEqn]
+            Mapping from each output variable to the equation that produces it.
+        """
+        mapping = {}
+        for eqn in self.jaxpr.eqns:
+            for out_var in eqn.outvars:
+                mapping[out_var] = eqn
+        return mapping
+
+    @cached_property
+    def _var_to_consumer_eqns(self) -> Dict[Var, List[JaxprEqn]]:
+        """Build a mapping from variable to equations that consume it.
+
+        This cached property avoids rebuilding the mapping for every input trace.
+
+        Returns
+        -------
+        dict[Var, list[JaxprEqn]]
+            Mapping from each variable to the list of equations that use it as input.
+        """
+        mapping = defaultdict(list)
+        for eqn in self.jaxpr.eqns:
+            for in_var in eqn.invars:
+                if isinstance(in_var, Var):
+                    mapping[in_var].append(eqn)
+        return dict(mapping)
+
     def _mark_eqns_as_used(self, eqns: List[JaxprEqn]) -> None:
         """Mark a list of equations as used.
 
@@ -417,6 +536,29 @@ class NeuronIRCompiler:
         for eqn in eqns:
             eqn_id = id(eqn)
             self.used_eqn_ids.add(eqn_id)
+
+    def _sort_equations_by_order(self, eqns: List[JaxprEqn]) -> List[JaxprEqn]:
+        """Sort equations by their original order in the jaxpr.
+
+        This helper method extracts the common pattern of sorting equations
+        that appears throughout the compilation process.
+
+        Parameters
+        ----------
+        eqns : list[JaxprEqn]
+            Equations to sort.
+
+        Returns
+        -------
+        list[JaxprEqn]
+            Equations sorted by their position in the original jaxpr.
+
+        Notes
+        -----
+        Time complexity: O(n log n) where n is len(eqns).
+        """
+        eqn_order = {id(eqn): i for i, eqn in enumerate(self.jaxpr.eqns)}
+        return sorted(eqns, key=lambda e: eqn_order[id(e)])
 
     def _make_closed_jaxpr(
         self,
@@ -575,8 +717,7 @@ class NeuronIRCompiler:
                                     queue.append(in_var)
 
             # Sort equations by their original order in jaxpr
-            eqn_order = {id(eqn): i for i, eqn in enumerate(self.jaxpr.eqns)}
-            relevant_eqns.sort(key=lambda e: eqn_order[id(e)])
+            relevant_eqns = self._sort_equations_by_order(relevant_eqns)
 
             # Determine invars for the group jaxpr
             # Invars include: hidden state input vars + other input states + input currents
@@ -701,11 +842,8 @@ class NeuronIRCompiler:
         """
         projections = []
 
-        # Build a mapping: var -> equation that produces it
-        var_to_producer_eqn = {}
-        for eqn in self.jaxpr.eqns:
-            for out_var in eqn.outvars:
-                var_to_producer_eqn[out_var] = eqn
+        # Use cached mapping: var -> equation that produces it
+        var_to_producer_eqn = self._var_to_producer_eqn
 
         # Build a mapping: group_id -> set of input_vars consumed by the group
         group_to_input_vars = {}
@@ -799,8 +937,39 @@ class NeuronIRCompiler:
         groups: List[Group],
         var_to_producer_eqn: Dict[Var, JaxprEqn],
         connections: List[Tuple[JaxprEqn, Connection]],
-    ):
-        """Trace the computation that produces ``input_var`` for a group."""
+    ) -> Optional[Tuple[Group, List[JaxprEqn], List[State], List[State], List[Connection]]]:
+        """Trace the computation that produces ``input_var`` for a group.
+
+        This method performs a backward traversal from an input variable to find
+        the source group, equations, states, and connections involved in producing
+        that variable's value.
+
+        Parameters
+        ----------
+        input_var : Var
+            Variable consumed by post_group to trace back.
+        post_group : Group
+            Group that consumes input_var.
+        groups : list[Group]
+            All groups in the compilation.
+        var_to_producer_eqn : dict[Var, JaxprEqn]
+            Cached mapping from variables to producing equations.
+        connections : list[tuple[JaxprEqn, Connection]]
+            Connection equations and their wrappers.
+
+        Returns
+        -------
+        tuple or None
+            If a valid projection is found, returns a 5-tuple:
+            (pre_group, proj_eqns, proj_hidden_states, proj_in_states, proj_connections).
+            Returns None if no valid projection exists (e.g., no source group found,
+            or pre_group == post_group).
+
+        Notes
+        -----
+        Time complexity: O(E + V) where E is equations, V is variables.
+        Uses breadth-first search to traverse the computation graph backward.
+        """
         # Build connection equation set for quick lookup
         conn_eqns = {id(eqn): conn for eqn, conn in connections}
 
@@ -877,8 +1046,7 @@ class NeuronIRCompiler:
             return None
 
         # Sort equations by original order
-        eqn_order = {id(eqn): i for i, eqn in enumerate(self.jaxpr.eqns)}
-        proj_eqns.sort(key=lambda e: eqn_order[id(e)])
+        proj_eqns = self._sort_equations_by_order(proj_eqns)
 
         return pre_group, proj_eqns, proj_hidden_states, proj_in_states, proj_connections
 
@@ -889,8 +1057,36 @@ class NeuronIRCompiler:
         proj_hidden_states: List[State],
         proj_in_states: List[State],
         proj_connections: List[Connection],
-    ):
-        """Merge new projection data with existing projection."""
+    ) -> Tuple[List[JaxprEqn], List[State], List[State], List[Connection]]:
+        """Merge new projection data with existing projection.
+
+        When multiple input_vars from the same pre→post group pair are found,
+        this method combines their equations, states, and connections into a
+        single unified projection.
+
+        Parameters
+        ----------
+        existing_proj : Projection
+            Projection that already exists for this pre→post pair.
+        proj_eqns : list[JaxprEqn]
+            New equations to merge.
+        proj_hidden_states : list[State]
+            New hidden states to merge.
+        proj_in_states : list[State]
+            New input states to merge.
+        proj_connections : list[Connection]
+            New connections to merge.
+
+        Returns
+        -------
+        tuple
+            4-tuple of (merged_eqns, merged_hidden_states, merged_in_states,
+            merged_connections) with duplicates removed and equations sorted.
+
+        Notes
+        -----
+        Preserves original equation order via sorting.
+        """
         merged_eqns = list(existing_proj.jaxpr.jaxpr.eqns)
         merged_hidden_states = list(existing_proj.hidden_states)
         merged_in_states = list(existing_proj.in_states)
@@ -913,8 +1109,7 @@ class NeuronIRCompiler:
                 merged_connections.append(conn)
 
         # Sort equations by original order
-        eqn_order = {id(eqn): i for i, eqn in enumerate(self.jaxpr.eqns)}
-        merged_eqns.sort(key=lambda e: eqn_order[id(e)])
+        merged_eqns = self._sort_equations_by_order(merged_eqns)
 
         return merged_eqns, merged_hidden_states, merged_in_states, merged_connections
 
@@ -925,8 +1120,35 @@ class NeuronIRCompiler:
         proj_in_states: List[State],
         post_group: Group,
         group_to_input_vars: Dict[int, Set[Var]],
-    ):
-        """Build a ClosedJaxpr for a projection."""
+    ) -> Tuple[ClosedJaxpr, List[Var]]:
+        """Build a ClosedJaxpr for a projection.
+
+        Constructs the jaxpr representing the projection computation, determining
+        the correct input and output variables based on states and group dependencies.
+
+        Parameters
+        ----------
+        proj_eqns : list[JaxprEqn]
+            Equations that comprise the projection.
+        proj_hidden_states : list[State]
+            Hidden states from the source group.
+        proj_in_states : list[State]
+            Additional input states needed.
+        post_group : Group
+            Destination group consuming the projection outputs.
+        group_to_input_vars : dict[int, set[Var]]
+            Mapping from group IDs to their input variables.
+
+        Returns
+        -------
+        tuple
+            2-tuple of (proj_jaxpr, proj_outvars) where proj_jaxpr is the compiled
+            ClosedJaxpr and proj_outvars are the output variables feeding into post_group.
+
+        Notes
+        -----
+        Input variable ordering: hidden_states vars, in_states vars, other vars.
+        """
         # Collect all invars needed by proj_eqns
         proj_invars_needed = set()
         proj_produced_vars = set()
@@ -999,12 +1221,8 @@ class NeuronIRCompiler:
         if not input_vars:
             return []
 
-        # Build a mapping: var -> equations that consume it
-        var_to_consumer_eqns = defaultdict(list)
-        for eqn in self.jaxpr.eqns:
-            for in_var in eqn.invars:
-                if isinstance(in_var, Var):
-                    var_to_consumer_eqns[in_var].append(eqn)
+        # Use cached mapping: var -> equations that consume it
+        var_to_consumer_eqns = self._var_to_consumer_eqns
 
         # Build a mapping: group -> set of input_vars (for quick lookup)
         group_input_vars_sets = {}
@@ -1057,8 +1275,7 @@ class NeuronIRCompiler:
                         all_output_vars.append(var)
 
             # Sort equations by their original order in jaxpr
-            eqn_order = {id(eqn): i for i, eqn in enumerate(self.jaxpr.eqns)}
-            all_equations.sort(key=lambda e: eqn_order[id(e)])
+            all_equations = self._sort_equations_by_order(all_equations)
 
             # Create the input ClosedJaxpr
             input_jaxpr = self._make_closed_jaxpr(
@@ -1081,8 +1298,35 @@ class NeuronIRCompiler:
         groups: List[Group],
         var_to_consumer_eqns: Dict[Var, List[JaxprEqn]],
         group_input_vars_sets: Dict[int, Set[Var]],
-    ):
-        """Forward-trace ``input_var`` until its values flow into a group boundary."""
+    ) -> Optional[Tuple[Var, Group, List[JaxprEqn], List[Var]]]:
+        """Forward-trace ``input_var`` until its values flow into a group boundary.
+
+        Performs a forward traversal from an external input variable through
+        intermediate computations until reaching a group's input boundary.
+
+        Parameters
+        ----------
+        input_var : Var
+            External input variable to trace forward.
+        groups : list[Group]
+            All groups to check as potential targets.
+        var_to_consumer_eqns : dict[Var, list[JaxprEqn]]
+            Cached mapping from variables to consuming equations.
+        group_input_vars_sets : dict[int, set[Var]]
+            Mapping from group IDs to their input variable sets.
+
+        Returns
+        -------
+        tuple or None
+            If the input flows into a group, returns a 4-tuple:
+            (input_var, target_group, equations_in_path, output_vars).
+            Returns None if the input doesn't flow into any group.
+
+        Notes
+        -----
+        Time complexity: O(E + V) where E is equations, V is variables.
+        Uses breadth-first search to traverse the computation graph forward.
+        """
         visited_vars = set()
         visited_eqns = set()
         equations_in_path = []
@@ -1163,11 +1407,8 @@ class NeuronIRCompiler:
         if not output_vars:
             return []
 
-        # Build a mapping: var -> equation that produces it
-        var_to_producer_eqn = {}
-        for eqn in self.jaxpr.eqns:
-            for out_var in eqn.outvars:
-                var_to_producer_eqn[out_var] = eqn
+        # Use cached mapping: var -> equation that produces it
+        var_to_producer_eqn = self._var_to_producer_eqn
 
         # Group output vars by which group they depend on (use group id as key)
         group_id_output_mapping = defaultdict(list)
@@ -1207,13 +1448,22 @@ class NeuronIRCompiler:
                 if var not in var_to_producer_eqn:
                     if var in self.jaxpr.invars:
                         # This is an external input (not a state)
+                        invar_idx = self.jaxpr.invars.index(var)
                         raise CompilationError(
-                            f"Output variable {out_var} depends on external input {var}, "
-                            "which is not a state variable. Outputs must only depend on state variables."
+                            f"Output variable {out_var} depends on external input {var} (jaxpr.invars[{invar_idx}]), "
+                            f"which is not a state variable.\n"
+                            f"  Suggestion: Outputs must only depend on state variables.\n"
+                            f"  - Add an intermediate state to store {var}\n"
+                            f"  - Or ensure the computation producing {out_var} only uses state variables\n"
+                            f"  - Check that the function signature matches expected state inputs/outputs"
                         )
                     else:
                         raise CompilationError(
-                            f"Output variable {out_var} depends on unknown variable {var}"
+                            f"Output variable {out_var} depends on unknown variable {var}.\n"
+                            f"  This variable is neither:\n"
+                            f"    - A jaxpr input (len={len(self.jaxpr.invars)})\n"
+                            f"    - Produced by any equation (total={len(self.jaxpr.eqns)})\n"
+                            f"  This indicates a potential bug in the compilation process."
                         )
 
                 # Get the equation that produces this var and add it
@@ -1243,10 +1493,15 @@ class NeuronIRCompiler:
                         if in_var in produced_vars:
                             continue
                         # If we get here, it's an invalid dependency on external intermediate variable
+                        eqn_idx = self.eqn_to_id.get(id(eqn), -1)
                         raise CompilationError(
-                            f"Output variable {out_var} depends on intermediate variable {in_var} "
-                            "that is not a state variable and not produced by output equations. "
-                            "This indicates an invalid output computation path."
+                            f"Output variable {out_var} depends on intermediate variable {in_var}\n"
+                            f"  in equation {eqn_idx}: {eqn.primitive.name if hasattr(eqn.primitive, 'name') else str(eqn.primitive)}\n"
+                            f"  Problem: {in_var} is not a state variable and not produced by output equations.\n"
+                            f"  Suggestion:\n"
+                            f"    - Ensure output computation only uses state variables\n"
+                            f"    - Or create a state to store the intermediate result\n"
+                            f"  Context: {len(equations_needed)} equations needed, {len(produced_vars)} vars produced"
                         )
 
             # Find corresponding hidden_states and in_states from dependent state vars
@@ -1330,8 +1585,7 @@ class NeuronIRCompiler:
                         all_equations.append(eqn)
 
             # Sort equations by their original order in jaxpr
-            eqn_order = {id(eqn): i for i, eqn in enumerate(self.jaxpr.eqns)}
-            all_equations.sort(key=lambda e: eqn_order[id(e)])
+            all_equations = self._sort_equations_by_order(all_equations)
 
             # Determine invars for the output jaxpr
             # We need to use state outvars for hidden states and state invars for in states
@@ -1471,39 +1725,75 @@ class NeuronIRCompiler:
         hidden_states = set(s for s in self.out_states if s in self.in_states)
         for state in hidden_states:
             if id(state) not in all_group_hidden_states:
+                from ._utils import get_hidden_name
+                state_name = get_hidden_name(state)
                 raise CompilationError(
-                    f"Hidden state {state} is not assigned to any group"
+                    f"Hidden state '{state_name}' (id={id(state)}) is not assigned to any group.\n"
+                    f"  Total groups: {len(groups)}\n"
+                    f"  Total hidden states: {len(hidden_states)}\n"
+                    f"  States assigned to groups: {len(all_group_hidden_states)}\n"
+                    f"  Suggestion: Verify that state dependency analysis (step1) correctly identified all states."
                 )
 
         # Check 2: Projections should have non-empty connections
-        for proj in projections:
+        for idx, proj in enumerate(projections):
             if not proj.connections:
+                pre_name = proj.pre_group.name if hasattr(proj.pre_group, 'name') else f'Group_{id(proj.pre_group)}'
+                post_name = proj.post_group.name if hasattr(proj.post_group, 'name') else f'Group_{id(proj.post_group)}'
                 raise CompilationError(
-                    f"Projection from {proj.pre_group} to {proj.post_group} has no connections"
+                    f"Projection {idx} from '{pre_name}' to '{post_name}' has no connections.\n"
+                    f"  This may indicate:\n"
+                    f"    - No connection primitives found between these groups\n"
+                    f"    - Connection extraction (step3) failed to identify connections\n"
+                    f"  Suggestion: Check that connection primitives are properly marked with _is_connection()"
                 )
 
         # Check 3: Projection hidden_states should belong to exactly one group
-        for proj in projections:
+        for proj_idx, proj in enumerate(projections):
             for state in proj.hidden_states:
                 count = sum(1 for g in groups if g.has_hidden_state(state))
+                from ._utils import get_hidden_name
+                state_name = get_hidden_name(state)
                 if count == 0:
                     raise CompilationError(
-                        f"Projection depends on state {state} which is not in any group"
+                        f"Projection {proj_idx} depends on state '{state_name}' which is not in any group.\n"
+                        f"  Total groups: {len(groups)}\n"
+                        f"  Suggestion: This state should be added to a group's hidden_states during group building (step2)."
                     )
                 elif count > 1:
+                    group_names = [g.name for g in groups if g.has_hidden_state(state)]
                     raise CompilationError(
-                        f"Projection depends on state {state} which belongs to multiple groups"
+                        f"Projection {proj_idx} depends on state '{state_name}' which belongs to {count} groups.\n"
+                        f"  Groups: {', '.join(group_names)}\n"
+                        f"  Suggestion: Each state should belong to exactly one group.\n"
+                        f"  This may indicate an error in state dependency analysis (step1)."
                     )
 
         # Check 4: All equations should be used
         unused_eqn_ids = set(self.eqn_to_id.keys()) - self.used_eqn_ids
         if unused_eqn_ids:
             unused_indices = sorted([self.eqn_to_id[eqn_id] for eqn_id in unused_eqn_ids])
+            # Show first few unused equations with details
+            sample_indices = unused_indices[:5]
+            sample_details = []
+            for idx in sample_indices:
+                eqn = self.jaxpr.eqns[idx]
+                prim_name = eqn.primitive.name if hasattr(eqn.primitive, 'name') else str(eqn.primitive)
+                sample_details.append(f"    [{idx}] {prim_name}")
+            if len(unused_indices) > 5:
+                sample_details.append(f"    ... and {len(unused_indices) - 5} more")
+
             raise CompilationError(
-                f"Not all equations were used in compilation. "
-                f"Unused equation indices: {unused_indices}. "
-                f"This may indicate that some computations are not part of any Group, "
-                f"Projection, Input, or Output."
+                f"Not all equations were used in compilation.\n"
+                f"  Total equations: {len(self.jaxpr.eqns)}\n"
+                f"  Used equations: {len(self.used_eqn_ids)}\n"
+                f"  Unused equations: {len(unused_eqn_ids)}\n"
+                f"  Unused equation indices: {unused_indices[:10]}{'...' if len(unused_indices) > 10 else ''}\n"
+                f"  Sample unused equations:\n" + "\n".join(sample_details) + "\n"
+                f"  Suggestion:\n"
+                f"    - Check that all computations are assigned to Groups, Projections, Inputs, or Outputs\n"
+                f"    - Verify that dead code elimination hasn't removed necessary computations\n"
+                f"    - Ensure all state updates are properly tracked"
             )
 
     def compile(self) -> Tuple[List[Group], List[Projection], List[Input], List[Output], NeuroGraph]:

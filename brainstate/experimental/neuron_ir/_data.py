@@ -573,49 +573,94 @@ class CompiledGraphIR(NamedTuple):
     state_to_invars: Dict[State, Sequence[Var]]
     state_to_outvars: Dict[State, Sequence[Var]]
 
-    def run(self, *args, mode: str = 'compiled', **kwargs) -> Any:
-        """Execute the parsed function in the requested mode.
+    def __call__(self, *args, **kwargs) -> Any:
+        """Execute the compiled graph IR (default execution mode).
+
+        This makes the CompiledGraphIR callable, using the compiled graph execution
+        by default.
 
         Parameters
         ----------
         *args, **kwargs
             Runtime arguments forwarded to the original stateful function.
-        mode : {'compiled', 'original', 'debug'}, optional
-            Execution mode. ``'compiled'`` (default) uses the graph IR,
-            ``'original'`` evals the raw ClosedJaxpr, and ``'debug'`` returns a
-            tuple with both results.
 
         Returns
         -------
         Any
-            Result of the selected execution path. ``'debug'`` returns a tuple
-            ``(original, compiled)``.
+            Result of executing the compiled graph IR.
         """
-        if mode == 'compiled':
-            return self.run_compiled_graph(*args, **kwargs, assign_state_val=True)
+        return self.run_compiled(*args, **kwargs)
 
-        elif mode == 'original':
-            return self.run_original_jaxpr(*args, **kwargs, assign_state_val=True)
+    def run_compiled(self, *args, **kwargs) -> Any:
+        """Execute the compiled graph IR representation.
 
-        elif mode == 'debug':
-            result = self.run_original_jaxpr(*args, **kwargs, assign_state_val=False)
-            compiled = self.run_compiled_graph(*args, **kwargs, assign_state_val=False)
-            return result, compiled
+        This is the default execution mode that uses the structured graph IR
+        for efficient computation.
 
-        else:
-            raise ValueError(f"Unknown mode: {mode}")
+        Parameters
+        ----------
+        *args, **kwargs
+            Runtime arguments forwarded to the original stateful function.
 
-    def run_original_jaxpr(self, *args, **kwargs) -> Any:
-        """Evaluate the original ClosedJaxpr for comparison/debugging."""
+        Returns
+        -------
+        Any
+            Result of executing the compiled graph IR.
+        """
+        return self._run_impl(self._run_graph, *args, **kwargs)
+
+    def run_original(self, *args, **kwargs) -> Any:
+        """Execute the original ClosedJaxpr for comparison/debugging.
+
+        This mode evaluates the raw Jaxpr without using the structured graph IR.
+        Useful for validating compilation correctness.
+
+        Parameters
+        ----------
+        *args, **kwargs
+            Runtime arguments forwarded to the original stateful function.
+
+        Returns
+        -------
+        Any
+            Result of executing the original Jaxpr.
+        """
         return self._run_impl(
             lambda *data: jax.core.eval_jaxpr(self.jaxpr.jaxpr, self.jaxpr.consts, *data),
             *args,
             **kwargs,
         )
 
-    def run_compiled_graph(self, *args, **kwargs) -> Any:
-        """Execute the compiled graph IR representation."""
-        return self._run_impl(self._run_graph, *args, **kwargs)
+    def debug_compare(self, *args, **kwargs) -> Tuple[Any, Any]:
+        """Execute both original and compiled versions and return both results.
+
+        This mode runs both execution paths without assigning state values,
+        allowing comparison of outputs to validate compilation correctness.
+
+        Parameters
+        ----------
+        *args, **kwargs
+            Runtime arguments forwarded to the original stateful function.
+
+        Returns
+        -------
+        tuple[Any, Any]
+            A tuple ``(original_result, compiled_result)`` containing results
+            from both execution modes.
+        """
+        original = self._run_impl(
+            lambda *data: jax.core.eval_jaxpr(self.jaxpr.jaxpr, self.jaxpr.consts, *data),
+            *args,
+            assign_state_val=False,
+            **kwargs,
+        )
+        compiled = self._run_impl(
+            self._run_graph,
+            *args,
+            assign_state_val=False,
+            **kwargs,
+        )
+        return original, compiled
 
     def _run_impl(self, impl, *args, assign_state_val: bool = True, **kwargs) -> Any:
         """Shared argument/treedef handling for the execution helpers."""
