@@ -18,13 +18,13 @@ import brainunit as u
 
 import brainstate
 from brainstate.experimental._gdiist_bpu import GdiistBPUParser
-from brainstate.experimental.neuron_ir._model_for_test import SinglePopEINet
+from brainstate.experimental.neuron_ir._model_for_test import SinglePopEI_COBA_Net
 
 brainstate.environ.set(dt=0.1 * u.ms)
 
 
 def test_parse():
-    net = SinglePopEINet()
+    net = SinglePopEI_COBA_Net()
     brainstate.nn.init_all_states(net)
 
     t = 0. * u.ms

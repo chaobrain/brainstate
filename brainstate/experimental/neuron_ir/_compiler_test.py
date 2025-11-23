@@ -17,7 +17,8 @@ from brainstate.experimental.neuron_ir._compiler import (
 from brainstate.experimental.neuron_ir._model_for_test import (
     TwoPopNet,
     SimpleNet,
-    SinglePopEINet,
+    SinglePopEI_COBA_Net,
+    Single_Pop_HH_EI_Net,
 )
 from brainstate.transform._make_jaxpr import StatefulFunction
 
@@ -86,7 +87,7 @@ class TestCompiledResultsExecution:
         print(compiled_out)
 
     def test_single_population_ei_network(self):
-        net = SinglePopEINet()
+        net = SinglePopEI_COBA_Net()
 
         brainstate.nn.init_all_states(net)
 
@@ -102,6 +103,16 @@ class TestCompiledResultsExecution:
         print(r1)
         print(r2)
 
+    def test_Single_Pop_HH_EI_Net(self):
+        net = Single_Pop_HH_EI_Net()
+        brainstate.nn.init_all_states(net)
+        t = 0. * u.ms
+        compiled = compile_fn(net.update)(t)
+        r1, r2 = compiled.debug_compare(t)
+        print(compiled)
+        print(compiled.graph)
+        print(r1)
+        print(r2)
 
 
 # ============================================================================
@@ -192,11 +203,11 @@ class TestCompilationStructure:
         4. Validation accepts valid self-connections
         """
         print("\n" + "=" * 80)
-        print("Test: Self-Connection Support (SinglePopEINet)")
+        print("Test: Self-Connection Support (SinglePopEI_COBA_Net)")
         print("=" * 80)
 
         # Create network with self-connections
-        net = SinglePopEINet()
+        net = SinglePopEI_COBA_Net()
         brainstate.nn.init_all_states(net)
 
         def update(t, inp):
@@ -233,7 +244,6 @@ class TestCompilationStructure:
         print(f"  Direct Self-Edges: {len(self_edges)}")
 
         # Check for Group -> Projection -> Group cycles
-        from brainstate.experimental.neuron_ir._data import Group, Projection
         for proj in self_projections:
             # Verify edges exist: Group -> Projection
             group_to_proj_edge = (proj.pre_group, proj) in edges
@@ -268,8 +278,6 @@ class TestCompilationStructure:
         print(f"\n{'=' * 80}")
         print("[OK] All self-connection tests passed!")
         print(f"{'=' * 80}\n")
-
-
 
 
 # ============================================================================
