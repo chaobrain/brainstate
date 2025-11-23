@@ -14,10 +14,11 @@ from brainstate.experimental.neuron_ir._compiler import (
     _extract_consts_for_vars,
     _build_var_dependencies,
 )
-from brainstate.experimental.neuron_ir._model_for_test import (
+from brainstate.experimental.neuron_ir._model_to_test import (
     TwoPopNet,
     SimpleNet,
-    SinglePopEI_COBA_Net,
+    Single_Pop_EI_COBA_Net,
+    Single_Pop_EI_CUBA_Net,
     Single_Pop_HH_EI_Net,
 )
 from brainstate.transform._make_jaxpr import StatefulFunction
@@ -87,7 +88,24 @@ class TestCompiledResultsExecution:
         print(compiled_out)
 
     def test_single_population_ei_network(self):
-        net = SinglePopEI_COBA_Net()
+        net = Single_Pop_EI_COBA_Net()
+
+        brainstate.nn.init_all_states(net)
+
+        def update(t, inp):
+            with brainstate.environ.context(t=t):
+                return net(t, inp)
+
+        t = 0. * u.ms
+        inp = 20. * u.mA
+        compiled = compile_fn(update)(t, inp)
+
+        r1, r2 = compiled.debug_compare(t, inp)
+        print(r1)
+        print(r2)
+
+    def test_Single_Pop_EI_CUBA_Net(self):
+        net = Single_Pop_EI_CUBA_Net()
 
         brainstate.nn.init_all_states(net)
 
@@ -203,11 +221,11 @@ class TestCompilationStructure:
         4. Validation accepts valid self-connections
         """
         print("\n" + "=" * 80)
-        print("Test: Self-Connection Support (SinglePopEI_COBA_Net)")
+        print("Test: Self-Connection Support (Single_Pop_EI_COBA_Net)")
         print("=" * 80)
 
         # Create network with self-connections
-        net = SinglePopEI_COBA_Net()
+        net = Single_Pop_EI_COBA_Net()
         brainstate.nn.init_all_states(net)
 
         def update(t, inp):

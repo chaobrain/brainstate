@@ -18,7 +18,7 @@ import matplotlib.pyplot as plt
 
 import brainstate
 from brainstate.experimental.neuron_ir import compile_fn
-from brainstate.experimental.neuron_ir._model_for_test import TwoPopNet
+from brainstate.experimental.neuron_ir._model_to_test import TwoPopNet
 
 
 class TestDisplayer:
