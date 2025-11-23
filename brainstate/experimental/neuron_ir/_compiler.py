@@ -892,7 +892,6 @@ class NeuronIRCompiler:
 
                 proj_info = self._trace_projection_path(
                     input_var=input_var,
-                    post_group=post_group,
                     groups=groups,
                     var_to_producer_eqn=var_to_producer_eqn,
                     connections=connections,
@@ -956,7 +955,6 @@ class NeuronIRCompiler:
     def _trace_projection_path(
         self,
         input_var: Var,
-        post_group: Group,
         groups: List[Group],
         var_to_producer_eqn: Dict[Var, JaxprEqn],
         connections: List[Tuple[JaxprEqn, Connection]],
@@ -971,8 +969,6 @@ class NeuronIRCompiler:
         ----------
         input_var : Var
             Variable consumed by post_group to trace back.
-        post_group : Group
-            Group that consumes input_var.
         groups : list[Group]
             All groups in the compilation.
         var_to_producer_eqn : dict[Var, JaxprEqn]
@@ -986,7 +982,8 @@ class NeuronIRCompiler:
             If a valid projection is found, returns a 5-tuple:
             (pre_group, proj_eqns, proj_hidden_states, proj_in_states, proj_connections).
             Returns None if no valid projection exists (e.g., no source group found,
-            or pre_group == post_group).
+            or multiple source groups detected). Self-connections (pre_group == post_group)
+            are fully supported.
 
         Notes
         -----
@@ -1063,10 +1060,6 @@ class NeuronIRCompiler:
             return None
 
         pre_group = source_groups[0]
-
-        # # Don't create projection if pre_group == post_group (internal connection)
-        # if pre_group == post_group:
-        #     return None
 
         # Sort equations by original order
         proj_eqns = self._sort_equations_by_order(proj_eqns)

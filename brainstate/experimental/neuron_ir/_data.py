@@ -743,7 +743,7 @@ class CompiledGraphIR(NamedTuple):
         )
         for var, val in zip(self.jaxpr.jaxpr.invars, args):
             var_env[var] = val
-        for var, val in zip(self.jaxpr.constvars, self.jaxpr.consts):
+        for var, val in zip(self.jaxpr.jaxpr.constvars, self.jaxpr.consts):
             var_env[var] = val
 
     def _execute_input(self, input_comp: Input, var_env: Dict[Var, Any]) -> None:

@@ -124,3 +124,6 @@ class SinglePopEINet(brainstate.nn.Module):
             self.N(inp)
             return self.N.get_spike()
 
+    def step_run(self, t, inp):
+        with brainstate.environ.context(t=t):
+            return self.update(t, inp)

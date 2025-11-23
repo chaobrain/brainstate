@@ -85,6 +85,24 @@ class TestCompiledResultsExecution:
         print(true_out)
         print(compiled_out)
 
+    def test_single_population_ei_network(self):
+        net = SinglePopEINet()
+
+        brainstate.nn.init_all_states(net)
+
+        def update(t, inp):
+            with brainstate.environ.context(t=t):
+                return net(t, inp)
+
+        t = 0. * u.ms
+        inp = 20. * u.mA
+        compiled = compile_fn(update)(t, inp)
+
+        r1, r2 = compiled.debug_compare(t, inp)
+        print(r1)
+        print(r2)
+
+
 
 # ============================================================================
 # Integration Tests for Compilation Output Structure
@@ -164,23 +182,92 @@ class TestCompilationStructure:
         run_results = out.run_compiled(t, inp_exc, inp_inh)
         print(run_results)
 
-    def test_single_population_ei_network(self):
-        net = SinglePopEINet()
+    def test_self_connection_compilation(self):
+        """Test compilation and execution of networks with self-connections.
 
+        This test verifies that:
+        1. Self-connections (pre_group == post_group) are properly detected
+        2. The graph structure correctly represents Group -> Projection -> Group loops
+        3. Execution handles circular dependencies correctly
+        4. Validation accepts valid self-connections
+        """
+        print("\n" + "=" * 80)
+        print("Test: Self-Connection Support (SinglePopEINet)")
+        print("=" * 80)
+
+        # Create network with self-connections
+        net = SinglePopEINet()
         brainstate.nn.init_all_states(net)
 
         def update(t, inp):
             with brainstate.environ.context(t=t):
-                return net(t, inp)
+                return net.update(t, inp)
 
         t = 0. * u.ms
         inp = 20. * u.mA
-        compiled = compile_fn(update, validation=None)(t, inp)
-        print(compiled.graph)
 
-        compiled.graph.visualize()
-        plt.show()
+        # Compile with full validation
+        parser = compile_fn(update, validation='all')
+        compiled = parser(t, inp)
 
+        print(f"\n  Graph Structure:")
+        print(f"  - Groups: {len(compiled.groups)}")
+        print(f"  - Projections: {len(compiled.projections)}")
+        print(f"  - Inputs: {len(compiled.inputs)}")
+        print(f"  - Outputs: {len(compiled.outputs)}")
+
+        # Verify self-connections are detected
+        self_projections = [p for p in compiled.projections if p.pre_group == p.post_group]
+        print(f"\n  Self-Connections Found: {len(self_projections)}")
+
+        assert len(self_projections) > 0, "Should detect at least one self-connection"
+
+        for proj in self_projections:
+            print(f"    - {proj.pre_group.name} -> {proj.post_group.name} ({len(proj.connections)} connections)")
+            assert proj.pre_group == proj.post_group, "Self-projection pre and post should be same"
+
+        # Verify graph structure
+        print(f"\n  Graph Edges: {compiled.graph.edge_count()}")
+        edges = list(compiled.graph.edges())
+        self_edges = [(s, t) for s, t in edges if s == t]
+        print(f"  Direct Self-Edges: {len(self_edges)}")
+
+        # Check for Group -> Projection -> Group cycles
+        from brainstate.experimental.neuron_ir._data import Group, Projection
+        for proj in self_projections:
+            # Verify edges exist: Group -> Projection
+            group_to_proj_edge = (proj.pre_group, proj) in edges
+            assert group_to_proj_edge, f"Missing edge: {proj.pre_group.name} -> Projection"
+
+            # Verify edges exist: Projection -> Group
+            proj_to_group_edge = (proj, proj.post_group) in edges
+            assert proj_to_group_edge, f"Missing edge: Projection -> {proj.post_group.name}"
+
+            print(f"    [OK] Cycle verified: {proj.pre_group.name} -> Projection -> {proj.post_group.name}")
+
+        # Test execution
+        print(f"\n  Testing Execution...")
+        result = compiled.run_compiled(t, inp)
+        print(f"    [OK] Execution successful, output shape: {result.shape if hasattr(result, 'shape') else 'scalar'}")
+
+        assert result is not None, "Execution should return results"
+
+        # Test text display shows self-connections
+        print(f"\n  Testing Display...")
+        from brainstate.experimental.neuron_ir import TextDisplayer
+        displayer = TextDisplayer(compiled.graph)
+        text_output = displayer.display(verbose=False)
+
+        # Check if self-projection is shown (Group_X → Group_X pattern)
+        for proj in self_projections:
+            proj_pattern = f"{proj.pre_group.name} → {proj.post_group.name}"
+            assert proj_pattern in text_output, \
+                f"Text display should show self-projection pattern: {proj_pattern}"
+        print(f"    [OK] Text display correctly shows self-connections")
+
+        print(f"\n{'=' * 80}")
+        print("[OK] All self-connection tests passed!")
+        print(f"{'=' * 80}\n")
 
 
 
