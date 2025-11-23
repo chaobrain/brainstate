@@ -21,7 +21,7 @@ graph components (Groups, Projections, Inputs, Outputs).
 
 from collections import defaultdict
 from dataclasses import dataclass
-from functools import partial, cached_property
+from functools import cached_property
 from typing import Set, Tuple, Dict, Callable, List, Optional, Union, Sequence
 
 import jax
@@ -30,7 +30,7 @@ from brainstate._compatible_import import Jaxpr, Var, JaxprEqn, ClosedJaxpr
 from brainstate._state import State
 from brainstate.transform._ir_inline import inline_jit
 from brainstate.transform._ir_processing import eqns_to_closed_jaxpr
-from brainstate.transform._make_jaxpr import StatefulFunction, get_arg_cache_key
+from brainstate.transform._make_jaxpr import StatefulFunction
 from ._data import NeuroGraph, GraphElem, Group, Connection, Projection, Input, Output, CompiledGraphIR
 from ._utils import _is_connection, UnionFind, get_hidden_name
 
@@ -1997,14 +1997,12 @@ def compile_fn(
         groups, projections, inputs, outputs, graph = compiler.compile()
 
         # cache key
-        cache_fn = partial(get_arg_cache_key, stateful_fn.static_argnums, stateful_fn.static_argnames)
         cache_key = stateful_fn.get_arg_cache_key(*args, **kwargs)
 
         return CompiledGraphIR(
             static_argnums=stateful_fn.static_argnums,
             static_argnames=stateful_fn.static_argnames,
             out_treedef=stateful_fn.get_out_treedef_by_cache(cache_key),
-            cache_fn=cache_fn,
             cache_key=cache_key,
             jaxpr=jaxpr,
             in_states=in_states,

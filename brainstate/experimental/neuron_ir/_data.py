@@ -17,12 +17,13 @@
 
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Iterable, Iterator, Set, Tuple, Dict, NamedTuple, Sequence, Any, Callable, Hashable, List
+from typing import Iterable, Iterator, Set, Tuple, Dict, NamedTuple, Sequence, Any, Hashable, List
 
 import jax
 
 from brainstate._compatible_import import ClosedJaxpr, Var
 from brainstate._state import State
+from brainstate.transform._make_jaxpr import get_arg_cache_key
 from ._utils import get_hidden_name
 
 __all__ = [
@@ -561,7 +562,6 @@ class CompiledGraphIR(NamedTuple):
     # others
     static_argnames: Sequence
     static_argnums: Sequence
-    cache_fn: Callable
     cache_key: Hashable
     out_treedef: Any
     jaxpr: ClosedJaxpr
@@ -590,6 +590,9 @@ class CompiledGraphIR(NamedTuple):
             Result of executing the compiled graph IR.
         """
         return self.run_compiled(*args, **kwargs)
+
+    def cache_fn(self, *args, **kwargs):
+        return get_arg_cache_key(self.static_argnums, self.static_argnames, *args, **kwargs)
 
     def run_compiled(self, *args, **kwargs) -> Any:
         """Execute the compiled graph IR representation.
