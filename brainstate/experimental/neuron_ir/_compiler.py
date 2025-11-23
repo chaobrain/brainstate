@@ -437,7 +437,7 @@ class NeuronIRCompiler:
         outvar_to_state: Dict[Var, State],
         state_to_invars: Dict[State, Tuple[Var, ...]],
         state_to_outvars: Dict[State, Tuple[Var, ...]],
-        validation: Union[str, Sequence[str]] = None
+        validation: Union[str, Sequence[str]] = 'all',
     ):
         # Store the original program
         self.closed_jaxpr = closed_jaxpr
@@ -914,10 +914,10 @@ class NeuronIRCompiler:
 
                 if existing_proj is not None:
                     # Merge equations and states into existing projection
-                    merged_eqns, merged_hidden_states, merged_in_states, merged_connections = \
-                        self._merge_projection_data(
-                            existing_proj, proj_eqns, proj_hidden_states, proj_in_states, proj_connections
-                        )
+                    out = self._merge_projection_data(
+                        existing_proj, proj_eqns, proj_hidden_states, proj_in_states, proj_connections
+                    )
+                    merged_eqns, merged_hidden_states, merged_in_states, merged_connections = out
 
                     # Build new projection jaxpr
                     proj_jaxpr, proj_outvars = self._build_projection_jaxpr(
@@ -1064,9 +1064,9 @@ class NeuronIRCompiler:
 
         pre_group = source_groups[0]
 
-        # Don't create projection if pre_group == post_group (internal connection)
-        if pre_group == post_group:
-            return None
+        # # Don't create projection if pre_group == post_group (internal connection)
+        # if pre_group == post_group:
+        #     return None
 
         # Sort equations by original order
         proj_eqns = self._sort_equations_by_order(proj_eqns)
@@ -1944,7 +1944,7 @@ def compile_jaxpr(
 def compile_fn(
     target: StatefulFunction | Callable,
     jit_inline: bool = True,
-    validation: Union[str, Sequence[str]] = None,
+    validation: Optional[Union[str, Sequence[str]]] = 'all',
 ) -> Callable[..., CompiledGraphIR]:
     """Create a compiler that compiles ``stateful_fn`` into graph IR.
 

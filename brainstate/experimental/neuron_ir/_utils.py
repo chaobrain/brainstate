@@ -55,15 +55,18 @@ def _is_connection(eqn: JaxprEqn) -> bool:
     # Check for brainevent primitive names (after inline_jit)
     # These are the actual brainevent connection primitives
     primitive_name = eqn.primitive.name
-    if any(keyword in primitive_name for keyword in [
-        'binary_fixed_num_mv',
-        'event_ell_mv',
-        'event_csr_matvec',
-        'event_coo_matvec',
-        'taichi_mv',
-        'mv_prob',
-        'mv_',  # General matrix-vector operations from brainevent
-    ]):
+    if any(
+        keyword in primitive_name
+        for keyword in [
+            'binary_fixed_num_mv',
+            'event_ell_mv',
+            'event_csr_matvec',
+            'event_coo_matvec',
+            'taichi_mv',
+            'mv_prob',
+            'mv_',  # General matrix-vector operations from brainevent
+        ]
+    ):
         return True
 
     # check for standard connection primitives

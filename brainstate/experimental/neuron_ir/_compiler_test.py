@@ -14,7 +14,11 @@ from brainstate.experimental.neuron_ir._compiler import (
     _extract_consts_for_vars,
     _build_var_dependencies,
 )
-from brainstate.experimental.neuron_ir._model_for_test import TwoPopNet, SimpleNet
+from brainstate.experimental.neuron_ir._model_for_test import (
+    TwoPopNet,
+    SimpleNet,
+    SinglePopEINet,
+)
 from brainstate.transform._make_jaxpr import StatefulFunction
 
 brainstate.environ.set(dt=0.1 * u.ms)
@@ -159,6 +163,26 @@ class TestCompilationStructure:
 
         run_results = out.run_compiled(t, inp_exc, inp_inh)
         print(run_results)
+
+    def test_single_population_ei_network(self):
+        net = SinglePopEINet()
+
+        brainstate.nn.init_all_states(net)
+
+        def update(t, inp):
+            with brainstate.environ.context(t=t):
+                return net(t, inp)
+
+        t = 0. * u.ms
+        inp = 20. * u.mA
+        compiled = compile_fn(update, validation=None)(t, inp)
+        print(compiled.graph)
+
+        compiled.graph.visualize()
+        plt.show()
+
+
+
 
 
 # ============================================================================
