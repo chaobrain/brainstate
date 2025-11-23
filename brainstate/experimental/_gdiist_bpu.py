@@ -94,7 +94,7 @@ class GdiistBPUParser:
     def __call__(self, *args, **kwargs):
         compiled = self.compile(*args, **kwargs)
         if self.debug:
-            return compiled.run_compiled_graph(*args, **kwargs)
+            return compiled.run_compiled(*args, **kwargs)
         else:
             raise NotImplementedError
 

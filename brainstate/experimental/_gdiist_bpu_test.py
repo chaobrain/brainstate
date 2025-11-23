@@ -14,52 +14,17 @@
 # ==============================================================================
 
 
-import brainpy
-import braintools
 import brainunit as u
 
 import brainstate
 from brainstate.experimental._gdiist_bpu import GdiistBPUParser
+from brainstate.experimental.neuron_ir._model_for_test import SinglePopEINet
 
 brainstate.environ.set(dt=0.1 * u.ms)
 
 
-class EINet(brainstate.nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.n_exc = 3200
-        self.n_inh = 800
-        self.num = self.n_exc + self.n_inh
-        self.N = brainpy.state.LIFRef(
-            self.num, V_rest=-49. * u.mV, V_th=-50. * u.mV, V_reset=-60. * u.mV,
-            tau=20. * u.ms, tau_ref=5. * u.ms,
-            V_initializer=braintools.init.Normal(-55., 2., unit=u.mV)
-        )
-        self.E = brainpy.state.AlignPostProj(
-            comm=brainstate.nn.EventFixedProb(self.n_exc, self.num, conn_num=0.02, conn_weight=1.62 * u.mS),
-            syn=brainpy.state.Expon.desc(self.num, tau=5. * u.ms),
-            out=brainpy.state.CUBA.desc(scale=u.volt),
-            post=self.N
-        )
-        self.I = brainpy.state.AlignPostProj(
-            comm=brainstate.nn.EventFixedProb(self.n_inh, self.num, conn_num=0.02, conn_weight=-9.0 * u.mS),
-            syn=brainpy.state.Expon.desc(self.num, tau=10. * u.ms),
-            out=brainpy.state.CUBA.desc(scale=u.volt),
-            post=self.N
-        )
-
-    def update(self, t, inp):
-        with brainstate.environ.context(t=t):
-            spk = self.N.get_spike() != 0.
-            self.E(spk[:self.n_exc])
-            self.I(spk[self.n_exc:])
-            self.N(inp)
-            return self.N.get_spike()
-
-
 def test_parse():
-    # network
-    net = EINet()
+    net = SinglePopEINet()
     brainstate.nn.init_all_states(net)
 
     t = 0. * u.ms
@@ -70,10 +35,6 @@ def test_parse():
             spikes = net.update(t, inp)
             return spikes
 
-    parser = GdiistBPUParser(run_step)
-    parser.parse(t, inp, display='text')
+    parser = GdiistBPUParser(run_step, debug=True)
+    r = parser(t, inp)
 
-
-def test_debug():
-    """ """
-    pass

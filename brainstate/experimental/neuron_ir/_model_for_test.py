@@ -17,6 +17,7 @@ import brainpy
 import brainunit as u
 
 import brainstate
+import braintools
 
 brainstate.environ.set(dt=0.1 * u.ms)
 
@@ -89,3 +90,37 @@ class TwoPopNet(brainstate.nn.Module):
             self.exc(inp_exc)
             self.inh(inp_inh)
             return self.exc.get_spike(), self.inh.get_spike()
+
+
+class SinglePopEINet(brainstate.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.n_exc = 3200
+        self.n_inh = 800
+        self.num = self.n_exc + self.n_inh
+        self.N = brainpy.state.LIFRef(
+            self.num, V_rest=-60. * u.mV, V_th=-50. * u.mV, V_reset=-60. * u.mV,
+            tau=20. * u.ms, tau_ref=5. * u.ms,
+            V_initializer=braintools.init.Normal(-55., 2., unit=u.mV)
+        )
+        self.E = brainpy.state.AlignPostProj(
+            comm=brainstate.nn.EventFixedProb(self.n_exc, self.num, conn_num=0.02, conn_weight=0.6 * u.mS),
+            syn=brainpy.state.Expon.desc(self.num, tau=5. * u.ms),
+            out=brainpy.state.COBA.desc(E=0. * u.mV),
+            post=self.N
+        )
+        self.I = brainpy.state.AlignPostProj(
+            comm=brainstate.nn.EventFixedProb(self.n_inh, self.num, conn_num=0.02, conn_weight=6.7 * u.mS),
+            syn=brainpy.state.Expon.desc(self.num, tau=10. * u.ms),
+            out=brainpy.state.COBA.desc(E=-80. * u.mV),
+            post=self.N
+        )
+
+    def update(self, t, inp):
+        with brainstate.environ.context(t=t):
+            spk = self.N.get_spike() != 0.
+            self.E(spk[:self.n_exc])
+            self.I(spk[self.n_exc:])
+            self.N(inp)
+            return self.N.get_spike()
+

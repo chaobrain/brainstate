@@ -22,7 +22,7 @@ graph components (Groups, Projections, Inputs, Outputs).
 from collections import defaultdict
 from dataclasses import dataclass
 from functools import partial, cached_property
-from typing import Set, Tuple, Dict, Callable, List, Optional
+from typing import Set, Tuple, Dict, Callable, List, Optional, Union, Sequence
 
 import jax
 
@@ -32,7 +32,7 @@ from brainstate.transform._ir_inline import inline_jit
 from brainstate.transform._ir_processing import eqns_to_closed_jaxpr
 from brainstate.transform._make_jaxpr import StatefulFunction, get_arg_cache_key
 from ._data import NeuroGraph, GraphElem, Group, Connection, Projection, Input, Output, CompiledGraphIR
-from ._utils import _is_connection, UnionFind
+from ._utils import _is_connection, UnionFind, get_hidden_name
 
 __all__ = [
     'compile_jaxpr',
@@ -411,6 +411,14 @@ class NeuronIRCompiler:
         Mapping from states to their input variables.
     state_to_outvars : dict[State, tuple[Var, ...]]
         Mapping from states to their output variables.
+    validation: Union[str, Sequence[str]] = None
+        Validation methods to apply.
+
+        - `hidden_state_belong_to_group`: Check that each hidden state is assigned to exactly one group.
+        - `projection_connections`: Check that projections connect valid groups.
+        - `hidden_state_belong_to_one_group`: Check that hidden states are not shared across groups.
+        - `all_equations_used`: Check that all equations are assigned to groups.
+
 
     Attributes
     ----------
@@ -429,6 +437,7 @@ class NeuronIRCompiler:
         outvar_to_state: Dict[Var, State],
         state_to_invars: Dict[State, Tuple[Var, ...]],
         state_to_outvars: Dict[State, Tuple[Var, ...]],
+        validation: Union[str, Sequence[str]] = None
     ):
         # Store the original program
         self.closed_jaxpr = closed_jaxpr
@@ -449,6 +458,20 @@ class NeuronIRCompiler:
         # Track equation usage: map equation object id to its index
         self.eqn_to_id = {id(eqn): idx for idx, eqn in enumerate(self.jaxpr.eqns)}
         self.used_eqn_ids = set()  # Set of equation object ids that have been used
+
+        # validation
+        if isinstance(validation, str):
+            validation = (validation,)
+        elif isinstance(validation, (list, tuple)):
+            validation = tuple(validation)
+        elif validation is None:
+            validation = tuple()
+        else:
+            raise TypeError(
+                f"'validation' must be None, 'all', or a sequence of strings, "
+                f"but got {validation}."
+            )
+        self.validation = validation
 
     @classmethod
     def from_context(cls, context: CompilationContext) -> 'NeuronIRCompiler':
@@ -1722,79 +1745,107 @@ class NeuronIRCompiler:
             for state in group.hidden_states:
                 all_group_hidden_states.add(id(state))
 
-        hidden_states = set(s for s in self.out_states if s in self.in_states)
-        for state in hidden_states:
-            if id(state) not in all_group_hidden_states:
-                from ._utils import get_hidden_name
-                state_name = get_hidden_name(state)
-                raise CompilationError(
-                    f"Hidden state '{state_name}' (id={id(state)}) is not assigned to any group.\n"
-                    f"  Total groups: {len(groups)}\n"
-                    f"  Total hidden states: {len(hidden_states)}\n"
-                    f"  States assigned to groups: {len(all_group_hidden_states)}\n"
-                    f"  Suggestion: Verify that state dependency analysis (step1) correctly identified all states."
-                )
+        def _validate_hidden_state_belong_to_group():
+            hidden_states = set(s for s in self.out_states if s in self.in_states)
+            for state in hidden_states:
+                if id(state) not in all_group_hidden_states:
+                    state_name = get_hidden_name(state)
+                    raise CompilationError(
+                        f"Hidden state '{state_name}' (id={id(state)}) is not assigned to any group.\n"
+                        f"  Total groups: {len(groups)}\n"
+                        f"  Total hidden states: {len(hidden_states)}\n"
+                        f"  States assigned to groups: {len(all_group_hidden_states)}\n"
+                        f"  Suggestion: Verify that state dependency analysis (step1) correctly identified all states."
+                    )
 
         # Check 2: Projections should have non-empty connections
-        for idx, proj in enumerate(projections):
-            if not proj.connections:
-                pre_name = proj.pre_group.name if hasattr(proj.pre_group, 'name') else f'Group_{id(proj.pre_group)}'
-                post_name = proj.post_group.name if hasattr(proj.post_group, 'name') else f'Group_{id(proj.post_group)}'
-                raise CompilationError(
-                    f"Projection {idx} from '{pre_name}' to '{post_name}' has no connections.\n"
-                    f"  This may indicate:\n"
-                    f"    - No connection primitives found between these groups\n"
-                    f"    - Connection extraction (step3) failed to identify connections\n"
-                    f"  Suggestion: Check that connection primitives are properly marked with _is_connection()"
-                )
+        def _validate_projection_connections():
+            for idx, proj in enumerate(projections):
+                if not proj.connections:
+                    pre_name = proj.pre_group.name
+                    post_name = proj.post_group.name
+                    raise CompilationError(
+                        f"Projection {idx} from '{pre_name}' to '{post_name}' has no connections.\n"
+                        f"  This may indicate:\n"
+                        f"    - No connection primitives found between these groups\n"
+                        f"    - Connection extraction (step3) failed to identify connections\n"
+                        f"  Suggestion: Check that connection primitives are properly marked with _is_connection()"
+                    )
 
         # Check 3: Projection hidden_states should belong to exactly one group
-        for proj_idx, proj in enumerate(projections):
-            for state in proj.hidden_states:
-                count = sum(1 for g in groups if g.has_hidden_state(state))
-                from ._utils import get_hidden_name
-                state_name = get_hidden_name(state)
-                if count == 0:
-                    raise CompilationError(
-                        f"Projection {proj_idx} depends on state '{state_name}' which is not in any group.\n"
-                        f"  Total groups: {len(groups)}\n"
-                        f"  Suggestion: This state should be added to a group's hidden_states during group building (step2)."
-                    )
-                elif count > 1:
-                    group_names = [g.name for g in groups if g.has_hidden_state(state)]
-                    raise CompilationError(
-                        f"Projection {proj_idx} depends on state '{state_name}' which belongs to {count} groups.\n"
-                        f"  Groups: {', '.join(group_names)}\n"
-                        f"  Suggestion: Each state should belong to exactly one group.\n"
-                        f"  This may indicate an error in state dependency analysis (step1)."
-                    )
+        def _validate_hidden_state_belong_to_one_group():
+            for proj_idx, proj in enumerate(projections):
+                for state in proj.hidden_states:
+                    count = sum(1 for g in groups if g.has_hidden_state(state))
+                    state_name = get_hidden_name(state)
+                    if count == 0:
+                        raise CompilationError(
+                            f"Projection {proj_idx} depends on state '{state_name}' which is not in any group.\n"
+                            f"  Total groups: {len(groups)}\n"
+                            f"  Suggestion: This state should be added to a group's hidden_states "
+                            f"during group building (step2)."
+                        )
+                    elif count > 1:
+                        group_names = [g.name for g in groups if g.has_hidden_state(state)]
+                        raise CompilationError(
+                            f"Projection {proj_idx} depends on state '{state_name}' which belongs to {count} groups.\n"
+                            f"  Groups: {', '.join(group_names)}\n"
+                            f"  Suggestion: Each state should belong to exactly one group.\n"
+                            f"  This may indicate an error in state dependency analysis (step1)."
+                        )
 
         # Check 4: All equations should be used
-        unused_eqn_ids = set(self.eqn_to_id.keys()) - self.used_eqn_ids
-        if unused_eqn_ids:
-            unused_indices = sorted([self.eqn_to_id[eqn_id] for eqn_id in unused_eqn_ids])
-            # Show first few unused equations with details
-            sample_indices = unused_indices[:5]
-            sample_details = []
-            for idx in sample_indices:
-                eqn = self.jaxpr.eqns[idx]
-                prim_name = eqn.primitive.name if hasattr(eqn.primitive, 'name') else str(eqn.primitive)
-                sample_details.append(f"    [{idx}] {prim_name}")
-            if len(unused_indices) > 5:
-                sample_details.append(f"    ... and {len(unused_indices) - 5} more")
+        def _validate_all_equations_used():
+            unused_eqn_ids = set(self.eqn_to_id.keys()) - self.used_eqn_ids
+            if unused_eqn_ids:
+                unused_indices = sorted([self.eqn_to_id[eqn_id] for eqn_id in unused_eqn_ids])
+                # Show first few unused equations with details
+                sample_indices = unused_indices[:5]
+                sample_details = []
+                for idx in sample_indices:
+                    eqn = self.jaxpr.eqns[idx]
+                    prim_name = eqn.primitive.name if hasattr(eqn.primitive, 'name') else str(eqn.primitive)
+                    sample_details.append(f"    [{idx}] {prim_name}")
+                if len(unused_indices) > 5:
+                    sample_details.append(f"    ... and {len(unused_indices) - 5} more")
 
-            raise CompilationError(
-                f"Not all equations were used in compilation.\n"
-                f"  Total equations: {len(self.jaxpr.eqns)}\n"
-                f"  Used equations: {len(self.used_eqn_ids)}\n"
-                f"  Unused equations: {len(unused_eqn_ids)}\n"
-                f"  Unused equation indices: {unused_indices[:10]}{'...' if len(unused_indices) > 10 else ''}\n"
-                f"  Sample unused equations:\n" + "\n".join(sample_details) + "\n"
-                                                                              f"  Suggestion:\n"
-                                                                              f"    - Check that all computations are assigned to Groups, Projections, Inputs, or Outputs\n"
-                                                                              f"    - Verify that dead code elimination hasn't removed necessary computations\n"
-                                                                              f"    - Ensure all state updates are properly tracked"
-            )
+                details = "\n".join(sample_details)
+                raise CompilationError(
+                    f"Not all equations were used in compilation.\n"
+                    f"  Total equations: {len(self.jaxpr.eqns)}\n"
+                    f"  Used equations: {len(self.used_eqn_ids)}\n"
+                    f"  Unused equations: {len(unused_eqn_ids)}\n"
+                    f"  Unused equation indices: {unused_indices}\n"
+                    f"  Sample unused equations:\n{details}\n"
+                    f"  Suggestion:\n"
+                    f"    - Check that all computations are assigned to Groups, Projections, Inputs, or Outputs\n"
+                    f"    - Verify that dead code elimination hasn't removed necessary computations\n"
+                    f"    - Ensure all state updates are properly tracked"
+                )
+
+        # Validation dispatch - run requested validation checks
+        validation_functions = {
+            'hidden_state_belong_to_group': _validate_hidden_state_belong_to_group,
+            'projection_connections': _validate_projection_connections,
+            'hidden_state_belong_to_one_group': _validate_hidden_state_belong_to_one_group,
+            'all_equations_used': _validate_all_equations_used,
+        }
+
+        # If 'all' is specified, run all validations
+        if 'all' in self.validation:
+            for validate_fn in validation_functions.values():
+                validate_fn()
+        else:
+            # Run only specified validations
+            for val_name in self.validation:
+                if val_name in validation_functions:
+                    validation_functions[val_name]()
+                else:
+                    available = ', '.join(sorted(validation_functions.keys()))
+                    raise ValueError(
+                        f"Unknown validation '{val_name}'. "
+                        f"Available validations: {available}, 'all'"
+                    )
 
     def compile(self) -> Tuple[List[Group], List[Projection], List[Input], List[Output], NeuroGraph]:
         """Execute the complete compilation pipeline.
@@ -1893,6 +1944,7 @@ def compile_jaxpr(
 def compile_fn(
     target: StatefulFunction | Callable,
     jit_inline: bool = True,
+    validation: Union[str, Sequence[str]] = None,
 ) -> Callable[..., CompiledGraphIR]:
     """Create a compiler that compiles ``stateful_fn`` into graph IR.
 
@@ -1903,6 +1955,10 @@ def compile_fn(
     jit_inline : bool, optional
         When ``True`` the compiler inlines JIT-wrapped connection primitives
         before compilation.
+    validation : str, Sequence[str], optional
+        Validation steps to perform after compilation. If ``None``, no validation
+        is performed. If ``'all'``, all validation steps are performed. Otherwise,
+        a sequence of validation step names can be provided.
 
     Returns
     -------
@@ -1935,7 +1991,7 @@ def compile_fn(
         state_mapping = _build_state_mapping(jaxpr, in_states, out_states)
 
         # Compile the SNN
-        groups, projections, inputs, outputs, graph = compile_jaxpr(
+        compiler = NeuronIRCompiler(
             closed_jaxpr=jaxpr,
             in_states=in_states,
             out_states=out_states,
@@ -1943,8 +1999,11 @@ def compile_fn(
             outvar_to_state=state_mapping['outvar_to_state'],
             state_to_invars=state_mapping['state_to_invars'],
             state_to_outvars=state_mapping['state_to_outvars'],
+            validation=validation,
         )
+        groups, projections, inputs, outputs, graph = compiler.compile()
 
+        # cache key
         cache_fn = partial(get_arg_cache_key, stateful_fn.static_argnums, stateful_fn.static_argnames)
         cache_key = stateful_fn.get_arg_cache_key(*args, **kwargs)
 
