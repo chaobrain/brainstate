@@ -17,12 +17,10 @@
 
 import unittest
 from unittest.mock import Mock
-from jax.extend.core.primitives import dot_general_p, conv_general_dilated_p
 
 from brainstate._state import State
 from brainstate.experimental.neuron_ir._utils import (
     get_hidden_name,
-    _is_connection,
     UnionFind,
     find_in_states,
     find_out_states,

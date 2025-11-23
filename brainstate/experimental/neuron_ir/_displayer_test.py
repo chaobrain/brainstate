@@ -13,61 +13,12 @@
 # limitations under the License.
 # ==============================================================================
 
-import brainpy
 import brainunit as u
 import matplotlib.pyplot as plt
 
 import brainstate
 from brainstate.experimental.neuron_ir import compile_fn
-
-brainstate.environ.set(dt=0.1 * u.ms)
-
-
-class TwoPopNet(brainstate.nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.n_exc = 100
-        self.n_inh = 25
-
-        # Excitatory population
-        self.exc = brainpy.state.LIFRef(
-            self.n_exc,
-            V_rest=-65. * u.mV,
-            V_th=-50. * u.mV,
-            V_reset=-60. * u.mV,
-            tau=20. * u.ms,
-            tau_ref=5. * u.ms,
-        )
-
-        # Inhibitory population
-        self.inh = brainpy.state.LIFRef(
-            self.n_inh,
-            V_rest=-65. * u.mV,
-            V_th=-50. * u.mV,
-            V_reset=-60. * u.mV,
-            tau=10. * u.ms,
-            tau_ref=5. * u.ms,
-        )
-
-        # Excitatory -> Inhibitory projection
-        self.exc2inh = brainpy.state.AlignPostProj(
-            comm=brainstate.nn.EventFixedProb(
-                self.n_exc, self.n_inh,
-                conn_num=0.1,
-                conn_weight=1.0 * u.mS
-            ),
-            syn=brainpy.state.Expon.desc(self.n_inh, tau=5. * u.ms),
-            out=brainpy.state.CUBA.desc(scale=u.volt),
-            post=self.inh
-        )
-
-    def update(self, t, inp_exc, inp_inh):
-        with brainstate.environ.context(t=t):
-            exc_spk = self.exc.get_spike() != 0.
-            self.exc2inh(exc_spk)
-            self.exc(inp_exc)
-            self.inh(inp_inh)
-            return self.exc.get_spike(), self.inh.get_spike()
+from brainstate.experimental.neuron_ir._model_for_test import TwoPopNet
 
 
 class TestDisplayer:

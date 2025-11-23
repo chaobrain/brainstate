@@ -3,10 +3,19 @@
 import brainpy
 import braintools
 import brainunit as u
+import jax
 import matplotlib.pyplot as plt
 
 import brainstate
 from brainstate.experimental.neuron_ir import compile_fn
+from brainstate.experimental.neuron_ir._compiler import (
+    NeuronIRCompiler,
+    _build_state_mapping,
+    _extract_consts_for_vars,
+    _build_var_dependencies,
+)
+from brainstate.experimental.neuron_ir._model_for_test import TwoPopNet, SimpleNet
+from brainstate.transform._make_jaxpr import StatefulFunction
 
 brainstate.environ.set(dt=0.1 * u.ms)
 
@@ -48,53 +57,6 @@ def test_two_populations_run():
     print("\n" + "=" * 80)
     print("Test: ParsedResults.run with Two Populations")
     print("=" * 80)
-
-    class TwoPopNet(brainstate.nn.Module):
-        """ """
-
-        def __init__(self):
-            super().__init__()
-            self.n_exc = 50
-            self.n_inh = 12
-
-            self.exc = brainpy.state.LIFRef(
-                self.n_exc,
-                V_rest=-65. * u.mV,
-                V_th=-50. * u.mV,
-                V_reset=-60. * u.mV,
-                tau=20. * u.ms,
-                tau_ref=5. * u.ms,
-                V_initializer=braintools.init.Uniform(-70., -40., unit=u.mV)
-            )
-
-            self.inh = brainpy.state.LIFRef(
-                self.n_inh,
-                V_rest=-65. * u.mV,
-                V_th=-50. * u.mV,
-                V_reset=-60. * u.mV,
-                tau=10. * u.ms,
-                tau_ref=5. * u.ms,
-                V_initializer=braintools.init.Uniform(-70., -40., unit=u.mV)
-            )
-
-            self.exc2inh = brainpy.state.AlignPostProj(
-                comm=brainstate.nn.EventFixedProb(
-                    self.n_exc, self.n_inh,
-                    conn_num=0.1,
-                    conn_weight=1.0 * u.mS
-                ),
-                syn=brainpy.state.Expon.desc(self.n_inh, tau=5. * u.ms),
-                out=brainpy.state.CUBA.desc(scale=u.volt),
-                post=self.inh
-            )
-
-        def update(self, t, inp_exc, inp_inh):
-            with brainstate.environ.context(t=t):
-                exc_spk = self.exc.get_spike() != 0.
-                self.exc2inh(exc_spk)
-                self.exc(inp_exc)
-                self.inh(inp_inh)
-                return self.exc.get_spike(), self.inh.get_spike()
 
     net = TwoPopNet()
     brainstate.nn.init_all_states(net)
@@ -154,54 +116,6 @@ def test_simple_lif():
 
 
 def test_two_populations():
-    class TwoPopNet(brainstate.nn.Module):
-        """ """
-
-        def __init__(self):
-            super().__init__()
-            self.n_exc = 100
-            self.n_inh = 25
-
-            # Excitatory population
-            self.exc = brainpy.state.LIFRef(
-                self.n_exc,
-                V_rest=-65. * u.mV,
-                V_th=-50. * u.mV,
-                V_reset=-60. * u.mV,
-                tau=20. * u.ms,
-                tau_ref=5. * u.ms,
-            )
-
-            # Inhibitory population
-            self.inh = brainpy.state.LIFRef(
-                self.n_inh,
-                V_rest=-65. * u.mV,
-                V_th=-50. * u.mV,
-                V_reset=-60. * u.mV,
-                tau=10. * u.ms,
-                tau_ref=5. * u.ms,
-            )
-
-            # Excitatory -> Inhibitory projection
-            self.exc2inh = brainpy.state.AlignPostProj(
-                comm=brainstate.nn.EventFixedProb(
-                    self.n_exc, self.n_inh,
-                    conn_num=0.1,
-                    conn_weight=1.0 * u.mS
-                ),
-                syn=brainpy.state.Expon.desc(self.n_inh, tau=5. * u.ms),
-                out=brainpy.state.CUBA.desc(scale=u.volt),
-                post=self.inh
-            )
-
-        def update(self, t, inp_exc, inp_inh):
-            with brainstate.environ.context(t=t):
-                exc_spk = self.exc.get_spike() != 0.
-                self.exc2inh(exc_spk)
-                self.exc(inp_exc)
-                self.inh(inp_inh)
-                return self.exc.get_spike(), self.inh.get_spike()
-
     net = TwoPopNet()
     brainstate.nn.init_all_states(net)
 
@@ -239,7 +153,6 @@ def test_two_populations():
 
 def test_step1_analyze_state_dependencies():
     """Test step1: state dependency analysis."""
-    from brainstate.experimental.neuron_ir._compiler import NeuronIRCompiler, _build_state_mapping
 
     # Create simple LIF neuron
     lif = brainpy.state.LIFRef(
@@ -258,7 +171,6 @@ def test_step1_analyze_state_dependencies():
             return lif.get_spike()
 
     # Get jaxpr
-    from brainstate.transform._make_jaxpr import StatefulFunction
     stateful_fn = StatefulFunction(update, return_only_write=True, ir_optimizations='dce')
     t = 0. * u.ms
     inp = 5. * u.mA
@@ -289,10 +201,11 @@ def test_step1_analyze_state_dependencies():
 
 def test_step2_build_groups():
     """Test step2: group building."""
-    from brainstate.experimental.neuron_ir._compiler import NeuronIRCompiler, _build_state_mapping
 
-    lif = brainpy.state.LIFRef(5, V_rest=-65. * u.mV, V_th=-50. * u.mV,
-                                V_reset=-60. * u.mV, tau=20. * u.ms, tau_ref=5. * u.ms)
+    lif = brainpy.state.LIFRef(
+        5, V_rest=-65. * u.mV, V_th=-50. * u.mV,
+        V_reset=-60. * u.mV, tau=20. * u.ms, tau_ref=5. * u.ms
+    )
     brainstate.nn.init_all_states(lif)
 
     def update(t, inp):
@@ -300,7 +213,6 @@ def test_step2_build_groups():
             lif(inp)
             return lif.get_spike()
 
-    from brainstate.transform._make_jaxpr import StatefulFunction
     stateful_fn = StatefulFunction(update, return_only_write=True, ir_optimizations='dce')
     t = 0. * u.ms
     inp = 5. * u.mA
@@ -328,30 +240,6 @@ def test_step2_build_groups():
 
 def test_step3_extract_connections():
     """Test step3: connection extraction."""
-    from brainstate.experimental.neuron_ir._compiler import NeuronIRCompiler, _build_state_mapping
-    from brainstate.transform._make_jaxpr import StatefulFunction
-
-    # Create a network with connections
-    class SimpleNet(brainstate.nn.Module):
-        def __init__(self):
-            super().__init__()
-            self.pre = brainpy.state.LIFRef(5, V_rest=-65.*u.mV, V_th=-50.*u.mV,
-                                             V_reset=-60.*u.mV, tau=20.*u.ms, tau_ref=5.*u.ms)
-            self.post = brainpy.state.LIFRef(3, V_rest=-65.*u.mV, V_th=-50.*u.mV,
-                                              V_reset=-60.*u.mV, tau=10.*u.ms, tau_ref=5.*u.ms)
-            self.conn = brainpy.state.AlignPostProj(
-                comm=brainstate.nn.EventFixedProb(5, 3, conn_num=0.2, conn_weight=1.0*u.mS),
-                syn=brainpy.state.Expon.desc(3, tau=5.*u.ms),
-                out=brainpy.state.CUBA.desc(scale=u.volt),
-                post=self.post
-            )
-
-        def update(self, t):
-            with brainstate.environ.context(t=t):
-                pre_spk = self.pre.get_spike() != 0.
-                self.conn(pre_spk)
-                self.pre(0.*u.mA)
-                self.post(0.*u.mA)
 
     net = SimpleNet()
     brainstate.nn.init_all_states(net)
@@ -385,9 +273,6 @@ def test_step3_extract_connections():
 
 def test_helper_extract_consts_for_vars():
     """Test helper function _extract_consts_for_vars."""
-    from brainstate.experimental.neuron_ir._compiler import _extract_consts_for_vars
-    from brainstate._compatible_import import Jaxpr, Var
-    import jax
 
     # Create simple function with consts
     def f(x):
@@ -408,8 +293,6 @@ def test_helper_extract_consts_for_vars():
 
 def test_helper_build_var_dependencies():
     """Test helper function _build_var_dependencies."""
-    from brainstate.experimental.neuron_ir._compiler import _build_var_dependencies
-    import jax
 
     def f(x, y):
         z = x + y
@@ -428,8 +311,8 @@ def test_helper_build_var_dependencies():
 def test_compiler_full_pipeline():
     """Test complete compilation pipeline."""
     lif = brainpy.state.LIFRef(
-        3, V_rest=-65.*u.mV, V_th=-50.*u.mV,
-        V_reset=-60.*u.mV, tau=20.*u.ms, tau_ref=5.*u.ms
+        3, V_rest=-65. * u.mV, V_th=-50. * u.mV,
+        V_reset=-60. * u.mV, tau=20. * u.ms, tau_ref=5. * u.ms
     )
     brainstate.nn.init_all_states(lif)
 

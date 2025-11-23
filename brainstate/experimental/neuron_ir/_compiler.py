@@ -1790,10 +1790,10 @@ class NeuronIRCompiler:
                 f"  Unused equations: {len(unused_eqn_ids)}\n"
                 f"  Unused equation indices: {unused_indices[:10]}{'...' if len(unused_indices) > 10 else ''}\n"
                 f"  Sample unused equations:\n" + "\n".join(sample_details) + "\n"
-                f"  Suggestion:\n"
-                f"    - Check that all computations are assigned to Groups, Projections, Inputs, or Outputs\n"
-                f"    - Verify that dead code elimination hasn't removed necessary computations\n"
-                f"    - Ensure all state updates are properly tracked"
+                                                                              f"  Suggestion:\n"
+                                                                              f"    - Check that all computations are assigned to Groups, Projections, Inputs, or Outputs\n"
+                                                                              f"    - Verify that dead code elimination hasn't removed necessary computations\n"
+                                                                              f"    - Ensure all state updates are properly tracked"
             )
 
     def compile(self) -> Tuple[List[Group], List[Projection], List[Input], List[Output], NeuroGraph]:
