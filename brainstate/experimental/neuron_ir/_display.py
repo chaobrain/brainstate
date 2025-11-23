@@ -48,13 +48,22 @@ class GraphDisplayer:
     def _compute_hierarchical_layers(self) -> Dict[GraphElem, int]:
         """Compute hierarchical layers for nodes using topological ordering.
 
+        Handles self-connections by treating them as back-edges that don't affect layer assignment.
+
         Returns
         -------
         Dict[GraphElem, int]
             Mapping from node to its layer index.
         """
-        # Compute in-degree for each node
-        in_degree = {node: len(self.graph.predecessors(node)) for node in self.graph.nodes()}
+        # Identify self-edges (back-edges) to exclude from layer computation
+        self_edges = {(source, target) for source, target in self.graph.edges() if source == target}
+
+        # Compute in-degree for each node, excluding self-edges
+        in_degree = {}
+        for node in self.graph.nodes():
+            # Count predecessors that are not the node itself
+            non_self_preds = [pred for pred in self.graph.predecessors(node) if pred != node]
+            in_degree[node] = len(non_self_preds)
 
         # Initialize queue with nodes having zero in-degree
         queue = deque([node for node in self.graph.nodes() if in_degree[node] == 0])
@@ -65,16 +74,28 @@ class GraphDisplayer:
         while queue:
             node = queue.popleft()
 
-            # Compute layer as max of predecessors' layers + 1
-            pred_layers = [layers[pred] for pred in self.graph.predecessors(node) if pred in layers]
+            # Compute layer as max of predecessors' layers + 1, excluding self-references
+            pred_layers = [layers[pred] for pred in self.graph.predecessors(node)
+                          if pred in layers and pred != node]
             current_layer = max(pred_layers, default=-1) + 1
             layers[node] = current_layer
 
-            # Update successors
+            # Update successors (excluding self-loops)
             for succ in self.graph.successors(node):
-                in_degree[succ] -= 1
-                if in_degree[succ] == 0:
-                    queue.append(succ)
+                if succ != node:  # Skip self-edges
+                    in_degree[succ] -= 1
+                    if in_degree[succ] == 0:
+                        queue.append(succ)
+
+        # Handle any remaining nodes that weren't processed (due to cycles other than self-loops)
+        # Place them in the layer based on their processed predecessors
+        unprocessed = [node for node in self.graph.nodes() if node not in layers]
+        if unprocessed:
+            for node in unprocessed:
+                pred_layers = [layers[pred] for pred in self.graph.predecessors(node)
+                              if pred in layers and pred != node]
+                current_layer = max(pred_layers, default=0) + 1
+                layers[node] = current_layer
 
         return layers
 
@@ -404,6 +425,9 @@ class GraphDisplayer:
 
         is_highlighted = id(source) in self._highlighted_node_ids or id(target) in self._highlighted_node_ids
 
+        # Check if this is a self-loop
+        is_self_loop = (source == target)
+
         if is_projection:
             # Solid thick arrow for Projection - more prominent for data flow
             color = '#e74c3c' if is_highlighted else '#9b59b6'
@@ -421,17 +445,50 @@ class GraphDisplayer:
             # Medium arrow head for input/output connections
             arrowstyle = '->,head_width=0.5,head_length=0.9'
 
-        # Draw curved arrow with prominent head
-        arrow = mpatches.FancyArrowPatch(
-            source_pos, target_pos,
-            arrowstyle=arrowstyle,
-            connectionstyle='arc3,rad=0.1',
-            color=color,
-            linewidth=linewidth,
-            linestyle=linestyle,
-            alpha=alpha,
-            zorder=3  # Draw arrows on top of nodes
-        )
+        if is_self_loop:
+            # Draw self-loop as a circular arc above the node
+            x, y = source_pos
+            # Get node style to determine size
+            style = self._get_node_style(source)
+            radius = np.sqrt(style['size'] / np.pi) * 0.01
+
+            # Create a curved path that loops back to the same node
+            # Position the loop above and to the right of the node
+            loop_radius = radius * 1.5
+            loop_offset_x = radius * 0.3
+            loop_offset_y = radius * 1.8
+
+            # Start and end points on the edge of the node
+            start_angle = 45  # degrees
+            end_angle = 135  # degrees
+            start_x = x + radius * np.cos(np.radians(start_angle)) + loop_offset_x
+            start_y = y + radius * np.sin(np.radians(start_angle))
+            end_x = x + radius * np.cos(np.radians(end_angle)) + loop_offset_x
+            end_y = y + radius * np.sin(np.radians(end_angle))
+
+            # Draw the self-loop with a large arc
+            arrow = mpatches.FancyArrowPatch(
+                (start_x, start_y), (end_x, end_y),
+                arrowstyle=arrowstyle,
+                connectionstyle=f'arc3,rad=1.5',  # Large arc for visibility
+                color=color,
+                linewidth=linewidth,
+                linestyle=linestyle,
+                alpha=alpha,
+                zorder=3
+            )
+        else:
+            # Draw regular curved arrow with prominent head
+            arrow = mpatches.FancyArrowPatch(
+                source_pos, target_pos,
+                arrowstyle=arrowstyle,
+                connectionstyle='arc3,rad=0.1',
+                color=color,
+                linewidth=linewidth,
+                linestyle=linestyle,
+                alpha=alpha,
+                zorder=3  # Draw arrows on top of nodes
+            )
         ax.add_patch(arrow)
 
     def _on_click(self, event):
@@ -724,12 +781,20 @@ class TextDisplayer:
             successors = self.graph.successors(node)
             if successors:
                 for i, succ in enumerate(successors):
-                    # Find successor index
-                    succ_idx = nodes.index(succ) if succ in nodes else -1
-                    if i == len(successors) - 1:
-                        lines.append(f"      └─> [{succ_idx}] {self._get_node_short_name(succ)}")
+                    # Check if this is a self-connection
+                    if succ == node:
+                        # Self-connection indicator
+                        if i == len(successors) - 1:
+                            lines.append(f"      └─> [self] (self-connection)")
+                        else:
+                            lines.append(f"      ├─> [self] (self-connection)")
                     else:
-                        lines.append(f"      ├─> [{succ_idx}] {self._get_node_short_name(succ)}")
+                        # Find successor index
+                        succ_idx = nodes.index(succ) if succ in nodes else -1
+                        if i == len(successors) - 1:
+                            lines.append(f"      └─> [{succ_idx}] {self._get_node_short_name(succ)}")
+                        else:
+                            lines.append(f"      ├─> [{succ_idx}] {self._get_node_short_name(succ)}")
 
         return '\n'.join(lines)
 
@@ -839,14 +904,12 @@ class TextDisplayer:
         if isinstance(node, Group):
             return f"Group({node.name})"
         elif isinstance(node, Projection):
-            pre_name = node.pre_group.name if hasattr(node, 'pre_group') and hasattr(node.pre_group,
-                                                                                     'name') else 'Group'
-            post_name = node.post_group.name if hasattr(node, 'post_group') and hasattr(node.post_group,
-                                                                                        'name') else 'Group'
+            pre_name = node.pre_group.name
+            post_name = node.post_group.name
             return f"Projection({pre_name} → {post_name})"
         elif isinstance(node, Input):
-            group_name = node.group.name if hasattr(node, 'group') and hasattr(node.group, 'name') else 'Group'
-            return f"Input → {group_name}"
+            group_name = node.group.name
+            return f"Input to {group_name}"
         elif isinstance(node, Output):
             group_name = 'Unknown'
             if hasattr(node, 'group') and hasattr(node.group, 'name'):
@@ -905,6 +968,10 @@ class TextDisplayer:
         for source, target in edges:
             source_name = self._get_node_short_name(source)
             target_name = self._get_node_short_name(target)
-            lines.append(f"  {source_name} → {target_name}")
+            # Mark self-connections clearly
+            if source == target:
+                lines.append(f"  {source_name} → self (self-connection)")
+            else:
+                lines.append(f"  {source_name} → {target_name}")
 
         return '\n'.join(lines)
