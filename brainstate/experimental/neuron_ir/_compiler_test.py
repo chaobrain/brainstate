@@ -5,6 +5,7 @@ import braintools
 import brainunit as u
 import jax
 import matplotlib.pyplot as plt
+import pytest
 
 import brainstate
 from brainstate.experimental.neuron_ir import compile_fn
@@ -20,6 +21,8 @@ from brainstate.experimental.neuron_ir._model_to_test import (
     Single_Pop_EI_COBA_Net,
     Single_Pop_EI_CUBA_Net,
     Single_Pop_HH_EI_Net,
+    Single_Pop_HH_braincell_EI_Net,
+    single_pop_strial_network,
 )
 from brainstate.transform._make_jaxpr import StatefulFunction
 
@@ -131,6 +134,29 @@ class TestCompiledResultsExecution:
         print(compiled.graph)
         print(r1)
         print(r2)
+
+    def test_Single_Pop_HH_braincell_EI_Net(self):
+        net = Single_Pop_HH_braincell_EI_Net()
+        brainstate.nn.init_all_states(net)
+        t = 0. * u.ms
+        compiled = compile_fn(net.update)(t)
+        r1, r2 = compiled.debug_compare(t)
+        print(compiled)
+        print(compiled.graph)
+        print(compiled.groups[0])
+        print(compiled.projections[0])
+        print(r1)
+        print(r2)
+
+    @pytest.mark.skip
+    def test_single_pop_strial_network(self):
+        net = single_pop_strial_network()
+        brainstate.nn.init_all_states(net)
+        i = 0
+        compiled = compile_fn(net.step_run)(i)
+        # r1, r2 = compiled.debug_compare(i)
+        print(compiled)
+        print(compiled.graph)
 
 
 # ============================================================================
