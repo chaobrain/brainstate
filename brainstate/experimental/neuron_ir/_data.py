@@ -45,6 +45,7 @@ class GraphElem:
     """Base class for compiled graph IR elements."""
 
     jaxpr: ClosedJaxpr
+    name: str  # Add name field with default value
 
     def __repr__(self) -> str:
         """Return a concise representation showing jaxpr signature."""
@@ -116,7 +117,6 @@ class Group(GraphElem):
     in_states: List[State]
     out_states: List[State]
     input_vars: List[Var]
-    name: str  # Add name field with default value
 
     def has_in_state(self, state: State) -> bool:
         """Return True if ``state`` is used in read-only fashion by the group.
@@ -208,7 +208,7 @@ class Connection(GraphElem):
         n_outvars = len(self.jaxpr.jaxpr.outvars)
 
         return (
-            f"Connection("
+            f"{self.name}("
             f"prim={prim_name}, "
             f"invars={n_invars}, "
             f"outvars={n_outvars})"
@@ -247,7 +247,7 @@ class Projection(GraphElem):
         post_name = self.post_group.name if hasattr(self.post_group, 'name') else 'Group'
 
         return (
-            f"Projection("
+            f"{self.name}("
             f"{pre_name} → {post_name}, "
             f"conns={n_conns}, "
             f"eqns={n_eqns}, "
@@ -275,7 +275,7 @@ class Output(GraphElem):
         group_name = self.group.name if hasattr(self.group, 'name') else 'Group'
 
         return (
-            f"Output("
+            f"{self.name}("
             f"from={group_name}, "
             f"outvars={n_outvars}, "
             f"eqns={n_eqns}, "
@@ -300,7 +300,7 @@ class Input(GraphElem):
         group_name = self.group.name if hasattr(self.group, 'name') else 'Group'
 
         return (
-            f"Input("
+            f"{self.name}("
             f"to={group_name}, "
             f"invars={n_invars}, "
             f"outvars={n_outvars}, "
@@ -331,7 +331,7 @@ class Unknown(GraphElem):
             indices_str = str(self.eqn_indices)
         else:
             indices_str = f"({self.eqn_indices[0]}..{self.eqn_indices[-1]})"
-        return f"Unknown(eqns={n_eqns}, indices={indices_str})"
+        return f"{self.name}(eqns={n_eqns}, indices={indices_str})"
 
 
 @dataclass(eq=False)
@@ -355,7 +355,7 @@ class Spike(GraphElem):
         # Get state name if available
         state_name = get_hidden_name(self.hidden_state)
 
-        return f"Spike(state={state_name}, eqns={n_eqns})"
+        return f"{self.name}(state={state_name}, eqns={n_eqns})"
 
 
 class NeuroGraph:
@@ -574,6 +574,24 @@ class NeuroGraph:
         """
         from ._display import TextDisplayer
         return TextDisplayer(self).display()
+
+    def text(self, verbose: bool = False, show_jaxpr: bool = False) -> str:
+        """Return a text-based visualization of the graph structure.
+
+        Parameters
+        ----------
+        verbose : bool, optional
+            If True, include detailed node information. Default is False.
+        show_jaxpr : bool, optional
+            If True, display JAXPR equations for each node. Default is False.
+
+        Returns
+        -------
+        str
+            Formatted text representation showing nodes, edges, and structure.
+        """
+        from ._display import TextDisplayer
+        return TextDisplayer(self).display(verbose=verbose, show_jaxpr=show_jaxpr)
 
     def visualize(
         self,

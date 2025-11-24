@@ -76,7 +76,7 @@ class GraphDisplayer:
 
             # Compute layer as max of predecessors' layers + 1, excluding self-references
             pred_layers = [layers[pred] for pred in self.graph.predecessors(node)
-                          if pred in layers and pred != node]
+                           if pred in layers and pred != node]
             current_layer = max(pred_layers, default=-1) + 1
             layers[node] = current_layer
 
@@ -93,7 +93,7 @@ class GraphDisplayer:
         if unprocessed:
             for node in unprocessed:
                 pred_layers = [layers[pred] for pred in self.graph.predecessors(node)
-                              if pred in layers and pred != node]
+                               if pred in layers and pred != node]
                 current_layer = max(pred_layers, default=0) + 1
                 layers[node] = current_layer
 
@@ -821,11 +821,11 @@ class TextDisplayer:
 
         # Main node line
         if isinstance(node, Group):
-            num_hidden = len(node.hidden_states) if hasattr(node, 'hidden_states') else 0
+            num_hidden = len(node.hidden_states)
             main_line = f"  [{index}] Group({node.name}) #{num_hidden} neurons"
             if verbose:
-                num_in = len(node.in_states) if hasattr(node, 'in_states') else 0
-                num_out = len(node.out_states) if hasattr(node, 'out_states') else 0
+                num_in = len(node.in_states)
+                num_out = len(node.out_states)
                 num_eqns = len(node.jaxpr.jaxpr.eqns)
                 lines.append(main_line)
                 lines.append(f"      Hidden States: {num_hidden}, In States: {num_in}, Out States: {num_out}")
@@ -834,15 +834,13 @@ class TextDisplayer:
                 lines.append(main_line)
 
         elif isinstance(node, Projection):
-            pre_name = node.pre_group.name if hasattr(node, 'pre_group') and hasattr(node.pre_group,
-                                                                                     'name') else 'Group'
-            post_name = node.post_group.name if hasattr(node, 'post_group') and hasattr(node.post_group,
-                                                                                        'name') else 'Group'
-            num_conns = len(node.connections) if hasattr(node, 'connections') else 0
+            pre_name = node.pre_group.name
+            post_name = node.post_group.name
+            num_conns = len(node.connections)
             main_line = f"  [{index}] Projection({pre_name} → {post_name}) #{num_conns} connections"
             if verbose:
-                num_hidden = len(node.hidden_states) if hasattr(node, 'hidden_states') else 0
-                num_in = len(node.in_states) if hasattr(node, 'in_states') else 0
+                num_hidden = len(node.hidden_states)
+                num_in = len(node.in_states)
                 num_eqns = len(node.jaxpr.jaxpr.eqns)
                 lines.append(main_line)
                 lines.append(f"      Hidden States: {num_hidden}, In States: {num_in}")
@@ -851,11 +849,11 @@ class TextDisplayer:
                 lines.append(main_line)
 
         elif isinstance(node, Input):
-            group_name = node.group.name if hasattr(node, 'group') and hasattr(node.group, 'name') else 'Group'
-            num_invars = len(node.jaxpr.jaxpr.invars) if hasattr(node, 'jaxpr') else 0
+            group_name = node.group.name
+            num_invars = len(node.jaxpr.jaxpr.invars)
             main_line = f"  [{index}] Input → {group_name} (#{num_invars} vars)"
             if verbose:
-                num_outvars = len(node.jaxpr.jaxpr.outvars) if hasattr(node, 'jaxpr') else 0
+                num_outvars = len(node.jaxpr.jaxpr.outvars)
                 num_eqns = len(node.jaxpr.jaxpr.eqns)
                 lines.append(main_line)
                 lines.append(f"      In Vars: {num_invars}, Out Vars: {num_outvars}, Equations: {num_eqns}")
@@ -863,14 +861,12 @@ class TextDisplayer:
                 lines.append(main_line)
 
         elif isinstance(node, Output):
-            group_name = 'Unknown'
-            if hasattr(node, 'group') and hasattr(node.group, 'name'):
-                group_name = node.group.name
-            num_outvars = len(node.jaxpr.jaxpr.outvars) if hasattr(node, 'jaxpr') else 0
+            group_name = node.group.name
+            num_outvars = len(node.jaxpr.jaxpr.outvars)
             main_line = f"  [{index}] Output from {group_name} (#{num_outvars} vars)"
             if verbose:
-                num_hidden = len(node.hidden_states) if hasattr(node, 'hidden_states') else 0
-                num_in = len(node.in_states) if hasattr(node, 'in_states') else 0
+                num_hidden = len(node.hidden_states)
+                num_in = len(node.in_states)
                 num_eqns = len(node.jaxpr.jaxpr.eqns)
                 lines.append(main_line)
                 lines.append(f"      Hidden States: {num_hidden}, In States: {num_in}, Equations: {num_eqns}")
@@ -909,12 +905,10 @@ class TextDisplayer:
             return f"Projection({pre_name} → {post_name})"
         elif isinstance(node, Input):
             group_name = node.group.name
-            return f"Input to {group_name}"
+            return f"{node.name} to {group_name}"
         elif isinstance(node, Output):
-            group_name = 'Unknown'
-            if hasattr(node, 'group') and hasattr(node.group, 'name'):
-                group_name = node.group.name
-            return f"Output from {group_name}"
+            group_name = node.group.name
+            return f"{node.name} from {group_name}"
         else:
             return type(node).__name__
 
@@ -931,7 +925,7 @@ class TextDisplayer:
         str
             Formatted jaxpr string, or empty if no equations.
         """
-        if not hasattr(node, 'jaxpr') or not node.jaxpr:
+        if not node.jaxpr:
             return ""
 
         eqns = node.jaxpr.jaxpr.eqns

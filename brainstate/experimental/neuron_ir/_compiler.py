@@ -19,11 +19,12 @@ of a spiking neural network (SNN) single-step update into structured computation
 graph components (Groups, Projections, Inputs, Outputs).
 """
 
+import warnings
 from collections import defaultdict
 from dataclasses import dataclass
 from functools import cached_property
 from typing import Set, Tuple, Dict, Callable, List, Optional, Union, Sequence
-import warnings
+
 import jax
 
 from brainstate._compatible_import import Jaxpr, Var, JaxprEqn, ClosedJaxpr
@@ -883,6 +884,7 @@ class NeuronIRCompiler:
             holds its ClosedJaxpr slice.
         """
         connections = []
+        conn_idx = 0
         for eqn in self.jaxpr.eqns:
             if _is_connection(eqn):
                 # Create a ClosedJaxpr for this connection WITHOUT marking as used
@@ -892,8 +894,9 @@ class NeuronIRCompiler:
                     outvars=list(eqn.outvars),
                     mark_as_used=False,  # Don't mark yet - will be marked in step4
                 )
-                connection = Connection(jaxpr=conn_jaxpr)
+                connection = Connection(jaxpr=conn_jaxpr, name=f"Connection_{conn_idx}")
                 connections.append((eqn, connection))
+                conn_idx += 1
         return connections
 
     def step4_build_projections(
@@ -920,6 +923,7 @@ class NeuronIRCompiler:
             a pre→post group path.
         """
         projections = []
+        proj_idx = 0
 
         # Use cached mapping: var -> equation that produces it
         var_to_producer_eqn = self._var_to_producer_eqn
@@ -987,6 +991,7 @@ class NeuronIRCompiler:
                         connections=merged_connections,
                         pre_group=pre_group,
                         post_group=post_group,
+                        name=existing_proj.name,  # Keep the same name when merging
                     )
                     projections[projections.index(existing_proj)] = new_proj
 
@@ -1003,8 +1008,10 @@ class NeuronIRCompiler:
                         connections=proj_connections,
                         pre_group=pre_group,
                         post_group=post_group,
+                        name=f"Projection_{proj_idx}",
                     )
                     projections.append(projection)
+                    proj_idx += 1
 
         return projections
 
@@ -1327,6 +1334,7 @@ class NeuronIRCompiler:
 
         # Create Input objects for each group
         inputs = []
+        input_idx = 0
 
         for group_id, traces in group_id_to_traces.items():
             group = id_to_group[group_id]
@@ -1359,8 +1367,10 @@ class NeuronIRCompiler:
             input_obj = Input(
                 jaxpr=input_jaxpr,
                 group=group,
+                name=f"Input_{input_idx}",
             )
             inputs.append(input_obj)
+            input_idx += 1
 
         return inputs
 
@@ -1635,6 +1645,7 @@ class NeuronIRCompiler:
 
         # Create Output objects for each group
         outputs = []
+        output_idx = 0
         for group_id, output_info in group_id_output_mapping.items():
             group = id_to_group[group_id]
             output_vars_for_group = [ov for ov, _, _, _ in output_info]
@@ -1681,8 +1692,10 @@ class NeuronIRCompiler:
                 hidden_states=all_dependent_hidden_states,
                 in_states=all_dependent_in_states,
                 group=group,
+                name=f"Output_{output_idx}",
             )
             outputs.append(output_obj)
+            output_idx += 1
 
         return outputs
 
@@ -1718,85 +1731,104 @@ class NeuronIRCompiler:
         # Group consecutive indices
         index_groups = _group_consecutive_indices(unused_indices)
 
-        # Check for non-consecutive indices (more than one group)
-        if len(index_groups) > 1:
-            # Format the groups for the error message
-            groups_str = ", ".join([f"[{g[0]}..{g[-1]}]" if len(g) > 1 else f"[{g[0]}]" for g in index_groups])
+        all_unknown_objs = []
+        unknown_idx = 0
+        for index_group in index_groups:
 
-            # Show sample equations from each group
-            sample_details = []
-            for group_indices in index_groups:
-                sample_idx = group_indices[0]
-                eqn = self.jaxpr.eqns[sample_idx]
-                sample_details.append(
-                    f"  Group [{group_indices[0]}..{group_indices[-1] if len(group_indices) > 1 else group_indices[0]}]: {eqn.primitive.name}"
+            # Check for non-consecutive indices (more than one group)
+            if len(index_group) < 2:
+                # Format the groups for the error message
+                groups_str = ", ".join([f"[{g[0]}..{g[-1]}]" if len(g) > 1 else f"[{g[0]}]" for g in index_groups])
+
+                # Show all equation primitives from each group
+                sample_details = []
+                for group_indices in index_groups:
+                    # Collect all primitive names in this group
+                    primitives = []
+                    for idx in group_indices:
+                        eqn = self.jaxpr.eqns[idx]
+                        primitives.append(f"[{idx}] {eqn.primitive.name}")
+
+                    # Format group header
+                    group_range = f"[{group_indices[0]}..{group_indices[-1]}]" if len(
+                        group_indices) > 1 else f"[{group_indices[0]}]"
+
+                    # Format primitives list (one per line if more than 3, comma-separated otherwise)
+                    if len(primitives) <= 3:
+                        primitives_str = ", ".join(primitives)
+                        sample_details.append(f"  Group {group_range}: {primitives_str}")
+                    else:
+                        primitives_lines = "\n    ".join(primitives)
+                        sample_details.append(f"  Group {group_range}:\n    {primitives_lines}")
+
+                raise CompilationError(
+                    f"Unused equations have non-consecutive indices, indicating a potential compilation issue.\n"
+                    f"  Total unused equations: {len(unused_indices)}\n"
+                    f"  Index groups: {groups_str}\n"
+                    f"  Sample equations from each group:\n" +
+                    "\n".join(sample_details) + "\n"
+                                                f"  Suggestion:\n"
+                                                f"    - Non-consecutive unused equations suggest that some computations were\n"
+                                                f"      partially traced while others were missed.\n"
+                                                f"    - Review the compilation steps to ensure all related computations\n"
+                                                f"      are being captured together."
                 )
 
-            raise CompilationError(
-                f"Unused equations have non-consecutive indices, indicating a potential compilation issue.\n"
-                f"  Total unused equations: {len(unused_indices)}\n"
-                f"  Index groups: {groups_str}\n"
-                f"  Sample equations from each group:\n" +
-                "\n".join(sample_details) + "\n"
-                f"  Suggestion:\n"
-                f"    - Non-consecutive unused equations suggest that some computations were\n"
-                f"      partially traced while others were missed.\n"
-                f"    - Review the compilation steps to ensure all related computations\n"
-                f"      are being captured together."
+            # Single consecutive group - create Unknown object
+            consecutive_eqns = [self.jaxpr.eqns[idx] for idx in index_group]
+
+            # Collect all input and output variables for the unknown block
+            all_invars = set()
+            all_outvars = []
+            for eqn in consecutive_eqns:
+                for in_var in eqn.invars:
+                    if isinstance(in_var, Var):
+                        all_invars.add(in_var)
+                all_outvars.extend(eqn.outvars)
+
+            # Remove variables that are produced within the block from invars
+            produced_vars = set(all_outvars)
+            external_invars = [v for v in all_invars if v not in produced_vars]
+
+            # Sort external invars by their first occurrence in the equations
+            invar_order = {}
+            for eqn in consecutive_eqns:
+                for in_var in eqn.invars:
+                    if isinstance(in_var, Var) and in_var in external_invars and in_var not in invar_order:
+                        invar_order[in_var] = len(invar_order)
+            external_invars = sorted(external_invars, key=lambda v: invar_order.get(v, float('inf')))
+
+            # Create ClosedJaxpr for the unknown block
+            unknown_jaxpr = self._make_closed_jaxpr(
+                eqns=consecutive_eqns,
+                invars=list(external_invars),
+                outvars=all_outvars,
             )
 
-        # Single consecutive group - create Unknown object
-        consecutive_indices = index_groups[0]
-        consecutive_eqns = [self.jaxpr.eqns[idx] for idx in consecutive_indices]
+            all_unknown_objs.append(
+                Unknown(
+                    jaxpr=unknown_jaxpr,
+                    eqn_indices=tuple(index_group),
+                    name=f"Unknown_{unknown_idx}",
+                )
+            )
+            unknown_idx += 1
 
-        # Collect all input and output variables for the unknown block
-        all_invars = set()
-        all_outvars = []
-        for eqn in consecutive_eqns:
-            for in_var in eqn.invars:
-                if isinstance(in_var, Var):
-                    all_invars.add(in_var)
-            all_outvars.extend(eqn.outvars)
+            # Issue a warning about unassigned equations
+            warnings.warn(
+                f"Found {len(index_group)} unassigned equations "
+                f"(indices {index_group[0]}..{index_group[-1]}) "
+                f"that were packaged into an Unknown block. "
+                f"\n\n"
+                f"{unknown_jaxpr}"
+                f"\n\n"
+                f"This may indicate computations that couldn't be "
+                f"classified as Group, Projection, Input, or Output.",
+                UserWarning,
+                stacklevel=2,
+            )
 
-        # Remove variables that are produced within the block from invars
-        produced_vars = set(all_outvars)
-        external_invars = [v for v in all_invars if v not in produced_vars]
-
-        # Sort external invars by their first occurrence in the equations
-        invar_order = {}
-        for eqn in consecutive_eqns:
-            for in_var in eqn.invars:
-                if isinstance(in_var, Var) and in_var in external_invars and in_var not in invar_order:
-                    invar_order[in_var] = len(invar_order)
-        external_invars = sorted(external_invars, key=lambda v: invar_order.get(v, float('inf')))
-
-        # Create ClosedJaxpr for the unknown block
-        unknown_jaxpr = self._make_closed_jaxpr(
-            eqns=consecutive_eqns,
-            invars=list(external_invars),
-            outvars=all_outvars,
-        )
-
-        unknown_obj = Unknown(
-            jaxpr=unknown_jaxpr,
-            eqn_indices=tuple(consecutive_indices),
-        )
-
-        # Issue a warning about unassigned equations
-        warnings.warn(
-            f"Found {len(consecutive_indices)} unassigned equations "
-            f"(indices {consecutive_indices[0]}..{consecutive_indices[-1]}) "
-            f"that were packaged into an Unknown block. "
-            f"\n\n"
-            f"{unknown_jaxpr}"
-            f"\n\n"
-            f"This may indicate computations that couldn't be "
-            f"classified as Group, Projection, Input, or Output.",
-            UserWarning,
-            stacklevel=2,
-        )
-
-        return [unknown_obj]
+        return all_unknown_objs
 
     def step8_build_graph(
         self,

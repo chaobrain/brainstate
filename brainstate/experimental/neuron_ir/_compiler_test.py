@@ -168,8 +168,10 @@ class TestCompiledResultsExecution:
         brainstate.nn.init_all_states(net)
         inputs = (0, 2. * u.Hz)
         compiled = compile_fn(net.update)(*inputs)
-        print(compiled)
-        print(compiled.graph)
+        # print(compiled)
+        # print(compiled.graph)
+
+        print(compiled.graph.text(verbose=True, show_jaxpr=True))
 
         # r1, r2 = compiled.debug_compare(*inputs)
 
