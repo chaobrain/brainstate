@@ -28,13 +28,14 @@ from ._utils import get_hidden_name
 
 __all__ = [
     'GraphElem',
-    'NeuroGraph',
     'Group',
     'Connection',
     'Projection',
     'Output',
     'Input',
+    'Unknown',
     'Spike',
+    'NeuroGraph',
     'CompiledGraphIR',
 ]
 
@@ -110,6 +111,7 @@ class GraphElem:
 @dataclass(eq=False)
 class Group(GraphElem):
     """Logical container for a compiled neuron group."""
+
     hidden_states: List[State]
     in_states: List[State]
     out_states: List[State]
@@ -216,6 +218,7 @@ class Connection(GraphElem):
 @dataclass(eq=False)
 class Projection(GraphElem):
     """Connection bundle that transfers activity between two groups."""
+
     hidden_states: List[State]
     in_states: List[State]
     connections: List[Connection]
@@ -321,19 +324,17 @@ class Spike(GraphElem):
     jaxpr : ClosedJaxpr
         ClosedJaxpr that implements the surrogate-gradient primitive.
     """
+
     hidden_state: State
 
     def __repr__(self) -> str:
         """Return a representation showing spike surrogate details."""
+
         n_eqns = len(self.jaxpr.jaxpr.eqns)
         # Get state name if available
         state_name = get_hidden_name(self.hidden_state)
 
-        return (
-            f"Spike("
-            f"state={state_name}, "
-            f"eqns={n_eqns})"
-        )
+        return f"Spike(state={state_name}, eqns={n_eqns})"
 
 
 class NeuroGraph:
@@ -527,6 +528,7 @@ class NeuroGraph:
 
         Notes
         -----
+
         - **Group nodes** are shown as large blue circles with their names displayed prominently
         - **Input nodes** are shown as smaller green rounded rectangles with input count
         - **Output nodes** are shown as smaller orange rounded rectangles with output count
