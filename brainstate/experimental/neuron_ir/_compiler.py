@@ -23,7 +23,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from functools import cached_property
 from typing import Set, Tuple, Dict, Callable, List, Optional, Union, Sequence
-
+import warnings
 import jax
 
 from brainstate._compatible_import import Jaxpr, Var, JaxprEqn, ClosedJaxpr
@@ -631,8 +631,9 @@ class NeuronIRCompiler:
         eqns: List[JaxprEqn],
         invars: List[Var],
         outvars: List[Var],
+        mark_as_used: bool = True,
     ) -> ClosedJaxpr:
-        """Create a ClosedJaxpr and mark equations as used.
+        """Create a ClosedJaxpr and optionally mark equations as used.
 
         Parameters
         ----------
@@ -642,14 +643,19 @@ class NeuronIRCompiler:
             Input variables.
         outvars : list[Var]
             Output variables.
+        mark_as_used : bool, optional
+            Whether to mark these equations as used. Default is True.
+            Set to False when creating intermediate representations that
+            will be marked as used later (e.g., Connections in step3).
 
         Returns
         -------
         ClosedJaxpr
             The constructed sub-program with appropriate constants.
         """
-        # Mark these equations as used
-        self._mark_eqns_as_used(eqns)
+        # Mark these equations as used if requested
+        if mark_as_used:
+            self._mark_eqns_as_used(eqns)
 
         # Create the closed jaxpr
         closed_jaxpr = eqns_to_closed_jaxpr(eqns=eqns, invars=invars, outvars=outvars)
@@ -867,6 +873,9 @@ class NeuronIRCompiler:
     def step3_extract_connections(self) -> List[Tuple[JaxprEqn, Connection]]:
         """Identify connection equations and wrap them as :class:`Connection` objects.
 
+        Note: Connection equations are NOT marked as used here. They will be
+        marked as used when they are composed into Projection instances in step4.
+
         Returns
         -------
         list[tuple[JaxprEqn, Connection]]
@@ -876,11 +885,12 @@ class NeuronIRCompiler:
         connections = []
         for eqn in self.jaxpr.eqns:
             if _is_connection(eqn):
-                # Create a ClosedJaxpr for this connection
+                # Create a ClosedJaxpr for this connection WITHOUT marking as used
                 conn_jaxpr = self._make_closed_jaxpr(
                     eqns=[eqn],
                     invars=list(eqn.invars),
                     outvars=list(eqn.outvars),
+                    mark_as_used=False,  # Don't mark yet - will be marked in step4
                 )
                 connection = Connection(jaxpr=conn_jaxpr)
                 connections.append((eqn, connection))
@@ -892,6 +902,9 @@ class NeuronIRCompiler:
         connections: List[Tuple[JaxprEqn, Connection]],
     ) -> List[Projection]:
         """Create :class:`Projection` objects that ferry spikes between groups.
+
+        Note: Connection equations from step3 are marked as used HERE when they
+        are composed into Projection instances via _build_projection_jaxpr().
 
         Parameters
         ----------
@@ -1603,9 +1616,7 @@ class NeuronIRCompiler:
 
             # Validate: each output should depend on exactly one group
             if len(dependent_groups) == 0:
-                raise CompilationError(
-                    f"Output variable {out_var} does not depend on any group"
-                )
+                raise CompilationError(f"Output variable {out_var} does not depend on any group")
             elif len(dependent_groups) > 1:
                 raise CompilationError(
                     f"Output variable {out_var} depends on multiple groups: {dependent_groups}. "
@@ -1675,7 +1686,7 @@ class NeuronIRCompiler:
 
         return outputs
 
-    def step6b_handle_remaining_equations(self) -> List[Unknown]:
+    def step7_handle_remaining_equations(self) -> List[Unknown]:
         """Handle equations that were not assigned to any known component.
 
         This method processes equations that remain unused after steps 1-6.
@@ -1695,7 +1706,6 @@ class NeuronIRCompiler:
             If unused equations have non-consecutive indices, indicating
             that the compilation logic may have issues.
         """
-        import warnings
 
         # Find unused equation indices
         unused_eqn_ids = set(self.eqn_to_id.keys()) - self.used_eqn_ids
@@ -1718,7 +1728,9 @@ class NeuronIRCompiler:
             for group_indices in index_groups:
                 sample_idx = group_indices[0]
                 eqn = self.jaxpr.eqns[sample_idx]
-                sample_details.append(f"  Group [{group_indices[0]}..{group_indices[-1] if len(group_indices) > 1 else group_indices[0]}]: {eqn.primitive.name}")
+                sample_details.append(
+                    f"  Group [{group_indices[0]}..{group_indices[-1] if len(group_indices) > 1 else group_indices[0]}]: {eqn.primitive.name}"
+                )
 
             raise CompilationError(
                 f"Unused equations have non-consecutive indices, indicating a potential compilation issue.\n"
@@ -1772,8 +1784,13 @@ class NeuronIRCompiler:
 
         # Issue a warning about unassigned equations
         warnings.warn(
-            f"Found {len(consecutive_indices)} unassigned equations (indices {consecutive_indices[0]}..{consecutive_indices[-1]}) "
-            f"that were packaged into an Unknown block. This may indicate computations that couldn't be "
+            f"Found {len(consecutive_indices)} unassigned equations "
+            f"(indices {consecutive_indices[0]}..{consecutive_indices[-1]}) "
+            f"that were packaged into an Unknown block. "
+            f"\n\n"
+            f"{unknown_jaxpr}"
+            f"\n\n"
+            f"This may indicate computations that couldn't be "
             f"classified as Group, Projection, Input, or Output.",
             UserWarning,
             stacklevel=2,
@@ -1781,7 +1798,7 @@ class NeuronIRCompiler:
 
         return [unknown_obj]
 
-    def step7_build_graph(
+    def step8_build_graph(
         self,
         groups: List[Group],
         projections: List[Projection],
@@ -1867,7 +1884,7 @@ class NeuronIRCompiler:
 
         return graph
 
-    def step8_validate_compilation(
+    def step9_validate_compilation(
         self,
         groups: List[Group],
         projections: List[Projection],
@@ -2038,13 +2055,13 @@ class NeuronIRCompiler:
         outputs = self.step6_build_outputs(groups)
 
         # Step 6b: Handle remaining equations (new step)
-        unknowns = self.step6b_handle_remaining_equations()
+        unknowns = self.step7_handle_remaining_equations()
 
         # Step 7: Determine call order
-        graph = self.step7_build_graph(groups, projections, inputs, outputs, unknowns)
+        graph = self.step8_build_graph(groups, projections, inputs, outputs, unknowns)
 
         # Step 8: Validate the compilation
-        self.step8_validate_compilation(groups, projections, inputs, outputs)
+        self.step9_validate_compilation(groups, projections, inputs, outputs)
 
         return graph
 

@@ -21,6 +21,8 @@ from brainstate.experimental.neuron_ir._model_to_test import (
     Single_Pop_EI_CUBA_Net,
     Single_Pop_HH_EI_Net,
     Single_Pop_HH_braincell_EI_Net,
+    Two_Pop_one_Noise_AI_Net,
+    single_pop_strial_network,
 )
 from brainstate.transform._make_jaxpr import StatefulFunction
 
@@ -151,24 +153,25 @@ class TestCompiledResultsExecution:
         print(r2)
 
     # @pytest.mark.skip
-    # def test_single_pop_strial_network(self):
-    #     net = single_pop_strial_network()
-    #     brainstate.nn.init_all_states(net)
-    #     i = 0
-    #     compiled = compile_fn(net.step_run)(i)
-    #     # r1, r2 = compiled.debug_compare(i)
-    #     print(compiled)
-    #     print(compiled.graph)
+    def test_single_pop_strial_network(self):
+        net = single_pop_strial_network()
+        brainstate.nn.init_all_states(net)
+        i = 0
+        compiled = compile_fn(net.step_run)(i)
+        print(compiled)
+        print(compiled.graph)
 
-    # def test_Two_Pop_one_Noise_AI_Net(self):
-    #     net = Two_Pop_one_Noise_AI_Net(delay=None)
-    #     brainstate.nn.init_all_states(net)
-    #     inputs = (0, 2. * u.Hz)
-    #     compiled = compile_fn(net.update)(*inputs)
-    #     print(compiled)
-    #     print(compiled.graph)
-    #
-    #     # r1, r2 = compiled.debug_compare(*inputs)
+        # r1, r2 = compiled.debug_compare(i)
+
+    def test_Two_Pop_one_Noise_AI_Net(self):
+        net = Two_Pop_one_Noise_AI_Net(delay=None)
+        brainstate.nn.init_all_states(net)
+        inputs = (0, 2. * u.Hz)
+        compiled = compile_fn(net.update)(*inputs)
+        print(compiled)
+        print(compiled.graph)
+
+        # r1, r2 = compiled.debug_compare(*inputs)
 
 
 # ============================================================================
