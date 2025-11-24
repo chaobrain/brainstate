@@ -5,7 +5,6 @@ import braintools
 import brainunit as u
 import jax
 import matplotlib.pyplot as plt
-import pytest
 
 import brainstate
 from brainstate.experimental.neuron_ir import compile_fn
@@ -22,8 +21,6 @@ from brainstate.experimental.neuron_ir._model_to_test import (
     Single_Pop_EI_CUBA_Net,
     Single_Pop_HH_EI_Net,
     Single_Pop_HH_braincell_EI_Net,
-    single_pop_strial_network,
-    Two_Pop_one_Noise_AI_Net,
 )
 from brainstate.transform._make_jaxpr import StatefulFunction
 
@@ -148,8 +145,8 @@ class TestCompiledResultsExecution:
         r1, r2 = compiled.debug_compare(t)
         print(compiled)
         print(compiled.graph)
-        print(compiled.groups[0])
-        print(compiled.projections[0])
+        print(compiled.graph.groups[0])
+        print(compiled.graph.projections[0])
         print(r1)
         print(r2)
 
@@ -206,15 +203,15 @@ class TestCompilationStructure:
         parser = compile_fn(update)
         compiled = parser(t, inp)
 
-        print(compiled.groups)
-        print(compiled.projections)
-        print(compiled.inputs)
-        print(compiled.outputs)
+        print(compiled.graph.groups)
+        print(compiled.graph.projections)
+        print(compiled.graph.inputs)
+        print(compiled.graph.outputs)
 
-        print(f"  - Groups: {len(compiled.groups)}")
-        print(f"  - Projections: {len(compiled.projections)}")
-        print(f"  - Inputs: {len(compiled.inputs)}")
-        print(f"  - Outputs: {len(compiled.outputs)}")
+        print(f"  - Groups: {len(compiled.graph.groups)}")
+        print(f"  - Projections: {len(compiled.graph.projections)}")
+        print(f"  - Inputs: {len(compiled.graph.inputs)}")
+        print(f"  - Outputs: {len(compiled.graph.outputs)}")
 
         r = compiled.debug_compare(t, inp)
         print(r[0])
@@ -238,12 +235,12 @@ class TestCompilationStructure:
         out.graph.visualize()
         plt.show()
 
-        print(f"  - Groups: {len(out.groups)}")
-        print(f"  - Projections: {len(out.projections)}")
-        print(f"  - Inputs: {len(out.inputs)}")
-        print(f"  - Outputs: {len(out.outputs)}")
+        print(f"  - Groups: {len(out.graph.groups)}")
+        print(f"  - Projections: {len(out.graph.projections)}")
+        print(f"  - Inputs: {len(out.graph.inputs)}")
+        print(f"  - Outputs: {len(out.graph.outputs)}")
 
-        for input in out.inputs:
+        for input in out.graph.inputs:
             print(input.jaxpr)
             print(input.group.name)
             print()
@@ -281,13 +278,13 @@ class TestCompilationStructure:
         compiled = parser(t, inp)
 
         print(f"\n  Graph Structure:")
-        print(f"  - Groups: {len(compiled.groups)}")
-        print(f"  - Projections: {len(compiled.projections)}")
-        print(f"  - Inputs: {len(compiled.inputs)}")
-        print(f"  - Outputs: {len(compiled.outputs)}")
+        print(f"  - Groups: {len(compiled.graph.groups)}")
+        print(f"  - Projections: {len(compiled.graph.projections)}")
+        print(f"  - Inputs: {len(compiled.graph.inputs)}")
+        print(f"  - Outputs: {len(compiled.graph.outputs)}")
 
         # Verify self-connections are detected
-        self_projections = [p for p in compiled.projections if p.pre_group == p.post_group]
+        self_projections = [p for p in compiled.graph.projections if p.pre_group == p.post_group]
         print(f"\n  Self-Connections Found: {len(self_projections)}")
 
         assert len(self_projections) > 0, "Should detect at least one self-connection"
@@ -533,9 +530,9 @@ class TestFullPipeline:
         compiled = compile_fn(update)(t, inp)
 
         # Check all components were created
-        assert len(compiled.groups) > 0, "Should have at least one group"
-        assert compiled.inputs is not None, "Should have inputs"
-        assert compiled.outputs is not None, "Should have outputs"
+        assert len(compiled.graph.groups) > 0, "Should have at least one group"
+        assert compiled.graph.inputs is not None, "Should have inputs"
+        assert compiled.graph.outputs is not None, "Should have outputs"
         assert compiled.graph is not None, "Should have graph"
 
         # Test execution
@@ -546,7 +543,7 @@ class TestFullPipeline:
         orig, comp = compiled.debug_compare(t, inp)
         assert orig is not None and comp is not None, "Debug compare should produce results"
 
-        print(f"✓ Full pipeline: {len(compiled.groups)} groups, "
-              f"{len(compiled.projections)} projections, "
-              f"{len(compiled.inputs)} inputs, "
-              f"{len(compiled.outputs)} outputs")
+        print(f"✓ Full pipeline: {len(compiled.graph.groups)} groups, "
+              f"{len(compiled.graph.projections)} projections, "
+              f"{len(compiled.graph.inputs)} inputs, "
+              f"{len(compiled.graph.outputs)} outputs")
