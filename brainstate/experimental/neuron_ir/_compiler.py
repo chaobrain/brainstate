@@ -31,7 +31,7 @@ from brainstate._state import State
 from brainstate.transform._ir_inline import inline_jit
 from brainstate.transform._ir_processing import eqns_to_closed_jaxpr
 from brainstate.transform._make_jaxpr import StatefulFunction
-from ._data import NeuroGraph, GraphElem, Group, Connection, Projection, Input, Output, CompiledGraphIR
+from ._data import NeuroGraph, GraphElem, Group, Connection, Projection, Input, Output, Unknown, CompiledGraphIR
 from ._utils import _is_connection, UnionFind, get_hidden_name
 
 __all__ = [
@@ -382,6 +382,49 @@ class CompilationContext:
     outvar_to_state: Dict[Var, State]
     state_to_invars: Dict[State, Tuple[Var, ...]]
     state_to_outvars: Dict[State, Tuple[Var, ...]]
+
+
+def _group_consecutive_indices(indices: List[int]) -> List[List[int]]:
+    """Group a list of indices into consecutive groups.
+
+    Parameters
+    ----------
+    indices : list[int]
+        List of indices to group (will be sorted internally).
+
+    Returns
+    -------
+    list[list[int]]
+        List of groups, where each group contains consecutive indices.
+
+    Examples
+    --------
+    >>> _group_consecutive_indices([1, 2, 3, 7, 8, 9])
+    [[1, 2, 3], [7, 8, 9]]
+    >>> _group_consecutive_indices([5])
+    [[5]]
+    >>> _group_consecutive_indices([1, 3, 5])
+    [[1], [3], [5]]
+    """
+    if not indices:
+        return []
+
+    sorted_indices = sorted(indices)
+    groups = []
+    current_group = [sorted_indices[0]]
+
+    for i in range(1, len(sorted_indices)):
+        if sorted_indices[i] == sorted_indices[i - 1] + 1:
+            # Consecutive, add to current group
+            current_group.append(sorted_indices[i])
+        else:
+            # Not consecutive, start a new group
+            groups.append(current_group)
+            current_group = [sorted_indices[i]]
+
+    # Don't forget the last group
+    groups.append(current_group)
+    return groups
 
 
 # ============================================================================
@@ -1632,12 +1675,119 @@ class NeuronIRCompiler:
 
         return outputs
 
+    def step6b_handle_remaining_equations(self) -> List[Unknown]:
+        """Handle equations that were not assigned to any known component.
+
+        This method processes equations that remain unused after steps 1-6.
+        It groups consecutive unused equations into Unknown objects and raises
+        an error if unused equations have non-consecutive indices (indicating
+        a potential compilation logic issue).
+
+        Returns
+        -------
+        list[Unknown]
+            List of Unknown objects containing unassigned equations.
+            Empty if all equations were assigned.
+
+        Raises
+        ------
+        CompilationError
+            If unused equations have non-consecutive indices, indicating
+            that the compilation logic may have issues.
+        """
+        import warnings
+
+        # Find unused equation indices
+        unused_eqn_ids = set(self.eqn_to_id.keys()) - self.used_eqn_ids
+        if not unused_eqn_ids:
+            return []
+
+        # Convert to sorted indices
+        unused_indices = sorted([self.eqn_to_id[eqn_id] for eqn_id in unused_eqn_ids])
+
+        # Group consecutive indices
+        index_groups = _group_consecutive_indices(unused_indices)
+
+        # Check for non-consecutive indices (more than one group)
+        if len(index_groups) > 1:
+            # Format the groups for the error message
+            groups_str = ", ".join([f"[{g[0]}..{g[-1]}]" if len(g) > 1 else f"[{g[0]}]" for g in index_groups])
+
+            # Show sample equations from each group
+            sample_details = []
+            for group_indices in index_groups:
+                sample_idx = group_indices[0]
+                eqn = self.jaxpr.eqns[sample_idx]
+                sample_details.append(f"  Group [{group_indices[0]}..{group_indices[-1] if len(group_indices) > 1 else group_indices[0]}]: {eqn.primitive.name}")
+
+            raise CompilationError(
+                f"Unused equations have non-consecutive indices, indicating a potential compilation issue.\n"
+                f"  Total unused equations: {len(unused_indices)}\n"
+                f"  Index groups: {groups_str}\n"
+                f"  Sample equations from each group:\n" +
+                "\n".join(sample_details) + "\n"
+                f"  Suggestion:\n"
+                f"    - Non-consecutive unused equations suggest that some computations were\n"
+                f"      partially traced while others were missed.\n"
+                f"    - Review the compilation steps to ensure all related computations\n"
+                f"      are being captured together."
+            )
+
+        # Single consecutive group - create Unknown object
+        consecutive_indices = index_groups[0]
+        consecutive_eqns = [self.jaxpr.eqns[idx] for idx in consecutive_indices]
+
+        # Collect all input and output variables for the unknown block
+        all_invars = set()
+        all_outvars = []
+        for eqn in consecutive_eqns:
+            for in_var in eqn.invars:
+                if isinstance(in_var, Var):
+                    all_invars.add(in_var)
+            all_outvars.extend(eqn.outvars)
+
+        # Remove variables that are produced within the block from invars
+        produced_vars = set(all_outvars)
+        external_invars = [v for v in all_invars if v not in produced_vars]
+
+        # Sort external invars by their first occurrence in the equations
+        invar_order = {}
+        for eqn in consecutive_eqns:
+            for in_var in eqn.invars:
+                if isinstance(in_var, Var) and in_var in external_invars and in_var not in invar_order:
+                    invar_order[in_var] = len(invar_order)
+        external_invars = sorted(external_invars, key=lambda v: invar_order.get(v, float('inf')))
+
+        # Create ClosedJaxpr for the unknown block
+        unknown_jaxpr = self._make_closed_jaxpr(
+            eqns=consecutive_eqns,
+            invars=list(external_invars),
+            outvars=all_outvars,
+        )
+
+        unknown_obj = Unknown(
+            jaxpr=unknown_jaxpr,
+            eqn_indices=tuple(consecutive_indices),
+        )
+
+        # Issue a warning about unassigned equations
+        warnings.warn(
+            f"Found {len(consecutive_indices)} unassigned equations (indices {consecutive_indices[0]}..{consecutive_indices[-1]}) "
+            f"that were packaged into an Unknown block. This may indicate computations that couldn't be "
+            f"classified as Group, Projection, Input, or Output.",
+            UserWarning,
+            stacklevel=2,
+        )
+
+        return [unknown_obj]
+
     def step7_build_graph(
         self,
         groups: List[Group],
         projections: List[Projection],
         inputs: List[Input],
         outputs: List[Output],
+        unknowns: List[Unknown],
     ) -> NeuroGraph:
         """Derive an execution graph that preserves the original equation order.
 
@@ -1651,17 +1801,19 @@ class NeuronIRCompiler:
             External inputs to the network.
         outputs : list[Output]
             Objects describing how observable values are extracted.
+        unknowns : list[Unknown]
+            Unknown computation blocks that couldn't be classified.
 
         Returns
         -------
         NeuroGraph
             Directed acyclic graph with nodes ordered for execution/visualization.
         """
-        call_graph = NeuroGraph()
+        graph = NeuroGraph()
 
         # Ensure inputs come first
         for inp in inputs:
-            call_graph.add_node(inp)
+            graph.add_node(inp)
 
         # Create a mapping from equations/vars to components
         eqn_to_component: Dict[int, GraphElem] = {}
@@ -1673,6 +1825,9 @@ class NeuronIRCompiler:
         for proj in projections:
             for eqn in proj.jaxpr.jaxpr.eqns:
                 eqn_to_component[id(eqn)] = proj
+        for unknown in unknowns:
+            for eqn in unknown.jaxpr.jaxpr.eqns:
+                eqn_to_component[id(eqn)] = unknown
 
         # Process equations in order and add components + edges
         seen_components = set()
@@ -1684,14 +1839,14 @@ class NeuronIRCompiler:
             component_id = id(component)
             if component_id not in seen_components:
                 seen_components.add(component_id)
-                call_graph.add_node(component)
+                graph.add_node(component)
 
             # Link dependencies based on variable producers
             for in_var in eqn.invars:
                 if isinstance(in_var, Var):
                     producer = var_to_component.get(in_var)
                     if producer is not None and producer is not component:
-                        call_graph.add_edge(producer, component)
+                        graph.add_edge(producer, component)
 
             for out_var in eqn.outvars:
                 if isinstance(out_var, Var):
@@ -1699,18 +1854,18 @@ class NeuronIRCompiler:
 
         # Outputs are appended to maintain display parity with previous behavior
         for out in outputs:
-            call_graph.add_node(out)
+            graph.add_node(out)
 
         # Structural dependencies derived from graph metadata
         for inp in inputs:
-            call_graph.add_edge(inp, inp.group)
+            graph.add_edge(inp, inp.group)
         for proj in projections:
-            call_graph.add_edge(proj.pre_group, proj)
-            call_graph.add_edge(proj, proj.post_group)
+            graph.add_edge(proj.pre_group, proj)
+            graph.add_edge(proj, proj.post_group)
         for out in outputs:
-            call_graph.add_edge(out.group, out)
+            graph.add_edge(out.group, out)
 
-        return call_graph
+        return graph
 
     def step8_validate_compilation(
         self,
@@ -1789,6 +1944,11 @@ class NeuronIRCompiler:
 
         # Check 4: All equations should be used
         def _validate_all_equations_used():
+            """Validate that all equations have been used.
+
+            Note: This should not trigger in normal operation since step6b handles
+            remaining equations. If this does trigger, it indicates a bug in step6b.
+            """
             unused_eqn_ids = set(self.eqn_to_id.keys()) - self.used_eqn_ids
             if unused_eqn_ids:
                 unused_indices = sorted([self.eqn_to_id[eqn_id] for eqn_id in unused_eqn_ids])
@@ -1801,16 +1961,17 @@ class NeuronIRCompiler:
                 details = "\n".join(sample_details)
 
                 raise CompilationError(
-                    f"Not all equations were used in compilation.\n"
+                    f"Internal error: Unused equations detected after step6b.\n"
+                    f"  This indicates a bug in step6b_handle_remaining_equations().\n"
                     f"  Total equations: {len(self.jaxpr.eqns)}\n"
                     f"  Used equations: {len(self.used_eqn_ids)}\n"
                     f"  Unused equations: {len(unused_eqn_ids)}\n"
                     f"  Unused equation indices: {unused_indices}\n"
                     f"  Unused equations:\n{details}\n"
                     f"  Suggestion:\n"
-                    f"    - Check that all computations are assigned to Groups, Projections, Inputs, or Outputs\n"
-                    f"    - Verify that dead code elimination hasn't removed necessary computations\n"
-                    f"    - Ensure all state updates are properly tracked"
+                    f"    - This should not happen. Please report this as a bug.\n"
+                    f"    - Step6b should have either packaged these equations into Unknown objects\n"
+                    f"      or raised an error about non-consecutive indices."
                 )
 
         # Validation dispatch - run requested validation checks
@@ -1837,18 +1998,21 @@ class NeuronIRCompiler:
                         f"Available validations: {available}, 'all'"
                     )
 
-    def compile(self) -> Tuple[List[Group], List[Projection], List[Input], List[Output], NeuroGraph]:
+    def compile(self) -> NeuroGraph:
         """Execute the complete compilation pipeline.
 
         Returns
         -------
-        tuple
-            A 5-tuple containing:
-            - groups : list[Group]
-            - projections : list[Projection]
-            - inputs : list[Input]
-            - outputs : list[Output]
-            - graph : Graph
+        NeuroGraph
+            A directed graph containing all compiled elements.
+            Groups, projections, inputs, outputs, and unknowns can be
+            accessed through the graph's properties:
+
+            - graph.groups
+            - graph.projections
+            - graph.inputs
+            - graph.outputs
+            - graph.unknowns
 
         Raises
         ------
@@ -1873,13 +2037,16 @@ class NeuronIRCompiler:
         # Step 6: Build Output objects
         outputs = self.step6_build_outputs(groups)
 
+        # Step 6b: Handle remaining equations (new step)
+        unknowns = self.step6b_handle_remaining_equations()
+
         # Step 7: Determine call order
-        graph = self.step7_build_graph(groups, projections, inputs, outputs)
+        graph = self.step7_build_graph(groups, projections, inputs, outputs, unknowns)
 
         # Step 8: Validate the compilation
         self.step8_validate_compilation(groups, projections, inputs, outputs)
 
-        return groups, projections, inputs, outputs, graph
+        return graph
 
 
 # ============================================================================
@@ -1894,7 +2061,7 @@ def compile_jaxpr(
     outvar_to_state: Dict[Var, State],
     state_to_invars: Dict[State, Tuple[Var, ...]],
     state_to_outvars: Dict[State, Tuple[Var, ...]],
-) -> Tuple:
+) -> NeuroGraph:
     """Compile a ClosedJaxpr single-step update into Graph IR containers.
 
     Parameters
@@ -1910,14 +2077,16 @@ def compile_jaxpr(
 
     Returns
     -------
-    tuple
-        A 5-tuple containing (groups, projections, inputs, outputs, graph).
+    NeuroGraph
+        A directed graph containing all compiled elements.
+        Access components via: graph.groups, graph.projections, graph.inputs,
+        graph.outputs, graph.unknowns.
 
     Raises
     ------
     CompilationError
         If the ClosedJaxpr violates the IR assumptions (e.g. outputs depend on
-        multiple groups, or not all equations are used).
+        multiple groups, or unused equations have non-consecutive indices).
     """
     compiler = NeuronIRCompiler(
         closed_jaxpr=closed_jaxpr,
@@ -1981,7 +2150,7 @@ def compile_fn(
         state_mapping = _build_state_mapping(jaxpr, in_states, out_states)
 
         # Compile the SNN
-        compiler = NeuronIRCompiler(
+        graph = NeuronIRCompiler(
             closed_jaxpr=jaxpr,
             in_states=in_states,
             out_states=out_states,
@@ -1990,8 +2159,7 @@ def compile_fn(
             state_to_invars=state_mapping['state_to_invars'],
             state_to_outvars=state_mapping['state_to_outvars'],
             validation=validation,
-        )
-        groups, projections, inputs, outputs, graph = compiler.compile()
+        ).compile()
 
         # cache key
         cache_key = stateful_fn.get_arg_cache_key(*args, **kwargs)
@@ -2009,10 +2177,6 @@ def compile_fn(
             outvar_to_state=state_mapping['outvar_to_state'],
             state_to_invars=state_mapping['state_to_invars'],
             state_to_outvars=state_mapping['state_to_outvars'],
-            groups=groups,
-            projections=projections,
-            inputs=inputs,
-            outputs=outputs,
             graph=graph,
         )
 

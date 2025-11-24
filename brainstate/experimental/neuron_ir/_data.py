@@ -310,7 +310,28 @@ class Input(GraphElem):
 
 @dataclass(eq=False)
 class Unknown(GraphElem):
-    pass
+    """Unknown computation block containing unrecognized equations.
+
+    This represents equations that were not assigned to any known component
+    (Group, Projection, Input, or Output) during compilation. Consecutive
+    unassigned equations are packaged into Unknown blocks.
+
+    Parameters
+    ----------
+    eqn_indices : Tuple[int, ...]
+        Original equation indices in the source jaxpr.
+    """
+
+    eqn_indices: Tuple[int, ...]
+
+    def __repr__(self) -> str:
+        """Return a representation showing unknown block details."""
+        n_eqns = len(self.jaxpr.jaxpr.eqns)
+        if len(self.eqn_indices) <= 5:
+            indices_str = str(self.eqn_indices)
+        else:
+            indices_str = f"({self.eqn_indices[0]}..{self.eqn_indices[-1]})"
+        return f"Unknown(eqns={n_eqns}, indices={indices_str})"
 
 
 @dataclass(eq=False)
@@ -346,6 +367,13 @@ class NeuroGraph:
         self._forward_edges: Dict[int, Set[int]] = defaultdict(set)
         self._reverse_edges: Dict[int, Set[int]] = defaultdict(set)
 
+        # Categorized element collections
+        self._groups: List['Group'] = []
+        self._projections: List['Projection'] = []
+        self._inputs: List['Input'] = []
+        self._outputs: List['Output'] = []
+        self._unknowns: List['Unknown'] = []
+
     def _ensure_node(self, node: GraphElem) -> int:
         """Ensure ``node`` exists in internal arrays and return its index.
 
@@ -366,6 +394,19 @@ class NeuroGraph:
         index = len(self._nodes)
         self._nodes.append(node)
         self._id_to_index[node_id] = index
+
+        # Automatically categorize the node by type
+        if isinstance(node, Group):
+            self._groups.append(node)
+        elif isinstance(node, Projection):
+            self._projections.append(node)
+        elif isinstance(node, Input):
+            self._inputs.append(node)
+        elif isinstance(node, Output):
+            self._outputs.append(node)
+        elif isinstance(node, Unknown):
+            self._unknowns.append(node)
+
         return index
 
     def add_node(self, node: GraphElem) -> None:
@@ -462,8 +503,66 @@ class NeuroGraph:
         """
         return sum(len(targets) for targets in self._forward_edges.values())
 
+    @property
+    def groups(self) -> Tuple['Group', ...]:
+        """Return all Group nodes in the graph.
+
+        Returns
+        -------
+        tuple[Group, ...]
+            All Group elements added to the graph.
+        """
+        return tuple(self._groups)
+
+    @property
+    def projections(self) -> Tuple['Projection', ...]:
+        """Return all Projection nodes in the graph.
+
+        Returns
+        -------
+        tuple[Projection, ...]
+            All Projection elements added to the graph.
+        """
+        return tuple(self._projections)
+
+    @property
+    def inputs(self) -> Tuple['Input', ...]:
+        """Return all Input nodes in the graph.
+
+        Returns
+        -------
+        tuple[Input, ...]
+            All Input elements added to the graph.
+        """
+        return tuple(self._inputs)
+
+    @property
+    def outputs(self) -> Tuple['Output', ...]:
+        """Return all Output nodes in the graph.
+
+        Returns
+        -------
+        tuple[Output, ...]
+            All Output elements added to the graph.
+        """
+        return tuple(self._outputs)
+
+    @property
+    def unknowns(self) -> Tuple['Unknown', ...]:
+        """Return all Unknown nodes in the graph.
+
+        Returns
+        -------
+        tuple[Unknown, ...]
+            All Unknown elements added to the graph.
+        """
+        return tuple(self._unknowns)
+
     def __len__(self) -> int:
         return len(self._nodes)
+
+    def __iter__(self) -> Iterator[GraphElem]:
+        return iter(self._nodes)
 
     def __repr__(self) -> str:
         """Return a text-based visualization of the graph structure.
@@ -475,9 +574,6 @@ class NeuroGraph:
         """
         from ._display import TextDisplayer
         return TextDisplayer(self).display()
-
-    def __iter__(self) -> Iterator[GraphElem]:
-        return iter(self._nodes)
 
     def visualize(
         self,
@@ -548,22 +644,22 @@ class CompiledGraphIR(NamedTuple):
 
     Attributes
     ----------
-    groups : list[Group]
-        Neuron groups that own the state-update subgraphs.
-    projections : list[Projection]
-        ConnectionIR pipelines between groups.
-    inputs : list[Input]
-        External inputs traced through the jaxpr.
-    outputs : list[Output]
-        Observations that should be reported to the caller.
     graph : NeuroGraph
-        Execution order for all components.
+        Execution order for all components. Contains groups, projections,
+        inputs, outputs, and unknowns accessible via properties.
+
+    Notes
+    -----
+    Groups, projections, inputs, outputs, and unknowns can be accessed
+    through the graph object:
+
+    - `compiled.graph.groups` - All Group nodes
+    - `compiled.graph.projections` - All Projection nodes
+    - `compiled.graph.inputs` - All Input nodes
+    - `compiled.graph.outputs` - All Output nodes
+    - `compiled.graph.unknowns` - All Unknown nodes
     """
     # graph IR data
-    groups: List[Group]
-    projections: List[Projection]
-    inputs: List[Input]
-    outputs: List[Output]
     graph: NeuroGraph
 
     # others
@@ -729,6 +825,8 @@ class CompiledGraphIR(NamedTuple):
                 self._execute_projection(component, var_env)
             elif isinstance(component, Output):
                 self._execute_output(component, var_env)
+            elif isinstance(component, Unknown):
+                self._execute_unknown(component, var_env)
             else:
                 raise ValueError(f"Unknown component type: {type(component)}")
 
@@ -826,6 +924,22 @@ class CompiledGraphIR(NamedTuple):
         for var, val in zip(output.jaxpr.jaxpr.outvars, results):
             var_env[var] = val
 
+    def _execute_unknown(self, unknown: Unknown, var_env: Dict[Var, Any]) -> None:
+        """Evaluate an :class:`Unknown` component using values in ``var_env``."""
+        # Gather input values from environment
+        input_vals = [var_env[var] for var in unknown.jaxpr.jaxpr.invars]
+
+        # Execute the unknown jaxpr
+        results = jax.core.eval_jaxpr(unknown.jaxpr.jaxpr, unknown.jaxpr.consts, *input_vals)
+
+        # Handle single vs multiple outputs
+        if not isinstance(results, (tuple, list)):
+            results = (results,)
+
+        # Store results in environment
+        for var, val in zip(unknown.jaxpr.jaxpr.outvars, results):
+            var_env[var] = val
+
     def _collect_outputs(self, var_env: Dict[Var, Any]) -> Sequence[jax.typing.ArrayLike]:
         """Assemble model outputs from the variable environment.
 
@@ -854,10 +968,10 @@ class CompiledGraphIR(NamedTuple):
         str
             Human-readable representation showing compilation statistics.
         """
-        n_groups = len(self.groups)
-        n_projections = len(self.projections)
-        n_inputs = len(self.inputs)
-        n_outputs = len(self.outputs)
+        n_groups = len(self.graph.groups)
+        n_projections = len(self.graph.projections)
+        n_inputs = len(self.graph.inputs)
+        n_outputs = len(self.graph.outputs)
         n_graph_nodes = len(self.graph)
         n_in_states = len(self.in_states)
         n_out_states = len(self.out_states)
@@ -866,7 +980,7 @@ class CompiledGraphIR(NamedTuple):
         total_eqns = len(self.jaxpr.jaxpr.eqns)
 
         # Build group summary
-        group_names = [g.name for g in self.groups[:3]]
+        group_names = [g.name for g in self.graph.groups[:3]]
         if n_groups > 3:
             group_names.append('...')
         groups_str = ', '.join(group_names)
