@@ -237,8 +237,8 @@ def _has_connection_between(jaxpr: Jaxpr, in_var: Var, out_var: Var) -> bool:
 
 def _build_state_mapping(
     closed_jaxpr: ClosedJaxpr,
-    in_states: List[State],
-    out_states: List[State],
+    in_states: Sequence[State],
+    out_states: Sequence[State],
 ) -> Dict:
     """Map JAXPR variables to their corresponding ``State`` instances.
 
@@ -246,7 +246,7 @@ def _build_state_mapping(
     ----------
     closed_jaxpr : ClosedJaxpr
         Program emitted by ``StatefulFunction``.
-    in_states, out_states : list[State]
+    in_states, out_states : sequence of State
         Ordered state lists returned by the stateful function.
 
     Returns
@@ -1793,23 +1793,20 @@ class NeuronIRCompiler:
             if unused_eqn_ids:
                 unused_indices = sorted([self.eqn_to_id[eqn_id] for eqn_id in unused_eqn_ids])
                 # Show first few unused equations with details
-                sample_indices = unused_indices[:5]
+                sample_indices = unused_indices
                 sample_details = []
                 for idx in sample_indices:
                     eqn = self.jaxpr.eqns[idx]
-                    prim_name = eqn.primitive.name if hasattr(eqn.primitive, 'name') else str(eqn.primitive)
-                    sample_details.append(f"    [{idx}] {prim_name}")
-                if len(unused_indices) > 5:
-                    sample_details.append(f"    ... and {len(unused_indices) - 5} more")
-
+                    sample_details.append(f"    [{idx}] {eqn}")
                 details = "\n".join(sample_details)
+
                 raise CompilationError(
                     f"Not all equations were used in compilation.\n"
                     f"  Total equations: {len(self.jaxpr.eqns)}\n"
                     f"  Used equations: {len(self.used_eqn_ids)}\n"
                     f"  Unused equations: {len(unused_eqn_ids)}\n"
                     f"  Unused equation indices: {unused_indices}\n"
-                    f"  Sample unused equations:\n{details}\n"
+                    f"  Unused equations:\n{details}\n"
                     f"  Suggestion:\n"
                     f"    - Check that all computations are assigned to Groups, Projections, Inputs, or Outputs\n"
                     f"    - Verify that dead code elimination hasn't removed necessary computations\n"

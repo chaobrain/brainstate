@@ -71,16 +71,6 @@ class GraphElem:
         """Check equality based on object identity."""
         return self is other
 
-
-@dataclass(eq=False)
-class Group(GraphElem):
-    """Logical container for a compiled neuron group."""
-    hidden_states: List[State]
-    in_states: List[State]
-    out_states: List[State]
-    input_vars: List[Var]
-    name: str = "Group"  # Add name field with default value
-
     @property
     def eqns(self):
         """list[JaxprEqn]: Equations contained in the group's ClosedJaxpr."""
@@ -102,7 +92,7 @@ class Group(GraphElem):
         return outvar in self.jaxpr.jaxpr.outvars
 
     def has_invar(self, invar: Var) -> bool:
-        """Return True if ``invar`` is consumed at the group boundary.
+        """Return True if ``invar`` is consumed by this element.
 
         Parameters
         ----------
@@ -115,6 +105,16 @@ class Group(GraphElem):
             ``True`` when the variable appears in ``jaxpr.invars``.
         """
         return invar in self.jaxpr.jaxpr.invars
+
+
+@dataclass(eq=False)
+class Group(GraphElem):
+    """Logical container for a compiled neuron group."""
+    hidden_states: List[State]
+    in_states: List[State]
+    out_states: List[State]
+    input_vars: List[Var]
+    name: str  # Add name field with default value
 
     def has_in_state(self, state: State) -> bool:
         """Return True if ``state`` is used in read-only fashion by the group.
@@ -303,6 +303,11 @@ class Input(GraphElem):
             f"outvars={n_outvars}, "
             f"eqns={n_eqns})"
         )
+
+
+@dataclass(eq=False)
+class Unknown(GraphElem):
+    pass
 
 
 @dataclass(eq=False)
