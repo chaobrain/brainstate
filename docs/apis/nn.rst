@@ -300,7 +300,6 @@ Delay Utilities
    :template: classtemplate.rst
 
    Delay
-   DelayState
    DelayAccess
    StateWithDelay
 

@@ -63,6 +63,8 @@ __all__ = [
     'check_state_jax_tracer',
     'catch_new_states',
     'maybe_state',
+
+    'DelayState',
 ]
 
 A = TypeVar('A')
@@ -2286,3 +2288,10 @@ class ArrayParam(ParamState, u.CustomArray):
     @data.setter
     def data(self, v):
         self.value = self.transform.inverse(v)
+
+
+class DelayState(ShortTermState):
+    """
+    Short-term state for storing delay data.
+    """
+    pass

@@ -23,28 +23,22 @@ import jax.numpy as jnp
 import numpy as np
 
 from brainstate import environ
-from brainstate._state import ShortTermState, State
+from brainstate._state import ShortTermState, State, DelayState
 from brainstate.graph import Node
 from brainstate.transform import jit_error_if
 from brainstate.typing import ArrayLike, PyTree
 from ._collective_ops import call_order
 from ._module import Module
 
+
 __all__ = [
-    'Delay', 'DelayState', 'DelayAccess', 'StateWithDelay',
+    'Delay', 'DelayAccess', 'StateWithDelay',
 ]
 
 _DELAY_ROTATE = 'rotation'
 _DELAY_CONCAT = 'concat'
 _INTERP_LINEAR = 'linear_interp'
 _INTERP_ROUND = 'round'
-
-
-class DelayState(ShortTermState):
-    """
-    Short-term state for storing delay data.
-    """
-    pass
 
 
 def _get_delay(delay_time):

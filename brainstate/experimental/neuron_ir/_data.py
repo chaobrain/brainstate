@@ -22,7 +22,8 @@ from typing import Iterable, Iterator, Set, Tuple, Dict, NamedTuple, Sequence, A
 import jax
 
 from brainstate._compatible_import import ClosedJaxpr, Var
-from brainstate._state import State
+from brainstate._state import State, DelayState
+from brainstate.random._state import RandomState
 from brainstate.transform._make_jaxpr import get_arg_cache_key
 from ._utils import get_hidden_name
 
@@ -35,6 +36,7 @@ __all__ = [
     'Input',
     'Unknown',
     'Spike',
+    'Random',
     'NeuroGraph',
     'CompiledGraphIR',
 ]
@@ -316,10 +318,35 @@ class Unknown(GraphElem):
     (Group, Projection, Input, or Output) during compilation. Consecutive
     unassigned equations are packaged into Unknown blocks.
 
+    Unknown blocks are automatically integrated into the computation graph
+    with proper dependency tracking:
+
+    - If an Unknown block consumes variables produced by a Group or Projection,
+      a dependency edge is created from the producer to the Unknown block
+    - If a Group or Projection consumes variables produced by an Unknown block,
+      a dependency edge is created from the Unknown block to the consumer
+    - Unknown blocks appear in the execution graph at their natural position
+      based on the original equation order
+
+    This ensures that Unknown computations execute at the correct point in
+    the computation sequence, respecting all data dependencies.
+
     Parameters
     ----------
     eqn_indices : Tuple[int, ...]
-        Original equation indices in the source jaxpr.
+        Original equation indices in the source jaxpr, used for debugging
+        and error reporting.
+
+    Notes
+    -----
+    Unknown blocks typically arise when the compiler encounters:
+
+    - Custom operations not recognized as neuron groups, projections, or I/O
+    - Intermediate computations that don't fit the standard SNN patterns
+    - Complex control flow or data transformations
+
+    The presence of Unknown blocks doesn't indicate an error - they represent
+    valid computations that simply don't match the expected neuron/synapse patterns.
     """
 
     eqn_indices: Tuple[int, ...]
@@ -356,6 +383,15 @@ class Spike(GraphElem):
         state_name = get_hidden_name(self.hidden_state)
 
         return f"{self.name}(state={state_name}, eqns={n_eqns})"
+
+
+class Random(GraphElem):
+    """Random number generator."""
+    state: RandomState
+
+
+class Delay(GraphElem):
+    state: DelayState
 
 
 class NeuroGraph:

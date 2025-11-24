@@ -20,7 +20,7 @@ from typing import Dict, Tuple, List, Set, Any
 
 import numpy as np
 
-from ._data import NeuroGraph, GraphElem, Group, Projection, Input, Output
+from ._data import NeuroGraph, GraphElem, Group, Projection, Input, Output, Unknown
 
 __all__ = [
     'GraphDisplayer',
@@ -125,16 +125,13 @@ class GraphDisplayer:
             # Sort nodes for consistent positioning (Input, Group, Projection, Output)
             def node_sort_key(n):
                 if isinstance(n, Input):
-                    return (0, getattr(n, 'name', ''))
+                    return (0, n.name)
                 elif isinstance(n, Group):
-                    return (1, getattr(n, 'name', ''))
+                    return (1, n.name)
                 elif isinstance(n, Projection):
-                    # Projections don't have name, use pre_group and post_group names
-                    pre_name = getattr(n.pre_group, 'name', '') if hasattr(n, 'pre_group') else ''
-                    post_name = getattr(n.post_group, 'name', '') if hasattr(n, 'post_group') else ''
-                    return (2, f"{pre_name}->{post_name}")
-                else:  # Output
-                    return (3, getattr(n, 'name', ''))
+                    return (2, n.name)
+                else:  # Output or Unknown
+                    return (3, n.name)
 
             sorted_nodes = sorted(nodes, key=node_sort_key)
 
@@ -267,14 +264,24 @@ class GraphDisplayer:
                 'edge_width': 2 if is_highlighted else 1,
                 'alpha': 1.0 if is_highlighted else 0.8,
             }
+        elif isinstance(node, Unknown):
+            # Unknown nodes shown as gray squares
+            return {
+                'shape': 'square',
+                'color': '#95a5a6' if not is_highlighted else '#e74c3c',
+                'size': 500,
+                'edge_color': '#7f8c8d',
+                'edge_width': 2 if is_highlighted else 1,
+                'alpha': 1.0 if is_highlighted else 0.7,
+            }
         else:
             return {
                 'shape': 'circle',
-                'color': '#95a5a6',
+                'color': '#bdc3c7',
                 'size': 400,
-                'edge_color': '#7f8c8d',
+                'edge_color': '#95a5a6',
                 'edge_width': 1,
-                'alpha': 0.7,
+                'alpha': 0.6,
             }
 
     def _get_node_label(self, node: GraphElem) -> str:
@@ -295,19 +302,23 @@ class GraphDisplayer:
             num_hidden = len(node.hidden_states) if hasattr(node, 'hidden_states') else 0
             return f"{node.name}\n#{num_hidden}"
         elif isinstance(node, Input):
-            # Count number of input variables
-            num_inputs = len(node.input_vars) if hasattr(node, 'input_vars') else 0
-            return f"Input\n#{num_inputs}"
+            # Count number of input variables from jaxpr
+            num_inputs = len(node.jaxpr.jaxpr.invars) if hasattr(node, 'jaxpr') else 0
+            return f"{node.name}\n#{num_inputs}"
         elif isinstance(node, Output):
             # Count number of outputs (from jaxpr outvars)
             num_outputs = len(node.jaxpr.jaxpr.outvars) if hasattr(node, 'jaxpr') else 0
-            return f"Output\n#{num_outputs}"
+            return f"{node.name}\n#{num_outputs}"
         elif isinstance(node, Projection):
             # Count connections
             num_conns = len(node.connections) if hasattr(node, 'connections') else 0
-            return f"{num_conns}"
+            return f"{node.name}\n#{num_conns}"
+        elif isinstance(node, Unknown):
+            # Show unknown block with equation count
+            num_eqns = len(node.jaxpr.jaxpr.eqns) if hasattr(node, 'jaxpr') else 0
+            return f"{node.name}\n#{num_eqns}"
         else:
-            return str(type(node).__name__)
+            return node.name if hasattr(node, 'name') else str(type(node).__name__)
 
     def _draw_node(self, ax, node: GraphElem, pos: Tuple[float, float], style: Dict[str, Any]):
         """Draw a single node on the axes.
@@ -712,7 +723,7 @@ class TextDisplayer:
         Dict[str, int]
             Mapping from node type name to count.
         """
-        counts = {'Group': 0, 'Projection': 0, 'Input': 0, 'Output': 0, 'Other': 0}
+        counts = {'Group': 0, 'Projection': 0, 'Input': 0, 'Output': 0, 'Unknown': 0, 'Other': 0}
         for node in self.graph.nodes():
             if isinstance(node, Group):
                 counts['Group'] += 1
@@ -722,6 +733,8 @@ class TextDisplayer:
                 counts['Input'] += 1
             elif isinstance(node, Output):
                 counts['Output'] += 1
+            elif isinstance(node, Unknown):
+                counts['Unknown'] += 1
             else:
                 counts['Other'] += 1
         return counts
@@ -822,7 +835,7 @@ class TextDisplayer:
         # Main node line
         if isinstance(node, Group):
             num_hidden = len(node.hidden_states)
-            main_line = f"  [{index}] Group({node.name}) #{num_hidden} neurons"
+            main_line = f"  [{index}] {node.name} #{num_hidden} states"
             if verbose:
                 num_in = len(node.in_states)
                 num_out = len(node.out_states)
@@ -837,7 +850,7 @@ class TextDisplayer:
             pre_name = node.pre_group.name
             post_name = node.post_group.name
             num_conns = len(node.connections)
-            main_line = f"  [{index}] Projection({pre_name} → {post_name}) #{num_conns} connections"
+            main_line = f"  [{index}] {node.name} ({pre_name} → {post_name}) #{num_conns} connections"
             if verbose:
                 num_hidden = len(node.hidden_states)
                 num_in = len(node.in_states)
@@ -851,7 +864,7 @@ class TextDisplayer:
         elif isinstance(node, Input):
             group_name = node.group.name
             num_invars = len(node.jaxpr.jaxpr.invars)
-            main_line = f"  [{index}] Input → {group_name} (#{num_invars} vars)"
+            main_line = f"  [{index}] {node.name} to {group_name} (#{num_invars} vars)"
             if verbose:
                 num_outvars = len(node.jaxpr.jaxpr.outvars)
                 num_eqns = len(node.jaxpr.jaxpr.eqns)
@@ -863,7 +876,7 @@ class TextDisplayer:
         elif isinstance(node, Output):
             group_name = node.group.name
             num_outvars = len(node.jaxpr.jaxpr.outvars)
-            main_line = f"  [{index}] Output from {group_name} (#{num_outvars} vars)"
+            main_line = f"  [{index}] {node.name} from {group_name} (#{num_outvars} vars)"
             if verbose:
                 num_hidden = len(node.hidden_states)
                 num_in = len(node.in_states)
@@ -873,8 +886,21 @@ class TextDisplayer:
             else:
                 lines.append(main_line)
 
+        elif isinstance(node, Unknown):
+            num_eqns = len(node.jaxpr.jaxpr.eqns)
+            main_line = f"  [{index}] {node.name} #{num_eqns} equations"
+            if verbose:
+                num_invars = len(node.jaxpr.jaxpr.invars)
+                num_outvars = len(node.jaxpr.jaxpr.outvars)
+                indices_str = f"{node.eqn_indices[0]}..{node.eqn_indices[-1]}" if len(node.eqn_indices) > 1 else str(node.eqn_indices[0])
+                lines.append(main_line)
+                lines.append(f"      In Vars: {num_invars}, Out Vars: {num_outvars}")
+                lines.append(f"      Original Indices: {indices_str}")
+            else:
+                lines.append(main_line)
+
         else:
-            lines.append(f"  [{index}] {type(node).__name__}")
+            lines.append(f"  [{index}] {node.name}")
 
         # Add jaxpr details if requested
         if show_jaxpr:
@@ -898,19 +924,19 @@ class TextDisplayer:
             Short name string.
         """
         if isinstance(node, Group):
-            return f"Group({node.name})"
+            return node.name
         elif isinstance(node, Projection):
-            pre_name = node.pre_group.name
-            post_name = node.post_group.name
-            return f"Projection({pre_name} → {post_name})"
+            return node.name
         elif isinstance(node, Input):
             group_name = node.group.name
             return f"{node.name} to {group_name}"
         elif isinstance(node, Output):
             group_name = node.group.name
             return f"{node.name} from {group_name}"
+        elif isinstance(node, Unknown):
+            return node.name
         else:
-            return type(node).__name__
+            return node.name if hasattr(node, 'name') else type(node).__name__
 
     def _format_jaxpr(self, node: GraphElem) -> str:
         """Format jaxpr equations for a node.

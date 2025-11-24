@@ -16,13 +16,6 @@ Basic State Types
 
 Basic state types provide semantic distinctions for different data lifecycles in your program.
 
-- **State**: Base class for all state objects, providing core functionality for value storage and tracing
-- **ShortTermState**: For temporary data that changes frequently (e.g., gradients, activations)
-- **LongTermState**: For persistent data that evolves slowly (e.g., model weights, optimizer states)
-- **ParamState**: Specialized for trainable parameters in neural networks
-- **BatchState**: For batch-specific data in data processing pipelines
-- **ArrayParam**: Parameter state that can be used as an array-like data
-
 .. autosummary::
    :toctree: generated/
    :nosignatures:
@@ -34,6 +27,7 @@ Basic state types provide semantic distinctions for different data lifecycles in
    ParamState
    BatchState
    ArrayParam
+   DelayState
 
 
 Hidden State Types

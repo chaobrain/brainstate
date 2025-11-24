@@ -1840,6 +1840,21 @@ class NeuronIRCompiler:
     ) -> NeuroGraph:
         """Derive an execution graph that preserves the original equation order.
 
+        This method builds a directed acyclic graph (DAG) where nodes represent
+        computational components and edges represent data dependencies. The graph
+        construction process:
+
+        1. Maps all equations to their containing components (Groups, Projections, Unknowns)
+        2. Tracks which component produces each variable
+        3. Creates dependency edges when a component consumes variables produced by another
+        4. Adds structural edges for Input->Group, Group->Projection->Group, and Group->Output
+
+        Unknown nodes are integrated into the dependency graph automatically through
+        the variable tracking mechanism. If an Unknown node's equations consume variables
+        produced by a Group or Projection, a dependency edge is created. Similarly, if
+        a Group or Projection consumes variables produced by an Unknown node, the reverse
+        dependency is established.
+
         Parameters
         ----------
         groups : list[Group]
@@ -1857,6 +1872,24 @@ class NeuronIRCompiler:
         -------
         NeuroGraph
             Directed acyclic graph with nodes ordered for execution/visualization.
+            Nodes appear in the order they were first encountered during equation
+            processing, which preserves the original jaxpr execution order.
+
+        Notes
+        -----
+        The dependency tracking mechanism works as follows:
+
+        - For each equation in the original jaxpr (processed in order):
+          - Identify which component owns this equation
+          - For each input variable to the equation:
+            - Check if another component produced this variable
+            - If yes, add edge: producer -> current component
+          - Record that this component produces the equation's output variables
+
+        This approach ensures that:
+        1. Unknown nodes are properly positioned in the execution order
+        2. Dependencies between Unknowns and other components are explicit
+        3. The graph respects the original jaxpr's data flow
         """
         graph = NeuroGraph()
 
@@ -1864,10 +1897,12 @@ class NeuronIRCompiler:
         for inp in inputs:
             graph.add_node(inp)
 
-        # Create a mapping from equations/vars to components
+        # Create a mapping from equations to components
+        # This includes all component types: Groups, Projections, and Unknowns
         eqn_to_component: Dict[int, GraphElem] = {}
         var_to_component: Dict[Var, GraphElem] = {}
 
+        # Map all equations to their containing components
         for group in groups:
             for eqn in group.jaxpr.jaxpr.eqns:
                 eqn_to_component[id(eqn)] = group
@@ -1878,11 +1913,13 @@ class NeuronIRCompiler:
             for eqn in unknown.jaxpr.jaxpr.eqns:
                 eqn_to_component[id(eqn)] = unknown
 
-        # Process equations in order and add components + edges
+        # Process equations in original jaxpr order to build dependency graph
+        # This automatically handles Unknown dependencies through variable tracking
         seen_components = set()
         for eqn in self.jaxpr.eqns:
             component = eqn_to_component.get(id(eqn))
             if component is None:
+                # Skip equations not assigned to any component (shouldn't happen after step7)
                 continue
 
             component_id = id(component)
@@ -1890,13 +1927,19 @@ class NeuronIRCompiler:
                 seen_components.add(component_id)
                 graph.add_node(component)
 
-            # Link dependencies based on variable producers
+            # Build dependency edges based on variable producers
+            # This handles dependencies for ALL component types including Unknown nodes
             for in_var in eqn.invars:
                 if isinstance(in_var, Var):
                     producer = var_to_component.get(in_var)
                     if producer is not None and producer is not component:
+                        # Add edge from producer to consumer
+                        # This creates dependencies for Unknown nodes with Groups/Projections
+                        # and vice versa based on actual data flow
                         graph.add_edge(producer, component)
 
+            # Record which component produces each output variable
+            # This allows subsequent components (including Unknowns) to track their dependencies
             for out_var in eqn.outvars:
                 if isinstance(out_var, Var):
                     var_to_component[out_var] = component
@@ -1905,7 +1948,8 @@ class NeuronIRCompiler:
         for out in outputs:
             graph.add_node(out)
 
-        # Structural dependencies derived from graph metadata
+        # Add structural dependencies based on component metadata
+        # These edges represent logical relationships beyond data flow
         for inp in inputs:
             graph.add_edge(inp, inp.group)
         for proj in projections:
@@ -1920,8 +1964,6 @@ class NeuronIRCompiler:
         self,
         groups: List[Group],
         projections: List[Projection],
-        inputs: List[Input],
-        outputs: List[Output],
     ) -> None:
         """Run structural checks on the assembled compilation result.
 
@@ -2086,14 +2128,14 @@ class NeuronIRCompiler:
         # Step 6: Build Output objects
         outputs = self.step6_build_outputs(groups)
 
-        # Step 6b: Handle remaining equations (new step)
+        # Step 7: Handle remaining equations (new step)
         unknowns = self.step7_handle_remaining_equations()
 
-        # Step 7: Determine call order
+        # Step 8: Determine call order
         graph = self.step8_build_graph(groups, projections, inputs, outputs, unknowns)
 
-        # Step 8: Validate the compilation
-        self.step9_validate_compilation(groups, projections, inputs, outputs)
+        # Step 9: Validate the compilation
+        self.step9_validate_compilation(groups, projections)
 
         return graph
 

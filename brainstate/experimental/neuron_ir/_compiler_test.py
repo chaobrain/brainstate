@@ -173,7 +173,9 @@ class TestCompiledResultsExecution:
 
         print(compiled.graph.text(verbose=True, show_jaxpr=True))
 
-        # r1, r2 = compiled.debug_compare(*inputs)
+        r1, r2 = compiled.debug_compare(*inputs)
+        print(r1)
+        print(r2)
 
 
 # ============================================================================
