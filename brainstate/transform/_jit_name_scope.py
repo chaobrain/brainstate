@@ -18,12 +18,12 @@ from typing import Tuple, Callable
 from ._jit import jit
 
 __all__ = [
-    'jit_name_scope',
+    'jit_named_scope',
 ]
 
 
-def jit_name_scope(
-    scope_name: str,
+def jit_named_scope(
+    name: str,
     static_argnums: Tuple[int, ...] = (),
     static_argnames: Tuple[str, ...] = ()
 ):
@@ -31,7 +31,7 @@ def jit_name_scope(
     Decorator that wraps a function with JAX's JIT compilation and sets its name.
 
     Args:
-        scope_name: Name to set for the function.
+        name: Name to set for the function.
         static_argnums: Tuple of positional argument indices to be treated as static.
         static_argnames: Tuple of keyword argument names to be treated as static.
 
@@ -40,14 +40,14 @@ def jit_name_scope(
 
     """
 
-    assert isinstance(scope_name, str), f'scope_name must be a string, got {type(scope_name)}'
+    assert isinstance(name, str), f'name must be a string, got {type(name)}'
 
     def decorator(fn: Callable):
         return jit(
             fn,
             static_argnums=static_argnums,
             static_argnames=static_argnames,
-            name=f"{scope_name}.{fn.__name__}"
+            name=f"{name}.{fn.__name__}"
         )
 
     return decorator
