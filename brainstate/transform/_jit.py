@@ -50,6 +50,7 @@ class JittedFunction(Callable):
 
 def _get_jitted_fun(
     fun: Callable,
+    name: str,
     in_shardings,
     out_shardings,
     static_argnums,
@@ -73,8 +74,15 @@ def _get_jitted_fun(
         name='jit',
         return_only_write=True
     )
+
+    def run_fn(*args, **kwargs):
+        return fun.jaxpr_call(*args, **kwargs)
+
+    if name:
+        run_fn.__name__ = name
+
     jit_fun = jax.jit(
-        fun.jaxpr_call,
+        run_fn if name else fun.jaxpr_call,
         static_argnums=tuple(i + 1 for i in static_argnums),
         static_argnames=static_argnames,
         donate_argnums=tuple(i + 1 for i in donate_argnums),
@@ -90,7 +98,7 @@ def _get_jitted_fun(
     )
 
     @functools.wraps(fun.fun)
-    def jitted_fun(*args, **params):
+    def jitted_fn(*args, **params):
         if jax.config.jax_disable_jit:
             return fun.fun(*args, **params)
 
@@ -192,27 +200,27 @@ def _get_jitted_fun(
         state_trace.assign_state_vals_v2(read_state_vals, write_state_vals)
         return ret
 
-    jitted_fun: JittedFunction
+    jitted_fn: JittedFunction
 
     # the original function
-    jitted_fun.origin_fun = fun.fun
+    jitted_fn.origin_fun = fun.fun
 
     # the stateful function for extracting states
-    jitted_fun.stateful_fun = fun
+    jitted_fn.stateful_fun = fun
 
     # the jitted function
-    jitted_fun.jitted_fun = jit_fun
+    jitted_fn.jitted_fun = jit_fun
 
     # clear cache
-    jitted_fun.clear_cache = clear_cache
+    jitted_fn.clear_cache = clear_cache
 
     # compile the jitted function
-    jitted_fun.eval_shape = eval_shape
-    jitted_fun.compile = compile
-    jitted_fun.lower = lower
-    jitted_fun.trace = trace
+    jitted_fn.eval_shape = eval_shape
+    jitted_fn.compile = compile
+    jitted_fn.lower = lower
+    jitted_fn.trace = trace
 
-    return jitted_fun
+    return jitted_fn
 
 
 @set_module_as('brainstate.transform')
@@ -229,6 +237,7 @@ def jit(
     backend: str | None = None,
     inline: bool = False,
     abstracted_axes: Any | None = None,
+    name: str = None,
     **kwargs
 ) -> Union[JittedFunction, Callable[[Callable], JittedFunction]]:
     """
@@ -403,6 +412,7 @@ def jit(
         def wrapper(fun_again: Callable) -> JittedFunction:
             return _get_jitted_fun(
                 fun_again,
+                name=name,
                 in_shardings=in_shardings,
                 out_shardings=out_shardings,
                 static_argnums=static_argnums,
@@ -422,16 +432,17 @@ def jit(
     else:
         return _get_jitted_fun(
             fun,
-            in_shardings,
-            out_shardings,
-            static_argnums,
-            donate_argnums,
-            static_argnames,
-            donate_argnames,
-            keep_unused,
-            device,
-            backend,
-            inline,
-            abstracted_axes,
+            name=name,
+            in_shardings=in_shardings,
+            out_shardings=out_shardings,
+            static_argnums=static_argnums,
+            donate_argnums=donate_argnums,
+            static_argnames=static_argnames,
+            donate_argnames=donate_argnames,
+            keep_unused=keep_unused,
+            device=device,
+            backend=backend,
+            inline=inline,
+            abstracted_axes=abstracted_axes,
             **kwargs
         )
