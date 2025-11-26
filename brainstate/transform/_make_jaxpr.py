@@ -811,22 +811,26 @@ class StatefulFunction(PrettyObject):
             If State objects are passed as arguments or returned from the function.
         """
 
-        # check input types
-        jax.tree.map(self._check_input_ouput, (args, kwargs), is_leaf=lambda x: isinstance(x, State))
-
         # static args
         cache_key = self.get_arg_cache_key(*args, **kwargs)
 
         if cache_key not in self._cached_state_trace:
             try:
-
-                # jaxpr
+                # kwargs separation
                 static_kwargs, dyn_kwargs = {}, {}
                 for k, v in kwargs.items():
                     if k in self.static_argnames:
                         static_kwargs[k] = v
                     else:
                         dyn_kwargs[k] = v
+
+                # args separation
+                dyn_args = tuple(args[i] for i in range(len(args)) if i not in self.static_argnums)
+
+                # check input types
+                jax.tree.map(self._check_input_ouput, (dyn_args, dyn_kwargs), is_leaf=lambda x: isinstance(x, State))
+
+                # jaxpr
                 jaxpr, (out_shapes, state_shapes) = _make_jaxpr(
                     functools.partial(
                         self._wrapped_fun_to_eval,
