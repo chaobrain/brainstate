@@ -219,7 +219,7 @@ def randint(
         >>> print((arr >= [1, 5, 7]).all())  # True
     """
 
-    return DEFAULT.randint(low, high=high, size=size, dtype=dtype, key=key)
+    return DEFAULT.randint(low, high, size=size, dtype=dtype, key=key)
 
 
 @set_module_as('brainstate.random')
@@ -314,7 +314,7 @@ def random_integers(
         >>> print((dsums >= 2).all() and (dsums <= 12).all())  # True
     """
 
-    return DEFAULT.random_integers(low, high=high, size=size, key=key, dtype=dtype)
+    return DEFAULT.random_integers(low, high, size=size, key=key, dtype=dtype)
 
 
 @set_module_as('brainstate.random')
@@ -595,7 +595,7 @@ def choice(
         >>> print(result.dtype.kind)  # 'U' (unicode string)
     """
     a = a
-    return DEFAULT.choice(a=a, size=size, replace=replace, p=p, key=key)
+    return DEFAULT.choice(a, size=size, replace=replace, p=p, key=key)
 
 
 @set_module_as('brainstate.random')
@@ -669,7 +669,7 @@ def permutation(
 @set_module_as('brainstate.random')
 def shuffle(
     x,
-    axis=0,
+    axis: int = 0,
     key: Optional[SeedOrKey] = None
 ):
     r"""
@@ -714,7 +714,7 @@ def shuffle(
         >>> print(arr.shape == original_shape)  # True (shape preserved)
         >>> print(sorted(arr.flatten()) == list(range(9)))  # True (same elements)
     """
-    return DEFAULT.shuffle(x, axis, key=key)
+    return DEFAULT.shuffle(x, axis=axis, key=key)
 
 
 @set_module_as('brainstate.random')
@@ -817,7 +817,7 @@ def exponential(
     .. [3] Wikipedia, "Exponential distribution",
            https://en.wikipedia.org/wiki/Exponential_distribution
     """
-    return DEFAULT.exponential(scale, size, key=key, dtype=dtype)
+    return DEFAULT.exponential(scale, size=size, key=key, dtype=dtype)
 
 
 @set_module_as('brainstate.random')
@@ -1048,7 +1048,7 @@ def laplace(
     ...      np.exp(-(x - loc)**2 / (2 * scale**2)))
     >>> plt.plot(x,g)
     """
-    return DEFAULT.laplace(loc, scale, size, key=key, dtype=dtype)
+    return DEFAULT.laplace(loc, scale, size=size, key=key, dtype=dtype)
 
 
 @set_module_as('brainstate.random')
@@ -1128,7 +1128,7 @@ def logistic(
     >>> plt.plot(bins, lgst_val * count.max() / lgst_val.max())
     >>> plt.show()
     """
-    return DEFAULT.logistic(loc, scale, size, key=key, dtype=dtype)
+    return DEFAULT.logistic(loc, scale, size=size, key=key, dtype=dtype)
 
 
 @set_module_as('brainstate.random')
@@ -1220,7 +1220,7 @@ def normal(
         >>> samples = brainstate.random.normal(3, 2.5, size=(2, 4))
         >>> print(samples.shape)  # (2, 4)
     """
-    return DEFAULT.normal(loc, scale, size, key=key, dtype=dtype)
+    return DEFAULT.normal(loc, scale, size=size, key=key, dtype=dtype)
 
 
 @set_module_as('brainstate.random')
@@ -1321,7 +1321,7 @@ def pareto(
     >>> plt.plot(bins, max(count)*fit/max(fit), linewidth=2, color='r')
     >>> plt.show()
     """
-    return DEFAULT.pareto(a, size, key=key, dtype=dtype)
+    return DEFAULT.pareto(a, size=size, key=key, dtype=dtype)
 
 
 @set_module_as('brainstate.random')
@@ -1397,7 +1397,7 @@ def poisson(
 
     >>> s = brainstate.random.poisson(lam=(100., 500.), size=(100, 2))
     """
-    return DEFAULT.poisson(lam, size, key=key, dtype=dtype)
+    return DEFAULT.poisson(lam, size=size, key=key, dtype=dtype)
 
 
 @set_module_as('brainstate.random')
@@ -1467,7 +1467,7 @@ def standard_cauchy(
     >>> plt.hist(s, bins=100)
     >>> plt.show()
     """
-    return DEFAULT.standard_cauchy(size, key=key, dtype=dtype)
+    return DEFAULT.standard_cauchy(size=size, key=key, dtype=dtype)
 
 
 @set_module_as('brainstate.random')
@@ -1503,7 +1503,7 @@ def standard_exponential(
 
     >>> n = brainstate.random.standard_exponential((3, 8000))
     """
-    return DEFAULT.standard_exponential(size, key=key, dtype=dtype)
+    return DEFAULT.standard_exponential(size=size, key=key, dtype=dtype)
 
 
 @set_module_as('brainstate.random')
@@ -1581,7 +1581,7 @@ def standard_gamma(
     >>> plt.plot(bins, y, linewidth=2, color='r')  # doctest: +SKIP
     >>> plt.show()
     """
-    return DEFAULT.standard_gamma(shape, size, key=key, dtype=dtype)
+    return DEFAULT.standard_gamma(shape, size=size, key=key, dtype=dtype)
 
 
 @set_module_as('brainstate.random')
@@ -1655,7 +1655,7 @@ def standard_normal(
         >>> samples = 3 + 2.5 * brainstate.random.standard_normal(size=(2, 4))
         print(samples.shape)  # (2, 4)
     """
-    return DEFAULT.standard_normal(size, key=key, dtype=dtype)
+    return DEFAULT.standard_normal(size=size, key=key, dtype=dtype)
 
 
 @set_module_as('brainstate.random')
@@ -1764,7 +1764,7 @@ def standard_t(
     conditionally on the null hypothesis being true is too low, and we reject
     the null hypothesis of no deviation.
     """
-    return DEFAULT.standard_t(df, size, key=key, dtype=dtype)
+    return DEFAULT.standard_t(df, size=size, key=key, dtype=dtype)
 
 
 @set_module_as('brainstate.random')
@@ -1861,7 +1861,7 @@ def uniform(
     >>> plt.plot(bins, np.ones_like(bins), linewidth=2, color='r')
     >>> plt.show()
     """
-    return DEFAULT.uniform(low, high, size, key=key, dtype=dtype)
+    return DEFAULT.uniform(low, high, size=size, key=key, dtype=dtype)
 
 
 @set_module_as('brainstate.random')
@@ -1933,9 +1933,9 @@ def truncated_normal(
     return DEFAULT.truncated_normal(
         lower,
         upper,
-        size,
         loc,
         scale,
+        size=size,
         key=key,
         dtype=dtype,
         check_valid=check_valid,
@@ -1974,7 +1974,7 @@ def bernoulli(
       A random array with boolean dtype and shape given by ``shape`` if ``shape``
       is not None, or else ``p.shape``.
     """
-    return DEFAULT.bernoulli(p, size, key=key, check_valid=check_valid)
+    return DEFAULT.bernoulli(p, size=size, key=key, check_valid=check_valid)
 
 
 @set_module_as('brainstate.random')
@@ -2089,7 +2089,7 @@ def lognormal(
     >>> plt.plot(x, pdf, color='r', linewidth=2)
     >>> plt.show()
     """
-    return DEFAULT.lognormal(mean, sigma, size, key=key, dtype=dtype)
+    return DEFAULT.lognormal(mean, sigma, size=size, key=key, dtype=dtype)
 
 
 @set_module_as('brainstate.random')
@@ -2185,7 +2185,7 @@ def binomial(
     >>> sum(brainstate.random.binomial(9, 0.1, 20000) == 0)/20000.
     # answer = 0.38885, or 38%.
     """
-    return DEFAULT.binomial(n, p, size, key=key, dtype=dtype, check_valid=check_valid)
+    return DEFAULT.binomial(n, p, size=size, key=key, dtype=dtype, check_valid=check_valid)
 
 
 @set_module_as('brainstate.random')
@@ -2263,7 +2263,7 @@ def chisquare(
         >>> print(samples.shape)  # (4,)
         >>> print((samples >= 0).all())  # True (chi-square is always non-negative)
     """
-    return DEFAULT.chisquare(df, size, key=key, dtype=dtype)
+    return DEFAULT.chisquare(df, size=size, key=key, dtype=dtype)
 
 
 @set_module_as('brainstate.random')
@@ -2350,7 +2350,7 @@ def dirichlet(
     >>> plt.barh(range(20), s[2], left=s[0]+s[1], color='r')
     >>> plt.title("Lengths of Strings")
     """
-    return DEFAULT.dirichlet(alpha, size, key=key, dtype=dtype)
+    return DEFAULT.dirichlet(alpha, size=size, key=key, dtype=dtype)
 
 
 @set_module_as('brainstate.random')
@@ -2406,7 +2406,7 @@ def geometric(
     >>> (z == 1).sum() / 10000.
     0.34889999999999999 #random
     """
-    return DEFAULT.geometric(p, size, key=key, dtype=dtype)
+    return DEFAULT.geometric(p, size=size, key=key, dtype=dtype)
 
 
 @set_module_as('brainstate.random')
@@ -2500,7 +2500,7 @@ def f(
     the measured value is 36, so the null hypothesis is rejected at the 1%
     level.
     """
-    return DEFAULT.f(dfnum, dfden, size, key=key, dtype=dtype)
+    return DEFAULT.f(dfnum, dfden, size=size, key=key, dtype=dtype)
 
 
 @set_module_as('brainstate.random')
@@ -2603,7 +2603,7 @@ def hypergeometric(
     >>> sum(s>=12)/100000. + sum(s<=3)/100000.
     #   answer = 0.003 ... pretty unlikely!
     """
-    return DEFAULT.hypergeometric(ngood, nbad, nsample, size, key=key, dtype=dtype)
+    return DEFAULT.hypergeometric(ngood, nbad, nsample, size=size, key=key, dtype=dtype)
 
 
 @set_module_as('brainstate.random')
@@ -2688,7 +2688,7 @@ def logseries(
     ...          logseries(bins, a).max(), 'r')
     >>> plt.show()
     """
-    return DEFAULT.logseries(p, size, key=key, dtype=dtype)
+    return DEFAULT.logseries(p, size=size, key=key, dtype=dtype)
 
 
 @set_module_as('brainstate.random')
@@ -2773,7 +2773,7 @@ def multinomial(
         >>> print(result.shape)  # (2,)
         print(result.sum())  # 100 (total throws)
     """
-    return DEFAULT.multinomial(n, pvals, size, key=key, dtype=dtype, check_valid=check_valid)
+    return DEFAULT.multinomial(n, pvals, size=size, key=key, dtype=dtype, check_valid=check_valid)
 
 
 @set_module_as('brainstate.random')
@@ -2909,7 +2909,7 @@ def multivariate_normal(
     >>> plt.grid()
     >>> plt.show()
     """
-    return DEFAULT.multivariate_normal(mean, cov, size, method, key=key, dtype=dtype)
+    return DEFAULT.multivariate_normal(mean, cov, size=size, method=method, key=key, dtype=dtype)
 
 
 @set_module_as('brainstate.random')
@@ -2991,7 +2991,7 @@ def negative_binomial(
     ...    probability = sum(s<i) / 100000.
     ...    print(i, "wells drilled, probability of one success =", probability)
     """
-    return DEFAULT.negative_binomial(n, p, size, key=key, dtype=dtype)
+    return DEFAULT.negative_binomial(n, p, size=size, key=key, dtype=dtype)
 
 
 @set_module_as('brainstate.random')
@@ -3073,7 +3073,7 @@ def noncentral_chisquare(
     ...                   bins=200, density=True)
     >>> plt.show()
     """
-    return DEFAULT.noncentral_chisquare(df, nonc, size, key=key, dtype=dtype)
+    return DEFAULT.noncentral_chisquare(df, nonc, size=size, key=key, dtype=dtype)
 
 
 @set_module_as('brainstate.random')
@@ -3154,7 +3154,7 @@ def noncentral_f(
     >>> plt.plot(NF[1][1:], NF[0])
     >>> plt.show()
     """
-    return DEFAULT.noncentral_f(dfnum, dfden, nonc, size, key=key, dtype=dtype)
+    return DEFAULT.noncentral_f(dfnum, dfden, nonc, size=size, key=key, dtype=dtype)
 
 
 @set_module_as('brainstate.random')
@@ -3259,7 +3259,7 @@ def power(
     >>> plt.plot(xx,powpdf,'r-')  # doctest: +SKIP
     >>> plt.title('inverse of stats.pareto(5)')
     """
-    return DEFAULT.power(a, size, key=key, dtype=dtype)
+    return DEFAULT.power(a, size=size, key=key, dtype=dtype)
 
 
 @set_module_as('brainstate.random')
@@ -3332,7 +3332,7 @@ def rayleigh(
     >>> 100.*sum(s>3)/1000000.
     0.087300000000000003 # random
     """
-    return DEFAULT.rayleigh(scale, size, key=key, dtype=dtype)
+    return DEFAULT.rayleigh(scale, size=size, key=key, dtype=dtype)
 
 
 @set_module_as('brainstate.random')
@@ -3396,7 +3396,7 @@ def triangular(
     ...              density=True)
     >>> plt.show()
     """
-    return DEFAULT.triangular(size, key=key)
+    return DEFAULT.triangular(size=size, key=key)
 
 
 @set_module_as('brainstate.random')
@@ -3485,7 +3485,7 @@ def vonmises(
     >>> plt.plot(x, y, linewidth=2, color='r')  # doctest: +SKIP
     >>> plt.show()
     """
-    return DEFAULT.vonmises(mu, kappa, size, key=key, dtype=dtype)
+    return DEFAULT.vonmises(mu, kappa, size=size, key=key, dtype=dtype)
 
 
 @set_module_as('brainstate.random')
@@ -3559,7 +3559,7 @@ def wald(
     >>> h = plt.hist(brainstate.random.wald(3, 2, 100000), bins=200, density=True)
     >>> plt.show()
     """
-    return DEFAULT.wald(mean, scale, size, key=key, dtype=dtype)
+    return DEFAULT.wald(mean, scale, size=size, key=key, dtype=dtype)
 
 
 @set_module_as('brainstate.random')
@@ -3656,7 +3656,7 @@ def weibull(
     >>> plt.show()
 
     """
-    return DEFAULT.weibull(a, size, key=key, dtype=dtype)
+    return DEFAULT.weibull(a, size=size, key=key, dtype=dtype)
 
 
 @set_module_as('brainstate.random')
@@ -3682,7 +3682,7 @@ def weibull_min(
       A jnp.array of samples.
 
     """
-    return DEFAULT.weibull_min(a, scale, size, key=key, dtype=dtype)
+    return DEFAULT.weibull_min(a, scale, size=size, key=key, dtype=dtype)
 
 
 @set_module_as('brainstate.random')
@@ -3775,7 +3775,7 @@ def zipf(
     >>> plt.title(f'Zipf sample, a={a}, size={n}')
     >>> plt.show()
     """
-    return DEFAULT.zipf(a, size, key=key, dtype=dtype)
+    return DEFAULT.zipf(a, size=size, key=key, dtype=dtype)
 
 
 @set_module_as('brainstate.random')
@@ -3798,7 +3798,7 @@ def maxwell(
       A jnp.array of samples, of shape `shape`.
 
     """
-    return DEFAULT.maxwell(size, key=key, dtype=dtype)
+    return DEFAULT.maxwell(size=size, key=key, dtype=dtype)
 
 
 @set_module_as('brainstate.random')
@@ -3826,7 +3826,7 @@ def t(
     out: array_like
       The sampled value.
     """
-    return DEFAULT.t(df, size, key=key, dtype=dtype)
+    return DEFAULT.t(df, size=size, key=key, dtype=dtype)
 
 
 @set_module_as('brainstate.random')
@@ -3853,7 +3853,7 @@ def orthogonal(
     out: Array
       The sampled results.
     """
-    return DEFAULT.orthogonal(n, size, key=key, dtype=dtype)
+    return DEFAULT.orthogonal(n, size=size, key=key, dtype=dtype)
 
 
 @set_module_as('brainstate.random')
@@ -3884,7 +3884,7 @@ def loggamma(
     out: array_like
       The sampled results.
     """
-    return DEFAULT.loggamma(a, size, key=key, dtype=dtype)
+    return DEFAULT.loggamma(a, size=size, key=key, dtype=dtype)
 
 
 @set_module_as('brainstate.random')
@@ -3909,7 +3909,7 @@ def categorical(
       A random array with int dtype and shape given by ``shape`` if ``shape``
       is not None, or else ``np.delete(logits.shape, axis)``.
     """
-    return DEFAULT.categorical(logits, axis, size, key=key)
+    return DEFAULT.categorical(logits, axis, size=size, key=key)
 
 
 @set_module_as('brainstate.random')

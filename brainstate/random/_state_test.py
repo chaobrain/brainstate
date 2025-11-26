@@ -253,6 +253,7 @@ class TestRandomStateDistributions(unittest.TestCase):
 
     def test_choice(self):
         """Test choice method."""
+
         # Choose from range
         val = self.rs.choice(5)
         self.assertTrue(0 <= val < 5)
@@ -275,13 +276,13 @@ class TestRandomStateDistributions(unittest.TestCase):
 
     def test_exponential(self):
         """Test exponential distribution."""
-        arr = self.rs.exponential(scale=2.0, size=(2, 3))
+        arr = self.rs.exponential(2.0, size=(2, 3))
         self.assertEqual(arr.shape, (2, 3))
         self.assertTrue((arr >= 0).all())
 
     def test_gamma(self):
         """Test gamma distribution."""
-        arr = self.rs.gamma(shape=2.0, scale=1.0, size=(2, 3))
+        arr = self.rs.gamma(2.0, 1.0, size=(2, 3))
         self.assertEqual(arr.shape, (2, 3))
         self.assertTrue((arr >= 0).all())
 
@@ -311,7 +312,7 @@ class TestRandomStateDistributions(unittest.TestCase):
 
     def test_truncated_normal(self):
         """Test truncated normal distribution."""
-        arr = self.rs.truncated_normal(lower=-1.0, upper=1.0, size=(2, 3))
+        arr = self.rs.truncated_normal(-1.0, 1.0, size=(2, 3))
         self.assertEqual(arr.shape, (2, 3))
         self.assertTrue((arr >= -1.0).all() and (arr <= 1.0).all())
 
@@ -353,7 +354,7 @@ class TestRandomStatePyTorchCompatibility(unittest.TestCase):
     def test_randint_like(self):
         """Test randint_like method."""
         input_tensor = jnp.zeros((2, 3), dtype=jnp.int32)
-        result = self.rs.randint_like(input_tensor, low=0, high=10)
+        result = self.rs.randint_like(input_tensor, 0, 10)
         self.assertEqual(result.shape, input_tensor.shape)
         self.assertTrue((result >= 0).all() and (result < 10).all())
 
