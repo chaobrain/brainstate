@@ -5,6 +5,7 @@ import braintools
 import brainunit as u
 import jax
 import matplotlib.pyplot as plt
+import numpy as np
 
 import brainstate
 from brainstate.experimental.neuron_ir import compile_fn
@@ -27,6 +28,10 @@ from brainstate.experimental.neuron_ir._model_to_test import (
 from brainstate.transform._make_jaxpr import StatefulFunction
 
 brainstate.environ.set(dt=0.1 * u.ms)
+
+
+def allclose(r1, r2):
+    return all(jax.tree.leaves(jax.tree.map(np.allclose, r1, r2)))
 
 
 # ============================================================================
@@ -110,6 +115,7 @@ class TestCompiledResultsExecution:
         r1, r2 = compiled.debug_compare(t, inp)
         print(r1)
         print(r2)
+        assert allclose(r1, r2)
 
     def test_Single_Pop_EI_CUBA_Net(self):
         net = Single_Pop_EI_CUBA_Net()
@@ -127,6 +133,7 @@ class TestCompiledResultsExecution:
         r1, r2 = compiled.debug_compare(t, inp)
         print(r1)
         print(r2)
+        assert allclose(r1, r2)
 
     def test_Single_Pop_HH_EI_Net(self):
         net = Single_Pop_HH_EI_Net()
@@ -138,6 +145,7 @@ class TestCompiledResultsExecution:
         print(compiled.graph)
         print(r1)
         print(r2)
+        assert allclose(r1, r2)
 
     def test_Single_Pop_HH_braincell_EI_Net(self):
         net = Single_Pop_HH_braincell_EI_Net()
@@ -151,8 +159,8 @@ class TestCompiledResultsExecution:
         print(compiled.graph.projections[0])
         print(r1)
         print(r2)
+        assert allclose(r1, r2)
 
-    # @pytest.mark.skip
     def test_single_pop_strial_network(self):
         net = single_pop_strial_network()
         brainstate.nn.init_all_states(net)
@@ -179,7 +187,7 @@ class TestCompiledResultsExecution:
 
 
 # ============================================================================
-# Integration Tests for Compilation Output Structure
+# Integration Tests for Compilation OutputPrim Structure
 # ============================================================================
 
 class TestCompilationStructure:
@@ -261,12 +269,12 @@ class TestCompilationStructure:
 
         This test verifies that:
         1. Self-connections (pre_group == post_group) are properly detected
-        2. The graph structure correctly represents Group -> Projection -> Group loops
+        2. The graph structure correctly represents GroupPrim -> ProjectionPrim -> GroupPrim loops
         3. Execution handles circular dependencies correctly
         4. Validation accepts valid self-connections
         """
         print("\n" + "=" * 80)
-        print("Test: Self-Connection Support (Single_Pop_EI_COBA_Net)")
+        print("Test: Self-ConnectionPrim Support (Single_Pop_EI_COBA_Net)")
         print("=" * 80)
 
         # Create network with self-connections
@@ -306,17 +314,17 @@ class TestCompilationStructure:
         self_edges = [(s, t) for s, t in edges if s == t]
         print(f"  Direct Self-Edges: {len(self_edges)}")
 
-        # Check for Group -> Projection -> Group cycles
+        # Check for GroupPrim -> ProjectionPrim -> GroupPrim cycles
         for proj in self_projections:
-            # Verify edges exist: Group -> Projection
+            # Verify edges exist: GroupPrim -> ProjectionPrim
             group_to_proj_edge = (proj.pre_group, proj) in edges
-            assert group_to_proj_edge, f"Missing edge: {proj.pre_group.name} -> Projection"
+            assert group_to_proj_edge, f"Missing edge: {proj.pre_group.name} -> ProjectionPrim"
 
-            # Verify edges exist: Projection -> Group
+            # Verify edges exist: ProjectionPrim -> GroupPrim
             proj_to_group_edge = (proj, proj.post_group) in edges
-            assert proj_to_group_edge, f"Missing edge: Projection -> {proj.post_group.name}"
+            assert proj_to_group_edge, f"Missing edge: ProjectionPrim -> {proj.post_group.name}"
 
-            print(f"    [OK] Cycle verified: {proj.pre_group.name} -> Projection -> {proj.post_group.name}")
+            print(f"    [OK] Cycle verified: {proj.pre_group.name} -> ProjectionPrim -> {proj.post_group.name}")
 
         # Test execution
         print(f"\n  Testing Execution...")

@@ -20,7 +20,7 @@ from typing import Dict, Tuple, List, Set, Any
 
 import numpy as np
 
-from ._data import NeuroGraph, GraphElem, Group, Projection, Input, Output, Unknown
+from ._data import NeuroGraph, GraphElem, GroupPrim, ProjectionPrim, InputPrim, OutputPrim, UnknownPrim
 
 __all__ = [
     'GraphDisplayer',
@@ -109,7 +109,7 @@ class GraphDisplayer:
         """
         layers = self._compute_hierarchical_layers()
 
-        # Group nodes by layer
+        # GroupPrim nodes by layer
         layer_nodes: Dict[int, List[GraphElem]] = defaultdict(list)
         for node, layer in layers.items():
             layer_nodes[layer].append(node)
@@ -122,15 +122,15 @@ class GraphDisplayer:
             x = layer_idx * x_spacing
             num_nodes = len(nodes)
 
-            # Sort nodes for consistent positioning (Input, Group, Projection, Output)
+            # Sort nodes for consistent positioning (InputPrim, GroupPrim, ProjectionPrim, OutputPrim)
             def node_sort_key(n):
-                if isinstance(n, Input):
+                if isinstance(n, InputPrim):
                     return (0, n.name)
-                elif isinstance(n, Group):
+                elif isinstance(n, GroupPrim):
                     return (1, n.name)
-                elif isinstance(n, Projection):
+                elif isinstance(n, ProjectionPrim):
                     return (2, n.name)
-                else:  # Output or Unknown
+                else:  # OutputPrim or UnknownPrim
                     return (3, n.name)
 
             sorted_nodes = sorted(nodes, key=node_sort_key)
@@ -227,7 +227,7 @@ class GraphDisplayer:
         """
         is_highlighted = id(node) in self._highlighted_node_ids
 
-        if isinstance(node, Group):
+        if isinstance(node, GroupPrim):
             return {
                 'shape': 'circle',
                 'color': '#3498db' if not is_highlighted else '#e74c3c',
@@ -236,7 +236,7 @@ class GraphDisplayer:
                 'edge_width': 3 if is_highlighted else 2,
                 'alpha': 1.0 if is_highlighted else 0.9,
             }
-        elif isinstance(node, Input):
+        elif isinstance(node, InputPrim):
             return {
                 'shape': 'roundbox',
                 'color': '#2ecc71' if not is_highlighted else '#e74c3c',
@@ -245,7 +245,7 @@ class GraphDisplayer:
                 'edge_width': 2 if is_highlighted else 1,
                 'alpha': 1.0 if is_highlighted else 0.7,
             }
-        elif isinstance(node, Output):
+        elif isinstance(node, OutputPrim):
             return {
                 'shape': 'roundbox',
                 'color': '#f39c12' if not is_highlighted else '#e74c3c',
@@ -254,8 +254,8 @@ class GraphDisplayer:
                 'edge_width': 2 if is_highlighted else 1,
                 'alpha': 1.0 if is_highlighted else 0.7,
             }
-        elif isinstance(node, Projection):
-            # Projection nodes are shown as small diamonds on edges
+        elif isinstance(node, ProjectionPrim):
+            # ProjectionPrim nodes are shown as small diamonds on edges
             return {
                 'shape': 'diamond',
                 'color': '#9b59b6' if not is_highlighted else '#e74c3c',
@@ -264,8 +264,8 @@ class GraphDisplayer:
                 'edge_width': 2 if is_highlighted else 1,
                 'alpha': 1.0 if is_highlighted else 0.8,
             }
-        elif isinstance(node, Unknown):
-            # Unknown nodes shown as gray squares
+        elif isinstance(node, UnknownPrim):
+            # UnknownPrim nodes shown as gray squares
             return {
                 'shape': 'square',
                 'color': '#95a5a6' if not is_highlighted else '#e74c3c',
@@ -297,23 +297,23 @@ class GraphDisplayer:
         str
             Label text.
         """
-        if isinstance(node, Group):
+        if isinstance(node, GroupPrim):
             # Show group name with number of hidden states (neurons)
             num_hidden = len(node.hidden_states) if hasattr(node, 'hidden_states') else 0
             return f"{node.name}\n#{num_hidden}"
-        elif isinstance(node, Input):
+        elif isinstance(node, InputPrim):
             # Count number of input variables from jaxpr
             num_inputs = len(node.jaxpr.jaxpr.invars) if hasattr(node, 'jaxpr') else 0
             return f"{node.name}\n#{num_inputs}"
-        elif isinstance(node, Output):
+        elif isinstance(node, OutputPrim):
             # Count number of outputs (from jaxpr outvars)
             num_outputs = len(node.jaxpr.jaxpr.outvars) if hasattr(node, 'jaxpr') else 0
             return f"{node.name}\n#{num_outputs}"
-        elif isinstance(node, Projection):
+        elif isinstance(node, ProjectionPrim):
             # Count connections
             num_conns = len(node.connections) if hasattr(node, 'connections') else 0
             return f"{node.name}\n#{num_conns}"
-        elif isinstance(node, Unknown):
+        elif isinstance(node, UnknownPrim):
             # Show unknown block with equation count
             num_eqns = len(node.jaxpr.jaxpr.eqns) if hasattr(node, 'jaxpr') else 0
             return f"{node.name}\n#{num_eqns}"
@@ -399,15 +399,15 @@ class GraphDisplayer:
 
         # Add label
         label = self._get_node_label(node)
-        fontsize = 10 if isinstance(node, Group) else 8
-        fontweight = 'bold' if isinstance(node, Group) else 'normal'
+        fontsize = 10 if isinstance(node, GroupPrim) else 8
+        fontweight = 'bold' if isinstance(node, GroupPrim) else 'normal'
         ax.text(
             x, y, label,
             ha='center',
             va='center',
             fontsize=fontsize,
             fontweight=fontweight,
-            color='white' if isinstance(node, Group) else 'black'
+            color='white' if isinstance(node, GroupPrim) else 'black'
         )
 
     def _draw_edge(
@@ -430,7 +430,7 @@ class GraphDisplayer:
         target_pos : Tuple[float, float]
             Target position.
         is_projection : bool
-            Whether this edge represents a Projection connection.
+            Whether this edge represents a ProjectionPrim connection.
         """
         import matplotlib.patches as mpatches
 
@@ -440,7 +440,7 @@ class GraphDisplayer:
         is_self_loop = (source == target)
 
         if is_projection:
-            # Solid thick arrow for Projection - more prominent for data flow
+            # Solid thick arrow for ProjectionPrim - more prominent for data flow
             color = '#e74c3c' if is_highlighted else '#9b59b6'
             linewidth = 3.5 if is_highlighted else 2.5
             linestyle = '-'
@@ -448,7 +448,7 @@ class GraphDisplayer:
             # Larger arrow head for projection connections
             arrowstyle = '->,head_width=0.6,head_length=1.0'
         else:
-            # Dashed arrow for Input/Output connections - still visible but distinct
+            # Dashed arrow for InputPrim/OutputPrim connections - still visible but distinct
             color = '#e74c3c' if is_highlighted else '#7f8c8d'
             linewidth = 2.5 if is_highlighted else 2.0
             linestyle = '--'
@@ -563,7 +563,7 @@ class GraphDisplayer:
 
         # Identify which edges connect to Projections
         for node in self.graph.nodes():
-            if isinstance(node, Projection):
+            if isinstance(node, ProjectionPrim):
                 # Edges from pre_group to projection and projection to post_group
                 if hasattr(node, 'pre_group') and hasattr(node, 'post_group'):
                     projection_edges.add((node.pre_group, node))
@@ -626,7 +626,7 @@ class GraphDisplayer:
             iterations = kwargs.get('iterations', 100)
             self._node_positions = self._layout_force_directed(iterations=iterations)
         else:
-            raise ValueError(f"Unknown layout: {layout}. Use 'lr', 'tb', or 'auto'.")
+            raise ValueError(f"UnknownPrim layout: {layout}. Use 'lr', 'tb', or 'auto'.")
 
         # Create figure
         self._fig, self._ax = plt.subplots(figsize=figsize)
@@ -649,17 +649,17 @@ class GraphDisplayer:
         import matplotlib.patches as mpatches
         import matplotlib.lines as mlines
         legend_elements = [
-            mpatches.Patch(facecolor='#3498db', edgecolor='#2c3e50', label='Group (Neurons)'),
-            mpatches.Patch(facecolor='#2ecc71', edgecolor='#27ae60', label='Input'),
-            mpatches.Patch(facecolor='#f39c12', edgecolor='#e67e22', label='Output'),
-            mpatches.Patch(facecolor='#9b59b6', edgecolor='#8e44ad', label='Projection'),
+            mpatches.Patch(facecolor='#3498db', edgecolor='#2c3e50', label='GroupPrim (Neurons)'),
+            mpatches.Patch(facecolor='#2ecc71', edgecolor='#27ae60', label='InputPrim'),
+            mpatches.Patch(facecolor='#f39c12', edgecolor='#e67e22', label='OutputPrim'),
+            mpatches.Patch(facecolor='#9b59b6', edgecolor='#8e44ad', label='ProjectionPrim'),
             mlines.Line2D(
                 [], [], color='#9b59b6', marker='>', markersize=8,
-                linestyle='-', linewidth=2.5, label='Data Flow (Projection)'
+                linestyle='-', linewidth=2.5, label='Data Flow (ProjectionPrim)'
             ),
             mlines.Line2D(
                 [], [], color='#7f8c8d', marker='>', markersize=7,
-                linestyle='--', linewidth=2.0, label='Data Flow (Input/Output)'
+                linestyle='--', linewidth=2.0, label='Data Flow (InputPrim/OutputPrim)'
             ),
         ]
         self._ax.legend(
@@ -723,18 +723,18 @@ class TextDisplayer:
         Dict[str, int]
             Mapping from node type name to count.
         """
-        counts = {'Group': 0, 'Projection': 0, 'Input': 0, 'Output': 0, 'Unknown': 0, 'Other': 0}
+        counts = {'GroupPrim': 0, 'ProjectionPrim': 0, 'InputPrim': 0, 'OutputPrim': 0, 'UnknownPrim': 0, 'Other': 0}
         for node in self.graph.nodes():
-            if isinstance(node, Group):
-                counts['Group'] += 1
-            elif isinstance(node, Projection):
-                counts['Projection'] += 1
-            elif isinstance(node, Input):
-                counts['Input'] += 1
-            elif isinstance(node, Output):
-                counts['Output'] += 1
-            elif isinstance(node, Unknown):
-                counts['Unknown'] += 1
+            if isinstance(node, GroupPrim):
+                counts['GroupPrim'] += 1
+            elif isinstance(node, ProjectionPrim):
+                counts['ProjectionPrim'] += 1
+            elif isinstance(node, InputPrim):
+                counts['InputPrim'] += 1
+            elif isinstance(node, OutputPrim):
+                counts['OutputPrim'] += 1
+            elif isinstance(node, UnknownPrim):
+                counts['UnknownPrim'] += 1
             else:
                 counts['Other'] += 1
         return counts
@@ -753,14 +753,14 @@ class TextDisplayer:
 
         # Build type summary
         type_parts = []
-        if type_counts['Group'] > 0:
-            type_parts.append(f"{type_counts['Group']} Group{'s' if type_counts['Group'] > 1 else ''}")
-        if type_counts['Projection'] > 0:
-            type_parts.append(f"{type_counts['Projection']} Projection{'s' if type_counts['Projection'] > 1 else ''}")
-        if type_counts['Input'] > 0:
-            type_parts.append(f"{type_counts['Input']} Input{'s' if type_counts['Input'] > 1 else ''}")
-        if type_counts['Output'] > 0:
-            type_parts.append(f"{type_counts['Output']} Output{'s' if type_counts['Output'] > 1 else ''}")
+        if type_counts['GroupPrim'] > 0:
+            type_parts.append(f"{type_counts['GroupPrim']} GroupPrim{'s' if type_counts['GroupPrim'] > 1 else ''}")
+        if type_counts['ProjectionPrim'] > 0:
+            type_parts.append(f"{type_counts['ProjectionPrim']} ProjectionPrim{'s' if type_counts['ProjectionPrim'] > 1 else ''}")
+        if type_counts['InputPrim'] > 0:
+            type_parts.append(f"{type_counts['InputPrim']} InputPrim{'s' if type_counts['InputPrim'] > 1 else ''}")
+        if type_counts['OutputPrim'] > 0:
+            type_parts.append(f"{type_counts['OutputPrim']} OutputPrim{'s' if type_counts['OutputPrim'] > 1 else ''}")
         if type_counts['Other'] > 0:
             type_parts.append(f"{type_counts['Other']} Other")
 
@@ -833,7 +833,7 @@ class TextDisplayer:
         lines = []
 
         # Main node line
-        if isinstance(node, Group):
+        if isinstance(node, GroupPrim):
             num_hidden = len(node.hidden_states)
             main_line = f"  [{index}] {node.name} #{num_hidden} states"
             if verbose:
@@ -846,7 +846,7 @@ class TextDisplayer:
             else:
                 lines.append(main_line)
 
-        elif isinstance(node, Projection):
+        elif isinstance(node, ProjectionPrim):
             pre_name = node.pre_group.name
             post_name = node.post_group.name
             num_conns = len(node.connections)
@@ -861,7 +861,7 @@ class TextDisplayer:
             else:
                 lines.append(main_line)
 
-        elif isinstance(node, Input):
+        elif isinstance(node, InputPrim):
             group_name = node.group.name
             num_invars = len(node.jaxpr.jaxpr.invars)
             main_line = f"  [{index}] {node.name} to {group_name} (#{num_invars} vars)"
@@ -873,7 +873,7 @@ class TextDisplayer:
             else:
                 lines.append(main_line)
 
-        elif isinstance(node, Output):
+        elif isinstance(node, OutputPrim):
             group_name = node.group.name
             num_outvars = len(node.jaxpr.jaxpr.outvars)
             main_line = f"  [{index}] {node.name} from {group_name} (#{num_outvars} vars)"
@@ -886,7 +886,7 @@ class TextDisplayer:
             else:
                 lines.append(main_line)
 
-        elif isinstance(node, Unknown):
+        elif isinstance(node, UnknownPrim):
             num_eqns = len(node.jaxpr.jaxpr.eqns)
             main_line = f"  [{index}] {node.name} #{num_eqns} equations"
             if verbose:
@@ -923,17 +923,17 @@ class TextDisplayer:
         str
             Short name string.
         """
-        if isinstance(node, Group):
+        if isinstance(node, GroupPrim):
             return node.name
-        elif isinstance(node, Projection):
+        elif isinstance(node, ProjectionPrim):
             return node.name
-        elif isinstance(node, Input):
+        elif isinstance(node, InputPrim):
             group_name = node.group.name
             return f"{node.name} to {group_name}"
-        elif isinstance(node, Output):
+        elif isinstance(node, OutputPrim):
             group_name = node.group.name
             return f"{node.name} from {group_name}"
-        elif isinstance(node, Unknown):
+        elif isinstance(node, UnknownPrim):
             return node.name
         else:
             return node.name if hasattr(node, 'name') else type(node).__name__

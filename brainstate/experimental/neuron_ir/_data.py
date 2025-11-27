@@ -29,14 +29,15 @@ from ._utils import get_hidden_name
 
 __all__ = [
     'GraphElem',
-    'Group',
-    'Connection',
-    'Projection',
-    'Output',
-    'Input',
-    'Unknown',
-    'Spike',
-    'Random',
+    'GroupPrim',
+    'ConnectionPrim',
+    'ProjectionPrim',
+    'OutputPrim',
+    'InputPrim',
+    'UnknownPrim',
+    'SpikePrim',
+    'RandomPrim',
+    'DelayPrim',
     'NeuroGraph',
     'CompiledGraphIR',
 ]
@@ -111,8 +112,65 @@ class GraphElem:
         return invar in self.jaxpr.jaxpr.invars
 
 
+class IntermediateGraphElem(GraphElem):
+    pass
+
+
 @dataclass(eq=False)
-class Group(GraphElem):
+class ConnectionPrim(IntermediateGraphElem):
+    """Describes the primitives that shuttle activity between two groups."""
+
+    def __repr__(self) -> str:
+        """Return a representation showing connection signature."""
+        n_eqns = len(self.jaxpr.jaxpr.eqns)
+        # Get the primitive name from the first equation if available
+        prim_name = "unknown"
+        if n_eqns > 0:
+            first_eqn = self.jaxpr.jaxpr.eqns[0]
+            prim_name = str(first_eqn.primitive.name) if hasattr(first_eqn.primitive, 'name') else str(
+                first_eqn.primitive)
+
+        n_invars = len(self.jaxpr.jaxpr.invars)
+        n_outvars = len(self.jaxpr.jaxpr.outvars)
+
+        return (
+            f"{self.name}("
+            f"prim={prim_name}, "
+            f"invars={n_invars}, "
+            f"outvars={n_outvars})"
+        )
+
+
+class FinalGraphElem(GraphElem):
+    pass
+
+
+@dataclass(eq=False)
+class SpikePrim(GraphElem):
+    """Opaque surrogate-gradient spike primitive used by the compiler.
+
+    Parameters
+    ----------
+    hidden_state : State
+        Logical state that emitted the spike surrogate.
+    jaxpr : ClosedJaxpr
+        ClosedJaxpr that implements the surrogate-gradient primitive.
+    """
+
+    hidden_state: State
+
+    def __repr__(self) -> str:
+        """Return a representation showing spike surrogate details."""
+
+        n_eqns = len(self.jaxpr.jaxpr.eqns)
+        # Get state name if available
+        state_name = get_hidden_name(self.hidden_state)
+
+        return f"{self.name}(state={state_name}, eqns={n_eqns})"
+
+
+@dataclass(eq=False)
+class GroupPrim(FinalGraphElem):
     """Logical container for a compiled neuron group."""
 
     hidden_states: List[State]
@@ -193,39 +251,14 @@ class Group(GraphElem):
 
 
 @dataclass(eq=False)
-class Connection(GraphElem):
-    """Describes the primitives that shuttle activity between two groups."""
-
-    def __repr__(self) -> str:
-        """Return a representation showing connection signature."""
-        n_eqns = len(self.jaxpr.jaxpr.eqns)
-        # Get the primitive name from the first equation if available
-        prim_name = "unknown"
-        if n_eqns > 0:
-            first_eqn = self.jaxpr.jaxpr.eqns[0]
-            prim_name = str(first_eqn.primitive.name) if hasattr(first_eqn.primitive, 'name') else str(
-                first_eqn.primitive)
-
-        n_invars = len(self.jaxpr.jaxpr.invars)
-        n_outvars = len(self.jaxpr.jaxpr.outvars)
-
-        return (
-            f"{self.name}("
-            f"prim={prim_name}, "
-            f"invars={n_invars}, "
-            f"outvars={n_outvars})"
-        )
-
-
-@dataclass(eq=False)
-class Projection(GraphElem):
-    """Connection bundle that transfers activity between two groups."""
+class ProjectionPrim(FinalGraphElem):
+    """ConnectionPrim bundle that transfers activity between two groups."""
 
     hidden_states: List[State]
     in_states: List[State]
-    connections: List[Connection]
-    pre_group: Group
-    post_group: Group
+    connections: List[ConnectionPrim]
+    pre_group: GroupPrim
+    post_group: GroupPrim
 
     @property
     def pre(self):
@@ -245,8 +278,8 @@ class Projection(GraphElem):
         n_in = len(self.in_states)
 
         # Get group names
-        pre_name = self.pre_group.name if hasattr(self.pre_group, 'name') else 'Group'
-        post_name = self.post_group.name if hasattr(self.post_group, 'name') else 'Group'
+        pre_name = self.pre_group.name if hasattr(self.pre_group, 'name') else 'GroupPrim'
+        post_name = self.post_group.name if hasattr(self.post_group, 'name') else 'GroupPrim'
 
         return (
             f"{self.name}("
@@ -259,12 +292,12 @@ class Projection(GraphElem):
 
 
 @dataclass(eq=False)
-class Output(GraphElem):
+class OutputPrim(FinalGraphElem):
     """Description of how values are extracted from a group."""
 
     hidden_states: List[State]
     in_states: List[State]
-    group: Group
+    group: GroupPrim
 
     def __repr__(self) -> str:
         """Return a representation showing output extraction details."""
@@ -274,7 +307,7 @@ class Output(GraphElem):
         n_in = len(self.in_states)
 
         # Get group name
-        group_name = self.group.name if hasattr(self.group, 'name') else 'Group'
+        group_name = self.group.name if hasattr(self.group, 'name') else 'GroupPrim'
 
         return (
             f"{self.name}("
@@ -287,10 +320,10 @@ class Output(GraphElem):
 
 
 @dataclass(eq=False)
-class Input(GraphElem):
+class InputPrim(FinalGraphElem):
     """Description of how external values are injected into a group."""
 
-    group: Group
+    group: GroupPrim
 
     def __repr__(self) -> str:
         """Return a representation showing input injection details."""
@@ -299,7 +332,7 @@ class Input(GraphElem):
         n_outvars = len(self.jaxpr.jaxpr.outvars)
 
         # Get group name
-        group_name = self.group.name if hasattr(self.group, 'name') else 'Group'
+        group_name = self.group.name if hasattr(self.group, 'name') else 'GroupPrim'
 
         return (
             f"{self.name}("
@@ -311,24 +344,24 @@ class Input(GraphElem):
 
 
 @dataclass(eq=False)
-class Unknown(GraphElem):
-    """Unknown computation block containing unrecognized equations.
+class UnknownPrim(GraphElem):
+    """UnknownPrim computation block containing unrecognized equations.
 
     This represents equations that were not assigned to any known component
-    (Group, Projection, Input, or Output) during compilation. Consecutive
-    unassigned equations are packaged into Unknown blocks.
+    (GroupPrim, ProjectionPrim, InputPrim, or OutputPrim) during compilation. Consecutive
+    unassigned equations are packaged into UnknownPrim blocks.
 
-    Unknown blocks are automatically integrated into the computation graph
+    UnknownPrim blocks are automatically integrated into the computation graph
     with proper dependency tracking:
 
-    - If an Unknown block consumes variables produced by a Group or Projection,
-      a dependency edge is created from the producer to the Unknown block
-    - If a Group or Projection consumes variables produced by an Unknown block,
-      a dependency edge is created from the Unknown block to the consumer
-    - Unknown blocks appear in the execution graph at their natural position
+    - If an UnknownPrim block consumes variables produced by a GroupPrim or ProjectionPrim,
+      a dependency edge is created from the producer to the UnknownPrim block
+    - If a GroupPrim or ProjectionPrim consumes variables produced by an UnknownPrim block,
+      a dependency edge is created from the UnknownPrim block to the consumer
+    - UnknownPrim blocks appear in the execution graph at their natural position
       based on the original equation order
 
-    This ensures that Unknown computations execute at the correct point in
+    This ensures that UnknownPrim computations execute at the correct point in
     the computation sequence, respecting all data dependencies.
 
     Parameters
@@ -339,13 +372,13 @@ class Unknown(GraphElem):
 
     Notes
     -----
-    Unknown blocks typically arise when the compiler encounters:
+    UnknownPrim blocks typically arise when the compiler encounters:
 
     - Custom operations not recognized as neuron groups, projections, or I/O
     - Intermediate computations that don't fit the standard SNN patterns
     - Complex control flow or data transformations
 
-    The presence of Unknown blocks doesn't indicate an error - they represent
+    The presence of UnknownPrim blocks doesn't indicate an error - they represent
     valid computations that simply don't match the expected neuron/synapse patterns.
     """
 
@@ -361,36 +394,12 @@ class Unknown(GraphElem):
         return f"{self.name}(eqns={n_eqns}, indices={indices_str})"
 
 
-@dataclass(eq=False)
-class Spike(GraphElem):
-    """Opaque surrogate-gradient spike primitive used by the compiler.
-
-    Parameters
-    ----------
-    hidden_state : State
-        Logical state that emitted the spike surrogate.
-    jaxpr : ClosedJaxpr
-        ClosedJaxpr that implements the surrogate-gradient primitive.
-    """
-
-    hidden_state: State
-
-    def __repr__(self) -> str:
-        """Return a representation showing spike surrogate details."""
-
-        n_eqns = len(self.jaxpr.jaxpr.eqns)
-        # Get state name if available
-        state_name = get_hidden_name(self.hidden_state)
-
-        return f"{self.name}(state={state_name}, eqns={n_eqns})"
-
-
-class Random(GraphElem):
+class RandomPrim(FinalGraphElem):
     """Random number generator."""
     state: RandomState
 
 
-class Delay(GraphElem):
+class DelayPrim(FinalGraphElem):
     state: DelayState
 
 
@@ -404,11 +413,11 @@ class NeuroGraph:
         self._reverse_edges: Dict[int, Set[int]] = defaultdict(set)
 
         # Categorized element collections
-        self._groups: List['Group'] = []
-        self._projections: List['Projection'] = []
-        self._inputs: List['Input'] = []
-        self._outputs: List['Output'] = []
-        self._unknowns: List['Unknown'] = []
+        self._groups: List['GroupPrim'] = []
+        self._projections: List['ProjectionPrim'] = []
+        self._inputs: List['InputPrim'] = []
+        self._outputs: List['OutputPrim'] = []
+        self._unknowns: List['UnknownPrim'] = []
 
     def _ensure_node(self, node: GraphElem) -> int:
         """Ensure ``node`` exists in internal arrays and return its index.
@@ -432,15 +441,15 @@ class NeuroGraph:
         self._id_to_index[node_id] = index
 
         # Automatically categorize the node by type
-        if isinstance(node, Group):
+        if isinstance(node, GroupPrim):
             self._groups.append(node)
-        elif isinstance(node, Projection):
+        elif isinstance(node, ProjectionPrim):
             self._projections.append(node)
-        elif isinstance(node, Input):
+        elif isinstance(node, InputPrim):
             self._inputs.append(node)
-        elif isinstance(node, Output):
+        elif isinstance(node, OutputPrim):
             self._outputs.append(node)
-        elif isinstance(node, Unknown):
+        elif isinstance(node, UnknownPrim):
             self._unknowns.append(node)
 
         return index
@@ -540,57 +549,57 @@ class NeuroGraph:
         return sum(len(targets) for targets in self._forward_edges.values())
 
     @property
-    def groups(self) -> Tuple['Group', ...]:
-        """Return all Group nodes in the graph.
+    def groups(self) -> Tuple['GroupPrim', ...]:
+        """Return all GroupPrim nodes in the graph.
 
         Returns
         -------
-        tuple[Group, ...]
-            All Group elements added to the graph.
+        tuple[GroupPrim, ...]
+            All GroupPrim elements added to the graph.
         """
         return tuple(self._groups)
 
     @property
-    def projections(self) -> Tuple['Projection', ...]:
-        """Return all Projection nodes in the graph.
+    def projections(self) -> Tuple['ProjectionPrim', ...]:
+        """Return all ProjectionPrim nodes in the graph.
 
         Returns
         -------
-        tuple[Projection, ...]
-            All Projection elements added to the graph.
+        tuple[ProjectionPrim, ...]
+            All ProjectionPrim elements added to the graph.
         """
         return tuple(self._projections)
 
     @property
-    def inputs(self) -> Tuple['Input', ...]:
-        """Return all Input nodes in the graph.
+    def inputs(self) -> Tuple['InputPrim', ...]:
+        """Return all InputPrim nodes in the graph.
 
         Returns
         -------
-        tuple[Input, ...]
-            All Input elements added to the graph.
+        tuple[InputPrim, ...]
+            All InputPrim elements added to the graph.
         """
         return tuple(self._inputs)
 
     @property
-    def outputs(self) -> Tuple['Output', ...]:
-        """Return all Output nodes in the graph.
+    def outputs(self) -> Tuple['OutputPrim', ...]:
+        """Return all OutputPrim nodes in the graph.
 
         Returns
         -------
-        tuple[Output, ...]
-            All Output elements added to the graph.
+        tuple[OutputPrim, ...]
+            All OutputPrim elements added to the graph.
         """
         return tuple(self._outputs)
 
     @property
-    def unknowns(self) -> Tuple['Unknown', ...]:
-        """Return all Unknown nodes in the graph.
+    def unknowns(self) -> Tuple['UnknownPrim', ...]:
+        """Return all UnknownPrim nodes in the graph.
 
         Returns
         -------
-        tuple[Unknown, ...]
-            All Unknown elements added to the graph.
+        tuple[UnknownPrim, ...]
+            All UnknownPrim elements added to the graph.
         """
         return tuple(self._unknowns)
 
@@ -638,9 +647,9 @@ class NeuroGraph:
         """Visualize the graph structure using matplotlib.
 
         This method creates an interactive visualization of the graph showing:
-        - Different node types (Group, Input, Output, Projection) with distinct styles
+        - Different node types (GroupPrim, InputPrim, OutputPrim, ProjectionPrim) with distinct styles
         - Hierarchical relationships between nodes
-        - Different edge styles for Projection vs Input/Output connections
+        - Different edge styles for ProjectionPrim vs InputPrim/OutputPrim connections
         - Click-to-highlight functionality for exploring connections
 
         Parameters
@@ -648,8 +657,8 @@ class NeuroGraph:
         layout : str, optional
             Layout algorithm to use for positioning nodes:
 
-            - 'lr' or 'left-right': Left-to-right hierarchical layout (Input on left, Output on right)
-            - 'tb' or 'top-bottom': Top-to-bottom hierarchical layout (Input on top, Output on bottom)
+            - 'lr' or 'left-right': Left-to-right hierarchical layout (InputPrim on left, OutputPrim on right)
+            - 'tb' or 'top-bottom': Top-to-bottom hierarchical layout (InputPrim on top, OutputPrim on bottom)
             - 'auto' or 'force': Force-directed layout with automatic node positioning
 
             Default is 'auto'.
@@ -679,12 +688,12 @@ class NeuroGraph:
         Notes
         -----
 
-        - **Group nodes** are shown as large blue circles with their names displayed prominently
-        - **Input nodes** are shown as smaller green rounded rectangles with input count
-        - **Output nodes** are shown as smaller orange rounded rectangles with output count
-        - **Projection nodes** are shown as small purple diamonds on edges between Groups
-        - **Projection connections** use solid purple lines
-        - **Input/Output connections** use dashed gray lines
+        - **GroupPrim nodes** are shown as large blue circles with their names displayed prominently
+        - **InputPrim nodes** are shown as smaller green rounded rectangles with input count
+        - **OutputPrim nodes** are shown as smaller orange rounded rectangles with output count
+        - **ProjectionPrim nodes** are shown as small purple diamonds on edges between Groups
+        - **ProjectionPrim connections** use solid purple lines
+        - **InputPrim/OutputPrim connections** use dashed gray lines
         - Click any node to highlight its immediate predecessors and successors
         - Click empty space to clear highlights
         """
@@ -707,11 +716,11 @@ class CompiledGraphIR(NamedTuple):
     Groups, projections, inputs, outputs, and unknowns can be accessed
     through the graph object:
 
-    - `compiled.graph.groups` - All Group nodes
-    - `compiled.graph.projections` - All Projection nodes
-    - `compiled.graph.inputs` - All Input nodes
-    - `compiled.graph.outputs` - All Output nodes
-    - `compiled.graph.unknowns` - All Unknown nodes
+    - `compiled.graph.groups` - All GroupPrim nodes
+    - `compiled.graph.projections` - All ProjectionPrim nodes
+    - `compiled.graph.inputs` - All InputPrim nodes
+    - `compiled.graph.outputs` - All OutputPrim nodes
+    - `compiled.graph.unknowns` - All UnknownPrim nodes
     """
     # graph IR data
     graph: NeuroGraph
@@ -871,18 +880,18 @@ class CompiledGraphIR(NamedTuple):
 
         # Step 2: Execute components in graph
         for component in self.graph:
-            if isinstance(component, Input):
+            if isinstance(component, InputPrim):
                 self._execute_input(component, var_env)
-            elif isinstance(component, Group):
+            elif isinstance(component, GroupPrim):
                 self._execute_group(component, var_env)
-            elif isinstance(component, Projection):
+            elif isinstance(component, ProjectionPrim):
                 self._execute_projection(component, var_env)
-            elif isinstance(component, Output):
+            elif isinstance(component, OutputPrim):
                 self._execute_output(component, var_env)
-            elif isinstance(component, Unknown):
+            elif isinstance(component, UnknownPrim):
                 self._execute_unknown(component, var_env)
             else:
-                raise ValueError(f"Unknown component type: {type(component)}")
+                raise ValueError(f"UnknownPrim component type: {type(component)}")
 
         # Step 3: Collect outputs from environment
         outputs = self._collect_outputs(var_env)
@@ -908,8 +917,8 @@ class CompiledGraphIR(NamedTuple):
         for var, val in zip(self.jaxpr.jaxpr.constvars, self.jaxpr.consts):
             var_env[var] = val
 
-    def _execute_input(self, input_comp: Input, var_env: Dict[Var, Any]) -> None:
-        """Evaluate an :class:`Input` component and store its outputs."""
+    def _execute_input(self, input_comp: InputPrim, var_env: Dict[Var, Any]) -> None:
+        """Evaluate an :class:`InputPrim` component and store its outputs."""
         # Gather input values from environment
         input_vals = [var_env[var] for var in input_comp.jaxpr.jaxpr.invars]
 
@@ -924,8 +933,8 @@ class CompiledGraphIR(NamedTuple):
         for var, val in zip(input_comp.jaxpr.jaxpr.outvars, results):
             var_env[var] = val
 
-    def _execute_group(self, group: Group, var_env: Dict[Var, Any]) -> None:
-        """Evaluate a :class:`Group` subgraph using values from ``var_env``."""
+    def _execute_group(self, group: GroupPrim, var_env: Dict[Var, Any]) -> None:
+        """Evaluate a :class:`GroupPrim` subgraph using values from ``var_env``."""
         # Gather input values from environment
         input_vals = []
         for var in group.jaxpr.jaxpr.invars:
@@ -946,8 +955,8 @@ class CompiledGraphIR(NamedTuple):
         for var, val in zip(group.jaxpr.jaxpr.outvars, results):
             var_env[var] = val
 
-    def _execute_projection(self, projection: Projection, var_env: Dict[Var, Any]) -> None:
-        """Evaluate a :class:`Projection` component, including const fallbacks."""
+    def _execute_projection(self, projection: ProjectionPrim, var_env: Dict[Var, Any]) -> None:
+        """Evaluate a :class:`ProjectionPrim` component, including const fallbacks."""
         # Gather input values from environment
         input_vals = [var_env[var] for var in projection.jaxpr.jaxpr.invars]
 
@@ -962,8 +971,8 @@ class CompiledGraphIR(NamedTuple):
         for var, val in zip(projection.jaxpr.jaxpr.outvars, results):
             var_env[var] = val
 
-    def _execute_output(self, output: Output, var_env: Dict[Var, Any]) -> None:
-        """Evaluate an :class:`Output` component using values in ``var_env``."""
+    def _execute_output(self, output: OutputPrim, var_env: Dict[Var, Any]) -> None:
+        """Evaluate an :class:`OutputPrim` component using values in ``var_env``."""
         # Gather input values from environment
         input_vals = [var_env[var] for var in output.jaxpr.jaxpr.invars]
 
@@ -978,8 +987,8 @@ class CompiledGraphIR(NamedTuple):
         for var, val in zip(output.jaxpr.jaxpr.outvars, results):
             var_env[var] = val
 
-    def _execute_unknown(self, unknown: Unknown, var_env: Dict[Var, Any]) -> None:
-        """Evaluate an :class:`Unknown` component using values in ``var_env``."""
+    def _execute_unknown(self, unknown: UnknownPrim, var_env: Dict[Var, Any]) -> None:
+        """Evaluate an :class:`UnknownPrim` component using values in ``var_env``."""
         # Gather input values from environment
         input_vals = [var_env[var] for var in unknown.jaxpr.jaxpr.invars]
 
@@ -1010,7 +1019,7 @@ class CompiledGraphIR(NamedTuple):
         output_vals = []
         for var in self.jaxpr.jaxpr.outvars:
             if var not in var_env:
-                raise RuntimeError(f"Output variable {var} not found in environment")
+                raise RuntimeError(f"OutputPrim variable {var} not found in environment")
             output_vals.append(var_env[var])
         return output_vals
 

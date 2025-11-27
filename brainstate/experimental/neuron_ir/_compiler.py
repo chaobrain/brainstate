@@ -30,9 +30,9 @@ import jax
 from brainstate._compatible_import import Jaxpr, Var, JaxprEqn, ClosedJaxpr
 from brainstate._state import State
 from brainstate.transform._ir_inline import inline_jit
-from brainstate.transform._ir_processing import eqns_to_closed_jaxpr
+from brainstate.transform._ir_processing import eqns_to_jaxpr
 from brainstate.transform._make_jaxpr import StatefulFunction
-from ._data import NeuroGraph, GraphElem, Group, Connection, Projection, Input, Output, Unknown, CompiledGraphIR
+from ._data import NeuroGraph, GraphElem, GroupPrim, ConnectionPrim, ProjectionPrim, InputPrim, OutputPrim, UnknownPrim, CompiledGraphIR
 from ._utils import _is_connection, UnionFind, get_hidden_name
 
 __all__ = [
@@ -122,7 +122,7 @@ def _build_var_dependencies(jaxpr: Jaxpr) -> Dict[Var, Set[Var]]:
     """
     dependencies = {}
 
-    # Input vars depend only on themselves
+    # InputPrim vars depend only on themselves
     for var in jaxpr.invars:
         dependencies[var] = {var}
 
@@ -300,7 +300,7 @@ def _build_state_mapping(
     n_inp_before_states = len(jaxpr.invars) - len(in_state_avals)
 
     # Map state tree to invars and outvars
-    # Input variables: the last len(state_avals) invars correspond to states
+    # InputPrim variables: the last len(state_avals) invars correspond to states
     state_tree_invars = jax.tree.unflatten(in_state_tree, jaxpr.invars[n_inp_before_states:])
 
     # Build mappings using the tree structure
@@ -325,7 +325,7 @@ def _build_state_mapping(
     out_state_avals, out_state_tree = jax.tree.flatten(out_state_vals)
     n_out_before_states = len(jaxpr.outvars) - len(out_state_avals)
 
-    # Output variables: after the main outputs, the rest correspond to state updates
+    # OutputPrim variables: after the main outputs, the rest correspond to state updates
     state_tree_outvars = jax.tree.unflatten(out_state_tree, jaxpr.outvars[n_out_before_states:])
     assert len(out_states) == len(state_tree_outvars), \
         'Mismatch between number of output states and state tree outvars'
@@ -364,9 +364,9 @@ class CompilationContext:
     closed_jaxpr : ClosedJaxpr
         The JAX program to compile.
     in_states : tuple[State, ...]
-        Input states for the program.
+        InputPrim states for the program.
     out_states : tuple[State, ...]
-        Output states produced by the program.
+        OutputPrim states produced by the program.
     invar_to_state : dict[Var, State]
         Mapping from input variables to their states.
     outvar_to_state : dict[Var, State]
@@ -386,7 +386,7 @@ class CompilationContext:
 
 
 def _group_consecutive_indices(indices: List[int]) -> List[List[int]]:
-    """Group a list of indices into consecutive groups.
+    """GroupPrim a list of indices into consecutive groups.
 
     Parameters
     ----------
@@ -444,9 +444,9 @@ class NeuronIRCompiler:
     closed_jaxpr : ClosedJaxpr
         The JAX program to compile.
     in_states : tuple[State, ...]
-        Input states for the program.
+        InputPrim states for the program.
     out_states : tuple[State, ...]
-        Output states produced by the program.
+        OutputPrim states produced by the program.
     invar_to_state : dict[Var, State]
         Mapping from input variables to their states.
     outvar_to_state : dict[Var, State]
@@ -641,9 +641,9 @@ class NeuronIRCompiler:
         eqns : list[JaxprEqn]
             Equations for the sub-program.
         invars : list[Var]
-            Input variables.
+            InputPrim variables.
         outvars : list[Var]
-            Output variables.
+            OutputPrim variables.
         mark_as_used : bool, optional
             Whether to mark these equations as used. Default is True.
             Set to False when creating intermediate representations that
@@ -659,26 +659,26 @@ class NeuronIRCompiler:
             self._mark_eqns_as_used(eqns)
 
         # Create the closed jaxpr
-        closed_jaxpr = eqns_to_closed_jaxpr(eqns=eqns, invars=invars, outvars=outvars)
+        jaxpr = eqns_to_jaxpr(eqns=eqns, invars=invars, outvars=outvars)
 
         # Extract corresponding consts from the original jaxpr
-        if closed_jaxpr.jaxpr.constvars:
+        if jaxpr.constvars:
             consts = _extract_consts_for_vars(
-                closed_jaxpr.jaxpr.constvars,
+                jaxpr.constvars,
                 self.jaxpr,
                 self.consts
             )
-            return ClosedJaxpr(closed_jaxpr.jaxpr, consts)
         else:
-            return closed_jaxpr
+            consts = []
+        return ClosedJaxpr(jaxpr, consts)
 
     def step1_analyze_state_dependencies(self) -> List[Set[State]]:
-        """Group hidden states that are mutually dependent via non-connection ops.
+        """GroupPrim hidden states that are mutually dependent via non-connection ops.
 
         Returns
         -------
         list[set[State]]
-            Sets of states that must be compiled into the same :class:`Group`.
+            Sets of states that must be compiled into the same :class:`GroupPrim`.
         """
         # Create a mapping from state to its ID for efficient comparison
         state_to_id = {id(state): state for state in self.hidden_states}
@@ -730,17 +730,17 @@ class NeuronIRCompiler:
 
         return state_groups
 
-    def step2_build_groups(self, state_groups: List[Set[State]]) -> List[Group]:
+    def step2_build_groups(self, state_groups: List[Set[State]]) -> List[GroupPrim]:
         """Materialize :class:`Group` objects for each mutually dependent state set.
 
         Parameters
         ----------
         state_groups : list[set[State]]
-            Output of :meth:`step1_analyze_state_dependencies`.
+            OutputPrim of :meth:`step1_analyze_state_dependencies`.
 
         Returns
         -------
-        list[Group]
+        list[GroupPrim]
             One :class:`Group` per state cluster containing a ClosedJaxpr slice and
             metadata about its dependencies.
         """
@@ -859,7 +859,7 @@ class NeuronIRCompiler:
             # Generate a name for this group based on its hidden states
             group_name = f"Group_{len(groups)}"
 
-            group = Group(
+            group = GroupPrim(
                 jaxpr=group_jaxpr,
                 hidden_states=group_hidden_states,
                 in_states=group_in_states,
@@ -871,15 +871,15 @@ class NeuronIRCompiler:
 
         return groups
 
-    def step3_extract_connections(self) -> List[Tuple[JaxprEqn, Connection]]:
+    def step3_extract_connections(self) -> List[Tuple[JaxprEqn, ConnectionPrim]]:
         """Identify connection equations and wrap them as :class:`Connection` objects.
 
         Note: Connection equations are NOT marked as used here. They will be
-        marked as used when they are composed into Projection instances in step4.
+        marked as used when they are composed into ProjectionPrim instances in step4.
 
         Returns
         -------
-        list[tuple[JaxprEqn, Connection]]
+        list[tuple[JaxprEqn, ConnectionPrim]]
             Pairs of the original equation and a :class:`Connection` wrapper that
             holds its ClosedJaxpr slice.
         """
@@ -894,32 +894,32 @@ class NeuronIRCompiler:
                     outvars=list(eqn.outvars),
                     mark_as_used=False,  # Don't mark yet - will be marked in step4
                 )
-                connection = Connection(jaxpr=conn_jaxpr, name=f"Connection_{conn_idx}")
+                connection = ConnectionPrim(jaxpr=conn_jaxpr, name=f"Connection_{conn_idx}")
                 connections.append((eqn, connection))
                 conn_idx += 1
         return connections
 
     def step4_build_projections(
         self,
-        groups: List[Group],
-        connections: List[Tuple[JaxprEqn, Connection]],
-    ) -> List[Projection]:
-        """Create :class:`Projection` objects that ferry spikes between groups.
+        groups: List[GroupPrim],
+        connections: List[Tuple[JaxprEqn, ConnectionPrim]],
+    ) -> List[ProjectionPrim]:
+        """Create :class:`ProjectionPrim` objects that ferry spikes between groups.
 
-        Note: Connection equations from step3 are marked as used HERE when they
-        are composed into Projection instances via _build_projection_jaxpr().
+        Note: ConnectionPrim equations from step3 are marked as used HERE when they
+        are composed into ProjectionPrim instances via _build_projection_jaxpr().
 
         Parameters
         ----------
-        groups : list[Group]
+        groups : list[GroupPrim]
             Groups created in :meth:`step2_build_groups`.
         connections : list[tuple[JaxprEqn, ConnectionIR]]
-            Connection equations identified by :meth:`step3_extract_connections`.
+            ConnectionPrim equations identified by :meth:`step3_extract_connections`.
 
         Returns
         -------
         list[ProjectionIR]
-            Projection descriptors that own the equations/connection metadata for
+            ProjectionPrim descriptors that own the equations/connection metadata for
             a pre→post group path.
         """
         projections = []
@@ -984,7 +984,7 @@ class NeuronIRCompiler:
                     )
 
                     # Replace existing projection
-                    new_proj = Projection(
+                    new_proj = ProjectionPrim(
                         hidden_states=merged_hidden_states,
                         in_states=merged_in_states,
                         jaxpr=proj_jaxpr,
@@ -1001,7 +1001,7 @@ class NeuronIRCompiler:
                         proj_eqns, proj_hidden_states, proj_in_states, post_group, group_to_input_vars
                     )
 
-                    projection = Projection(
+                    projection = ProjectionPrim(
                         hidden_states=proj_hidden_states,
                         in_states=proj_in_states,
                         jaxpr=proj_jaxpr,
@@ -1018,10 +1018,10 @@ class NeuronIRCompiler:
     def _trace_projection_path(
         self,
         input_var: Var,
-        groups: List[Group],
+        groups: List[GroupPrim],
         var_to_producer_eqn: Dict[Var, JaxprEqn],
-        connections: List[Tuple[JaxprEqn, Connection]],
-    ) -> Optional[Tuple[Group, List[JaxprEqn], List[State], List[State], List[Connection]]]:
+        connections: List[Tuple[JaxprEqn, ConnectionPrim]],
+    ) -> Optional[Tuple[GroupPrim, List[JaxprEqn], List[State], List[State], List[ConnectionPrim]]]:
         """Trace the computation that produces ``input_var`` for a group.
 
         This method performs a backward traversal from an input variable to find
@@ -1032,11 +1032,11 @@ class NeuronIRCompiler:
         ----------
         input_var : Var
             Variable consumed by post_group to trace back.
-        groups : list[Group]
+        groups : list[GroupPrim]
             All groups in the compilation.
         var_to_producer_eqn : dict[Var, JaxprEqn]
             Cached mapping from variables to producing equations.
-        connections : list[tuple[JaxprEqn, Connection]]
+        connections : list[tuple[JaxprEqn, ConnectionPrim]]
             Connection equations and their wrappers.
 
         Returns
@@ -1131,12 +1131,12 @@ class NeuronIRCompiler:
 
     def _merge_projection_data(
         self,
-        existing_proj: Projection,
+        existing_proj: ProjectionPrim,
         proj_eqns: List[JaxprEqn],
         proj_hidden_states: List[State],
         proj_in_states: List[State],
-        proj_connections: List[Connection],
-    ) -> Tuple[List[JaxprEqn], List[State], List[State], List[Connection]]:
+        proj_connections: List[ConnectionPrim],
+    ) -> Tuple[List[JaxprEqn], List[State], List[State], List[ConnectionPrim]]:
         """Merge new projection data with existing projection.
 
         When multiple input_vars from the same pre→post group pair are found,
@@ -1145,7 +1145,7 @@ class NeuronIRCompiler:
 
         Parameters
         ----------
-        existing_proj : Projection
+        existing_proj : ProjectionPrim
             Projection that already exists for this pre→post pair.
         proj_eqns : list[JaxprEqn]
             New equations to merge.
@@ -1153,7 +1153,7 @@ class NeuronIRCompiler:
             New hidden states to merge.
         proj_in_states : list[State]
             New input states to merge.
-        proj_connections : list[Connection]
+        proj_connections : list[ConnectionPrim]
             New connections to merge.
 
         Returns
@@ -1197,7 +1197,7 @@ class NeuronIRCompiler:
         proj_eqns: List[JaxprEqn],
         proj_hidden_states: List[State],
         proj_in_states: List[State],
-        post_group: Group,
+        post_group: GroupPrim,
         group_to_input_vars: Dict[int, Set[Var]],
     ) -> Tuple[ClosedJaxpr, List[Var]]:
         """Build a ClosedJaxpr for a projection.
@@ -1213,7 +1213,7 @@ class NeuronIRCompiler:
             Hidden states from the source group.
         proj_in_states : list[State]
             Additional input states needed.
-        post_group : Group
+        post_group : GroupPrim
             Destination group consuming the projection outputs.
         group_to_input_vars : dict[int, set[Var]]
             Mapping from group IDs to their input variables.
@@ -1226,7 +1226,7 @@ class NeuronIRCompiler:
 
         Notes
         -----
-        Input variable ordering: hidden_states vars, in_states vars, other vars.
+        InputPrim variable ordering: hidden_states vars, in_states vars, other vars.
         """
         # Collect all invars needed by proj_eqns
         proj_invars_needed = set()
@@ -1278,17 +1278,17 @@ class NeuronIRCompiler:
 
         return proj_jaxpr, proj_outvars
 
-    def step5_build_inputs(self, groups: List[Group]) -> List[Input]:
+    def step5_build_inputs(self, groups: List[GroupPrim]) -> List[InputPrim]:
         """Create :class:`Input` descriptors for external variables.
 
         Parameters
         ----------
-        groups : list[Group]
+        groups : list[GroupPrim]
             Group descriptors receiving the inputs.
 
         Returns
         -------
-        list[Input]
+        list[InputPrim]
             Input descriptors grouped by their destination group.
         """
         # Determine which vars are input_variables (not state vars)
@@ -1323,7 +1323,7 @@ class NeuronIRCompiler:
             if trace_result is not None:
                 input_traces.append(trace_result)
 
-        # Group traces by target group (use group id as key)
+        # GroupPrim traces by target group (use group id as key)
         group_id_to_traces = defaultdict(list)
         id_to_group = {}
 
@@ -1332,7 +1332,7 @@ class NeuronIRCompiler:
             id_to_group[group_id] = target_group
             group_id_to_traces[group_id].append((input_var, equations, outvars))
 
-        # Create Input objects for each group
+        # Create InputPrim objects for each group
         inputs = []
         input_idx = 0
 
@@ -1364,7 +1364,7 @@ class NeuronIRCompiler:
                 outvars=all_output_vars,
             )
 
-            input_obj = Input(
+            input_obj = InputPrim(
                 jaxpr=input_jaxpr,
                 group=group,
                 name=f"Input_{input_idx}",
@@ -1377,10 +1377,10 @@ class NeuronIRCompiler:
     def _trace_input_forward(
         self,
         input_var: Var,
-        groups: List[Group],
+        groups: List[GroupPrim],
         var_to_consumer_eqns: Dict[Var, List[JaxprEqn]],
         group_input_vars_sets: Dict[int, Set[Var]],
-    ) -> Optional[Tuple[Var, Group, List[JaxprEqn], List[Var]]]:
+    ) -> Optional[Tuple[Var, GroupPrim, List[JaxprEqn], List[Var]]]:
         """Forward-trace ``input_var`` until its values flow into a group boundary.
 
         Performs a forward traversal from an external input variable through
@@ -1390,7 +1390,7 @@ class NeuronIRCompiler:
         ----------
         input_var : Var
             External input variable to trace forward.
-        groups : list[Group]
+        groups : list[GroupPrim]
             All groups to check as potential targets.
         var_to_consumer_eqns : dict[Var, list[JaxprEqn]]
             Cached mapping from variables to consuming equations.
@@ -1459,17 +1459,17 @@ class NeuronIRCompiler:
         # No group found (input doesn't flow into any group)
         return None
 
-    def step6_build_outputs(self, groups: List[Group]) -> List[Output]:
+    def step6_build_outputs(self, groups: List[GroupPrim]) -> List[OutputPrim]:
         """Describe how model outputs are assembled from group state variables.
 
         Parameters
         ----------
-        groups : list[Group]
+        groups : list[GroupPrim]
             Groups that may contribute to outputs.
 
         Returns
         -------
-        list[Output]
+        list[OutputPrim]
             Output descriptors paired with the responsible group.
 
         Raises
@@ -1492,7 +1492,7 @@ class NeuronIRCompiler:
         # Use cached mapping: var -> equation that produces it
         var_to_producer_eqn = self._var_to_producer_eqn
 
-        # Group output vars by which group they depend on (use group id as key)
+        # GroupPrim output vars by which group they depend on (use group id as key)
         group_id_output_mapping = defaultdict(list)
         id_to_group = {}
 
@@ -1532,7 +1532,7 @@ class NeuronIRCompiler:
                         # This is an external input (not a state)
                         invar_idx = self.jaxpr.invars.index(var)
                         raise CompilationError(
-                            f"Output variable {out_var} depends on external input {var} (jaxpr.invars[{invar_idx}]), "
+                            f"OutputPrim variable {out_var} depends on external input {var} (jaxpr.invars[{invar_idx}]), "
                             f"which is not a state variable.\n"
                             f"  Suggestion: Outputs must only depend on state variables.\n"
                             f"  - Add an intermediate state to store {var}\n"
@@ -1541,7 +1541,7 @@ class NeuronIRCompiler:
                         )
                     else:
                         raise CompilationError(
-                            f"Output variable {out_var} depends on unknown variable {var}.\n"
+                            f"OutputPrim variable {out_var} depends on unknown variable {var}.\n"
                             f"  This variable is neither:\n"
                             f"    - A jaxpr input (len={len(self.jaxpr.invars)})\n"
                             f"    - Produced by any equation (total={len(self.jaxpr.eqns)})\n"
@@ -1577,7 +1577,7 @@ class NeuronIRCompiler:
                         # If we get here, it's an invalid dependency on external intermediate variable
                         eqn_idx = self.eqn_to_id.get(id(eqn), -1)
                         raise CompilationError(
-                            f"Output variable {out_var} depends on intermediate variable {in_var}\n"
+                            f"OutputPrim variable {out_var} depends on intermediate variable {in_var}\n"
                             f"  in equation {eqn_idx}: {eqn.primitive.name if hasattr(eqn.primitive, 'name') else str(eqn.primitive)}\n"
                             f"  Problem: {in_var} is not a state variable and not produced by output equations.\n"
                             f"  Suggestion:\n"
@@ -1626,10 +1626,10 @@ class NeuronIRCompiler:
 
             # Validate: each output should depend on exactly one group
             if len(dependent_groups) == 0:
-                raise CompilationError(f"Output variable {out_var} does not depend on any group")
+                raise CompilationError(f"OutputPrim variable {out_var} does not depend on any group")
             elif len(dependent_groups) > 1:
                 raise CompilationError(
-                    f"Output variable {out_var} depends on multiple groups: {dependent_groups}. "
+                    f"OutputPrim variable {out_var} depends on multiple groups: {dependent_groups}. "
                     "Each output should depend on only one group."
                 )
 
@@ -1643,7 +1643,7 @@ class NeuronIRCompiler:
                 equations_needed
             ))
 
-        # Create Output objects for each group
+        # Create OutputPrim objects for each group
         outputs = []
         output_idx = 0
         for group_id, output_info in group_id_output_mapping.items():
@@ -1687,7 +1687,7 @@ class NeuronIRCompiler:
                 outvars=output_vars_for_group,
             )
 
-            output_obj = Output(
+            output_obj = OutputPrim(
                 jaxpr=output_jaxpr,
                 hidden_states=all_dependent_hidden_states,
                 in_states=all_dependent_in_states,
@@ -1699,7 +1699,7 @@ class NeuronIRCompiler:
 
         return outputs
 
-    def step7_handle_remaining_equations(self) -> List[Unknown]:
+    def step7_handle_remaining_equations(self) -> List[UnknownPrim]:
         """Handle equations that were not assigned to any known component.
 
         This method processes equations that remain unused after steps 1-6.
@@ -1709,7 +1709,7 @@ class NeuronIRCompiler:
 
         Returns
         -------
-        list[Unknown]
+        list[UnknownPrim]
             List of Unknown objects containing unassigned equations.
             Empty if all equations were assigned.
 
@@ -1728,7 +1728,7 @@ class NeuronIRCompiler:
         # Convert to sorted indices
         unused_indices = sorted([self.eqn_to_id[eqn_id] for eqn_id in unused_eqn_ids])
 
-        # Group consecutive indices
+        # GroupPrim consecutive indices
         index_groups = _group_consecutive_indices(unused_indices)
 
         all_unknown_objs = []
@@ -1756,10 +1756,10 @@ class NeuronIRCompiler:
                     # Format primitives list (one per line if more than 3, comma-separated otherwise)
                     if len(primitives) <= 3:
                         primitives_str = ", ".join(primitives)
-                        sample_details.append(f"  Group {group_range}: {primitives_str}")
+                        sample_details.append(f"  GroupPrim {group_range}: {primitives_str}")
                     else:
                         primitives_lines = "\n    ".join(primitives)
-                        sample_details.append(f"  Group {group_range}:\n    {primitives_lines}")
+                        sample_details.append(f"  GroupPrim {group_range}:\n    {primitives_lines}")
 
                 raise CompilationError(
                     f"Unused equations have non-consecutive indices, indicating a potential compilation issue.\n"
@@ -1774,7 +1774,7 @@ class NeuronIRCompiler:
                                                 f"      are being captured together."
                 )
 
-            # Single consecutive group - create Unknown object
+            # Single consecutive group - create UnknownPrim object
             consecutive_eqns = [self.jaxpr.eqns[idx] for idx in index_group]
 
             # Collect all input and output variables for the unknown block
@@ -1806,7 +1806,7 @@ class NeuronIRCompiler:
             )
 
             all_unknown_objs.append(
-                Unknown(
+                UnknownPrim(
                     jaxpr=unknown_jaxpr,
                     eqn_indices=tuple(index_group),
                     name=f"Unknown_{unknown_idx}",
@@ -1818,12 +1818,12 @@ class NeuronIRCompiler:
             warnings.warn(
                 f"Found {len(index_group)} unassigned equations "
                 f"(indices {index_group[0]}..{index_group[-1]}) "
-                f"that were packaged into an Unknown block. "
+                f"that were packaged into an UnknownPrim block. "
                 f"\n\n"
                 f"{unknown_jaxpr}"
                 f"\n\n"
                 f"This may indicate computations that couldn't be "
-                f"classified as Group, Projection, Input, or Output.",
+                f"classified as GroupPrim, ProjectionPrim, InputPrim, or OutputPrim.",
                 UserWarning,
                 stacklevel=2,
             )
@@ -1832,11 +1832,11 @@ class NeuronIRCompiler:
 
     def step8_build_graph(
         self,
-        groups: List[Group],
-        projections: List[Projection],
-        inputs: List[Input],
-        outputs: List[Output],
-        unknowns: List[Unknown],
+        groups: List[GroupPrim],
+        projections: List[ProjectionPrim],
+        inputs: List[InputPrim],
+        outputs: List[OutputPrim],
+        unknowns: List[UnknownPrim],
     ) -> NeuroGraph:
         """Derive an execution graph that preserves the original equation order.
 
@@ -1847,25 +1847,25 @@ class NeuronIRCompiler:
         1. Maps all equations to their containing components (Groups, Projections, Unknowns)
         2. Tracks which component produces each variable
         3. Creates dependency edges when a component consumes variables produced by another
-        4. Adds structural edges for Input->Group, Group->Projection->Group, and Group->Output
+        4. Adds structural edges for InputPrim->Group, Group->ProjectionPrim->Group, and Group->Output
 
         Unknown nodes are integrated into the dependency graph automatically through
         the variable tracking mechanism. If an Unknown node's equations consume variables
-        produced by a Group or Projection, a dependency edge is created. Similarly, if
-        a Group or Projection consumes variables produced by an Unknown node, the reverse
+        produced by a Group or ProjectionPrim, a dependency edge is created. Similarly, if
+        a Group or ProjectionPrim consumes variables produced by an Unknown node, the reverse
         dependency is established.
 
         Parameters
         ----------
-        groups : list[Group]
+        groups : list[GroupPrim]
             Computation blocks that produce state updates.
         projections : list[ProjectionIR]
             ConnectionIR pipelines between groups.
         inputs : list[InputIR]
             External inputs to the network.
-        outputs : list[Output]
+        outputs : list[OutputPrim]
             Objects describing how observable values are extracted.
-        unknowns : list[Unknown]
+        unknowns : list[UnknownPrim]
             Unknown computation blocks that couldn't be classified.
 
         Returns
@@ -1914,7 +1914,7 @@ class NeuronIRCompiler:
                 eqn_to_component[id(eqn)] = unknown
 
         # Process equations in original jaxpr order to build dependency graph
-        # This automatically handles Unknown dependencies through variable tracking
+        # This automatically handles UnknownPrim dependencies through variable tracking
         seen_components = set()
         for eqn in self.jaxpr.eqns:
             component = eqn_to_component.get(id(eqn))
@@ -1928,13 +1928,13 @@ class NeuronIRCompiler:
                 graph.add_node(component)
 
             # Build dependency edges based on variable producers
-            # This handles dependencies for ALL component types including Unknown nodes
+            # This handles dependencies for ALL component types including UnknownPrim nodes
             for in_var in eqn.invars:
                 if isinstance(in_var, Var):
                     producer = var_to_component.get(in_var)
                     if producer is not None and producer is not component:
                         # Add edge from producer to consumer
-                        # This creates dependencies for Unknown nodes with Groups/Projections
+                        # This creates dependencies for UnknownPrim nodes with Groups/Projections
                         # and vice versa based on actual data flow
                         graph.add_edge(producer, component)
 
@@ -1962,8 +1962,8 @@ class NeuronIRCompiler:
 
     def step9_validate_compilation(
         self,
-        groups: List[Group],
-        projections: List[Projection],
+        groups: List[GroupPrim],
+        projections: List[ProjectionPrim],
     ) -> None:
         """Run structural checks on the assembled compilation result.
 
@@ -2004,14 +2004,14 @@ class NeuronIRCompiler:
                     pre_name = proj.pre_group.name
                     post_name = proj.post_group.name
                     raise CompilationError(
-                        f"Projection {idx} from '{pre_name}' to '{post_name}' has no connections.\n"
+                        f"ProjectionPrim {idx} from '{pre_name}' to '{post_name}' has no connections.\n"
                         f"  This may indicate:\n"
                         f"    - No connection primitives found between these groups\n"
-                        f"    - Connection extraction (step3) failed to identify connections\n"
+                        f"    - ConnectionPrim extraction (step3) failed to identify connections\n"
                         f"  Suggestion: Check that connection primitives are properly marked with _is_connection()"
                     )
 
-        # Check 3: Projection hidden_states should belong to exactly one group
+        # Check 3: ProjectionPrim hidden_states should belong to exactly one group
         def _validate_hidden_state_belong_to_one_group():
             for proj_idx, proj in enumerate(projections):
                 for state in proj.hidden_states:
@@ -2019,7 +2019,7 @@ class NeuronIRCompiler:
                     state_name = get_hidden_name(state)
                     if count == 0:
                         raise CompilationError(
-                            f"Projection {proj_idx} depends on state '{state_name}' which is not in any group.\n"
+                            f"ProjectionPrim {proj_idx} depends on state '{state_name}' which is not in any group.\n"
                             f"  Total groups: {len(groups)}\n"
                             f"  Suggestion: This state should be added to a group's hidden_states "
                             f"during group building (step2)."
@@ -2027,7 +2027,7 @@ class NeuronIRCompiler:
                     elif count > 1:
                         group_names = [g.name for g in groups if g.has_hidden_state(state)]
                         raise CompilationError(
-                            f"Projection {proj_idx} depends on state '{state_name}' which belongs to {count} groups.\n"
+                            f"ProjectionPrim {proj_idx} depends on state '{state_name}' which belongs to {count} groups.\n"
                             f"  Groups: {', '.join(group_names)}\n"
                             f"  Suggestion: Each state should belong to exactly one group.\n"
                             f"  This may indicate an error in state dependency analysis (step1)."
@@ -2061,7 +2061,7 @@ class NeuronIRCompiler:
                     f"  Unused equations:\n{details}\n"
                     f"  Suggestion:\n"
                     f"    - This should not happen. Please report this as a bug.\n"
-                    f"    - Step6b should have either packaged these equations into Unknown objects\n"
+                    f"    - Step6b should have either packaged these equations into UnknownPrim objects\n"
                     f"      or raised an error about non-consecutive indices."
                 )
 
@@ -2085,7 +2085,7 @@ class NeuronIRCompiler:
                 else:
                     available = ', '.join(sorted(validation_functions.keys()))
                     raise ValueError(
-                        f"Unknown validation '{val_name}'. "
+                        f"UnknownPrim validation '{val_name}'. "
                         f"Available validations: {available}, 'all'"
                     )
 
@@ -2113,19 +2113,19 @@ class NeuronIRCompiler:
         # Step 1: Analyze state dependencies and group states
         state_groups = self.step1_analyze_state_dependencies()
 
-        # Step 2: Build Group objects
+        # Step 2: Build GroupPrim objects
         groups = self.step2_build_groups(state_groups)
 
         # Step 3: Extract connections
         connections = self.step3_extract_connections()
 
-        # Step 4: Build Projection objects
+        # Step 4: Build ProjectionPrim objects
         projections = self.step4_build_projections(groups, connections)
 
-        # Step 5: Build Input objects
+        # Step 5: Build InputPrim objects
         inputs = self.step5_build_inputs(groups)
 
-        # Step 6: Build Output objects
+        # Step 6: Build OutputPrim objects
         outputs = self.step6_build_outputs(groups)
 
         # Step 7: Handle remaining equations (new step)
