@@ -3,6 +3,7 @@ optax
 tqdm
 numba
 braintools>=0.1.0
+braincell
 matplotlib
 brainpy>=2.7.0
 
