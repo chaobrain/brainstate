@@ -17,8 +17,8 @@ import brainunit as u
 import matplotlib.pyplot as plt
 
 import brainstate
-from brainstate.experimental.neuron_ir import compile_fn
-from brainstate.experimental.neuron_ir._model_to_test import TwoPopNet
+from brainstate.experimental.neuroir import compile_fn
+from brainstate.experimental.neuroir._model_to_test import TwoPopNet
 
 
 class TestDisplayer:
@@ -63,7 +63,7 @@ class TestTextDisplayer:
 
         # Test 2: Verbose display
         print("=== Test 2: Verbose Display ===")
-        from brainstate.experimental.neuron_ir import TextDisplayer
+        from brainstate.experimental.neuroir import TextDisplayer
         displayer = TextDisplayer(compiled.graph)
         print(displayer.display(verbose=True))
         print()

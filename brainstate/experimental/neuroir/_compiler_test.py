@@ -8,14 +8,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 import brainstate
-from brainstate.experimental.neuron_ir import compile_fn
-from brainstate.experimental.neuron_ir._compiler import (
+from brainstate.experimental.neuroir import compile_fn
+from brainstate.experimental.neuroir._compiler import (
     NeuronIRCompiler,
     _build_state_mapping,
     _extract_consts_for_vars,
     _build_var_dependencies,
 )
-from brainstate.experimental.neuron_ir._model_to_test import (
+from brainstate.experimental.neuroir._model_to_test import (
     TwoPopNet,
     SimpleNet,
     Single_Pop_EI_COBA_Net,
@@ -335,7 +335,7 @@ class TestCompilationStructure:
 
         # Test text display shows self-connections
         print(f"\n  Testing Display...")
-        from brainstate.experimental.neuron_ir import TextDisplayer
+        from brainstate.experimental.neuroir import TextDisplayer
         displayer = TextDisplayer(compiled.graph)
         text_output = displayer.display(verbose=False)
 
@@ -456,7 +456,7 @@ class TestCompilerSteps:
         t = 0. * u.ms
         jaxpr = stateful_fn.get_jaxpr(t)
         from brainstate.transform._ir_inline import inline_jit
-        from brainstate.experimental.neuron_ir._utils import _is_connection
+        from brainstate.experimental.neuroir._utils import _is_connection
         jaxpr = inline_jit(jaxpr, _is_connection)
 
         in_states = stateful_fn.get_states(t)

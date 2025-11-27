@@ -703,7 +703,7 @@ class NeuroGraph:
 
 
 class CompiledGraphIR(NamedTuple):
-    """Structured result returned by :func:`neuron_ir.compile`.
+    """Structured result returned by :func:`neuroir.compile`.
 
     Attributes
     ----------

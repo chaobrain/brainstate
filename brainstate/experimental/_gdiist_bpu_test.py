@@ -18,7 +18,7 @@ import brainunit as u
 
 import brainstate
 from brainstate.experimental._gdiist_bpu import GdiistBPUParser
-from brainstate.experimental.neuron_ir._model_to_test import Single_Pop_EI_COBA_Net
+from brainstate.experimental.neuroir._model_to_test import Single_Pop_EI_COBA_Net
 
 brainstate.environ.set(dt=0.1 * u.ms)
 

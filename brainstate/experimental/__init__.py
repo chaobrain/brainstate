@@ -13,12 +13,12 @@
 # limitations under the License.
 # ==============================================================================
 
-from . import neuron_ir
+from . import neuroir
 from ._impl import *
 from ._impl import __all__ as export_all
 from ._wrapper import *
 from ._wrapper import __all__ as wrapper_all
 
-__all__ = ['neuron_ir'] + export_all + wrapper_all
+__all__ = ['neuroir'] + export_all + wrapper_all
 del export_all
 del wrapper_all

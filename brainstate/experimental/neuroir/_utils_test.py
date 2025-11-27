@@ -13,13 +13,13 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Comprehensive tests for neuron_ir/_utils.py using unittest framework."""
+"""Comprehensive tests for neuroir/_utils.py using unittest framework."""
 
 import unittest
 from unittest.mock import Mock
 
 from brainstate._state import State
-from brainstate.experimental.neuron_ir._utils import (
+from brainstate.experimental.neuroir._utils import (
     get_hidden_name,
     UnionFind,
     find_in_states,

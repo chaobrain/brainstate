@@ -22,7 +22,7 @@ from jax.api_util import shaped_abstractify
 from brainstate.transform._make_jaxpr import StatefulFunction, _make_hashable
 from brainstate.util._cache import BoundedCache
 from ._impl import register_jit_impl, register_forloop_impl
-from .neuron_ir import compile_fn, CompiledGraphIR
+from .neuroir import compile_fn, CompiledGraphIR
 
 __all__ = [
     'GdiistBPUParser',
