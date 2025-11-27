@@ -21,7 +21,7 @@ import jax.numpy as jnp
 
 import brainstate as bst
 from brainstate._state import TRACE_CONTEXT, StateTraceStack
-from brainstate.transform._jit_named_scope import jit_named_scope, function_to_call
+from brainstate.transform._jit_named_scope import jit_named_scope, fn_to_call
 
 
 class TestJitNamedScopeBasic(unittest.TestCase):
@@ -352,7 +352,7 @@ class TestFunctionToCall(unittest.TestCase):
         def original(x, y):
             return x + y
 
-        wrapped = function_to_call(original, name='direct_test')
+        wrapped = fn_to_call(original, name='direct_test')
         x = jnp.array([1.0, 2.0])
         y = jnp.array([3.0, 4.0])
         result = wrapped(x, y)
@@ -366,7 +366,7 @@ class TestFunctionToCall(unittest.TestCase):
         def original(x, n, scale=1):
             return (x ** n) * scale
 
-        wrapped = function_to_call(
+        wrapped = fn_to_call(
             original,
             name='all_options',
             static_argnums=1,

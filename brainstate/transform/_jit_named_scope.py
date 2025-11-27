@@ -24,7 +24,7 @@ __all__ = [
 ]
 
 
-def function_to_call(
+def fn_to_call(
     fn: Callable,
     name: str,
     static_argnums: Optional[Union[int, Sequence[int], Callable]] = None,
@@ -91,10 +91,9 @@ def function_to_call(
             static_argnames=s_argnames,
         )
 
-    def _get_jit_fn(args: tuple, kwargs: dict) -> JittedFunction:
+    def _get_jit_fn(*args, **kwargs) -> JittedFunction:
         """Get or create the appropriate JIT function for the given arguments."""
 
-        # Compute static args from non_static_*
         s_argnums = static_argnums(*args, **kwargs) if callable(static_argnums) else static_argnums
         s_argnames = static_argnames(*args, **kwargs) if callable(static_argnames) else static_argnames
         s_argnums = _normalize_argnums(s_argnums, len(args))
@@ -106,7 +105,7 @@ def function_to_call(
     def wrapper(*args, **kwargs):
         """Call the JIT-compiled function."""
         if TRACE_CONTEXT.get_trace_stack_level() > 0:
-            jit_fn = _get_jit_fn(args, kwargs)
+            jit_fn = _get_jit_fn(*args, **kwargs)
             return jit_fn(*args, **kwargs)
         else:
             return fn(*args, **kwargs)
@@ -176,7 +175,7 @@ def jit_named_scope(
     """
 
     def decorator(fn: Callable) -> Callable:
-        return function_to_call(
+        return fn_to_call(
             fn=fn,
             name=name,
             static_argnums=static_argnums,
