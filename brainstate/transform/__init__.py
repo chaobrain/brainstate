@@ -30,8 +30,8 @@ from ._ir_optim import *
 from ._ir_optim import __all__ as _constant_fold_all
 from ._jit import *
 from ._jit import __all__ as _jit_all
-from ._jit_name_scope import *
-from ._jit_name_scope import __all__ as _jit_name_scope_all
+from ._jit_named_scope import *
+from ._jit_named_scope import __all__ as _jit_named_scope_all
 from ._loop_collect_return import *
 from ._loop_collect_return import __all__ as _loop_collect_return_all
 from ._loop_no_collection import *
@@ -51,7 +51,7 @@ __all__ = _ad_checkpoint_all + _autograd_all + _conditions_all + _error_if_all +
 __all__ += _jit_all + _loop_collect_return_all + _loop_no_collection_all
 __all__ += _make_jaxpr_all + _mapping_all + _progress_bar_all + _unvmap_all
 __all__ += _constant_fold_all + _find_state_vmap + _ir_inline_jit_all
-__all__ += _jit_name_scope_all
+__all__ += _jit_named_scope_all
 del _find_all, _find_state_vmap
 del _constant_fold_all
 del _ad_checkpoint_all
@@ -66,4 +66,4 @@ del _mapping_all
 del _progress_bar_all
 del _unvmap_all
 del _ir_inline_jit_all
-del _jit_name_scope_all
+del _jit_named_scope_all
