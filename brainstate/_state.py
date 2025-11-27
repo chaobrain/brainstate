@@ -105,6 +105,9 @@ class ThreadLocalStack(threading.local):
         self.jax_tracer_check: List[bool] = [False]
         self.new_state_catcher: List[StateCatcher] = []
 
+    def get_trace_stack_level(self) -> int:
+        return len(self.state_stack)
+
 
 TRACE_CONTEXT = ThreadLocalStack()
 
@@ -197,9 +200,6 @@ def check_state_jax_tracer(val: bool = True) -> Generator[None, None, None]:
     finally:
         TRACE_CONTEXT.jax_tracer_check.pop()
 
-
-def _get_trace_stack_level() -> int:
-    return len(TRACE_CONTEXT.state_stack)
 
 
 class State(Generic[A], PrettyObject):
@@ -299,7 +299,7 @@ class State(Generic[A], PrettyObject):
         # update metadata
         metadata.update(
             _value=value,
-            _level=_get_trace_stack_level(),
+            _level=TRACE_CONTEXT.get_trace_stack_level(),
             _source_info=source_info_util.current(),
             _name=name,
             _been_writen=False,
@@ -512,7 +512,7 @@ class State(Generic[A], PrettyObject):
         obj = object.__new__(type(self))
         attributes = vars(self).copy()
         # keep its own trace state and stack level
-        attributes['_level'] = _get_trace_stack_level()
+        attributes['_level'] = TRACE_CONTEXT.get_trace_stack_level()
         attributes['_source_info'] = source_info_util.current()
         attributes.pop('_been_writen', None)
         # update the metadata
@@ -1941,7 +1941,7 @@ class TreefyState(Generic[A], PrettyObject):
         state = object.__new__(self.type)
         metadata.pop('_value', None)
         metadata.pop('_level', None)
-        vars(state).update(**metadata, _value=self.value, _level=_get_trace_stack_level())
+        vars(state).update(**metadata, _value=self.value, _level=TRACE_CONTEXT.get_trace_stack_level())
         return state
 
     def copy(self: TreefyState[A]) -> TreefyState[A]:
