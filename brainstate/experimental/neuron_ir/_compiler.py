@@ -32,7 +32,13 @@ from brainstate._state import State
 from brainstate.transform._ir_inline import inline_jit
 from brainstate.transform._ir_processing import eqns_to_jaxpr
 from brainstate.transform._make_jaxpr import StatefulFunction
-from ._data import NeuroGraph, GraphElem, GroupPrim, ConnectionPrim, ProjectionPrim, InputPrim, OutputPrim, UnknownPrim, CompiledGraphIR
+from ._data import (
+    NeuroGraph,
+    GraphElem,
+    ConnectionPrim,
+    GroupPrim, ProjectionPrim, InputPrim, OutputPrim, UnknownPrim,
+    CompiledGraphIR,
+)
 from ._utils import _is_connection, UnionFind, get_hidden_name
 
 __all__ = [
