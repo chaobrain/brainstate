@@ -27,23 +27,19 @@ The wrapped gradient transformations here are made possible by using the followi
 
 """
 
-from functools import wraps, partial
-from typing import Union, Callable, Dict, Sequence, Optional, Any, Tuple, TypeVar, Iterator
+from functools import wraps
+from typing import Union, Callable, Dict, Sequence, Optional
 
 import brainunit as u
 import jax
 
 from brainstate._state import State
 from brainstate._utils import set_module_as
-from brainstate.transform._make_jaxpr import StatefulFunction
-from brainstate.typing import PyTree, Missing
-from brainstate.util import PrettyType, PrettyAttr, PrettyRepr
 from ._grad_transform import GradientTransform
 
 __all__ = [
-     'jacrev', 'jacfwd', 'jacobian', 'hessian',
+    'jacrev', 'jacfwd', 'jacobian',
 ]
-
 
 
 def _jacrev(
@@ -109,7 +105,6 @@ def _jacfwd(
         return (jac, aux) if has_aux else jac
 
     return jacfun
-
 
 
 @set_module_as("brainstate.transform")
@@ -275,78 +270,3 @@ def jacfwd(
         check_states=check_states
     )
 
-
-@set_module_as("brainstate.transform")
-def hessian(
-    func: Callable,
-    grad_states: Optional[Union[State, Sequence[State], Dict[str, State]]] = None,
-    argnums: Optional[Union[int, Sequence[int]]] = None,
-    return_value: bool = False,
-    holomorphic: bool = False,
-    has_aux: Optional[bool] = None,
-    unit_aware: bool = False,
-    check_states: bool = True,
-) -> GradientTransform:
-    """
-    Hessian of ``func`` as a dense array.
-
-
-    1. When ``grad_states`` is None
-
-        - ``has_aux=False`` + ``return_value=False`` => ``arg_grads``.
-        - ``has_aux=True`` + ``return_value=False`` => ``(arg_grads, aux_data)``.
-        - ``has_aux=False`` + ``return_value=True`` => ``(arg_grads, loss_value)``.
-        - ``has_aux=True`` + ``return_value=True`` => ``(arg_grads, loss_value, aux_data)``.
-    2. When ``grad_states`` is not None and ``argnums`` is None
-
-        - ``has_aux=False`` + ``return_value=False`` => ``var_grads``.
-        - ``has_aux=True`` + ``return_value=False`` => ``(var_grads, aux_data)``.
-        - ``has_aux=False`` + ``return_value=True`` => ``(var_grads, loss_value)``.
-        - ``has_aux=True`` + ``return_value=True`` => ``(var_grads, loss_value, aux_data)``.
-    3. When ``grad_states`` is not None and ``argnums`` is not None
-
-        - ``has_aux=False`` + ``return_value=False`` => ``(var_grads, arg_grads)``.
-        - ``has_aux=True`` + ``return_value=False`` => ``((var_grads, arg_grads), aux_data)``.
-        - ``has_aux=False`` + ``return_value=True`` => ``((var_grads, arg_grads), loss_value)``.
-        - ``has_aux=True`` + ``return_value=True`` => ``((var_grads, arg_grads), loss_value, aux_data)``.
-
-
-    Parameters
-    ----------
-    func : callable
-      Function whose Hessian is to be computed.  Its arguments at positions
-      specified by ``argnums`` should be arrays, scalars, or standard Python
-      containers thereof. It should return arrays, scalars, or standard Python
-      containers thereof.
-    grad_states : optional, ArrayCollector, sequence of ArrayType
-      The variables required to compute their gradients.
-    argnums: Optional, integer or sequence of integers
-      Specifies which positional argument(s) to differentiate with respect to (default ``0``).
-    holomorphic : bool
-      Indicates whether ``fun`` is promised to be holomorphic. Default False.
-    return_value : bool
-      Whether return the hessian values.
-    has_aux: Optional, bool
-        Indicates whether ``fun`` returns a pair where the first element is considered
-        the output of the mathematical function to be differentiated and the second
-        element is auxiliary data. Default False.
-    unit_aware: (bool) optional. Whether to return the gradient in the unit-aware
-        mode. Default False.
-    check_states: bool
-      Whether to check the states in ``grad_states``. Default True.
-
-    Returns
-    -------
-    obj: ObjectTransform
-      The transformed object.
-    """
-    return GradientTransform(
-        target=func,
-        transform=u.autograd.hessian if unit_aware else jax.hessian,
-        grad_states=grad_states,
-        argnums=argnums,
-        return_value=return_value,
-        has_aux=False if has_aux is None else has_aux,
-        transform_params=dict(holomorphic=holomorphic),
-        check_states=check_states
-    )

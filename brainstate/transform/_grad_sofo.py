@@ -15,18 +15,18 @@
 
 # Modified from https://github.com/hennequin-lab/SOFO
 
-import functools
 from typing import Callable, Any, Tuple, Union, Sequence, Dict, Optional
 
 import brainunit as u
 import jax
 import jax.numpy as jnp
 
-import brainstate
+from brainstate.random import split_key
 from brainstate._state import State
 from brainstate._utils import set_module_as
 from brainstate.transform._grad_first_order import GradientTransform
 from brainstate.typing import SeedOrKey, Missing
+from ._util import warp_grad_fn, tree_random_split
 
 __all__ = [
     'sofo_grad',
@@ -73,24 +73,6 @@ def _ggn_mse(tangents):
     return tangents @ tangents.T
 
 
-def _tree_random_split(rng_key, target=None, treedef=None):
-    """
-    Split key for a key for every leaf.
-
-    Args:
-        rng_key (jax.Array): A JAX PRNG key.
-        target (PyTree, optional): A pytree to infer the tree structure from.
-                                   Required if `treedef` is not provided.
-        treedef (TreeDef, optional): An explicit tree structure. If provided, `target` is ignored.
-
-    Returns:
-        PyTree: A pytree of PRNG keys with the same structure as `target` or `treedef`.
-    """
-    if treedef is None:
-        treedef = jax.tree.structure(target)
-    keys = jax.random.split(rng_key, treedef.num_leaves)
-    return jax.tree.unflatten(treedef, keys)
-
 
 def _sample_v(tangent_size, params, rng):
     """
@@ -112,7 +94,7 @@ def _sample_v(tangent_size, params, rng):
     v = jax.tree.map(
         lambda x, k: jax.random.normal(k, (tangent_size,) + x.shape, x.dtype),
         params,
-        _tree_random_split(rng, params)
+        tree_random_split(rng, params)
     )
     # Normalize, tangent-wise
     l2 = jnp.sqrt(sum(jax.tree.leaves(jax.vmap(lambda v: jax.tree.map(lambda x: jnp.sum(jnp.square(x)), v))(v))))
@@ -120,43 +102,7 @@ def _sample_v(tangent_size, params, rng):
     return v
 
 
-def _warp_fn(
-    fn: Callable,
-    argnums: Union[int, Sequence[int]],
-    args: Sequence[Any],
-    kwargs: Dict,
-):
-    args = tuple(args)
-
-    if isinstance(argnums, int):
-        @functools.wraps(fn)
-        def new_fn(dyn_args):
-            new_args = list(args)
-            new_args[argnums] = dyn_args
-            return fn(*new_args, **kwargs)
-
-        assert argnums < len(args), f"argnum {argnums} is out of range {len(args)}"
-        return new_fn, args[argnums]
-
-    else:
-
-        @functools.wraps(fn)
-        def new_fn(dyn_args):
-            assert len(dyn_args) == len(argnums)
-            new_args = list(args)
-            for i, argnum in enumerate(argnums):
-                new_args[argnum] = dyn_args[i]
-            return fn(*new_args, **kwargs)
-
-        argnums = (argnums,) if isinstance(argnums, int) else tuple(argnums)
-        params = []
-        for i in argnums:
-            assert i < len(args), f"argnum {i} is out of range {len(args)}"
-            params.append(args[i])
-        return new_fn, params
-
-
-def functional_sofo_grad(
+def _sofo_grad_impl(
     fn: Callable,
     loss_fn: Callable,
     argnums: Union[int, Sequence[int]] = 0,
@@ -166,7 +112,7 @@ def functional_sofo_grad(
     damping: float = 1E-5,
     loss: str = 'mse',
     key: SeedOrKey = None,
-) -> Callable[..., Tuple[Any, Any]]:
+) -> Callable:
     """
     SOFO forward pass to compute loss and gradient.
 
@@ -181,11 +127,9 @@ def functional_sofo_grad(
         has_aux (bool, optional): Whether the function ``fn`` returns auxiliary data. Defaults to False.
     """
 
-    key = brainstate.random.split_key() if key is None else key
-
     def wrapper(*args, **kwargs):
-        f_partial, params = _warp_fn(fn, argnums, args, kwargs)
-        v = _sample_v(tangent_size, params, key)
+        f_partial, params = warp_grad_fn(fn, argnums, args, kwargs)
+        v = _sample_v(tangent_size, params, split_key() if key is None else key)
 
         # tangents_out shape: t_size, b_size, out_size
         res = _batch_jvp(f_partial, params, v, has_aux=has_aux)
@@ -288,7 +232,7 @@ def sofo_grad(
     """
     return GradientTransform(
         target=fun,
-        transform=functional_sofo_grad,
+        transform=_sofo_grad_impl,
         grad_states=grad_states,
         argnums=argnums,
         return_value=return_value,
@@ -304,7 +248,7 @@ def sofo_grad(
     )
 
 
-def functional_sofo_grad_scan(
+def _sofo_grad_scan_impl(
     fn: Callable,
     loss_fn: Callable,
     argnums: Union[int, Sequence[int]] = 0,
@@ -326,7 +270,7 @@ def functional_sofo_grad_scan(
         loss (str, optional): Loss function. Defaults to 'mse'. Options are 'mse' and 'ce'.
         key (SeedOrKey, optional): Random key. Defaults to None.
     """
-    key = brainstate.random.split_key() if key is None else key
+    key = split_key() if key is None else key
     argnums = (argnums,) if isinstance(argnums, int) else tuple(argnums)
 
     def wrapper(params, z_init, batch):
@@ -458,7 +402,7 @@ def sofo_grad_scan(
     """
     return GradientTransform(
         target=fun,
-        transform=functional_sofo_grad_scan,
+        transform=_sofo_grad_scan_impl,
         grad_states=grad_states,
         argnums=argnums,
         return_value=return_value,

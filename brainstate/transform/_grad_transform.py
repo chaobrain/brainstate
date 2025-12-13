@@ -13,16 +13,13 @@
 # limitations under the License.
 # ==============================================================================
 
-from functools import wraps, partial
 from typing import Union, Callable, Dict, Sequence, Optional, Any, Tuple, TypeVar, Iterator
 
-import brainunit as u
 import jax
 
 from brainstate._state import State
-from brainstate._utils import set_module_as
 from brainstate.transform._make_jaxpr import StatefulFunction
-from brainstate.typing import PyTree, Missing
+from brainstate.typing import PyTree
 from brainstate.util import PrettyType, PrettyAttr, PrettyRepr
 
 __all__ = [

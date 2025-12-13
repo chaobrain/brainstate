@@ -26,8 +26,8 @@ from ._grad_first_order import *
 from ._grad_first_order import __all__ as _autograd_all
 from ._grad_hessian import *
 from ._grad_hessian import __all__ as _grad_hessian_all
-from ._grad_jac import *
-from ._grad_jac import __all__ as _grad_jac_all
+from ._grad_jacobian import *
+from ._grad_jacobian import __all__ as _grad_jac_all
 from ._grad_sofo import *
 from ._grad_sofo import __all__ as _sofo_all
 from ._grad_transform import *

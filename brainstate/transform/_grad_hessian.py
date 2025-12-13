@@ -27,23 +27,18 @@ The wrapped gradient transformations here are made possible by using the followi
 
 """
 
-from functools import wraps, partial
-from typing import Union, Callable, Dict, Sequence, Optional, Any, Tuple, TypeVar, Iterator
+from typing import Union, Callable, Dict, Sequence, Optional
 
-from ._grad_transform import GradientTransform
 import brainunit as u
 import jax
 
 from brainstate._state import State
 from brainstate._utils import set_module_as
-from brainstate.transform._make_jaxpr import StatefulFunction
-from brainstate.typing import PyTree, Missing
-from brainstate.util import PrettyType, PrettyAttr, PrettyRepr
+from ._grad_transform import GradientTransform
 
 __all__ = [
-     'hessian',
+    'hessian',
 ]
-
 
 
 @set_module_as("brainstate.transform")

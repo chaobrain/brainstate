@@ -27,25 +27,23 @@ The wrapped gradient transformations here are made possible by using the followi
 
 """
 
-from functools import wraps, partial
-from typing import Union, Callable, Dict, Sequence, Optional, Any, Tuple, TypeVar, Iterator
+from functools import partial
+from typing import Union, Callable, Dict, Sequence, Optional
 
 import brainunit as u
 import jax
+import jax.numpy as jnp
 
 from brainstate._state import State
 from brainstate._utils import set_module_as
-from brainstate.transform._make_jaxpr import StatefulFunction
-from brainstate.typing import PyTree, Missing
-from brainstate.util import PrettyType, PrettyAttr, PrettyRepr
+from brainstate.random import split_key
+from brainstate.typing import Missing, SeedOrKey
 from ._grad_transform import GradientTransform
+from ._util import warp_grad_fn, tree_random_split
 
 __all__ = [
-     'vector_grad', 'grad',
+    'vector_grad', 'grad', 'fwd_grad',
 ]
-
-
-
 
 
 @set_module_as("brainstate.transform")
@@ -320,3 +318,178 @@ def vector_grad(
             check_states=check_states
         )
 
+
+def _fwd_grad(
+    fun: Callable,
+    argnums: Union[int, Sequence[int]] = 0,
+    tangent_size: Optional[int] = None,
+    has_aux: bool = False,
+    drct_der_clip: Optional[float] = None,
+    key: SeedOrKey = None,
+) -> Callable:
+    tangent_size = () if tangent_size is None else (tangent_size,)
+
+    def wrapper(*args, **kwargs):
+        f_partial, params = warp_grad_fn(fun, argnums, args, kwargs)
+        v = jax.tree.map(
+            lambda x, k: jax.random.normal(k, tangent_size + x.shape, x.dtype),
+            params,
+            tree_random_split(split_key() if key is None else key, params)
+        )
+        if len(tangent_size) == 0:
+            r = jax.jvp(f_partial, (params,), (v,), has_aux=has_aux)
+            if has_aux:
+                loss_value, drct_drv, aux = r
+            else:
+                loss_value, drct_drv = r
+            if drct_der_clip is not None:
+                drct_drv = jnp.clip(drct_drv, -drct_der_clip, drct_der_clip)
+            grads = jax.tree.map(lambda v_leaf: v_leaf * drct_drv, v)
+            return (grads, aux) if has_aux else grads
+        elif len(tangent_size) == 1:
+            r = jax.vmap(lambda x: jax.jvp(f_partial, (params,), (x,), has_aux=has_aux))(v)
+            if has_aux:
+                loss_value, drct_drv, aux = r
+                aux = jax.tree.map(lambda x: x[0], aux)
+            else:
+                loss_value, drct_drv = r
+            loss_value = loss_value[0]
+            if drct_der_clip is not None:
+                drct_drv = jnp.clip(drct_drv, -drct_der_clip, drct_der_clip)
+            grads = jax.tree.map(lambda v_leaf: jax.vmap(jnp.multiply)(v_leaf, drct_drv).mean(axis=0), v)
+            return (grads, aux) if has_aux else grads
+        else:
+            raise ValueError(f"Only support tangent_size of 0 or 1, but got {tangent_size}")
+
+    return wrapper
+
+
+@set_module_as("brainstate.transform")
+def fwd_grad(
+    func: Callable = Missing(),
+    grad_states: Optional[Union[State, Sequence[State], Dict[str, State]]] = None,
+    argnums: Optional[Union[int, Sequence[int]]] = None,
+    return_value: bool = False,
+    has_aux: Optional[bool] = None,
+    tangent_size: Optional[int] = None,
+    drct_der_clip: Optional[float] = None,
+    key: SeedOrKey = None,
+) -> GradientTransform | Callable[[Callable], GradientTransform]:
+    """
+    Take forward first-order gradients for function ``func``.
+
+    Same as :py:func:`grad`, :py:func:`jacrev`, and :py:func:`jacfwd`,
+    the returns in this function are different for different argument settings.
+
+    1. When ``grad_states`` is None
+
+        - ``has_aux=False`` + ``return_value=False`` => ``arg_grads``.
+        - ``has_aux=True`` + ``return_value=False`` => ``(arg_grads, aux_data)``.
+        - ``has_aux=False`` + ``return_value=True`` => ``(arg_grads, loss_value)``.
+        - ``has_aux=True`` + ``return_value=True`` => ``(arg_grads, loss_value, aux_data)``.
+    2. When ``grad_states`` is not None and ``argnums`` is None
+
+        - ``has_aux=False`` + ``return_value=False`` => ``var_grads``.
+        - ``has_aux=True`` + ``return_value=False`` => ``(var_grads, aux_data)``.
+        - ``has_aux=False`` + ``return_value=True`` => ``(var_grads, loss_value)``.
+        - ``has_aux=True`` + ``return_value=True`` => ``(var_grads, loss_value, aux_data)``.
+    3. When ``grad_states`` is not None and ``argnums`` is not None
+
+        - ``has_aux=False`` + ``return_value=False`` => ``(var_grads, arg_grads)``.
+        - ``has_aux=True`` + ``return_value=False`` => ``((var_grads, arg_grads), aux_data)``.
+        - ``has_aux=False`` + ``return_value=True`` => ``((var_grads, arg_grads), loss_value)``.
+        - ``has_aux=True`` + ``return_value=True`` => ``((var_grads, arg_grads), loss_value, aux_data)``.
+
+
+    Parameters
+    ----------
+    func : callable, optional
+        Function whose gradient is to be computed.
+    grad_states : State, sequence of State, or dict of State, optional
+        The variables in ``func`` to take their gradients.
+    argnums : int or sequence of int, optional
+        Specifies which positional argument(s) to differentiate with respect to.
+    return_value : bool, default False
+        Whether to return the loss value.
+    has_aux : bool, optional
+        Indicates whether ``fun`` returns a pair where the
+        first element is considered the output of the mathematical function to be
+        differentiated and the second element is auxiliary data.
+    unit_aware : bool, default False
+        Whether to return the gradient in the unit-aware mode.
+    check_states : bool, default True
+        Whether to check that all grad_states are found in the function.
+
+    Returns
+    -------
+    GradientTransform or callable
+        The vector gradient function.
+
+    Examples
+    --------
+    Basic vector gradient computation:
+
+    .. code-block:: python
+
+        >>> import brainstate
+        >>> import jax.numpy as jnp
+        >>>
+        >>> # Vector-valued function
+        >>> def f(x):
+        ...     return jnp.array([x[0]**2, x[1]**3, x[0]*x[1]])
+        >>>
+        >>> vector_grad_f = brainstate.transform.vector_grad(f)
+        >>> x = jnp.array([2.0, 3.0])
+        >>> gradients = vector_grad_f(x)  # Shape: (3, 2)
+
+    With states:
+
+    .. code-block:: python
+
+        >>> params = brainstate.State(jnp.array([1.0, 2.0]))
+        >>>
+        >>> def model(x):
+        ...     return jnp.array([
+        ...         x * params.value[0],
+        ...         x**2 * params.value[1]
+        ...     ])
+        >>>
+        >>> vector_grad_fn = brainstate.transform.vector_grad(
+        ...     model, grad_states=[params]
+        ... )
+        >>> x = 3.0
+        >>> param_grads = vector_grad_fn(x)
+    """
+
+    if isinstance(func, Missing):
+        def transform(fun) -> GradientTransform:
+            return GradientTransform(
+                target=fun,
+                transform=_fwd_grad,
+                grad_states=grad_states,
+                argnums=argnums,
+                return_value=return_value,
+                has_aux=False if has_aux is None else has_aux,
+                transform_params=dict(
+                    tangent_size=tangent_size,
+                    drct_der_clip=drct_der_clip,
+                    key=key,
+                )
+            )
+
+        return transform
+
+    else:
+        return GradientTransform(
+            target=func,
+            transform=_fwd_grad,
+            grad_states=grad_states,
+            argnums=argnums,
+            return_value=return_value,
+            has_aux=False if has_aux is None else has_aux,
+            transform_params=dict(
+                tangent_size=tangent_size,
+                drct_der_clip=drct_der_clip,
+                key=key,
+            )
+        )
