@@ -50,7 +50,7 @@ AuxData = PyTree
 
 
 def _jacrev(
-    fun,
+    fn,
     argnums=0,
     holomorphic=False,
     allow_int=False,
@@ -58,35 +58,33 @@ def _jacrev(
     return_value=False,
     unit_aware=False,
 ):
-    @wraps(fun)
+    @wraps(fn)
     def fun_wrapped(*args, **kwargs):
         if has_aux:
-            y, aux = fun(*args, **kwargs)
+            y, aux = fn(*args, **kwargs)
             if return_value:
                 return y, (y, aux)
             else:
                 return y, aux
         else:
-            y = fun(*args, **kwargs)
+            y = fn(*args, **kwargs)
             if return_value:
                 return y, y
             else:
                 return y, None
 
     if unit_aware:
-        transform = u.autograd.jacrev(fun_wrapped,
-                                      argnums=argnums,
-                                      holomorphic=holomorphic,
-                                      allow_int=allow_int,
-                                      has_aux=True)
+        transform = u.autograd.jacrev(
+            fun_wrapped, argnums=argnums, holomorphic=holomorphic,
+            allow_int=allow_int, has_aux=True
+        )
     else:
-        transform = jax.jacrev(fun_wrapped,
-                               argnums=argnums,
-                               holomorphic=holomorphic,
-                               allow_int=allow_int,
-                               has_aux=True)
+        transform = jax.jacrev(
+            fun_wrapped, argnums=argnums, holomorphic=holomorphic,
+            allow_int=allow_int, has_aux=True
+        )
 
-    @wraps(fun)
+    @wraps(fn)
     def jacfun(*args, **kwargs):
         jac, aux = transform(*args, **kwargs)
         if return_value:
@@ -98,40 +96,34 @@ def _jacrev(
 
 
 def _jacfwd(
-    fun,
+    fn,
     argnums=0,
     holomorphic=False,
     has_aux=False,
     return_value=False,
     unit_aware=False,
 ):
-    @wraps(fun)
-    def fun_wrapped(*args, **kwargs):
+    @wraps(fn)
+    def fn_wrapped(*args, **kwargs):
         if has_aux:
-            y, aux = fun(*args, **kwargs)
+            y, aux = fn(*args, **kwargs)
             if return_value:
                 return y, (y, aux)
             else:
                 return y, aux
         else:
-            y = fun(*args, **kwargs)
+            y = fn(*args, **kwargs)
             if return_value:
                 return y, y
             else:
                 return y, None
 
     if unit_aware:
-        transform = u.autograd.jacfwd(fun_wrapped,
-                                      argnums=argnums,
-                                      holomorphic=holomorphic,
-                                      has_aux=True)
+        transform = u.autograd.jacfwd(fn_wrapped, argnums=argnums, holomorphic=holomorphic, has_aux=True)
     else:
-        transform = jax.jacfwd(fun_wrapped,
-                               argnums=argnums,
-                               holomorphic=holomorphic,
-                               has_aux=True)
+        transform = jax.jacfwd(fn_wrapped, argnums=argnums, holomorphic=holomorphic, has_aux=True)
 
-    @wraps(fun)
+    @wraps(fn)
     def jacfun(*args, **kwargs):
         jac, aux = transform(*args, **kwargs)
         if return_value:
@@ -828,8 +820,6 @@ def jacrev(
         - ``has_aux=False`` + ``return_value=True`` => ``((var_grads, arg_grads), loss_value)``.
         - ``has_aux=True`` + ``return_value=True`` => ``((var_grads, arg_grads), loss_value, aux_data)``.
 
-
-
     Parameters
     ----------
     fun: Callable
@@ -854,6 +844,8 @@ def jacrev(
         have a trivial vector-space dtype (float0). Default False.
     unit_aware: (bool) optional. Whether to return the gradient in the unit-aware
         mode. Default False.
+    check_states: bool
+          Whether to check the states in ``grad_states``. Default True.
 
     Returns
     -------
@@ -932,6 +924,8 @@ def jacfwd(
         holomorphic. Default False.
     unit_aware: (bool) optional. Whether to return the gradient in the unit-aware
         mode. Default False.
+    check_states: bool
+      Whether to check the states in ``grad_states``. Default True.
 
     Returns
     -------
@@ -1007,6 +1001,8 @@ def hessian(
         element is auxiliary data. Default False.
     unit_aware: (bool) optional. Whether to return the gradient in the unit-aware
         mode. Default False.
+    check_states: bool
+      Whether to check the states in ``grad_states``. Default True.
 
     Returns
     -------
