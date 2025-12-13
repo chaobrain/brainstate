@@ -84,7 +84,7 @@ def train(epochs, batch_size, lr, num_layers, ad_type: str):
         elif ad_type == 'sofo':
             loss_f = lambda p: braintools.metric.softmax_cross_entropy_with_integer_labels(p, ys).mean()
             grads, predicts = brainstate.transform.sofo_grad(
-                mlp, loss_f, grad_states=trainable_weights, return_value=True)(xs)
+                mlp, loss_f, grad_states=trainable_weights, return_value=True, loss='ce')(xs)
             loss = loss_f(predicts)
             acc = acc_fn(predicts, ys)
         else:
@@ -136,7 +136,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=256, help='batch size')
     parser.add_argument('--lr', type=float, default=2e-3, help='learning rate')
     parser.add_argument('--num_layers', type=int, default=2, help='number of hidden layers for MLP')
-    parser.add_argument('--ad_type', type=str, default='sofo', choices=['jvp', 'vjp', 'sofo'])
+    parser.add_argument('--ad_type', type=str, default='jvp', choices=['jvp', 'vjp', 'sofo'])
     args = parser.parse_args()
 
     train(args.epochs, args.batch_size, args.lr, args.num_layers, args.ad_type)

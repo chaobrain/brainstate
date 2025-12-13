@@ -30,7 +30,6 @@ from ._util import warp_grad_fn, tree_random_split
 
 __all__ = [
     'sofo_grad',
-    'sofo_grad_scan',
 ]
 
 
@@ -211,7 +210,7 @@ def sofo_grad(
         Indicates whether fun returns a pair where the
         first element is considered the output of the mathematical function to be
         differentiated and the second element is auxiliary data.
-    return_loss : bool, default False
+    return_value : bool, default False
         Indicates whether to return the value of the
         function along with the gradient.
     check_states : bool, default True
