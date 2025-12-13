@@ -14,14 +14,14 @@
 # ==============================================================================
 
 
-from ._ad_checkpoint import *
-from ._ad_checkpoint import __all__ as _ad_checkpoint_all
 from ._conditions import *
 from ._conditions import __all__ as _conditions_all
 from ._error_if import *
 from ._error_if import __all__ as _error_if_all
 from ._find_state import *
 from ._find_state import __all__ as _find_all
+from ._grad_checkpoint import *
+from ._grad_checkpoint import __all__ as _ad_checkpoint_all
 from ._grad_first_order import *
 from ._grad_first_order import __all__ as _autograd_all
 from ._grad_hessian import *
