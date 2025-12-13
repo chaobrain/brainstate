@@ -50,6 +50,10 @@ class GraphElem:
     jaxpr: ClosedJaxpr
     name: str  # Add name field with default value
 
+    def jaxpr2hlo(self):
+        pass
+
+
     def __repr__(self) -> str:
         """Return a concise representation showing jaxpr signature."""
         n_eqns = len(self.jaxpr.jaxpr.eqns)

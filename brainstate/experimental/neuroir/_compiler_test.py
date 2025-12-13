@@ -67,9 +67,10 @@ class TestCompiledResultsExecution:
         # Parse
         t = 0. * u.ms
         inp = 5. * u.mA
-        parse_output = compile_fn(update)(t, inp)
+        compiled = compile_fn(update)(t, inp)
+        print(compiled.graph)
 
-        result = parse_output.run_compiled(t, inp)
+        result = compiled.run_compiled(t, inp)
         print(result)
 
     def test_two_populations_run(self):
