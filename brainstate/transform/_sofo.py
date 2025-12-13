@@ -15,25 +15,37 @@
 
 # Modified from https://github.com/hennequin-lab/SOFO
 
+import functools
+from typing import Callable, Any, Tuple, Union, Sequence, Dict, Optional
 
-from typing import Callable, Any, Tuple
-
+import brainunit as u
 import jax
 import jax.numpy as jnp
 
+import brainstate.random
+from brainstate._state import State
+from brainstate._utils import set_module_as
+from brainstate.transform._autograd import GradientTransform
+from brainstate.typing import SeedOrKey, Missing
 
-def batch_jvp(f, W, M, has_aux=False):
+__all__ = [
+    'sofo_grad',
+    'sofo_grad_scan',
+]
+
+
+def _batch_jvp(f, W, M, has_aux=False):
     _jvp = lambda s: jax.jvp(f, (W,), (s,), has_aux=has_aux)
     return jax.vmap(_jvp)(M)
 
 
-def batch_jvp_pair(f, W, M, has_aux=False):
+def _batch_jvp_pair(f, W, M, has_aux=False):
     M_1, M_2 = M
     _jvp = lambda M_1, M_2: jax.jvp(f, W, (M_1, M_2), has_aux=has_aux)
     return jax.vmap(_jvp)(M_1, M_2)
 
 
-def ggn_ce(tangents, h):
+def _ggn_ce(tangents, h):
     """
     Generalised Gauss-Newton (GGN) matrices for cross-entropy loss.
 
@@ -48,7 +60,7 @@ def ggn_ce(tangents, h):
     return (tangents * h) @ tangents.T - Jgh @ Jgh.T  # (k, k)
 
 
-def ggn_mse(tangents):
+def _ggn_mse(tangents):
     """
     Generalised Gauss-Newton (GGN) matrices for mean-squared loss.
 
@@ -61,7 +73,7 @@ def ggn_mse(tangents):
     return tangents @ tangents.T
 
 
-def random_split_like_tree(rng_key, target=None, treedef=None):
+def _tree_random_split(rng_key, target=None, treedef=None):
     """
     Split key for a key for every leaf.
 
@@ -80,7 +92,7 @@ def random_split_like_tree(rng_key, target=None, treedef=None):
     return jax.tree.unflatten(treedef, keys)
 
 
-def sample_v(tangent_size, params, rng):
+def _sample_v(tangent_size, params, rng):
     """
     Samples a batch of random, normalized tangent vectors matching the structure of `params`.
 
@@ -100,7 +112,7 @@ def sample_v(tangent_size, params, rng):
     v = jax.tree.map(
         lambda x, k: jax.random.normal(k, (tangent_size,) + x.shape, x.dtype),
         params,
-        random_split_like_tree(rng, params)
+        _tree_random_split(rng, params)
     )
     # Normalize, tangent-wise
     l2 = jnp.sqrt(sum(jax.tree.leaves(jax.vmap(lambda v: jax.tree.map(lambda x: jnp.sum(jnp.square(x)), v))(v))))
@@ -108,60 +120,190 @@ def sample_v(tangent_size, params, rng):
     return v
 
 
-def sofo_grad(
+def _warp_fn(fn: Callable, argnums: Sequence[int], args: Sequence[Any], kwargs: Dict):
+    @functools.wraps(fn)
+    def new_fn(dyn_args):
+        assert len(dyn_args) == len(argnums)
+        new_args = list(args)
+        for i, argnum in enumerate(argnums):
+            new_args[argnum] = dyn_args[i]
+        return fn(*new_args, **kwargs)
+
+    params = []
+    for i in argnums:
+        assert i < len(args), f"argnum {i} is out of range {len(args)}"
+        params.append(args[i])
+    return new_fn, params
+
+
+def functional_sofo_grad(
     fn: Callable,
+    argnums: Union[int, Sequence[int]] = 0,
+    has_aux: bool = False,
+    return_value: bool = False,
     tangent_size: int = 100,
     damping: float = 1E-5,
     loss: str = 'mse',
+    key: SeedOrKey = None,
 ) -> Callable[..., Tuple[Any, Any]]:
     """
     SOFO forward pass to compute loss and gradient.
 
     Args:
-        fn (Callable): Forward pass of the network. ``fun`` s answer should be concatenation
+        fn (Callable): Forward pass of the network. ``fn`` s answer should be concatenation
             of function on a batch of samples with mean function over the same batch.
         tangent_size (int, optional): Number of tangets/subspace dimension. Defaults to 100.
         damping (float, optional): Dampling parameter on ggn. Defaults to 1e-5.
         loss (str, optional): Loss function. Defaults to 'mse'. Options are 'mse' and 'ce'.
+        key (SeedOrKey, optional): Random key. Defaults to None.
+        argnums (int, sequence of int, optional): Argument numbers to differentiate with respect to. Defaults to 0.
+        has_aux (bool, optional): Whether the function ``fn`` returns auxiliary data. Defaults to False.
+        return_value (bool, optional): Whether to return the value of ``fn``. Defaults to False.
     """
 
-    def value_and_fish_grad_f(rng, params):
-        v = sample_v(tangent_size, params, jax.random.split(rng)[1])
+    key = brainstate.random.split_key() if key is None else key
+    argnums = (argnums,) if isinstance(argnums, int) else tuple(argnums)
 
-        outs, tangents_out = batch_jvp(fn, params, v)  # tangents_out shape: t_size, b_size, out_size
+    def wrapper(*args, **kwargs):
+        f_partial, params = _warp_fn(fn, argnums, args, kwargs)
+        v = _sample_v(tangent_size, params, key)
+
+        # tangents_out shape: t_size, b_size, out_size
+        res = _batch_jvp(f_partial, params, v, has_aux=has_aux)
+        if has_aux:
+            outs, tangents_out, aux = res
+        else:
+            outs, tangents_out = res
+
+        # loss
         if loss == 'mse':
-            loss_fn = lambda logits: jnp.mean(jnp.square(logits), axis=0)
+            loss_fn = lambda logits: u.math.mean(u.math.square(logits), axis=0)
         elif loss == 'ce':
-            loss_fn = lambda logits: jnp.mean(
-                jax.nn.softmax(logits, axis=-1) * jnp.log(jax.nn.softmax(logits, axis=-1)),
-                axis=0
+            loss_fn = lambda logits: u.math.mean(
+                jax.nn.softmax(logits, axis=-1) * jnp.log(jax.nn.softmax(logits, axis=-1)), axis=0
             )
         else:
             raise ValueError(f'Unknown loss function: {loss}.')
-        losses, vg = batch_jvp(loss_fn, outs[0], tangents_out)
+        losses, vg = _batch_jvp(loss_fn, outs[0], tangents_out)
 
+        # gradients
         if loss == 'mse':
-            vg_gv = jnp.mean(jax.vmap(ggn_mse, in_axes=1)(tangents_out), axis=0)
+            vg_gv = u.math.mean(jax.vmap(_ggn_mse, in_axes=1)(tangents_out), axis=0)
         elif loss == 'ce':
-            vg_gv = jnp.mean(jax.vmap(ggn_ce, in_axes=(1, 0))(tangents_out, jax.nn.softmax(outs[0], axis=-1)), axis=0)
+            vg_gv = u.math.mean(
+                jax.vmap(_ggn_ce, in_axes=(1, 0))(tangents_out, jax.nn.softmax(outs[0], axis=-1)), axis=0
+            )
         else:
             raise ValueError(f'Unknown loss function: {loss}.')
 
-        u, s, _ = jnp.linalg.svd(vg_gv)
-        damped_s = s + damping * jnp.max(s)
+        u_, s_, _ = jnp.linalg.svd(vg_gv)
+        damped_s = s_ + damping * jnp.max(s_)
 
-        vggv_vg = (u / damped_s) @ (u.T @ vg)
+        vggv_vg = (u_ / damped_s) @ (u_.T @ vg)
         h = jax.tree.map(lambda v_: jnp.dot(jnp.moveaxis(v_, 0, -1), vggv_vg), v)
-        return losses[0], h, jnp.max(s)
+        if return_value:
+            return (h, losses[0], aux) if has_aux else (h, losses[0])
+        else:
+            return (h, aux) if has_aux else h
 
-    return value_and_fish_grad_f
+    return wrapper
 
 
-def sofo_grad_scan(
+@set_module_as("brainstate.transform")
+def sofo_grad(
+    fun: Callable = Missing(),
+    grad_states: Optional[Union[State, Sequence[State], Dict[str, State]]] = None,
+    argnums: Optional[Union[int, Sequence[int]]] = None,
+    has_aux: Optional[bool] = None,
+    return_value: Optional[bool] = False,
+    check_states: bool = True,
+) -> GradientTransform | Callable[[Callable], GradientTransform]:
+    """
+    Compute the gradient of a scalar-valued function with respect to its arguments.
+
+    1. When ``grad_states`` is None
+
+        - ``has_aux=False`` + ``return_value=False`` => ``arg_grads``.
+        - ``has_aux=True`` + ``return_value=False`` => ``(arg_grads, aux_data)``.
+        - ``has_aux=False`` + ``return_value=True`` => ``(arg_grads, loss_value)``.
+        - ``has_aux=True`` + ``return_value=True`` => ``(arg_grads, loss_value, aux_data)``.
+    2. When ``grad_states`` is not None and ``argnums`` is None
+
+        - ``has_aux=False`` + ``return_value=False`` => ``var_grads``.
+        - ``has_aux=True`` + ``return_value=False`` => ``(var_grads, aux_data)``.
+        - ``has_aux=False`` + ``return_value=True`` => ``(var_grads, loss_value)``.
+        - ``has_aux=True`` + ``return_value=True`` => ``(var_grads, loss_value, aux_data)``.
+    3. When ``grad_states`` is not None and ``argnums`` is not None
+
+        - ``has_aux=False`` + ``return_value=False`` => ``(var_grads, arg_grads)``.
+        - ``has_aux=True`` + ``return_value=False`` => ``((var_grads, arg_grads), aux_data)``.
+        - ``has_aux=False`` + ``return_value=True`` => ``((var_grads, arg_grads), loss_value)``.
+        - ``has_aux=True`` + ``return_value=True`` => ``((var_grads, arg_grads), loss_value, aux_data)``.
+
+
+    Parameters
+    ----------
+    fun : callable, optional
+        The scalar-valued function to be differentiated.
+    grad_states : State, sequence of State, or dict of State, optional
+        The variables in fun to take their gradients.
+    argnums : int or sequence of int, optional
+        Specifies which positional argument(s) to differentiate with respect to.
+    has_aux : bool, optional
+        Indicates whether fun returns a pair where the
+        first element is considered the output of the mathematical function to be
+        differentiated and the second element is auxiliary data.
+    return_value : bool, default False
+        Indicates whether to return the value of the
+        function along with the gradient.
+    check_states : bool, default True
+        Whether to check that all grad_states are found in the function.
+
+    Returns
+    -------
+    GradientTransform or callable
+        A function which computes the gradient of fun. The function takes the same
+        arguments as `fun`, but returns the gradient instead. If `has_aux` is True,
+        the function returns a pair where the first element is the gradient and the
+        second element is the auxiliary data. If `return_value` is True, the function
+        returns a pair where the first element is the gradient and the second element
+        is the value of the function.
+
+    """
+    if isinstance(fun, Missing):
+        def transform(fn) -> GradientTransform:
+            return GradientTransform(
+                target=fn,
+                transform=functional_sofo_grad,
+                grad_states=grad_states,
+                argnums=argnums,
+                return_value=return_value,
+                has_aux=False if has_aux is None else has_aux,
+                check_states=check_states
+            )
+
+        return transform
+
+    return GradientTransform(
+        target=fun,
+        transform=functional_sofo_grad,
+        grad_states=grad_states,
+        argnums=argnums,
+        return_value=return_value,
+        has_aux=False if has_aux is None else has_aux,
+        check_states=check_states
+    )
+
+
+def functional_sofo_grad_scan(
     rnn: Callable,
+    argnums: Union[int, Sequence[int]] = 0,
+    has_aux: bool = False,
+    return_value: bool = False,
     tangent_size: int = 100,
     damping: float = 1E-5,
     loss: str = 'mse',
+    key: SeedOrKey = None
 ) -> Callable[..., Tuple[Any, Any]]:
     """
     SOFO forward pass to compute loss and gradient.
@@ -172,17 +314,20 @@ def sofo_grad_scan(
         tangent_size (int, optional): Number of tangets/subspace dimension. Defaults to 100.
         damping (float, optional): Dampling parameter on ggn. Defaults to 1e-5.
         loss (str, optional): Loss function. Defaults to 'mse'. Options are 'mse' and 'ce'.
+        key (SeedOrKey, optional): Random key. Defaults to None.
     """
+    key = brainstate.random.split_key() if key is None else key
+    argnums = (argnums,) if isinstance(argnums, int) else tuple(argnums)
 
-    def wrapper(rng, params, z_init, batch):
-        v = sample_v(tangent_size, params, jax.random.split(rng)[1])
+    def wrapper(params, z_init, batch):
+        v = _sample_v(tangent_size, params, key)
 
         def fn(carry, xs):
             latent, latent_tangents, losses, vg, vggv = carry
             inputs, labels = xs
 
             fn2jvp = lambda params, latent: rnn(params, latent, inputs)
-            latent_new, latent_tangents_out, outs = batch_jvp_pair(
+            latent_new, latent_tangents_out, outs = _batch_jvp_pair(
                 fn2jvp,
                 (params, latent),
                 (v, latent_tangents),
@@ -199,15 +344,15 @@ def sofo_grad_scan(
                 )
             else:
                 raise ValueError(f'Unknown loss function: {loss}.')
-            losses_new, vg_new = batch_jvp(loss_fn, primal_out[0], tangents_out)
+            losses_new, vg_new = _batch_jvp(loss_fn, primal_out[0], tangents_out)
             losses += losses_new[0]
             vg += vg_new
 
             if loss == 'mse':
-                vggv_new = jnp.mean(jax.vmap(ggn_mse, in_axes=1)(tangents_out), axis=0)
+                vggv_new = jnp.mean(jax.vmap(_ggn_mse, in_axes=1)(tangents_out), axis=0)
             elif loss == 'ce':
                 vggv_new = jnp.mean(
-                    jax.vmap(ggn_ce, in_axes=(1, 0))(tangents_out, jax.nn.softmax(outs[0], axis=-1)), axis=0
+                    jax.vmap(_ggn_ce, in_axes=(1, 0))(tangents_out, jax.nn.softmax(outs[0], axis=-1)), axis=0
                 )
             else:
                 raise ValueError(f'Unknown loss function: {loss}.')
@@ -226,11 +371,101 @@ def sofo_grad_scan(
             xs=batch
         )
 
-        u, s, _ = jnp.linalg.svd(vggv)
-        damped_s = s + damping * jnp.max(s)
+        u_, s_, _ = jnp.linalg.svd(vggv)
+        damped_s = s_ + damping * jnp.max(s_)
 
-        vggv_vg = (u / damped_s) @ (u.T @ vg)
+        vggv_vg = (u_ / damped_s) @ (u_.T @ vg)
         h = jax.tree.map(lambda vs: jnp.dot(jnp.moveaxis(vs, 0, -1), vggv_vg), v)
-        return losses, h, preds
+        # return losses, h, preds
+        if return_value:
+            return h, losses[0]
+        else:
+            return h
 
     return wrapper
+
+
+@set_module_as("brainstate.transform")
+def sofo_grad_scan(
+    fun: Callable = Missing(),
+    grad_states: Optional[Union[State, Sequence[State], Dict[str, State]]] = None,
+    argnums: Optional[Union[int, Sequence[int]]] = None,
+    has_aux: Optional[bool] = None,
+    return_value: Optional[bool] = False,
+    check_states: bool = True,
+) -> GradientTransform | Callable[[Callable], GradientTransform]:
+    """
+    Compute the gradient of a scalar-valued function with respect to its arguments.
+
+    1. When ``grad_states`` is None
+
+        - ``has_aux=False`` + ``return_value=False`` => ``arg_grads``.
+        - ``has_aux=True`` + ``return_value=False`` => ``(arg_grads, aux_data)``.
+        - ``has_aux=False`` + ``return_value=True`` => ``(arg_grads, loss_value)``.
+        - ``has_aux=True`` + ``return_value=True`` => ``(arg_grads, loss_value, aux_data)``.
+    2. When ``grad_states`` is not None and ``argnums`` is None
+
+        - ``has_aux=False`` + ``return_value=False`` => ``var_grads``.
+        - ``has_aux=True`` + ``return_value=False`` => ``(var_grads, aux_data)``.
+        - ``has_aux=False`` + ``return_value=True`` => ``(var_grads, loss_value)``.
+        - ``has_aux=True`` + ``return_value=True`` => ``(var_grads, loss_value, aux_data)``.
+    3. When ``grad_states`` is not None and ``argnums`` is not None
+
+        - ``has_aux=False`` + ``return_value=False`` => ``(var_grads, arg_grads)``.
+        - ``has_aux=True`` + ``return_value=False`` => ``((var_grads, arg_grads), aux_data)``.
+        - ``has_aux=False`` + ``return_value=True`` => ``((var_grads, arg_grads), loss_value)``.
+        - ``has_aux=True`` + ``return_value=True`` => ``((var_grads, arg_grads), loss_value, aux_data)``.
+
+
+    Parameters
+    ----------
+    fun : callable, optional
+        The scalar-valued function to be differentiated.
+    grad_states : State, sequence of State, or dict of State, optional
+        The variables in fun to take their gradients.
+    argnums : int or sequence of int, optional
+        Specifies which positional argument(s) to differentiate with respect to.
+    has_aux : bool, optional
+        Indicates whether fun returns a pair where the
+        first element is considered the output of the mathematical function to be
+        differentiated and the second element is auxiliary data.
+    return_value : bool, default False
+        Indicates whether to return the value of the
+        function along with the gradient.
+    check_states : bool, default True
+        Whether to check that all grad_states are found in the function.
+
+    Returns
+    -------
+    GradientTransform or callable
+        A function which computes the gradient of fun. The function takes the same
+        arguments as `fun`, but returns the gradient instead. If `has_aux` is True,
+        the function returns a pair where the first element is the gradient and the
+        second element is the auxiliary data. If `return_value` is True, the function
+        returns a pair where the first element is the gradient and the second element
+        is the value of the function.
+
+    """
+    if isinstance(fun, Missing):
+        def transform(fn) -> GradientTransform:
+            return GradientTransform(
+                target=fn,
+                transform=functional_sofo_grad_scan,
+                grad_states=grad_states,
+                argnums=argnums,
+                return_value=return_value,
+                has_aux=False if has_aux is None else has_aux,
+                check_states=check_states
+            )
+
+        return transform
+
+    return GradientTransform(
+        target=fun,
+        transform=functional_sofo_grad_scan,
+        grad_states=grad_states,
+        argnums=argnums,
+        return_value=return_value,
+        has_aux=False if has_aux is None else has_aux,
+        check_states=check_states
+    )
