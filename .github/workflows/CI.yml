@@ -6,11 +6,8 @@ name: Continuous Integration
 on:
   push:
     branches:
-      - '**'        # matches every branch
-      - '!refs/pull/**'  # exclude PR branches
+      - main
   pull_request:
-    branches:
-      - '**'        # matches every branch
 
 
 permissions:
