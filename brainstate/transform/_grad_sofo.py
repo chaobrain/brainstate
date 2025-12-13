@@ -21,11 +21,11 @@ import brainunit as u
 import jax
 import jax.numpy as jnp
 
-from brainstate.random import split_key
 from brainstate._state import State
 from brainstate._utils import set_module_as
-from brainstate.transform._grad_first_order import GradientTransform
+from brainstate.random import split_key
 from brainstate.typing import SeedOrKey, Missing
+from ._grad_transform import GradientTransform
 from ._util import warp_grad_fn, tree_random_split
 
 __all__ = [
@@ -70,7 +70,6 @@ def _ggn_mse(tangents):
         jnp.ndarray: GGN matrix. size (k, k).
     """
     return tangents @ tangents.T
-
 
 
 def _sample_v(tangent_size, params, rng):
