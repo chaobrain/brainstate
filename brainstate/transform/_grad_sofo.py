@@ -25,7 +25,7 @@ import jax.numpy as jnp
 import brainstate
 from brainstate._state import State
 from brainstate._utils import set_module_as
-from brainstate.transform._autograd import GradientTransform
+from brainstate.transform._grad_first_order import GradientTransform
 from brainstate.typing import SeedOrKey, Missing
 
 __all__ = [
@@ -456,20 +456,6 @@ def sofo_grad_scan(
         is the value of the function.
 
     """
-    if isinstance(fun, Missing):
-        def transform(fn) -> GradientTransform:
-            return GradientTransform(
-                target=fn,
-                transform=functional_sofo_grad_scan,
-                grad_states=grad_states,
-                argnums=argnums,
-                return_value=return_value,
-                has_aux=False if has_aux is None else has_aux,
-                check_states=check_states
-            )
-
-        return transform
-
     return GradientTransform(
         target=fun,
         transform=functional_sofo_grad_scan,
