@@ -16,7 +16,7 @@
 # Modified from https://github.com/hennequin-lab/SOFO
 
 
-from typing import Callable, Any, Optional, Tuple
+from typing import Callable, Any, Tuple
 
 import jax
 import jax.numpy as jnp
@@ -108,12 +108,11 @@ def sample_v(tangent_size, params, rng):
     return v
 
 
-def value_and_sofo_grad(
+def sofo_grad(
     fn: Callable,
-    loss: Callable,
     tangent_size: int = 100,
     damping: float = 1E-5,
-    classification: Optional[bool] = False,
+    loss: str = 'mse',
 ) -> Callable[..., Tuple[Any, Any]]:
     """
     SOFO forward pass to compute loss and gradient.
@@ -121,23 +120,32 @@ def value_and_sofo_grad(
     Args:
         fn (Callable): Forward pass of the network. ``fun`` s answer should be concatenation
             of function on a batch of samples with mean function over the same batch.
-        loss (Callable): Loss function.
         tangent_size (int, optional): Number of tangets/subspace dimension. Defaults to 100.
         damping (float, optional): Dampling parameter on ggn. Defaults to 1e-5.
-        classification (bool, optional): Whether the task is classification. Defaults to False.
+        loss (str, optional): Loss function. Defaults to 'mse'. Options are 'mse' and 'ce'.
     """
 
     def value_and_fish_grad_f(rng, params):
         v = sample_v(tangent_size, params, jax.random.split(rng)[1])
 
         outs, tangents_out = batch_jvp(fn, params, v)  # tangents_out shape: t_size, b_size, out_size
-        losses, vg = batch_jvp(loss, outs[0], tangents_out)
+        if loss == 'mse':
+            loss_fn = lambda logits: jnp.mean(jnp.square(logits), axis=0)
+        elif loss == 'ce':
+            loss_fn = lambda logits: jnp.mean(
+                jax.nn.softmax(logits, axis=-1) * jnp.log(jax.nn.softmax(logits, axis=-1)),
+                axis=0
+            )
+        else:
+            raise ValueError(f'Unknown loss function: {loss}.')
+        losses, vg = batch_jvp(loss_fn, outs[0], tangents_out)
 
-        vg_gv = jax.lax.select(
-            classification,
-            jnp.mean(jax.vmap(ggn_ce, in_axes=(1, 0))(tangents_out, jax.nn.softmax(outs[0], axis=-1)), axis=0),
-            jnp.mean(jax.vmap(ggn_mse, in_axes=1)(tangents_out), axis=0)
-        )
+        if loss == 'mse':
+            vg_gv = jnp.mean(jax.vmap(ggn_mse, in_axes=1)(tangents_out), axis=0)
+        elif loss == 'ce':
+            vg_gv = jnp.mean(jax.vmap(ggn_ce, in_axes=(1, 0))(tangents_out, jax.nn.softmax(outs[0], axis=-1)), axis=0)
+        else:
+            raise ValueError(f'Unknown loss function: {loss}.')
 
         u, s, _ = jnp.linalg.svd(vg_gv)
         damped_s = s + damping * jnp.max(s)
@@ -149,12 +157,11 @@ def value_and_sofo_grad(
     return value_and_fish_grad_f
 
 
-def value_and_sofo_grad_temporal(
+def sofo_grad_scan(
     rnn: Callable,
-    loss: Callable,
     tangent_size: int = 100,
     damping: float = 1E-5,
-    classification: Optional[bool] = False,
+    loss: str = 'mse',
 ) -> Callable[..., Tuple[Any, Any]]:
     """
     SOFO forward pass to compute loss and gradient.
@@ -162,65 +169,68 @@ def value_and_sofo_grad_temporal(
     Args:
         rnn (Callable): One-step update of the recurrent network. ``rnn`` s answer should be concatenation
             of function on a batch of samples with mean function over the same batch.
-        loss (Callable): Loss function.
         tangent_size (int, optional): Number of tangets/subspace dimension. Defaults to 100.
         damping (float, optional): Dampling parameter on ggn. Defaults to 1e-5.
-        classification (bool, optional): Whether the task is classification. Defaults to False.
+        loss (str, optional): Loss function. Defaults to 'mse'. Options are 'mse' and 'ce'.
     """
 
-    def value_and_grad_f_batch(z_init, batch):
-        def wrapper(rng, params):
-            v = sample_v(tangent_size, params, jax.random.split(rng)[1])
+    def wrapper(rng, params, z_init, batch):
+        v = sample_v(tangent_size, params, jax.random.split(rng)[1])
 
-            def fn(carry, xs):
-                latent, latent_tangents, losses, vg, vggv = carry
-                inputs, labels = xs
+        def fn(carry, xs):
+            latent, latent_tangents, losses, vg, vggv = carry
+            inputs, labels = xs
 
-                fn2jvp = lambda params, latent: rnn(params, latent, inputs)
-                fun_loss = lambda logits: loss(logits, labels)
-
-                latent_new, latent_tangents_out, outs = batch_jvp_pair(
-                    fn2jvp,
-                    (params, latent),
-                    (v, latent_tangents),
-                    has_aux=True,
-                )
-                [latent_primal, primal_out] = latent_new
-                [new_latent_tangents_out, tangents_out] = latent_tangents_out
-                losses_new, vg_new = batch_jvp(fun_loss, primal_out[0], tangents_out)
-
-                vggv_new = jax.lax.select(
-                    classification,
-                    jnp.mean(jax.vmap(ggn_ce, in_axes=(1, 0))(tangents_out, jax.nn.softmax(outs[0], axis=-1)), axis=0),
-                    jnp.mean(jax.vmap(ggn_mse, in_axes=1)(tangents_out), axis=0)
-                )
-
-                losses += losses_new[0]
-                vg += vg_new
-                vggv += vggv_new
-                return (latent_primal[0], new_latent_tangents_out, losses, vg, vggv), outs[0]
-
-            (_, _, losses, vg, vggv), preds = jax.lax.scan(
-                fn,
-                init=(
-                    z_init,
-                    jnp.zeros((tangent_size, *z_init.shape)),
-                    0.,
-                    jnp.zeros((tangent_size,)),
-                    jnp.zeros((tangent_size, tangent_size)),
-                ),
-                xs=batch
+            fn2jvp = lambda params, latent: rnn(params, latent, inputs)
+            latent_new, latent_tangents_out, outs = batch_jvp_pair(
+                fn2jvp,
+                (params, latent),
+                (v, latent_tangents),
+                has_aux=True,
             )
+            [latent_primal, primal_out] = latent_new
+            [new_latent_tangents_out, tangents_out] = latent_tangents_out
 
-            u, s, _ = jnp.linalg.svd(vggv)
-            damped_s = s + damping * jnp.max(s)
+            if loss == 'mse':
+                loss_fn = lambda logits: jnp.mean(jnp.square(logits), axis=0)
+            elif loss == 'ce':
+                loss_fn = lambda logits: jnp.mean(
+                    jax.nn.softmax(logits, axis=-1) * jnp.log(jax.nn.softmax(logits, axis=-1)), axis=0
+                )
+            else:
+                raise ValueError(f'Unknown loss function: {loss}.')
+            losses_new, vg_new = batch_jvp(loss_fn, primal_out[0], tangents_out)
+            losses += losses_new[0]
+            vg += vg_new
 
-            vggv_vg = (u / damped_s) @ (u.T @ vg)
-            h = jax.tree.map(lambda vs: jnp.dot(jnp.moveaxis(vs, 0, -1), vggv_vg), v)
-            return losses, h, preds
+            if loss == 'mse':
+                vggv_new = jnp.mean(jax.vmap(ggn_mse, in_axes=1)(tangents_out), axis=0)
+            elif loss == 'ce':
+                vggv_new = jnp.mean(
+                    jax.vmap(ggn_ce, in_axes=(1, 0))(tangents_out, jax.nn.softmax(outs[0], axis=-1)), axis=0
+                )
+            else:
+                raise ValueError(f'Unknown loss function: {loss}.')
+            vggv += vggv_new
+            return (latent_primal[0], new_latent_tangents_out, losses, vg, vggv), outs[0]
 
-        return wrapper
+        (_, _, losses, vg, vggv), preds = jax.lax.scan(
+            fn,
+            init=(
+                z_init,
+                jnp.zeros((tangent_size, *z_init.shape)),
+                0.,
+                jnp.zeros((tangent_size,)),
+                jnp.zeros((tangent_size, tangent_size)),
+            ),
+            xs=batch
+        )
 
-    return value_and_grad_f_batch
+        u, s, _ = jnp.linalg.svd(vggv)
+        damped_s = s + damping * jnp.max(s)
 
+        vggv_vg = (u / damped_s) @ (u.T @ vg)
+        h = jax.tree.map(lambda vs: jnp.dot(jnp.moveaxis(vs, 0, -1), vggv_vg), v)
+        return losses, h, preds
 
+    return wrapper
