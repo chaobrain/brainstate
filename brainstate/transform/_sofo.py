@@ -239,20 +239,20 @@ def sofo_grad(
 
         - ``has_aux=False`` + ``return_loss=False`` => ``arg_grads``.
         - ``has_aux=True`` + ``return_loss=False`` => ``(arg_grads, aux_data)``.
-        - ``has_aux=False`` + ``return_loss=True`` => ``(arg_grads, loss_value)``.
-        - ``has_aux=True`` + ``return_loss=True`` => ``(arg_grads, loss_value, aux_data)``.
+        - ``has_aux=False`` + ``return_loss=True`` => ``(arg_grads, fn_value)``.
+        - ``has_aux=True`` + ``return_loss=True`` => ``(arg_grads, fn_value, aux_data)``.
     2. When ``grad_states`` is not None and ``argnums`` is None
 
         - ``has_aux=False`` + ``return_loss=False`` => ``var_grads``.
         - ``has_aux=True`` + ``return_loss=False`` => ``(var_grads, aux_data)``.
-        - ``has_aux=False`` + ``return_loss=True`` => ``(var_grads, loss_value)``.
-        - ``has_aux=True`` + ``return_loss=True`` => ``(var_grads, loss_value, aux_data)``.
+        - ``has_aux=False`` + ``return_loss=True`` => ``(var_grads, fn_value)``.
+        - ``has_aux=True`` + ``return_loss=True`` => ``(var_grads, fn_value, aux_data)``.
     3. When ``grad_states`` is not None and ``argnums`` is not None
 
         - ``has_aux=False`` + ``return_loss=False`` => ``(var_grads, arg_grads)``.
         - ``has_aux=True`` + ``return_loss=False`` => ``((var_grads, arg_grads), aux_data)``.
-        - ``has_aux=False`` + ``return_loss=True`` => ``((var_grads, arg_grads), loss_value)``.
-        - ``has_aux=True`` + ``return_loss=True`` => ``((var_grads, arg_grads), loss_value, aux_data)``.
+        - ``has_aux=False`` + ``return_loss=True`` => ``((var_grads, arg_grads), fn_value)``.
+        - ``has_aux=True`` + ``return_loss=True`` => ``((var_grads, arg_grads), fn_value, aux_data)``.
 
 
     Parameters
@@ -305,7 +305,8 @@ def sofo_grad(
 
 
 def functional_sofo_grad_scan(
-    rnn: Callable,
+    fn: Callable,
+    loss_fn: Callable,
     argnums: Union[int, Sequence[int]] = 0,
     has_aux: bool = False,
     return_value: bool = False,
@@ -410,20 +411,20 @@ def sofo_grad_scan(
 
         - ``has_aux=False`` + ``return_value=False`` => ``arg_grads``.
         - ``has_aux=True`` + ``return_value=False`` => ``(arg_grads, aux_data)``.
-        - ``has_aux=False`` + ``return_value=True`` => ``(arg_grads, loss_value)``.
-        - ``has_aux=True`` + ``return_value=True`` => ``(arg_grads, loss_value, aux_data)``.
+        - ``has_aux=False`` + ``return_value=True`` => ``(arg_grads, fn_value)``.
+        - ``has_aux=True`` + ``return_value=True`` => ``(arg_grads, fn_value, aux_data)``.
     2. When ``grad_states`` is not None and ``argnums`` is None
 
         - ``has_aux=False`` + ``return_value=False`` => ``var_grads``.
         - ``has_aux=True`` + ``return_value=False`` => ``(var_grads, aux_data)``.
-        - ``has_aux=False`` + ``return_value=True`` => ``(var_grads, loss_value)``.
-        - ``has_aux=True`` + ``return_value=True`` => ``(var_grads, loss_value, aux_data)``.
+        - ``has_aux=False`` + ``return_value=True`` => ``(var_grads, fn_value)``.
+        - ``has_aux=True`` + ``return_value=True`` => ``(var_grads, fn_value, aux_data)``.
     3. When ``grad_states`` is not None and ``argnums`` is not None
 
         - ``has_aux=False`` + ``return_value=False`` => ``(var_grads, arg_grads)``.
         - ``has_aux=True`` + ``return_value=False`` => ``((var_grads, arg_grads), aux_data)``.
-        - ``has_aux=False`` + ``return_value=True`` => ``((var_grads, arg_grads), loss_value)``.
-        - ``has_aux=True`` + ``return_value=True`` => ``((var_grads, arg_grads), loss_value, aux_data)``.
+        - ``has_aux=False`` + ``return_value=True`` => ``((var_grads, arg_grads), fn_value)``.
+        - ``has_aux=True`` + ``return_value=True`` => ``((var_grads, arg_grads), fn_value, aux_data)``.
 
 
     Parameters

@@ -25,17 +25,18 @@ from torchvision.datasets import MNIST
 import brainstate
 
 
-def main():
-    batch_size = 512
-    output_size = 10
-    input_size = 784
-    iteration = 5000
-    learning_rate = 1e-2
-    tangent_size = 512
-    damping = 1E-7
-    momentum = 0.9
-    layers = [100, ]
+batch_size = 512
+output_size = 10
+input_size = 784
+iteration = 5000
+learning_rate = 1e-3
+tangent_size = 512
+damping = 1E-7
+momentum = 0.9
+layers = [100, ]
 
+
+def main():
     trainloader = DataLoader(
         MNIST('./data', download=True, train=True, transform=transforms.ToTensor()),
         batch_size=batch_size, shuffle=True,
