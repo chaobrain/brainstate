@@ -120,27 +120,48 @@ def _sample_v(tangent_size, params, rng):
     return v
 
 
-def _warp_fn(fn: Callable, argnums: Sequence[int], args: Sequence[Any], kwargs: Dict):
-    @functools.wraps(fn)
-    def new_fn(dyn_args):
-        assert len(dyn_args) == len(argnums)
-        new_args = list(args)
-        for i, argnum in enumerate(argnums):
-            new_args[argnum] = dyn_args[i]
-        return fn(*new_args, **kwargs)
+def _warp_fn(
+    fn: Callable,
+    argnums: Union[int, Sequence[int]],
+    args: Sequence[Any],
+    kwargs: Dict,
+):
+    args = tuple(args)
 
-    params = []
-    for i in argnums:
-        assert i < len(args), f"argnum {i} is out of range {len(args)}"
-        params.append(args[i])
-    return new_fn, params
+    if isinstance(argnums, int):
+        @functools.wraps(fn)
+        def new_fn(dyn_args):
+            new_args = list(args)
+            new_args[argnums] = dyn_args
+            return fn(*new_args, **kwargs)
+
+        assert argnums < len(args), f"argnum {argnums} is out of range {len(args)}"
+        return new_fn, args[argnums]
+
+    else:
+
+        @functools.wraps(fn)
+        def new_fn(dyn_args):
+            assert len(dyn_args) == len(argnums)
+            new_args = list(args)
+            for i, argnum in enumerate(argnums):
+                new_args[argnum] = dyn_args[i]
+            return fn(*new_args, **kwargs)
+
+        argnums = (argnums,) if isinstance(argnums, int) else tuple(argnums)
+        params = []
+        for i in argnums:
+            assert i < len(args), f"argnum {i} is out of range {len(args)}"
+            params.append(args[i])
+        return new_fn, params
 
 
 def functional_sofo_grad(
     fn: Callable,
+    loss_fn: Callable,
     argnums: Union[int, Sequence[int]] = 0,
     has_aux: bool = False,
-    return_value: bool = False,
+    return_loss: bool = False,
     tangent_size: int = 100,
     damping: float = 1E-5,
     loss: str = 'mse',
@@ -158,11 +179,9 @@ def functional_sofo_grad(
         key (SeedOrKey, optional): Random key. Defaults to None.
         argnums (int, sequence of int, optional): Argument numbers to differentiate with respect to. Defaults to 0.
         has_aux (bool, optional): Whether the function ``fn`` returns auxiliary data. Defaults to False.
-        return_value (bool, optional): Whether to return the value of ``fn``. Defaults to False.
     """
 
     key = brainstate.random.split_key() if key is None else key
-    argnums = (argnums,) if isinstance(argnums, int) else tuple(argnums)
 
     def wrapper(*args, **kwargs):
         f_partial, params = _warp_fn(fn, argnums, args, kwargs)
@@ -172,21 +191,11 @@ def functional_sofo_grad(
         res = _batch_jvp(f_partial, params, v, has_aux=has_aux)
         if has_aux:
             outs, tangents_out, aux = res
+            aux = jax.tree.map(lambda x: x[0], aux)
         else:
             outs, tangents_out = res
-
-        # loss
-        if loss == 'mse':
-            loss_fn = lambda logits: u.math.mean(u.math.square(logits), axis=0)
-        elif loss == 'ce':
-            loss_fn = lambda logits: u.math.mean(
-                jax.nn.softmax(logits, axis=-1) * jnp.log(jax.nn.softmax(logits, axis=-1)), axis=0
-            )
-        else:
-            raise ValueError(f'Unknown loss function: {loss}.')
         losses, vg = _batch_jvp(loss_fn, outs[0], tangents_out)
 
-        # gradients
         if loss == 'mse':
             vg_gv = u.math.mean(jax.vmap(_ggn_mse, in_axes=1)(tangents_out), axis=0)
         elif loss == 'ce':
@@ -201,8 +210,8 @@ def functional_sofo_grad(
 
         vggv_vg = (u_ / damped_s) @ (u_.T @ vg)
         h = jax.tree.map(lambda v_: jnp.einsum('i,i...->...', vggv_vg, v_), v)
-        if return_value:
-            return (h, losses.mean(), aux) if has_aux else (h, losses.mean())
+        if return_loss:
+            return ((h, losses[0]), aux) if has_aux else (h, losses[0])
         else:
             return (h, aux) if has_aux else h
 
@@ -211,34 +220,39 @@ def functional_sofo_grad(
 
 @set_module_as("brainstate.transform")
 def sofo_grad(
-    fun: Callable = Missing(),
+    fun: Callable,
+    loss_fn: Callable,
     grad_states: Optional[Union[State, Sequence[State], Dict[str, State]]] = None,
     argnums: Optional[Union[int, Sequence[int]]] = None,
     has_aux: Optional[bool] = None,
     return_value: Optional[bool] = False,
     check_states: bool = True,
+    loss: str = 'mse',
+    tangent_size: int = 100,
+    damping: float = 1E-5,
+    key: SeedOrKey = None,
 ) -> GradientTransform | Callable[[Callable], GradientTransform]:
     """
     Second-order forward-mode optimization to compute loss and gradient.
 
     1. When ``grad_states`` is None
 
-        - ``has_aux=False`` + ``return_value=False`` => ``arg_grads``.
-        - ``has_aux=True`` + ``return_value=False`` => ``(arg_grads, aux_data)``.
-        - ``has_aux=False`` + ``return_value=True`` => ``(arg_grads, loss_value)``.
-        - ``has_aux=True`` + ``return_value=True`` => ``(arg_grads, loss_value, aux_data)``.
+        - ``has_aux=False`` + ``return_loss=False`` => ``arg_grads``.
+        - ``has_aux=True`` + ``return_loss=False`` => ``(arg_grads, aux_data)``.
+        - ``has_aux=False`` + ``return_loss=True`` => ``(arg_grads, loss_value)``.
+        - ``has_aux=True`` + ``return_loss=True`` => ``(arg_grads, loss_value, aux_data)``.
     2. When ``grad_states`` is not None and ``argnums`` is None
 
-        - ``has_aux=False`` + ``return_value=False`` => ``var_grads``.
-        - ``has_aux=True`` + ``return_value=False`` => ``(var_grads, aux_data)``.
-        - ``has_aux=False`` + ``return_value=True`` => ``(var_grads, loss_value)``.
-        - ``has_aux=True`` + ``return_value=True`` => ``(var_grads, loss_value, aux_data)``.
+        - ``has_aux=False`` + ``return_loss=False`` => ``var_grads``.
+        - ``has_aux=True`` + ``return_loss=False`` => ``(var_grads, aux_data)``.
+        - ``has_aux=False`` + ``return_loss=True`` => ``(var_grads, loss_value)``.
+        - ``has_aux=True`` + ``return_loss=True`` => ``(var_grads, loss_value, aux_data)``.
     3. When ``grad_states`` is not None and ``argnums`` is not None
 
-        - ``has_aux=False`` + ``return_value=False`` => ``(var_grads, arg_grads)``.
-        - ``has_aux=True`` + ``return_value=False`` => ``((var_grads, arg_grads), aux_data)``.
-        - ``has_aux=False`` + ``return_value=True`` => ``((var_grads, arg_grads), loss_value)``.
-        - ``has_aux=True`` + ``return_value=True`` => ``((var_grads, arg_grads), loss_value, aux_data)``.
+        - ``has_aux=False`` + ``return_loss=False`` => ``(var_grads, arg_grads)``.
+        - ``has_aux=True`` + ``return_loss=False`` => ``((var_grads, arg_grads), aux_data)``.
+        - ``has_aux=False`` + ``return_loss=True`` => ``((var_grads, arg_grads), loss_value)``.
+        - ``has_aux=True`` + ``return_loss=True`` => ``((var_grads, arg_grads), loss_value, aux_data)``.
 
 
     Parameters
@@ -253,11 +267,13 @@ def sofo_grad(
         Indicates whether fun returns a pair where the
         first element is considered the output of the mathematical function to be
         differentiated and the second element is auxiliary data.
-    return_value : bool, default False
+    return_loss : bool, default False
         Indicates whether to return the value of the
         function along with the gradient.
     check_states : bool, default True
         Whether to check that all grad_states are found in the function.
+    loss: str, default 'mse'
+        Loss function to use. Supported values are 'mse' and 'ce'.
 
     Returns
     -------
@@ -265,33 +281,26 @@ def sofo_grad(
         A function which computes the gradient of fun. The function takes the same
         arguments as `fun`, but returns the gradient instead. If `has_aux` is True,
         the function returns a pair where the first element is the gradient and the
-        second element is the auxiliary data. If `return_value` is True, the function
+        second element is the auxiliary data. If `return_loss` is True, the function
         returns a pair where the first element is the gradient and the second element
         is the value of the function.
 
     """
-    if isinstance(fun, Missing):
-        def transform(fn) -> GradientTransform:
-            return GradientTransform(
-                target=fn,
-                transform=functional_sofo_grad,
-                grad_states=grad_states,
-                argnums=argnums,
-                return_value=return_value,
-                has_aux=False if has_aux is None else has_aux,
-                check_states=check_states
-            )
-
-        return transform
-
     return GradientTransform(
         target=fun,
         transform=functional_sofo_grad,
         grad_states=grad_states,
         argnums=argnums,
         return_value=return_value,
-        has_aux=False if has_aux is None else has_aux,
-        check_states=check_states
+        has_aux=(False if has_aux is None else has_aux),
+        check_states=check_states,
+        transform_params=dict(
+            loss=loss,
+            tangent_size=tangent_size,
+            damping=damping,
+            loss_fn=loss_fn,
+            key=key,
+        )
     )
 
 
@@ -378,7 +387,7 @@ def functional_sofo_grad_scan(
         h = jax.tree.map(lambda v_: jnp.einsum('i,i...->...', vggv_vg, v_), v)
         # return losses, h, preds
         if return_value:
-            return (h, losses.mean()) if has_aux else (h, losses.mean())
+            return (h, losses[0]) if has_aux else (h, losses[0])
         else:
             return h if has_aux else h
 

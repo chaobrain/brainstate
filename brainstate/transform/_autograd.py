@@ -55,23 +55,16 @@ def _jacrev(
     holomorphic=False,
     allow_int=False,
     has_aux=False,
-    return_value=False,
     unit_aware=False,
 ):
     @wraps(fn)
     def fun_wrapped(*args, **kwargs):
         if has_aux:
             y, aux = fn(*args, **kwargs)
-            if return_value:
-                return y, (y, aux)
-            else:
-                return y, aux
+            return y, aux
         else:
             y = fn(*args, **kwargs)
-            if return_value:
-                return y, y
-            else:
-                return y, None
+            return y, None
 
     if unit_aware:
         transform = u.autograd.jacrev(
@@ -87,10 +80,7 @@ def _jacrev(
     @wraps(fn)
     def jacfun(*args, **kwargs):
         jac, aux = transform(*args, **kwargs)
-        if return_value:
-            return (jac, aux[0], aux[1]) if has_aux else (jac, aux)
-        else:
-            return (jac, aux) if has_aux else jac
+        return (jac, aux) if has_aux else jac
 
     return jacfun
 
@@ -100,23 +90,16 @@ def _jacfwd(
     argnums=0,
     holomorphic=False,
     has_aux=False,
-    return_value=False,
     unit_aware=False,
 ):
     @wraps(fn)
     def fn_wrapped(*args, **kwargs):
         if has_aux:
             y, aux = fn(*args, **kwargs)
-            if return_value:
-                return y, (y, aux)
-            else:
-                return y, aux
+            return y, aux
         else:
             y = fn(*args, **kwargs)
-            if return_value:
-                return y, y
-            else:
-                return y, None
+            return y, None
 
     if unit_aware:
         transform = u.autograd.jacfwd(fn_wrapped, argnums=argnums, holomorphic=holomorphic, has_aux=True)
@@ -126,10 +109,7 @@ def _jacfwd(
     @wraps(fn)
     def jacfun(*args, **kwargs):
         jac, aux = transform(*args, **kwargs)
-        if return_value:
-            return (jac, aux[0], aux[1]) if has_aux else (jac, aux)
-        else:
-            return (jac, aux) if has_aux else jac
+        return (jac, aux) if has_aux else jac
 
     return jacfun
 
@@ -299,14 +279,18 @@ class GradientTransform(PrettyRepr):
         # target
         assert callable(target), "The target should be a callable object."
         self.target = target
-        self.stateful_target = StatefulFunction(target, name='gradient', return_only_write=False)
+        self.stateful_target = StatefulFunction(target, name='gradient', return_only_write=True)
 
         # transform
         grad_setting = dict() if transform_params is None else transform_params
         if self.has_aux:
-            self._transform = transform(self._fun_with_aux, argnums=self.true_argnums, has_aux=True, **grad_setting)
+            self._transform = transform(
+                self._fun_with_aux, argnums=self.true_argnums, has_aux=True, **grad_setting
+            )
         else:
-            self._transform = transform(self._fun_without_aux, argnums=self.true_argnums, has_aux=True, **grad_setting)
+            self._transform = transform(
+                self._fun_without_aux, argnums=self.true_argnums, has_aux=True, **grad_setting
+            )
 
     def __pretty_repr__(self) -> Iterator[Union[PrettyType, PrettyAttr]]:
         yield PrettyType(self.__class__.__name__)
@@ -387,8 +371,8 @@ class GradientTransform(PrettyRepr):
         """
         state_trace = self.stateful_target.get_state_trace(*args, **kwargs, compile_if_miss=True)
         state_vals = self._merge_state_vals(grad_vals, other_vals, state_trace)
-        state_vals, out = self.stateful_target.jaxpr_call(state_vals, *args, **kwargs)
-        return state_vals, out
+        write_state_vals, out = self.stateful_target.jaxpr_call(state_vals, *args, **kwargs)
+        return write_state_vals, out
 
     def _fun_with_aux(self, grad_vals: Dict, other_vals: Dict, *args, **kwargs):
         """
@@ -408,8 +392,9 @@ class GradientTransform(PrettyRepr):
         # >>> return scalar_loss, data
         # >>> # 2. example of return multiple data
         # >>> return scalar_loss, (data1, data2, ...)
-        state_vals, outs = self._call_target(grad_vals, other_vals, *args, **kwargs)
-        return outs[0], (outs, state_vals)
+        write_state_vals, outs = self._call_target(grad_vals, other_vals, *args, **kwargs)
+        assert isinstance(outs, (tuple, list))
+        return outs[0], (outs, write_state_vals)
 
     def _fun_without_aux(self, grad_vals: Dict, other_vals: Dict, *args, **kwargs):
         """
@@ -424,10 +409,10 @@ class GradientTransform(PrettyRepr):
         Returns:
             Tuple: A tuple containing the output and a tuple of (output, updated state values).
         """
-        state_vals, out = self._call_target(grad_vals, other_vals, *args, **kwargs)
-        return out, (out, state_vals)
+        write_state_vals, out = self._call_target(grad_vals, other_vals, *args, **kwargs)
+        return out, (out, write_state_vals)
 
-    def _return(self, rets, state_trace):
+    def _return(self, rets, read_state_vals, state_trace):
         """
         Process and format the return values from the gradient computation.
 
@@ -439,10 +424,10 @@ class GradientTransform(PrettyRepr):
             Union[Gradient, Tuple]: The processed gradient results, potentially including function value and/or auxiliary data.
         """
         # unpack the return values
-        grads, (outputs, new_state_vals) = rets
+        grads, (outputs, write_state_vals) = rets
 
         # assign new values to the states
-        state_trace.assign_state_vals(new_state_vals)
+        state_trace.assign_state_vals_v2(read_state_vals, write_state_vals)
 
         # check returned grads
         if len(self._grad_states) > 0:
@@ -502,10 +487,12 @@ class GradientTransform(PrettyRepr):
 
         # apply the gradient transformation
         state_trace = self.stateful_target.get_state_trace_by_cache(cache)
+        read_state_vals = state_trace.get_read_state_values(True)
         rets = self._transform(*self._split_state_vals(state_trace), *args, **kwargs)
 
         # analyze and return the results
-        return self._return(rets, state_trace)
+        res = self._return(rets, read_state_vals, state_trace)
+        return res
 
 
 @set_module_as("brainstate.transform")
