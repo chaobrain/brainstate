@@ -14,7 +14,9 @@
 # ==============================================================================
 
 from functools import wraps
-from typing import Sequence, Tuple, Hashable
+from typing import Sequence, Tuple, Hashable, Union, Callable, Dict, Any
+
+import jax
 
 from brainstate._state import StateTraceStack
 from brainstate.typing import PyTree
@@ -96,7 +98,8 @@ def wrap_single_fun_in_multi_branches(
 
         if return_states:
             # get all written state values
-            new_state_vals = {id(st): val for st, val in zip(stateful_fun.get_states_by_cache(cache_key), new_state_vals)}
+            new_state_vals = {id(st): val for st, val in
+                              zip(stateful_fun.get_states_by_cache(cache_key), new_state_vals)}
             write_state_vals = tuple([
                 (new_state_vals[id(st)] if id(st) in state_ids_belong_to_this_fun else w_val)
                 if write else None
@@ -192,7 +195,8 @@ def wrap_single_fun_in_multi_branches_while_loop(
 
         if return_states:
             # get all written state values
-            new_state_vals = {id(st): val for st, val in zip(stateful_fun.get_states_by_cache(cache_key), new_state_vals)}
+            new_state_vals = {id(st): val for st, val in
+                              zip(stateful_fun.get_states_by_cache(cache_key), new_state_vals)}
             write_state_vals = tuple([
                 (new_state_vals[id(st)] if id(st) in state_ids_belong_to_this_fun else w_val)
                 if write else None
@@ -284,3 +288,58 @@ def wrap_single_fun(
         return (writen_state_vals, carry), out
 
     return wrapped_fun
+
+
+def warp_grad_fn(
+    fn: Callable,
+    argnums: Union[int, Sequence[int]],
+    args: Sequence[Any],
+    kwargs: Dict,
+):
+    args = tuple(args)
+
+    if isinstance(argnums, int):
+        @wraps(fn)
+        def new_fn(dyn_args):
+            new_args = list(args)
+            new_args[argnums] = dyn_args
+            return fn(*new_args, **kwargs)
+
+        assert argnums < len(args), f"argnum {argnums} is out of range {len(args)}"
+        return new_fn, args[argnums]
+
+    else:
+
+        @wraps(fn)
+        def new_fn(dyn_args):
+            assert len(dyn_args) == len(argnums)
+            new_args = list(args)
+            for i, argnum in enumerate(argnums):
+                new_args[argnum] = dyn_args[i]
+            return fn(*new_args, **kwargs)
+
+        argnums = (argnums,) if isinstance(argnums, int) else tuple(argnums)
+        params = []
+        for i in argnums:
+            assert i < len(args), f"argnum {i} is out of range {len(args)}"
+            params.append(args[i])
+        return new_fn, params
+
+
+def tree_random_split(rng_key, target=None, treedef=None):
+    """
+    Split key for a key for every leaf.
+
+    Args:
+        rng_key (jax.Array): A JAX PRNG key.
+        target (PyTree, optional): A pytree to infer the tree structure from.
+                                   Required if `treedef` is not provided.
+        treedef (TreeDef, optional): An explicit tree structure. If provided, `target` is ignored.
+
+    Returns:
+        PyTree: A pytree of PRNG keys with the same structure as `target` or `treedef`.
+    """
+    if treedef is None:
+        treedef = jax.tree.structure(target)
+    keys = jax.random.split(rng_key, treedef.num_leaves)
+    return jax.tree.unflatten(treedef, keys)

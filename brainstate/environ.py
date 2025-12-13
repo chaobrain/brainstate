@@ -119,6 +119,9 @@ __all__ = [
     'HOST_DEVICE_COUNT',
     'JIT_ERROR_CHECK',
     'FIT',
+
+    # Environment state class
+    'EnvironmentState',
 ]
 
 # Type definitions
@@ -180,12 +183,17 @@ class EnvironmentState(threading.local):
 _ENV_STATE = EnvironmentState()
 
 
-def reset() -> None:
+def reset(*, env: Optional[EnvironmentState] = None) -> None:
     """
     Reset the environment to default settings.
 
     This function clears all custom settings and restores the environment
     to its initial state. Useful for testing or when starting fresh.
+
+    Parameters
+    ----------
+    env : EnvironmentState, optional
+        The environment state to reset. If None, resets the global environment.
 
     Examples
     --------
@@ -201,14 +209,33 @@ def reset() -> None:
         >>> env.reset()
         >>> print(env.get('custom_param', default=None))  # None
 
+    Using custom environment:
+
+    .. code-block:: python
+
+        >>> import brainstate.environ as env
+        >>>
+        >>> custom_env = env.EnvironmentState()
+        >>> env.set(param='value', env=custom_env)
+        >>> env.reset(env=custom_env)
+        >>> print(env.get('param', default=None, env=custom_env))  # None
+
     Notes
     -----
     This operation cannot be undone. All custom settings will be lost.
     """
     global _ENV_STATE
-    _ENV_STATE = EnvironmentState()
-    # Re-apply default precision
-    _set_jax_precision(DEFAULT_PRECISION)
+    if env is None or env is _ENV_STATE:
+        _ENV_STATE = EnvironmentState()
+        # Re-apply default precision to JAX
+        _set_jax_precision(DEFAULT_PRECISION)
+    else:
+        # Reset the custom env by clearing its state
+        env.settings.clear()
+        env.contexts.clear()
+        env.functions.clear()
+        # Re-initialize with default precision
+        env.settings[PRECISION] = DEFAULT_PRECISION
 
     warnings.warn(
         "Environment has been reset to default settings. "
@@ -218,7 +245,7 @@ def reset() -> None:
 
 
 @contextlib.contextmanager
-def context(**kwargs) -> ContextManager[Dict[str, Any]]:
+def context(*, env: Optional[EnvironmentState] = None, **kwargs) -> ContextManager[Dict[str, Any]]:
     """
     Context manager for temporary environment settings.
 
@@ -228,6 +255,8 @@ def context(**kwargs) -> ContextManager[Dict[str, Any]]:
 
     Parameters
     ----------
+    env : EnvironmentState, optional
+        The environment state to modify. If None, uses the global environment.
     **kwargs
         Environment settings to apply within the context.
         Common parameters include:
@@ -301,13 +330,32 @@ def context(**kwargs) -> ContextManager[Dict[str, Any]]:
         >>>
         >>> print(env.get('value'))  # 10 (restored)
 
+    Using custom environment:
+
+    .. code-block:: python
+
+        >>> import brainstate.environ as env
+        >>>
+        >>> custom_env = env.EnvironmentState()
+        >>> env.set(precision=32, env=custom_env)
+        >>>
+        >>> with env.context(precision=64, env=custom_env):
+        ...     print(env.get('precision', env=custom_env))  # 64
+        >>>
+        >>> print(env.get('precision', env=custom_env))  # 32
+
     Notes
     -----
     - Platform and host_device_count cannot be set in context
     - Contexts can be nested arbitrarily deep
     - Settings are restored in reverse order when exiting
     - Thread-safe: each thread maintains its own context stack
+    - When using a custom env, JAX config is only updated if env is the global environment
     """
+    # Use global state if no env provided
+    if env is None:
+        env = _ENV_STATE
+
     # Validate restricted parameters
     if PLATFORM in kwargs:
         raise ValueError(
@@ -320,23 +368,24 @@ def context(**kwargs) -> ContextManager[Dict[str, Any]]:
             f"Use set_host_device_count() or set() for global configuration."
         )
 
-    # Handle precision changes
+    # Handle precision changes (only update JAX config for global env)
     original_precision = None
     if PRECISION in kwargs:
-        original_precision = _get_precision()
+        original_precision = _get_precision(env=env)
         _validate_precision(kwargs[PRECISION])
-        _set_jax_precision(kwargs[PRECISION])
+        if env is _ENV_STATE:
+            _set_jax_precision(kwargs[PRECISION])
 
     try:
         # Push new values onto context stacks
         for key, value in kwargs.items():
-            with _ENV_STATE.locks[key]:
-                _ENV_STATE.contexts[key].append(value)
+            with env.locks[key]:
+                env.contexts[key].append(value)
 
                 # Trigger registered callbacks
-                if key in _ENV_STATE.functions:
+                if key in env.functions:
                     try:
-                        _ENV_STATE.functions[key](value)
+                        env.functions[key](value)
                     except Exception as e:
                         warnings.warn(
                             f"Callback for '{key}' raised an exception: {e}",
@@ -344,33 +393,39 @@ def context(**kwargs) -> ContextManager[Dict[str, Any]]:
                         )
 
         # Yield current environment state
-        yield all()
+        yield all(env=env)
 
     finally:
         # Restore previous values
         for key in kwargs:
-            with _ENV_STATE.locks[key]:
-                if _ENV_STATE.contexts[key]:
-                    _ENV_STATE.contexts[key].pop()
+            with env.locks[key]:
+                if env.contexts[key]:
+                    env.contexts[key].pop()
 
                 # Restore callbacks with previous value
-                if key in _ENV_STATE.functions:
+                if key in env.functions:
                     try:
-                        prev_value = get(key, default=None)
+                        prev_value = get(key, default=None, env=env)
                         if prev_value is not None:
-                            _ENV_STATE.functions[key](prev_value)
+                            env.functions[key](prev_value)
                     except Exception as e:
                         warnings.warn(
                             f"Callback restoration for '{key}' raised: {e}",
                             RuntimeWarning
                         )
 
-        # Restore precision if it was changed
-        if original_precision is not None:
+        # Restore precision if it was changed (only update JAX config for global env)
+        if original_precision is not None and env is _ENV_STATE:
             _set_jax_precision(original_precision)
 
 
-def get(key: str, default: Any = _NOT_PROVIDED, desc: Optional[str] = None) -> Any:
+def get(
+    key: str,
+    default: Any = _NOT_PROVIDED,
+    desc: Optional[str] = None,
+    *,
+    env: Optional[EnvironmentState] = None
+) -> Any:
     """
     Get a value from the current environment.
 
@@ -387,6 +442,8 @@ def get(key: str, default: Any = _NOT_PROVIDED, desc: Optional[str] = None) -> A
         If not provided, raises KeyError for missing keys.
     desc : str, optional
         Description of the parameter for error messages.
+    env : EnvironmentState, optional
+        The environment state to query. If None, uses the global environment.
 
     Returns
     -------
@@ -434,11 +491,25 @@ def get(key: str, default: Any = _NOT_PROVIDED, desc: Optional[str] = None) -> A
         >>>
         >>> print(env.get('temperature'))  # 1.0
 
+    Using custom environment:
+
+    .. code-block:: python
+
+        >>> import brainstate.environ as env
+        >>>
+        >>> custom_env = env.EnvironmentState()
+        >>> env.set(temperature=2.0, env=custom_env)
+        >>> print(env.get('temperature', env=custom_env))  # 2.0
+
     Notes
     -----
     Special keys 'platform' and 'host_device_count' are handled separately
     and retrieve system-level information.
     """
+    # Use global state if no env provided
+    if env is None:
+        env = _ENV_STATE
+
     # Special cases for platform-specific parameters
     if key == PLATFORM:
         return get_platform()
@@ -446,13 +517,13 @@ def get(key: str, default: Any = _NOT_PROVIDED, desc: Optional[str] = None) -> A
         return get_host_device_count()
 
     # Check context stack first (most recent value)
-    with _ENV_STATE.locks[key]:
-        if key in _ENV_STATE.contexts and _ENV_STATE.contexts[key]:
-            return _ENV_STATE.contexts[key][-1]
+    with env.locks[key]:
+        if key in env.contexts and env.contexts[key]:
+            return env.contexts[key][-1]
 
     # Check global settings
-    if key in _ENV_STATE.settings:
-        return _ENV_STATE.settings[key]
+    if key in env.settings:
+        return env.settings[key]
 
     # Handle missing key
     if default is _NOT_PROVIDED:
@@ -469,12 +540,17 @@ def get(key: str, default: Any = _NOT_PROVIDED, desc: Optional[str] = None) -> A
     return default
 
 
-def all() -> Dict[str, Any]:
+def all(*, env: Optional[EnvironmentState] = None) -> Dict[str, Any]:
     """
     Get all current environment settings.
 
     This function returns a dictionary containing all active environment
     settings, with context values taking precedence over global settings.
+
+    Parameters
+    ----------
+    env : EnvironmentState, optional
+        The environment state to query. If None, uses the global environment.
 
     Returns
     -------
@@ -501,25 +577,44 @@ def all() -> Dict[str, Any]:
         ...     print(settings['precision'])  # 64
         ...     print(settings['new_param'])  # 'test'
 
+    Using custom environment:
+
+    .. code-block:: python
+
+        >>> import brainstate.environ as env
+        >>>
+        >>> custom_env = env.EnvironmentState()
+        >>> env.set(param1='value1', env=custom_env)
+        >>> print(env.all(env=custom_env))  # {'precision': 32, 'param1': 'value1'}
+
     Notes
     -----
     The returned dictionary is a snapshot and modifying it does not
     affect the environment settings.
     """
+    # Use global state if no env provided
+    if env is None:
+        env = _ENV_STATE
+
     result = {}
 
     # Add global settings
-    result.update(_ENV_STATE.settings)
+    result.update(env.settings)
 
     # Override with context values (most recent)
-    for key, values in _ENV_STATE.contexts.items():
+    for key, values in env.contexts.items():
         if values:
             result[key] = values[-1]
 
     return result
 
 
-def pop(key: str, default: Any = _NOT_PROVIDED) -> Any:
+def pop(
+    key: str,
+    default: Any = _NOT_PROVIDED,
+    *,
+    env: Optional[EnvironmentState] = None
+) -> Any:
     """
     Remove and return a value from the global environment.
 
@@ -537,6 +632,8 @@ def pop(key: str, default: Any = _NOT_PROVIDED) -> Any:
     default : Any, optional
         Default value to return if key is not found.
         If not provided, raises KeyError for missing keys.
+    env : EnvironmentState, optional
+        The environment state to modify. If None, uses the global environment.
 
     Returns
     -------
@@ -610,6 +707,17 @@ def pop(key: str, default: Any = _NOT_PROVIDED) -> Any:
         ...     except ValueError as e:
         ...         print("Cannot pop key in active context")
 
+    Using custom environment:
+
+    .. code-block:: python
+
+        >>> import brainstate.environ as env
+        >>>
+        >>> custom_env = env.EnvironmentState()
+        >>> env.set(param='value', env=custom_env)
+        >>> value = env.pop('param', env=custom_env)
+        >>> print(value)  # 'value'
+
     Notes
     -----
     - This function only removes keys from global settings
@@ -618,17 +726,21 @@ def pop(key: str, default: Any = _NOT_PROVIDED) -> Any:
       their system-level values remain accessible through get_platform() etc.
     - Registered callbacks are NOT triggered when popping values
     """
+    # Use global state if no env provided
+    if env is None:
+        env = _ENV_STATE
+
     # Check if key is currently in any active context
-    if key in _ENV_STATE.contexts and _ENV_STATE.contexts[key]:
+    if key in env.contexts and env.contexts[key]:
         raise ValueError(
             f"Cannot pop key '{key}' while it is active in a context. "
-            f"The key is currently overridden in {len(_ENV_STATE.contexts[key])} context(s)."
+            f"The key is currently overridden in {len(env.contexts[key])} context(s)."
         )
 
     # Check if key exists in global settings
-    if key in _ENV_STATE.settings:
+    if key in env.settings:
         # Remove and return the value
-        value = _ENV_STATE.settings.pop(key)
+        value = env.settings.pop(key)
 
         # Note: We don't trigger callbacks here as this is a removal operation
         # If needed, users can register callbacks for removal separately
@@ -647,6 +759,8 @@ def set(
     host_device_count: Optional[int] = None,
     precision: Optional[PrecisionType] = None,
     dt: Optional[float] = None,
+    *,
+    env: Optional[EnvironmentState] = None,
     **kwargs
 ) -> None:
     """
@@ -667,6 +781,8 @@ def set(
         Computation mode instance.
     dt : float, optional
         Time step for numerical integration.
+    env : EnvironmentState, optional
+        The environment state to modify. If None, uses the global environment.
     **kwargs
         Additional custom environment parameters.
 
@@ -725,13 +841,28 @@ def set(
         >>> # Retrieve custom parameters
         >>> print(env.get('experiment_name'))  # 'test_001'
 
+    Using custom environment:
+
+    .. code-block:: python
+
+        >>> import brainstate.environ as env
+        >>>
+        >>> custom_env = env.EnvironmentState()
+        >>> env.set(precision=64, dt=0.001, env=custom_env)
+        >>> print(env.get('precision', env=custom_env))  # 64
+
     Notes
     -----
     - Platform changes only take effect at program start
     - Some JAX configurations require restart to take effect
     - Custom parameters can be any hashable key-value pairs
+    - When using a custom env, JAX config is only updated if env is the global environment
     """
-    # Handle special parameters
+    # Use global state if no env provided
+    if env is None:
+        env = _ENV_STATE
+
+    # Handle special parameters (platform/host_device_count are global JAX config)
     if platform is not None:
         set_platform(platform)
 
@@ -740,7 +871,9 @@ def set(
 
     if precision is not None:
         _validate_precision(precision)
-        _set_jax_precision(precision)
+        # Only update JAX config for global env
+        if env is _ENV_STATE:
+            _set_jax_precision(precision)
         kwargs[PRECISION] = precision
 
     if dt is not None:
@@ -748,14 +881,14 @@ def set(
             raise TypeError(f"'{DT}' must be a scalar number, got {type(dt)}")
         kwargs[DT] = dt
 
-    # Update global settings
-    _ENV_STATE.settings.update(kwargs)
+    # Update settings
+    env.settings.update(kwargs)
 
     # Trigger registered callbacks
     for key, value in kwargs.items():
-        if key in _ENV_STATE.functions:
+        if key in env.functions:
             try:
-                _ENV_STATE.functions[key](value)
+                env.functions[key](value)
             except Exception as e:
                 warnings.warn(
                     f"Callback for '{key}' raised an exception: {e}",
@@ -763,9 +896,14 @@ def set(
                 )
 
 
-def get_dt() -> float:
+def get_dt(*, env: Optional[EnvironmentState] = None) -> float:
     """
     Get the current numerical integration time step.
+
+    Parameters
+    ----------
+    env : EnvironmentState, optional
+        The environment state to query. If None, uses the global environment.
 
     Returns
     -------
@@ -791,8 +929,18 @@ def get_dt() -> float:
         >>> with env.context(dt=0.001):
         ...     fine_dt = env.get_dt()
         ...     print(f"Fine time step: {fine_dt}")  # 0.001
+
+    Using custom environment:
+
+    .. code-block:: python
+
+        >>> import brainstate.environ as env
+        >>>
+        >>> custom_env = env.EnvironmentState()
+        >>> env.set(dt=0.001, env=custom_env)
+        >>> print(env.get_dt(env=custom_env))  # 0.001
     """
-    return get(DT)
+    return get(DT, env=env)
 
 
 def get_platform() -> PlatformType:
@@ -952,7 +1100,11 @@ def set_host_device_count(n: int) -> None:
         _ENV_STATE.functions[HOST_DEVICE_COUNT](n)
 
 
-def set_precision(precision: PrecisionType) -> None:
+def set_precision(
+    precision: PrecisionType,
+    *,
+    env: Optional[EnvironmentState] = None
+) -> None:
     """
     Set the global numerical precision.
 
@@ -960,6 +1112,8 @@ def set_precision(precision: PrecisionType) -> None:
     ----------
     precision : int or str
         Precision to use (8, 16, 32, 64, or 'bf16').
+    env : EnvironmentState, optional
+        The environment state to modify. If None, uses the global environment.
 
     Raises
     ------
@@ -982,19 +1136,44 @@ def set_precision(precision: PrecisionType) -> None:
         >>>
         >>> # Set to bfloat16 for efficiency
         >>> env.set_precision('bf16')
+
+    Using custom environment:
+
+    .. code-block:: python
+
+        >>> import brainstate.environ as env
+        >>>
+        >>> custom_env = env.EnvironmentState()
+        >>> env.set_precision(64, env=custom_env)
+        >>> print(env.get_precision(env=custom_env))  # 64
+
+    Notes
+    -----
+    When using a custom env, JAX config is only updated if env is the global environment.
     """
+    # Use global state if no env provided
+    if env is None:
+        env = _ENV_STATE
+
     _validate_precision(precision)
-    _set_jax_precision(precision)
-    _ENV_STATE.settings[PRECISION] = precision
+    # Only update JAX config for global env
+    if env is _ENV_STATE:
+        _set_jax_precision(precision)
+    env.settings[PRECISION] = precision
 
     # Trigger callbacks
-    if PRECISION in _ENV_STATE.functions:
-        _ENV_STATE.functions[PRECISION](precision)
+    if PRECISION in env.functions:
+        env.functions[PRECISION](precision)
 
 
-def get_precision() -> int:
+def get_precision(*, env: Optional[EnvironmentState] = None) -> int:
     """
     Get the current numerical precision as an integer.
+
+    Parameters
+    ----------
+    env : EnvironmentState, optional
+        The environment state to query. If None, uses the global environment.
 
     Returns
     -------
@@ -1015,11 +1194,21 @@ def get_precision() -> int:
         >>> env.set_precision('bf16')
         >>> print(env.get_precision())  # 16
 
+    Using custom environment:
+
+    .. code-block:: python
+
+        >>> import brainstate.environ as env
+        >>>
+        >>> custom_env = env.EnvironmentState()
+        >>> env.set_precision(64, env=custom_env)
+        >>> print(env.get_precision(env=custom_env))  # 64
+
     Notes
     -----
     'bf16' (bfloat16) is reported as 16-bit precision.
     """
-    precision = get(PRECISION, default=DEFAULT_PRECISION)
+    precision = get(PRECISION, default=DEFAULT_PRECISION, env=env)
 
     if precision == 'bf16':
         return 16
@@ -1039,9 +1228,9 @@ def _validate_precision(precision: PrecisionType) -> None:
         )
 
 
-def _get_precision() -> PrecisionType:
+def _get_precision(*, env: Optional['EnvironmentState'] = None) -> PrecisionType:
     """Get raw precision value (including 'bf16')."""
-    return get(PRECISION, default=DEFAULT_PRECISION)
+    return get(PRECISION, default=DEFAULT_PRECISION, env=env)
 
 
 def _set_jax_precision(precision: PrecisionType) -> None:
@@ -1111,12 +1300,17 @@ def _get_complex(precision: PrecisionType) -> DTypeLike:
         raise ValueError(f"Unsupported precision: {precision}")
 
 
-def dftype() -> DTypeLike:
+def dftype(*, env: Optional[EnvironmentState] = None) -> DTypeLike:
     """
     Get the default floating-point data type.
 
     This function returns the appropriate floating-point type based on
     the current precision setting, allowing dynamic type selection.
+
+    Parameters
+    ----------
+    env : EnvironmentState, optional
+        The environment state to query. If None, uses the global environment.
 
     Returns
     -------
@@ -1145,21 +1339,36 @@ def dftype() -> DTypeLike:
         >>> z = jnp.array([1, 2, 3], dtype=env.dftype())
         >>> print(z.dtype)  # bfloat16
 
+    Using custom environment:
+
+    .. code-block:: python
+
+        >>> import brainstate.environ as env
+        >>>
+        >>> custom_env = env.EnvironmentState()
+        >>> env.set(precision=64, env=custom_env)
+        >>> print(env.dftype(env=custom_env))  # float64
+
     See Also
     --------
     ditype : Default integer type
     dutype : Default unsigned integer type
     dctype : Default complex type
     """
-    return _get_float(_get_precision())
+    return _get_float(_get_precision(env=env))
 
 
-def ditype() -> DTypeLike:
+def ditype(*, env: Optional[EnvironmentState] = None) -> DTypeLike:
     """
     Get the default integer data type.
 
     This function returns the appropriate integer type based on
     the current precision setting.
+
+    Parameters
+    ----------
+    env : EnvironmentState, optional
+        The environment state to query. If None, uses the global environment.
 
     Returns
     -------
@@ -1183,20 +1392,35 @@ def ditype() -> DTypeLike:
         ...     big_indices = jnp.arange(1000, dtype=env.ditype())
         ...     print(big_indices.dtype)  # int64
 
+    Using custom environment:
+
+    .. code-block:: python
+
+        >>> import brainstate.environ as env
+        >>>
+        >>> custom_env = env.EnvironmentState()
+        >>> env.set(precision=64, env=custom_env)
+        >>> print(env.ditype(env=custom_env))  # int64
+
     See Also
     --------
     dftype : Default floating-point type
     dutype : Default unsigned integer type
     """
-    return _get_int(_get_precision())
+    return _get_int(_get_precision(env=env))
 
 
-def dutype() -> DTypeLike:
+def dutype(*, env: Optional[EnvironmentState] = None) -> DTypeLike:
     """
     Get the default unsigned integer data type.
 
     This function returns the appropriate unsigned integer type based on
     the current precision setting.
+
+    Parameters
+    ----------
+    env : EnvironmentState, optional
+        The environment state to query. If None, uses the global environment.
 
     Returns
     -------
@@ -1220,19 +1444,34 @@ def dutype() -> DTypeLike:
         ...     small_counts = jnp.array([1, 2, 3], dtype=env.dutype())
         ...     print(small_counts.dtype)  # uint16
 
+    Using custom environment:
+
+    .. code-block:: python
+
+        >>> import brainstate.environ as env
+        >>>
+        >>> custom_env = env.EnvironmentState()
+        >>> env.set(precision=64, env=custom_env)
+        >>> print(env.dutype(env=custom_env))  # uint64
+
     See Also
     --------
     ditype : Default signed integer type
     """
-    return _get_uint(_get_precision())
+    return _get_uint(_get_precision(env=env))
 
 
-def dctype() -> DTypeLike:
+def dctype(*, env: Optional[EnvironmentState] = None) -> DTypeLike:
     """
     Get the default complex data type.
 
     This function returns the appropriate complex type based on
     the current precision setting.
+
+    Parameters
+    ----------
+    env : EnvironmentState, optional
+        The environment state to query. If None, uses the global environment.
 
     Returns
     -------
@@ -1256,20 +1495,35 @@ def dctype() -> DTypeLike:
         ...     w = jnp.array([5+6j], dtype=env.dctype())
         ...     print(w.dtype)  # complex128
 
+    Using custom environment:
+
+    .. code-block:: python
+
+        >>> import brainstate.environ as env
+        >>>
+        >>> custom_env = env.EnvironmentState()
+        >>> env.set(precision=64, env=custom_env)
+        >>> print(env.dctype(env=custom_env))  # complex128
+
     Notes
     -----
     Complex128 is only available with 64-bit precision.
     All other precisions use complex64.
     """
-    return _get_complex(_get_precision())
+    return _get_complex(_get_precision(env=env))
 
 
-def tolerance() -> jnp.ndarray:
+def tolerance(*, env: Optional[EnvironmentState] = None) -> jnp.ndarray:
     """
     Get numerical tolerance based on current precision.
 
     This function returns an appropriate tolerance value for numerical
     comparisons based on the current precision setting.
+
+    Parameters
+    ----------
+    env : EnvironmentState, optional
+        The environment state to query. If None, uses the global environment.
 
     Returns
     -------
@@ -1296,6 +1550,16 @@ def tolerance() -> jnp.ndarray:
         >>> def are_close(a, b):
         ...     return jnp.abs(a - b) < env.tolerance()
 
+    Using custom environment:
+
+    .. code-block:: python
+
+        >>> import brainstate.environ as env
+        >>>
+        >>> custom_env = env.EnvironmentState()
+        >>> env.set(precision=64, env=custom_env)
+        >>> print(env.tolerance(env=custom_env))  # 1e-12
+
     Notes
     -----
     Tolerance values:
@@ -1303,7 +1567,7 @@ def tolerance() -> jnp.ndarray:
     - 32-bit: 1e-5
     - 16-bit and below: 1e-2
     """
-    precision = get_precision()
+    precision = get_precision(env=env)
 
     if precision == 64:
         return jnp.array(1e-12, dtype=np.float64)
@@ -1316,7 +1580,9 @@ def tolerance() -> jnp.ndarray:
 def register_default_behavior(
     key: str,
     behavior: Callable[[Any], None],
-    replace_if_exist: bool = False
+    replace_if_exist: bool = False,
+    *,
+    env: Optional[EnvironmentState] = None
 ) -> None:
     """
     Register a callback for environment parameter changes.
@@ -1332,6 +1598,8 @@ def register_default_behavior(
         Callback function that receives the new value.
     replace_if_exist : bool, default=False
         Whether to replace existing callback for this key.
+    env : EnvironmentState, optional
+        The environment state to modify. If None, uses the global environment.
 
     Raises
     ------
@@ -1398,27 +1666,41 @@ def register_default_behavior(
         >>>
         >>> env.set(key='test')  # Prints: New: test
 
+    Using custom environment:
+
+    .. code-block:: python
+
+        >>> import brainstate.environ as env
+        >>>
+        >>> custom_env = env.EnvironmentState()
+        >>> env.register_default_behavior('param', lambda x: print(f"Value: {x}"), env=custom_env)
+        >>> env.set(param='test', env=custom_env)  # Prints: Value: test
+
     See Also
     --------
     unregister_default_behavior : Remove registered callbacks
     list_registered_behaviors : List all registered callbacks
     """
+    # Use global state if no env provided
+    if env is None:
+        env = _ENV_STATE
+
     if not isinstance(key, str):
         raise TypeError(f"Key must be a string, got {type(key)}")
 
     if not callable(behavior):
         raise TypeError(f"Behavior must be callable, got {type(behavior)}")
 
-    if key in _ENV_STATE.functions and not replace_if_exist:
+    if key in env.functions and not replace_if_exist:
         raise ValueError(
             f"Behavior for key '{key}' already registered. "
             f"Use replace_if_exist=True to override."
         )
 
-    _ENV_STATE.functions[key] = behavior
+    env.functions[key] = behavior
 
 
-def unregister_default_behavior(key: str) -> bool:
+def unregister_default_behavior(key: str, *, env: Optional[EnvironmentState] = None) -> bool:
     """
     Remove a registered callback for an environment parameter.
 
@@ -1426,6 +1708,8 @@ def unregister_default_behavior(key: str) -> bool:
     ----------
     key : str
         Environment parameter key.
+    env : EnvironmentState, optional
+        The environment state to modify. If None, uses the global environment.
 
     Returns
     -------
@@ -1454,16 +1738,35 @@ def unregister_default_behavior(key: str) -> bool:
         >>> # Removing non-existent callback
         >>> removed = env.unregister_default_behavior('nonexistent')
         >>> print(f"Callback removed: {removed}")  # False
+
+    Using custom environment:
+
+    .. code-block:: python
+
+        >>> import brainstate.environ as env
+        >>>
+        >>> custom_env = env.EnvironmentState()
+        >>> env.register_default_behavior('param', lambda x: None, env=custom_env)
+        >>> env.unregister_default_behavior('param', env=custom_env)  # Returns True
     """
-    if key in _ENV_STATE.functions:
-        del _ENV_STATE.functions[key]
+    # Use global state if no env provided
+    if env is None:
+        env = _ENV_STATE
+
+    if key in env.functions:
+        del env.functions[key]
         return True
     return False
 
 
-def list_registered_behaviors() -> List[str]:
+def list_registered_behaviors(*, env: Optional[EnvironmentState] = None) -> List[str]:
     """
     List all keys with registered callbacks.
+
+    Parameters
+    ----------
+    env : EnvironmentState, optional
+        The environment state to query. If None, uses the global environment.
 
     Returns
     -------
@@ -1487,8 +1790,22 @@ def list_registered_behaviors() -> List[str]:
         >>> # Check if specific behavior is registered
         >>> if 'dt' in behaviors:
         ...     print("dt has a registered callback")
+
+    Using custom environment:
+
+    .. code-block:: python
+
+        >>> import brainstate.environ as env
+        >>>
+        >>> custom_env = env.EnvironmentState()
+        >>> env.register_default_behavior('param', lambda x: None, env=custom_env)
+        >>> print(env.list_registered_behaviors(env=custom_env))  # ['param']
     """
-    return list(_ENV_STATE.functions.keys())
+    # Use global state if no env provided
+    if env is None:
+        env = _ENV_STATE
+
+    return list(env.functions.keys())
 
 
 # Initialize default precision on module load
