@@ -6,11 +6,8 @@ name: Continuous Integration
 on:
   push:
     branches:
-      - '**'        # matches every branch
-      - '!refs/pull/**'  # exclude PR branches
+      - main
   pull_request:
-    branches:
-      - '**'        # matches every branch
 
 
 permissions:
@@ -32,7 +29,7 @@ jobs:
         python-version: [ "3.13" ]
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Print concurrency group
         run: echo '${{ github.workflow }}-${{ github.ref }}'
       - name: Set up Python ${{ matrix.python-version }}
@@ -58,7 +55,7 @@ jobs:
         python-version: [ "3.13" ]
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Print concurrency group
         run: echo '${{ github.workflow }}-${{ github.ref }}'
       - name: Set up Python ${{ matrix.python-version }}
@@ -83,7 +80,7 @@ jobs:
         python-version: [ "3.13" ]
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Print concurrency group
         run: echo '${{ github.workflow }}-${{ github.ref }}'
       - name: Set up Python ${{ matrix.python-version }}
