@@ -22,7 +22,7 @@ import brainunit as u
 import jax
 import jax.numpy as jnp
 
-import brainstate.random
+import brainstate
 from brainstate._state import State
 from brainstate._utils import set_module_as
 from brainstate.transform._autograd import GradientTransform
@@ -200,9 +200,9 @@ def functional_sofo_grad(
         damped_s = s_ + damping * jnp.max(s_)
 
         vggv_vg = (u_ / damped_s) @ (u_.T @ vg)
-        h = jax.tree.map(lambda v_: jnp.dot(jnp.moveaxis(v_, 0, -1), vggv_vg), v)
+        h = jax.tree.map(lambda v_: jnp.einsum('i,i...->...', vggv_vg, v_), v)
         if return_value:
-            return (h, losses[0], aux) if has_aux else (h, losses[0])
+            return (h, losses.mean(), aux) if has_aux else (h, losses.mean())
         else:
             return (h, aux) if has_aux else h
 
@@ -219,7 +219,7 @@ def sofo_grad(
     check_states: bool = True,
 ) -> GradientTransform | Callable[[Callable], GradientTransform]:
     """
-    Compute the gradient of a scalar-valued function with respect to its arguments.
+    Second-order forward-mode optimization to compute loss and gradient.
 
     1. When ``grad_states`` is None
 
@@ -375,12 +375,12 @@ def functional_sofo_grad_scan(
         damped_s = s_ + damping * jnp.max(s_)
 
         vggv_vg = (u_ / damped_s) @ (u_.T @ vg)
-        h = jax.tree.map(lambda vs: jnp.dot(jnp.moveaxis(vs, 0, -1), vggv_vg), v)
+        h = jax.tree.map(lambda v_: jnp.einsum('i,i...->...', vggv_vg, v_), v)
         # return losses, h, preds
         if return_value:
-            return h, losses[0]
+            return (h, losses.mean()) if has_aux else (h, losses.mean())
         else:
-            return h
+            return h if has_aux else h
 
     return wrapper
 
