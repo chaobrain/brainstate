@@ -234,3 +234,4 @@ cython_debug/
 /examples/brainpy-interoperation/
 /brainstate/experimental/instruction.md
 /examples/data/
+/brainstate/experimental/neuroir/try_model.py

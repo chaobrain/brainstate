@@ -762,7 +762,7 @@ class CompiledGraphIR(NamedTuple):
         return self.run_compiled(*args, **kwargs)
 
     def cache_fn(self, *args, **kwargs):
-        return get_arg_cache_key(self.static_argnums, self.static_argnames, args, kwargs, self._check_input_ouput)
+        return get_arg_cache_key(self.static_argnums, self.static_argnames, args, kwargs)
 
     def run_compiled(self, *args, **kwargs) -> Any:
         """Execute the compiled graph IR representation.
