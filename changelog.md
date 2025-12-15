@@ -1,6 +1,11 @@
 # Release Notes
 
 
+## Version 0.2.7
+
+
+
+
 ## Version 0.2.4
 
 This release introduces the new `ArrayParam` state type for parameter arrays with custom transformations, experimental BPU backend export support, enhanced JAXPR optimization capabilities, and improved module organization.

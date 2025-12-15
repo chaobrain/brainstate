@@ -142,21 +142,35 @@ def _jax_v04_new_jax_trace():
     return frame, trace
 
 
-def get_arg_cache_key(static_argnums, static_argnames, *args, **kwargs) -> hashabledict:
+def get_arg_cache_key(
+    static_argnums,
+    static_argnames,
+    args: Tuple,
+    kwargs: Dict,
+    fn_to_check: Callable = None
+) -> hashabledict:
+    # args
     static_args, dyn_args = [], []
     for i, arg in enumerate(args):
         if i in static_argnums:
             static_args.append(arg)
         else:
             dyn_args.append(arg)
+    if fn_to_check is not None:
+        jax.tree.map(fn_to_check, dyn_args, is_leaf=lambda x: isinstance(x, State))
     dyn_args = jax.tree.map(shaped_abstractify, dyn_args)
+
+    # kwargs
     static_kwargs, dyn_kwargs = [], []
     for k, v in sorted(kwargs.items()):
         if k in static_argnames:
             static_kwargs.append((k, v))
         else:
             dyn_kwargs.append((k, jax.tree.map(shaped_abstractify, v)))
+    if fn_to_check is not None:
+        jax.tree.map(fn_to_check, dyn_kwargs, is_leaf=lambda x: isinstance(x, State))
 
+    # hashable
     static_args = _make_hashable(tuple(static_args))
     dyn_args = _make_hashable(tuple(dyn_args))
     static_kwargs = _make_hashable(static_kwargs)
@@ -683,7 +697,14 @@ class StatefulFunction(PrettyObject):
             ... )
             >>> cache_key = sf.get_arg_cache_key(jnp.array([1.0, 2.0]), 2)
         """
-        cache_key = get_arg_cache_key(self.static_argnums, self.static_argnames, *args, **kwargs)
+
+        cache_key = get_arg_cache_key(
+            self.static_argnums,
+            self.static_argnames,
+            args,
+            kwargs,
+            self._check_input_ouput
+        )
         if cache_key not in self._cached_state_trace and compile_if_miss:
             self.make_jaxpr(*args, **kwargs)
         return cache_key
@@ -826,9 +847,6 @@ class StatefulFunction(PrettyObject):
 
                 # args separation
                 dyn_args = tuple(args[i] for i in range(len(args)) if i not in self.static_argnums)
-
-                # check input types
-                jax.tree.map(self._check_input_ouput, (dyn_args, dyn_kwargs), is_leaf=lambda x: isinstance(x, State))
 
                 # jaxpr
                 jaxpr, (out_shapes, state_shapes) = _make_jaxpr(
