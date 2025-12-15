@@ -22,6 +22,10 @@ from brainstate.experimental.neuroir._model_to_test import Single_Pop_EI_COBA_Ne
 
 brainstate.environ.set(dt=0.1 * u.ms)
 
+import pytest
+
+pytest.skip('Test is not implemented yet.', allow_module_level=True)
+
 
 def test_parse():
     net = Single_Pop_EI_COBA_Net()

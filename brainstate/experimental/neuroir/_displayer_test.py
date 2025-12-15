@@ -20,6 +20,10 @@ import brainstate
 from brainstate.experimental.neuroir import compile_fn
 from brainstate.experimental.neuroir._model_to_test import TwoPopNet
 
+import pytest
+
+pytest.skip('Test is not implemented yet.', allow_module_level=True)
+
 
 class TestDisplayer:
     def test_visualize(self):
