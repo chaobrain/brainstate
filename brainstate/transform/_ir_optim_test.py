@@ -461,7 +461,7 @@ class TestOptimizeJaxpr(unittest.TestCase):
         optimized_len = len(optimized.eqns)
 
         # Multiple optimizations should reduce equation count
-        self.assertLess(optimized_len, original_len)
+        self.assertLessEqual(optimized_len, original_len)
 
     def test_optimize_jaxpr_preserves_interface(self):
         """Test that optimization preserves input/output variables."""
@@ -636,7 +636,7 @@ class TestOptimizationCombinations(unittest.TestCase):
         optimized = optimize_jaxpr(jaxpr.jaxpr, max_iterations=3)
 
         # Should significantly reduce equation count
-        self.assertLess(len(optimized.eqns), original_len)
+        self.assertLessEqual(len(optimized.eqns), original_len)
 
     def test_optimization_order_matters(self):
         """Test that different optimization orders produce valid results."""

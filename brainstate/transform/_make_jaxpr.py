@@ -76,7 +76,7 @@ from brainstate._utils import set_module_as
 from brainstate.typing import PyTree
 from brainstate.util import PrettyObject
 from brainstate.util._cache import BoundedCache
-from ._ir_optim_v2 import optimize_jaxpr
+from ._ir_optim import optimize_jaxpr
 
 __all__ = [
     "StatefulFunction",
@@ -142,6 +142,49 @@ def _jax_v04_new_jax_trace():
     return frame, trace
 
 
+def get_arg_cache_key(
+    static_argnums,
+    static_argnames,
+    args: Tuple,
+    kwargs: Dict,
+    fn_to_check: Callable = None
+) -> hashabledict:
+    # args
+    static_args, dyn_args = [], []
+    for i, arg in enumerate(args):
+        if i in static_argnums:
+            static_args.append(arg)
+        else:
+            dyn_args.append(arg)
+    if fn_to_check is not None:
+        jax.tree.map(fn_to_check, dyn_args, is_leaf=lambda x: isinstance(x, State))
+    dyn_args = jax.tree.map(shaped_abstractify, dyn_args)
+
+    # kwargs
+    static_kwargs, dyn_kwargs = [], []
+    for k, v in sorted(kwargs.items()):
+        if k in static_argnames:
+            static_kwargs.append((k, v))
+        else:
+            dyn_kwargs.append((k, jax.tree.map(shaped_abstractify, v)))
+    if fn_to_check is not None:
+        jax.tree.map(fn_to_check, dyn_kwargs, is_leaf=lambda x: isinstance(x, State))
+
+    # hashable
+    static_args = _make_hashable(tuple(static_args))
+    dyn_args = _make_hashable(tuple(dyn_args))
+    static_kwargs = _make_hashable(static_kwargs)
+    dyn_kwargs = _make_hashable(dyn_kwargs)
+
+    cache_key = hashabledict(
+        static_args=static_args,
+        dyn_args=dyn_args,
+        static_kwargs=static_kwargs,
+        dyn_kwargs=dyn_kwargs,
+    )
+    return cache_key
+
+
 class StatefulFunction(PrettyObject):
     """
     A wrapper class for functions that tracks state reads and writes during execution.
@@ -202,6 +245,9 @@ class StatefulFunction(PrettyObject):
         If True, only return states that were written to during execution
         (not just read). This can reduce memory usage when you only care
         about modified states. Default is True.
+    ir_optimizations: str or sequence of str, optional
+        The IR optimizations to apply to the generated jaxpr. Can be a single
+        optimization name or a sequence of names. If None, no optimizations are applied.
 
     Attributes
     ----------
@@ -651,35 +697,16 @@ class StatefulFunction(PrettyObject):
             ... )
             >>> cache_key = sf.get_arg_cache_key(jnp.array([1.0, 2.0]), 2)
         """
-        static_args, dyn_args = [], []
-        for i, arg in enumerate(args):
-            if i in self.static_argnums:
-                static_args.append(arg)
-            else:
-                dyn_args.append(arg)
-        dyn_args = jax.tree.map(shaped_abstractify, dyn_args)
-        static_kwargs, dyn_kwargs = [], []
-        for k, v in sorted(kwargs.items()):
-            if k in self.static_argnames:
-                static_kwargs.append((k, v))
-            else:
-                dyn_kwargs.append((k, jax.tree.map(shaped_abstractify, v)))
 
-        static_args = _make_hashable(tuple(static_args))
-        dyn_args = _make_hashable(tuple(dyn_args))
-        static_kwargs = _make_hashable(static_kwargs)
-        dyn_kwargs = _make_hashable(dyn_kwargs)
-
-        cache_key = hashabledict(
-            static_args=static_args,
-            dyn_args=dyn_args,
-            static_kwargs=static_kwargs,
-            dyn_kwargs=dyn_kwargs,
+        cache_key = get_arg_cache_key(
+            self.static_argnums,
+            self.static_argnames,
+            args,
+            kwargs,
+            self._check_input_ouput
         )
-
         if cache_key not in self._cached_state_trace and compile_if_miss:
             self.make_jaxpr(*args, **kwargs)
-
         return cache_key
 
     def clear_cache(self) -> None:
@@ -805,22 +832,23 @@ class StatefulFunction(PrettyObject):
             If State objects are passed as arguments or returned from the function.
         """
 
-        # check input types
-        jax.tree.map(self._check_input_ouput, (args, kwargs), is_leaf=lambda x: isinstance(x, State))
-
         # static args
         cache_key = self.get_arg_cache_key(*args, **kwargs)
 
         if cache_key not in self._cached_state_trace:
             try:
-
-                # jaxpr
+                # kwargs separation
                 static_kwargs, dyn_kwargs = {}, {}
                 for k, v in kwargs.items():
                     if k in self.static_argnames:
                         static_kwargs[k] = v
                     else:
                         dyn_kwargs[k] = v
+
+                # args separation
+                dyn_args = tuple(args[i] for i in range(len(args)) if i not in self.static_argnums)
+
+                # jaxpr
                 jaxpr, (out_shapes, state_shapes) = _make_jaxpr(
                     functools.partial(
                         self._wrapped_fun_to_eval,

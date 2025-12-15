@@ -52,6 +52,7 @@ from saiunit._compatible_import import wrap_init
 
 __all__ = [
     'ClosedJaxpr',
+    'DropVar',
     'Primitive',
     'extend_axis_env_nd',
     'jaxpr_as_fun',
@@ -68,9 +69,10 @@ __all__ = [
     'JaxprEqn',
     'Jaxpr',
     'Literal',
-
-    'make_iota', 'to_elt', 'BatchTracer', 'BatchTrace',
-
+    'make_iota',
+    'to_elt',
+    'BatchTracer',
+    'BatchTrace',
     'is_jit_primitive',
 ]
 
@@ -88,6 +90,8 @@ if jax.__version_info__ < (0, 7, 1):
     from jax.interpreters.batching import make_iota, to_elt, BatchTracer, BatchTrace
 else:
     from jax._src.interpreters.batching import make_iota, to_elt, BatchTracer, BatchTrace
+
+from jax.core import DropVar
 
 if jax.__version_info__ < (0, 4, 38):
     from jax.core import ClosedJaxpr, extend_axis_env_nd, Primitive, jaxpr_as_fun
@@ -345,8 +349,6 @@ def to_concrete_aval(aval):
 def is_jit_primitive(eqn: JaxprEqn) -> bool:
     assert isinstance(eqn, JaxprEqn)
     if jax.__version_info__ < (0, 7, 0):
-        return eqn.primitive.name == 'pjit'
+        return eqn.primitive.name in ['pjit', 'xla_call']
     else:
-        return eqn.primitive.name == 'jit'
-
-
+        return eqn.primitive.name in ['jit', 'xla_call']

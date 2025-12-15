@@ -23,12 +23,13 @@ import jax.numpy as jnp
 import numpy as np
 
 from brainstate import environ
-from brainstate._state import ShortTermState, State
+from brainstate._state import ShortTermState, State, DelayState
 from brainstate.graph import Node
 from brainstate.transform import jit_error_if
 from brainstate.typing import ArrayLike, PyTree
 from ._collective_ops import call_order
 from ._module import Module
+
 
 __all__ = [
     'Delay', 'DelayAccess', 'StateWithDelay',
@@ -197,7 +198,7 @@ class Delay(Module):
     @call_order(3)
     def init_state(self, batch_size: int = None, **kwargs):
         fun = partial(self._f_to_init, length=self.max_length, batch_size=batch_size)
-        self.history = ShortTermState(jax.tree.map(fun, self.target_info))
+        self.history = DelayState(jax.tree.map(fun, self.target_info))
 
     def reset_state(self, batch_size: int = None, **kwargs):
         fun = partial(self._f_to_init, length=self.max_length, batch_size=batch_size)
@@ -498,7 +499,7 @@ class StateWithDelay(Delay):
     ----------
     state : :py:class:`~brainstate._state.State`
         The concrete state object being tracked.
-    history : :py:class:`~brainstate._state.ShortTermState`
+    history : :py:class:`DelayState`
         Rolling time axis buffer with shape ``[length, *state.shape]``.
     max_time : float
         Maximum time span currently supported by the buffer.

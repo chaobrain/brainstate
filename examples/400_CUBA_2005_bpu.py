@@ -26,9 +26,10 @@
 
 
 import brainpy
+import braintools
 import brainunit as u
 import matplotlib.pyplot as plt
-import braintools
+
 import brainstate
 
 
@@ -79,10 +80,11 @@ def run_step(t):
         return spikes
 
 
+runner = brainstate.experimental.ForLoop(lambda t: net.update(t, 20. * u.mA), device='cpu')
+
 # simulation
 with brainstate.environ.context(dt=0.1 * u.ms):
     times = u.math.arange(0. * u.ms, 1000. * u.ms, brainstate.environ.get_dt())
-    runner = brainstate.experimental.ForLoop(lambda t: net.update(t, 20. * u.mA), device='cpu')
     spikes = runner(times)
 
 # visualization

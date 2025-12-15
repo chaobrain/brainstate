@@ -13,10 +13,10 @@
 # limitations under the License.
 # ==============================================================================
 
-from typing import Callable, Optional, Union
+from typing import Callable, Optional, Union, Dict
 
 from brainstate.typing import Missing
-from .impl import *
+from ._impl import *
 
 __all__ = [
     'ForLoop',
@@ -25,40 +25,48 @@ __all__ = [
 
 
 class ForLoop:
-    """
-    A device-aware for-loop wrapper.
-
-    This class wraps a function for execution in a for-loop pattern on a specific device.
+    """Device-aware decorator/adapter for ``for_loop`` transformations.
 
     Parameters
     ----------
-    fn : Callable or Missing
-        The function to be executed in the for-loop. If Missing, returns a decorator.
-    device : str, default 'cpu'
-        The target device for execution ('cpu', 'gpu', 'tpu').
+    fn : Callable or Missing, optional
+        Function to wrap immediately. When omitted (the default), the instance
+        behaves as a decorator and expects a callable later.
+    device : str, default='cpu'
+        Target device identifier registered via :func:`register_forloop_impl`.
+    **kwargs
+        Additional arguments forwarded to the device-specific implementation.
+
+    Notes
+    -----
+    The object is callable. If it was created without ``fn`` it returns a new
+    :class:`ForLoop` configured for the provided function when used as a
+    decorator.
 
     Examples
     --------
-    Direct usage:
+    Wrap a function directly:
 
-    >>> loop = ForLoop(my_func, device='gpu')
-    >>> result = loop(xs, length=100)
+    >>> loop = ForLoop(step_fn, device='gpu')
+    >>> loop(xs, length=100)
 
-    As a decorator:
+    Use as a decorator:
 
     >>> @ForLoop(device='gpu')
-    ... def my_func(x):
+    ... def step(x):
     ...     return x * 2
-    >>> result = my_func(xs)
+    >>> step(xs)
     """
 
     def __init__(
         self,
         fn: Union[Callable, Missing] = Missing(),
         device: str = 'cpu',
+        **kwargs
     ):
         self._device = device
         self._call_count = 0
+        self.kwargs = kwargs
 
         if device not in get_registered_devices():
             available = get_registered_devices()
@@ -79,6 +87,8 @@ class ForLoop:
                 )
             self._fn = fn
             self._is_decorator = False
+
+        self._compiled_fn = None
 
     @property
     def fn(self) -> Optional[Callable]:
@@ -103,13 +113,15 @@ class ForLoop:
                     "When using ForLoop as a decorator, it must be called with a single callable argument."
                 )
             fn = args[0]
-            return ForLoop(fn=fn, device=self._device)
+            return ForLoop(fn=fn, device=self._device, **self.kwargs)
 
         if self._fn is None:
             raise RuntimeError("ForLoop function not set. This should not happen.")
+        if self._compiled_fn is None:
+            self._compiled_fn = get_forloop_impl(self._device)(self._fn, **self.kwargs)
 
         self._call_count += 1
-        return get_forloop_impl(self._device)(self._fn, *args, **kwargs)
+        return self._compiled_fn(*args, **kwargs)
 
     def __repr__(self) -> str:
         fn_name = self._fn.__name__ if self._fn and hasattr(self._fn, '__name__') else str(self._fn)
@@ -117,51 +129,52 @@ class ForLoop:
 
 
 class JIT:
-    """
-    A device-aware JIT compilation wrapper.
-
-    This class wraps a function for just-in-time compilation on a specific device.
+    """Device-aware decorator/adapter for just-in-time compilation.
 
     Parameters
     ----------
-    fn : Callable or Missing
-        The function to be JIT compiled. If Missing, returns a decorator.
-    device : str, default 'cpu'
-        The target device for compilation ('cpu', 'gpu', 'tpu').
-    **jit_kwargs
-        Additional keyword arguments passed to the underlying JIT implementation.
+    fn : Callable or Missing, optional
+        Function to compile immediately. When omitted, the instance works as a
+        decorator.
+    device : str, default='cpu'
+        Target device identifier registered via :func:`register_jit_impl`.
+    jit_kwargs : dict, optional
+        Keyword arguments passed to the registered JIT factory upon compilation.
+    **kwargs
+        Additional keyword arguments forwarded to the implementation.
+
+    Notes
+    -----
+    The class compiles the function during instantiation in decorator mode and
+    caches the compiled callable for subsequent invocations.
 
     Examples
     --------
     Direct usage:
 
-    >>> jit_fn = JIT(my_func, device='gpu')
-    >>> result = jit_fn(x, y)
+    >>> jit_step = JIT(step_fn, device='gpu')
+    >>> jit_step(x, y)
 
     As a decorator:
 
-    >>> @JIT(device='gpu')
-    ... def my_func(x, y):
-    ...     return x + y
-    >>> result = my_func(x, y)
-
-    With additional JIT options:
-
-    >>> @JIT(device='cpu', static_argnums=(1,))
-    ... def my_func(x, n):
+    >>> @JIT(device='cpu', jit_kwargs={'static_argnums': (1,)})
+    ... def power(x, n):
     ...     return x ** n
+    >>> power(2, 3)
     """
 
     def __init__(
         self,
         fn: Union[Callable, Missing] = Missing(),
         device: str = 'cpu',
-        **jit_kwargs,
+        jit_kwargs: Optional[Dict] = None,
+        **kwargs
     ):
         self._device = device
         self._jit_kwargs = jit_kwargs
         self._call_count = 0
         self._compiled_fn = None
+        self.kwargs = kwargs
 
         if device not in get_registered_devices():
             available = get_registered_devices()
@@ -189,9 +202,9 @@ class JIT:
         if self._fn is not None:
             jit_impl = get_jit_impl(self._device)
             if self._jit_kwargs:
-                self._compiled_fn = jit_impl(self._fn, **self._jit_kwargs)
+                self._compiled_fn = jit_impl(self._fn, **self._jit_kwargs, **self.kwargs)
             else:
-                self._compiled_fn = jit_impl(self._fn)
+                self._compiled_fn = jit_impl(self._fn, **self.kwargs)
 
     @property
     def fn(self) -> Optional[Callable]:
@@ -224,7 +237,8 @@ class JIT:
             return JIT(
                 fn=fn,
                 device=self._device,
-                **self._jit_kwargs
+                jit_kwargs=self._jit_kwargs,
+                **self.kwargs
             )
 
         if self._compiled_fn is None:
@@ -232,27 +246,6 @@ class JIT:
 
         self._call_count += 1
         return self._compiled_fn(*args, **kwargs)
-
-    def recompile(self, **new_jit_kwargs) -> 'JIT':
-        """
-        Create a new JIT instance with updated compilation options.
-
-        Parameters
-        ----------
-        **new_jit_kwargs
-            New JIT keyword arguments to merge with existing ones.
-
-        Returns
-        -------
-        JIT
-            A new JIT instance with updated options.
-        """
-        merged_kwargs = {**self._jit_kwargs, **new_jit_kwargs}
-        return JIT(
-            fn=self._fn,
-            device=self._device,
-            **merged_kwargs
-        )
 
     def __repr__(self) -> str:
         fn_name = self._fn.__name__ if self._fn and hasattr(self._fn, '__name__') else str(self._fn)

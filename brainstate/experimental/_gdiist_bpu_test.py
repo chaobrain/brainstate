@@ -13,12 +13,32 @@
 # limitations under the License.
 # ==============================================================================
 
-from . import neuroir
-from ._impl import *
-from ._impl import __all__ as export_all
-from ._wrapper import *
-from ._wrapper import __all__ as wrapper_all
 
-__all__ = ['neuroir'] + export_all + wrapper_all
-del export_all
-del wrapper_all
+import brainunit as u
+
+import brainstate
+from brainstate.experimental._gdiist_bpu import GdiistBPUParser
+from brainstate.experimental.neuroir._model_to_test import Single_Pop_EI_COBA_Net
+
+brainstate.environ.set(dt=0.1 * u.ms)
+
+import pytest
+
+pytest.skip('Test is not implemented yet.', allow_module_level=True)
+
+
+def test_parse():
+    net = Single_Pop_EI_COBA_Net()
+    brainstate.nn.init_all_states(net)
+
+    t = 0. * u.ms
+    inp = 20. * u.mA
+
+    def run_step(t, inp):
+        with brainstate.environ.context(t=t):
+            spikes = net.update(t, inp)
+            return spikes
+
+    parser = GdiistBPUParser(run_step, debug=True)
+    r = parser(t, inp)
+

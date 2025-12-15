@@ -19,11 +19,18 @@ import jax.numpy as jnp
 import jax.random as jr
 import numpy as np
 
+from brainstate._state import TRACE_CONTEXT, StateTraceStack
 from brainstate.random._state import RandomState, DEFAULT, formalize_key, _size2shape, _check_py_seq
 
 
 class TestRandomStateInitialization(unittest.TestCase):
     """Test RandomState initialization and setup."""
+
+    def setUp(self):
+        TRACE_CONTEXT.state_stack.append(StateTraceStack())
+
+    def tearDown(self):
+        TRACE_CONTEXT.state_stack.pop()
 
     def test_init_with_none(self):
         """Test initialization with None seed."""
@@ -79,6 +86,10 @@ class TestRandomStateKeyManagement(unittest.TestCase):
 
     def setUp(self):
         self.rs = RandomState(42)
+        TRACE_CONTEXT.state_stack.append(StateTraceStack())
+
+    def tearDown(self):
+        TRACE_CONTEXT.state_stack.pop()
 
     def test_seed_with_int(self):
         """Test seeding with integer."""
@@ -192,6 +203,10 @@ class TestRandomStateDistributions(unittest.TestCase):
 
     def setUp(self):
         self.rs = RandomState(42)
+        TRACE_CONTEXT.state_stack.append(StateTraceStack())
+
+    def tearDown(self):
+        TRACE_CONTEXT.state_stack.pop()
 
     def test_rand(self):
         """Test rand method."""
@@ -237,7 +252,7 @@ class TestRandomStateDistributions(unittest.TestCase):
         self.assertEqual(val.shape, ())
 
         # With parameters
-        arr = self.rs.normal(loc=5.0, scale=2.0, size=(3, 2))
+        arr = self.rs.normal(5.0, 2.0, size=(3, 2))
         self.assertEqual(arr.shape, (3, 2))
 
     def test_uniform(self):
@@ -253,6 +268,7 @@ class TestRandomStateDistributions(unittest.TestCase):
 
     def test_choice(self):
         """Test choice method."""
+
         # Choose from range
         val = self.rs.choice(5)
         self.assertTrue(0 <= val < 5)
@@ -275,31 +291,31 @@ class TestRandomStateDistributions(unittest.TestCase):
 
     def test_exponential(self):
         """Test exponential distribution."""
-        arr = self.rs.exponential(scale=2.0, size=(2, 3))
+        arr = self.rs.exponential(2.0, size=(2, 3))
         self.assertEqual(arr.shape, (2, 3))
         self.assertTrue((arr >= 0).all())
 
     def test_gamma(self):
         """Test gamma distribution."""
-        arr = self.rs.gamma(shape=2.0, scale=1.0, size=(2, 3))
+        arr = self.rs.gamma(2.0, 1.0, size=(2, 3))
         self.assertEqual(arr.shape, (2, 3))
         self.assertTrue((arr >= 0).all())
 
     def test_poisson(self):
         """Test Poisson distribution."""
-        arr = self.rs.poisson(lam=3.0, size=(2, 3))
+        arr = self.rs.poisson(3.0, size=(2, 3))
         self.assertEqual(arr.shape, (2, 3))
         self.assertTrue((arr >= 0).all())
 
     def test_binomial(self):
         """Test binomial distribution."""
-        arr = self.rs.binomial(n=10, p=0.3, size=(2, 3))
+        arr = self.rs.binomial(10, 0.3, size=(2, 3))
         self.assertEqual(arr.shape, (2, 3))
         self.assertTrue((arr >= 0).all() and (arr <= 10).all())
 
     def test_bernoulli(self):
         """Test Bernoulli distribution."""
-        arr = self.rs.bernoulli(p=0.7, size=(100,))
+        arr = self.rs.bernoulli(0.7, size=(100,))
         self.assertEqual(arr.shape, (100,))
         self.assertTrue(jnp.all((arr == 0) | (arr == 1)))
 
@@ -307,11 +323,11 @@ class TestRandomStateDistributions(unittest.TestCase):
         """Test Bernoulli with invalid probability."""
         # Note: This should trigger jit_error_if, but in test we check the validation exists
         with self.assertRaises((ValueError, Exception)):
-            self.rs.bernoulli(p=1.5)  # p > 1
+            self.rs.bernoulli(1.5)  # p > 1
 
     def test_truncated_normal(self):
         """Test truncated normal distribution."""
-        arr = self.rs.truncated_normal(lower=-1.0, upper=1.0, size=(2, 3))
+        arr = self.rs.truncated_normal(-1.0, 1.0, size=(2, 3))
         self.assertEqual(arr.shape, (2, 3))
         self.assertTrue((arr >= -1.0).all() and (arr <= 1.0).all())
 
@@ -336,6 +352,10 @@ class TestRandomStatePyTorchCompatibility(unittest.TestCase):
 
     def setUp(self):
         self.rs = RandomState(42)
+        TRACE_CONTEXT.state_stack.append(StateTraceStack())
+
+    def tearDown(self):
+        TRACE_CONTEXT.state_stack.pop()
 
     def test_rand_like(self):
         """Test rand_like method."""
@@ -353,7 +373,7 @@ class TestRandomStatePyTorchCompatibility(unittest.TestCase):
     def test_randint_like(self):
         """Test randint_like method."""
         input_tensor = jnp.zeros((2, 3), dtype=jnp.int32)
-        result = self.rs.randint_like(input_tensor, low=0, high=10)
+        result = self.rs.randint_like(input_tensor, 0, 10)
         self.assertEqual(result.shape, input_tensor.shape)
         self.assertTrue((result >= 0).all() and (result < 10).all())
 
@@ -363,6 +383,10 @@ class TestRandomStateKeyBehavior(unittest.TestCase):
 
     def setUp(self):
         self.rs = RandomState(42)
+        TRACE_CONTEXT.state_stack.append(StateTraceStack())
+
+    def tearDown(self):
+        TRACE_CONTEXT.state_stack.pop()
 
     def test_external_key_does_not_change_state(self):
         """Test that using external key doesn't change internal state."""
@@ -408,6 +432,12 @@ class TestRandomStateKeyBehavior(unittest.TestCase):
 class TestGlobalDefaultInstance(unittest.TestCase):
     """Test the global DEFAULT RandomState instance."""
 
+    def setUp(self):
+        TRACE_CONTEXT.state_stack.append(StateTraceStack())
+
+    def tearDown(self):
+        TRACE_CONTEXT.state_stack.pop()
+
     def test_default_exists(self):
         """Test that DEFAULT instance exists and is RandomState."""
         self.assertIsInstance(DEFAULT, RandomState)
@@ -434,6 +464,12 @@ class TestGlobalDefaultInstance(unittest.TestCase):
 
 class TestUtilityFunctions(unittest.TestCase):
     """Test utility functions in _rand_state module."""
+
+    def setUp(self):
+        TRACE_CONTEXT.state_stack.append(StateTraceStack())
+
+    def tearDown(self):
+        TRACE_CONTEXT.state_stack.pop()
 
     def test_formalize_key_with_int(self):
         """Test _formalize_key with integer."""
@@ -493,6 +529,10 @@ class TestErrorHandling(unittest.TestCase):
 
     def setUp(self):
         self.rs = RandomState(42)
+        TRACE_CONTEXT.state_stack.append(StateTraceStack())
+
+    def tearDown(self):
+        TRACE_CONTEXT.state_stack.pop()
 
     def test_invalid_distribution_parameters(self):
         """Test invalid parameters for distributions."""
@@ -502,12 +542,12 @@ class TestErrorHandling(unittest.TestCase):
         # Test invalid probability for binomial should work with check_valid=True
         try:
             # This may or may not raise immediately depending on JAX compilation
-            self.rs.binomial(n=10, p=1.5, check_valid=True)
+            self.rs.binomial(10, 1.5, check_valid=True)
         except:
             pass  # Expected to fail
 
         # Test normal distribution works with negative scale (JAX allows this)
-        result = self.rs.normal(scale=-1.0, size=(2,))
+        result = self.rs.normal(None, -1.0, size=(2,))
         self.assertEqual(result.shape, (2,))
 
     def test_invalid_size_parameters(self):
