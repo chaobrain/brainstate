@@ -1921,7 +1921,8 @@ def truncated_normal(
     key : PRNGKey, optional
         The key for the random number generator. If not given, the
         default random number generator is used.
-
+    check_valid: optional, bool
+      Whether to check the validity of the input parameters. Default is True.
 
     Returns
     -------
@@ -1933,8 +1934,8 @@ def truncated_normal(
     return DEFAULT.truncated_normal(
         lower,
         upper,
-        loc,
-        scale,
+        loc=loc,
+        scale=scale,
         size=size,
         key=key,
         dtype=dtype,

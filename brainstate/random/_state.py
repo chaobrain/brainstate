@@ -662,7 +662,11 @@ class RandomState(State):
         # Computes standard normal cumulative distribution function
         return (np.asarray(1., dtype) + lax.erf(x / sqrt2)) / np.asarray(2., dtype)
 
-    @jit_named_scope('brainstate/random', static_argnums=(0, 3, 7, 8), static_argnames=['dtype', 'size', 'check_valid'])
+    @jit_named_scope(
+        'brainstate/random',
+        static_argnums=(0, 3, 7, 8),
+        static_argnames=['dtype', 'size', 'check_valid'],
+    )
     def truncated_normal(
         self,
         lower,
