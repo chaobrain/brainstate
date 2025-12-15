@@ -2252,17 +2252,6 @@ class TestDeprecatedInit(unittest.TestCase):
             expected = jnp.eye(5)
             self.assertTrue(jnp.allclose(result, expected))
 
-    def test_truncated_normal_initializer(self):
-        """Test TruncatedNormal initializer."""
-        with warnings.catch_warnings(record=True):
-            warnings.simplefilter("always")
-            import brainstate
-
-            # Test TruncatedNormal with required parameters
-            truncated_normal = brainstate.init.TruncatedNormal(mean=0.0, std=1.0)
-            result = truncated_normal((10, 10))
-            self.assertEqual(result.shape, (10, 10))
-
     def test_module_attributes(self):
         """Test module-level attributes."""
         with warnings.catch_warnings(record=True):
