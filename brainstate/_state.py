@@ -55,7 +55,6 @@ __all__ = [
     'BatchState',
     'TreefyState',
     'FakeState',
-    'ArrayParam',
 
     'StateDictManager',
     'StateTraceStack',
