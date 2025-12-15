@@ -3,7 +3,57 @@
 
 ## Version 0.2.7
 
+BrainState 0.2.7 modernizes the experimental compilation stack, deepens the transformation APIs, and tightens runtime infrastructure across the project.
 
+### Experimental Compiler and Visualization
+
+- Introduced the experimental `neuroir` compiler built on dataclass-based graph IR elements and an explicit `CompilationContext`, improving dependency tracking, hidden-state mapping, and ClosedJaxpr fidelity even for self-connections and delay buffers.
+- Added GraphDisplayer and TextDisplayer backends with hierarchical and force-directed layouts, plus richer diagnostics and tests that cover large sample networks and neuro-graph visualizations.
+
+### Transformations and Autodiff
+
+- Added the `jit_named_scope` decorator and supporting utilities so nested transformations emit meaningful names inside traced functions, together with `_make_jaxpr` refinements that separate dynamic/static arguments and improve caching semantics for `StatefulFunction`.
+- Expanded the gradient toolkit by exporting the new Jacobian (forward and reverse), Hessian, and SOFO transforms, unifying gradient handling for classes, auxiliary returns, and state-aware updates through the transform module.
+
+### State and Runtime Enhancements
+
+- Replaced the experimental `ArrayParam` with a dedicated `DelayState`, propagating the new state through the compiler, delay modules, and neuro-IR so historical buffers participate in tracing and optimization just like other states.
+- Environment helpers can now run against injected `EnvironmentState` instances, enabling sandboxed or per-thread configurations while DelayState-aware unit tests extend coverage of the updated modules.
+
+### Experimental and Infrastructure Updates
+
+- Completed the neuron IR → neuroir rename, aligned the GDiist BPU codebase with the new terminology, and added new sample networks plus placeholder skips to keep the growing compiler/displayer test surface manageable.
+- Added `braincell` to the development requirements, refreshed documentation wording, and kept CI dependencies current for the GitHub Actions runners.
+
+### Bug Fixes
+
+- Hardened caching, randomness, and initialization logic by fixing `get_arg_cache_key`, removing stale decorator parameters, validating truncated normal draws, and correcting the exported version metadata.
+- Declared Python 3.14 support and cleaned up compiler import ordering to keep linting noise low.
+
+
+## Version 0.2.6
+
+This release focuses on the experimental export pipeline and device-aware execution adapters.
+
+### Device-Aware Wrappers
+
+- Added registry-driven `ForLoop` and `JIT` adapters that expose decorator-style ergonomics, call counters, and validation, with CPU/GPU/TPU implementations wired through `register_*_impl` so experiments can swap device backends without touching user code.
+
+### GDiist BPU Export
+
+- Replaced the monolithic exporter with `gdiist_bpu.main`, refreshed parser/component/utils modules, and renamed `BpuParser` to `GdiistBpuParser`, yielding clearer analysis output, text display helpers, and far more granular unit tests.
+- Introduced the thread-safe `BoundedCache` utility and integrated it with compiler wrappers to safely reuse traced graphs, alongside `_make_jaxpr` updates that enforce argument checks and improve cache key generation.
+- Updated tutorials and examples to the streamlined naming scheme and refreshed device implementation docs for the new wrapper entry points.
+
+
+## Version 0.2.5
+
+Version 0.2.5 concentrates on intermediate-representation (IR) optimization quality.
+
+### IR Optimization
+
+- Added `_ir_optim_v2`, a comprehensive optimizer that ships constant folding, dead-code elimination, common subexpression elimination, copy propagation, and algebraic simplification passes backed by identity-aware set semantics.
+- Updated the transform exports and accompanying tests to exercise the new optimizer while pruning unused configuration knobs from the earlier implementation.
 
 
 ## Version 0.2.4
