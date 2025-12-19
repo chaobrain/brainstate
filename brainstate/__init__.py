@@ -17,11 +17,10 @@
 A ``State``-based Transformation System for Program Compilation and Augmentation
 """
 
-__version__ = "0.2.7"
+__version__ = "0.2.8"
 __versio_info__ = tuple(map(int, __version__.split('.')))
 
 from . import environ
-from . import experimental
 from . import graph
 from . import mixin
 from . import nn
@@ -150,7 +149,6 @@ def __getattr__(name):
 
 __all__ = [
     'environ',
-    'experimental',
     'graph',
     'mixin',
     'nn',

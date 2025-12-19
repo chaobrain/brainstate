@@ -62,8 +62,6 @@ from typing import Any, Callable, Dict, Optional, Tuple, Union
 import jax
 import jax.numpy as jnp
 from jax._src import source_info_util
-from jax._src.linear_util import annotate
-from jax._src.traceback_util import api_boundary
 from jax.api_util import shaped_abstractify
 from jax.extend.linear_util import transformation_with_aux
 from jax.interpreters import partial_eval as pe
@@ -231,14 +229,6 @@ class StatefulFunction(PrettyObject):
         parallel communication collectives, and it specifies the axis name/size
         environment that would be set up by applications of :py:func:`jax.pmap`.
         Default is None.
-    abstracted_axes : pytree, optional
-        A pytree with the same structure as the input arguments to ``fun``. The
-        leaves of the pytree can be either None or a dict with axis names as keys
-        and integers as values. If the leaf is None, then the corresponding axis
-        is not abstracted. If the leaf is a dict, then the corresponding axis is
-        abstracted, and the dict specifies the axis name and size. The abstracted
-        axes are used to infer the input type of the function. If None, then all
-        axes are abstracted. Default is None.
     name : str, optional
         Name for the stateful function. Default is None.
     return_only_write : bool, optional
@@ -259,8 +249,6 @@ class StatefulFunction(PrettyObject):
         Names of static keyword arguments.
     axis_env : sequence of tuple or None
         Axis environment for parallel operations.
-    abstracted_axes : pytree or None
-        Abstract axes specification.
     name : str or None
         Name identifier for the function.
     return_only_write : bool
@@ -339,7 +327,6 @@ class StatefulFunction(PrettyObject):
         static_argnums: Union[int, Iterable[int]] = (),
         static_argnames: Union[str, Iterable[str]] = (),
         axis_env: Optional[Sequence[tuple[Hashable, int]]] = None,
-        abstracted_axes: Optional[Any] = None,
         name: Optional[str] = None,
         return_only_write: bool = True,
         ir_optimizations: Union[str, Sequence[str]] = None
@@ -349,7 +336,6 @@ class StatefulFunction(PrettyObject):
         self.static_argnums = tuple() if static_argnums is None else _ensure_index_tuple(static_argnums)
         self.static_argnames = tuple() if static_argnames is None else _ensure_str_tuple(static_argnames)
         self.axis_env = axis_env
-        self.abstracted_axes = abstracted_axes
         self.name = name
         self.return_only_write = return_only_write
         self.ir_optimizations = ir_optimizations
@@ -849,20 +835,30 @@ class StatefulFunction(PrettyObject):
                 dyn_args = tuple(args[i] for i in range(len(args)) if i not in self.static_argnums)
 
                 # jaxpr
-                jaxpr, (out_shapes, state_shapes) = _make_jaxpr(
-                    functools.partial(
-                        self._wrapped_fun_to_eval,
-                        cache_key,
-                        static_kwargs,
-                    ),
-                    static_argnums=self.static_argnums,
-                    axis_env=self.axis_env,
-                    return_shape=True,
-                    abstracted_axes=self.abstracted_axes,
-                    ir_optimizations=self.ir_optimizations,
-                )(*args, **dyn_kwargs)
+                if jax.__version_info__ >= (0, 8, 2):
+                    jaxpr, (out_shapes, state_shapes) = jax.make_jaxpr(
+                        functools.partial(
+                            self._wrapped_fun_to_eval,
+                            cache_key,
+                            static_kwargs,
+                        ),
+                        static_argnums=self.static_argnums,
+                        axis_env=self.axis_env,
+                        return_shape=True,
+                    )(*args, **dyn_kwargs)
+                else:
+                    jaxpr, (out_shapes, state_shapes) = _make_jaxpr(
+                        functools.partial(
+                            self._wrapped_fun_to_eval,
+                            cache_key,
+                            static_kwargs,
+                        ),
+                        static_argnums=self.static_argnums,
+                        axis_env=self.axis_env,
+                        return_shape=True,
+                        ir_optimizations=self.ir_optimizations,
+                    )(*args, **dyn_kwargs)
 
-                # returns
                 self._cached_jaxpr_out_tree.set(cache_key, jax.tree.structure((out_shapes, state_shapes)))
                 self._cached_out_shapes.set(cache_key, (out_shapes, state_shapes))
                 self._cached_jaxpr.set(cache_key, jaxpr)
@@ -903,29 +899,51 @@ class StatefulFunction(PrettyObject):
         ValueError
             If the number of state values doesn't match the expected number.
         """
-        # state checking
+        if jax.config.jax_disable_jit:
+            return self.debug_call(state_vals, *args, **kwargs)
+
+        else:
+            # state checking
+            cache_key = self.get_arg_cache_key(*args, **kwargs)
+            states: Sequence[State] = self.get_states_by_cache(cache_key)
+            if len(state_vals) != len(states):
+                raise ValueError(f'State length mismatch: expected {len(states)} states, got {len(state_vals)}')
+
+            # parameters
+            kwargs = {k: v for k, v in kwargs.items() if k not in self.static_argnames}  # remove static kwargs
+            args = tuple(args[i] for i in range(len(args)) if i not in self.static_argnums)
+            args = jax.tree.flatten((args, kwargs, state_vals))[0]
+
+            # calling the function,
+            # note that this function always returns state values
+            # that both write and read by the function
+            closed_jaxpr = self.get_jaxpr_by_cache(cache_key)
+            out_treedef = self.get_out_treedef_by_cache(cache_key)
+            jaxpr_outs = jax.core.eval_jaxpr(closed_jaxpr.jaxpr, closed_jaxpr.consts, *args)
+
+            # output processing
+            out, new_state_vals = out_treedef.unflatten(jaxpr_outs)
+            if len(new_state_vals) != len(state_vals):
+                raise ValueError(
+                    f'State length mismatch in output: expected '
+                    f'{len(state_vals)} states, got {len(new_state_vals)}'
+                )
+            return new_state_vals, out
+
+    def debug_call(self, state_vals, *args, **kwargs) -> Any:
         cache_key = self.get_arg_cache_key(*args, **kwargs)
         states: Sequence[State] = self.get_states_by_cache(cache_key)
         if len(state_vals) != len(states):
             raise ValueError(f'State length mismatch: expected {len(states)} states, got {len(state_vals)}')
-
-        # parameters
-        kwargs = {k: v for k, v in kwargs.items() if k not in self.static_argnames}  # remove static kwargs
-        args = tuple(args[i] for i in range(len(args)) if i not in self.static_argnums)
-        args = jax.tree.flatten((args, kwargs, state_vals))[0]
-
-        # calling the function,
-        # note that this function always returns state values
-        # that both write and read by the function
-        closed_jaxpr = self.get_jaxpr_by_cache(cache_key)
-        out_treedef = self.get_out_treedef_by_cache(cache_key)
-        jaxpr_outs = jax.core.eval_jaxpr(closed_jaxpr.jaxpr, closed_jaxpr.consts, *args)
-
-        # output processing
-        out, new_state_vals = out_treedef.unflatten(jaxpr_outs)
-        if len(new_state_vals) != len(state_vals):
-            raise ValueError(f'State length mismatch in output: expected '
-                             f'{len(state_vals)} states, got {len(new_state_vals)}')
+        for st, val in zip(states, state_vals):
+            st.restore_value(val)
+        out = self.fun(*args, **kwargs)
+        state_trace = self.get_state_trace_by_cache(cache_key)
+        new_state_vals = (
+            state_trace.get_write_state_values(True)
+            if self.return_only_write else
+            state_trace.get_state_values()
+        )
         return new_state_vals, out
 
     def get_cache_stats(self) -> Dict[str, Any]:
@@ -1043,7 +1061,10 @@ class StatefulFunction(PrettyObject):
         """
         state_trace = self.get_state_trace_by_cache(self.get_arg_cache_key(*args, **kwargs, compile_if_miss=True))
         all_read_state_vals = state_trace.get_read_state_values(True)
-        state_vals, out = self.jaxpr_call(state_trace.get_state_values(), *args, **kwargs)
+        if jax.config.jax_disable_jit:
+            state_vals, out = self.debug_call(state_trace.get_state_values(), *args, **kwargs)
+        else:
+            state_vals, out = self.jaxpr_call(state_trace.get_state_values(), *args, **kwargs)
         state_trace.assign_state_vals_v2(all_read_state_vals, state_vals)
         return out
 
@@ -1058,7 +1079,6 @@ def make_jaxpr(
     static_argnames: Union[str, Iterable[str]] = (),
     axis_env: Optional[Sequence[tuple[Hashable, int]]] = None,
     return_shape: bool = False,
-    abstracted_axes: Optional[Any] = None,
     return_only_write: bool = False,
 ) -> Callable[
     ...,
@@ -1099,14 +1119,6 @@ def make_jaxpr(
         the output of ``fun`` and where the leaves are objects with ``shape``,
         ``dtype``, and ``named_shape`` attributes representing the corresponding
         types of the output leaves.
-    abstracted_axes : pytree, optional
-        A pytree with the same structure as the input
-        arguments to ``fun``. The leaves of the pytree can be either None or a
-        dict with axis names as keys and integers as values. If the leaf is None,
-        then the corresponding axis is not abstracted. If the leaf is a dict, then
-        the corresponding axis is abstracted, and the dict specifies the axis name
-        and size. The abstracted axes are used to infer the input type of the
-        function. If None, then all axes are abstracted.
     return_only_write : bool, default False
         If True, only return states that were written to during execution
         (not just read). This can reduce memory usage when you only care
@@ -1172,7 +1184,6 @@ def make_jaxpr(
         static_argnums=static_argnums,
         static_argnames=static_argnames,
         axis_env=axis_env,
-        abstracted_axes=abstracted_axes,
         return_only_write=return_only_write,
         name='make_jaxpr'
     )
@@ -1213,34 +1224,6 @@ def _check_callable(fun):
         raise TypeError(f"Expected a function, got a generator function: {fun}")
 
 
-def _broadcast_prefix(
-    prefix_tree: Any,
-    full_tree: Any,
-    is_leaf: Callable[[Any], bool] | None = None
-) -> list[Any]:
-    # If prefix_tree is not a tree prefix of full_tree, this code can raise a
-    # ValueError; use prefix_errors to find disagreements and raise more precise
-    # error messages.
-    result = []
-    num_leaves = lambda t: jax.tree.structure(t).num_leaves
-    add_leaves = lambda x, subtree: result.extend([x] * num_leaves(subtree))
-    jax.tree.map(add_leaves, prefix_tree, full_tree, is_leaf=is_leaf)
-    return result
-
-
-def _flat_axes_specs(
-    abstracted_axes, *args, **kwargs
-) -> list[pe.AbstractedAxesSpec]:
-    if kwargs:
-        raise NotImplementedError
-
-    def ax_leaf(l):
-        return (isinstance(l, dict) and jax.tree_util.all_leaves(l.values()) or
-                isinstance(l, tuple) and jax.tree_util.all_leaves(l, lambda x: x is None))
-
-    return _broadcast_prefix(abstracted_axes, args, ax_leaf)
-
-
 @transformation_with_aux
 def _flatten_fun(in_tree, *args_flat):
     py_args, py_kwargs = jax.tree.unflatten(in_tree, args_flat)
@@ -1253,7 +1236,6 @@ def _make_jaxpr(
     static_argnums: int | Iterable[int] = (),
     axis_env: Sequence[tuple[AxisName, int]] | None = None,
     return_shape: bool = False,
-    abstracted_axes: Any | None = None,
     ir_optimizations: Union[str, Sequence[str]] = None,
 ) -> Callable[..., (ClosedJaxpr | tuple[ClosedJaxpr, Any])]:
     """
@@ -1283,8 +1265,6 @@ def _make_jaxpr(
         is a pytree with the same structure as the output of ``fun`` and where
         the leaves are objects with ``shape``, ``dtype``, and ``named_shape``
         attributes representing the corresponding types of the output leaves.
-    abstracted_axes : Any, optional
-        Axes specifications for abstract interpretation.
     ir_optimizations: str or sequence of str, optional
         A string or sequence of strings specifying IR optimizations to apply
         during jaxpr tracing. If None, no optimizations are applied.
@@ -1330,18 +1310,15 @@ def _make_jaxpr(
             g:f32[] = mul f c
           in (g,) }
     """
+    from jax._src.traceback_util import api_boundary
+    from jax._src.linear_util import annotate
+
     _check_callable(fun)
     static_argnums = _ensure_index_tuple(static_argnums)
 
     def _abstractify(args, kwargs):
         flat_args, in_tree = jax.tree.flatten((args, kwargs))
-        if abstracted_axes is None:
-            return map(shaped_abstractify, flat_args), in_tree, [True] * len(flat_args)
-        else:
-            axes_specs = _flat_axes_specs(abstracted_axes, *args, **kwargs)
-            in_type = pe.infer_lambda_input_type(axes_specs, flat_args)
-            in_avals, keep_inputs = unzip2(in_type)
-            return in_avals, in_tree, keep_inputs
+        return map(shaped_abstractify, flat_args), in_tree, [True] * len(flat_args)
 
     @wraps(fun)
     @api_boundary

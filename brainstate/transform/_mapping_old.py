@@ -21,7 +21,6 @@ import jax
 from brainstate._compatible_import import BatchTracer
 from brainstate._error import BatchAxisError
 from brainstate._state import State, catch_new_states
-from brainstate.random import RandomState
 from brainstate.typing import Missing
 from brainstate.util.filter import Filter
 from ._make_jaxpr import StatefulFunction
@@ -35,6 +34,16 @@ F = TypeVar("F", bound=Callable)
 AxisName = Hashable
 AxisToState = Dict[int, List[State]]
 StateToAxis = Dict[State, int]
+
+_rand = None
+
+
+def _import_rand_state():
+    global _rand
+    if _rand is None:
+        from brainstate.random import RandomState
+        _rand = RandomState
+    return _rand
 
 
 def _flatten_in_out_states(
@@ -182,6 +191,8 @@ def _vmap_transform(
     axis_name: AxisName | None = None,
     spmd_axis_name: AxisName | tuple[AxisName, ...] | None = None,
 ):
+    RandomState = _import_rand_state()
+
     # format state axes
     (
         axis_to_in_states,

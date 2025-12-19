@@ -23,7 +23,6 @@ import jax.numpy as jnp
 
 from brainstate._state import State
 from brainstate._utils import set_module_as
-from brainstate.random import split_key
 from brainstate.typing import SeedOrKey, Missing
 from ._grad_transform import GradientTransform
 from ._util import warp_grad_fn, tree_random_split
@@ -124,6 +123,7 @@ def _sofo_grad_impl(
         argnums (int, sequence of int, optional): Argument numbers to differentiate with respect to. Defaults to 0.
         has_aux (bool, optional): Whether the function ``fn`` returns auxiliary data. Defaults to False.
     """
+    from brainstate.random._seed import split_key
 
     def wrapper(*args, **kwargs):
         f_partial, params = warp_grad_fn(fn, argnums, args, kwargs)

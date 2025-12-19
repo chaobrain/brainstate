@@ -26,7 +26,6 @@ from brainstate._compatible_import import Device, make_iota, to_elt, BatchTracer
 from brainstate._error import BatchAxisError
 from brainstate._state import State, StateTraceStack
 from brainstate._utils import set_module_as
-from brainstate.random import RandomState
 from brainstate.typing import Missing, Filter
 from brainstate.util import NestedDict
 from brainstate.util.filter import to_predicate
@@ -42,6 +41,15 @@ __all__ = [
 
 F = TypeVar("F", bound=Callable)
 AxisName = Hashable
+_rand = None
+
+
+def _import_rand_state():
+    global _rand
+    if _rand is None:
+        from brainstate.random import RandomState
+        _rand = RandomState
+    return _rand
 
 
 class StatefulMapping(StatefulFunction):
@@ -175,7 +183,6 @@ class StatefulMapping(StatefulFunction):
         static_argnums: Union[int, Iterable[int]] = (),
         static_argnames: Union[str, Iterable[str]] = (),
         axis_env: Optional[Sequence[tuple[Hashable, int]]] = None,
-        abstracted_axes: Optional[Any] = None,
         return_only_write: bool = True,
         # mapping specific parameters
         axis_size: Optional[int] = None,
@@ -189,7 +196,6 @@ class StatefulMapping(StatefulFunction):
             static_argnums=static_argnums,
             static_argnames=static_argnames,
             axis_env=axis_env,
-            abstracted_axes=abstracted_axes,
             return_only_write=return_only_write,
         )
         self.origin_fun = fun
@@ -198,7 +204,6 @@ class StatefulMapping(StatefulFunction):
             static_argnums=static_argnums,
             static_argnames=static_argnames,
             axis_env=axis_env,
-            abstracted_axes=abstracted_axes,
             return_only_write=return_only_write,
         )
 
@@ -286,6 +291,8 @@ class StatefulMapping(StatefulFunction):
         return batch_sizes[0]
 
     def __new_batch_arg(self, trace, batch_size: int, dim_to_states: dict):
+        RandomState = _import_rand_state()
+
         def wrapper(x):
             if isinstance(x, RandomState):
                 idx = lambda: BatchTracer(trace, make_iota(batch_size), 0, source_info_util.current())
@@ -312,6 +319,7 @@ class StatefulMapping(StatefulFunction):
         return dim
 
     def __fn_to_eval(self, cache_key, *new_args, **new_kwargs):
+        RandomState = _import_rand_state()
         if len(new_kwargs):
             raise NotImplementedError(
                 'StatefulMapping currently does not support keyword arguments.'
@@ -395,6 +403,7 @@ class StatefulMapping(StatefulFunction):
             raise e
 
     def __assign_vals_from_in_states(self, cache_key, rand_st, *other_st):
+        RandomState = _import_rand_state()
         in_states = self._cached_map_dim_to_in_states.get(cache_key)
         for st, val in zip(in_states['random'], rand_st):
             assert isinstance(st, RandomState)
@@ -404,6 +413,7 @@ class StatefulMapping(StatefulFunction):
                 st.restore_value(val)
 
     def __assign_vals_from_out_states(self, cache_key, rand_st, *other_st):
+        RandomState = _import_rand_state()
         out_states = self._cached_map_dim_to_out_states.get(cache_key)
         for st, val in zip(out_states['random'], rand_st):
             assert isinstance(st, RandomState)
@@ -435,6 +445,7 @@ class StatefulMapping(StatefulFunction):
         return tuple(out_axes), out_values
 
     def __get_rand_state_vals(self, cache_key: Hashable):
+        RandomState = _import_rand_state()
         in_states = self._cached_map_dim_to_in_states.get(cache_key)
         batch_size = self._cached_map_batch_size.get(cache_key)
         rand_vals, rand_recover_vals = [], []
@@ -445,6 +456,7 @@ class StatefulMapping(StatefulFunction):
         return tuple(rand_vals), tuple(rand_recover_vals)
 
     def __wrapped_fun(self, *args, **kwargs) -> Tuple[Any, Tuple[State, ...]]:
+        RandomState = _import_rand_state()
         if len(kwargs):
             raise NotImplementedError(
                 'StatefulMapping currently does not support keyword arguments.'

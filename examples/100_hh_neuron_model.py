@@ -14,14 +14,15 @@
 # ==============================================================================
 
 
+import brainpy.state
 import brainunit as u
+import brainstate
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 
-import brainstate
 
 
-class HH(brainstate.nn.Dynamics):
+class HH(brainpy.state.Neuron):
     def __init__(
         self,
         in_size,
@@ -90,7 +91,6 @@ class HH(brainstate.nn.Dynamics):
         self.h.value = h
         self.n.value = n
         return spike
-
 
 
 hh = HH(10)
