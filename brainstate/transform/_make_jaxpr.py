@@ -62,8 +62,6 @@ from typing import Any, Callable, Dict, Optional, Tuple, Union
 import jax
 import jax.numpy as jnp
 from jax._src import source_info_util
-from jax._src.linear_util import annotate
-from jax._src.traceback_util import api_boundary
 from jax.api_util import shaped_abstractify
 from jax.extend.linear_util import transformation_with_aux
 from jax.interpreters import partial_eval as pe
@@ -849,20 +847,31 @@ class StatefulFunction(PrettyObject):
                 dyn_args = tuple(args[i] for i in range(len(args)) if i not in self.static_argnums)
 
                 # jaxpr
-                jaxpr, (out_shapes, state_shapes) = _make_jaxpr(
-                    functools.partial(
-                        self._wrapped_fun_to_eval,
-                        cache_key,
-                        static_kwargs,
-                    ),
-                    static_argnums=self.static_argnums,
-                    axis_env=self.axis_env,
-                    return_shape=True,
-                    abstracted_axes=self.abstracted_axes,
-                    ir_optimizations=self.ir_optimizations,
-                )(*args, **dyn_kwargs)
+                if jax.__version_info__ >= (0, 8, 2):
+                    jaxpr, (out_shapes, state_shapes) = jax.make_jaxpr(
+                        functools.partial(
+                            self._wrapped_fun_to_eval,
+                            cache_key,
+                            static_kwargs,
+                        ),
+                        static_argnums=self.static_argnums,
+                        axis_env=self.axis_env,
+                        return_shape=True,
+                    )(*args, **dyn_kwargs)
+                else:
+                    jaxpr, (out_shapes, state_shapes) = _make_jaxpr(
+                        functools.partial(
+                            self._wrapped_fun_to_eval,
+                            cache_key,
+                            static_kwargs,
+                        ),
+                        static_argnums=self.static_argnums,
+                        axis_env=self.axis_env,
+                        return_shape=True,
+                        abstracted_axes=self.abstracted_axes,
+                        ir_optimizations=self.ir_optimizations,
+                    )(*args, **dyn_kwargs)
 
-                # returns
                 self._cached_jaxpr_out_tree.set(cache_key, jax.tree.structure((out_shapes, state_shapes)))
                 self._cached_out_shapes.set(cache_key, (out_shapes, state_shapes))
                 self._cached_jaxpr.set(cache_key, jaxpr)
@@ -1353,6 +1362,9 @@ def _make_jaxpr(
             g:f32[] = mul f c
           in (g,) }
     """
+    from jax._src.traceback_util import api_boundary
+    from jax._src.linear_util import annotate
+
     _check_callable(fun)
     static_argnums = _ensure_index_tuple(static_argnums)
 
@@ -1398,6 +1410,7 @@ def _make_jaxpr(
     if hasattr(fun, "__name__"):
         make_jaxpr_f.__name__ = f"make_jaxpr({fun.__name__})"
     return make_jaxpr_f
+
 
 
 def _make_hashable(obj):

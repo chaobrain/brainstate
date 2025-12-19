@@ -61,7 +61,6 @@ def _get_jitted_fun(
     device,
     backend,
     inline,
-    abstracted_axes,
     **kwargs
 ) -> JittedFunction:
     static_argnums = tuple() if static_argnums is None else _ensure_index_tuple(static_argnums)
@@ -70,7 +69,6 @@ def _get_jitted_fun(
         fun,
         static_argnums=static_argnums,
         static_argnames=static_argnames,
-        abstracted_axes=abstracted_axes,
         name='jit',
         return_only_write=True
     )
@@ -93,7 +91,6 @@ def _get_jitted_fun(
         inline=inline,
         in_shardings=in_shardings,
         out_shardings=out_shardings,
-        abstracted_axes=abstracted_axes,
         **kwargs
     )
 
@@ -236,7 +233,6 @@ def jit(
     device: Device | None = None,
     backend: str | None = None,
     inline: bool = False,
-    abstracted_axes: Any | None = None,
     name: str = None,
     **kwargs
 ) -> Union[JittedFunction, Callable[[Callable], JittedFunction]]:
@@ -355,8 +351,6 @@ def jit(
         Specify whether this function should be inlined into enclosing
         jaxprs (rather than being represented as an application of the xla_call
         primitive with its own subjaxpr). Default False.
-    abstracted_axes : Any, optional
-        Abstracted axes specification.
     **kwargs
         Additional keyword arguments passed to the underlying JAX jit function.
 
@@ -423,7 +417,6 @@ def jit(
                 device=device,
                 backend=backend,
                 inline=inline,
-                abstracted_axes=abstracted_axes,
                 **kwargs
             )
 
@@ -443,6 +436,5 @@ def jit(
             device=device,
             backend=backend,
             inline=inline,
-            abstracted_axes=abstracted_axes,
             **kwargs
         )
