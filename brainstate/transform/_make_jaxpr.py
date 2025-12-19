@@ -903,29 +903,51 @@ class StatefulFunction(PrettyObject):
         ValueError
             If the number of state values doesn't match the expected number.
         """
-        # state checking
+        if jax.config.jax_disable_jit:
+            return self.debug_call(state_vals, *args, **kwargs)
+
+        else:
+            # state checking
+            cache_key = self.get_arg_cache_key(*args, **kwargs)
+            states: Sequence[State] = self.get_states_by_cache(cache_key)
+            if len(state_vals) != len(states):
+                raise ValueError(f'State length mismatch: expected {len(states)} states, got {len(state_vals)}')
+
+            # parameters
+            kwargs = {k: v for k, v in kwargs.items() if k not in self.static_argnames}  # remove static kwargs
+            args = tuple(args[i] for i in range(len(args)) if i not in self.static_argnums)
+            args = jax.tree.flatten((args, kwargs, state_vals))[0]
+
+            # calling the function,
+            # note that this function always returns state values
+            # that both write and read by the function
+            closed_jaxpr = self.get_jaxpr_by_cache(cache_key)
+            out_treedef = self.get_out_treedef_by_cache(cache_key)
+            jaxpr_outs = jax.core.eval_jaxpr(closed_jaxpr.jaxpr, closed_jaxpr.consts, *args)
+
+            # output processing
+            out, new_state_vals = out_treedef.unflatten(jaxpr_outs)
+            if len(new_state_vals) != len(state_vals):
+                raise ValueError(
+                    f'State length mismatch in output: expected '
+                    f'{len(state_vals)} states, got {len(new_state_vals)}'
+                )
+            return new_state_vals, out
+
+    def debug_call(self, state_vals, *args, **kwargs) -> Any:
         cache_key = self.get_arg_cache_key(*args, **kwargs)
         states: Sequence[State] = self.get_states_by_cache(cache_key)
         if len(state_vals) != len(states):
             raise ValueError(f'State length mismatch: expected {len(states)} states, got {len(state_vals)}')
-
-        # parameters
-        kwargs = {k: v for k, v in kwargs.items() if k not in self.static_argnames}  # remove static kwargs
-        args = tuple(args[i] for i in range(len(args)) if i not in self.static_argnums)
-        args = jax.tree.flatten((args, kwargs, state_vals))[0]
-
-        # calling the function,
-        # note that this function always returns state values
-        # that both write and read by the function
-        closed_jaxpr = self.get_jaxpr_by_cache(cache_key)
-        out_treedef = self.get_out_treedef_by_cache(cache_key)
-        jaxpr_outs = jax.core.eval_jaxpr(closed_jaxpr.jaxpr, closed_jaxpr.consts, *args)
-
-        # output processing
-        out, new_state_vals = out_treedef.unflatten(jaxpr_outs)
-        if len(new_state_vals) != len(state_vals):
-            raise ValueError(f'State length mismatch in output: expected '
-                             f'{len(state_vals)} states, got {len(new_state_vals)}')
+        for st, val in zip(states, state_vals):
+            st.restore_value(val)
+        out = self.fun(*args, **kwargs)
+        state_trace = self.get_state_trace_by_cache(cache_key)
+        new_state_vals = (
+            state_trace.get_write_state_values(True)
+            if self.return_only_write else
+            state_trace.get_state_values()
+        )
         return new_state_vals, out
 
     def get_cache_stats(self) -> Dict[str, Any]:
@@ -1043,7 +1065,10 @@ class StatefulFunction(PrettyObject):
         """
         state_trace = self.get_state_trace_by_cache(self.get_arg_cache_key(*args, **kwargs, compile_if_miss=True))
         all_read_state_vals = state_trace.get_read_state_values(True)
-        state_vals, out = self.jaxpr_call(state_trace.get_state_values(), *args, **kwargs)
+        if jax.config.jax_disable_jit:
+            state_vals, out = self.debug_call(state_trace.get_state_values(), *args, **kwargs)
+        else:
+            state_vals, out = self.jaxpr_call(state_trace.get_state_values(), *args, **kwargs)
         state_trace.assign_state_vals_v2(all_read_state_vals, state_vals)
         return out
 
