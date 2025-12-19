@@ -183,7 +183,6 @@ class StatefulMapping(StatefulFunction):
         static_argnums: Union[int, Iterable[int]] = (),
         static_argnames: Union[str, Iterable[str]] = (),
         axis_env: Optional[Sequence[tuple[Hashable, int]]] = None,
-        abstracted_axes: Optional[Any] = None,
         return_only_write: bool = True,
         # mapping specific parameters
         axis_size: Optional[int] = None,
@@ -197,7 +196,6 @@ class StatefulMapping(StatefulFunction):
             static_argnums=static_argnums,
             static_argnames=static_argnames,
             axis_env=axis_env,
-            abstracted_axes=abstracted_axes,
             return_only_write=return_only_write,
         )
         self.origin_fun = fun
@@ -206,7 +204,6 @@ class StatefulMapping(StatefulFunction):
             static_argnums=static_argnums,
             static_argnames=static_argnames,
             axis_env=axis_env,
-            abstracted_axes=abstracted_axes,
             return_only_write=return_only_write,
         )
 
