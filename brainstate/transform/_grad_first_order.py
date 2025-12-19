@@ -36,7 +36,6 @@ import jax.numpy as jnp
 
 from brainstate._state import State
 from brainstate._utils import set_module_as
-from brainstate.random import split_key
 from brainstate.typing import Missing, SeedOrKey
 from ._grad_transform import GradientTransform
 from ._util import warp_grad_fn, tree_random_split
@@ -328,6 +327,7 @@ def _fwd_grad(
     key: SeedOrKey = None,
 ) -> Callable:
     tangent_size = () if tangent_size is None else (tangent_size,)
+    from brainstate.random._seed import split_key
 
     def wrapper(*args, **kwargs):
         f_partial, params = warp_grad_fn(fun, argnums, args, kwargs)
