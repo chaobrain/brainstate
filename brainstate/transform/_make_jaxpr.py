@@ -1253,9 +1253,7 @@ def _broadcast_prefix(
     return result
 
 
-def _flat_axes_specs(
-    abstracted_axes, *args, **kwargs
-) -> list[pe.AbstractedAxesSpec]:
+def _flat_axes_specs(abstracted_axes, *args, **kwargs):
     if kwargs:
         raise NotImplementedError
 
