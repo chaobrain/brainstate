@@ -47,7 +47,7 @@ from functools import partial
 from typing import Iterable, Hashable, TypeVar, Callable
 
 import jax
-from jax.core import get_aval, Tracer
+from jax.core import Tracer
 from saiunit._compatible_import import wrap_init
 
 __all__ = [
@@ -75,6 +75,11 @@ __all__ = [
     'BatchTrace',
     'is_jit_primitive',
 ]
+
+
+def get_aval(x):
+    return jax.typeof(x)
+
 
 T = TypeVar("T")
 T1 = TypeVar("T1")
@@ -340,7 +345,7 @@ def to_concrete_aval(aval):
         >>> concrete = to_concrete_aval(arr)
         # Returns the concrete array value
     """
-    aval = get_aval(aval)
+    aval = jax.typeof(aval)
     if isinstance(aval, Tracer):
         return aval.to_concrete_value()
     return aval
