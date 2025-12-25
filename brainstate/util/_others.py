@@ -24,16 +24,14 @@ import copy
 import functools
 import gc
 import threading
-import types
 import warnings
 from collections.abc import Iterable, Mapping, MutableMapping
 from typing import (
-    Any, Callable, Dict, Iterator, List, Optional,
-    Tuple, Type, TypeVar, Union, overload
+    Any, Callable, Dict, List, Optional,
+    Tuple, Type, TypeVar, Union
 )
 
 import jax
-from jax.lib import xla_bridge
 
 from brainstate._utils import set_module_as
 
@@ -598,7 +596,8 @@ def clear_buffer_memory(
     """
     if array:
         try:
-            backend = xla_bridge.get_backend(platform)
+            from jax.extend.backend import get_backend
+            backend = get_backend(platform)
             for buf in backend.live_buffers():
                 buf.delete()
         except Exception as e:
