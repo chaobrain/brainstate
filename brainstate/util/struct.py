@@ -31,6 +31,7 @@ from typing_extensions import dataclass_transform
 
 __all__ = [
     'field',
+    'is_dataclass',
     'dataclass',
     'PyTreeNode',
     'FrozenDict',
@@ -46,6 +47,12 @@ K = TypeVar('K')
 V = TypeVar('V')
 T = TypeVar('T')
 TNode = TypeVar('TNode', bound='PyTreeNode')
+
+
+def is_dataclass(cls: Any) -> bool:
+    if hasattr(cls, '_brainstate_dataclass'):
+        return True
+    return False
 
 
 def field(pytree_node: bool = True, **kwargs) -> dataclasses.Field:
@@ -141,7 +148,7 @@ def dataclass(cls: type[T], **kwargs) -> type[T]:
         >>> model2 = model.replace(weights=jnp.ones((3, 3)) * 2)
     """
     # Check if already converted
-    if hasattr(cls, '_brainstate_dataclass'):
+    if is_dataclass(cls):
         return cls
 
     # Default to frozen for immutability
