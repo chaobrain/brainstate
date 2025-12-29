@@ -367,7 +367,7 @@ class RandomState(State):
 
     @jit_named_scope(
         'brainstate/random',
-        static_argnums=lambda self, a, **kwargs: (0, 1, 2, 3) if isinstance(a, int) else (0, 2, 3),
+        static_argnums=lambda self, a, *args, **kwargs: (0, 1, 2, 3) if isinstance(a, int) else (0, 2, 3),
         static_argnames=['size', 'replace']
     )
     def choice(
@@ -744,7 +744,11 @@ class RandomState(State):
     def _check_p(self, *args, **kwargs):
         raise ValueError('Parameter p should be within [0, 1], but we got {p}')
 
-    @jit_named_scope('brainstate/random', static_argnums=(0, 2, 4), static_argnames=['size', 'check_valid'])
+    @jit_named_scope(
+        'brainstate/random',
+        static_argnums=(0, 2, 4),
+        static_argnames=['size', 'check_valid']
+    )
     def bernoulli(
         self,
         p,
@@ -762,7 +766,11 @@ class RandomState(State):
         r = jr.bernoulli(key, p=p, shape=_size2shape(size))
         return r
 
-    @jit_named_scope('brainstate/random', static_argnums=(0, 3, 5), static_argnames=['dtype', 'size'])
+    @jit_named_scope(
+        'brainstate/random',
+        static_argnums=(0, 3, 5),
+        static_argnames=['dtype', 'size']
+    )
     def lognormal(
         self,
         mean=None,
@@ -792,7 +800,11 @@ class RandomState(State):
         samples = jnp.exp(samples)
         return u.maybe_decimal(samples * unit)
 
-    @jit_named_scope('brainstate/random', static_argnums=(0, 3, 5, 6), static_argnames=['dtype', 'size', 'check_valid'])
+    @jit_named_scope(
+        'brainstate/random',
+        static_argnums=(0, 3, 5, 6),
+        static_argnames=['dtype', 'size', 'check_valid']
+    )
     def binomial(
         self,
         n,
@@ -818,7 +830,11 @@ class RandomState(State):
         dtype = dtype or environ.ditype()
         return u.math.asarray(r, dtype=dtype)
 
-    @jit_named_scope('brainstate/random', static_argnums=(0, 2, 4), static_argnames=['dtype', 'size'])
+    @jit_named_scope(
+        'brainstate/random',
+        static_argnums=(0, 2, 4),
+        static_argnames=['dtype', 'size']
+    )
     def chisquare(
         self,
         df,
@@ -840,7 +856,11 @@ class RandomState(State):
             dist = dist.sum(axis=0)
         return dist
 
-    @jit_named_scope('brainstate/random', static_argnums=(0, 2, 4), static_argnames=['dtype', 'size'])
+    @jit_named_scope(
+        'brainstate/random',
+        static_argnums=(0, 2, 4),
+        static_argnames=['dtype', 'size']
+    )
     def dirichlet(
         self,
         alpha,
@@ -854,7 +874,11 @@ class RandomState(State):
         r = jr.dirichlet(key, alpha=alpha, shape=_size2shape(size), dtype=dtype)
         return r
 
-    @jit_named_scope('brainstate/random', static_argnums=(0, 2, 4), static_argnames=['dtype', 'size'])
+    @jit_named_scope(
+        'brainstate/random',
+        static_argnums=(0, 2, 4),
+        static_argnames=['dtype', 'size']
+    )
     def geometric(
         self,
         p,
@@ -874,7 +898,11 @@ class RandomState(State):
     def _check_p2(self, p):
         raise ValueError(f'We require `sum(pvals[:-1]) <= 1`. But we got {p}')
 
-    @jit_named_scope('brainstate/random', static_argnums=(0, 3, 5, 6), static_argnames=['dtype', 'size', 'check_valid'])
+    @jit_named_scope(
+        'brainstate/random',
+        static_argnums=(0, 3, 5, 6),
+        static_argnames=['dtype', 'size', 'check_valid']
+    )
     def multinomial(
         self,
         n,
@@ -899,7 +927,11 @@ class RandomState(State):
         dtype = dtype or environ.ditype()
         return u.math.asarray(r, dtype=dtype)
 
-    @jit_named_scope('brainstate/random', static_argnums=(0, 3, 4, 6), static_argnames=['dtype', 'size', 'method'])
+    @jit_named_scope(
+        'brainstate/random',
+        static_argnums=(0, 3, 4, 6),
+        static_argnames=['dtype', 'size', 'method']
+    )
     def multivariate_normal(
         self,
         mean,
@@ -948,7 +980,11 @@ class RandomState(State):
         r = mean + jnp.einsum('...ij,...j->...i', factor, normal_samples)
         return u.maybe_decimal(r * unit)
 
-    @jit_named_scope('brainstate/random', static_argnums=(0, 2, 4), static_argnames=['dtype', 'size'])
+    @jit_named_scope(
+        'brainstate/random',
+        static_argnums=(0, 2, 4),
+        static_argnames=['dtype', 'size']
+    )
     def rayleigh(
         self,
         scale=1.0,
@@ -965,7 +1001,11 @@ class RandomState(State):
         r = x * scale
         return r
 
-    @jit_named_scope('brainstate/random', static_argnums=(0, 1), static_argnames=['size'])
+    @jit_named_scope(
+        'brainstate/random',
+        static_argnums=(0, 1),
+        static_argnames=['size']
+    )
     def triangular(
         self,
         size: Optional[Size] = None,
@@ -976,7 +1016,11 @@ class RandomState(State):
         r = 2 * bernoulli_samples - 1
         return r
 
-    @jit_named_scope('brainstate/random', static_argnums=(0, 3, 5), static_argnames=['dtype', 'size'])
+    @jit_named_scope(
+        'brainstate/random',
+        static_argnums=(0, 3, 5),
+        static_argnames=['dtype', 'size']
+    )
     def vonmises(
         self,
         mu,
@@ -997,7 +1041,11 @@ class RandomState(State):
         samples = (samples + jnp.pi) % (2.0 * jnp.pi) - jnp.pi
         return samples
 
-    @jit_named_scope('brainstate/random', static_argnums=(0, 2, 4), static_argnames=['dtype', 'size'])
+    @jit_named_scope(
+        'brainstate/random',
+        static_argnums=(0, 2, 4),
+        static_argnames=['dtype', 'size']
+    )
     def weibull(
         self,
         a,
@@ -1018,7 +1066,11 @@ class RandomState(State):
         r = jnp.power(-jnp.log1p(-random_uniform), 1.0 / a)
         return r
 
-    @jit_named_scope('brainstate/random', static_argnums=(0, 3, 5), static_argnames=['dtype', 'size'])
+    @jit_named_scope(
+        'brainstate/random',
+        static_argnums=(0, 3, 5),
+        static_argnames=['dtype', 'size']
+    )
     def weibull_min(
         self,
         a,
@@ -1043,7 +1095,11 @@ class RandomState(State):
             r /= scale
         return r
 
-    @jit_named_scope('brainstate/random', static_argnums=(0, 1, 3), static_argnames=['dtype', 'size'])
+    @jit_named_scope(
+        'brainstate/random',
+        static_argnums=(0, 1, 3),
+        static_argnames=['dtype', 'size']
+    )
     def maxwell(
         self,
         size: Optional[Size] = None,
@@ -1057,7 +1113,11 @@ class RandomState(State):
         r = jnp.linalg.norm(norm_rvs, axis=-1)
         return r
 
-    @jit_named_scope('brainstate/random', static_argnums=(0, 3, 5), static_argnames=['dtype', 'size'])
+    @jit_named_scope(
+        'brainstate/random',
+        static_argnums=(0, 3, 5),
+        static_argnames=['dtype', 'size']
+    )
     def negative_binomial(
         self,
         n,
@@ -1080,7 +1140,11 @@ class RandomState(State):
         r = self.poisson(lam=rate, key=keys[1], dtype=dtype or environ.ditype())
         return r
 
-    @jit_named_scope('brainstate/random', static_argnums=(0, 3, 5), static_argnames=['dtype', 'size'])
+    @jit_named_scope(
+        'brainstate/random',
+        static_argnums=(0, 3, 5),
+        static_argnames=['dtype', 'size']
+    )
     def wald(
         self,
         mean,
