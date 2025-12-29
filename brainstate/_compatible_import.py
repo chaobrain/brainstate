@@ -78,7 +78,11 @@ __all__ = [
 
 
 def get_aval(x):
-    return jax.typeof(x)
+    if jax.__version_info__ >= (0, 8, 0):
+        return jax.typeof(x)
+    else:
+        from jax.core import get_aval
+        return get_aval(x)
 
 
 T = TypeVar("T")
