@@ -18,6 +18,8 @@ from ._conditions import *
 from ._conditions import __all__ as _conditions_all
 from ._error_if import *
 from ._error_if import __all__ as _error_if_all
+from ._eval_shape import *
+from ._eval_shape import __all__ as eval_shape_all
 from ._find_state import *
 from ._find_state import __all__ as _find_all
 from ._grad_checkpoint import *
@@ -46,10 +48,12 @@ from ._loop_no_collection import *
 from ._loop_no_collection import __all__ as _loop_no_collection_all
 from ._make_jaxpr import *
 from ._make_jaxpr import __all__ as _make_jaxpr_all
-from ._mapping import *
-from ._mapping import __all__ as _mapping_all
-from ._mapping_old import *
-from ._mapping_old import __all__ as _find_state_vmap
+from ._mapping_v1 import *
+from ._mapping_v1 import __all__ as _find_state_vmap
+from ._mapping_v2 import *
+from ._mapping_v2 import __all__ as _mapping_all
+from ._mapping_v3 import *
+from ._mapping_v3 import __all__ as _mapping_v3_all
 from ._progress_bar import *
 from ._progress_bar import __all__ as _progress_bar_all
 from ._unvmap import *
@@ -63,6 +67,8 @@ __all__ += _jit_named_scope_all + _sofo_all
 __all__ += _grad_transform_all
 __all__ += _grad_jac_all
 __all__ += _grad_hessian_all
+__all__ += eval_shape_all
+__all__ += _mapping_v3_all
 del _find_all, _find_state_vmap
 del _constant_fold_all
 del _ad_checkpoint_all
@@ -80,3 +86,5 @@ del _sofo_all
 del _grad_transform_all
 del _grad_jac_all
 del _grad_hessian_all
+del eval_shape_all
+del _mapping_v3_all

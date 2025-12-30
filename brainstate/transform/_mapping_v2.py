@@ -847,7 +847,7 @@ def map(
     jax.lax.scan : Primitive used for the sequential fallback.
     """
     if batch_size is not None:
-        from ._mapping_old import vmap
+        from ._mapping_v1 import vmap
         scan_xs, remainder_xs = _batch_and_remainder(xs, batch_size)
         g = lambda _, x: ((), vmap(f)(*x))
         _, scan_ys = scan(g, (), scan_xs)

@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import threading
 from functools import partial
 from typing import (
@@ -41,6 +42,7 @@ from jax.extend import source_info_util
 
 from brainstate.typing import ArrayLike, PyTree, Missing, Filter
 from brainstate.util import DictManager, PrettyObject
+from brainstate.util._tracers import StateJaxTracer
 from brainstate.util.filter import Nothing
 
 __all__ = [
@@ -207,6 +209,19 @@ def check_state_jax_tracer(val: bool = True) -> Generator[None, None, None]:
         TRACE_CONTEXT.jax_tracer_check.pop()
 
 
+@dataclasses.dataclass
+class StateMetadata(Generic[A]):
+    """
+    The state metadata.
+
+    Args:
+      raw_value: The raw value.
+      metadata: The metadata.
+    """
+    raw_value: A
+    metadata: Mapping[str, Any] = dataclasses.field(default_factory=dict)
+
+
 class State(Generic[A], PrettyObject):
     """
     A generic class representing a dynamic data pointer in the BrainState framework.
@@ -265,6 +280,7 @@ class State(Generic[A], PrettyObject):
     __module__ = 'brainstate'
     _level: int
     _source_info: source_info_util.SourceInfo
+    _trace_state: StateJaxTracer
     _name: Optional[str]
     _value: PyTree
     _been_writen: bool  # useful in `unflatten` and `flatten` graph processing
@@ -297,6 +313,14 @@ class State(Generic[A], PrettyObject):
         """
         tag = metadata.pop('tag', None)
 
+        # avoid using self._setattr to avoid the check
+        vars(self)['_trace_state'] = StateJaxTracer()
+
+        # set the value and metadata
+        if isinstance(value, StateMetadata):
+            metadata.update(dict(value.metadata))
+            value = value.raw_value
+
         # set the value and metadata
         if isinstance(value, State):
             value = value.value
@@ -316,6 +340,31 @@ class State(Generic[A], PrettyObject):
 
         # record the state initialization
         record_state_init(self)
+
+    if not TYPE_CHECKING:
+        def __setattr__(self, name: str, value: Any) -> None:
+            return self._setattr(name, value)
+
+    def _setattr(self, name: str, value: Any):
+        """
+        Check if the state is valid to mutate.
+        """
+        if TRACE_CONTEXT.jax_tracer_check[-1]:
+            self.check_valid_trace(lambda: f'Cannot mutate {type(self).__name__} from a different trace level')
+        object.__setattr__(self, name, value)
+
+    def _setattr_no_check(self, name: str, value: Any):
+        """
+        Set the attribute without checking the trace level.
+        """
+        vars(self)[name] = value
+
+    def check_valid_trace(self, error_msg: Callable[[], str]):
+        """
+        Check if the state is valid to trace.
+        """
+        if not self._trace_state.is_valid():
+            raise TraceContextError(error_msg())
 
     def decrease_stack_level(self):
         """
@@ -349,7 +398,7 @@ class State(Generic[A], PrettyObject):
         """
         Set the name of the state.
         """
-        self._name = name
+        self._setattr_no_check('_name', name)
 
     @property
     def value(self) -> PyTree[ArrayLike]:
@@ -493,8 +542,10 @@ class State(Generic[A], PrettyObject):
             # remove value from kwargs
             kwargs.pop('_value')
             if type(self) is not type(value):
-                raise ValueError('Cannot replace value from incompatible container, '
-                                 f'expected {type(self).__name__}, got {type(value).__name__}')
+                raise ValueError(
+                    f'Cannot replace value from incompatible container, '
+                    f'expected {type(self).__name__}, got {type(value).__name__}'
+                )
             # if kwargs aren't empty, recursively call replace
             # else return variable value
             if kwargs:
@@ -518,6 +569,7 @@ class State(Generic[A], PrettyObject):
         attributes = vars(self).copy()
         # keep its own trace state and stack level
         attributes['_level'] = TRACE_CONTEXT.get_trace_stack_level()
+        attributes['_trace_state'] = StateJaxTracer()
         attributes['_source_info'] = source_info_util.current()
         attributes.pop('_been_writen', None)
         # update the metadata
@@ -527,6 +579,8 @@ class State(Generic[A], PrettyObject):
     def to_state_ref(self: State[A]) -> TreefyState[A]:
         metadata = vars(self).copy()
         del metadata['_value']
+        del metadata['_trace_state']
+        del metadata['_level']
         return TreefyState(type(self), self._value, **metadata)
 
     def __pretty_repr_item__(self, k, v):
@@ -581,6 +635,34 @@ class State(Generic[A], PrettyObject):
     def by(cls, fn, in_size, batch_size: int = None):
         init_param = _get_param()
         return cls(init_param(fn, in_size, batch_size))
+
+    def copy_from(self, other: State[A]) -> None:
+        """
+        Copy the state from another state.
+        """
+        if type(self) is not type(other):
+            raise ValueError(
+                f'Cannot copy from incompatible container, '
+                f'expected {type(self).__name__}, got {type(other).__name__}'
+            )
+        if self is other:
+            return
+
+        # keep the trace state and stack level
+        trace_state = self._trace_state
+        level = self._level
+        source_info = self._source_info
+
+        # copy other metadata
+        other_vars = vars(other).copy()
+        del other_vars['_trace_state']
+        del other_vars['_level']
+        del other_vars['_source_info']
+
+        # update the metadata
+        vars_dict = vars(self)
+        vars_dict.clear()
+        vars_dict.update(other_vars, _trace_state=trace_state, _level=level, _source_info=source_info)
 
 
 def record_state_init(st: State[A]):
