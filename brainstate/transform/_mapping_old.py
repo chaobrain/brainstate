@@ -110,7 +110,10 @@ def _compile_stateful_function(
         args = jax.tree.map(lambda x: _remove_axis(x, in_axes), args)
     elif isinstance(in_axes, tuple):
         args = tuple([
-            arg if in_axis is None else _remove_axis(arg, in_axis)
+            # arg if in_axis is None else _remove_axis(arg, in_axis)
+            arg
+            if in_axis is None else
+            jax.tree.map(lambda x: _remove_axis(x, in_axis), arg)
             for arg, in_axis in zip(args, in_axes)
         ])
     stateful_fn.make_jaxpr(state_vals, args)

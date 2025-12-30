@@ -32,7 +32,9 @@ from ._module import Module
 
 
 __all__ = [
-    'Delay', 'DelayAccess', 'StateWithDelay',
+    'Delay',
+    'DelayAccess',
+    'StateWithDelay',
 ]
 
 _DELAY_ROTATE = 'rotation'
@@ -520,7 +522,8 @@ class StateWithDelay(Delay):
     Access a neuron's membrane potential 5 ms in the past:
 
     >>> import brainunit as u
-    >>> import brainstate as brainstate
+    >>> import brainstate
+    >>> import brainpy
     >>> lif = brainpy.state.LIF(100)
     >>> # Create a delayed accessor to V(t-5ms)
     >>> v_delay = lif.prefetch_delay('V', 5.0 * u.ms)

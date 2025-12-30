@@ -904,7 +904,7 @@ class StatefulFunction(PrettyObject):
 
         else:
             # state checking
-            cache_key = self.get_arg_cache_key(*args, **kwargs)
+            cache_key = self.get_arg_cache_key(*args, **kwargs, compile_if_miss=True)
             states: Sequence[State] = self.get_states_by_cache(cache_key)
             if len(state_vals) != len(states):
                 raise ValueError(f'State length mismatch: expected {len(states)} states, got {len(state_vals)}')
@@ -931,7 +931,7 @@ class StatefulFunction(PrettyObject):
             return new_state_vals, out
 
     def debug_call(self, state_vals, *args, **kwargs) -> Any:
-        cache_key = self.get_arg_cache_key(*args, **kwargs)
+        cache_key = self.get_arg_cache_key(*args, **kwargs, compile_if_miss=True)
         states: Sequence[State] = self.get_states_by_cache(cache_key)
         if len(state_vals) != len(states):
             raise ValueError(f'State length mismatch: expected {len(states)} states, got {len(state_vals)}')
@@ -1059,7 +1059,8 @@ class StatefulFunction(PrettyObject):
             >>> result = sf(x)
             >>> print(state.value)  # State is automatically updated
         """
-        state_trace = self.get_state_trace_by_cache(self.get_arg_cache_key(*args, **kwargs, compile_if_miss=True))
+        cache_key = self.get_arg_cache_key(*args, **kwargs, compile_if_miss=True)
+        state_trace = self.get_state_trace_by_cache(cache_key)
         all_read_state_vals = state_trace.get_read_state_values(True)
         if jax.config.jax_disable_jit:
             state_vals, out = self.debug_call(state_trace.get_state_values(), *args, **kwargs)
