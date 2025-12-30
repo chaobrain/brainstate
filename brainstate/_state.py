@@ -30,8 +30,7 @@ from typing import (
     Dict,
     List,
     Sequence,
-    Generator,
-    Protocol
+    Generator
 )
 
 import brainunit as u
@@ -72,6 +71,14 @@ T = TypeVar('T')
 F = TypeVar('F', bound=Callable[..., Any])
 
 max_int = np.iinfo(np.int32)
+init_param = None
+
+
+def _get_param():
+    global init_param
+    if init_param is None:
+        from braintools.init import param as init_param
+    return init_param
 
 
 # The global state of the state stack is accessed by a thread-local object.
@@ -198,7 +205,6 @@ def check_state_jax_tracer(val: bool = True) -> Generator[None, None, None]:
         yield
     finally:
         TRACE_CONTEXT.jax_tracer_check.pop()
-
 
 
 class State(Generic[A], PrettyObject):
@@ -570,6 +576,11 @@ class State(Generic[A], PrettyObject):
         """
         sizes = [jax.numpy.size(val) for val in jax.tree.leaves(self._value)]
         return sum(sizes)
+
+    @classmethod
+    def by(cls, fn, in_size, batch_size: int = None):
+        init_param = _get_param()
+        return cls(init_param(fn, in_size, batch_size))
 
 
 def record_state_init(st: State[A]):
@@ -2014,6 +2025,10 @@ class StateCatcher(PrettyObject):
         self.state_tag = state_tag
         self.state_ids = set()
         self.states = []
+
+    @property
+    def values(self):
+        return self.get_state_values()
 
     def get_state_values(self) -> List[PyTree]:
         """

@@ -27,12 +27,12 @@ The basic classes include:
 """
 
 import warnings
-from typing import Sequence, Optional, Tuple, Union, TYPE_CHECKING, Callable
+from typing import Sequence, Optional, Tuple, Union, TYPE_CHECKING, Callable, Dict
 
 import numpy as np
 
 from brainstate._error import BrainStateError
-from brainstate._state import State
+from brainstate._state import State, catch_new_states
 from brainstate.graph import Node, states, nodes, flatten
 from brainstate.mixin import ParamDescriber, ParamDesc
 from brainstate.typing import PathParts, Size
@@ -42,7 +42,9 @@ from brainstate.util import FlattedDict, NestedDict
 max_int = np.iinfo(np.int32).max
 
 __all__ = [
-    'Module', 'ElementWiseBlock', 'Sequential',
+    'Module',
+    'ElementWiseBlock',
+    'Sequential',
 ]
 
 
@@ -240,6 +242,18 @@ class Module(Node, ParamDesc):
         if name.startswith('_'):
             return None if value is None else (name[1:], value)  # skip the first `_`
         return name, value
+
+    def new_states(self, *args, **kwargs):
+        from ._collective_ops import init_all_states
+        with catch_new_states() as catcher:
+            init_all_states(self, *args, **kwargs)
+        return catcher
+
+    def vmap_new_states(self, *args, batch_size: int = None, out_states: Dict[int, type] = None, **kwargs):
+        from ._collective_ops import vmap_init_all_states
+        with catch_new_states() as catcher:
+            vmap_init_all_states(self, *args, out_states=out_states, axis_size=batch_size, **kwargs)
+        return catcher
 
 
 class ElementWiseBlock(Module):

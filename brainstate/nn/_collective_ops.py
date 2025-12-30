@@ -16,7 +16,7 @@
 
 import warnings
 from collections.abc import Sequence, Mapping
-from typing import Callable, TypeVar, Any
+from typing import Callable, TypeVar, Any, Dict
 
 import jax
 
@@ -354,6 +354,8 @@ def vmap_init_all_states(
     node_to_exclude: Filter = None,
     state_to_exclude: Filter = None,
     state_tag: str | None = None,
+    in_states: Dict[int, Dict] | Any | None = None,
+    out_states: Dict[int, Dict] | Any | None = None,
     **init_kwargs
 ) -> T:
     """
@@ -424,7 +426,14 @@ def vmap_init_all_states(
         )
         return
 
-    vmap_new_states(init_fn, state_tag=state_tag, axis_size=axis_size, state_to_exclude=state_to_exclude)()
+    vmap_new_states(
+        init_fn,
+        state_tag=state_tag,
+        axis_size=axis_size,
+        state_to_exclude=state_to_exclude,
+        in_states=in_states,
+        out_states=out_states,
+    )()
     return target
 
 
