@@ -21,7 +21,7 @@ import jax.core
 import jax.numpy as jnp
 
 import brainstate
-from brainstate.transform._mapping_v3 import model_vmap
+from brainstate.transform._mapping3 import model_vmap
 
 
 class TestVmap(unittest.TestCase):

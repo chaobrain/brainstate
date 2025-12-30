@@ -178,6 +178,7 @@ class StatefulMapping(StatefulFunction):
         out_axes: Union[int, Tuple[int, ...], None] = 0,
         state_in_axes: Optional[Union[Dict[AxisName, Filter], Filter]] = None,
         state_out_axes: Optional[Union[Dict[AxisName, Filter], Filter]] = None,
+        new_state_axes: Optional[Union[Dict[AxisName, Filter], Filter]] = None,
         unexpected_out_state_mapping: str = 'raise',
         # JIT specific parameters
         static_argnums: Union[int, Iterable[int]] = (),
@@ -227,6 +228,13 @@ class StatefulMapping(StatefulFunction):
             state_out_axes = {0: to_predicate(state_out_axes)}
         state_out_axes = {k: to_predicate(v) for k, v in state_out_axes.items()}  # type: ignore
         self.state_out_axes = state_out_axes
+
+        if new_state_axes is None:
+            new_state_axes = dict()
+        elif not isinstance(new_state_axes, dict):
+            new_state_axes = {0: to_predicate(new_state_axes)}
+        new_state_axes = {k: to_predicate(v) for k, v in new_state_axes.items()}  # type: ignore
+        self.new_state_axes = new_state_axes
 
         self.axis_size = axis_size
         self.axis_name = axis_name
@@ -354,17 +362,21 @@ class StatefulMapping(StatefulFunction):
         for st in state_trace.states:
             if isinstance(st, RandomState):
                 continue
+            find_dim = self.__find_batch_dim(st)
             find = False
             for dim, filter_ in self.state_out_axes.items():
                 if filter_(tuple(), st):
                     out_states[dim].append(st)
+                    if dim is None and find_dim is not None:
+                        raise BatchAxisError(
+                            f''
+                        )
                     find = True
                     break
             if find:
                 continue
-            dim = self.__find_batch_dim(st)
-            if dim is None or id(st) in mapped_in_states:
-                out_states[dim].append(st)
+            if find_dim is None or id(st) in mapped_in_states:
+                out_states[find_dim].append(st)
             else:
                 if self.unexpected_out_state_mapping == 'raise':
                     st.raise_error_with_source_info(
@@ -379,9 +391,9 @@ class StatefulMapping(StatefulFunction):
                         f'Please adjust state_out_axes or set unexpected_out_state_mapping to "ignore".',
                         UserWarning,
                     )
-                    out_states[dim].append(st)
+                    out_states[find_dim].append(st)
                 elif self.unexpected_out_state_mapping == 'ignore':
-                    out_states[dim].append(st)
+                    out_states[find_dim].append(st)
                 else:
                     raise ValueError(
                         'Invalid value for unexpected_out_state_mapping: '
@@ -475,7 +487,8 @@ class StatefulMapping(StatefulFunction):
         def fn_to_map(origin_args, rand_st, *non_rand_st):
             self.__assign_vals_from_in_states(cache_key, rand_st, *non_rand_st)
             out = self.traced_fn(*origin_args)
-            return out, *self.__get_out_state_vals(cache_key)[1]
+            state_outs = self.__get_out_state_vals(cache_key)[1]
+            return out, *state_outs
 
         in_axes, in_state_vals = self.__get_in_state_vals(cache_key)
         out_axes, out_state_vals = self.__get_out_state_vals(cache_key)
@@ -851,7 +864,7 @@ def map(
     jax.lax.scan : Primitive used for the sequential fallback.
     """
     if batch_size is not None:
-        from ._mapping_v1 import vmap
+        from ._mapping1 import vmap
         scan_xs, remainder_xs = _batch_and_remainder(xs, batch_size)
         g = lambda _, x: ((), vmap(f)(*x))
         _, scan_ys = scan(g, (), scan_xs)

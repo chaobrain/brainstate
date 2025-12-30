@@ -48,12 +48,12 @@ from ._loop_no_collection import *
 from ._loop_no_collection import __all__ as _loop_no_collection_all
 from ._make_jaxpr import *
 from ._make_jaxpr import __all__ as _make_jaxpr_all
-from ._mapping_v1 import *
-from ._mapping_v1 import __all__ as _find_state_vmap
-from ._mapping_v2 import *
-from ._mapping_v2 import __all__ as _mapping_all
-from ._mapping_v3 import *
-from ._mapping_v3 import __all__ as _mapping_v3_all
+from ._mapping1 import *
+from ._mapping1 import __all__ as _find_state_vmap
+from ._mapping2 import *
+from ._mapping2 import __all__ as _mapping_all
+from ._mapping3 import *
+from ._mapping3 import __all__ as _mapping_v3_all
 from ._progress_bar import *
 from ._progress_bar import __all__ as _progress_bar_all
 from ._unvmap import *

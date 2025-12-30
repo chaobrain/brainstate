@@ -708,7 +708,7 @@ class TestOptimizationWithBrainState(unittest.TestCase):
             return state.value
 
         # Create a vmapped version with proper state axes
-        from brainstate.transform._mapping_v2 import StatefulMapping
+        from brainstate.transform._mapping2 import StatefulMapping
         mapper = StatefulMapping(
             f,
             in_axes=0,
