@@ -254,7 +254,7 @@ class Delay(Module):
 
             # delay variable
             if self.max_length <= max_delay_step + 1:
-                self.max_length = max_delay_step + 1
+                self.max_length = int(max_delay_step + 1)
             return delay_step, *delay_time[1:]
 
     def register_entry(self, entry: str, *delay_time) -> 'Delay':

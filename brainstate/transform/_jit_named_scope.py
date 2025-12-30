@@ -16,7 +16,7 @@
 import functools
 from typing import Sequence, Union, Callable, Optional
 
-from brainstate._state import TRACE_CONTEXT
+from brainstate import environ
 from ._jit import jit, JittedFunction
 
 __all__ = [
@@ -104,7 +104,9 @@ def fn_to_call(
     @functools.wraps(fn)
     def wrapper(*args, **kwargs):
         """Call the JIT-compiled function."""
-        if TRACE_CONTEXT.get_trace_stack_level() > 0:
+        ir_compilation = environ.get('ir_compilation', False)
+
+        if ir_compilation:
             jit_fn = _get_jit_fn(*args, **kwargs)
             return jit_fn(*args, **kwargs)
         else:

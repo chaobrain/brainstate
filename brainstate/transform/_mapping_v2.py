@@ -190,6 +190,7 @@ class StatefulMapping(StatefulFunction):
         name: Optional[str] = None,
         # mapping function
         mapping_fn: Callable = jax.vmap,
+        mapping_kwargs: Dict = None
     ):
         super().__init__(
             self.__wrapped_fun,
@@ -214,7 +215,10 @@ class StatefulMapping(StatefulFunction):
             state_in_axes = dict()
         elif not isinstance(state_in_axes, dict):
             state_in_axes = {0: to_predicate(state_in_axes)}
-        state_in_axes = {k: to_predicate(v) for k, v in state_in_axes.items()}  # type: ignore
+        state_in_axes = {
+            k: to_predicate(v)
+            for k, v in state_in_axes.items()
+        }  # type: ignore
         self.state_in_axes = state_in_axes
 
         if state_out_axes is None:
@@ -227,6 +231,7 @@ class StatefulMapping(StatefulFunction):
         self.axis_size = axis_size
         self.axis_name = axis_name
         self.mapping_fn = mapping_fn
+        self.mapping_kwargs = dict() if mapping_kwargs is None else mapping_kwargs
         self.unexpected_out_state_mapping = unexpected_out_state_mapping
 
         # Cache for discovered state-to-axis mappings
@@ -297,7 +302,7 @@ class StatefulMapping(StatefulFunction):
             if isinstance(x, RandomState):
                 idx = lambda: BatchTracer(trace, make_iota(batch_size), 0, source_info_util.current())
                 dim_to_states['random'].append(x)
-                return to_elt(trace, idx, self._rand_value, 0)
+                return to_elt(trace, idx, x._numpy_keys(batch_size), 0)
             for dim, filter_ in self.state_in_axes.items():
                 idx = lambda: BatchTracer(trace, make_iota(batch_size), dim, source_info_util.current())
                 if filter_(tuple(), x):
@@ -456,7 +461,6 @@ class StatefulMapping(StatefulFunction):
         return tuple(rand_vals), tuple(rand_recover_vals)
 
     def __wrapped_fun(self, *args, **kwargs) -> Tuple[Any, Tuple[State, ...]]:
-        RandomState = _import_rand_state()
         if len(kwargs):
             raise NotImplementedError(
                 'StatefulMapping currently does not support keyword arguments.'
@@ -465,7 +469,6 @@ class StatefulMapping(StatefulFunction):
         batch_size = self.__infer_batch_size(args, self.in_axes)
         cache_key = self.get_arg_cache_key(*args, **kwargs)
         if cache_key not in self._cached_map_state_trace:
-            self._rand_value = RandomState._batch_keys(batch_size)
             self._cached_map_batch_size.set(cache_key, batch_size)
             self.__eval(cache_key, *args, **kwargs)
 
@@ -483,6 +486,7 @@ class StatefulMapping(StatefulFunction):
             out_axes=(self.out_axes,) + out_axes,
             axis_size=self.axis_size,
             axis_name=self.axis_name,
+            **self.mapping_kwargs
         )
         out_, *out_state_vals = mapped_fn(args, rand_vals, *in_state_vals)
         self.__assign_vals_from_out_states(cache_key, rand_recover_vals, *out_state_vals)
@@ -568,7 +572,7 @@ def vmap2(
         >>>
         >>> counter = brainstate.ShortTermState(jnp.array(0.0))
         >>>
-        >>> @brainstate.transform.vmap(
+        >>> @brainstate.transform.vmap2(
         ...     in_axes=0,
         ...     out_axes=0,
         ...     state_in_axes={0: OfType(brainstate.ShortTermState)},

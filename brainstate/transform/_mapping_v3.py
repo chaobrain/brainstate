@@ -20,10 +20,12 @@ import functools
 from typing import Any, TypeVar, Callable, Hashable, Sequence, Iterable, Mapping, Tuple, Union, Optional
 
 import jax
+from brainstate._compatible_import import BatchTracer
 
 from brainstate.graph._convert import NodeStates, graph_to_tree, tree_to_graph
 from brainstate.typing import Missing, Filter
 from brainstate.util import NestedDict
+from ._make_jaxpr import StatefulFunction
 
 __all__ = [
     'StateAxes',
@@ -46,7 +48,10 @@ class StateAxes:
 
     def __init__(
         self,
-        filter_axes: Union[Mapping[Filter, Index | Carry | None], Iterable[Tuple[Filter, Index | Carry | None]]],
+        filter_axes: Union[
+            Mapping[Filter, Index | Carry | None],
+            Iterable[Tuple[Filter, Index | Carry | None]]
+        ],
     ):
         iterable = filter_axes.items() if isinstance(filter_axes, Mapping) else filter_axes
         self._filters = tuple(filter_ for filter_, _ in iterable)
@@ -84,11 +89,18 @@ class MapFn:
     f: Callable[..., Any]
     in_axes: Any
     out_axes: Any
+    mapping_size: int = None
 
     def __post_init__(self):
         functools.update_wrapper(self, self.f)
 
+    def _find_batch_tracer(self, x):
+        if isinstance(x, BatchTracer) and self.mapping_size is None:
+            self.mapping_size = x.val.shape[x.batch_dim]
+
     def __call__(self, *pure_args: Tuple[Any, ...]):
+        jax.tree.map(self._find_batch_tracer, pure_args)
+
         # pytree to graph
         args = tree_to_graph(pure_args)
         # call the function
@@ -104,10 +116,6 @@ def _map_transform(
     *,
     in_axes: Optional[int | Sequence[Any]] = 0,
     out_axes: Any = 0,
-    # specific to 'brainstate'
-    rng_splits: int = 0,
-    rng_restore: bool = True,
-    # transform kwargs
     **transform_kwargs,
 ):
     # jax in axes
@@ -123,20 +131,32 @@ def _map_transform(
     )
 
     # mapped function
-    mapped_fn = transform(MapFn(f, in_axes, out_axes), in_axes=jax_in_axes, out_axes=jax_out_axes, **transform_kwargs)
+    map_fn = MapFn(f, in_axes, out_axes)
+    mapped_fn = transform(
+        map_fn,
+        in_axes=jax_in_axes,
+        out_axes=jax_out_axes,
+        **transform_kwargs
+    )
 
     @functools.wraps(f)
-    def map_wrapper(*args):
+    def fn2call(*args):
         # graph to pytree
-        pure_args, rng_backup = graph_to_tree(args, prefix=in_axes, split_fn=_map_split_fn, rng_splits=rng_splits)
+        pure_args, rng_backup = graph_to_tree(args, prefix=in_axes, split_fn=_map_split_fn)
 
         # vmap with pytree
         pure_out = mapped_fn(*pure_args)
 
         # pytree to graph
-        return tree_to_graph(pure_out, rng_backup=rng_backup if (rng_restore and rng_splits > 0) else dict())
+        return tree_to_graph(pure_out)
 
-    return map_wrapper  # type: ignore
+    staful_fn = StatefulFunction(fn2call)
+
+    @functools.wraps(f)
+    def map_wrapper(*args):
+        cache_key = staful_fn.get_arg_cache_key(*args, compile_if_miss=True)
+
+    return fn2call  # type: ignore
 
 
 def model_vmap(
@@ -151,46 +171,6 @@ def model_vmap(
     rng_splits: int = 0,
     rng_restore: bool = True,
 ) -> F | Callable[[F], F]:
-    """Reference-aware version of `jax.vmap <https://jax.readthedocs.io/en/latest/_autosummary/jax.vmap.html>`__.
-  
-    Args:
-      f: Function to be mapped over additional axes.
-      in_axes: An integer, None, or sequence of values specifying which input
-        array axes to map over (see `jax.vmap
-        <https://jax.readthedocs.io/en/latest/_autosummary/jax.vmap.html>`__). In
-        addition to integers and None, :class:`StateAxes`  can be used to control
-        how graph nodes like Modules are vectorized by specifying the axes to be
-        applied to substates of the graph node given a `Filter
-        <https://flax.readthedocs.io/en/latest/nnx/filters_guide.html>`__.
-      out_axes: An integer, None, or pytree indicating where the mapped axis
-        should appear in the output (see `jax.vmap
-        <https://jax.readthedocs.io/en/latest/_autosummary/jax.vmap.html>`__).
-      axis_name: Optional, a hashable Python object used to identify the mapped
-        axis so that parallel collectives can be applied.
-      axis_size: Optional, an integer indicating the size of the axis to be
-        mapped. If not provided, the mapped axis size is inferred from arguments.
-  
-    Returns:
-      Batched/vectorized version of ``f`` with arguments that correspond to
-      those of ``f``, but with extra array axes at positions indicated by
-      ``in_axes``, and a return value that corresponds to that of ``f``, but
-      with extra array axes at positions indicated by ``out_axes``.
-  
-    Example::
-  
-      >>> import brainstate
-      >>> import jax.numpy as jnp
-  
-    To control control how graph node substates are vectorized, ``StateAxes``
-    can be passed to ``in_axes`` and ``out_axes`` specifying the axes to be
-    applied to each substate given a filter. The following example shows how to
-    share the parameters between the ensemble members which keeping different
-    batch statistics and dropout random state::
-  
-      >>> import brainstate
-      >>> import jax.numpy as jnp
-  
-    """
     if isinstance(fn, Missing):
         return functools.partial(
             model_vmap,
@@ -199,8 +179,6 @@ def model_vmap(
             axis_name=axis_name,
             axis_size=axis_size,
             spmd_axis_name=spmd_axis_name,
-            rng_splits=rng_splits,
-            rng_restore=rng_restore,
         )  # type: ignore[return-value]
 
     return _map_transform(
@@ -211,8 +189,6 @@ def model_vmap(
         axis_name=axis_name,
         axis_size=axis_size,
         spmd_axis_name=spmd_axis_name,
-        rng_splits=rng_splits,
-        rng_restore=rng_restore,
     )
 
 

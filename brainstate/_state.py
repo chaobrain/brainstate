@@ -584,7 +584,7 @@ class State(Generic[A], PrettyObject):
         return TreefyState(type(self), self._value, **metadata)
 
     def __pretty_repr_item__(self, k, v):
-        if k in ['_level', '_source_info', '_been_writen']:
+        if k in ['_level', '_source_info', '_been_writen', '_trace_state']:
             return None
         if k == '_value':
             return 'value', jax.tree.map(shaped_abstractify, v)
@@ -2224,7 +2224,7 @@ class StateCatcher(PrettyObject):
 def catch_new_states(
     state_tag: str = None,
     state_to_exclude: Filter = Nothing()
-) -> Generator[StateCatcher, None, None]:
+):
     """
     A context manager that catches and tracks new states created within its scope.
 
@@ -2237,10 +2237,6 @@ def catch_new_states(
             Defaults to None.
         state_to_exclude (Filter, optional): A filter object to specify which states
             should be excluded from catching. Defaults to Nothing(), which excludes no states.
-
-    Yields:
-        Catcher: A Catcher object that can be used to access and manage the
-            newly created states within the context.
 
     Example::
 

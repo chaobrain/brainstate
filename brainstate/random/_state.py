@@ -108,10 +108,8 @@ class RandomState(State):
         ):
             self.seed()
 
-    @staticmethod
-    def _batch_keys(batch_size: int):
-        key = jr.PRNGKey(0) if use_prng_key else jr.key(0)
-        return jr.split(key, batch_size)
+    def _numpy_keys(self, batch_size):
+        return np.random.randint(0, 10000, (batch_size, 2), dtype=np.uint32)
 
     # ------------------- #
     # seed and random key #
@@ -640,7 +638,11 @@ class RandomState(State):
         r = jr.t(key, df=df, shape=_size2shape(size), dtype=dtype)
         return r
 
-    @jit_named_scope('brainstate/random', static_argnums=(0, 3, 5), static_argnames=['dtype', 'size'])
+    @jit_named_scope(
+        'brainstate/random',
+        static_argnums=(0, 3, 5),
+        static_argnames=['dtype', 'size']
+    )
     def uniform(
         self,
         low=0.0,

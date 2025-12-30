@@ -159,8 +159,7 @@ def _get_batch_size(
 
 
 def _format_state_axes(
-    in_states,
-    out_states,
+    in_states, out_states,
 ):
     axis_to_in_states, in_state_to_axis = _flatten_in_out_states(in_states)
     axis_to_out_states, out_state_to_axis = _flatten_in_out_states(out_states)
