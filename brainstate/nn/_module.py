@@ -616,8 +616,8 @@ class Module(Node, ParamDesc):
         children = {}
         assert isinstance(self, Module), f'This class must be a nn.Module, but {type(self)}.'
         for name, module in self.nodes(allowed_hierarchy=(1, 1)).items():
-            name = name[0] if len(name) == 1 else name
-            children[name] = module
+            name = name[0] if len(name) == 1 else '.'.join([str(n) for n in name])
+            children[str(name)] = module
         if not children:
             raise NotImplementedError(
                 f"{self.__class__.__name__} is a leaf dynamics and must "
