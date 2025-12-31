@@ -39,6 +39,18 @@ class TestModule(unittest.TestCase):
         print(b.states())
         print(b.states())
 
+    def test_init_all_states(self):
+        model = brainstate.nn.Sequential(
+            brainstate.nn.Linear(10, 10),
+            brainstate.nn.GRUCell(10, 20),
+            brainstate.nn.Linear(10, 10),
+        )
+        a = model.init_all_states()
+        print(a)
+
+        b = model.init_all_states(vmap_size=10)
+        print(b)
+
     def test_reg_loss_aggregation(self):
         """Test reg_loss() method for regularization aggregation."""
         from brainstate.nn import ParaM, L2Reg, L1Reg
@@ -92,6 +104,7 @@ class TestModule(unittest.TestCase):
 
     def test_backward_compatibility(self):
         """Test that existing modules still work."""
+
         # Module with update() override should work as before
         class OldStyleModule(brainstate.nn.Module):
             def __init__(self):
@@ -138,7 +151,6 @@ class TestModule(unittest.TestCase):
 
     def test_named_children(self):
         """Test named_children() iterator."""
-        import jax.numpy as jnp
 
         class SubModule(brainstate.nn.Module):
             pass
@@ -159,6 +171,7 @@ class TestModule(unittest.TestCase):
 
     def test_modules(self):
         """Test modules() method for getting all modules in tree."""
+
         class SubModule(brainstate.nn.Module):
             pass
 
@@ -180,6 +193,7 @@ class TestModule(unittest.TestCase):
 
     def test_named_modules(self):
         """Test named_modules() iterator."""
+
         class SubModule(brainstate.nn.Module):
             pass
 
@@ -255,7 +269,6 @@ class TestModule(unittest.TestCase):
     def test_integration_pytorch_style(self):
         """Test PyTorch-style iteration patterns work correctly."""
         from brainstate.nn import ParaM
-        import jax.numpy as jnp
 
         class Linear(brainstate.nn.Module):
             def __init__(self, in_size, out_size):
