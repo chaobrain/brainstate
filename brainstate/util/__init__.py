@@ -13,15 +13,31 @@
 # limitations under the License.
 # ==============================================================================
 
+# Module imports (exposed as submodules)
 from . import filter
+
+# Wildcard imports from internal modules (alphabetically sorted)
+from ._cache import *
+from ._cache import __all__ as _cache_all
 from ._others import *
 from ._others import __all__ as _others_all
 from ._pretty_pytree import *
-from ._pretty_pytree import __all__ as _mapping_all
+from ._pretty_pytree import __all__ as _pretty_pytree_all
 from ._pretty_repr import *
 from ._pretty_repr import __all__ as _pretty_repr_all
+from ._tracers import *
+from ._tracers import __all__ as _tracers_all
 from .struct import *
 from .struct import __all__ as _struct_all
 
-__all__ = ['filter'] + _others_all + _pretty_repr_all + _struct_all + _mapping_all
-del _others_all, _pretty_repr_all, _struct_all, _mapping_all
+__all__ = (
+    ['filter']
+    + _cache_all
+    + _others_all
+    + _pretty_pytree_all
+    + _pretty_repr_all
+    + _struct_all
+    + _tracers_all
+)
+
+del _cache_all, _others_all, _pretty_pytree_all, _pretty_repr_all, _struct_all, _tracers_all
