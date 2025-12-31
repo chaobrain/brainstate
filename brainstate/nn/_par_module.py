@@ -158,7 +158,7 @@ class ParaM(Module):
                 name='param_cache_invalidator'
             )
 
-    def cache(self) -> None:
+    def cache(self) -> Data:
         """
         Manually cache the transformed value.
 
