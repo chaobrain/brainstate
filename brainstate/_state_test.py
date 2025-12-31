@@ -916,8 +916,8 @@ class TestContextManagers(unittest.TestCase):
             state2 = brainstate.State(jnp.ones(3))
 
         self.assertEqual(len(catcher), 2)
-        self.assertEqual(state1.tag, 'test_tag')
-        self.assertEqual(state2.tag, 'test_tag')
+        self.assertIn('test_tag', state1.tag)
+        self.assertIn('test_tag', state2.tag)
 
     def test_catch_new_states_get_states(self):
         """Test getting caught states."""
@@ -947,7 +947,7 @@ class TestStateCatcher(unittest.TestCase):
             state = brainstate.State(jnp.zeros(3))
 
         self.assertEqual(len(catcher), 1)
-        self.assertEqual(state.tag, 'test')
+        self.assertIn('test', state.tag)
 
     def test_catch_multiple_states(self):
         """Test catching multiple states."""
@@ -1073,7 +1073,7 @@ class TestStateHooks(unittest.TestCase):
         )
 
         self.assertEqual(captured_metadata['_name'], 'my_state')
-        self.assertEqual(captured_metadata['tag'], ['network'])
+        self.assertIn('network', captured_metadata['tag'])
 
     def test_init_hook_priority_ordering(self):
         """Test init hooks execute in priority order."""

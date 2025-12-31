@@ -33,13 +33,13 @@ from typing import Sequence, Optional, Tuple, Union, TYPE_CHECKING, Callable, Di
 import numpy as np
 
 from brainstate._error import BrainStateError
-from brainstate._state import catch_new_states, StateCatcher, ParamState
+from brainstate._state import catch_new_states, StateCatcher, ParamState, NonBatchState
 from brainstate.graph import Node, states, nodes, flatten
 from brainstate.mixin import ParamDescriber, ParamDesc
 from brainstate.transform._mapping2 import vmap2
 from brainstate.typing import Size, Filter
 from brainstate.util import FlattedDict, NestedDict
-from brainstate.util.filter import to_predicate
+from brainstate.util.filter import to_predicate, Any as AnyPredicate
 
 __all__ = [
     'Module',
@@ -49,6 +49,7 @@ __all__ = [
 
 # maximum integer
 max_int = np.iinfo(np.int32).max
+INIT_NON_BATCHING = 'non_init_batch'
 
 
 class Module(Node, ParamDesc):
@@ -379,17 +380,13 @@ class Module(Node, ParamDesc):
             yield name, module
 
     def par_modules(
-        self,
-        *filters,
-        allowed_hierarchy: Tuple[int, int] = (0, max_int),
-    ) -> FlattedDict | Tuple[FlattedDict, ...]:
+        self, allowed_hierarchy: Tuple[int, int] = (0, max_int),
+    ) -> Iterator['ParaM']:
         """
         Collect all ParaM parameters in this module and children.
 
         Parameters
         ----------
-        filters : Any
-          The filters to select the parameters.
         allowed_hierarchy : tuple of int
           The hierarchy of the parameters to be collected.
 
@@ -410,19 +407,17 @@ class Module(Node, ParamDesc):
         >>> # Get parameters with regularization
         >>> regularized = model.par_modules(lambda path, p: p.reg is not None)
         """
-        from ._par_module import ParaM
-        return self.nodes(ParaM, *filters, allowed_hierarchy=allowed_hierarchy)
+        for name, module in self.named_par_modules(allowed_hierarchy=allowed_hierarchy):
+            yield module
 
-    def named_par_modules(self, *filters, **kwargs):
+    def named_par_modules(self, allowed_hierarchy: Tuple[int, int] = (0, max_int), ):
         """
         Iterate over (name, parameter) pairs.
 
         Parameters
         ----------
-        filters : Any
-            Filters to apply.
-        **kwargs : Any
-            Additional arguments passed to params().
+        allowed_hierarchy: tuple of int
+            The hierarchy of the parameters to be collected.
 
         Yields
         ------
@@ -439,20 +434,16 @@ class Module(Node, ParamDesc):
         layer1.bias: (20,)
         layer2.weight: (20, 5)
         """
-        params_dict = self.par_modules(*filters, **kwargs)
+        from ._par_module import ParaM
+        params_dict = self.nodes(ParaM, allowed_hierarchy=allowed_hierarchy)
         for path, param in params_dict.items():
             # Convert path tuple to dot-separated string
             name = '.'.join(str(p) for p in path)
             yield name, param
 
-    def reg_loss(self, *filters):
+    def reg_loss(self):
         """
         Compute total regularization loss from all ParaM parameters.
-
-        Parameters
-        ----------
-        filters : Any
-            Optional filters to select specific parameters.
 
         Returns
         -------
@@ -469,7 +460,7 @@ class Module(Node, ParamDesc):
         >>> from brainstate.nn import L1Reg
         >>> l1_loss = model.reg_loss(lambda path, p: isinstance(p.reg, L1Reg))
         """
-        param_dict = tuple(self.par_modules(*filters))
+        param_dict = tuple(self.par_modules())
         if len(param_dict) == 0:
             return 0.0
         losses = [param.reg_loss() for param in param_dict]
@@ -504,12 +495,29 @@ class Module(Node, ParamDesc):
     def init_all_states(
         self,
         tag: str = None,
+        vmap_size: int = None,
+        state_out_axes: Dict[int, Filter] = None,
         **kwargs
     ) -> StateCatcher:
-        from ._collective_ops import init_all_states
-        with catch_new_states(state_tag=tag) as catcher:
-            init_all_states(self, **kwargs)
-        return catcher
+        if vmap_size is not None:
+            return _vmap_new_states(
+                self,
+                kwargs,
+                state_tag=tag,
+                axis_size=vmap_size,
+                state_out_axes=state_out_axes
+            )
+
+        else:
+            if state_out_axes is not None:
+                warnings.warn(
+                    'The "state_out_axes" argument is only effective when "vmap_size" is specified.',
+                    UserWarning
+                )
+            from ._collective_ops import init_all_states
+            with catch_new_states(state_tag=tag) as catcher:
+                init_all_states(self, **kwargs)
+            return catcher
 
     def parameters(self, recurse: bool = True) -> Iterator[ParamState]:
         """
@@ -588,6 +596,60 @@ class Module(Node, ParamDesc):
                 name = f"{prefix}.{name}"
 
             yield name, param
+
+
+def _vmap_new_states(
+    self,
+    kwargs: Dict,
+    state_tag: str = None,
+    axis_size: int = None,
+    state_out_axes: Dict[int, Filter] = None,
+):
+    if state_out_axes is None:
+        state_out_axes = dict()
+    if not isinstance(state_out_axes, dict):
+        state_out_axes = {0: state_out_axes}
+    # convert filters to predicates
+    state_out_axes = {k: to_predicate(v) for k, v in state_out_axes.items()}
+    # ensure NonBatchState goes to None axis
+    if None not in state_out_axes:
+        state_out_axes[None] = to_predicate(NonBatchState)
+    else:
+        state_out_axes[None] = AnyPredicate(INIT_NON_BATCHING, state_out_axes[None])
+    # ensure default axis 0
+    if 0 not in state_out_axes:
+        state_out_axes[0] = to_predicate(...)
+
+    vmap_states = defaultdict(list)
+
+    @vmap2(axis_size=axis_size, out_axes=tuple(state_out_axes.keys()))
+    def new_fun():
+        catcher_ = self.init_all_states(tag=state_tag, **kwargs)
+        vmap_state_vals_ = defaultdict(list)
+        for st_ in catcher_.get_states():
+            for out_axis_, predicate_ in state_out_axes.items():
+                if predicate_(tuple(), st_):
+                    vmap_state_vals_[out_axis_].append(st_.value)
+                    vmap_states[out_axis_].append(st_)
+                    break
+            else:
+                vmap_state_vals_[0].append(st_.value)
+                vmap_states[0].append(st_)
+        outs = tuple(vmap_state_vals_.get(k, tuple()) for k in state_out_axes)
+        return outs
+
+    # restore vmapped state values
+    with catch_new_states() as catcher:
+        vmap_state_vals = new_fun()
+    vmap_states = tuple(vmap_states.get(k, tuple()) for k in state_out_axes)
+    for st_vals, states in zip(vmap_state_vals, vmap_states):
+        for val, st in zip(st_vals, states):
+            st.restore_value(val)
+            # ------------------------------------------------
+            # --- this is CRUCIAL to avoid jax tracing leakage
+            # ------------------------------------------------
+            st.decrease_stack_level()
+    return catcher
 
 
 class ElementWiseBlock(Module):

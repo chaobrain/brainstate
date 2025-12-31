@@ -19,10 +19,9 @@ from collections import defaultdict
 from typing import Any, Sequence, Hashable, Dict, Union
 
 from brainstate import environ
-from brainstate._state import catch_new_states, StateCatcher
+from brainstate._state import StateCatcher
 from brainstate.transform import vmap, vmap2
 from brainstate.typing import Filter
-from brainstate.util.filter import to_predicate
 from ._module import Module
 
 AxisName = Hashable
@@ -265,19 +264,12 @@ class Vmap2(Module):
         self.module = module
         self.state_out_axes = state_out_axes
 
-    def init_all_states(
-        self,
-        tag: str = None,
-        vmap_size: int = None,
-        state_out_axes: Dict[int, Filter] = None,
-        **kwargs
-    ) -> StateCatcher:
-        return _vmap_new_states(
-            super().init_all_states,
-            kwargs,
+    def init_all_states(self, tag: str = None, vmap_size: int = None, **kwargs) -> StateCatcher:
+        return super().init_all_states(
             state_tag=tag,
-            axis_size=vmap_size,
-            state_out_axes=self.state_out_axes
+            vmap_size=vmap_size,
+            state_out_axes=self.state_out_axes,
+            **kwargs,
         )
 
     def update(self, *args, **kwargs):
@@ -303,50 +295,3 @@ class Vmap2(Module):
             state_in_axes=self.state_out_axes,
         )
         return vmap_fn(*args, **kwargs)
-
-
-def _vmap_new_states(
-    init_all_states,
-    kwargs: Dict,
-    state_tag: str = None,
-    axis_size: int = None,
-    state_out_axes: Dict[int, Filter] = None,
-):
-    if state_out_axes is None:
-        state_out_axes = dict()
-    if not isinstance(state_out_axes, dict):
-        state_out_axes = {0: state_out_axes}
-    state_out_axes = {k: to_predicate(v) for k, v in state_out_axes.items()}
-    if 0 not in state_out_axes:
-        state_out_axes[0] = to_predicate(...)
-
-    vmap_states = defaultdict(list)
-
-    @vmap2(axis_size=axis_size, out_axes=tuple(state_out_axes.keys()))
-    def new_fun():
-        catcher_ = init_all_states(tag=state_tag, **kwargs)
-        vmap_state_vals_ = defaultdict(list)
-        for st_ in catcher_.get_states():
-            for out_axis_, predicate_ in state_out_axes.items():
-                if predicate_(tuple(), st_):
-                    vmap_state_vals_[out_axis_].append(st_.value)
-                    vmap_states[out_axis_].append(st_)
-                    break
-            else:
-                vmap_state_vals_[0].append(st_.value)
-                vmap_states[0].append(st_)
-        outs = tuple(vmap_state_vals_.get(k, tuple()) for k in state_out_axes)
-        return outs
-
-    # restore vmapped state values
-    with catch_new_states() as catcher:
-        vmap_state_vals = new_fun()
-    vmap_states = tuple(vmap_states.get(k, tuple()) for k in state_out_axes)
-    for st_vals, states in zip(vmap_state_vals, vmap_states):
-        for val, st in zip(st_vals, states):
-            st.restore_value(val)
-            # ------------------------------------------------
-            # --- this is CRUCIAL to avoid jax tracing leakage
-            # ------------------------------------------------
-            st.decrease_stack_level()
-    return catcher

@@ -14,8 +14,10 @@
 # ==============================================================================
 
 import numbers
+import threading
+import warnings
 from functools import partial
-from typing import Optional, Dict, Callable, Union, Sequence
+from typing import Optional, Dict, Callable, Union, Sequence, Tuple, Protocol
 
 import brainunit as u
 import jax
@@ -28,19 +30,321 @@ from brainstate.graph import Node
 from brainstate.transform import jit_error_if
 from brainstate.typing import ArrayLike, PyTree
 from ._collective_ops import call_order
-from ._module import Module
-
+from ._module import Module, INIT_NON_BATCHING
 
 __all__ = [
     'Delay',
     'DelayAccess',
     'StateWithDelay',
+    'InterpolationRegistry',
 ]
 
 _DELAY_ROTATE = 'rotation'
 _DELAY_CONCAT = 'concat'
 _INTERP_LINEAR = 'linear_interp'
 _INTERP_ROUND = 'round'
+
+# Interpolation method aliases for backward compatibility
+INTERP_ALIAS_MAP = {
+    'linear_interp': 'linear',
+    'round': 'nearest',
+}
+
+
+class InterpolationMethod(Protocol):
+    """Protocol for custom interpolation methods.
+
+    Custom interpolation methods must implement this protocol to be compatible
+    with the Delay system.
+
+    Parameters
+    ----------
+    history : PyTree
+        Ring buffer data with shape [max_length, *data_shape]
+    indices : Tuple
+        Additional indices to slice the data (for vectorized delays)
+    float_idx : float
+        Float index for interpolation (e.g., 10.3 steps ago)
+    max_length : int
+        Maximum buffer size for modulo wrapping
+
+    Returns
+    -------
+    PyTree
+        Interpolated value matching the structure of history elements
+    """
+
+    def __call__(
+        self,
+        history: PyTree,
+        indices: Tuple,
+        float_idx: float,
+        max_length: int
+    ) -> PyTree:
+        ...
+
+
+class InterpolationRegistry:
+    """Registry for interpolation methods.
+
+    This class manages built-in and custom interpolation methods for the
+    Delay system. Users can register custom interpolation functions and
+    query available methods.
+
+    Examples
+    --------
+    Register a custom interpolation method::
+
+        def my_interp(history, indices, float_idx, max_length):
+            # Custom interpolation logic
+            ...
+
+        InterpolationRegistry.register('my_method', my_interp)
+
+    Use in Delay::
+
+        delay = Delay(target, time=5.0, interpolation='my_method')
+    """
+
+    _methods: Dict[str, Callable] = {}
+
+    @classmethod
+    def register(cls, name: str, method: Callable):
+        """Register a new interpolation method.
+
+        Parameters
+        ----------
+        name : str
+            Name of the interpolation method
+        method : Callable
+            Interpolation function following the InterpolationMethod protocol
+        """
+        cls._methods[name] = method
+
+    @classmethod
+    def get(cls, name: str) -> Callable:
+        """Get an interpolation method by name.
+
+        Parameters
+        ----------
+        name : str
+            Name of the interpolation method
+
+        Returns
+        -------
+        Callable
+            The interpolation function
+
+        Raises
+        ------
+        ValueError
+            If the interpolation method is not registered
+        """
+        if name not in cls._methods:
+            raise ValueError(
+                f"Unknown interpolation method: {name}. "
+                f"Available methods: {cls.list_methods()}"
+            )
+        return cls._methods[name]
+
+    @classmethod
+    def list_methods(cls) -> list:
+        """List all registered interpolation methods.
+
+        Returns
+        -------
+        list
+            List of available interpolation method names
+        """
+        return list(cls._methods.keys())
+
+
+def _nearest_interpolation(history: PyTree, indices: Tuple, float_idx: float, max_length: int) -> PyTree:
+    """Round to nearest index (no interpolation).
+
+    This is the simplest interpolation method that rounds the float index
+    to the nearest integer and retrieves that value.
+    """
+    i = jnp.round(float_idx).astype(jnp.int32) % max_length
+    idx = (i,) + indices
+    return jax.tree.map(lambda h: h[idx], history)
+
+
+def _linear_interpolation(history: PyTree, indices: Tuple, float_idx: float, max_length: int) -> PyTree:
+    """Linear interpolation between two adjacent points.
+
+    Interpolates linearly between floor(float_idx) and ceil(float_idx)
+    based on the fractional part of float_idx.
+    """
+    i0 = jnp.floor(float_idx).astype(jnp.int32) % max_length
+    i1 = jnp.ceil(float_idx).astype(jnp.int32) % max_length
+    t = float_idx - jnp.floor(float_idx)
+
+    idx0 = (i0,) + indices
+    idx1 = (i1,) + indices
+
+    v0 = jax.tree.map(lambda h: h[idx0], history)
+    v1 = jax.tree.map(lambda h: h[idx1], history)
+
+    return jax.tree.map(lambda a, b: a * (1 - t) + b * t, v0, v1)
+
+
+def _cubic_interpolation(history: PyTree, indices: Tuple, float_idx: float, max_length: int) -> PyTree:
+    """Cubic spline interpolation using 4 neighboring points.
+
+    Uses Catmull-Rom spline (a type of cubic Hermite spline) for smooth
+    interpolation. Provides C1 continuity (continuous first derivatives).
+    """
+    i0 = jnp.floor(float_idx).astype(jnp.int32)
+    # Get 4 neighboring points: i0-1, i0, i0+1, i0+2
+    i_m1 = (i0 - 1) % max_length
+    i_0 = i0 % max_length
+    i_1 = (i0 + 1) % max_length
+    i_2 = (i0 + 2) % max_length
+
+    # Fractional part
+    t = float_idx - jnp.floor(float_idx)
+
+    # Catmull-Rom basis functions
+    w_m1 = -0.5 * t ** 3 + t ** 2 - 0.5 * t
+    w_0 = 1.5 * t ** 3 - 2.5 * t ** 2 + 1.0
+    w_1 = -1.5 * t ** 3 + 2.0 * t ** 2 + 0.5 * t
+    w_2 = 0.5 * t ** 3 - 0.5 * t ** 2
+
+    # Gather values
+    idx_m1 = (i_m1,) + indices
+    idx_0 = (i_0,) + indices
+    idx_1 = (i_1,) + indices
+    idx_2 = (i_2,) + indices
+
+    def cubic_interp(h):
+        v_m1 = h[idx_m1]
+        v_0 = h[idx_0]
+        v_1 = h[idx_1]
+        v_2 = h[idx_2]
+        return w_m1 * v_m1 + w_0 * v_0 + w_1 * v_1 + w_2 * v_2
+
+    return jax.tree.map(cubic_interp, history)
+
+
+def _hermite_interpolation(history: PyTree, indices: Tuple, float_idx: float, max_length: int) -> PyTree:
+    """Hermite spline interpolation with smooth derivatives.
+
+    Uses cubic Hermite interpolation with automatically estimated derivatives
+    (finite differences). Provides smoother interpolation than linear.
+    """
+    i0 = jnp.floor(float_idx).astype(jnp.int32)
+    i_m1 = (i0 - 1) % max_length
+    i_0 = i0 % max_length
+    i_1 = (i0 + 1) % max_length
+    i_2 = (i0 + 2) % max_length
+
+    t = float_idx - jnp.floor(float_idx)
+
+    # Hermite basis functions
+    h00 = 2 * t ** 3 - 3 * t ** 2 + 1
+    h10 = t ** 3 - 2 * t ** 2 + t
+    h01 = -2 * t ** 3 + 3 * t ** 2
+    h11 = t ** 3 - t ** 2
+
+    idx_m1 = (i_m1,) + indices
+    idx_0 = (i_0,) + indices
+    idx_1 = (i_1,) + indices
+    idx_2 = (i_2,) + indices
+
+    def hermite_interp(h):
+        v_m1 = h[idx_m1]
+        v_0 = h[idx_0]
+        v_1 = h[idx_1]
+        v_2 = h[idx_2]
+
+        # Estimate derivatives using finite differences
+        m0 = 0.5 * (v_1 - v_m1)  # Derivative at i0
+        m1 = 0.5 * (v_2 - v_0)  # Derivative at i0+1
+
+        return h00 * v_0 + h10 * m0 + h01 * v_1 + h11 * m1
+
+    return jax.tree.map(hermite_interp, history)
+
+
+def _polynomial2_interpolation(history: PyTree, indices: Tuple, float_idx: float, max_length: int) -> PyTree:
+    """Quadratic polynomial interpolation using 3 points.
+
+    Fits a 2nd degree polynomial through 3 neighboring points and
+    evaluates it at the desired position.
+    """
+    i0 = jnp.floor(float_idx).astype(jnp.int32)
+    i_m1 = (i0 - 1) % max_length
+    i_0 = i0 % max_length
+    i_1 = (i0 + 1) % max_length
+
+    t = float_idx - jnp.floor(float_idx)
+
+    # Lagrange polynomial basis functions for 3 points
+    # Points at positions: -1, 0, 1
+    L_m1 = 0.5 * t * (t - 1)
+    L_0 = (1 - t) * (1 + t)
+    L_1 = 0.5 * t * (t + 1)
+
+    idx_m1 = (i_m1,) + indices
+    idx_0 = (i_0,) + indices
+    idx_1 = (i_1,) + indices
+
+    def poly2_interp(h):
+        v_m1 = h[idx_m1]
+        v_0 = h[idx_0]
+        v_1 = h[idx_1]
+        return L_m1 * v_m1 + L_0 * v_0 + L_1 * v_1
+
+    return jax.tree.map(poly2_interp, history)
+
+
+def _polynomial3_interpolation(history: PyTree, indices: Tuple, float_idx: float, max_length: int) -> PyTree:
+    """Cubic polynomial interpolation using 4 points.
+
+    Fits a 3rd degree polynomial through 4 neighboring points and
+    evaluates it at the desired position. Similar to cubic spline but
+    uses Lagrange polynomial basis.
+    """
+    i0 = jnp.floor(float_idx).astype(jnp.int32)
+    i_m1 = (i0 - 1) % max_length
+    i_0 = i0 % max_length
+    i_1 = (i0 + 1) % max_length
+    i_2 = (i0 + 2) % max_length
+
+    t = float_idx - jnp.floor(float_idx)
+
+    # Lagrange polynomial basis functions for 4 points
+    # Points at positions: -1, 0, 1, 2 (relative to i0)
+    L_m1 = -t * (t - 1) * (t - 2) / 6
+    L_0 = (t + 1) * (t - 1) * (t - 2) / 2
+    L_1 = -t * (t + 1) * (t - 2) / 2
+    L_2 = t * (t + 1) * (t - 1) / 6
+
+    idx_m1 = (i_m1,) + indices
+    idx_0 = (i_0,) + indices
+    idx_1 = (i_1,) + indices
+    idx_2 = (i_2,) + indices
+
+    def poly3_interp(h):
+        v_m1 = h[idx_m1]
+        v_0 = h[idx_0]
+        v_1 = h[idx_1]
+        v_2 = h[idx_2]
+        return L_m1 * v_m1 + L_0 * v_0 + L_1 * v_1 + L_2 * v_2
+
+    return jax.tree.map(poly3_interp, history)
+
+
+# Register all built-in interpolation methods
+InterpolationRegistry.register('nearest', _nearest_interpolation)
+InterpolationRegistry.register('round', _nearest_interpolation)  # Alias for backward compatibility
+InterpolationRegistry.register('linear', _linear_interpolation)
+InterpolationRegistry.register('linear_interp', _linear_interpolation)  # Alias for backward compatibility
+InterpolationRegistry.register('cubic', _cubic_interpolation)
+InterpolationRegistry.register('hermite', _hermite_interpolation)
+InterpolationRegistry.register('polynomial2', _polynomial2_interpolation)
+InterpolationRegistry.register('polynomial3', _polynomial3_interpolation)
 
 
 def _get_delay(delay_time):
@@ -118,7 +422,8 @@ class Delay(Module):
 
     max_time: float  #
     max_length: int
-    history: Optional[ShortTermState]
+    history: DelayState
+    write_ptr: ShortTermState  # Write pointer for ring buffer
 
     def __init__(
         self,
@@ -126,28 +431,48 @@ class Delay(Module):
         time: Optional[Union[int, float, u.Quantity]] = None,  # delay time
         init: Optional[Union[ArrayLike, Callable]] = None,  # delay data before t0
         entries: Optional[Dict] = None,  # delay access entry
-        delay_method: Optional[str] = _DELAY_ROTATE,  # delay method
-        interp_method: str = _INTERP_LINEAR,  # interpolation method
-        take_aware_unit: bool = False
+        interpolation: Optional[Union[str, Callable]] = None,  # interpolation method (new parameter)
+        take_aware_unit: bool = False,
+        # deprecated parameters for backward compatibility
+        delay_method: Optional[str] = _DELAY_ROTATE,  # delay method (deprecated, kept for compatibility)
+        interp_method: str = _INTERP_LINEAR,  # interpolation method (deprecated, use interpolation)
     ):
         # target information
         self.target_info = jax.tree.map(lambda a: jax.ShapeDtypeStruct(a.shape, a.dtype), target_info)
 
-        # delay method
+        # delay method (backward compatibility)
         if delay_method is None:
             delay_method = _DELAY_ROTATE
-        assert delay_method in [_DELAY_ROTATE, _DELAY_CONCAT], (
-            f'Un-supported delay method {delay_method}. '
-            f'Only support {_DELAY_ROTATE} and {_DELAY_CONCAT}'
-        )
-        self.delay_method = delay_method
+        if delay_method == _DELAY_CONCAT:
+            warnings.warn(
+                "delay_method='concat' is deprecated. The unified ring buffer "
+                "implementation now uses rotation for all delays, providing better performance.",
+                DeprecationWarning,
+                stacklevel=2
+            )
+        # Always use rotation (unified ring buffer)
+        self.delay_method = _DELAY_ROTATE
 
-        # interp method
-        assert interp_method in [_INTERP_LINEAR, _INTERP_ROUND], (
-            f'Un-supported interpolation method {interp_method}. '
-            f'we only support: {[_INTERP_LINEAR, _INTERP_ROUND]}'
-        )
-        self.interp_method = interp_method
+        # interpolation parameter handling
+        if interpolation is None:
+            # Use old interp_method for backward compatibility
+            interpolation = INTERP_ALIAS_MAP.get(interp_method, interp_method)
+
+        # Validate and set interpolation method
+        if isinstance(interpolation, str):
+            if interpolation not in InterpolationRegistry.list_methods():
+                raise ValueError(
+                    f"Unknown interpolation method: {interpolation}. "
+                    f"Available methods: {InterpolationRegistry.list_methods()}"
+                )
+            self.interp_method = interpolation
+        elif callable(interpolation):
+            # Custom interpolation function
+            self.interp_method = interpolation
+        else:
+            raise TypeError(
+                f"interpolation must be str or callable, got {type(interpolation)}"
+            )
 
         # delay length and time
         with jax.ensure_compile_time_eval():
@@ -177,6 +502,10 @@ class Delay(Module):
         self.take_aware_unit = take_aware_unit
         self._unit = None
 
+        # Thread safety locks (lazy initialization)
+        self._update_lock = threading.RLock()
+        self._retrieve_lock = threading.RLock()
+
     @property
     def history(self):
         return self._history
@@ -201,10 +530,19 @@ class Delay(Module):
 
     @call_order(3)
     def init_state(self, batch_size: int = None, **kwargs):
+        # Initialize write pointer as ShortTermState (always scalar, not batched)
+        # All batches share the same write pointer as they update synchronously
+        self.write_ptr = ShortTermState(jnp.array(0, dtype=environ.ditype()), tag=INIT_NON_BATCHING)
+
+        # Initialize history buffer
         fun = partial(self._f_to_init, length=self.max_length, batch_size=batch_size)
         self.history = DelayState(jax.tree.map(fun, self.target_info))
 
     def reset_state(self, batch_size: int = None, **kwargs):
+        # Reset write pointer to 0 (always scalar)
+        self.write_ptr.value = jnp.array(0, dtype=environ.ditype())
+
+        # Reset history buffer
         fun = partial(self._f_to_init, length=self.max_length, batch_size=batch_size)
         self.history.value = jax.tree.map(fun, self.target_info)
 
@@ -327,6 +665,12 @@ class Delay(Module):
         delay_data: The delay data at the given delay step.
 
         """
+        # Acquire lock if in multi-threaded context
+        with self._retrieve_lock:
+            return self._retrieve_at_step_impl(delay_step, *indices)
+
+    def _retrieve_at_step_impl(self, delay_step, *indices) -> PyTree:
+        """Internal implementation of retrieve_at_step (lock-free for JAX tracing)."""
         assert self.history is not None, 'The delay history is not initialized.'
         assert delay_step is not None, 'The delay step should be given.'
 
@@ -339,19 +683,14 @@ class Delay(Module):
 
             jit_error_if(delay_step >= self.max_length, _check_delay, delay_step)
 
-        # rotation method
+        # unified ring buffer method using write_ptr
         with jax.ensure_compile_time_eval():
-            if self.delay_method == _DELAY_ROTATE:
-                i = environ.get(environ.I, desc='The time step index.')
-                di = i - delay_step
-                delay_idx = jnp.asarray(di % self.max_length, dtype=jnp.int32)
-                delay_idx = jax.lax.stop_gradient(delay_idx)
-
-            elif self.delay_method == _DELAY_CONCAT:
-                delay_idx = delay_step
-
-            else:
-                raise ValueError(f'Unknown delay updating method "{self.delay_method}"')
+            # Use write_ptr instead of environ.get(environ.I)
+            # Note: write_ptr points to the NEXT write position, so current position is write_ptr - 1
+            current_ptr = self.write_ptr.value - 1
+            di = current_ptr - delay_step
+            delay_idx = jnp.asarray(di % self.max_length, dtype=jnp.int32)
+            delay_idx = jax.lax.stop_gradient(delay_idx)
 
             # the delay index
             if hasattr(delay_idx, 'dtype') and not jnp.issubdtype(delay_idx.dtype, jnp.integer):
@@ -412,54 +751,64 @@ class Delay(Module):
             diff = current_time - delay_time
             float_time_step = diff / dt
 
-            if self.interp_method == _INTERP_LINEAR:  # "linear" interpolation
+            # Use interpolation methods that call retrieve_at_step for bounds checking
+            if (self.interp_method == 'linear' or
+                self.interp_method == 'linear_interp' or
+                self.interp_method == _INTERP_LINEAR):
+                # Linear interpolation - call retrieve_at_step for bounds checking
                 data_at_t0 = self.retrieve_at_step(jnp.asarray(jnp.floor(float_time_step), dtype=jnp.int32), *indices)
                 data_at_t1 = self.retrieve_at_step(jnp.asarray(jnp.ceil(float_time_step), dtype=jnp.int32), *indices)
                 t_diff = float_time_step - jnp.floor(float_time_step)
                 return jax.tree.map(lambda a, b: a * (1 - t_diff) + b * t_diff, data_at_t0, data_at_t1)
 
-            elif self.interp_method == _INTERP_ROUND:  # "round" interpolation
+            elif (self.interp_method == 'nearest' or
+                  self.interp_method == 'round' or
+                  self.interp_method == _INTERP_ROUND):
+                # Round interpolation - call retrieve_at_step for bounds checking
                 return self.retrieve_at_step(jnp.asarray(jnp.round(float_time_step), dtype=jnp.int32), *indices)
 
-            else:  # raise error
-                raise ValueError(f'Un-supported interpolation method {self.interp_method}, '
-                                 f'we only support: {[_INTERP_LINEAR, _INTERP_ROUND]}')
+            else:
+                # For other interpolation methods (cubic, hermite, polynomial), use the registry
+                # Calculate the buffer position accounting for ring buffer
+                current_ptr = self.write_ptr.value - 1
+                float_buffer_idx = current_ptr - float_time_step
+
+                if isinstance(self.interp_method, str):
+                    interp_func = InterpolationRegistry.get(self.interp_method)
+                else:
+                    # Custom callable interpolation method
+                    interp_func = self.interp_method
+
+                # Call interpolation function with history, indices, float buffer index, and max_length
+                return interp_func(self.history.value, indices, float_buffer_idx, self.max_length)
 
     def update(self, current: PyTree) -> None:
         """
         Update delay variable with the new data.
         """
+        # Acquire lock if in multi-threaded context
+        with self._update_lock:
+            self._update_impl(current)
 
+    def _update_impl(self, current: PyTree) -> None:
+        """Internal implementation of update (lock-free for JAX tracing)."""
         with jax.ensure_compile_time_eval():
             assert self.history is not None, 'The delay history is not initialized.'
 
             if self.take_aware_unit and self._unit is None:
                 self._unit = jax.tree.map(lambda x: u.get_unit(x), current, is_leaf=u.math.is_quantity)
 
-            # update the delay data at the rotation index
-            if self.delay_method == _DELAY_ROTATE:
-                i = environ.get(environ.I)
-                idx = jnp.asarray(i % self.max_length, dtype=environ.dutype())
-                idx = jax.lax.stop_gradient(idx)
-                self.history.value = jax.tree.map(
-                    lambda hist, cur: hist.at[idx].set(cur),
-                    self.history.value,
-                    current
-                )
-            # update the delay data at the first position
-            elif self.delay_method == _DELAY_CONCAT:
-                current = jax.tree.map(lambda a: jnp.expand_dims(a, 0), current)
-                if self.max_length > 1:
-                    self.history.value = jax.tree.map(
-                        lambda hist, cur: jnp.concatenate([cur, hist[:-1]], axis=0),
-                        self.history.value,
-                        current
-                    )
-                else:
-                    self.history.value = current
+            # unified ring buffer: update at current write_ptr position
+            idx = jnp.asarray(self.write_ptr.value % self.max_length, dtype=environ.dutype())
+            idx = jax.lax.stop_gradient(idx)
+            self.history.value = jax.tree.map(
+                lambda hist, cur: hist.at[idx].set(cur),
+                self.history.value,
+                current
+            )
 
-            else:
-                raise ValueError(f'Unknown updating method "{self.delay_method}"')
+            # increment write pointer for next update
+            self.write_ptr.value = (self.write_ptr.value + 1) % self.max_length
 
 
 class StateWithDelay(Delay):
@@ -495,9 +844,11 @@ class StateWithDelay(Delay):
         The callable receives ``(shape, dtype)`` and must return an array.
         If not provided, zeros are used. You may also pass a scalar/array
         literal via the underlying Delay API when constructing manually.
-    delay_method : {"rotation", "concat"}, default "rotation"
-        Internal buffering strategy (inherits behavior from :py:class:`~.Delay`).
-        "rotation" keeps a ring buffer; "concat" shifts by concatenation.
+    interpolation : str or Callable, default "round"
+        Interpolation method for continuous-time delay retrieval.
+        Built-in methods: 'nearest', 'linear', 'cubic', 'hermite',
+        'polynomial2', 'polynomial3'. Can also be a custom callable following
+        the InterpolationMethod protocol.
 
     Attributes
     ----------
@@ -550,9 +901,9 @@ class StateWithDelay(Delay):
         target: Node,
         item: str,
         init: Callable = None,
-        delay_method: Optional[str] = _DELAY_ROTATE,
+        interpolation: Optional[str] = _INTERP_ROUND,
     ):
-        super().__init__(None, init=init, delay_method=delay_method)
+        super().__init__(None, init=init, interpolation=interpolation)
 
         self._target = target
         self._target_term = item

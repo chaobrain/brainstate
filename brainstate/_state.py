@@ -322,7 +322,7 @@ class State(Generic[A], PrettyObject):
         """
         tag = metadata.pop('tag', None)
         if isinstance(tag, str):
-            tag = set(tag)
+            tag = set([tag])
 
         # avoid using self._setattr to avoid the check
         vars(self)['_trace_state'] = StateJaxTracer()
@@ -368,7 +368,7 @@ class State(Generic[A], PrettyObject):
             tag: The tag to add.
         """
         if self.tag is None:
-            self.tag = []
+            self.tag = set()
         if tag not in self.tag:
             self.tag.add(tag)
 
