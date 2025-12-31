@@ -50,6 +50,8 @@ from ._paddings import *
 from ._paddings import __all__ as paddings_all
 from ._par_module import *
 from ._par_module import __all__ as param_module_all
+from ._param_data import *
+from ._param_data import __all__ as param_data_all
 from ._poolings import *
 from ._poolings import __all__ as poolings_all
 from ._regularization import *
@@ -66,10 +68,11 @@ __all__ = __all__ + collective_ops_all + common_all + elementwise_all + module_a
 __all__ = __all__ + utils_all + dyn_all + state_delay_all + conv_all
 __all__ = __all__ + linear_all + normalizations_all + paddings_all + poolings_all + fixedprob_all + linear_mv_all
 __all__ = __all__ + embed_all + dropout_all + elementwise_all
-__all__ = __all__ + rate_rnns + param_module_all + reg_all + transform_all
+__all__ = __all__ + rate_rnns + param_module_all + reg_all + transform_all + param_data_all
 
 del (
     metrics_all,
+    param_data_all,
     activation_all,
     collective_ops_all,
     common_all,
