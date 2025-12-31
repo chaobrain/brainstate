@@ -736,6 +736,131 @@ class Sequential(Module):
         self.layers.append(module)
         self.out_size = in_size
 
+    def extend(self, modules):
+        """
+        Append modules from an iterable to the end of the sequential model.
+
+        This method adds multiple modules to the end of the sequential model. Each module
+        is processed and validated, with automatic size inference between layers.
+
+        Parameters:
+        ----------
+        modules : iterable
+            An iterable of modules to append (e.g., list, tuple). Each element can be
+            a Module instance, an ElementWiseBlock instance, or a callable function.
+
+        Raises:
+        -------
+        ValueError
+            If the sequential model is empty and the first module is not a Module instance.
+
+        Returns:
+        --------
+        None
+            The method does not return any value. It modifies the sequential model by adding
+            the new modules to the end.
+
+        Examples:
+        --------
+        >>> import brainstate
+        >>> seq = brainstate.nn.Sequential(brainstate.nn.Linear(10, 20))
+        >>> seq.extend([brainstate.nn.ReLU(), brainstate.nn.Linear(20, 5)])
+        """
+        if len(self.layers) == 0:
+            raise ValueError('Cannot extend an empty Sequential. Use __init__ to add the first module.')
+
+        current_size = self.out_size
+        for module in modules:
+            module, current_size = self._format_module(module, current_size)
+            self.layers.append(module)
+
+        if current_size is not None:
+            self.out_size = current_size
+
+    def insert(self, index: int, module):
+        """
+        Insert a module at a specific position in the sequential model.
+
+        This method inserts a module at the specified index position. After insertion,
+        all output sizes for modules from the insertion point onwards are recalculated
+        to maintain the size inference chain.
+
+        Parameters:
+        ----------
+        index : int
+            Position to insert the module. Supports negative indices following Python
+            list convention (e.g., -1 for before the last element).
+        module : Module or Callable
+            The module to insert. Can be a Module instance, an ElementWiseBlock instance,
+            or a callable function.
+
+        Raises:
+        -------
+        ValueError
+            If the sequential model is empty and index is not 0.
+        IndexError
+            If the index is out of range.
+
+        Returns:
+        --------
+        None
+            The method does not return any value. It modifies the sequential model by inserting
+            the module at the specified position.
+
+        Examples:
+        --------
+        >>> import brainstate
+        >>> seq = brainstate.nn.Sequential(brainstate.nn.Linear(10, 20), brainstate.nn.Linear(20, 5))
+        >>> seq.insert(1, brainstate.nn.ReLU())  # Insert ReLU between the two Linear layers
+        >>> seq.insert(-1, brainstate.nn.Dropout(0.5))  # Insert Dropout before the last layer
+        """
+        # Handle empty Sequential
+        if len(self.layers) == 0:
+            if index != 0:
+                raise ValueError('Cannot insert into empty Sequential at non-zero index. Use __init__ or index=0.')
+            if not isinstance(module, Module):
+                raise ValueError('The first module in Sequential must be a Module instance, not a callable.')
+            self.layers.append(module)
+            if module.in_size is not None:
+                self.in_size = module.in_size
+            if module.out_size is not None:
+                self.out_size = tuple(module.out_size)
+            return
+
+        # Normalize negative index
+        n = len(self.layers)
+        if index < 0:
+            index = max(0, n + index + 1)
+
+        # Validate index range [0, n] (inclusive of n for appending)
+        if index < 0 or index > n:
+            raise IndexError(f'Index {index} is out of range for Sequential with {n} layers.')
+
+        # Determine input size for the new module
+        if index == 0:
+            # Inserting at the beginning
+            in_size = self.in_size
+        else:
+            # Inserting after an existing module
+            in_size = self.layers[index - 1].out_size
+
+        # Format and insert the new module
+        formatted_module, out_size = self._format_module(module, in_size)
+        self.layers.insert(index, formatted_module)
+
+        # Recalculate sizes for all modules from insertion point onwards
+        current_size = out_size
+        for i in range(index + 1, len(self.layers)):
+            self.layers[i], current_size = self._format_module(self.layers[i], current_size)
+
+        # Update in_size if inserted at beginning
+        if index == 0 and formatted_module.in_size is not None:
+            self.in_size = formatted_module.in_size
+
+        # Update out_size with final output
+        if current_size is not None:
+            self.out_size = tuple(current_size)
+
     def _format_module(self, module, in_size):
         try:
             if isinstance(module, ParamDescriber):
