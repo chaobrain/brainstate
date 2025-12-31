@@ -33,6 +33,7 @@ from typing import (
     Sequence,
     Generator
 )
+from collections.abc import Mapping
 
 import brainunit as u
 import jax
@@ -44,6 +45,7 @@ from brainstate.typing import ArrayLike, PyTree, Missing, Filter
 from brainstate.util import DictManager, PrettyObject
 from brainstate.util._tracers import StateJaxTracer
 from brainstate.util.filter import Nothing
+from brainstate._error import TraceContextError
 
 __all__ = [
     'State',

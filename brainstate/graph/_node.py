@@ -23,6 +23,7 @@ from brainstate._state import State, TreefyState
 from brainstate.typing import Key
 from brainstate.util._pretty_pytree import PrettyObject
 from ._operation import register_graph_node_type, treefy_split, treefy_merge
+from brainstate._error import TraceContextError
 
 __all__ = [
     'Node',
@@ -30,10 +31,6 @@ __all__ = [
 
 G = TypeVar('G', bound='Node')
 A = TypeVar('A')
-
-
-class TraceContextError:
-    pass
 
 
 class GraphNodeMeta(ABCMeta):
