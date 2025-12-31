@@ -48,10 +48,16 @@ from ._normalizations import *
 from ._normalizations import __all__ as normalizations_all
 from ._paddings import *
 from ._paddings import __all__ as paddings_all
+from ._param_module import *
+from ._param_module import __all__ as param_module_all
 from ._poolings import *
 from ._poolings import __all__ as poolings_all
+from ._regularization import *
+from ._regularization import __all__ as reg_all
 from ._rnns import *
 from ._rnns import __all__ as rate_rnns
+from ._transform import *
+from ._transform import __all__ as transform_all
 from ._utils import *
 from ._utils import __all__ as utils_all
 
@@ -60,7 +66,7 @@ __all__ = __all__ + collective_ops_all + common_all + elementwise_all + module_a
 __all__ = __all__ + utils_all + dyn_all + state_delay_all + conv_all
 __all__ = __all__ + linear_all + normalizations_all + paddings_all + poolings_all + fixedprob_all + linear_mv_all
 __all__ = __all__ + embed_all + dropout_all + elementwise_all
-__all__ = __all__ + rate_rnns
+__all__ = __all__ + rate_rnns + param_module_all + reg_all + transform_all
 
 del (
     metrics_all,
@@ -83,6 +89,9 @@ del (
     dropout_all,
     elementwise_all,
     rate_rnns,
+    param_module_all,
+    reg_all,
+    transform_all,
 )
 
 # Deprecated names that redirect to brainpy

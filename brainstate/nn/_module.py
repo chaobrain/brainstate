@@ -27,6 +27,7 @@ The basic classes include:
 """
 
 import warnings
+from collections import defaultdict
 from typing import Sequence, Optional, Tuple, Union, TYPE_CHECKING, Callable, Dict
 
 import numpy as np
@@ -35,17 +36,19 @@ from brainstate._error import BrainStateError
 from brainstate._state import State, catch_new_states
 from brainstate.graph import Node, states, nodes, flatten
 from brainstate.mixin import ParamDescriber, ParamDesc
-from brainstate.typing import PathParts, Size
+from brainstate.transform._mapping2 import vmap2
+from brainstate.typing import PathParts, Size, Filter
 from brainstate.util import FlattedDict, NestedDict
-
-# maximum integer
-max_int = np.iinfo(np.int32).max
+from brainstate.util.filter import to_predicate
 
 __all__ = [
     'Module',
     'ElementWiseBlock',
     'Sequential',
 ]
+
+# maximum integer
+max_int = np.iinfo(np.int32).max
 
 
 class Module(Node, ParamDesc):
@@ -59,7 +62,6 @@ class Module(Node, ParamDesc):
     - ``nodes()``: Collect all children nodes.
     - ``update()``: The function to specify the updating rule.
     - ``init_state()``: State initialization function.
-    - ``reset_state()``: State resetting function.
 
     """
 
@@ -126,6 +128,11 @@ class Module(Node, ParamDesc):
             f'This instance is: \n'
             f'{self}'
         )
+
+    def __pretty_repr_item__(self, name, value):
+        if name.startswith('_'):
+            return None if value is None else (name[1:], value)  # skip the first `_`
+        return name, value
 
     def __call__(self, *args, **kwargs):
         return self.update(*args, **kwargs)
@@ -238,22 +245,89 @@ class Module(Node, ParamDesc):
         """
         pass
 
-    def __pretty_repr_item__(self, name, value):
-        if name.startswith('_'):
-            return None if value is None else (name[1:], value)  # skip the first `_`
-        return name, value
+    def init_all_states(
+        self,
+        tag: str = None,
+        vmap_size: int = None,
+        state_out_axes: Dict[int, Filter] = None,
+        **kwargs
+    ):
+        if vmap_size is not None:
+            return _vmap_new_states(
+                self,
+                kwargs,
+                state_tag=tag,
+                axis_size=vmap_size,
+                state_out_axes=state_out_axes
+            )
 
-    def new_states(self, *args, **kwargs):
-        from ._collective_ops import init_all_states
-        with catch_new_states() as catcher:
-            init_all_states(self, *args, **kwargs)
-        return catcher
+        else:
+            if state_out_axes is not None:
+                warnings.warn(
+                    'The "state_out_axes" argument is only effective when "vmap_size" is specified.',
+                    UserWarning
+                )
+            from ._collective_ops import init_all_states
+            with catch_new_states(state_tag=tag) as catcher:
+                init_all_states(self, **kwargs)
+            return catcher
 
-    def vmap_new_states(self, *args, batch_size: int = None, out_states: Dict[int, type] = None, **kwargs):
-        from ._collective_ops import vmap_init_all_states
-        with catch_new_states() as catcher:
-            vmap_init_all_states(self, *args, out_states=out_states, axis_size=batch_size, **kwargs)
-        return catcher
+    def precompute_params(self):
+        from ._param_module import ParaM
+        for param in self.nodes(ParaM).values():
+            param.precompute()
+
+    def release_params(self):
+        from ._param_module import ParaM
+        for param in self.nodes(ParaM).values():
+            param.release()
+
+
+def _vmap_new_states(
+    model: Module,
+    kwargs: Dict,
+    state_tag: str = None,
+    axis_size: int = None,
+    state_out_axes: Dict[int, Filter] = None,
+):
+    if state_out_axes is None:
+        state_out_axes = dict()
+    if not isinstance(state_out_axes, dict):
+        state_out_axes = {0: state_out_axes}
+    state_out_axes = {k: to_predicate(v) for k, v in state_out_axes.items()}
+    if 0 not in state_out_axes:
+        state_out_axes[0] = to_predicate(...)
+
+    vmap_states = defaultdict(list)
+
+    @vmap2(axis_size=axis_size, out_axes=tuple(state_out_axes.keys()))
+    def new_fun():
+        catcher_ = model.init_all_states(tag=state_tag, **kwargs)
+        vmap_state_vals_ = defaultdict(list)
+        for st_ in catcher_.get_states():
+            for out_axis_, predicate_ in state_out_axes.items():
+                if predicate_(tuple(), st_):
+                    vmap_state_vals_[out_axis_].append(st_.value)
+                    vmap_states[out_axis_].append(st_)
+                    break
+            else:
+                vmap_state_vals_[0].append(st_.value)
+                vmap_states[0].append(st_)
+        outs = tuple(vmap_state_vals_.get(k, tuple()) for k in state_out_axes)
+        return outs
+
+    # restore vmapped state values
+    with catch_new_states() as catcher:
+        vmap_state_vals = new_fun()
+    vmap_states = tuple(vmap_states.get(k, tuple()) for k in state_out_axes)
+    for st_vals, states in zip(vmap_state_vals, vmap_states):
+        for val, st in zip(st_vals, states):
+            st.restore_value(val)
+            # ------------------------------------------------
+            # --- this is CRUCIAL to avoid jax tracing leakage
+            # ------------------------------------------------
+            st.decrease_stack_level()
+    return catcher
 
 
 class ElementWiseBlock(Module):
