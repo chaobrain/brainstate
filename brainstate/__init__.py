@@ -62,11 +62,11 @@ from ._state_hook_manager import (
 
 from ._state_global_hooks import (
     GlobalHookRegistry,
-    register_global_state_hook,
-    unregister_global_state_hook,
-    clear_global_state_hooks,
-    has_global_state_hooks,
-    list_global_state_hooks,
+    register_state_hook,
+    unregister_state_hook,
+    clear_state_hooks,
+    has_state_hooks,
+    list_state_hooks,
 )
 
 # Augment module scope
@@ -216,11 +216,11 @@ __all__ = [
     'HookCancellationError',
     'HookWarning',
     # Global hook functions
-    'register_global_state_hook',
-    'unregister_global_state_hook',
-    'clear_global_state_hooks',
-    'has_global_state_hooks',
-    'list_global_state_hooks',
+    'register_state_hook',
+    'unregister_state_hook',
+    'clear_state_hooks',
+    'has_state_hooks',
+    'list_state_hooks',
 ]
 __all__ = __all__ + _state_all + _error_all
 del _state_all, create_deprecated_module_proxy, _augment_apis, _compile_apis, _functional_apis

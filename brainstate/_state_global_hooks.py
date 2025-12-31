@@ -25,11 +25,11 @@ from ._state_hook_context import HookContext
 
 __all__ = [
     'GlobalHookRegistry',
-    'register_global_state_hook',
-    'unregister_global_state_hook',
-    'clear_global_state_hooks',
-    'has_global_state_hooks',
-    'list_global_state_hooks',
+    'register_state_hook',
+    'unregister_state_hook',
+    'clear_state_hooks',
+    'has_state_hooks',
+    'list_state_hooks',
 ]
 
 
@@ -106,7 +106,7 @@ class GlobalHookRegistry(HookManager):
 
 # Module-level convenience functions
 
-def register_global_state_hook(
+def register_state_hook(
     hook_type: Literal['read', 'write_before', 'write_after', 'restore', 'init'],
     callback: Callable[[HookContext], Any],
     priority: int = 0,
@@ -132,14 +132,14 @@ def register_global_state_hook(
         >>> def validate_all_writes(ctx):
         ...     if hasattr(ctx.value, 'shape'):
         ...         print(f"Writing array with shape {ctx.value.shape}")
-        >>> handle = brainstate.register_global_state_hook('write_before', validate_all_writes)
+        >>> handle = brainstate.register_state_hook('write_before', validate_all_writes)
     """
     return GlobalHookRegistry.instance().register_hook(
         hook_type, callback, priority, name, enabled
     )
 
 
-def unregister_global_state_hook(handle: HookHandle) -> bool:
+def unregister_state_hook(handle: HookHandle) -> bool:
     """Unregister a global hook using its handle.
 
     Args:
@@ -151,7 +151,7 @@ def unregister_global_state_hook(handle: HookHandle) -> bool:
     return GlobalHookRegistry.instance().unregister_hook(handle)
 
 
-def clear_global_state_hooks(hook_type: Optional[str] = None) -> None:
+def clear_state_hooks(hook_type: Optional[str] = None) -> None:
     """Clear all global hooks, optionally filtered by type.
 
     Args:
@@ -160,7 +160,7 @@ def clear_global_state_hooks(hook_type: Optional[str] = None) -> None:
     GlobalHookRegistry.instance().clear_hooks(hook_type)
 
 
-def has_global_state_hooks(hook_type: Optional[str] = None) -> bool:
+def has_state_hooks(hook_type: Optional[str] = None) -> bool:
     """Check if any global hooks are registered.
 
     Args:
@@ -172,7 +172,7 @@ def has_global_state_hooks(hook_type: Optional[str] = None) -> bool:
     return GlobalHookRegistry.instance().has_hooks(hook_type)
 
 
-def list_global_state_hooks(hook_type: Optional[str] = None):
+def list_state_hooks(hook_type: Optional[str] = None):
     """List all registered global hooks, optionally filtered by type.
 
     Args:

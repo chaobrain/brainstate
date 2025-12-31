@@ -30,11 +30,11 @@ class TestStateHooks(TestCase):
         """Set up test fixtures."""
         self.call_log = []
         # Reset global hooks before each test
-        brainstate.clear_global_state_hooks()
+        brainstate.clear_state_hooks()
 
     def tearDown(self):
         """Clean up after tests."""
-        brainstate.clear_global_state_hooks()
+        brainstate.clear_state_hooks()
 
     def test_read_hook_execution(self):
         """Test that read hooks execute on value access."""
@@ -156,7 +156,7 @@ class TestStateHooks(TestCase):
             instance_log.append('instance')
 
         # Register global hook
-        brainstate.register_global_state_hook('read', global_hook)
+        brainstate.register_state_hook('read', global_hook)
 
         # Create state with instance hook
         state = brainstate.State(jnp.array([1, 2, 3]))
@@ -301,7 +301,7 @@ class TestStateHooks(TestCase):
         def global_counter(ctx):
             global_call_count['count'] += 1
 
-        brainstate.register_global_state_hook('read', global_counter)
+        brainstate.register_state_hook('read', global_counter)
 
         # Create multiple states
         state1 = brainstate.State(jnp.array([1, 2]))

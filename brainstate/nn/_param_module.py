@@ -40,7 +40,7 @@ Data = brainstate.typing.ArrayLike
 
 class ParaM(Module):
     """
-    Neural network parameter with optional transform and regularization.
+    A module has neural network parameters for optional transform and regularization.
 
     A flexible parameter container that supports:
 
@@ -201,7 +201,7 @@ class ParaM(Module):
 
 class ConstM(ParaM):
     """
-    Non-trainable constant parameter.
+    A module has non-trainable constant parameter.
 
     A convenience class that creates a fixed (non-trainable) parameter.
     Equivalent to ``ParaM(value, fit_par=False)``.

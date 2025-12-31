@@ -27,11 +27,11 @@ class TestHookThreadSafety(TestCase):
 
     def setUp(self):
         """Set up test fixtures."""
-        brainstate.clear_global_state_hooks()
+        brainstate.clear_state_hooks()
 
     def tearDown(self):
         """Clean up after tests."""
-        brainstate.clear_global_state_hooks()
+        brainstate.clear_state_hooks()
 
     def test_concurrent_state_reads_with_hooks(self):
         """Test multiple threads reading state with hooks concurrently."""
@@ -187,7 +187,7 @@ class TestHookThreadSafety(TestCase):
             with lock:
                 instance_count['count'] += 1
 
-        brainstate.register_global_state_hook('read', global_hook)
+        brainstate.register_state_hook('read', global_hook)
 
         num_states = 5
         states = [brainstate.State(jnp.array([i])) for i in range(num_states)]

@@ -1028,11 +1028,11 @@ class TestStateHooks(unittest.TestCase):
         """Set up test fixtures."""
         self.call_log = []
         # Clear global hooks before each test
-        brainstate.clear_global_state_hooks()
+        brainstate.clear_state_hooks()
 
     def tearDown(self):
         """Clean up after tests."""
-        brainstate.clear_global_state_hooks()
+        brainstate.clear_state_hooks()
 
     # =============================================================================
     # Init Hook Tests
@@ -1048,7 +1048,7 @@ class TestStateHooks(unittest.TestCase):
             init_data['metadata'] = ctx.init_metadata
 
         # Register global init hook before creating state
-        brainstate.register_global_state_hook('init', init_hook)
+        brainstate.register_state_hook('init', init_hook)
 
         state = brainstate.State(jnp.array([1, 2, 3]), name='test_state')
 
@@ -1064,7 +1064,7 @@ class TestStateHooks(unittest.TestCase):
         def capture_metadata(ctx):
             captured_metadata.update(ctx.init_metadata)
 
-        brainstate.register_global_state_hook('init', capture_metadata)
+        brainstate.register_state_hook('init', capture_metadata)
 
         state = brainstate.State(
             jnp.array([1, 2]),
@@ -1087,9 +1087,9 @@ class TestStateHooks(unittest.TestCase):
         def hook_low(ctx):
             self.call_log.append('low')
 
-        brainstate.register_global_state_hook('init', hook_high, priority=100)
-        brainstate.register_global_state_hook('init', hook_medium, priority=50)
-        brainstate.register_global_state_hook('init', hook_low, priority=10)
+        brainstate.register_state_hook('init', hook_high, priority=100)
+        brainstate.register_state_hook('init', hook_medium, priority=50)
+        brainstate.register_state_hook('init', hook_low, priority=10)
 
         state = brainstate.State(jnp.zeros(3))
 
@@ -1103,7 +1103,7 @@ class TestStateHooks(unittest.TestCase):
         def count_init(ctx):
             call_count['count'] += 1
 
-        brainstate.register_global_state_hook('init', count_init)
+        brainstate.register_state_hook('init', count_init)
 
         state1 = brainstate.State(jnp.zeros(3))
         state2 = brainstate.State(jnp.ones(5))
@@ -1119,7 +1119,7 @@ class TestStateHooks(unittest.TestCase):
             # transformed_value should not exist
             self.assertFalse(hasattr(ctx, 'transformed_value'))
 
-        brainstate.register_global_state_hook('init', try_modify)
+        brainstate.register_state_hook('init', try_modify)
 
         state = brainstate.State(jnp.array([1, 2, 3]))
         np.testing.assert_array_equal(state.value, jnp.array([1, 2, 3]))
@@ -1417,7 +1417,7 @@ class TestStateHooks(unittest.TestCase):
         def global_counter(ctx):
             call_count['count'] += 1
 
-        brainstate.register_global_state_hook('read', global_counter)
+        brainstate.register_state_hook('read', global_counter)
 
         state1 = brainstate.State(jnp.array([1, 2]))
         state2 = brainstate.State(jnp.array([3, 4]))
@@ -1438,7 +1438,7 @@ class TestStateHooks(unittest.TestCase):
         def instance_hook(ctx):
             self.call_log.append('instance')
 
-        brainstate.register_global_state_hook('read', global_hook)
+        brainstate.register_state_hook('read', global_hook)
 
         state = brainstate.State(jnp.array([1, 2]))
         state.register_hook('read', instance_hook)
@@ -1459,7 +1459,7 @@ class TestStateHooks(unittest.TestCase):
             input_val = ctx.transformed_value if ctx.transformed_value is not None else ctx.value
             ctx.transformed_value = input_val * 2
 
-        brainstate.register_global_state_hook('write_before', global_transform, priority=100)
+        brainstate.register_state_hook('write_before', global_transform, priority=100)
         state.register_hook('write_before', instance_transform, priority=50)
 
         state.value = jnp.array([0.0, 1.0])
@@ -1474,13 +1474,13 @@ class TestStateHooks(unittest.TestCase):
         def counter(ctx):
             call_count['count'] += 1
 
-        brainstate.register_global_state_hook('read', counter)
+        brainstate.register_state_hook('read', counter)
 
         state = brainstate.State(jnp.zeros(3))
         _ = state.value
         self.assertEqual(call_count['count'], 1)
 
-        brainstate.clear_global_state_hooks()
+        brainstate.clear_state_hooks()
 
         state2 = brainstate.State(jnp.ones(3))
         _ = state2.value
@@ -1492,9 +1492,9 @@ class TestStateHooks(unittest.TestCase):
         read_count = {'count': 0}
         write_count = {'count': 0}
 
-        brainstate.register_global_state_hook('read', lambda ctx: read_count.update(count=read_count['count'] + 1))
-        brainstate.register_global_state_hook('write_after',
-                                              lambda ctx: write_count.update(count=write_count['count'] + 1))
+        brainstate.register_state_hook('read', lambda ctx: read_count.update(count=read_count['count'] + 1))
+        brainstate.register_state_hook('write_after',
+                                       lambda ctx: write_count.update(count=write_count['count'] + 1))
 
         state = brainstate.State(jnp.zeros(3))
         _ = state.value
@@ -1504,7 +1504,7 @@ class TestStateHooks(unittest.TestCase):
         self.assertEqual(write_count['count'], 1)
 
         # Clear only read hooks
-        brainstate.clear_global_state_hooks('read')
+        brainstate.clear_state_hooks('read')
 
         _ = state.value
         state.value = jnp.zeros(3)
@@ -1779,9 +1779,9 @@ class TestStateHooks(unittest.TestCase):
         def log_write(ctx):
             log.append(f"WRITE: {ctx.state_name} from {ctx.old_value.tolist()} to {ctx.value.tolist()}")
 
-        brainstate.register_global_state_hook('init', log_init)
-        brainstate.register_global_state_hook('read', log_read)
-        brainstate.register_global_state_hook('write_after', log_write)
+        brainstate.register_state_hook('init', log_init)
+        brainstate.register_state_hook('read', log_read)
+        brainstate.register_state_hook('write_after', log_write)
 
         state = brainstate.State(jnp.array([1, 2]), name='counter')
         _ = state.value
@@ -1882,7 +1882,7 @@ class TestStateHooks(unittest.TestCase):
         def count_hook(ctx):
             call_count['count'] += 1
 
-        brainstate.register_global_state_hook('read', count_hook)
+        brainstate.register_state_hook('read', count_hook)
 
         state1 = brainstate.State(jnp.zeros(3))
         state2 = brainstate.ShortTermState(jnp.ones(3))
