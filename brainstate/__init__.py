@@ -17,7 +17,7 @@
 A ``State``-based Transformation System for Program Compilation and Augmentation
 """
 
-__version__ = "0.2.8"
+__version__ = "0.2.9"
 __versio_info__ = tuple(map(int, __version__.split('.')))
 
 from . import environ
@@ -34,6 +34,40 @@ from ._error import *
 from ._error import __all__ as _error_all
 from ._state import *
 from ._state import __all__ as _state_all
+
+# Import hook API
+from ._state_hook_context import (
+    HookContext,
+    ReadHookContext,
+    WriteHookContext,
+    MutableWriteHookContext,
+    RestoreHookContext,
+    InitHookContext,
+)
+
+from ._state_hook_core import (
+    Hook,
+    HookHandle,
+    HookError,
+    HookExecutionError,
+    HookRegistrationError,
+    HookCancellationError,
+    HookWarning,
+)
+
+from ._state_hook_manager import (
+    HookConfig,
+    HookManager,
+)
+
+from ._state_global_hooks import (
+    GlobalHookRegistry,
+    register_global_state_hook,
+    unregister_global_state_hook,
+    clear_global_state_hooks,
+    has_global_state_hooks,
+    list_global_state_hooks,
+)
 
 # Augment module scope
 _augment_apis = {
@@ -160,6 +194,33 @@ __all__ = [
     'augment',
     'compile',
     'functional',
+
+    # Context objects
+    'HookContext',
+    'ReadHookContext',
+    'WriteHookContext',
+    'MutableWriteHookContext',
+    'RestoreHookContext',
+    'InitHookContext',
+    # Core classes
+    'Hook',
+    'HookHandle',
+    # Manager classes
+    'HookManager',
+    'HookConfig',
+    'GlobalHookRegistry',
+    # Exception classes
+    'HookError',
+    'HookExecutionError',
+    'HookRegistrationError',
+    'HookCancellationError',
+    'HookWarning',
+    # Global hook functions
+    'register_global_state_hook',
+    'unregister_global_state_hook',
+    'clear_global_state_hooks',
+    'has_global_state_hooks',
+    'list_global_state_hooks',
 ]
 __all__ = __all__ + _state_all + _error_all
 del _state_all, create_deprecated_module_proxy, _augment_apis, _compile_apis, _functional_apis

@@ -16,13 +16,13 @@
 
 import unittest
 
-import braintools
 import brainunit as u
 import jax
 import jax.numpy as jnp
 import numpy as np
 
 import brainstate
+from brainstate import HookConfig, HookManager
 
 
 class TestBasicState(unittest.TestCase):
@@ -832,7 +832,7 @@ class TestTreefyState(unittest.TestCase):
 
     def test_treefy_state_to_state(self):
         """Test converting TreefyState to State."""
-        ref = brainstate.TreefyState(brainstate.State, jnp.array([1.0, 2.0]), _name='test')
+        ref = brainstate.State(jnp.array([1.0, 2.0]), name='test').to_state_ref()
         state = ref.to_state()
 
         self.assertIsInstance(state, brainstate.State)
@@ -1021,6 +1021,917 @@ class TestStateCatcher(unittest.TestCase):
             self.assertIn(inner_state, outer_catcher)
 
 
+class TestStateHooks(unittest.TestCase):
+    """Comprehensive tests for State hook system."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.call_log = []
+        # Clear global hooks before each test
+        brainstate.clear_global_state_hooks()
+
+    def tearDown(self):
+        """Clean up after tests."""
+        brainstate.clear_global_state_hooks()
+
+    # =============================================================================
+    # Init Hook Tests
+    # =============================================================================
+
+    def test_init_hook_execution(self):
+        """Test that init hooks execute during initialization."""
+        init_data = {}
+
+        def init_hook(ctx):
+            init_data['value'] = ctx.value
+            init_data['operation'] = ctx.operation
+            init_data['metadata'] = ctx.init_metadata
+
+        # Register global init hook before creating state
+        brainstate.register_global_state_hook('init', init_hook)
+
+        state = brainstate.State(jnp.array([1, 2, 3]), name='test_state')
+
+        # Init hook should have been called
+        self.assertEqual(init_data['operation'], 'init')
+        np.testing.assert_array_equal(init_data['value'], jnp.array([1, 2, 3]))
+        self.assertEqual(init_data['metadata']['_name'], 'test_state')
+
+    def test_init_hook_with_metadata(self):
+        """Test init hooks receive initialization metadata."""
+        captured_metadata = {}
+
+        def capture_metadata(ctx):
+            captured_metadata.update(ctx.init_metadata)
+
+        brainstate.register_global_state_hook('init', capture_metadata)
+
+        state = brainstate.State(
+            jnp.array([1, 2]),
+            name='my_state',
+            tag='network'
+        )
+
+        self.assertEqual(captured_metadata['_name'], 'my_state')
+        self.assertEqual(captured_metadata['tag'], 'network')
+
+    def test_init_hook_priority_ordering(self):
+        """Test init hooks execute in priority order."""
+
+        def hook_high(ctx):
+            self.call_log.append('high')
+
+        def hook_medium(ctx):
+            self.call_log.append('medium')
+
+        def hook_low(ctx):
+            self.call_log.append('low')
+
+        brainstate.register_global_state_hook('init', hook_high, priority=100)
+        brainstate.register_global_state_hook('init', hook_medium, priority=50)
+        brainstate.register_global_state_hook('init', hook_low, priority=10)
+
+        state = brainstate.State(jnp.zeros(3))
+
+        # Higher priority should execute first
+        self.assertEqual(self.call_log, ['high', 'medium', 'low'])
+
+    def test_init_hook_multiple_states(self):
+        """Test init hooks are called for each state creation."""
+        call_count = {'count': 0}
+
+        def count_init(ctx):
+            call_count['count'] += 1
+
+        brainstate.register_global_state_hook('init', count_init)
+
+        state1 = brainstate.State(jnp.zeros(3))
+        state2 = brainstate.State(jnp.ones(5))
+        state3 = brainstate.State(jnp.array([1, 2]))
+
+        self.assertEqual(call_count['count'], 3)
+
+    def test_init_hook_cannot_modify_value(self):
+        """Test that init hooks cannot modify the initial value."""
+
+        def try_modify(ctx):
+            # Init hooks receive read-only context
+            # transformed_value should not exist
+            self.assertFalse(hasattr(ctx, 'transformed_value'))
+
+        brainstate.register_global_state_hook('init', try_modify)
+
+        state = brainstate.State(jnp.array([1, 2, 3]))
+        np.testing.assert_array_equal(state.value, jnp.array([1, 2, 3]))
+
+    # =============================================================================
+    # Read Hook Tests
+    # =============================================================================
+
+    def test_read_hook_basic(self):
+        """Test basic read hook functionality."""
+        state = brainstate.State(jnp.array([1, 2, 3]))
+
+        def read_hook(ctx):
+            self.call_log.append(f"read: {ctx.value.tolist()}")
+
+        state.register_hook('read', read_hook)
+
+        _ = state.value
+        self.assertEqual(len(self.call_log), 1)
+        self.assertEqual(self.call_log[0], "read: [1, 2, 3]")
+
+    def test_read_hook_multiple_accesses(self):
+        """Test read hooks called on each access."""
+        state = brainstate.State(jnp.array([1, 2]))
+
+        def count_reads(ctx):
+            self.call_log.append('read')
+
+        state.register_hook('read', count_reads)
+
+        for _ in range(5):
+            _ = state.value
+
+        self.assertEqual(len(self.call_log), 5)
+
+    def test_read_hook_with_state_reference(self):
+        """Test read hooks can access state reference."""
+        state = brainstate.State(jnp.array([1, 2, 3]), name='my_state')
+
+        def check_state_ref(ctx):
+            self.assertIsNotNone(ctx.state)
+            self.assertEqual(ctx.state_name, 'my_state')
+            self.assertIs(ctx.state, state)
+
+        state.register_hook('read', check_state_ref)
+        _ = state.value
+
+    def test_read_hook_priority_ordering(self):
+        """Test read hooks execute in priority order."""
+        state = brainstate.State(jnp.zeros(3))
+
+        state.register_hook('read', lambda ctx: self.call_log.append('low'), priority=1)
+        state.register_hook('read', lambda ctx: self.call_log.append('high'), priority=100)
+        state.register_hook('read', lambda ctx: self.call_log.append('medium'), priority=50)
+
+        _ = state.value
+
+        self.assertEqual(self.call_log, ['high', 'medium', 'low'])
+
+    # =============================================================================
+    # Write Before Hook Tests
+    # =============================================================================
+
+    def test_write_before_transformation(self):
+        """Test write_before hooks can transform values."""
+        state = brainstate.State(jnp.array([0, 0, 0]))
+
+        def clip_values(ctx):
+            input_val = ctx.transformed_value if ctx.transformed_value is not None else ctx.value
+            ctx.transformed_value = jnp.clip(input_val, -1.0, 1.0)
+
+        state.register_hook('write_before', clip_values)
+
+        state.value = jnp.array([5, -5, 0.5])
+        np.testing.assert_array_almost_equal(state.value, jnp.array([1, -1, 0.5]))
+
+    def test_write_before_cancellation(self):
+        """Test write_before hooks can cancel operations."""
+        state = brainstate.State(jnp.array([1, 2, 3]))
+
+        def validate_positive(ctx):
+            if jnp.any(ctx.value < 0):
+                ctx.cancel = True
+                ctx.cancel_reason = "Values must be non-negative"
+
+        state.register_hook('write_before', validate_positive)
+
+        # Valid write succeeds
+        state.value = jnp.array([1, 2, 3])
+        np.testing.assert_array_equal(state.value, jnp.array([1, 2, 3]))
+
+        # Invalid write fails
+        with self.assertRaises(brainstate.HookCancellationError):
+            state.value = jnp.array([1, -1, 3])
+
+    def test_write_before_sequential_chaining(self):
+        """Test write_before hooks chain transformations."""
+        state = brainstate.State(jnp.array([0.0, 0.0]))
+
+        def multiply_by_2(ctx):
+            input_val = ctx.transformed_value if ctx.transformed_value is not None else ctx.value
+            ctx.transformed_value = input_val * 2
+
+        def add_10(ctx):
+            input_val = ctx.transformed_value if ctx.transformed_value is not None else ctx.value
+            ctx.transformed_value = input_val + 10
+
+        state.register_hook('write_before', multiply_by_2, priority=10)
+        state.register_hook('write_before', add_10, priority=5)
+
+        state.value = jnp.array([1.0, 2.0])
+        # (1 * 2) + 10 = 12, (2 * 2) + 10 = 14
+        np.testing.assert_array_almost_equal(state.value, jnp.array([12.0, 14.0]))
+
+    def test_write_before_complex_transformation(self):
+        """Test complex transformation pipeline."""
+        state = brainstate.State(jnp.array([1.0, 2.0, 3.0]))
+
+        def normalize(ctx):
+            input_val = ctx.transformed_value if ctx.transformed_value is not None else ctx.value
+            norm = jnp.linalg.norm(input_val)
+            if norm > 0:
+                ctx.transformed_value = input_val / norm
+
+        def scale(ctx):
+            input_val = ctx.transformed_value if ctx.transformed_value is not None else ctx.value
+            ctx.transformed_value = input_val * 10.0
+
+        state.register_hook('write_before', normalize, priority=10)
+        state.register_hook('write_before', scale, priority=5)
+
+        state.value = jnp.array([3.0, 4.0, 0.0])
+        # Normalize: [3, 4, 0] / 5 = [0.6, 0.8, 0]
+        # Scale: [0.6, 0.8, 0] * 10 = [6, 8, 0]
+        expected = jnp.array([6.0, 8.0, 0.0])
+        np.testing.assert_array_almost_equal(state.value, expected)
+
+    def test_write_before_validation_with_custom_error(self):
+        """Test validation with custom error messages."""
+        state = brainstate.State(jnp.array([1.0, 2.0]))
+
+        def validate_range(ctx):
+            if jnp.any(ctx.value > 100) or jnp.any(ctx.value < -100):
+                ctx.cancel = True
+                ctx.cancel_reason = "Values must be in range [-100, 100]"
+
+        state.register_hook('write_before', validate_range)
+
+        with self.assertRaises(brainstate.HookCancellationError) as cm:
+            state.value = jnp.array([150.0, 200.0])
+
+        self.assertIn("[-100, 100]", str(cm.exception))
+
+    # =============================================================================
+    # Write After Hook Tests
+    # =============================================================================
+
+    def test_write_after_notification(self):
+        """Test write_after hooks receive notifications."""
+        state = brainstate.State(jnp.array([1, 2, 3]))
+
+        def log_change(ctx):
+            self.call_log.append({
+                'old': ctx.old_value.tolist(),
+                'new': ctx.value.tolist()
+            })
+
+        state.register_hook('write_after', log_change)
+
+        state.value = jnp.array([4, 5, 6])
+
+        self.assertEqual(len(self.call_log), 1)
+        self.assertEqual(self.call_log[0]['old'], [1, 2, 3])
+        self.assertEqual(self.call_log[0]['new'], [4, 5, 6])
+
+    def test_write_after_multiple_writes(self):
+        """Test write_after hooks track multiple writes."""
+        state = brainstate.State(jnp.zeros(2))
+
+        state.register_hook('write_after', lambda ctx: self.call_log.append(ctx.value.tolist()))
+
+        state.value = jnp.array([1.0, 2.0])
+        state.value = jnp.array([3.0, 4.0])
+        state.value = jnp.array([5.0, 6.0])
+
+        self.assertEqual(len(self.call_log), 3)
+        self.assertEqual(self.call_log[0], [1.0, 2.0])
+        self.assertEqual(self.call_log[1], [3.0, 4.0])
+        self.assertEqual(self.call_log[2], [5.0, 6.0])
+
+    def test_write_after_with_transformation(self):
+        """Test write_after hooks see transformed values."""
+        state = brainstate.State(jnp.array([0.0, 0.0]))
+
+        # Transformation hook
+        def double_value(ctx):
+            input_val = ctx.transformed_value if ctx.transformed_value is not None else ctx.value
+            ctx.transformed_value = input_val * 2
+
+        # Notification hook
+        def check_transformed(ctx):
+            self.call_log.append(ctx.value.tolist())
+
+        state.register_hook('write_before', double_value)
+        state.register_hook('write_after', check_transformed)
+
+        state.value = jnp.array([1.0, 2.0])
+
+        # write_after should see [2.0, 4.0] (after transformation)
+        self.assertEqual(self.call_log[0], [2.0, 4.0])
+
+    # =============================================================================
+    # Restore Hook Tests
+    # =============================================================================
+
+    def test_restore_hook_basic(self):
+        """Test restore hooks execute on restore_value."""
+        state = brainstate.State(jnp.array([1, 2, 3]))
+        state.value = jnp.array([4, 5, 6])
+
+        def log_restore(ctx):
+            self.call_log.append({
+                'old': ctx.old_value.tolist(),
+                'new': ctx.value.tolist()
+            })
+
+        state.register_hook('restore', log_restore)
+
+        state.restore_value(jnp.array([7, 8, 9]))
+
+        self.assertEqual(len(self.call_log), 1)
+        self.assertEqual(self.call_log[0]['old'], [4, 5, 6])
+        self.assertEqual(self.call_log[0]['new'], [7, 8, 9])
+
+    def test_restore_hook_multiple_restores(self):
+        """Test restore hooks track multiple restorations."""
+        state = brainstate.State(jnp.zeros(2))
+
+        state.register_hook('restore', lambda ctx: self.call_log.append('restore'))
+
+        state.restore_value(jnp.array([1.0, 2.0]))
+        state.restore_value(jnp.array([3.0, 4.0]))
+
+        self.assertEqual(self.call_log, ['restore', 'restore'])
+
+    # =============================================================================
+    # Hook Priority and Ordering Tests
+    # =============================================================================
+
+    def test_hook_priority_default_zero(self):
+        """Test hooks with default priority execute in registration order."""
+        state = brainstate.State(jnp.zeros(3))
+
+        state.register_hook('read', lambda ctx: self.call_log.append('first'))
+        state.register_hook('read', lambda ctx: self.call_log.append('second'))
+        state.register_hook('read', lambda ctx: self.call_log.append('third'))
+
+        _ = state.value
+
+        self.assertEqual(self.call_log, ['first', 'second', 'third'])
+
+    def test_hook_priority_descending_order(self):
+        """Test hooks execute in descending priority order."""
+        state = brainstate.State(jnp.zeros(3))
+
+        state.register_hook('read', lambda ctx: self.call_log.append('p100'), priority=100)
+        state.register_hook('read', lambda ctx: self.call_log.append('p50'), priority=50)
+        state.register_hook('read', lambda ctx: self.call_log.append('p1'), priority=1)
+        state.register_hook('read', lambda ctx: self.call_log.append('p0'), priority=0)
+        state.register_hook('read', lambda ctx: self.call_log.append('p-10'), priority=-10)
+
+        _ = state.value
+
+        self.assertEqual(self.call_log, ['p100', 'p50', 'p1', 'p0', 'p-10'])
+
+    def test_hook_priority_mixed_types(self):
+        """Test priority ordering works across hook types."""
+        state = brainstate.State(jnp.zeros(2))
+
+        state.register_hook('write_before', lambda ctx: self.call_log.append('wb_high'), priority=100)
+        state.register_hook('write_before', lambda ctx: self.call_log.append('wb_low'), priority=1)
+
+        state.value = jnp.ones(2)
+
+        self.assertEqual(self.call_log, ['wb_high', 'wb_low'])
+
+    # =============================================================================
+    # Global Hook Tests
+    # =============================================================================
+
+    def test_global_hook_applies_to_all_states(self):
+        """Test global hooks apply to all state instances."""
+        call_count = {'count': 0}
+
+        def global_counter(ctx):
+            call_count['count'] += 1
+
+        brainstate.register_global_state_hook('read', global_counter)
+
+        state1 = brainstate.State(jnp.array([1, 2]))
+        state2 = brainstate.State(jnp.array([3, 4]))
+        state3 = brainstate.State(jnp.array([5, 6]))
+
+        _ = state1.value
+        _ = state2.value
+        _ = state3.value
+
+        self.assertEqual(call_count['count'], 3)
+
+    def test_global_hook_executes_before_instance(self):
+        """Test global hooks execute before instance hooks."""
+
+        def global_hook(ctx):
+            self.call_log.append('global')
+
+        def instance_hook(ctx):
+            self.call_log.append('instance')
+
+        brainstate.register_global_state_hook('read', global_hook)
+
+        state = brainstate.State(jnp.array([1, 2]))
+        state.register_hook('read', instance_hook)
+
+        _ = state.value
+
+        self.assertEqual(self.call_log, ['global', 'instance'])
+
+    def test_global_hook_transformation_chains_with_instance(self):
+        """Test global and instance hooks chain transformations."""
+        state = brainstate.State(jnp.zeros(2))
+
+        def global_transform(ctx):
+            input_val = ctx.transformed_value if ctx.transformed_value is not None else ctx.value
+            ctx.transformed_value = input_val + 1
+
+        def instance_transform(ctx):
+            input_val = ctx.transformed_value if ctx.transformed_value is not None else ctx.value
+            ctx.transformed_value = input_val * 2
+
+        brainstate.register_global_state_hook('write_before', global_transform, priority=100)
+        state.register_hook('write_before', instance_transform, priority=50)
+
+        state.value = jnp.array([0.0, 1.0])
+        # Global: [0, 1] + 1 = [1, 2]
+        # Instance: [1, 2] * 2 = [2, 4]
+        np.testing.assert_array_almost_equal(state.value, jnp.array([2.0, 4.0]))
+
+    def test_clear_global_state_hooks(self):
+        """Test clearing global hooks."""
+        call_count = {'count': 0}
+
+        def counter(ctx):
+            call_count['count'] += 1
+
+        brainstate.register_global_state_hook('read', counter)
+
+        state = brainstate.State(jnp.zeros(3))
+        _ = state.value
+        self.assertEqual(call_count['count'], 1)
+
+        brainstate.clear_global_state_hooks()
+
+        state2 = brainstate.State(jnp.ones(3))
+        _ = state2.value
+        # Count should not increase after clearing
+        self.assertEqual(call_count['count'], 1)
+
+    def test_clear_global_state_hooks_by_type(self):
+        """Test clearing global hooks by specific type."""
+        read_count = {'count': 0}
+        write_count = {'count': 0}
+
+        brainstate.register_global_state_hook('read', lambda ctx: read_count.update(count=read_count['count'] + 1))
+        brainstate.register_global_state_hook('write_after',
+                                              lambda ctx: write_count.update(count=write_count['count'] + 1))
+
+        state = brainstate.State(jnp.zeros(3))
+        _ = state.value
+        state.value = jnp.ones(3)
+
+        self.assertEqual(read_count['count'], 1)
+        self.assertEqual(write_count['count'], 1)
+
+        # Clear only read hooks
+        brainstate.clear_global_state_hooks('read')
+
+        _ = state.value
+        state.value = jnp.zeros(3)
+
+        # Read count should not increase
+        self.assertEqual(read_count['count'], 1)
+        # Write count should increase
+        self.assertEqual(write_count['count'], 2)
+
+    # =============================================================================
+    # Hook Handle Tests
+    # =============================================================================
+
+    def test_hook_handle_disable_enable(self):
+        """Test disabling and enabling hooks via handle."""
+        state = brainstate.State(jnp.zeros(3))
+
+        handle = state.register_hook('read', lambda ctx: self.call_log.append('read'))
+
+        _ = state.value
+        self.assertEqual(len(self.call_log), 1)
+
+        # Disable hook
+        handle.disable()
+        _ = state.value
+        # Should not call hook
+        self.assertEqual(len(self.call_log), 1)
+
+        # Re-enable hook
+        handle.enable()
+        _ = state.value
+        # Should call hook again
+        self.assertEqual(len(self.call_log), 2)
+
+    def test_hook_handle_remove(self):
+        """Test removing hooks via handle."""
+        state = brainstate.State(jnp.zeros(3))
+
+        handle = state.register_hook('read', lambda ctx: self.call_log.append('read'))
+
+        _ = state.value
+        self.assertEqual(len(self.call_log), 1)
+
+        # Remove hook
+        handle.remove()
+        _ = state.value
+        # Should not call hook
+        self.assertEqual(len(self.call_log), 1)
+
+    def test_hook_handle_is_enabled(self):
+        """Test checking hook enabled status."""
+        state = brainstate.State(jnp.zeros(3))
+
+        handle = state.register_hook('read', lambda ctx: None)
+
+        self.assertTrue(handle.is_enabled())
+
+        handle.disable()
+        self.assertFalse(handle.is_enabled())
+
+        handle.enable()
+        self.assertTrue(handle.is_enabled())
+
+    def test_hook_handle_multiple_operations(self):
+        """Test multiple operations on hook handle."""
+        state = brainstate.State(jnp.zeros(3))
+
+        handle = state.register_hook('read', lambda ctx: self.call_log.append('read'))
+
+        # Disable, enable, disable, enable cycle
+        for _ in range(3):
+            handle.disable()
+            _ = state.value
+            handle.enable()
+            _ = state.value
+
+        # Should be called 3 times (when enabled)
+        self.assertEqual(len(self.call_log), 3)
+
+    # =============================================================================
+    # Hook Context Manager Tests
+    # =============================================================================
+
+    def test_temporary_hook_context_manager(self):
+        """Test temporary_hook context manager."""
+        state = brainstate.State(jnp.zeros(3))
+
+        def temp_hook(ctx):
+            self.call_log.append('temp')
+
+        # Hook active only within context
+        with state.temporary_hook('read', temp_hook):
+            _ = state.value
+            self.assertEqual(len(self.call_log), 1)
+
+        # Hook removed after context
+        _ = state.value
+        self.assertEqual(len(self.call_log), 1)
+
+    def test_temporary_hook_nested_contexts(self):
+        """Test nested temporary_hook contexts."""
+        state = brainstate.State(jnp.zeros(3))
+
+        with state.temporary_hook('read', lambda ctx: self.call_log.append('outer')):
+            _ = state.value
+            self.assertEqual(self.call_log, ['outer'])
+
+            with state.temporary_hook('read', lambda ctx: self.call_log.append('inner')):
+                self.call_log.clear()
+                _ = state.value
+                # Both hooks should be active
+                self.assertIn('outer', self.call_log)
+                self.assertIn('inner', self.call_log)
+
+            # Only outer hook active
+            self.call_log.clear()
+            _ = state.value
+            self.assertEqual(self.call_log, ['outer'])
+
+    def test_temporary_hook_exception_cleanup(self):
+        """Test temporary hooks are removed even on exception."""
+        state = brainstate.State(jnp.zeros(3))
+
+        try:
+            with state.temporary_hook('read', lambda ctx: self.call_log.append('temp')):
+                _ = state.value
+                self.assertEqual(len(self.call_log), 1)
+                raise ValueError("Test exception")
+        except ValueError:
+            pass
+
+        # Hook should be removed despite exception
+        _ = state.value
+        self.assertEqual(len(self.call_log), 1)
+
+    # =============================================================================
+    # Hook List and Clear Tests
+    # =============================================================================
+
+    def test_list_hooks_all_types(self):
+        """Test listing hooks across all types."""
+        state = brainstate.State(jnp.zeros(3))
+
+        state.register_hook('read', lambda ctx: None, name='read1')
+        state.register_hook('write_before', lambda ctx: None, name='wb1')
+        state.register_hook('write_after', lambda ctx: None, name='wa1')
+        state.register_hook('restore', lambda ctx: None, name='restore1')
+
+        all_hooks = state.list_hooks()
+        self.assertEqual(len(all_hooks), 4)
+
+    def test_list_hooks_by_type(self):
+        """Test listing hooks filtered by type."""
+        state = brainstate.State(jnp.zeros(3))
+
+        state.register_hook('read', lambda ctx: None, name='read1')
+        state.register_hook('read', lambda ctx: None, name='read2')
+        state.register_hook('write_before', lambda ctx: None, name='wb1')
+
+        read_hooks = state.list_hooks('read')
+        self.assertEqual(len(read_hooks), 2)
+
+        write_hooks = state.list_hooks('write_before')
+        self.assertEqual(len(write_hooks), 1)
+
+    def test_clear_hooks_all_types(self):
+        """Test clearing all hooks."""
+        state = brainstate.State(jnp.zeros(3))
+
+        state.register_hook('read', lambda ctx: None)
+        state.register_hook('write_before', lambda ctx: None)
+        state.register_hook('write_after', lambda ctx: None)
+
+        state.clear_hooks()
+
+        self.assertEqual(len(state.list_hooks()), 0)
+
+    def test_clear_hooks_by_type(self):
+        """Test clearing hooks by specific type."""
+        state = brainstate.State(jnp.zeros(3))
+
+        state.register_hook('read', lambda ctx: None, name='read1')
+        state.register_hook('write_before', lambda ctx: None, name='wb1')
+
+        state.clear_hooks('read')
+
+        self.assertEqual(len(state.list_hooks('read')), 0)
+        self.assertEqual(len(state.list_hooks('write_before')), 1)
+
+    def test_has_hooks_check(self):
+        """Test has_hooks method."""
+        state = brainstate.State(jnp.zeros(3))
+
+        self.assertFalse(state.has_hooks())
+
+        handle = state.register_hook('read', lambda ctx: None)
+
+        self.assertTrue(state.has_hooks())
+        self.assertTrue(state.has_hooks('read'))
+        self.assertFalse(state.has_hooks('write_before'))
+
+        handle.remove()
+
+        self.assertFalse(state.has_hooks())
+
+    # =============================================================================
+    # Error Handling Tests
+    # =============================================================================
+
+    def test_hook_error_handling_log_mode(self):
+        """Test hook errors are logged in log mode (default)."""
+        state = brainstate.State(jnp.zeros(3))
+
+        def failing_hook(ctx):
+            raise RuntimeError("Hook error")
+
+        state.register_hook('read', failing_hook)
+
+        # Should not raise, just log warning
+        with self.assertWarns(brainstate.HookWarning):
+            _ = state.value
+
+    def test_hook_error_handling_raise_mode(self):
+        """Test hook errors are raised in raise mode."""
+
+        config = HookConfig(on_error='raise')
+        manager = HookManager(config)
+
+        # Create state with custom hook manager (need to use internal API for testing)
+        state = brainstate.State(jnp.zeros(3))
+        state._hooks_manager = manager
+
+        def failing_hook(ctx):
+            raise RuntimeError("Hook error")
+
+        state.register_hook('read', failing_hook)
+
+        with self.assertRaises(brainstate.HookExecutionError):
+            _ = state.value
+
+    def test_hook_error_handling_ignore_mode(self):
+        """Test hook errors are ignored in ignore mode."""
+
+        config = HookConfig(on_error='ignore')
+        manager = HookManager(config)
+
+        state = brainstate.State(jnp.zeros(3))
+        state._hooks_manager = manager
+
+        def failing_hook(ctx):
+            raise RuntimeError("Hook error")
+
+        state.register_hook('read', failing_hook)
+
+        # Should silently ignore error
+        _ = state.value  # No exception or warning
+
+    # =============================================================================
+    # Complex Integration Tests
+    # =============================================================================
+
+    def test_hook_integration_logging_system(self):
+        """Test implementing a logging system with hooks."""
+        log = []
+
+        def log_init(ctx):
+            log.append(f"INIT: {ctx.state_name} = {ctx.value.tolist()}")
+
+        def log_read(ctx):
+            log.append(f"READ: {ctx.state_name}")
+
+        def log_write(ctx):
+            log.append(f"WRITE: {ctx.state_name} from {ctx.old_value.tolist()} to {ctx.value.tolist()}")
+
+        brainstate.register_global_state_hook('init', log_init)
+        brainstate.register_global_state_hook('read', log_read)
+        brainstate.register_global_state_hook('write_after', log_write)
+
+        state = brainstate.State(jnp.array([1, 2]), name='counter')
+        _ = state.value
+        state.value = jnp.array([3, 4])
+
+        self.assertEqual(len(log), 3)
+        self.assertIn("INIT: counter", log[0])
+        self.assertIn("READ: counter", log[1])
+        self.assertIn("WRITE: counter", log[2])
+
+    def test_hook_integration_value_constraints(self):
+        """Test enforcing value constraints with hooks."""
+        state = brainstate.State(jnp.array([0.5, 0.5]))
+
+        def enforce_probability(ctx):
+            # Ensure values are valid probabilities
+            input_val = ctx.transformed_value if ctx.transformed_value is not None else ctx.value
+            ctx.transformed_value = jnp.clip(input_val, 0.0, 1.0)
+
+        def validate_sum(ctx):
+            # Cancel if sum is too far from 1
+            if abs(jnp.sum(ctx.value) - 1.0) > 0.1:
+                ctx.cancel = True
+                ctx.cancel_reason = "Probabilities must sum to ~1"
+
+        state.register_hook('write_before', enforce_probability, priority=100)
+        state.register_hook('write_before', validate_sum, priority=50)
+
+        # Valid update
+        state.value = jnp.array([0.6, 0.4])
+        np.testing.assert_array_almost_equal(state.value, jnp.array([0.6, 0.4]))
+
+        # Invalid sum should fail
+        with self.assertRaises(brainstate.HookCancellationError):
+            state.value = jnp.array([0.1, 0.1])
+
+    def test_hook_integration_checkpointing(self):
+        """Test implementing checkpointing with hooks."""
+        checkpoints = {}
+
+        def checkpoint_write(ctx):
+            state_id = id(ctx.state)
+            if state_id not in checkpoints:
+                checkpoints[state_id] = []
+            checkpoints[state_id].append(ctx.value.copy())
+
+        state = brainstate.State(jnp.array([1.0, 2.0]))
+        state.register_hook('write_after', checkpoint_write)
+
+        state.value = jnp.array([3.0, 4.0])
+        state.value = jnp.array([5.0, 6.0])
+        state.value = jnp.array([7.0, 8.0])
+
+        state_id = id(state)
+        self.assertEqual(len(checkpoints[state_id]), 3)
+        np.testing.assert_array_equal(checkpoints[state_id][0], jnp.array([3.0, 4.0]))
+        np.testing.assert_array_equal(checkpoints[state_id][1], jnp.array([5.0, 6.0]))
+        np.testing.assert_array_equal(checkpoints[state_id][2], jnp.array([7.0, 8.0]))
+
+    def test_hook_integration_debugging_tracker(self):
+        """Test debugging tracker with multiple hook types."""
+        tracker = {
+            'reads': 0,
+            'writes': 0,
+            'restores': 0,
+            'last_write': None
+        }
+
+        def track_read(ctx):
+            tracker['reads'] += 1
+
+        def track_write(ctx):
+            tracker['writes'] += 1
+            tracker['last_write'] = ctx.value.copy()
+
+        def track_restore(ctx):
+            tracker['restores'] += 1
+
+        state = brainstate.State(jnp.zeros(3))
+        state.register_hook('read', track_read)
+        state.register_hook('write_after', track_write)
+        state.register_hook('restore', track_restore)
+
+        _ = state.value
+        _ = state.value
+        state.value = jnp.array([1, 2, 3])
+        state.restore_value(jnp.array([4, 5, 6]))
+
+        self.assertEqual(tracker['reads'], 2)
+        self.assertEqual(tracker['writes'], 1)
+        self.assertEqual(tracker['restores'], 1)
+        np.testing.assert_array_equal(tracker['last_write'], jnp.array([1, 2, 3]))
+
+    def test_hook_with_different_state_types(self):
+        """Test hooks work with different state types."""
+        call_count = {'count': 0}
+
+        def count_hook(ctx):
+            call_count['count'] += 1
+
+        brainstate.register_global_state_hook('read', count_hook)
+
+        state1 = brainstate.State(jnp.zeros(3))
+        state2 = brainstate.ShortTermState(jnp.ones(3))
+        state3 = brainstate.LongTermState(jnp.array([1, 2]))
+        state4 = brainstate.ParamState(jnp.zeros((2, 2)))
+
+        _ = state1.value
+        _ = state2.value
+        _ = state3.value
+        _ = state4.value
+
+        self.assertEqual(call_count['count'], 4)
+
+    def test_hook_performance_many_hooks(self):
+        """Test performance with many hooks registered."""
+        state = brainstate.State(jnp.zeros(10))
+
+        # Register 50 hooks
+        for i in range(50):
+            state.register_hook('read', lambda ctx: None, priority=i)
+
+        # Should still work efficiently
+        _ = state.value
+
+        # Verify all hooks registered
+        self.assertEqual(len(state.list_hooks('read')), 50)
+
+    def test_hook_with_complex_pytree_values(self):
+        """Test hooks work with complex pytree state values."""
+        complex_value = {
+            'a': jnp.array([1, 2]),
+            'b': {'c': jnp.array([3, 4]), 'd': jnp.array([5, 6])}
+        }
+
+        state = brainstate.State(complex_value)
+
+        captured = {}
+
+        def capture_complex(ctx):
+            captured['value'] = ctx.value
+
+        state.register_hook('read', capture_complex)
+
+        _ = state.value
+
+        self.assertIn('a', captured['value'])
+        self.assertIn('b', captured['value'])
+
+
 class TestIntegrationScenarios(unittest.TestCase):
     """Test integration scenarios combining multiple features."""
 
@@ -1124,4 +2035,3 @@ class TestIntegrationScenarios(unittest.TestCase):
 
         result = update_state(jnp.array([1.0, 1.0, 1.0]))
         np.testing.assert_array_equal(result, jnp.array([2.0, 3.0, 4.0]))
-

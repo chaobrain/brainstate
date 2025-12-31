@@ -18,6 +18,8 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 import threading
+import weakref
+from collections.abc import Mapping
 from functools import partial
 from typing import (
     Any,
@@ -31,9 +33,9 @@ from typing import (
     Dict,
     List,
     Sequence,
-    Generator
+    Generator,
+    Literal
 )
-from collections.abc import Mapping
 
 import brainunit as u
 import jax
@@ -41,11 +43,13 @@ import numpy as np
 from jax.api_util import shaped_abstractify
 from jax.extend import source_info_util
 
+from brainstate._error import TraceContextError
+from brainstate._state_hook_manager import HookManager
+from brainstate._state_global_hooks import GlobalHookRegistry
 from brainstate.typing import ArrayLike, PyTree, Missing, Filter
 from brainstate.util import DictManager, PrettyObject
 from brainstate.util._tracers import StateJaxTracer
 from brainstate.util.filter import Nothing
-from brainstate._error import TraceContextError
 
 __all__ = [
     'State',
@@ -78,7 +82,7 @@ max_int = np.iinfo(np.int32)
 init_param = None
 
 
-def _get_param():
+def _get_param_init():
     global init_param
     if init_param is None:
         from braintools.init import param as init_param
@@ -280,9 +284,11 @@ class State(Generic[A], PrettyObject):
         tag: Optional[str]. The tag of the state.
     """
     __module__ = 'brainstate'
+
     _level: int
     _source_info: source_info_util.SourceInfo
     _trace_state: StateJaxTracer
+    _hooks_manager: HookManager
     _name: Optional[str]
     _value: PyTree
     _been_writen: bool  # useful in `unflatten` and `flatten` graph processing
@@ -332,6 +338,7 @@ class State(Generic[A], PrettyObject):
             _value=value,
             _level=TRACE_CONTEXT.get_trace_stack_level(),
             _source_info=source_info_util.current(),
+            _hooks_manager=HookManager(),
             _name=name,
             _been_writen=False,
             tag=tag,
@@ -342,6 +349,9 @@ class State(Generic[A], PrettyObject):
 
         # record the state initialization
         record_state_init(self)
+
+        # Execute init hooks
+        self._execute_init_hooks(value, metadata)
 
     if not TYPE_CHECKING:
         def __setattr__(self, name: str, value: Any) -> None:
@@ -408,7 +418,9 @@ class State(Generic[A], PrettyObject):
         The data and its value.
         """
         record_state_value_read(self)
-        return self._read_value()
+        val = self._read_value()
+        self._execute_read_hooks(val)
+        return val
 
     @value.setter
     def value(self, v) -> None:
@@ -423,9 +435,17 @@ class State(Generic[A], PrettyObject):
         if isinstance(v, State):  # value checking
             raise ValueError('Cannot set value to a State, ' 'use `copy_from` method instead')
         self._check_value_tree(v)  # check the tree structure
+
+        # Execute write_before hooks (can transform or cancel)
+        old_value = self._value
+        v = self._execute_write_before_hooks(v, old_value)
+
         record_state_value_write(self)  # record the value by the stack (>= level)
         self._been_writen = True  # set the flag
         self._write_value(v)  # write the value
+
+        # Execute write_after hooks (notification only)
+        self._execute_write_after_hooks(v, old_value)
 
     @property
     def stack_level(self):
@@ -472,10 +492,15 @@ class State(Generic[A], PrettyObject):
             raise ValueError('Cannot set value to a State, ' 'use `copy_from` method instead')
         with check_state_value_tree():
             self._check_value_tree(v)
+
+        old_value = self._value
         # record the value by the stack (>= level)
         record_state_value_restore(self)
         # set the value
         self._value = v
+
+        # Execute restore hooks
+        self._execute_restore_hooks(v, old_value)
 
     def value_call(self, func: Callable[..., Any]) -> Any:
         """
@@ -586,7 +611,7 @@ class State(Generic[A], PrettyObject):
         return TreefyState(type(self), self._value, **metadata)
 
     def __pretty_repr_item__(self, k, v):
-        if k in ['_level', '_source_info', '_been_writen', '_trace_state']:
+        if k in ['_level', '_source_info', '_been_writen', '_trace_state', '_hooks_manager']:
             return None
         if k == '_value':
             return 'value', jax.tree.map(shaped_abstractify, v)
@@ -635,8 +660,7 @@ class State(Generic[A], PrettyObject):
 
     @classmethod
     def by(cls, fn, in_size, batch_size: int = None):
-        init_param = _get_param()
-        return cls(init_param(fn, in_size, batch_size))
+        return cls(_get_param_init()(fn, in_size, batch_size))
 
     def copy_from(self, other: State[A]) -> None:
         """
@@ -665,6 +689,173 @@ class State(Generic[A], PrettyObject):
         vars_dict = vars(self)
         vars_dict.clear()
         vars_dict.update(other_vars, _trace_state=trace_state, _level=level, _source_info=source_info)
+
+    # Hook execution methods
+
+    def _execute_read_hooks(self, value: Any) -> None:
+        """Execute read hooks for this state."""
+
+        # Fast path: check if any hooks exist
+        has_instance_hooks = self._hooks_manager.has_hooks('read')
+        has_global_hooks = GlobalHookRegistry.instance().has_hooks('read')
+
+        if not (has_instance_hooks or has_global_hooks):
+            return
+
+        state_ref = weakref.ref(self)
+
+        # Execute global hooks first
+        if has_global_hooks:
+            GlobalHookRegistry.instance().execute_read_hooks(value, state_ref)
+
+        # Execute instance hooks
+        if has_instance_hooks:
+            self._hooks_manager.execute_read_hooks(value, state_ref)
+
+    def _execute_write_before_hooks(self, new_value: Any, old_value: Any) -> Any:
+        """Execute write_before hooks. Returns potentially transformed value."""
+
+        has_instance_hooks = self._hooks_manager.has_hooks('write_before')
+        has_global_hooks = GlobalHookRegistry.instance().has_hooks('write_before')
+
+        if not (has_instance_hooks or has_global_hooks):
+            return new_value
+
+        state_ref = weakref.ref(self)
+
+        # Execute global hooks first, then instance hooks (sequential chaining)
+        if has_global_hooks:
+            new_value = GlobalHookRegistry.instance().execute_write_before_hooks(
+                new_value, old_value, state_ref
+            )
+
+        if has_instance_hooks:
+            new_value = self._hooks_manager.execute_write_before_hooks(
+                new_value, old_value, state_ref
+            )
+
+        return new_value
+
+    def _execute_write_after_hooks(self, new_value: Any, old_value: Any) -> None:
+        """Execute write_after hooks."""
+
+        has_instance_hooks = self._hooks_manager.has_hooks('write_after')
+        has_global_hooks = GlobalHookRegistry.instance().has_hooks('write_after')
+
+        if not (has_instance_hooks or has_global_hooks):
+            return
+
+        state_ref = weakref.ref(self)
+
+        if has_global_hooks:
+            GlobalHookRegistry.instance().execute_write_after_hooks(new_value, old_value, state_ref)
+
+        if has_instance_hooks:
+            self._hooks_manager.execute_write_after_hooks(new_value, old_value, state_ref)
+
+    def _execute_restore_hooks(self, new_value: Any, old_value: Any) -> None:
+        """Execute restore hooks."""
+
+        has_instance_hooks = self._hooks_manager.has_hooks('restore')
+        has_global_hooks = GlobalHookRegistry.instance().has_hooks('restore')
+
+        if not (has_instance_hooks or has_global_hooks):
+            return
+
+        state_ref = weakref.ref(self)
+
+        if has_global_hooks:
+            GlobalHookRegistry.instance().execute_restore_hooks(new_value, old_value, state_ref)
+
+        if has_instance_hooks:
+            self._hooks_manager.execute_restore_hooks(new_value, old_value, state_ref)
+
+    def _execute_init_hooks(self, value: Any, init_metadata: Dict[str, Any]) -> None:
+        """Execute init hooks."""
+        has_instance_hooks = self._hooks_manager.has_hooks('init')
+        has_global_hooks = GlobalHookRegistry.instance().has_hooks('init')
+
+        if not (has_instance_hooks or has_global_hooks):
+            return
+
+        state_ref = weakref.ref(self)
+
+        if has_global_hooks:
+            GlobalHookRegistry.instance().execute_init_hooks(value, state_ref, init_metadata)
+
+        if has_instance_hooks:
+            self._hooks_manager.execute_init_hooks(value, state_ref, init_metadata)
+
+    # Hook registration API methods
+
+    def register_hook(
+        self,
+        hook_type: Literal['read', 'write_before', 'write_after', 'restore', 'init'],
+        callback: Callable,
+        priority: int = 0,
+        name: Optional[str] = None,
+        enabled: bool = True,
+    ):
+        """Register a hook for this state instance.
+
+        Args:
+            hook_type: Type of hook ('read', 'write_before', 'write_after', 'restore', 'init')
+            callback: Callable that receives HookContext
+            priority: Priority for execution order (higher = earlier, default 0)
+            name: Optional name for the hook
+            enabled: Whether hook is enabled initially (default True)
+
+        Returns:
+            HookHandle for managing the hook (enable/disable/remove)
+
+        Example:
+            >>> state = brainstate.State(0)
+            >>> handle = state.register_hook('read', lambda ctx: print(f"Read: {ctx.value}"))
+            >>> state.value  # Prints: Read: 0
+            >>> handle.remove()
+        """
+        return self._hooks_manager.register_hook(hook_type, callback, priority, name, enabled)
+
+    def unregister_hook(self, handle) -> bool:
+        """Unregister a hook using its handle."""
+        return self._hooks_manager.unregister_hook(handle)
+
+    def list_hooks(self, hook_type: Optional[str] = None):
+        """List all registered hooks, optionally filtered by type."""
+        return self._hooks_manager.get_hooks(hook_type)
+
+    def clear_hooks(self, hook_type: Optional[str] = None) -> None:
+        """Clear hooks, optionally filtered by type."""
+        self._hooks_manager.clear_hooks(hook_type)
+
+    def has_hooks(self, hook_type: Optional[str] = None) -> bool:
+        """Check if this state has any hooks registered."""
+        return self._hooks_manager.has_hooks(hook_type)
+
+    @property
+    def hooks(self):
+        """Access the hook manager for this state."""
+        return self._hooks_manager
+
+    @contextlib.contextmanager
+    def temporary_hook(
+        self,
+        hook_type: str,
+        callback: Callable,
+        priority: int = 0
+    ):
+        """Context manager for temporary hooks that auto-unregister.
+
+        Example:
+            >>> with state.temporary_hook('write_before', validate_positive):
+            ...     state.value = 5  # Validation applied
+            >>> state.value = -1  # Validation no longer applied
+        """
+        handle = self.register_hook(hook_type, callback, priority)
+        try:
+            yield handle
+        finally:
+            self.unregister_hook(handle)
 
 
 def record_state_init(st: State[A]):
