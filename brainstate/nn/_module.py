@@ -40,6 +40,7 @@ from brainstate.transform._mapping2 import vmap2
 from brainstate.typing import Size, Filter
 from brainstate.util import FlattedDict, NestedDict
 from brainstate.util.filter import to_predicate, Any as AnyPredicate
+from ._param_data import ParamData
 
 __all__ = [
     'Module',
@@ -596,6 +597,39 @@ class Module(Node, ParamDesc):
                 name = f"{prefix}.{name}"
 
             yield name, param
+
+    def define_param_data(self, *args, **kwargs) -> ParamData:
+        """
+        Define all dynamics parameters.
+
+        Default behavior: auto-compose from child dynamics.
+        Override this method for leaf dynamics or custom behavior.
+
+        Returns:
+            Parameter object. For hierarchical dynamics, returns
+            ComposedData containing all child parameters.
+
+        Raises:
+            NotImplementedError: If this is a leaf dynamics without
+                                child dynamics and method is not overridden.
+        """
+        children = {}
+        assert isinstance(self, Module), f'This class must be a nn.Module, but {type(self)}.'
+        for name, module in self.nodes(allowed_hierarchy=(1, 1)).items():
+            name = name[0] if len(name) == 1 else name
+            children[name] = module
+        if not children:
+            raise NotImplementedError(
+                f"{self.__class__.__name__} is a leaf dynamics and must "
+                "implement get_param()"
+            )
+        children_data = dict()
+        for name, child in children.items():
+            params = child.define_param_data(*args, **kwargs)
+            if len(params):
+                children_data[name] = params
+
+        return ParamData(children=children_data, name=f'{self.__class__.__name__}_param')
 
 
 def _vmap_new_states(

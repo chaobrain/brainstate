@@ -95,6 +95,9 @@ class ParamData:
         object.__setattr__(self, 'name', name)
         self.children.update(kwargs)
 
+    def __len__(self):
+        return len(self.children)
+
     def __getattr__(self, key: str) -> Any:
         """Get child state by attribute name."""
         try:
