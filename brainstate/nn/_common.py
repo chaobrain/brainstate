@@ -16,11 +16,13 @@
 # -*- coding: utf-8 -*-
 
 from collections import defaultdict
-from typing import Any, Sequence, Hashable, Dict
+from typing import Any, Sequence, Hashable, Dict, Union
 
 from brainstate import environ
-from brainstate.transform import vmap2
+from brainstate._state import catch_new_states, StateCatcher
+from brainstate.transform import vmap, vmap2
 from brainstate.typing import Filter
+from brainstate.util.filter import to_predicate
 from ._module import Module
 
 AxisName = Hashable
@@ -144,7 +146,8 @@ def _filter_states(
 
 
 class Vmap(Module):
-    """Vectorize a module with ``brainstate.transform.vmap``.
+    """
+    Vectorize a module with ``brainstate.transform.vmap``.
 
     Parameters
     ----------
@@ -180,21 +183,20 @@ class Vmap(Module):
     ):
         super().__init__()
 
-        # parameters
+        assert isinstance(module, Module), 'The module must be an instance of Module.'
         self.in_axes = in_axes
         self.out_axes = out_axes
         self.axis_name = axis_name
         self.axis_size = axis_size
-        assert isinstance(module, Module), 'The module must be an instance of Module.'
         self.module = module
-        # vmap_states = _filter_states(module, vmap_states)
-        # vmap_out_states = _filter_states(module, vmap_out_states)
+        vmap_states = _filter_states(module, vmap_states)
+        vmap_out_states = _filter_states(module, vmap_out_states)
 
-        @vmap2(
+        @vmap(
             in_axes=in_axes,
             out_axes=out_axes,
-            state_in_axes=vmap_states,
-            # out_states=vmap_out_states,
+            in_states=vmap_states,
+            out_states=vmap_out_states,
             axis_name=axis_name,
             axis_size=axis_size,
         )
@@ -220,3 +222,131 @@ class Vmap(Module):
             Result of executing the vmapped module.
         """
         return self.vmapped_fn(*args, **kwargs)
+
+
+class Vmap2(Module):
+    """
+    Vectorize a module with ``brainstate.transform.vmap``.
+
+    Parameters
+    ----------
+    module : Module
+        Module to wrap with vectorized mapping.
+    in_axes : int or None or Sequence[Any], optional
+        Specification for mapping over inputs. Defaults to ``0``.
+    out_axes : Any, optional
+        Specification for mapping over outputs. Defaults to ``0``.
+    axis_name : AxisName or None, optional
+        Name of the axis being mapped. Defaults to ``None``.
+
+    Examples
+    --------
+    .. code-block:: python
+
+       >>> from brainstate.nn import Vmap2
+       >>> vmapped = Vmap(module, in_axes=0, axis_name="batch")
+       >>> outputs = vmapped.update(inputs)
+    """
+
+    def __init__(
+        self,
+        module: Module,
+        in_axes: int | None | Sequence[Any] = 0,
+        out_axes: Any = 0,
+        state_out_axes: Union[Dict[int, Filter] | Filter] = None,
+        axis_name: AxisName | None = None,
+    ):
+        super().__init__()
+
+        assert isinstance(module, Module), 'The module must be an instance of Module.'
+        self.in_axes = in_axes
+        self.out_axes = out_axes
+        self.axis_name = axis_name
+        self.module = module
+        self.state_out_axes = state_out_axes
+
+    def init_all_states(
+        self,
+        tag: str = None,
+        vmap_size: int = None,
+        state_out_axes: Dict[int, Filter] = None,
+        **kwargs
+    ) -> StateCatcher:
+        return _vmap_new_states(
+            super().init_all_states,
+            kwargs,
+            state_tag=tag,
+            axis_size=vmap_size,
+            state_out_axes=self.state_out_axes
+        )
+
+    def update(self, *args, **kwargs):
+        """Execute the vmapped module with the given arguments.
+
+        Parameters
+        ----------
+        *args
+            Positional arguments forwarded to the vmapped module.
+        **kwargs
+            Keyword arguments forwarded to the vmapped module.
+
+        Returns
+        -------
+        Any
+            Result of executing the vmapped module.
+        """
+        vmap_fn = vmap2(
+            self.module,
+            in_axes=self.in_axes,
+            out_axes=self.out_axes,
+            axis_name=self.axis_name,
+            state_in_axes=self.state_out_axes,
+        )
+        return vmap_fn(*args, **kwargs)
+
+
+def _vmap_new_states(
+    init_all_states,
+    kwargs: Dict,
+    state_tag: str = None,
+    axis_size: int = None,
+    state_out_axes: Dict[int, Filter] = None,
+):
+    if state_out_axes is None:
+        state_out_axes = dict()
+    if not isinstance(state_out_axes, dict):
+        state_out_axes = {0: state_out_axes}
+    state_out_axes = {k: to_predicate(v) for k, v in state_out_axes.items()}
+    if 0 not in state_out_axes:
+        state_out_axes[0] = to_predicate(...)
+
+    vmap_states = defaultdict(list)
+
+    @vmap2(axis_size=axis_size, out_axes=tuple(state_out_axes.keys()))
+    def new_fun():
+        catcher_ = init_all_states(tag=state_tag, **kwargs)
+        vmap_state_vals_ = defaultdict(list)
+        for st_ in catcher_.get_states():
+            for out_axis_, predicate_ in state_out_axes.items():
+                if predicate_(tuple(), st_):
+                    vmap_state_vals_[out_axis_].append(st_.value)
+                    vmap_states[out_axis_].append(st_)
+                    break
+            else:
+                vmap_state_vals_[0].append(st_.value)
+                vmap_states[0].append(st_)
+        outs = tuple(vmap_state_vals_.get(k, tuple()) for k in state_out_axes)
+        return outs
+
+    # restore vmapped state values
+    with catch_new_states() as catcher:
+        vmap_state_vals = new_fun()
+    vmap_states = tuple(vmap_states.get(k, tuple()) for k in state_out_axes)
+    for st_vals, states in zip(vmap_state_vals, vmap_states):
+        for val, st in zip(st_vals, states):
+            st.restore_value(val)
+            # ------------------------------------------------
+            # --- this is CRUCIAL to avoid jax tracing leakage
+            # ------------------------------------------------
+            st.decrease_stack_level()
+    return catcher

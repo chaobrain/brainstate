@@ -469,10 +469,10 @@ class Module(Node, ParamDesc):
         >>> from brainstate.nn import L1Reg
         >>> l1_loss = model.reg_loss(lambda path, p: isinstance(p.reg, L1Reg))
         """
-        param_dict = self.par_modules(*filters)
+        param_dict = tuple(self.par_modules(*filters))
         if len(param_dict) == 0:
             return 0.0
-        losses = [param.reg_loss() for param in param_dict.values()]
+        losses = [param.reg_loss() for param in param_dict]
         return sum(losses)
 
     def cache_par_modules(self, allowed_hierarchy: Tuple[int, int] = (0, max_int)):
@@ -481,6 +481,13 @@ class Module(Node, ParamDesc):
         """
         for par_module in self.par_modules(allowed_hierarchy=allowed_hierarchy):
             par_module.cache()
+
+    def uncache_par_modules(self, allowed_hierarchy: Tuple[int, int] = (0, max_int)):
+        """
+        clear-cache all ParaM parameters in this module and children.
+        """
+        for par_module in self.par_modules(allowed_hierarchy=allowed_hierarchy):
+            par_module.clear_cache()
 
     def init_state(self, *args, **kwargs):
         """
@@ -497,39 +504,12 @@ class Module(Node, ParamDesc):
     def init_all_states(
         self,
         tag: str = None,
-        vmap_size: int = None,
-        state_out_axes: Dict[int, Filter] = None,
         **kwargs
     ) -> StateCatcher:
-        if vmap_size is not None:
-            return _vmap_new_states(
-                self,
-                kwargs,
-                state_tag=tag,
-                axis_size=vmap_size,
-                state_out_axes=state_out_axes
-            )
-
-        else:
-            if state_out_axes is not None:
-                warnings.warn(
-                    'The "state_out_axes" argument is only effective when "vmap_size" is specified.',
-                    UserWarning
-                )
-            from ._collective_ops import init_all_states
-            with catch_new_states(state_tag=tag) as catcher:
-                init_all_states(self, **kwargs)
-            return catcher
-
-    def precompute_params(self):
-        from ._par_module import ParaM
-        for param in self.nodes(ParaM).values():
-            param.precompute()
-
-    def release_params(self):
-        from ._par_module import ParaM
-        for param in self.nodes(ParaM).values():
-            param.release()
+        from ._collective_ops import init_all_states
+        with catch_new_states(state_tag=tag) as catcher:
+            init_all_states(self, **kwargs)
+        return catcher
 
     def parameters(self, recurse: bool = True) -> Iterator[ParamState]:
         """
@@ -608,53 +588,6 @@ class Module(Node, ParamDesc):
                 name = f"{prefix}.{name}"
 
             yield name, param
-
-
-def _vmap_new_states(
-    model: Module,
-    kwargs: Dict,
-    state_tag: str = None,
-    axis_size: int = None,
-    state_out_axes: Dict[int, Filter] = None,
-):
-    if state_out_axes is None:
-        state_out_axes = dict()
-    if not isinstance(state_out_axes, dict):
-        state_out_axes = {0: state_out_axes}
-    state_out_axes = {k: to_predicate(v) for k, v in state_out_axes.items()}
-    if 0 not in state_out_axes:
-        state_out_axes[0] = to_predicate(...)
-
-    vmap_states = defaultdict(list)
-
-    @vmap2(axis_size=axis_size, out_axes=tuple(state_out_axes.keys()))
-    def new_fun():
-        catcher_ = model.init_all_states(tag=state_tag, **kwargs)
-        vmap_state_vals_ = defaultdict(list)
-        for st_ in catcher_.get_states():
-            for out_axis_, predicate_ in state_out_axes.items():
-                if predicate_(tuple(), st_):
-                    vmap_state_vals_[out_axis_].append(st_.value)
-                    vmap_states[out_axis_].append(st_)
-                    break
-            else:
-                vmap_state_vals_[0].append(st_.value)
-                vmap_states[0].append(st_)
-        outs = tuple(vmap_state_vals_.get(k, tuple()) for k in state_out_axes)
-        return outs
-
-    # restore vmapped state values
-    with catch_new_states() as catcher:
-        vmap_state_vals = new_fun()
-    vmap_states = tuple(vmap_states.get(k, tuple()) for k in state_out_axes)
-    for st_vals, states in zip(vmap_state_vals, vmap_states):
-        for val, st in zip(st_vals, states):
-            st.restore_value(val)
-            # ------------------------------------------------
-            # --- this is CRUCIAL to avoid jax tracing leakage
-            # ------------------------------------------------
-            st.decrease_stack_level()
-    return catcher
 
 
 class ElementWiseBlock(Module):
