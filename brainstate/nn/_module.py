@@ -33,7 +33,7 @@ from typing import Sequence, Optional, Tuple, Union, TYPE_CHECKING, Callable, Di
 import numpy as np
 
 from brainstate._error import BrainStateError
-from brainstate._state import catch_new_states, StateCatcher
+from brainstate._state import catch_new_states, StateCatcher, ParamState
 from brainstate.graph import Node, states, nodes, flatten
 from brainstate.mixin import ParamDescriber, ParamDesc
 from brainstate.transform._mapping2 import vmap2
@@ -342,7 +342,7 @@ class Module(Node, ParamDesc):
 
             yield name, module
 
-    def para_modules(
+    def par_modules(
         self,
         *filters,
         allowed_hierarchy: Tuple[int, int] = (0, max_int),
@@ -365,19 +365,19 @@ class Module(Node, ParamDesc):
         Examples
         --------
         >>> # Get all parameters
-        >>> all_params = model.para_modules()
+        >>> all_params = model.par_modules()
         >>>
         >>> # Get parameters with transforms
         >>> from brainstate.nn import IdentityT
-        >>> transformed = model.para_modules(lambda path, p: not isinstance(p.t, IdentityT))
+        >>> transformed = model.par_modules(lambda path, p: not isinstance(p.t, IdentityT))
         >>>
         >>> # Get parameters with regularization
-        >>> regularized = model.para_modules(lambda path, p: p.reg is not None)
+        >>> regularized = model.par_modules(lambda path, p: p.reg is not None)
         """
-        from ._param_module import ParaM
+        from ._par_module import ParaM
         return self.nodes(ParaM, *filters, allowed_hierarchy=allowed_hierarchy)
 
-    def named_para_modules(self, *filters, **kwargs):
+    def named_par_modules(self, *filters, **kwargs):
         """
         Iterate over (name, parameter) pairs.
 
@@ -397,17 +397,51 @@ class Module(Node, ParamDesc):
 
         Examples
         --------
-        >>> for name, param in model.named_para_modules():
+        >>> for name, param in model.named_par_modules():
         ...     print(f"{name}: {param.value().shape}")
         layer1.weight: (10, 20)
         layer1.bias: (20,)
         layer2.weight: (20, 5)
         """
-        params_dict = self.para_modules(*filters, **kwargs)
+        params_dict = self.par_modules(*filters, **kwargs)
         for path, param in params_dict.items():
             # Convert path tuple to dot-separated string
             name = '.'.join(str(p) for p in path)
             yield name, param
+
+    def reg_loss(self, *filters):
+        """
+        Compute total regularization loss from all ParaM parameters.
+
+        Parameters
+        ----------
+        filters : Any
+            Optional filters to select specific parameters.
+
+        Returns
+        -------
+        loss : array_like
+            Scalar total regularization loss (sum of all reg losses).
+
+        Examples
+        --------
+        >>> # Get total regularization loss
+        >>> reg_penalty = model.reg_loss()
+        >>> total_loss = data_loss + reg_penalty
+        >>>
+        >>> # Get loss only from L1-regularized params
+        >>> from brainstate.nn import L1Reg
+        >>> l1_loss = model.reg_loss(lambda path, p: isinstance(p.reg, L1Reg))
+        """
+        param_dict = self.par_modules(*filters)
+        if len(param_dict) == 0:
+            return 0.0
+        losses = [param.reg_loss() for param in param_dict.values()]
+        return sum(losses)
+
+    def cache_par_modules(self, allowed_hierarchy: Tuple[int, int] = (0, max_int)):
+        for par_module in self.par_modules(allowed_hierarchy=allowed_hierarchy):
+            par_module.cache()
 
     def init_state(self, *args, **kwargs):
         """
@@ -449,46 +483,16 @@ class Module(Node, ParamDesc):
             return catcher
 
     def precompute_params(self):
-        from ._param_module import ParaM
+        from ._par_module import ParaM
         for param in self.nodes(ParaM).values():
             param.precompute()
 
     def release_params(self):
-        from ._param_module import ParaM
+        from ._par_module import ParaM
         for param in self.nodes(ParaM).values():
             param.release()
 
-    def reg_loss(self, *filters):
-        """
-        Compute total regularization loss from all ParaM parameters.
-
-        Parameters
-        ----------
-        filters : Any
-            Optional filters to select specific parameters.
-
-        Returns
-        -------
-        loss : array_like
-            Scalar total regularization loss (sum of all reg losses).
-
-        Examples
-        --------
-        >>> # Get total regularization loss
-        >>> reg_penalty = model.reg_loss()
-        >>> total_loss = data_loss + reg_penalty
-        >>>
-        >>> # Get loss only from L1-regularized params
-        >>> from brainstate.nn import L1Reg
-        >>> l1_loss = model.reg_loss(lambda path, p: isinstance(p.reg, L1Reg))
-        """
-        param_dict = self.para_modules(*filters)
-        if len(param_dict) == 0:
-            return 0.0
-        losses = [param.reg_loss() for param in param_dict.values()]
-        return sum(losses)
-
-    def parameters(self, recurse: bool = True) -> FlattedDict:
+    def parameters(self, recurse: bool = True) -> Iterator[ParamState]:
         """
         Return module parameters.
 
@@ -508,18 +512,16 @@ class Module(Node, ParamDesc):
 
         Examples
         --------
-        >>> for param in model.parameters().values():
-        ...     print(param.value().shape)
+        >>> for param in model.parameters():
+        ...     print(param.value.shape)
 
         See Also
         --------
         para_modules : Native brainstate method for parameter discovery
         named_parameters : Returns (name, parameter) pairs
         """
-        if recurse:
-            return self.para_modules()
-        else:
-            return self.para_modules(allowed_hierarchy=(1, 1))
+        for name, param in self.named_parameters(recurse=recurse):
+            yield param
 
     def named_parameters(self, prefix: str = '', recurse: bool = True):
         """
@@ -554,9 +556,9 @@ class Module(Node, ParamDesc):
         parameters : Returns parameters only
         """
         if recurse:
-            params_dict = self.para_modules()
+            params_dict = self.states(ParamState)
         else:
-            params_dict = self.para_modules(allowed_hierarchy=(1, 1))
+            params_dict = self.states(ParamState, allowed_hierarchy=(1, 1))
 
         for path, param in params_dict.items():
             # Convert path tuple to dot-separated string

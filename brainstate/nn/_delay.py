@@ -134,6 +134,8 @@ class Delay(Module):
         self.target_info = jax.tree.map(lambda a: jax.ShapeDtypeStruct(a.shape, a.dtype), target_info)
 
         # delay method
+        if delay_method is None:
+            delay_method = _DELAY_ROTATE
         assert delay_method in [_DELAY_ROTATE, _DELAY_CONCAT], (
             f'Un-supported delay method {delay_method}. '
             f'Only support {_DELAY_ROTATE} and {_DELAY_CONCAT}'
@@ -221,13 +223,13 @@ class Delay(Module):
                 non-negative numbers or arrays of the same size.
 
         Returns:
-            tuple or None: If delay_time[0] is None, returns None. Otherwise, returns a tuple
-                containing (delay_step, *delay_time[1:]) where delay_step is the computed
+            tuple or None: If time_and_index[0] is None, returns None. Otherwise, returns a tuple
+                containing (delay_step, *time_and_index[1:]) where delay_step is the computed
                 delay step in integer time units, and the remaining elements are the
                 additional delay parameters passed in.
 
         Raises:
-            AssertionError: If no delay time is provided (empty delay_time).
+            AssertionError: If no delay time is provided (empty time_and_index).
             ValueError: If delay times have inconsistent sizes when using vector delays,
                 or if delay times are not scalar or 1D arrays.
 
@@ -235,7 +237,7 @@ class Delay(Module):
             - The method updates self.max_time and self.max_length if the new delay
               requires a larger buffer size.
             - Delay steps are computed using the current environment time step (dt).
-            - All delay indices (delay_time[1:]) must be integers.
+            - All delay indices (time_and_index[1:]) must be integers.
             - Vector delays must all have the same size as the first delay time.
 
         Example:

@@ -15,7 +15,10 @@
 
 import unittest
 
+import jax.numpy as jnp
+
 import brainstate
+from brainstate.nn import ParaM, L2Reg, L1Reg
 
 
 class TestModule(unittest.TestCase):
@@ -53,8 +56,6 @@ class TestModule(unittest.TestCase):
 
     def test_reg_loss_aggregation(self):
         """Test reg_loss() method for regularization aggregation."""
-        from brainstate.nn import ParaM, L2Reg, L1Reg
-        import jax.numpy as jnp
 
         class TestModule(brainstate.nn.Module):
             def __init__(self):
@@ -73,7 +74,7 @@ class TestModule(unittest.TestCase):
         self.assertGreater(total_loss, 0.0)
 
         # Get loss from L2-regularized params only (compute manually)
-        all_params = mod.para_modules()
+        all_params = mod.par_modules()
         l2_params = {k: v for k, v in all_params.items() if isinstance(v.reg, L2Reg)}
         l2_loss = sum(p.reg_loss() for p in l2_params.values())
         self.assertGreater(l2_loss, 0.0)
@@ -85,8 +86,6 @@ class TestModule(unittest.TestCase):
 
     def test_named_params(self):
         """Test named_params() iterator."""
-        from brainstate.nn import ParaM
-        import jax.numpy as jnp
 
         class TestModule(brainstate.nn.Module):
             def __init__(self):
@@ -95,7 +94,7 @@ class TestModule(unittest.TestCase):
                 self.beta = ParaM(jnp.ones(5), fit_par=True)
 
         mod = TestModule()
-        named = list(mod.named_para_modules())
+        named = list(mod.named_par_modules())
 
         self.assertEqual(len(named), 2)
         names = [name for name, _ in named]
@@ -126,8 +125,6 @@ class TestModule(unittest.TestCase):
 
     def test_children(self):
         """Test children() method for getting immediate child modules."""
-        from brainstate.nn import ParaM
-        import jax.numpy as jnp
 
         class SubModule(brainstate.nn.Module):
             def __init__(self):
@@ -222,8 +219,6 @@ class TestModule(unittest.TestCase):
 
     def test_parameters(self):
         """Test parameters() method (PyTorch-compatible alias)."""
-        from brainstate.nn import ParaM
-        import jax.numpy as jnp
 
         class TestModule(brainstate.nn.Module):
             def __init__(self):
@@ -234,17 +229,15 @@ class TestModule(unittest.TestCase):
         mod = TestModule()
 
         # Test recurse=True (default)
-        params = mod.parameters(recurse=True)
+        params = list(mod.parameters(recurse=True))
         self.assertEqual(len(params), 2)
 
         # Should be equivalent to para_modules()
-        para_mods = mod.para_modules()
+        para_mods = mod.par_modules()
         self.assertEqual(len(params), len(para_mods))
 
     def test_named_parameters(self):
         """Test named_parameters() iterator (PyTorch-compatible alias)."""
-        from brainstate.nn import ParaM
-        import jax.numpy as jnp
 
         class TestModule(brainstate.nn.Module):
             def __init__(self):
@@ -268,7 +261,6 @@ class TestModule(unittest.TestCase):
 
     def test_integration_pytorch_style(self):
         """Test PyTorch-style iteration patterns work correctly."""
-        from brainstate.nn import ParaM
 
         class Linear(brainstate.nn.Module):
             def __init__(self, in_size, out_size):
@@ -285,7 +277,7 @@ class TestModule(unittest.TestCase):
 
         # Test PyTorch-style parameter iteration
         param_count = 0
-        for param in model.parameters().values():
+        for param in model.parameters():
             param_count += 1
         self.assertEqual(param_count, 2)
 

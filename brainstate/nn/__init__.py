@@ -48,8 +48,8 @@ from ._normalizations import *
 from ._normalizations import __all__ as normalizations_all
 from ._paddings import *
 from ._paddings import __all__ as paddings_all
-from ._param_module import *
-from ._param_module import __all__ as param_module_all
+from ._par_module import *
+from ._par_module import __all__ as param_module_all
 from ._poolings import *
 from ._poolings import __all__ as poolings_all
 from ._regularization import *
