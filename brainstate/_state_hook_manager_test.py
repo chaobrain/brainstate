@@ -16,21 +16,20 @@
 """Unit tests for HookManager."""
 
 import threading
-import time
 import weakref
 from unittest import TestCase
 
+import brainstate
 from brainstate import (
     HookManager,
     HookConfig,
     HookExecutionError,
-    ReadHookContext,
-    MutableWriteHookContext,
 )
 
 
 class MockState:
     """Mock State class that supports weak references for testing."""
+
     def __init__(self, name="test_state"):
         self.name = name
 
@@ -45,6 +44,7 @@ class TestHookManager(TestCase):
 
     def test_registration_and_unregistration(self):
         """Test basic hook registration and unregistration."""
+
         def hook_fn(ctx):
             self.call_log.append('hook_called')
 
@@ -61,9 +61,11 @@ class TestHookManager(TestCase):
 
     def test_priority_ordering(self):
         """Test that hooks execute in priority order (descending)."""
+
         def make_hook(name):
             def hook_fn(ctx):
                 self.call_log.append(name)
+
             return hook_fn
 
         # Register hooks with different priorities
@@ -80,9 +82,11 @@ class TestHookManager(TestCase):
 
     def test_hook_execution_order_within_same_priority(self):
         """Test stable ordering for hooks with same priority."""
+
         def make_hook(name):
             def hook_fn(ctx):
                 self.call_log.append(name)
+
             return hook_fn
 
         # Register multiple hooks with same priority
@@ -99,6 +103,7 @@ class TestHookManager(TestCase):
 
     def test_caching_behavior(self):
         """Test that hook cache is properly invalidated and rebuilt."""
+
         def hook_fn(ctx):
             self.call_log.append('hook')
 
@@ -192,6 +197,7 @@ class TestHookManager(TestCase):
 
     def test_sequential_chaining_write_before(self):
         """Test sequential chaining in write_before hooks."""
+
         def multiply_by_2(ctx):
             input_val = ctx.transformed_value if ctx.transformed_value is not None else ctx.value
             ctx.transformed_value = input_val * 2
@@ -212,6 +218,7 @@ class TestHookManager(TestCase):
 
     def test_hook_cancellation(self):
         """Test cancellation in write_before hooks."""
+
         def validate_positive(ctx):
             if ctx.value < 0:
                 ctx.cancel = True
@@ -227,8 +234,7 @@ class TestHookManager(TestCase):
         self.assertEqual(result, 5)
 
         # Should raise for negative value
-        from brainstate.hooks._hook_core import HookCancellationError
-        with self.assertRaises(HookCancellationError):
+        with self.assertRaises(brainstate.HookCancellationError):
             self.manager.execute_write_before_hooks(
                 new_value=-5, old_value=0, state_ref=mock_state_ref
             )
@@ -309,6 +315,7 @@ class TestHookManager(TestCase):
 
     def test_handle_operations(self):
         """Test HookHandle enable/disable/remove operations."""
+
         def hook_fn(ctx):
             self.call_log.append('hook')
 
@@ -344,4 +351,5 @@ class TestHookManager(TestCase):
 
 if __name__ == '__main__':
     import unittest
+
     unittest.main()
