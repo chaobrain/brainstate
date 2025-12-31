@@ -33,11 +33,11 @@ from typing import Sequence, Optional, Tuple, Union, TYPE_CHECKING, Callable, Di
 import numpy as np
 
 from brainstate._error import BrainStateError
-from brainstate._state import State, catch_new_states
+from brainstate._state import catch_new_states, StateCatcher
 from brainstate.graph import Node, states, nodes, flatten
 from brainstate.mixin import ParamDescriber, ParamDesc
 from brainstate.transform._mapping2 import vmap2
-from brainstate.typing import PathParts, Size, Filter
+from brainstate.typing import Size, Filter
 from brainstate.util import FlattedDict, NestedDict
 from brainstate.util.filter import to_predicate
 
@@ -122,6 +122,22 @@ class Module(Node, ParamDesc):
     def update(self, *args, **kwargs):
         """
         The function to specify the updating rule.
+
+        Default implementation returns first argument unchanged (identity function).
+        Override this method in subclasses to implement custom behavior.
+
+        Parameters
+        ----------
+        *args : Any
+            Positional arguments (typically input data).
+        **kwargs : Any
+            Keyword arguments.
+
+        Returns
+        -------
+        output : Any
+            Transformed output. Default implementation returns args[0] if available,
+            otherwise None.
         """
         raise NotImplementedError(
             f'Subclass of {self.__class__.__name__} must implement "update" function. \n'
@@ -155,8 +171,7 @@ class Module(Node, ParamDesc):
         self,
         *filters,
         allowed_hierarchy: Tuple[int, int] = (0, max_int),
-        level: int = None,
-    ) -> FlattedDict[PathParts, State] | Tuple[FlattedDict[PathParts, State], ...]:
+    ) -> FlattedDict | Tuple[FlattedDict, ...]:
         """
         Collect all states in this node and the children nodes.
 
@@ -174,17 +189,12 @@ class Module(Node, ParamDesc):
         states : FlattedDict, tuple of FlattedDict
           The collection contained (the path, the state).
         """
-        if level is not None:
-            allowed_hierarchy = (0, level)
-            warnings.warn('The "level" argument is deprecated. Please use "allowed_hierarchy" instead.',
-                          DeprecationWarning)
-
         return states(self, *filters, allowed_hierarchy=allowed_hierarchy)
 
     def state_trees(
         self,
         *filters,
-    ) -> NestedDict[PathParts, State] | Tuple[NestedDict[PathParts, State], ...]:
+    ) -> NestedDict | Tuple[NestedDict, ...]:
         """
         Collect all states in this node and the children nodes.
 
@@ -207,8 +217,7 @@ class Module(Node, ParamDesc):
         self,
         *filters,
         allowed_hierarchy: Tuple[int, int] = (0, max_int),
-        level: int = None,
-    ) -> FlattedDict[PathParts, Node] | Tuple[FlattedDict[PathParts, Node], ...]:
+    ) -> FlattedDict | Tuple[FlattedDict, ...]:
         """
         Collect all children nodes.
 
@@ -218,20 +227,48 @@ class Module(Node, ParamDesc):
           The filters to select the states.
         allowed_hierarchy : tuple of int
           The hierarchy of the states to be collected.
-        level : int
-          The level of the states to be collected. Has been deprecated.
 
         Returns
         -------
         nodes : FlattedDict, tuple of FlattedDict
           The collection contained (the path, the node).
         """
-        if level is not None:
-            allowed_hierarchy = (0, level)
-            warnings.warn('The "level" argument is deprecated. Please use "allowed_hierarchy" instead.',
-                          DeprecationWarning)
-
         return nodes(self, *filters, allowed_hierarchy=allowed_hierarchy)
+
+    def para_modules(
+        self,
+        *filters,
+        allowed_hierarchy: Tuple[int, int] = (0, max_int),
+    ) -> FlattedDict | Tuple[FlattedDict, ...]:
+        """
+        Collect all ParaM parameters in this module and children.
+
+        Parameters
+        ----------
+        filters : Any
+          The filters to select the parameters.
+        allowed_hierarchy : tuple of int
+          The hierarchy of the parameters to be collected.
+
+        Returns
+        -------
+        params : FlattedDict, tuple of FlattedDict
+          The collection contained (the path, the ParaM parameter).
+
+        Examples
+        --------
+        >>> # Get all parameters
+        >>> all_params = model.para_modules()
+        >>>
+        >>> # Get parameters with transforms
+        >>> from brainstate.nn import IdentityT
+        >>> transformed = model.para_modules(lambda path, p: not isinstance(p.t, IdentityT))
+        >>>
+        >>> # Get parameters with regularization
+        >>> regularized = model.para_modules(lambda path, p: p.reg is not None)
+        """
+        from ._param_module import ParaM
+        return self.nodes(ParaM, *filters, allowed_hierarchy=allowed_hierarchy)
 
     def init_state(self, *args, **kwargs):
         """
@@ -251,7 +288,7 @@ class Module(Node, ParamDesc):
         vmap_size: int = None,
         state_out_axes: Dict[int, Filter] = None,
         **kwargs
-    ):
+    ) -> StateCatcher:
         if vmap_size is not None:
             return _vmap_new_states(
                 self,
@@ -281,6 +318,68 @@ class Module(Node, ParamDesc):
         from ._param_module import ParaM
         for param in self.nodes(ParaM).values():
             param.release()
+
+    def reg_loss(self, *filters):
+        """
+        Compute total regularization loss from all ParaM parameters.
+
+        Parameters
+        ----------
+        filters : Any
+            Optional filters to select specific parameters.
+
+        Returns
+        -------
+        loss : array_like
+            Scalar total regularization loss (sum of all reg losses).
+
+        Examples
+        --------
+        >>> # Get total regularization loss
+        >>> reg_penalty = model.reg_loss()
+        >>> total_loss = data_loss + reg_penalty
+        >>>
+        >>> # Get loss only from L1-regularized params
+        >>> from brainstate.nn import L1Reg
+        >>> l1_loss = model.reg_loss(lambda path, p: isinstance(p.reg, L1Reg))
+        """
+        param_dict = self.para_modules(*filters)
+        if len(param_dict) == 0:
+            return 0.0
+        losses = [param.reg_loss() for param in param_dict.values()]
+        return sum(losses)
+
+    def named_para_modules(self, *filters, **kwargs):
+        """
+        Iterate over (name, parameter) pairs.
+
+        Parameters
+        ----------
+        filters : Any
+            Filters to apply.
+        **kwargs : Any
+            Additional arguments passed to params().
+
+        Yields
+        ------
+        name : str
+            Dot-separated path to the parameter.
+        param : ParaM
+            The parameter instance.
+
+        Examples
+        --------
+        >>> for name, param in model.named_para_modules():
+        ...     print(f"{name}: {param.value().shape}")
+        layer1.weight: (10, 20)
+        layer1.bias: (20,)
+        layer2.weight: (20, 5)
+        """
+        params_dict = self.para_modules(*filters, **kwargs)
+        for path, param in params_dict.items():
+            # Convert path tuple to dot-separated string
+            name = '.'.join(str(p) for p in path)
+            yield name, param
 
 
 def _vmap_new_states(
