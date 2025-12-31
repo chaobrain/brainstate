@@ -87,9 +87,9 @@ class Module(Node, ParamDesc):
 
     Examples
     --------
-    >>> import brainstate as bs
+    >>> import brainstate
     >>>
-    >>> class Scale(bs.nn.Module):
+    >>> class Scale(brainstate.nn.Module):
     ...     def __init__(self, scale):
     ...         super().__init__()
     ...         self.scale = scale
@@ -476,6 +476,9 @@ class Module(Node, ParamDesc):
         return sum(losses)
 
     def cache_par_modules(self, allowed_hierarchy: Tuple[int, int] = (0, max_int)):
+        """
+        Cache all ParaM parameters in this module and children.
+        """
         for par_module in self.par_modules(allowed_hierarchy=allowed_hierarchy):
             par_module.cache()
 
