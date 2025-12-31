@@ -47,7 +47,7 @@ class TestParamCachingBasic(unittest.TestCase):
         self.assertFalse(stats_before['has_cached_value'])
 
         # First access - cache miss
-        value1 = param.value()
+        value1 = param.cache()
 
         stats_after = param.cache_stats
         self.assertTrue(stats_after['valid'])
@@ -58,7 +58,7 @@ class TestParamCachingBasic(unittest.TestCase):
         """Test cache hit on second value() access."""
         param = ParaM(jnp.array([1.0, 2.0]), t=SoftplusT(0.0))
 
-        value1 = param.value()
+        value1 = param.cache()
         self.assertTrue(param.cache_stats['valid'])
 
         # Second access - cache hit
@@ -73,7 +73,7 @@ class TestParamCachingBasic(unittest.TestCase):
         param = ParaM(jnp.array([1.0, 2.0]), t=SoftplusT(0.0))
 
         # Populate cache
-        value1 = param.value()
+        value1 = param.cache()
         self.assertTrue(param.cache_stats['valid'])
 
         # Update value - should invalidate cache
@@ -81,7 +81,7 @@ class TestParamCachingBasic(unittest.TestCase):
         self.assertFalse(param.cache_stats['valid'])
 
         # Next access should recompute
-        value2 = param.value()
+        value2 = param.cache()
         self.assertTrue(param.cache_stats['valid'])
         np.testing.assert_allclose(value2, jnp.array([3.0, 4.0]), rtol=1e-5)
 
@@ -90,7 +90,7 @@ class TestParamCachingBasic(unittest.TestCase):
         param = ParaM(jnp.array([1.0, 2.0]), t=SoftplusT(0.0))
 
         # Populate cache
-        value1 = param.value()
+        value1 = param.cache()
         self.assertTrue(param.cache_stats['valid'])
 
         # Direct state write - should trigger hook and invalidate cache
@@ -107,7 +107,7 @@ class TestParamCachingBasic(unittest.TestCase):
         param = ParaM(jnp.array([1.0, 2.0]), t=SoftplusT(0.0))
 
         # Populate cache
-        param.value()
+        param.cache()
         self.assertTrue(param.cache_stats['valid'])
 
         # Manual clear
@@ -115,7 +115,7 @@ class TestParamCachingBasic(unittest.TestCase):
         self.assertFalse(param.cache_stats['valid'])
 
         # Next access should recompute
-        param.value()
+        param.cache()
         self.assertTrue(param.cache_stats['valid'])
 
     def test_cache_stats_structure(self):
@@ -152,7 +152,7 @@ class TestParamCachingWithTransforms(unittest.TestCase):
         """Test caching with sigmoid transform."""
         param = ParaM(jnp.array([0.3, 0.7]), t=SigmoidT(0.0, 1.0))
         value1 = param.value()
-        value2 = param.value()
+        value2 = param.cache()
         np.testing.assert_allclose(value1, value2)
         self.assertTrue(param.cache_stats['valid'])
 
@@ -230,7 +230,7 @@ class TestParamCachingErrorHandling(unittest.TestCase):
 
         # Should now succeed and cache
         # Value should be the original 1.0 (goes through inverse(1.0)=0.5, then forward(0.5)=1.0)
-        value = param.value()
+        value = param.cache()
         np.testing.assert_allclose(value, jnp.array([1.0]))
         self.assertTrue(param.cache_stats['valid'])
 
@@ -247,7 +247,7 @@ class TestParamCachingThreadSafety(unittest.TestCase):
 
         def reader_thread(thread_id):
             for _ in range(reads_per_thread):
-                value = param.value()
+                value = param.cache()
                 results[thread_id] = value
 
         threads = [threading.Thread(target=reader_thread, args=(i,)) for i in range(num_threads)]
@@ -333,7 +333,7 @@ class TestParamCachingLogging(unittest.TestCase):
         self.assertIsNone(param._cache_logger)
 
         # Trigger logging
-        param.value()
+        param.cache()
 
         # Logger should now be initialized
         self.assertIsNotNone(param._cache_logger)
@@ -373,7 +373,7 @@ class TestParamCachingPerformance(unittest.TestCase):
 
         # First access - cache miss (slow)
         start = time.time()
-        _ = param.value()
+        _ = param.cache()
         first_access_time = time.time() - start
 
         # Subsequent accesses - cache hits (fast)

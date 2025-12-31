@@ -189,6 +189,7 @@ class ParaM(Module):
             self._cached_value = transformed
             self._cache_valid = True
             self._log_cache_event('manual_cache')
+            return transformed
 
     def clear_cache(self) -> None:
         """
@@ -241,17 +242,8 @@ class ParaM(Module):
                 self._log_cache_event('hit')
                 return self._cached_value
 
-            # Cache miss: compute, cache, return
-            try:
-                transformed = self.t.forward(val)
-                self._cached_value = transformed
-                self._cache_valid = True
-                self._log_cache_event('miss')
-                return transformed
-            except Exception as e:
-                # Transformation failed: don't cache, log error, re-raise
-                self._log_cache_event('error', error=e)
-                raise
+            transformed = self.t.forward(val)
+            return transformed
 
     def set_value(self, value: Data):
         """
