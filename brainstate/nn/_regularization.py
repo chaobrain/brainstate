@@ -26,6 +26,7 @@ from abc import ABC, abstractmethod
 import brainstate
 import brainunit as u
 
+from ._module import Module
 from ._utils import get_size, get_value
 
 Data = brainstate.typing.ArrayLike
@@ -61,7 +62,7 @@ __all__ = [
 ]
 
 
-class Regularization(brainstate.nn.Module, ABC):
+class Regularization(Module, ABC):
     """
     Abstract base class for parameter regularization.
 
@@ -166,7 +167,7 @@ class ChainedReg(Regularization):
     Examples
     --------
     >>> import jax.numpy as jnp
-    >>> from braintools.param import ChainedReg, L1Reg, L2Reg, UniformReg
+    >>> from brainstate.nn import ChainedReg, L1Reg, L2Reg, UniformReg
     >>> # Combine L1 sparsity + L2 smoothness + bounded constraint
     >>> reg = ChainedReg(
     ...     L1Reg(weight=0.01),
@@ -295,7 +296,7 @@ class GaussianReg(Regularization):
     Examples
     --------
     >>> import jax.numpy as jnp
-    >>> from braintools.param import GaussianReg
+    >>> from brainstate.nn import GaussianReg
     >>> reg = GaussianReg(mean=0.0, std=1.0, weight=0.01)
     >>> value = jnp.array([0.5, -0.5])
     >>> loss = reg.loss(value)
@@ -399,7 +400,7 @@ class L1Reg(Regularization):
     Examples
     --------
     >>> import jax.numpy as jnp
-    >>> from braintools.param import L1Reg
+    >>> from brainstate.nn import L1Reg
     >>> reg = L1Reg(weight=0.01)
     >>> value = jnp.array([1.0, -2.0, 0.5])
     >>> loss = reg.loss(value)  # Returns 0.01 * (1.0 + 2.0 + 0.5)
@@ -494,7 +495,7 @@ class L2Reg(Regularization):
     Examples
     --------
     >>> import jax.numpy as jnp
-    >>> from braintools.param import L2Reg
+    >>> from brainstate.nn import L2Reg
     >>> reg = L2Reg(weight=0.01)
     >>> value = jnp.array([1.0, -2.0, 0.5])
     >>> loss = reg.loss(value)  # Returns 0.01 * (1.0 + 4.0 + 0.25)
@@ -588,7 +589,7 @@ class ElasticNetReg(Regularization):
     Examples
     --------
     >>> import jax.numpy as jnp
-    >>> from braintools.param import ElasticNetReg
+    >>> from brainstate.nn import ElasticNetReg
     >>> reg = ElasticNetReg(l1_weight=0.01, l2_weight=0.01, alpha=0.5)
     >>> value = jnp.array([1.0, -2.0, 0.5])
     >>> loss = reg.loss(value)
@@ -706,7 +707,7 @@ class HuberReg(Regularization):
     Examples
     --------
     >>> import jax.numpy as jnp
-    >>> from braintools.param import HuberReg
+    >>> from brainstate.nn import HuberReg
     >>> reg = HuberReg(weight=0.01, delta=1.0)
     >>> value = jnp.array([0.5, 2.0, -3.0])
     >>> loss = reg.loss(value)
@@ -811,7 +812,7 @@ class GroupLassoReg(Regularization):
     Examples
     --------
     >>> import jax.numpy as jnp
-    >>> from braintools.param import GroupLassoReg
+    >>> from brainstate.nn import GroupLassoReg
     >>> reg = GroupLassoReg(weight=0.01, group_size=4)
     >>> value = jnp.array([1.0, 0.5, -0.5, 0.2, 0.0, 0.0, 0.0, 0.0])
     >>> loss = reg.loss(value)
@@ -923,7 +924,7 @@ class TotalVariationReg(Regularization):
     Examples
     --------
     >>> import jax.numpy as jnp
-    >>> from braintools.param import TotalVariationReg
+    >>> from brainstate.nn import TotalVariationReg
     >>> reg = TotalVariationReg(weight=0.01, order=1)
     >>> value = jnp.array([1.0, 1.2, 1.1, 1.3, 1.2])
     >>> loss = reg.loss(value)
@@ -1028,7 +1029,7 @@ class MaxNormReg(Regularization):
     Examples
     --------
     >>> import jax.numpy as jnp
-    >>> from braintools.param import MaxNormReg
+    >>> from brainstate.nn import MaxNormReg
     >>> reg = MaxNormReg(weight=1.0, max_value=3.0)
     >>> value = jnp.array([2.0, 2.0, 2.0])  # norm = sqrt(12) > 3
     >>> loss = reg.loss(value)  # penalty applied
@@ -1138,7 +1139,7 @@ class EntropyReg(Regularization):
     Examples
     --------
     >>> import jax.numpy as jnp
-    >>> from braintools.param import EntropyReg
+    >>> from brainstate.nn import EntropyReg
     >>> reg = EntropyReg(weight=0.01, maximize=True)
     >>> value = jnp.array([1.0, 2.0, 1.0])
     >>> loss = reg.loss(value)
@@ -1247,7 +1248,7 @@ class OrthogonalReg(Regularization):
     Examples
     --------
     >>> import jax.numpy as jnp
-    >>> from braintools.param import OrthogonalReg
+    >>> from brainstate.nn import OrthogonalReg
     >>> reg = OrthogonalReg(weight=0.01)
     >>> W = jnp.array([[1.0, 0.1], [0.1, 1.0]])
     >>> loss = reg.loss(W)
@@ -1378,7 +1379,7 @@ class SpectralNormReg(Regularization):
     Examples
     --------
     >>> import jax.numpy as jnp
-    >>> from braintools.param import SpectralNormReg
+    >>> from brainstate.nn import SpectralNormReg
     >>> reg = SpectralNormReg(weight=1.0, max_value=1.0)
     >>> W = jnp.array([[2.0, 0.0], [0.0, 0.5]])  # spectral norm = 2
     >>> loss = reg.loss(W)
@@ -1534,7 +1535,7 @@ class StudentTReg(Regularization):
     Examples
     --------
     >>> import jax.numpy as jnp
-    >>> from braintools.param import StudentTReg
+    >>> from brainstate.nn import StudentTReg
     >>> reg = StudentTReg(weight=1.0, df=3.0, scale=1.0)
     >>> value = jnp.array([0.5, 2.0, -1.0])
     >>> loss = reg.loss(value)
@@ -1641,7 +1642,7 @@ class CauchyReg(Regularization):
     Examples
     --------
     >>> import jax.numpy as jnp
-    >>> from braintools.param import CauchyReg
+    >>> from brainstate.nn import CauchyReg
     >>> reg = CauchyReg(weight=1.0, scale=1.0)
     >>> value = jnp.array([0.5, 5.0, -1.0])
     >>> loss = reg.loss(value)
@@ -1744,7 +1745,7 @@ class UniformReg(Regularization):
     Examples
     --------
     >>> import jax.numpy as jnp
-    >>> from braintools.param import UniformReg
+    >>> from brainstate.nn import UniformReg
     >>> reg = UniformReg(weight=1.0, lower=-1.0, upper=1.0)
     >>> value = jnp.array([0.5, 1.5, -0.5])  # 1.5 is out of bounds
     >>> loss = reg.loss(value)
@@ -1852,7 +1853,7 @@ class LogNormalReg(Regularization):
     Examples
     --------
     >>> import jax.numpy as jnp
-    >>> from braintools.param import LogNormalReg
+    >>> from brainstate.nn import LogNormalReg
     >>> reg = LogNormalReg(weight=1.0, mu=0.0, sigma=1.0)
     >>> value = jnp.array([0.5, 1.0, 2.0])  # positive values
     >>> loss = reg.loss(value)
@@ -1959,7 +1960,7 @@ class ExponentialReg(Regularization):
     Examples
     --------
     >>> import jax.numpy as jnp
-    >>> from braintools.param import ExponentialReg
+    >>> from brainstate.nn import ExponentialReg
     >>> reg = ExponentialReg(weight=1.0, rate=1.0)
     >>> value = jnp.array([0.5, 1.0, 2.0])  # positive values
     >>> loss = reg.loss(value)
@@ -2063,7 +2064,7 @@ class GammaReg(Regularization):
     Examples
     --------
     >>> import jax.numpy as jnp
-    >>> from braintools.param import GammaReg
+    >>> from brainstate.nn import GammaReg
     >>> reg = GammaReg(weight=1.0, alpha=2.0, beta=1.0)
     >>> value = jnp.array([0.5, 1.0, 2.0])  # positive values
     >>> loss = reg.loss(value)
@@ -2176,7 +2177,7 @@ class BetaReg(Regularization):
     Examples
     --------
     >>> import jax.numpy as jnp
-    >>> from braintools.param import BetaReg
+    >>> from brainstate.nn import BetaReg
     >>> reg = BetaReg(weight=1.0, a=2.0, b=2.0)
     >>> value = jnp.array([0.3, 0.5, 0.7])  # values in [0, 1]
     >>> loss = reg.loss(value)
@@ -2285,7 +2286,7 @@ class HorseshoeReg(Regularization):
     Examples
     --------
     >>> import jax.numpy as jnp
-    >>> from braintools.param import HorseshoeReg
+    >>> from brainstate.nn import HorseshoeReg
     >>> reg = HorseshoeReg(weight=1.0, tau=0.1)
     >>> value = jnp.array([0.01, 0.5, 2.0])
     >>> loss = reg.loss(value)
@@ -2390,7 +2391,7 @@ class InverseGammaReg(Regularization):
     Examples
     --------
     >>> import jax.numpy as jnp
-    >>> from braintools.param import InverseGammaReg
+    >>> from brainstate.nn import InverseGammaReg
     >>> reg = InverseGammaReg(weight=1.0, alpha=2.0, beta=1.0)
     >>> value = jnp.array([0.5, 1.0, 2.0])  # positive values
     >>> loss = reg.loss(value)
@@ -2503,7 +2504,7 @@ class LogUniformReg(Regularization):
     Examples
     --------
     >>> import jax.numpy as jnp
-    >>> from braintools.param import LogUniformReg
+    >>> from brainstate.nn import LogUniformReg
     >>> reg = LogUniformReg(weight=1.0, lower=1e-3, upper=1e3)
     >>> value = jnp.array([0.1, 1.0, 10.0])  # positive values
     >>> loss = reg.loss(value)
@@ -2621,7 +2622,7 @@ class SpikeAndSlabReg(Regularization):
     Examples
     --------
     >>> import jax.numpy as jnp
-    >>> from braintools.param import SpikeAndSlabReg
+    >>> from brainstate.nn import SpikeAndSlabReg
     >>> reg = SpikeAndSlabReg(weight=1.0, spike_scale=0.01, slab_scale=1.0, pi=0.5)
     >>> value = jnp.array([0.001, 0.5, -0.002])
     >>> loss = reg.loss(value)
@@ -2748,7 +2749,7 @@ class DirichletReg(Regularization):
     Examples
     --------
     >>> import jax.numpy as jnp
-    >>> from braintools.param import DirichletReg
+    >>> from brainstate.nn import DirichletReg
     >>> reg = DirichletReg(weight=1.0, alpha=1.0)  # uniform prior
     >>> value = jnp.array([1.0, 2.0, 1.0])  # logits
     >>> loss = reg.loss(value)
