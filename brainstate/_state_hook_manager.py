@@ -20,7 +20,7 @@ from __future__ import annotations
 import threading
 import warnings
 import weakref
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Literal, Optional
 
 from ._state_hook_context import (
@@ -33,16 +33,18 @@ from ._state_hook_context import (
 from ._state_hook_core import (
     Hook,
     HookHandle,
-    HookError,
     HookExecutionError,
     HookCancellationError,
     HookWarning,
+    HookRegistrationError,
 )
 
 __all__ = [
     'HookConfig',
     'HookManager',
 ]
+
+allowed_hook_types = ('read', 'write_before', 'write_after', 'restore', 'init')
 
 
 @dataclass
@@ -82,7 +84,7 @@ class HookManager:
         hooks to safely trigger other state operations.
 
     Example:
-        >>> from brainstate.hooks import HookManager
+        >>> from brainstate import HookManager
         >>> manager = HookManager()
         >>> handle = manager.register_hook('read', lambda ctx: print(ctx.value), priority=10)
         >>> manager.has_hooks('read')
@@ -142,8 +144,7 @@ class HookManager:
             ...     print(f"Hook called: {ctx.operation}")
             >>> handle = manager.register_hook('read', my_hook, priority=10, name='my_reader')
         """
-        if hook_type not in ('read', 'write_before', 'write_after', 'restore', 'init'):
-            from ._state_hook_core import HookRegistrationError
+        if hook_type not in allowed_hook_types:
             raise HookRegistrationError(f"Invalid hook type: {hook_type}")
 
         with self._lock:

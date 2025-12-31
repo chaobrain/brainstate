@@ -696,7 +696,7 @@ class State(Generic[A], PrettyObject):
         """Execute read hooks for this state."""
 
         # Fast path: check if any hooks exist
-        has_instance_hooks = self._hooks_manager.has_hooks('read')
+        has_instance_hooks = self.hooks.has_hooks('read')
         has_global_hooks = GlobalHookRegistry.instance().has_hooks('read')
 
         if not (has_instance_hooks or has_global_hooks):
@@ -710,12 +710,12 @@ class State(Generic[A], PrettyObject):
 
         # Execute instance hooks
         if has_instance_hooks:
-            self._hooks_manager.execute_read_hooks(value, state_ref)
+            self.hooks.execute_read_hooks(value, state_ref)
 
     def _execute_write_before_hooks(self, new_value: Any, old_value: Any) -> Any:
         """Execute write_before hooks. Returns potentially transformed value."""
 
-        has_instance_hooks = self._hooks_manager.has_hooks('write_before')
+        has_instance_hooks = self.hooks.has_hooks('write_before')
         has_global_hooks = GlobalHookRegistry.instance().has_hooks('write_before')
 
         if not (has_instance_hooks or has_global_hooks):
@@ -730,7 +730,7 @@ class State(Generic[A], PrettyObject):
             )
 
         if has_instance_hooks:
-            new_value = self._hooks_manager.execute_write_before_hooks(
+            new_value = self.hooks.execute_write_before_hooks(
                 new_value, old_value, state_ref
             )
 
@@ -739,7 +739,7 @@ class State(Generic[A], PrettyObject):
     def _execute_write_after_hooks(self, new_value: Any, old_value: Any) -> None:
         """Execute write_after hooks."""
 
-        has_instance_hooks = self._hooks_manager.has_hooks('write_after')
+        has_instance_hooks = self.hooks.has_hooks('write_after')
         has_global_hooks = GlobalHookRegistry.instance().has_hooks('write_after')
 
         if not (has_instance_hooks or has_global_hooks):
@@ -751,12 +751,12 @@ class State(Generic[A], PrettyObject):
             GlobalHookRegistry.instance().execute_write_after_hooks(new_value, old_value, state_ref)
 
         if has_instance_hooks:
-            self._hooks_manager.execute_write_after_hooks(new_value, old_value, state_ref)
+            self.hooks.execute_write_after_hooks(new_value, old_value, state_ref)
 
     def _execute_restore_hooks(self, new_value: Any, old_value: Any) -> None:
         """Execute restore hooks."""
 
-        has_instance_hooks = self._hooks_manager.has_hooks('restore')
+        has_instance_hooks = self.hooks.has_hooks('restore')
         has_global_hooks = GlobalHookRegistry.instance().has_hooks('restore')
 
         if not (has_instance_hooks or has_global_hooks):
@@ -768,11 +768,11 @@ class State(Generic[A], PrettyObject):
             GlobalHookRegistry.instance().execute_restore_hooks(new_value, old_value, state_ref)
 
         if has_instance_hooks:
-            self._hooks_manager.execute_restore_hooks(new_value, old_value, state_ref)
+            self.hooks.execute_restore_hooks(new_value, old_value, state_ref)
 
     def _execute_init_hooks(self, value: Any, init_metadata: Dict[str, Any]) -> None:
         """Execute init hooks."""
-        has_instance_hooks = self._hooks_manager.has_hooks('init')
+        has_instance_hooks = self.hooks.has_hooks('init')
         has_global_hooks = GlobalHookRegistry.instance().has_hooks('init')
 
         if not (has_instance_hooks or has_global_hooks):
@@ -784,7 +784,7 @@ class State(Generic[A], PrettyObject):
             GlobalHookRegistry.instance().execute_init_hooks(value, state_ref, init_metadata)
 
         if has_instance_hooks:
-            self._hooks_manager.execute_init_hooks(value, state_ref, init_metadata)
+            self.hooks.execute_init_hooks(value, state_ref, init_metadata)
 
     # Hook registration API methods
 
@@ -814,23 +814,23 @@ class State(Generic[A], PrettyObject):
             >>> state.value  # Prints: Read: 0
             >>> handle.remove()
         """
-        return self._hooks_manager.register_hook(hook_type, callback, priority, name, enabled)
+        return self.hooks.register_hook(hook_type, callback, priority, name, enabled)
 
     def unregister_hook(self, handle) -> bool:
         """Unregister a hook using its handle."""
-        return self._hooks_manager.unregister_hook(handle)
+        return self.hooks.unregister_hook(handle)
 
     def list_hooks(self, hook_type: Optional[str] = None):
         """List all registered hooks, optionally filtered by type."""
-        return self._hooks_manager.get_hooks(hook_type)
+        return self.hooks.get_hooks(hook_type)
 
     def clear_hooks(self, hook_type: Optional[str] = None) -> None:
         """Clear hooks, optionally filtered by type."""
-        self._hooks_manager.clear_hooks(hook_type)
+        self.hooks.clear_hooks(hook_type)
 
     def has_hooks(self, hook_type: Optional[str] = None) -> bool:
         """Check if this state has any hooks registered."""
-        return self._hooks_manager.has_hooks(hook_type)
+        return self.hooks.has_hooks(hook_type)
 
     @property
     def hooks(self):
