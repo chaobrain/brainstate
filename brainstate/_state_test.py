@@ -1073,7 +1073,7 @@ class TestStateHooks(unittest.TestCase):
         )
 
         self.assertEqual(captured_metadata['_name'], 'my_state')
-        self.assertEqual(captured_metadata['tag'], 'network')
+        self.assertEqual(captured_metadata['tag'], ['network'])
 
     def test_init_hook_priority_ordering(self):
         """Test init hooks execute in priority order."""

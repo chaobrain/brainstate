@@ -34,7 +34,8 @@ from typing import (
     List,
     Sequence,
     Generator,
-    Literal
+    Literal,
+    Set,
 )
 
 import brainunit as u
@@ -44,8 +45,8 @@ from jax.api_util import shaped_abstractify
 from jax.extend import source_info_util
 
 from brainstate._error import TraceContextError
-from brainstate._state_hook_manager import HookManager
 from brainstate._state_global_hooks import GlobalHookRegistry
+from brainstate._state_hook_manager import HookManager
 from brainstate.typing import ArrayLike, PyTree, Missing, Filter
 from brainstate.util import DictManager, PrettyObject
 from brainstate.util._tracers import StateJaxTracer
@@ -292,7 +293,7 @@ class State(Generic[A], PrettyObject):
     _name: Optional[str]
     _value: PyTree
     _been_writen: bool  # useful in `unflatten` and `flatten` graph processing
-    tag: Optional[str]
+    tag: Optional[Set[str]]
 
     def __init__(
         self,
@@ -320,6 +321,8 @@ class State(Generic[A], PrettyObject):
             sets up internal attributes, and records the state initialization.
         """
         tag = metadata.pop('tag', None)
+        if isinstance(tag, str):
+            tag = set(tag)
 
         # avoid using self._setattr to avoid the check
         vars(self)['_trace_state'] = StateJaxTracer()
@@ -356,6 +359,18 @@ class State(Generic[A], PrettyObject):
     if not TYPE_CHECKING:
         def __setattr__(self, name: str, value: Any) -> None:
             return self._setattr(name, value)
+
+    def add_tag(self, tag: str):
+        """
+        Add a tag to the state.
+
+        Args:
+            tag: The tag to add.
+        """
+        if self.tag is None:
+            self.tag = []
+        if tag not in self.tag:
+            self.tag.add(tag)
 
     def _setattr(self, name: str, value: Any):
         """
@@ -2338,7 +2353,7 @@ class StateCatcher(PrettyObject):
         if id(state) not in self.state_ids:
             self.state_ids.add(id(state))
             self.states.append(state)
-            state.tag = self.state_tag
+            state.add_tag(self.state_tag)
 
     def __iter__(self):
         """
@@ -2449,5 +2464,12 @@ def catch_new_states(
 class DelayState(ShortTermState):
     """
     Short-term state for storing delay data.
+    """
+    pass
+
+
+class NonBatchState(ShortTermState):
+    """
+    Short-term state for storing non-batched data.
     """
     pass
