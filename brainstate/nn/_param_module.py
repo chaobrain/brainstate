@@ -26,6 +26,7 @@ from typing import Optional
 import brainstate
 import brainunit as u
 
+from ._module import Module
 from ._regularization import Regularization
 from ._transform import IdentityT, Transform
 
@@ -37,7 +38,7 @@ __all__ = [
 Data = brainstate.typing.ArrayLike
 
 
-class ParaM(brainstate.nn.Module):
+class ParaM(Module):
     """
     Neural network parameter with optional transform and regularization.
 
