@@ -19,21 +19,21 @@ from dataclasses import is_dataclass
 import jax.numpy as jnp
 import numpy as np
 
-from brainstate.nn import ParamData
+from brainstate.nn import HiData
 
 
 class TestAutoDataclass(unittest.TestCase):
-    """Test that subclasses of ParamData automatically become dataclasses."""
+    """Test that subclasses of HiData automatically become dataclasses."""
 
     def test_subclass_is_dataclass(self):
-        class MyState(ParamData):
+        class MyState(HiData):
             x: float
             y: float
 
         self.assertTrue(is_dataclass(MyState))
 
     def test_subclass_can_instantiate(self):
-        class MyState(ParamData):
+        class MyState(HiData):
             x: float
             y: float
 
@@ -42,7 +42,7 @@ class TestAutoDataclass(unittest.TestCase):
         self.assertEqual(state.y, 2.0)
 
     def test_nested_inheritance(self):
-        class BaseState(ParamData):
+        class BaseState(HiData):
             x: float
 
         class DerivedState(BaseState):
@@ -53,10 +53,10 @@ class TestAutoDataclass(unittest.TestCase):
 
 
 class TestDataMethods(unittest.TestCase):
-    """Test ParamData class methods."""
+    """Test HiData class methods."""
 
     def setUp(self):
-        class SimpleState(ParamData):
+        class SimpleState(HiData):
             x: jnp.ndarray
             y: jnp.ndarray
 
@@ -89,7 +89,7 @@ class TestDataMethods(unittest.TestCase):
         self.assertEqual(self.state.dtype, jnp.float32)
 
     def test_dtype_no_tensors_raises(self):
-        class EmptyState(ParamData):
+        class EmptyState(HiData):
             name: str
 
         state = EmptyState(name="test")
@@ -116,10 +116,10 @@ class TestDataMethods(unittest.TestCase):
 
 
 class TestDataWithNone(unittest.TestCase):
-    """Test ParamData class with None values."""
+    """Test HiData class with None values."""
 
     def test_to_dict_with_none(self):
-        class OptionalState(ParamData):
+        class OptionalState(HiData):
             x: jnp.ndarray
             y: jnp.ndarray = None
 
@@ -128,7 +128,7 @@ class TestDataWithNone(unittest.TestCase):
         self.assertIsNone(d['y'])
 
     def test_dtype_skips_none(self):
-        class OptionalState(ParamData):
+        class OptionalState(HiData):
             x: jnp.ndarray = None
             y: jnp.ndarray = None
 
@@ -137,81 +137,81 @@ class TestDataWithNone(unittest.TestCase):
 
 
 class TestComposedParamData(unittest.TestCase):
-    """Test ParamData class."""
+    """Test HiData class."""
 
     def test_is_dataclass(self):
-        self.assertTrue(is_dataclass(ParamData))
+        self.assertTrue(is_dataclass(HiData))
 
     def test_empty_init(self):
-        composed = ParamData()
+        composed = HiData()
         self.assertEqual(len(composed.children), 0)
 
     def test_init_with_children(self):
-        class ChildState(ParamData):
+        class ChildState(HiData):
             val: jnp.ndarray
 
         child = ChildState(val=jnp.array([1.0]))
-        composed = ParamData(children={'child1': child})
+        composed = HiData(children={'child1': child})
         self.assertIn('child1', composed)
 
     def test_getitem(self):
-        class ChildState(ParamData):
+        class ChildState(HiData):
             val: jnp.ndarray
 
         child = ChildState(val=jnp.array([1.0]))
-        composed = ParamData(children={'child1': child})
+        composed = HiData(children={'child1': child})
         np.testing.assert_array_equal(composed['child1'].val, jnp.array([1.0]))
 
     def test_contains(self):
-        composed = ParamData(children={'a': 1, 'b': 2})
+        composed = HiData(children={'a': 1, 'b': 2})
         self.assertIn('a', composed)
         self.assertIn('b', composed)
         self.assertNotIn('c', composed)
 
     def test_keys_items_values(self):
-        composed = ParamData(children={'a': 1, 'b': 2})
+        composed = HiData(children={'a': 1, 'b': 2})
         self.assertEqual(set(composed.keys()), {'a', 'b'})
         self.assertEqual(set(composed.values()), {1, 2})
         self.assertEqual(set(composed.items()), {('a', 1), ('b', 2)})
 
     def test_state_size(self):
-        class ChildState(ParamData):
+        class ChildState(HiData):
             x: jnp.ndarray
             y: jnp.ndarray
 
         child1 = ChildState(x=jnp.array([1.0]), y=jnp.array([2.0]))
         child2 = ChildState(x=jnp.array([3.0]), y=jnp.array([4.0]))
-        composed = ParamData(children={'c1': child1, 'c2': child2})
+        composed = HiData(children={'c1': child1, 'c2': child2})
         self.assertEqual(composed.state_size, 4)  # 2 fields * 2 children
 
     def test_state_size_with_none(self):
-        class ChildState(ParamData):
+        class ChildState(HiData):
             x: jnp.ndarray
 
         child = ChildState(x=jnp.array([1.0]))
-        composed = ParamData(children={'c1': child, 'c2': None})
+        composed = HiData(children={'c1': child, 'c2': None})
         self.assertEqual(composed.state_size, 1)
 
     def test_dtype(self):
-        class ChildState(ParamData):
+        class ChildState(HiData):
             x: jnp.ndarray
 
         child = ChildState(x=jnp.array([1.0], dtype=jnp.float32))
-        composed = ParamData(children={'c1': child})
+        composed = HiData(children={'c1': child})
         self.assertEqual(composed.dtype, jnp.float32)
 
     def test_dtype_no_children_raises(self):
-        composed = ParamData()
+        composed = HiData()
         with self.assertRaises(ValueError):
             _ = composed.dtype
 
     def test_replace(self):
-        class ChildState(ParamData):
+        class ChildState(HiData):
             x: jnp.ndarray
 
         child1 = ChildState(x=jnp.array([1.0]))
         child2 = ChildState(x=jnp.array([2.0]))
-        composed = ParamData(children={'c1': child1})
+        composed = HiData(children={'c1': child1})
 
         new_composed = composed.replace(c1=child2)
         np.testing.assert_array_equal(new_composed['c1'].x, jnp.array([2.0]))
@@ -219,14 +219,14 @@ class TestComposedParamData(unittest.TestCase):
         np.testing.assert_array_equal(composed['c1'].x, jnp.array([1.0]))
 
     def test_clone(self):
-        class ChildState(ParamData):
+        class ChildState(HiData):
             x: jnp.ndarray
 
             def clone(self):
                 return ChildState(x=self.x.copy())
 
         child = ChildState(x=jnp.array([1.0]))
-        composed = ParamData(children={'c1': child, 'c2': None})
+        composed = HiData(children={'c1': child, 'c2': None})
         cloned = composed.clone()
 
         self.assertIsNot(cloned, composed)
@@ -235,56 +235,56 @@ class TestComposedParamData(unittest.TestCase):
         self.assertIsNone(cloned['c2'])
 
     def test_clone_without_clone_method(self):
-        composed = ParamData(children={'c1': 'simple_value'})
+        composed = HiData(children={'c1': 'simple_value'})
         cloned = composed.clone()
         self.assertEqual(cloned['c1'], 'simple_value')
 
 
 class TestComposedDataKwargsInit(unittest.TestCase):
-    """Test ParamData kwargs initialization and attribute access."""
+    """Test HiData kwargs initialization and attribute access."""
 
     def test_init_with_kwargs(self):
-        class ChildState(ParamData):
+        class ChildState(HiData):
             val: jnp.ndarray
 
         child1 = ChildState(val=jnp.array([1.0]))
         child2 = ChildState(val=jnp.array([2.0]))
-        composed = ParamData(key1=child1, key2=child2)
+        composed = HiData(key1=child1, key2=child2)
 
         self.assertIn('key1', composed)
         self.assertIn('key2', composed)
 
     def test_getattr_access(self):
-        class ChildState(ParamData):
+        class ChildState(HiData):
             val: jnp.ndarray
 
         child = ChildState(val=jnp.array([1.0]))
-        composed = ParamData(mykey=child)
+        composed = HiData(mykey=child)
 
         np.testing.assert_array_equal(composed.mykey.val, jnp.array([1.0]))
 
     def test_getattr_missing_raises(self):
-        composed = ParamData()
+        composed = HiData()
         with self.assertRaises(AttributeError):
             _ = composed.nonexistent
 
     def test_mixed_init_children_and_kwargs(self):
-        composed = ParamData(children={'a': 1}, b=2, c=3)
+        composed = HiData(children={'a': 1}, b=2, c=3)
         self.assertEqual(composed.a, 1)
         self.assertEqual(composed.b, 2)
         self.assertEqual(composed.c, 3)
 
     def test_kwargs_override_children(self):
-        composed = ParamData(children={'a': 1}, a=2)
+        composed = HiData(children={'a': 1}, a=2)
         self.assertEqual(composed.a, 2)
 
     def test_attribute_and_item_access_equivalent(self):
-        composed = ParamData(key1='value1', key2='value2')
+        composed = HiData(key1='value1', key2='value2')
         self.assertEqual(composed.key1, composed['key1'])
         self.assertEqual(composed.key2, composed['key2'])
 
     def test_children_attribute_accessible(self):
-        composed = ParamData(a=1, b=2)
+        composed = HiData(a=1, b=2)
         self.assertIsInstance(composed.children, dict)
         self.assertEqual(composed.children, {'a': 1, 'b': 2})
 
@@ -294,7 +294,7 @@ class TestDataHierarchicalRepr(unittest.TestCase):
 
     def test_simple_data_repr(self):
         """Test repr with simple values."""
-        data = ParamData(name='config', x=1, y=2.5, z='hello')
+        data = HiData(name='config', x=1, y=2.5, z='hello')
         result = repr(data)
         # Root level uses '='
         self.assertIn("name='config'", result)
@@ -304,15 +304,15 @@ class TestDataHierarchicalRepr(unittest.TestCase):
 
     def test_data_with_none_value(self):
         """Test repr with None values."""
-        data = ParamData(name='test', value=None)
+        data = HiData(name='test', value=None)
         result = repr(data)
         # Root level uses '='
         self.assertIn("value=None", result)
 
     def test_nested_data_repr(self):
-        """Test repr with nested ParamData objects."""
-        inner = ParamData(name='inner', a=1, b=2)
-        outer = ParamData(name='outer', child=inner, x=10)
+        """Test repr with nested HiData objects."""
+        inner = HiData(name='inner', a=1, b=2)
+        outer = HiData(name='outer', child=inner, x=10)
         result = repr(outer)
 
         # All levels use '='
@@ -325,10 +325,10 @@ class TestDataHierarchicalRepr(unittest.TestCase):
 
     def test_deeply_nested_data_repr(self):
         """Test repr with multiple levels of nesting."""
-        level3 = ParamData(name='level3', value=42)
-        level2 = ParamData(name='level2', deep=level3)
-        level1 = ParamData(name='level1', nested=level2)
-        root = ParamData(name='root', child=level1)
+        level3 = HiData(name='level3', value=42)
+        level2 = HiData(name='level2', deep=level3)
+        level1 = HiData(name='level1', nested=level2)
+        root = HiData(name='root', child=level1)
 
         result = repr(root)
         # All Data objects should have their name
@@ -342,7 +342,7 @@ class TestDataHierarchicalRepr(unittest.TestCase):
     def test_array_formatting_numpy(self):
         """Test repr with numpy arrays."""
         arr = np.array([1, 2, 3, 4, 5])
-        data = ParamData(name='arrays', vector=arr)
+        data = HiData(name='arrays', vector=arr)
         result = repr(data)
 
         # Root level uses '='
@@ -352,7 +352,7 @@ class TestDataHierarchicalRepr(unittest.TestCase):
     def test_array_formatting_jax(self):
         """Test repr with JAX arrays."""
         arr = jnp.array([1.0, 2.0, 3.0])
-        data = ParamData(name='arrays', vector=arr)
+        data = HiData(name='arrays', vector=arr)
         result = repr(data)
 
         # Root level uses '='
@@ -362,7 +362,7 @@ class TestDataHierarchicalRepr(unittest.TestCase):
     def test_multidimensional_array_formatting(self):
         """Test repr with 2D arrays."""
         arr = np.zeros((3, 4))
-        data = ParamData(name='test', matrix=arr)
+        data = HiData(name='test', matrix=arr)
         result = repr(data)
 
         # Root level uses '='
@@ -371,7 +371,7 @@ class TestDataHierarchicalRepr(unittest.TestCase):
     def test_long_string_truncation(self):
         """Test that long strings are truncated."""
         long_string = 'x' * 100
-        data = ParamData(name='test', long=long_string)
+        data = HiData(name='test', long=long_string)
         result = repr(data)
 
         # Should be truncated to 60 chars - root level uses '='
@@ -380,9 +380,9 @@ class TestDataHierarchicalRepr(unittest.TestCase):
 
     def test_mixed_children_repr(self):
         """Test repr with mixed types of children."""
-        nested = ParamData(name='nested', inner_val=99)
+        nested = HiData(name='nested', inner_val=99)
         arr = np.array([1.0, 2.0, 3.0])
-        data = ParamData(
+        data = HiData(
             name='mixed',
             number=42,
             text='hello',
@@ -403,17 +403,17 @@ class TestDataHierarchicalRepr(unittest.TestCase):
         self.assertIn("inner_val=99", result)
 
     def test_empty_nested_data(self):
-        """Test nested ParamData with no children."""
-        inner = ParamData(name='empty')
-        outer = ParamData(name='outer', child=inner)
+        """Test nested HiData with no children."""
+        inner = HiData(name='empty')
+        outer = HiData(name='outer', child=inner)
         result = repr(outer)
 
         self.assertIn("name='outer'", result)
         self.assertIn("name='empty'", result)
 
     def test_many_children(self):
-        """Test ParamData with many children."""
-        data = ParamData(name='many', **{f'item{i}': i for i in range(20)})
+        """Test HiData with many children."""
+        data = HiData(name='many', **{f'item{i}': i for i in range(20)})
         result = repr(data)
 
         # Root level uses '='
@@ -423,7 +423,7 @@ class TestDataHierarchicalRepr(unittest.TestCase):
     def test_repr_with_complex_nested_structure(self):
         """Test repr with a realistic complex nested structure."""
         # Simulate a realistic configuration structure
-        optimizer_config = ParamData(
+        optimizer_config = HiData(
             name='adam',
             learning_rate=0.001,
             beta1=0.9,
@@ -431,14 +431,14 @@ class TestDataHierarchicalRepr(unittest.TestCase):
             epsilon=1e-8
         )
 
-        model_config = ParamData(
+        model_config = HiData(
             name='neural_net',
             layers=3,
             hidden_size=128,
             weights=np.random.randn(10, 5)
         )
 
-        training_config = ParamData(
+        training_config = HiData(
             name='training',
             optimizer=optimizer_config,
             model=model_config,

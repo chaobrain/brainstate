@@ -23,24 +23,26 @@ constrained optimization.
 
 import logging
 import threading
-from typing import Optional
+from typing import Optional, Union, Callable, Sequence, Tuple
 
 import brainunit as u
+import jax
+import numpy as np
 
-import brainstate
+from brainstate import environ
+from brainstate._state import ParamState, State
+from brainstate.typing import ArrayLike
 from ._module import Module
 from ._regularization import Regularization
 from ._transform import IdentityT, Transform
 
 __all__ = [
-    'ParaM',
+    'ParamM',
     'ConstM',
 ]
 
-Data = brainstate.typing.ArrayLike
 
-
-class ParaM(Module):
+class ParamM(Module):
     """
     A module has neural network parameters for optional transform and regularization.
 
@@ -79,9 +81,9 @@ class ParaM(Module):
     Examples
     --------
     >>> import jax.numpy as jnp
-    >>> from brainstate.nn import ParaM, SoftplusT, L2Reg
+    >>> from brainstate.nn import ParamM, SoftplusT, L2Reg
     >>> # Trainable positive parameter with L2 regularization
-    >>> param = ParaM(
+    >>> param = ParamM(
     ...     jnp.array([1.0, 2.0]),
     ...     t=SoftplusT(0.0),
     ...     reg=L2Reg(weight=0.01)
@@ -90,7 +92,7 @@ class ParaM(Module):
     >>> param.reg_loss()  # Get regularization loss
 
     >>> # Caching is automatic for all parameters
-    >>> param = ParaM(
+    >>> param = ParamM(
     ...     jnp.array([1.0, 2.0]),
     ...     t=SoftplusT()
     ... )
@@ -113,7 +115,7 @@ class ParaM(Module):
 
     def __init__(
         self,
-        value: Data,
+        value: ArrayLike,
         t: Transform = IdentityT(),
         reg: Optional[Regularization] = None,
         fit_par: bool = True,
@@ -128,13 +130,13 @@ class ParaM(Module):
         # Initialize cache infrastructure (always enabled)
         self._enable_cache_logging = enable_cache_logging
         self._cache_lock = threading.RLock()
-        self._cached_value: Optional[Data] = None
+        self._cached_value: Optional[ArrayLike] = None
         self._cache_valid = False
         self._cache_logger: Optional[logging.Logger] = None
         self._cache_invalidation_hook_handle = None
 
         # Convert value to tensor
-        val_tensor = u.math.asarray(value, dtype=brainstate.environ.dftype())
+        val_tensor = u.math.asarray(value, dtype=environ.dftype())
 
         # Register reg as submodule if provided
         if not (reg is None or isinstance(reg, Regularization)):
@@ -146,11 +148,11 @@ class ParaM(Module):
             raise TypeError(f't must be an instance of Transform. But got {type(t)}.')
         val_tensor = t.inverse(val_tensor)
         if fit_par:
-            val_tensor = brainstate.ParamState(val_tensor)
+            val_tensor = ParamState(val_tensor)
         self.val = val_tensor
 
         # Register hooks for automatic cache invalidation
-        if fit_par and isinstance(self.val, brainstate.State):
+        if fit_par and isinstance(self.val, State):
             self._cache_invalidation_hook_handle = self.val.register_hook(
                 'write_after',
                 self._on_param_state_write,
@@ -158,7 +160,7 @@ class ParaM(Module):
                 name='param_cache_invalidator'
             )
 
-    def cache(self) -> Data:
+    def cache(self) -> ArrayLike:
         """
         Manually cache the transformed value.
 
@@ -174,13 +176,13 @@ class ParaM(Module):
         Example
         -------
         >>> import jax.numpy as jnp
-        >>> from brainstate.nn import ParaM, SoftplusT
-        >>> param = ParaM(jnp.array([1.0, 2.0]), t=SoftplusT())
+        >>> from brainstate.nn import ParamM, SoftplusT
+        >>> param = ParamM(jnp.array([1.0, 2.0]), t=SoftplusT())
         >>> param.cache()  # Warm up cache before performance-critical code
         >>> val = param.value()  # Fast - returns cached value
         """
         # Get unconstrained value
-        if isinstance(self.val, brainstate.State):
+        if isinstance(self.val, State):
             val = self.val.value
         else:
             val = self.val
@@ -206,8 +208,8 @@ class ParaM(Module):
         Example
         -------
         >>> import jax.numpy as jnp
-        >>> from brainstate.nn import ParaM, SoftplusT
-        >>> param = ParaM(jnp.array([1.0, 2.0]), t=SoftplusT())
+        >>> from brainstate.nn import ParamM, SoftplusT
+        >>> param = ParamM(jnp.array([1.0, 2.0]), t=SoftplusT())
         >>> _ = param.value()  # Computes and caches
         >>> param.clear_cache()  # Manual invalidation
         >>> _ = param.value()  # Recomputes
@@ -218,7 +220,7 @@ class ParaM(Module):
                 self._cached_value = None
                 self._log_cache_event('invalidate', reason='manual_clear')
 
-    def value(self) -> Data:
+    def value(self) -> ArrayLike:
         """
         Get current parameter value after applying transform.
 
@@ -231,7 +233,7 @@ class ParaM(Module):
             Parameter value in the constrained space.
         """
         # Get unconstrained value
-        if isinstance(self.val, brainstate.State):
+        if isinstance(self.val, State):
             val = self.val.value
         else:
             val = self.val
@@ -245,7 +247,7 @@ class ParaM(Module):
             transformed = self.t.forward(val)
             return transformed
 
-    def set_value(self, value: Data):
+    def set_value(self, value: ArrayLike):
         """
         Set parameter value from constrained space.
 
@@ -265,12 +267,12 @@ class ParaM(Module):
             self._cached_value = None
             self._log_cache_event('invalidate', reason='set_value')
 
-        if isinstance(self.val, brainstate.State):
+        if isinstance(self.val, State):
             self.val.value = value  # This will also trigger write_after hook
         else:
             self.val = value
 
-    def reg_loss(self) -> Data:
+    def reg_loss(self) -> ArrayLike:
         """
         Calculate regularization loss.
 
@@ -328,8 +330,8 @@ class ParaM(Module):
         Example
         -------
         >>> import jax.numpy as jnp
-        >>> from brainstate.nn import ParaM, SoftplusT
-        >>> param = ParaM(jnp.array([1.0]), t=SoftplusT())
+        >>> from brainstate.nn import ParamM, SoftplusT
+        >>> param = ParamM(jnp.array([1.0]), t=SoftplusT())
         >>> param.cache_stats
         {'valid': False, 'has_cached_value': False}
         >>> _ = param.value()  # Compute and cache
@@ -343,9 +345,9 @@ class ParaM(Module):
             }
 
     def _get_logger(self) -> logging.Logger:
-        """Lazy logger initialization using ParaM name or ID."""
+        """Lazy logger initialization using ParamM name or ID."""
         if self._cache_logger is None:
-            name = f'brainstate.nn.ParaM.{self._name or id(self)}'
+            name = f'brainstate.nn.ParamM.{self._name or id(self)}'
             self._cache_logger = logging.getLogger(name)
         return self._cache_logger
 
@@ -357,15 +359,15 @@ class ParaM(Module):
         logger = self._get_logger()
 
         if event == 'hit':
-            logger.info(f"Cache HIT for ParaM '{self._name or id(self)}'")
+            logger.info(f"Cache HIT for ParamM '{self._name or id(self)}'")
         elif event == 'miss':
-            logger.info(f"Cache MISS for ParaM '{self._name or id(self)}' - computing")
+            logger.info(f"Cache MISS for ParamM '{self._name or id(self)}' - computing")
         elif event == 'invalidate':
             reason = kwargs.get('reason', 'unknown')
-            logger.info(f"Cache INVALIDATED for ParaM '{self._name or id(self)}' (reason: {reason})")
+            logger.info(f"Cache INVALIDATED for ParamM '{self._name or id(self)}' (reason: {reason})")
         elif event == 'error':
             error = kwargs.get('error')
-            logger.error(f"Cache ERROR for ParaM '{self._name or id(self)}': {error}", exc_info=True)
+            logger.error(f"Cache ERROR for ParamM '{self._name or id(self)}': {error}", exc_info=True)
 
     def _on_param_state_write(self, ctx):
         """Invalidate cache when underlying ParamState is written."""
@@ -387,13 +389,75 @@ class ParaM(Module):
             return None if value is None else (name[1:], value)  # skip the first `_`
         return name, value
 
+    @classmethod
+    def init(
+        cls,
+        data: Union[Callable, ArrayLike, 'ParamM'],
+        sizes: Union[int, Sequence[int]],
+        allow_none: bool = True,
+        **param_kwargs,
+    ):
 
-class ConstM(ParaM):
+        """
+        Initialize parameters.
+
+        Parameters
+        ----------
+        data: callable, ArrayLike, State
+            The initialization of the parameter.
+
+            - If it is None, the created parameter will be None.
+            - If it is a callable function :math:`f`, the ``f(size)`` will be returned.
+            - If it is an instance of :py:class:`init.Initializer``, the ``f(size)`` will be returned.
+            - If it is a tensor, then this function check whether ``tensor.shape`` is equal to the given ``size``.
+        sizes: int, sequence of int
+            The shape of the parameter.
+        allow_none: bool
+            Whether allow the parameter is None.
+        **param_kwargs
+            Additional keyword arguments passed to the initialization.
+
+        Returns
+        -------
+        param: ArrayType, float, int, bool, None
+          The initialized parameter.
+        """
+        # Check if the parameter is None
+        if data is None:
+            if allow_none:
+                return None
+            else:
+                raise ValueError(
+                    f'Expect a parameter with type of float, ArrayType, Initializer, or '
+                    f'Callable function, but we got None. '
+                )
+
+        # Convert sizes to a tuple
+        sizes = tuple(_to_size(sizes))
+
+        if not isinstance(data, ParamM):
+            # Check if the parameter is a callable function
+            if callable(data):
+                data = data(sizes, **param_kwargs)
+
+            if u.math.isscalar(data):
+                pass
+            elif isinstance(data, (np.ndarray, jax.Array, u.Quantity, ParamM)):
+                pass
+            else:
+                raise TypeError(f'Unknown parameter type: {type(data)}')
+            data = ConstM(data)
+
+        _check_shape(data.value(), sizes)
+        return data
+
+
+class ConstM(ParamM):
     """
     A module has non-trainable constant parameter.
 
     A convenience class that creates a fixed (non-trainable) parameter.
-    Equivalent to ``ParaM(value, fit_par=False)``.
+    Equivalent to ``ParamM(value, fit_par=False)``.
 
     Parameters
     ----------
@@ -408,5 +472,70 @@ class ConstM(ParaM):
     >>> const.value()
     """
 
-    def __init__(self, value: Data):
+    def __init__(self, value: ArrayLike):
         super().__init__(value, fit_par=False)
+
+
+def _check_shape(init, sizes):
+    # Check if the shape of the parameter matches the given size
+    if not _are_broadcastable_shapes(u.math.shape(init), sizes):
+        raise ValueError(
+            f'The shape of the parameter {u.math.shape(init)} '
+            f'does not match with the given size {sizes}'
+        )
+
+
+def _to_size(x) -> Optional[Tuple[int]]:
+    if isinstance(x, (tuple, list)):
+        return tuple(x)
+    if isinstance(x, (int, np.integer)):
+        return (x,)
+    if x is None:
+        return x
+    raise ValueError(f'Cannot make a size for {x}')
+
+
+def _are_broadcastable_shapes(shape1, shape2):
+    """
+    Check if two shapes are broadcastable.
+
+    Parameters:
+    - shape1: Tuple[int], the shape of the first array.
+    - shape2: Tuple[int], the shape of the second array.
+
+    Returns:
+    - bool: True if shapes are broadcastable, False otherwise.
+    """
+    # Reverse the shapes to compare from the last dimension
+    shape1_reversed = shape1[::-1]
+    shape2_reversed = shape2[::-1]
+
+    # Iterate over the dimensions of the shorter shape
+    for dim1, dim2 in zip(shape1_reversed, shape2_reversed):
+        # Check if the dimensions are not equal and neither is 1
+        if dim1 != dim2 and 1 not in (dim1, dim2):
+            return False
+
+    # If all dimensions are compatible, the shapes are broadcastable
+    return True
+
+
+def _expand_params_to_match_sizes(params, sizes):
+    """
+    Expand the dimensions of params to match the dimensions of sizes.
+
+    Parameters:
+    - params: jax.Array or np.ndarray, the parameter array to be expanded.
+    - sizes: tuple[int] or list[int], the target shape dimensions.
+
+    Returns:
+    - Expanded params with dimensions matching sizes.
+    """
+    params_dim = params.ndim
+    sizes_dim = len(sizes)
+    dim_diff = sizes_dim - params_dim
+
+    # Add new axes to params if it has fewer dimensions than sizes
+    for _ in range(dim_diff):
+        params = u.math.expand_dims(params, axis=0)  # Add new axis at the last dimension
+    return params

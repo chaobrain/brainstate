@@ -1,7 +1,7 @@
 """
 Hierarchical data containers for parameter and state management.
 
-This module provides the ``ParamData`` class, a flexible container for hierarchical
+This module provides the ``HiData`` class, a flexible container for hierarchical
 data structures that supports dictionary-like and attribute-style access,
 cloning, serialization, and composition.
 """
@@ -15,7 +15,7 @@ from brainstate.util.struct import dataclass, field
 Array = brainstate.typing.ArrayLike
 
 __all__ = [
-    'ParamData',
+    'HiData',
 ]
 
 
@@ -24,7 +24,7 @@ def is_dataclass(cls):
 
 
 @dataclass
-class ParamData:
+class HiData:
     """
     Hierarchical state container for composed dynamics.
 
@@ -44,7 +44,7 @@ class ParamData:
     Examples:
         Create a simple Data object:
 
-        >>> data = ParamData(name='config', learning_rate=0.01, batch_size=32)
+        >>> data = HiData(name='config', learning_rate=0.01, batch_size=32)
         >>> print(data)
         ParamData(
           name='config',
@@ -55,9 +55,9 @@ class ParamData:
         Create nested Data objects:
 
         >>> import numpy as np
-        >>> optimizer = ParamData(name='optimizer', lr=0.001, momentum=0.9)
-        >>> model = ParamData(name='model', weights=np.array([1, 2, 3]))
-        >>> config = ParamData(name='config', optimizer=optimizer, model=model)
+        >>> optimizer = HiData(name='optimizer', lr=0.001, momentum=0.9)
+        >>> model = HiData(name='model', weights=np.array([1, 2, 3]))
+        >>> config = HiData(name='config', optimizer=optimizer, model=model)
         >>> print(config)
         ParamData(
           name='config',
@@ -74,7 +74,7 @@ class ParamData:
 
         Access children using attribute or dictionary syntax:
 
-        >>> data = ParamData(name='test', value=42)
+        >>> data = HiData(name='test', value=42)
         >>> data.value
         42
         >>> data['value']
@@ -82,7 +82,7 @@ class ParamData:
 
         Clone and modify:
 
-        >>> original = ParamData(name='original', x=1, y=2)
+        >>> original = HiData(name='original', x=1, y=2)
         >>> cloned = original.clone()
         >>> cloned['z'] = 3
     """
@@ -134,10 +134,10 @@ class ParamData:
         Generate hierarchical representation with indentation.
 
         Format:
-            ParamData(
+            HiData(
               name='value',
               child1=value1,
-              child2=ParamData(
+              child2=HiData(
                 name='nested',
                 subchild=42
               ),
@@ -148,7 +148,7 @@ class ParamData:
             indent: Current indentation level.
 
         Returns:
-            String representation of this ParamData and its children.
+            String representation of this HiData and its children.
         """
         indent_str = "  " * indent
         name_str = f"'{self.name}'" if self.name else "None"
@@ -158,10 +158,10 @@ class ParamData:
 
         if not self.children:
             # Empty Data object
-            return f"{indent_str}ParamData(name={name_str})"
+            return f"{indent_str}HiData(name={name_str})"
 
         # Start with Data( and name parameter
-        lines = [f"{indent_str}ParamData("]
+        lines = [f"{indent_str}HiData("]
         lines.append(f"{indent_str}  name={name_str},")
 
         # Add children as parameters
@@ -170,7 +170,7 @@ class ParamData:
             is_last = (i == len(child_items) - 1)
             comma = "" if is_last else ","
 
-            if isinstance(value, ParamData):
+            if isinstance(value, HiData):
                 # Recursively format nested Data objects
                 nested_repr = value._repr_recursive(indent + 1)
                 # Remove the leading indent from nested_repr since we're adding it ourselves
@@ -190,7 +190,7 @@ class ParamData:
 
     def _format_value(self, value: Any) -> str:
         """
-        Format a non-ParamData value for display.
+        Format a non-HiData value for display.
 
         Args:
             value: The value to format.
@@ -211,7 +211,7 @@ class ParamData:
             return f"{value_str[:57]}..."
         return value_str
 
-    def clone(self) -> 'ParamData':
+    def clone(self) -> 'HiData':
         """
         Create a deep copy of the state, recursively cloning children.
 
@@ -233,7 +233,7 @@ class ParamData:
         """Number of state variables per node."""
         total = 0
         for v in self.children.values():
-            if isinstance(v, ParamData):
+            if isinstance(v, HiData):
                 total = total + v.state_size
             elif v is not None:
                 total += 1
@@ -245,7 +245,7 @@ class ParamData:
         for v in self.children.values():
             if v is None:
                 continue
-            if isinstance(v, ParamData):
+            if isinstance(v, HiData):
                 try:
                     return v.dtype
                 except ValueError:
@@ -254,23 +254,23 @@ class ParamData:
                 return v.dtype
         raise ValueError("No array children found to determine dtype")
 
-    def add(self, *args, **updates) -> 'ParamData':
+    def add(self, *args, **updates) -> 'HiData':
         children = {k: v for k, v in self.children.items()}
         for arg in args:
-            assert isinstance(arg, (ParamData, dict)), 'Argument must be of type ParamData or Dict, got {}'.format(type(arg))
+            assert isinstance(arg, (HiData, dict)), 'Argument must be of type HiData or Dict, got {}'.format(type(arg))
             for k, v in arg.items():
                 children[k] = v
         for k in updates:
             children[k] = updates[k]
-        return ParamData(children=children)
+        return HiData(children=children)
 
-    def pop(self, *args) -> 'ParamData':
+    def pop(self, *args) -> 'HiData':
         children = {k: v for k, v in self.children.items()}
         for arg in args:
             children.pop(arg)
-        return ParamData(children=children)
+        return HiData(children=children)
 
-    def replace(self, **updates) -> 'ParamData':
+    def replace(self, **updates) -> 'HiData':
         """
         Apply partial updates to child states.
 
@@ -292,10 +292,10 @@ class ParamData:
         Returns:
             Dictionary mapping state variable names to tensors.
         """
-        return {k: d.to_dict() if isinstance(d, ParamData) else d for k, d in self.children.items()}
+        return {k: d.to_dict() if isinstance(d, HiData) else d for k, d in self.children.items()}
 
     @classmethod
-    def from_dict(cls, d: Dict) -> 'ParamData':
+    def from_dict(cls, d: Dict) -> 'HiData':
         """
         Create state from dictionary.
 
