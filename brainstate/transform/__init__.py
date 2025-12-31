@@ -24,8 +24,8 @@ from ._find_state import *
 from ._find_state import __all__ as _find_all
 from ._grad_checkpoint import *
 from ._grad_checkpoint import __all__ as _ad_checkpoint_all
-from ._grad_first_order import *
-from ._grad_first_order import __all__ as _autograd_all
+from ._grad_grad import *
+from ._grad_grad import __all__ as _autograd_all
 from ._grad_hessian import *
 from ._grad_hessian import __all__ as _grad_hessian_all
 from ._grad_jacobian import *
