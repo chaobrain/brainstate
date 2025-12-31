@@ -805,6 +805,10 @@ def _batch_and_remainder(x, batch_size: int):
         return scan_tree, None
 
 
+def _flatten(x):
+    return x.reshape(-1, *x.shape[2:])
+
+
 @set_module_as('brainstate.transform')
 def map(
     f,
@@ -864,14 +868,13 @@ def map(
     jax.lax.scan : Primitive used for the sequential fallback.
     """
     if batch_size is not None:
-        from ._mapping1 import vmap
         scan_xs, remainder_xs = _batch_and_remainder(xs, batch_size)
-        g = lambda _, x: ((), vmap(f)(*x))
+        g = lambda _, x: ((), vmap2(f)(*x))
         _, scan_ys = scan(g, (), scan_xs)
         if remainder_xs is None:
             ys = jax.tree.map(lambda x: _flatten(x), scan_ys)
         else:
-            remainder_ys = vmap(f)(*remainder_xs)
+            remainder_ys = vmap2(f)(*remainder_xs)
             ys = jax.tree.map(
                 lambda x, y: jax.lax.concatenate([_flatten(x), y], dimension=0),
                 scan_ys,
@@ -881,7 +884,3 @@ def map(
         g = lambda _, x: ((), f(*x))
         _, ys = scan(g, (), xs)
     return ys
-
-
-def _flatten(x):
-    return x.reshape(-1, *x.shape[2:])
