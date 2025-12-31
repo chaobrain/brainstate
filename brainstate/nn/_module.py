@@ -53,16 +53,52 @@ max_int = np.iinfo(np.int32).max
 
 class Module(Node, ParamDesc):
     """
-    The Module class for the whole ecosystem.
+    Base class for neural network modules in BrainState.
 
-    The ``Module`` is the base class for all the objects in the ecosystem. It
-    provides the basic functionalities for the objects, including:
+    ``Module`` is a graph node with utilities for traversing submodules,
+    collecting state, and exposing parameters. Subclasses implement
+    ``update()`` to define the module's behavior; calling a module invokes
+    ``update()`` directly.
 
-    - ``states()``: Collect all states in this node and the children nodes.
-    - ``nodes()``: Collect all children nodes.
-    - ``update()``: The function to specify the updating rule.
-    - ``init_state()``: State initialization function.
+    Parameters
+    ----------
+    name : str, optional
+        Optional display name for the module. Read-only after construction.
 
+    Attributes
+    ----------
+    name : str
+        Module name (read-only).
+    in_size : Size or None
+        Expected input size tuple if known.
+    out_size : Size or None
+        Expected output size tuple if known.
+
+    Notes
+    -----
+    - ``states()`` and ``state_trees()`` collect ``State`` objects from this
+      module and its children (with optional filters).
+    - ``nodes()``, ``children()``, and ``named_children()`` traverse submodules.
+    - ``par_modules()``, ``parameters()``, and ``named_parameters()`` expose
+      parameter containers for training or inspection.
+    - ``init_state()`` and ``reset_state()`` are optional hooks for stateful
+      modules.
+    - ``__call__`` forwards to ``update()`` and ``x >> module`` is supported.
+
+    Examples
+    --------
+    >>> import brainstate as bs
+    >>>
+    >>> class Scale(bs.nn.Module):
+    ...     def __init__(self, scale):
+    ...         super().__init__()
+    ...         self.scale = scale
+    ...     def update(self, x):
+    ...         return x * self.scale
+    >>>
+    >>> layer = Scale(2.0)
+    >>> layer(3.0)
+    6.0
     """
 
     __module__ = 'brainstate.nn'
