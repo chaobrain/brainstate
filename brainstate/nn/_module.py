@@ -28,7 +28,7 @@ The basic classes include:
 
 import warnings
 from collections import defaultdict
-from typing import Sequence, Optional, Tuple, Union, TYPE_CHECKING, Callable, Dict
+from typing import Sequence, Optional, Tuple, Union, TYPE_CHECKING, Callable, Dict, Iterable, Iterator
 
 import numpy as np
 
@@ -235,6 +235,113 @@ class Module(Node, ParamDesc):
         """
         return nodes(self, *filters, allowed_hierarchy=allowed_hierarchy)
 
+    def children(self) -> Iterator['Module']:
+        """
+        Return immediate child modules.
+
+        Similar to PyTorch's nn.Module.children().
+
+        Returns
+        -------
+        children : Iterable
+            Dictionary of immediate child modules.
+
+        Examples
+        --------
+        >>> for child in model.children():
+        ...     print(type(child))
+        """
+        for _name, module in self.named_children():
+            yield module
+
+    def named_children(self):
+        """
+        Return an iterator over immediate child modules, yielding name and module.
+
+        Similar to PyTorch's nn.Module.named_children().
+
+        Yields
+        ------
+        name : str
+            Name of the child module.
+        module : Module
+            Child module.
+
+        Examples
+        --------
+        >>> for name, child in model.named_children():
+        ...     print(f"{name}: {type(child).__name__}")
+        """
+        children_dict = self.nodes(Module, allowed_hierarchy=(1, 1))
+        for path, child in children_dict.items():
+            # Convert path tuple to dot-separated string
+            name = '.'.join(str(p) for p in path)
+            yield name, child
+
+    def modules(self, include_self: bool = True) -> Iterator['Module']:
+        """
+        Return all modules in the network.
+
+        Similar to PyTorch's nn.Module.modules().
+
+        Parameters
+        ----------
+        include_self : bool
+            Whether to include the module itself. Default is True.
+
+        Returns
+        -------
+        modules : Iterator
+            Dictionary of all modules in the tree.
+
+        Examples
+        --------
+        >>> for module in model.modules().values():
+        ...     print(type(module))
+        """
+        for _, module in self.named_modules(include_self=include_self):
+            yield module
+
+    def named_modules(self, prefix: str = '', include_self: bool = True):
+        """
+        Return an iterator over all modules in the network, yielding name and module.
+
+        Similar to PyTorch's nn.Module.named_modules().
+
+        Parameters
+        ----------
+        prefix : str
+            Prefix to prepend to all module names. Default is ''.
+        include_self : bool
+            Whether to include the module itself. Default is True.
+
+        Yields
+        ------
+        name : str
+            Name of the module (with prefix if provided).
+        module : Module
+            Module in the tree.
+
+        Examples
+        --------
+        >>> for name, module in model.named_modules():
+        ...     print(f"{name}: {type(module).__name__}")
+        """
+        if include_self:
+            modules_dict = self.nodes(allowed_hierarchy=(0, max_int))
+        else:
+            modules_dict = self.nodes(allowed_hierarchy=(1, max_int))
+
+        for path, module in modules_dict.items():
+            # Convert path tuple to dot-separated string
+            name = '.'.join(str(p) for p in path) if path else ''
+
+            # Add prefix if provided
+            if prefix:
+                name = f"{prefix}.{name}" if name else prefix
+
+            yield name, module
+
     def para_modules(
         self,
         *filters,
@@ -269,6 +376,38 @@ class Module(Node, ParamDesc):
         """
         from ._param_module import ParaM
         return self.nodes(ParaM, *filters, allowed_hierarchy=allowed_hierarchy)
+
+    def named_para_modules(self, *filters, **kwargs):
+        """
+        Iterate over (name, parameter) pairs.
+
+        Parameters
+        ----------
+        filters : Any
+            Filters to apply.
+        **kwargs : Any
+            Additional arguments passed to params().
+
+        Yields
+        ------
+        name : str
+            Dot-separated path to the parameter.
+        param : ParaM
+            The parameter instance.
+
+        Examples
+        --------
+        >>> for name, param in model.named_para_modules():
+        ...     print(f"{name}: {param.value().shape}")
+        layer1.weight: (10, 20)
+        layer1.bias: (20,)
+        layer2.weight: (20, 5)
+        """
+        params_dict = self.para_modules(*filters, **kwargs)
+        for path, param in params_dict.items():
+            # Convert path tuple to dot-separated string
+            name = '.'.join(str(p) for p in path)
+            yield name, param
 
     def init_state(self, *args, **kwargs):
         """
@@ -349,36 +488,84 @@ class Module(Node, ParamDesc):
         losses = [param.reg_loss() for param in param_dict.values()]
         return sum(losses)
 
-    def named_para_modules(self, *filters, **kwargs):
+    def parameters(self, recurse: bool = True) -> FlattedDict:
         """
-        Iterate over (name, parameter) pairs.
+        Return module parameters.
+
+        PyTorch-compatible alias for para_modules(). Returns ParaM instances.
 
         Parameters
         ----------
-        filters : Any
-            Filters to apply.
-        **kwargs : Any
-            Additional arguments passed to params().
+        recurse : bool
+            If True, yields parameters of this module and all submodules.
+            Otherwise, yields only parameters that are direct attributes of this module.
+            Default is True.
+
+        Returns
+        -------
+        parameters : FlattedDict
+            Dictionary of parameters.
+
+        Examples
+        --------
+        >>> for param in model.parameters().values():
+        ...     print(param.value().shape)
+
+        See Also
+        --------
+        para_modules : Native brainstate method for parameter discovery
+        named_parameters : Returns (name, parameter) pairs
+        """
+        if recurse:
+            return self.para_modules()
+        else:
+            return self.para_modules(allowed_hierarchy=(1, 1))
+
+    def named_parameters(self, prefix: str = '', recurse: bool = True):
+        """
+        Return an iterator over module parameters, yielding name and parameter.
+
+        PyTorch-compatible alias for named_para_modules().
+
+        Parameters
+        ----------
+        prefix : str
+            Prefix to prepend to all parameter names. Default is ''.
+        recurse : bool
+            If True, yields parameters of this module and all submodules.
+            Otherwise, yields only parameters that are direct attributes of this module.
+            Default is True.
 
         Yields
         ------
         name : str
-            Dot-separated path to the parameter.
+            Name of the parameter (with prefix if provided).
         param : ParaM
-            The parameter instance.
+            Parameter instance.
 
         Examples
         --------
-        >>> for name, param in model.named_para_modules():
+        >>> for name, param in model.named_parameters():
         ...     print(f"{name}: {param.value().shape}")
-        layer1.weight: (10, 20)
-        layer1.bias: (20,)
-        layer2.weight: (20, 5)
+
+        See Also
+        --------
+        named_para_modules : Native brainstate method for named parameter iteration
+        parameters : Returns parameters only
         """
-        params_dict = self.para_modules(*filters, **kwargs)
+        if recurse:
+            params_dict = self.para_modules()
+        else:
+            params_dict = self.para_modules(allowed_hierarchy=(1, 1))
+
         for path, param in params_dict.items():
             # Convert path tuple to dot-separated string
             name = '.'.join(str(p) for p in path)
+
+            # Add prefix if provided
+            if prefix:
+                name = f"{prefix}.{name}"
+
             yield name, param
 
 
