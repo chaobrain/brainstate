@@ -258,6 +258,7 @@ class StatefulMapping:
         TypeError
             If in_axes has an unsupported type.
         """
+
         def get_batch_size_from_arg(arg_, axis_):
             if axis_ is None:
                 return None
@@ -574,11 +575,11 @@ def vmap2(
     fn: F | Missing = Missing(),
     *,
     # --- normal jax.vmap arguments --- #
-    in_axes: int | None | Sequence[Any] = 0,
+    in_axes: Optional[int | Sequence[Any]] = 0,
     out_axes: Any = 0,
-    axis_name: AxisName | None = None,
-    axis_size: int | None = None,
-    spmd_axis_name: AxisName | tuple[AxisName, ...] | None = None,
+    axis_name: Optional[AxisName] = None,
+    axis_size: Optional[int] = None,
+    spmd_axis_name: Optional[AxisName | Tuple[AxisName, ...]] = None,
     # --- brainstate specific arguments --- #
     state_in_axes: Union[Dict[AxisName, Filter], Filter] = None,
     state_out_axes: Union[Dict[AxisName, Filter], Filter] = None,

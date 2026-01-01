@@ -348,7 +348,7 @@ class Vmap2Module(Module):
 
         self._init = False
 
-    def init_all_states(self, vmap_axis: int):
+    def init_all_states(self, vmap_axis: int, **kwargs):
         """Initialize vectorized states for the wrapped module.
 
         This method must be called before the first ``update`` call. It creates
