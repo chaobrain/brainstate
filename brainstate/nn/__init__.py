@@ -25,7 +25,7 @@ from ._collective_ops import (
     reset_all_states, vmap_reset_all_states, assign_state_values,
 )
 from ._common import (
-    EnvironContext, Vmap, Vmap2,
+    EnvironContext, Vmap, Vmap2, Vmap3,
 )
 from ._conv import (
     Conv1d, Conv2d, Conv3d, ScaledWSConv1d, ScaledWSConv2d, ScaledWSConv3d,
@@ -79,7 +79,7 @@ from ._paddings import (
     ConstantPad3d, CircularPad1d, CircularPad2d, CircularPad3d,
 )
 from ._par_module import (
-    ParamM, ConstM,
+    Param, Const,
 )
 from ._param_data import (
     HiData,
@@ -157,6 +157,7 @@ __all__ = [
     'EnvironContext',
     'Vmap',
     'Vmap2',
+    'Vmap3',
     'Conv1d',
     'Conv2d',
     'Conv3d',
@@ -265,8 +266,8 @@ __all__ = [
     'CircularPad1d',
     'CircularPad2d',
     'CircularPad3d',
-    'ParamM',
-    'ConstM',
+    'Param',
+    'Const',
     'HiData',
     'Flatten',
     'Unflatten',

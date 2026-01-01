@@ -393,9 +393,9 @@ class Module(Node, ParamDesc):
 
     def par_modules(
         self, allowed_hierarchy: Tuple[int, int] = (0, max_int),
-    ) -> Iterator['ParamM']:
+    ) -> Iterator['Param']:
         """
-        Collect all ParamM parameters in this module and children.
+        Collect all Param parameters in this module and children.
 
         Parameters
         ----------
@@ -405,7 +405,7 @@ class Module(Node, ParamDesc):
         Returns
         -------
         params : FlattedDict, tuple of FlattedDict
-          The collection contained (the path, the ParamM parameter).
+          The collection contained (the path, the Param parameter).
 
         Examples
         --------
@@ -435,7 +435,7 @@ class Module(Node, ParamDesc):
         ------
         name : str
             Dot-separated path to the parameter.
-        param : ParamM
+        param : Param
             The parameter instance.
 
         Examples
@@ -446,8 +446,8 @@ class Module(Node, ParamDesc):
         layer1.bias: (20,)
         layer2.weight: (20, 5)
         """
-        from ._par_module import ParamM
-        params_dict = self.nodes(ParamM, allowed_hierarchy=allowed_hierarchy)
+        from ._par_module import Param
+        params_dict = self.nodes(Param, allowed_hierarchy=allowed_hierarchy)
         for path, param in params_dict.items():
             # Convert path tuple to dot-separated string
             name = '.'.join(str(p) for p in path)
@@ -455,7 +455,7 @@ class Module(Node, ParamDesc):
 
     def reg_loss(self):
         """
-        Compute total regularization loss from all ParamM parameters.
+        Compute total regularization loss from all Param parameters.
 
         Returns
         -------
@@ -480,14 +480,14 @@ class Module(Node, ParamDesc):
 
     def cache_par_modules(self, allowed_hierarchy: Tuple[int, int] = (0, max_int)):
         """
-        Cache all ParamM parameters in this module and children.
+        Cache all Param parameters in this module and children.
         """
         for par_module in self.par_modules(allowed_hierarchy=allowed_hierarchy):
             par_module.cache()
 
     def uncache_par_modules(self, allowed_hierarchy: Tuple[int, int] = (0, max_int)):
         """
-        clear-cache all ParamM parameters in this module and children.
+        clear-cache all Param parameters in this module and children.
         """
         for par_module in self.par_modules(allowed_hierarchy=allowed_hierarchy):
             par_module.clear_cache()
@@ -535,7 +535,7 @@ class Module(Node, ParamDesc):
         """
         Return module parameters.
 
-        PyTorch-compatible alias for para_modules(). Returns ParamM instances.
+        PyTorch-compatible alias for para_modules(). Returns Param instances.
 
         Parameters
         ----------
@@ -581,7 +581,7 @@ class Module(Node, ParamDesc):
         ------
         name : str
             Name of the parameter (with prefix if provided).
-        param : ParamM
+        param : Param
             Parameter instance.
 
         Examples
@@ -636,7 +636,7 @@ def _vmap_new_states(
 
     @vmap2(axis_size=axis_size, out_axes=tuple(state_out_axes.keys()))
     def new_fun():
-        catcher_ = init_fn(tag=state_tag, **kwargs)
+        catcher_ = init_fn(**kwargs)
         vmap_state_vals_ = defaultdict(list)
         for st_ in catcher_.get_states():
             for out_axis_, predicate_ in state_out_axes.items():
@@ -651,7 +651,7 @@ def _vmap_new_states(
         return outs
 
     # restore vmapped state values
-    with catch_new_states() as catcher:
+    with catch_new_states(state_tag) as catcher:
         vmap_state_vals = new_fun()
     vmap_states = tuple(vmap_states.get(k, tuple()) for k in state_out_axes)
     for st_vals, states in zip(vmap_state_vals, vmap_states):

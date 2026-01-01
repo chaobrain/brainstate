@@ -13,7 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Tests for ParamM caching functionality."""
+"""Tests for Param caching functionality."""
 
 import logging
 import threading
@@ -24,7 +24,7 @@ import brainstate
 import jax.numpy as jnp
 import numpy as np
 
-from brainstate.nn import ParamM, IdentityT, SigmoidT, SoftplusT, Transform
+from brainstate.nn import Param, IdentityT, SigmoidT, SoftplusT, Transform
 
 
 class TestParamCachingBasic(unittest.TestCase):
@@ -32,7 +32,7 @@ class TestParamCachingBasic(unittest.TestCase):
 
     def test_caching_always_enabled(self):
         """Test that caching is always enabled."""
-        param = ParamM(jnp.array([1.0, 2.0]))
+        param = Param(jnp.array([1.0, 2.0]))
         self.assertIsNotNone(param._cache_lock)
         # RLock type name can be '_RLock' or 'RLock' depending on Python version
         self.assertIn(type(param._cache_lock).__name__, ['_RLock', 'RLock'])
@@ -41,7 +41,7 @@ class TestParamCachingBasic(unittest.TestCase):
 
     def test_cache_miss_on_first_access(self):
         """Test cache miss on first value() access."""
-        param = ParamM(jnp.array([1.0, 2.0]), t=SoftplusT(0.0))
+        param = Param(jnp.array([1.0, 2.0]), t=SoftplusT(0.0))
         stats_before = param.cache_stats
         self.assertFalse(stats_before['valid'])
         self.assertFalse(stats_before['has_cached_value'])
@@ -56,7 +56,7 @@ class TestParamCachingBasic(unittest.TestCase):
 
     def test_cache_hit_on_second_access(self):
         """Test cache hit on second value() access."""
-        param = ParamM(jnp.array([1.0, 2.0]), t=SoftplusT(0.0))
+        param = Param(jnp.array([1.0, 2.0]), t=SoftplusT(0.0))
 
         value1 = param.cache()
         self.assertTrue(param.cache_stats['valid'])
@@ -70,7 +70,7 @@ class TestParamCachingBasic(unittest.TestCase):
 
     def test_cache_invalidation_on_set_value(self):
         """Test cache invalidation when set_value() is called."""
-        param = ParamM(jnp.array([1.0, 2.0]), t=SoftplusT(0.0))
+        param = Param(jnp.array([1.0, 2.0]), t=SoftplusT(0.0))
 
         # Populate cache
         value1 = param.cache()
@@ -87,7 +87,7 @@ class TestParamCachingBasic(unittest.TestCase):
 
     def test_cache_invalidation_on_direct_state_write(self):
         """Test cache invalidation on direct ParamState write."""
-        param = ParamM(jnp.array([1.0, 2.0]), t=SoftplusT(0.0))
+        param = Param(jnp.array([1.0, 2.0]), t=SoftplusT(0.0))
 
         # Populate cache
         value1 = param.cache()
@@ -104,7 +104,7 @@ class TestParamCachingBasic(unittest.TestCase):
 
     def test_manual_cache_clear(self):
         """Test manual cache clearing with clearCache()."""
-        param = ParamM(jnp.array([1.0, 2.0]), t=SoftplusT(0.0))
+        param = Param(jnp.array([1.0, 2.0]), t=SoftplusT(0.0))
 
         # Populate cache
         param.cache()
@@ -120,7 +120,7 @@ class TestParamCachingBasic(unittest.TestCase):
 
     def test_cache_stats_structure(self):
         """Test cache_stats structure."""
-        param = ParamM(jnp.array([1.0, 2.0]))
+        param = Param(jnp.array([1.0, 2.0]))
         stats = param.cache_stats
         # Should have 'valid' and 'has_cached_value' keys, but not 'enabled'
         self.assertIn('valid', stats)
@@ -131,7 +131,7 @@ class TestParamCachingBasic(unittest.TestCase):
 
     def test_non_trainable_param_no_hooks(self):
         """Test that non-trainable params don't register hooks."""
-        param = ParamM(jnp.array([1.0, 2.0]), fit_par=False)
+        param = Param(jnp.array([1.0, 2.0]), fit_par=False)
         # Should still cache, but no hooks (no ParamState)
         self.assertIsNotNone(param._cache_lock)
         self.assertIsNone(param._cache_invalidation_hook_handle)
@@ -142,7 +142,7 @@ class TestParamCachingWithTransforms(unittest.TestCase):
 
     def test_cache_with_identity_transform(self):
         """Test caching with identity transform."""
-        param = ParamM(jnp.array([1.0, 2.0]), t=IdentityT())
+        param = Param(jnp.array([1.0, 2.0]), t=IdentityT())
         value1 = param.value()
         value2 = param.value()
         np.testing.assert_allclose(value1, value2)
@@ -150,7 +150,7 @@ class TestParamCachingWithTransforms(unittest.TestCase):
 
     def test_cache_with_sigmoid_transform(self):
         """Test caching with sigmoid transform."""
-        param = ParamM(jnp.array([0.3, 0.7]), t=SigmoidT(0.0, 1.0))
+        param = Param(jnp.array([0.3, 0.7]), t=SigmoidT(0.0, 1.0))
         value1 = param.value()
         value2 = param.cache()
         np.testing.assert_allclose(value1, value2)
@@ -158,7 +158,7 @@ class TestParamCachingWithTransforms(unittest.TestCase):
 
     def test_cache_with_softplus_transform(self):
         """Test caching with softplus transform."""
-        param = ParamM(jnp.array([1.0, 2.0]), t=SoftplusT(0.0))
+        param = Param(jnp.array([1.0, 2.0]), t=SoftplusT(0.0))
         value1 = param.value()
         value2 = param.value()
         np.testing.assert_allclose(value1, value2)
@@ -179,7 +179,7 @@ class TestParamCachingErrorHandling(unittest.TestCase):
             def inverse(self, y):
                 return y
 
-        param = ParamM(jnp.array([1.0]), t=FailingTransform())
+        param = Param(jnp.array([1.0]), t=FailingTransform())
 
         # First access should raise and not cache
         with self.assertRaises(ValueError):
@@ -217,7 +217,7 @@ class TestParamCachingErrorHandling(unittest.TestCase):
 
         # Create param with should_fail=False first, then enable failing
         transform.should_fail = False
-        param = ParamM(jnp.array([1.0]), t=transform)
+        param = Param(jnp.array([1.0]), t=transform)
         transform.should_fail = True
 
         # First access fails
@@ -240,7 +240,7 @@ class TestParamCachingThreadSafety(unittest.TestCase):
 
     def test_concurrent_reads(self):
         """Test concurrent reads are thread-safe."""
-        param = ParamM(jnp.array([1.0, 2.0]), t=SoftplusT(0.0))
+        param = Param(jnp.array([1.0, 2.0]), t=SoftplusT(0.0))
         num_threads = 20
         reads_per_thread = 100
         results = [None] * num_threads
@@ -265,7 +265,7 @@ class TestParamCachingThreadSafety(unittest.TestCase):
 
     def test_concurrent_writes(self):
         """Test concurrent writes are thread-safe."""
-        param = ParamM(jnp.array([1.0]), t=SoftplusT(0.0))
+        param = Param(jnp.array([1.0]), t=SoftplusT(0.0))
         num_threads = 10
         writes_per_thread = 10
 
@@ -286,7 +286,7 @@ class TestParamCachingThreadSafety(unittest.TestCase):
 
     def test_mixed_read_write(self):
         """Test mixed concurrent reads and writes."""
-        param = ParamM(jnp.array([1.0]), t=SoftplusT(0.0))
+        param = Param(jnp.array([1.0]), t=SoftplusT(0.0))
         num_readers = 5
         num_writers = 3
 
@@ -319,17 +319,17 @@ class TestParamCachingLogging(unittest.TestCase):
 
     def test_logging_disabled_by_default(self):
         """Test that logging is disabled by default."""
-        param = ParamM(jnp.array([1.0]))
+        param = Param(jnp.array([1.0]))
         self.assertFalse(param._enable_cache_logging)
 
     def test_logging_enabled(self):
         """Test enabling cache logging."""
-        param = ParamM(jnp.array([1.0]), enable_cache_logging=True)
+        param = Param(jnp.array([1.0]), enable_cache_logging=True)
         self.assertTrue(param._enable_cache_logging)
 
     def test_logger_lazy_initialization(self):
         """Test that logger is lazily initialized."""
-        param = ParamM(jnp.array([1.0]), enable_cache_logging=True)
+        param = Param(jnp.array([1.0]), enable_cache_logging=True)
         self.assertIsNone(param._cache_logger)
 
         # Trigger logging
@@ -341,7 +341,7 @@ class TestParamCachingLogging(unittest.TestCase):
 
     def test_logging_captures_events(self):
         """Test that logging captures cache events."""
-        param = ParamM(jnp.array([1.0]), t=SoftplusT(0.0), enable_cache_logging=True)
+        param = Param(jnp.array([1.0]), t=SoftplusT(0.0), enable_cache_logging=True)
 
         # Trigger some cache events
         param.value()  # miss
@@ -369,7 +369,7 @@ class TestParamCachingPerformance(unittest.TestCase):
             def inverse(self, y):
                 return y / 2
 
-        param = ParamM(jnp.array([1.0]), t=SlowTransform())
+        param = Param(jnp.array([1.0]), t=SlowTransform())
 
         # First access - cache miss (slow)
         start = time.time()

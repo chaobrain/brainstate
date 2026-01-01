@@ -30,11 +30,38 @@ from . import typing
 from . import util
 # Create deprecated module proxies with scoped APIs
 from ._deprecation import create_deprecated_module_proxy
-from ._error import *
-from ._error import __all__ as _error_all
-from ._state import *
-from ._state import __all__ as _state_all
-
+from ._error import (
+    BrainStateError,
+    TraceContextError,
+    BatchAxisError,
+)
+from ._state import (
+    State,
+    ShortTermState,
+    LongTermState,
+    HiddenState,
+    HiddenGroupState,
+    HiddenTreeState,
+    ParamState,
+    BatchState,
+    TreefyState,
+    FakeState,
+    StateDictManager,
+    StateTraceStack,
+    check_state_value_tree,
+    check_state_jax_tracer,
+    catch_new_states,
+    maybe_state,
+    DelayState,
+)
+from ._state_global_hooks import (
+    GlobalHookRegistry,
+    register_state_hook,
+    unregister_state_hook,
+    clear_state_hooks,
+    has_state_hooks,
+    list_state_hooks,
+)
 # Import hook API
 from ._state_hook_context import (
     HookContext,
@@ -44,7 +71,6 @@ from ._state_hook_context import (
     RestoreHookContext,
     InitHookContext,
 )
-
 from ._state_hook_core import (
     Hook,
     HookHandle,
@@ -54,19 +80,9 @@ from ._state_hook_core import (
     HookCancellationError,
     HookWarning,
 )
-
 from ._state_hook_manager import (
     HookConfig,
     HookManager,
-)
-
-from ._state_global_hooks import (
-    GlobalHookRegistry,
-    register_state_hook,
-    unregister_state_hook,
-    clear_state_hooks,
-    has_state_hooks,
-    list_state_hooks,
 )
 
 # Augment module scope
@@ -195,6 +211,30 @@ __all__ = [
     'compile',
     'functional',
 
+    # errors
+    'BatchAxisError',
+    'BrainStateError',
+    'TraceContextError',
+
+    # states
+    'State',
+    'ShortTermState',
+    'LongTermState',
+    'HiddenState',
+    'HiddenGroupState',
+    'HiddenTreeState',
+    'ParamState',
+    'BatchState',
+    'TreefyState',
+    'FakeState',
+    'StateDictManager',
+    'StateTraceStack',
+    'check_state_value_tree',
+    'check_state_jax_tracer',
+    'catch_new_states',
+    'maybe_state',
+    'DelayState',
+
     # Context objects
     'HookContext',
     'ReadHookContext',
@@ -222,6 +262,4 @@ __all__ = [
     'has_state_hooks',
     'list_state_hooks',
 ]
-__all__ = __all__ + _state_all + _error_all
-del _state_all, create_deprecated_module_proxy, _augment_apis, _compile_apis, _functional_apis
-del _error_all
+del create_deprecated_module_proxy, _augment_apis, _compile_apis, _functional_apis

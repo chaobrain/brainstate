@@ -13,7 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Tests for ParamM and ConstM parameter modules."""
+"""Tests for Param and Const parameter modules."""
 
 import unittest
 
@@ -34,7 +34,7 @@ from braintools.param import (
 
 
 class TestParamBasic(unittest.TestCase):
-    """Tests for basic ParamM functionality."""
+    """Tests for basic Param functionality."""
 
     def test_basic_instantiation(self):
         """Test basic instantiation with default parameters."""
@@ -67,13 +67,13 @@ class TestParamBasic(unittest.TestCase):
         np.testing.assert_allclose(param.value(), new_value)
 
     def test_inherits_from_module(self):
-        """Test that ParamM inherits from brainstate.nn.Module."""
+        """Test that Param inherits from brainstate.nn.Module."""
         param = Param(jnp.array([1.0]))
         self.assertIsInstance(param, brainstate.nn.Module)
 
 
 class TestParamWithTransform(unittest.TestCase):
-    """Tests for ParamM with transforms."""
+    """Tests for Param with transforms."""
 
     def test_with_identity_transform(self):
         """Test with explicit identity transform."""
@@ -108,7 +108,7 @@ class TestParamWithTransform(unittest.TestCase):
 
 
 class TestParamWithRegularization(unittest.TestCase):
-    """Tests for ParamM with regularization."""
+    """Tests for Param with regularization."""
 
     def test_with_l2_reg(self):
         """Test with L2 regularization."""
@@ -195,7 +195,7 @@ class TestParamClip(unittest.TestCase):
 
 
 class TestConst(unittest.TestCase):
-    """Tests for ConstM (non-trainable parameter)."""
+    """Tests for Const (non-trainable parameter)."""
 
     def test_basic_instantiation(self):
         """Test basic instantiation."""
@@ -203,18 +203,18 @@ class TestConst(unittest.TestCase):
         np.testing.assert_allclose(const.value(), jnp.array([1.0, 2.0]))
 
     def test_not_trainable(self):
-        """Test that ConstM is not trainable."""
+        """Test that Const is not trainable."""
         const = Const(jnp.array([1.0]))
         self.assertFalse(const.fit_par)
 
     def test_reg_loss_zero(self):
-        """Test that ConstM returns zero reg loss even with reg."""
+        """Test that Const returns zero reg loss even with reg."""
         # Const doesn't take reg parameter, so this tests the fit_par=False behavior
         const = Const(jnp.array([1.0]))
         self.assertEqual(const.reg_loss(), 0.0)
 
     def test_inherits_from_param(self):
-        """Test that ConstM inherits from ParamM."""
+        """Test that Const inherits from Param."""
         const = Const(jnp.array([1.0]))
         self.assertIsInstance(const, Param)
 

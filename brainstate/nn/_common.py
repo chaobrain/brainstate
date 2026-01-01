@@ -23,6 +23,7 @@ from brainstate._state import StateCatcher
 from brainstate.transform import vmap
 from brainstate.typing import Filter
 from ._module import Module, _vmap_new_states
+from ._collective_ops import vmap_init_all_states
 
 AxisName = Hashable
 
@@ -30,6 +31,7 @@ __all__ = [
     'EnvironContext',
     'Vmap',
     'Vmap2',
+    'Vmap3',
 ]
 
 
@@ -299,5 +301,77 @@ class Vmap2(Module):
             out_axes=self.out_axes,
             axis_name=self.axis_name,
             in_states={0: self.catcher.get_states()},
+        )
+        return vmap_fn(*args, **kwargs)
+
+
+class Vmap3(Module):
+    """
+    Vectorize a module with ``brainstate.transform.vmap``.
+
+    Parameters
+    ----------
+    module : Module
+        Module to wrap with vectorized mapping.
+    in_axes : int or None or Sequence[Any], optional
+        Specification for mapping over inputs. Defaults to ``0``.
+    out_axes : Any, optional
+        Specification for mapping over outputs. Defaults to ``0``.
+    axis_name : AxisName or None, optional
+        Name of the axis being mapped. Defaults to ``None``.
+
+    Examples
+    --------
+    .. code-block:: python
+
+       >>> from brainstate.nn import Vmap2
+       >>> vmapped = Vmap(module, in_axes=0, axis_name="batch")
+       >>> outputs = vmapped.update(inputs)
+    """
+
+    def __init__(
+        self,
+        module: Module,
+        in_axes: int | None | Sequence[Any] = 0,
+        out_axes: Any = 0,
+        state_out_axes: Union[Dict[int, Filter] | Filter] = None,
+        axis_name: AxisName | None = None,
+    ):
+        super().__init__()
+
+        assert isinstance(module, Module), 'The module must be an instance of Module.'
+        self.in_axes = in_axes
+        self.out_axes = out_axes
+        self.axis_name = axis_name
+        self.module = module
+        if state_out_axes is None:
+            state_out_axes = {0: ...}
+        self.state_out_axes = state_out_axes
+
+    def init_all_states(self, vmap_size: int = None, **kwargs) -> None:
+        assert vmap_size is not None, 'vmap_size must be specified when initializing states for Vmap2.'
+        vmap_init_all_states(self, axis_size=vmap_size, tag='new', **kwargs)
+
+    def update(self, *args, **kwargs):
+        """Execute the vmapped module with the given arguments.
+
+        Parameters
+        ----------
+        *args
+            Positional arguments forwarded to the vmapped module.
+        **kwargs
+            Keyword arguments forwarded to the vmapped module.
+
+        Returns
+        -------
+        Any
+            Result of executing the vmapped module.
+        """
+        vmap_fn = vmap(
+            self.module,
+            in_axes=self.in_axes,
+            out_axes=self.out_axes,
+            axis_name=self.axis_name,
+            in_states=_filter_states(self, 'new'),
         )
         return vmap_fn(*args, **kwargs)

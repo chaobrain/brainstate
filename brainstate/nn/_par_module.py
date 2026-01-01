@@ -37,12 +37,12 @@ from ._regularization import Regularization
 from ._transform import IdentityT, Transform
 
 __all__ = [
-    'ParamM',
-    'ConstM',
+    'Param',
+    'Const',
 ]
 
 
-class ParamM(Module):
+class Param(Module):
     """
     A module has neural network parameters for optional transform and regularization.
 
@@ -81,9 +81,9 @@ class ParamM(Module):
     Examples
     --------
     >>> import jax.numpy as jnp
-    >>> from brainstate.nn import ParamM, SoftplusT, L2Reg
+    >>> from brainstate.nn import Param, SoftplusT, L2Reg
     >>> # Trainable positive parameter with L2 regularization
-    >>> param = ParamM(
+    >>> param = Param(
     ...     jnp.array([1.0, 2.0]),
     ...     t=SoftplusT(0.0),
     ...     reg=L2Reg(weight=0.01)
@@ -92,7 +92,7 @@ class ParamM(Module):
     >>> param.reg_loss()  # Get regularization loss
 
     >>> # Caching is automatic for all parameters
-    >>> param = ParamM(
+    >>> param = Param(
     ...     jnp.array([1.0, 2.0]),
     ...     t=SoftplusT()
     ... )
@@ -176,8 +176,8 @@ class ParamM(Module):
         Example
         -------
         >>> import jax.numpy as jnp
-        >>> from brainstate.nn import ParamM, SoftplusT
-        >>> param = ParamM(jnp.array([1.0, 2.0]), t=SoftplusT())
+        >>> from brainstate.nn import Param, SoftplusT
+        >>> param = Param(jnp.array([1.0, 2.0]), t=SoftplusT())
         >>> param.cache()  # Warm up cache before performance-critical code
         >>> val = param.value()  # Fast - returns cached value
         """
@@ -208,8 +208,8 @@ class ParamM(Module):
         Example
         -------
         >>> import jax.numpy as jnp
-        >>> from brainstate.nn import ParamM, SoftplusT
-        >>> param = ParamM(jnp.array([1.0, 2.0]), t=SoftplusT())
+        >>> from brainstate.nn import Param, SoftplusT
+        >>> param = Param(jnp.array([1.0, 2.0]), t=SoftplusT())
         >>> _ = param.value()  # Computes and caches
         >>> param.clear_cache()  # Manual invalidation
         >>> _ = param.value()  # Recomputes
@@ -330,8 +330,8 @@ class ParamM(Module):
         Example
         -------
         >>> import jax.numpy as jnp
-        >>> from brainstate.nn import ParamM, SoftplusT
-        >>> param = ParamM(jnp.array([1.0]), t=SoftplusT())
+        >>> from brainstate.nn import Param, SoftplusT
+        >>> param = Param(jnp.array([1.0]), t=SoftplusT())
         >>> param.cache_stats
         {'valid': False, 'has_cached_value': False}
         >>> _ = param.value()  # Compute and cache
@@ -345,9 +345,9 @@ class ParamM(Module):
             }
 
     def _get_logger(self) -> logging.Logger:
-        """Lazy logger initialization using ParamM name or ID."""
+        """Lazy logger initialization using Param name or ID."""
         if self._cache_logger is None:
-            name = f'brainstate.nn.ParamM.{self._name or id(self)}'
+            name = f'brainstate.nn.Param.{self._name or id(self)}'
             self._cache_logger = logging.getLogger(name)
         return self._cache_logger
 
@@ -359,15 +359,15 @@ class ParamM(Module):
         logger = self._get_logger()
 
         if event == 'hit':
-            logger.info(f"Cache HIT for ParamM '{self._name or id(self)}'")
+            logger.info(f"Cache HIT for Param '{self._name or id(self)}'")
         elif event == 'miss':
-            logger.info(f"Cache MISS for ParamM '{self._name or id(self)}' - computing")
+            logger.info(f"Cache MISS for Param '{self._name or id(self)}' - computing")
         elif event == 'invalidate':
             reason = kwargs.get('reason', 'unknown')
-            logger.info(f"Cache INVALIDATED for ParamM '{self._name or id(self)}' (reason: {reason})")
+            logger.info(f"Cache INVALIDATED for Param '{self._name or id(self)}' (reason: {reason})")
         elif event == 'error':
             error = kwargs.get('error')
-            logger.error(f"Cache ERROR for ParamM '{self._name or id(self)}': {error}", exc_info=True)
+            logger.error(f"Cache ERROR for Param '{self._name or id(self)}': {error}", exc_info=True)
 
     def _on_param_state_write(self, ctx):
         """Invalidate cache when underlying ParamState is written."""
@@ -392,7 +392,7 @@ class ParamM(Module):
     @classmethod
     def init(
         cls,
-        data: Union[Callable, ArrayLike, 'ParamM'],
+        data: Union[Callable, ArrayLike, 'Param'],
         sizes: Union[int, Sequence[int]],
         allow_none: bool = True,
         **param_kwargs,
@@ -435,24 +435,24 @@ class ParamM(Module):
         # Convert sizes to a tuple
         sizes = tuple(_to_size(sizes))
 
-        if not isinstance(data, ParamM):
+        if not isinstance(data, Param):
             # Check if the parameter is a callable function
             if callable(data):
                 data = data(sizes, **param_kwargs)
 
             if u.math.isscalar(data):
                 pass
-            elif isinstance(data, (np.ndarray, jax.Array, u.Quantity, ParamM)):
+            elif isinstance(data, (np.ndarray, jax.Array, u.Quantity, Param)):
                 pass
             else:
                 raise TypeError(f'Unknown parameter type: {type(data)}')
-            data = ConstM(data)
+            data = Const(data)
 
         _check_shape(data.value(), sizes)
         return data
 
 
-class ConstM(ParamM):
+class Const(Param):
     """
     A module has non-trainable constant parameter.
 
@@ -467,8 +467,8 @@ class ConstM(ParamM):
     Examples
     --------
     >>> import jax.numpy as jnp
-    >>> from brainstate.nn import ConstM
-    >>> const = ConstM(jnp.array([1.0, 2.0]))
+    >>> from brainstate.nn import Const
+    >>> const = Const(jnp.array([1.0, 2.0]))
     >>> const.value()
     """
 

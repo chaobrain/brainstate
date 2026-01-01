@@ -83,7 +83,7 @@ class Regularization(Module, ABC):
 
     Notes
     -----
-    Regularization can be used with the ``ParamM`` class to add regularization
+    Regularization can be used with the ``Param`` class to add regularization
     terms to the training loss.
     """
 
