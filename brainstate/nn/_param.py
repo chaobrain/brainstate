@@ -129,7 +129,7 @@ class Param(Module):
         self.fit_par = fit_par
         self.t = t
         self.reg = reg
-        assert callable(precompute), 'precompute must be a callable function or None.'
+        assert precompute is None or callable(precompute), 'precompute must be a callable function or None.'
         self.precompute = precompute
 
         # Initialize cache infrastructure (always enabled)

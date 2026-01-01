@@ -475,8 +475,8 @@ class Module(Node, ParamDesc):
 
     def param_precompute(
         self,
-        allowed_hierarchy: Tuple[int, int] = (0, max_int),
         cache: bool = True,
+        allowed_hierarchy: Tuple[int, int] = (0, max_int),
     ):
         """
         Cache all Param parameters in this module and children.
