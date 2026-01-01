@@ -75,6 +75,8 @@ class Param(Module):
         The bijective transformation.
     reg : Regularization or None
         The regularization, if any.
+    precompute : Callable or None
+        Optional precompute function applied after transformation.
     val : array_like or ParamState
         The internal parameter storage.
 
@@ -118,6 +120,7 @@ class Param(Module):
         value: ArrayLike,
         t: Transform = IdentityT(),
         reg: Optional[Regularization] = None,
+        precompute: Optional[Callable] = None,
         fit_par: bool = True,
         enable_cache_logging: bool = False,
     ):
@@ -126,6 +129,8 @@ class Param(Module):
         self.fit_par = fit_par
         self.t = t
         self.reg = reg
+        assert callable(precompute), 'precompute must be a callable function or None.'
+        self.precompute = precompute
 
         # Initialize cache infrastructure (always enabled)
         self._enable_cache_logging = enable_cache_logging
@@ -188,6 +193,8 @@ class Param(Module):
             val = self.val
         with self._cache_lock:
             transformed = self.t.forward(val)
+            if self.precompute is not None:
+                transformed = self.precompute(transformed)
             self._cached_value = transformed
             self._cache_valid = True
             self._log_cache_event('manual_cache')
@@ -245,6 +252,8 @@ class Param(Module):
                 return self._cached_value
 
             transformed = self.t.forward(val)
+            if self.precompute is not None:
+                transformed = self.precompute(transformed)
             return transformed
 
     def set_value(self, value: ArrayLike):
@@ -383,6 +392,7 @@ class Param(Module):
                     '_cached_value',
                     '_cache_valid',
                     '_cache_logger',
+                    'precompute',
                     '_cache_invalidation_hook_handle'):
             return None
         if name.startswith('_'):
@@ -439,7 +449,6 @@ class Param(Module):
             # Check if the parameter is a callable function
             if callable(data):
                 data = data(sizes, **param_kwargs)
-
             if u.math.isscalar(data):
                 pass
             elif isinstance(data, (np.ndarray, jax.Array, u.Quantity, Param)):

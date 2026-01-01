@@ -473,19 +473,19 @@ class Module(Node, ParamDesc):
         losses = [param.reg_loss() for param in param_dict]
         return sum(losses)
 
-    def param_module_cache(self, allowed_hierarchy: Tuple[int, int] = (0, max_int)):
+    def param_precompute(
+        self,
+        allowed_hierarchy: Tuple[int, int] = (0, max_int),
+        cache: bool = True,
+    ):
         """
         Cache all Param parameters in this module and children.
         """
         for par_module in self.param_modules(allowed_hierarchy=allowed_hierarchy):
-            par_module.cache()
-
-    def param_module_uncache(self, allowed_hierarchy: Tuple[int, int] = (0, max_int)):
-        """
-        clear-cache all Param parameters in this module and children.
-        """
-        for par_module in self.param_modules(allowed_hierarchy=allowed_hierarchy):
-            par_module.clear_cache()
+            if cache:
+                par_module.cache()
+            else:
+                par_module.clear_cache()
 
     def init_state(self, *args, **kwargs):
         """
