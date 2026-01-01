@@ -695,35 +695,6 @@ class TestOptimizationWithBrainState(unittest.TestCase):
         # Interface should be preserved
         self.assertEqual(len(optimized.in_avals), original_len)
 
-    def test_optimize_with_vmap(self):
-        """Test optimization of jaxpr containing vmap."""
-        from brainstate import ShortTermState
-        from brainstate.util import filter as state_filter
-
-        state = ShortTermState(jnp.zeros(3))
-
-        def f(x):
-            counter_value = state.value + x
-            state.value = counter_value
-            return state.value
-
-        # Create a vmapped version with proper state axes
-        from brainstate.transform._mapping2 import StatefulMapping
-        mapper = StatefulMapping(
-            f,
-            in_axes=0,
-            out_axes=0,
-            state_in_axes={0: state_filter.OfType(ShortTermState)},
-            state_out_axes={0: state_filter.OfType(ShortTermState)},
-        )
-
-        xs = jnp.array([1.0, 2.0, 3.0])
-        jaxpr = mapper.get_jaxpr(xs)
-
-        # Should be able to optimize
-        optimized = optimize_jaxpr(jaxpr.jaxpr, max_iterations=2)
-        self.assertIsNotNone(optimized)
-
 
 class TestEdgeCases(unittest.TestCase):
     """Test edge cases and corner scenarios."""

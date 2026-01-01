@@ -3,10 +3,10 @@ import unittest
 import jax
 import jax.numpy as jnp
 
-import brainstate as bst
+import brainstate
 import brainstate.random
-from brainstate.transform import StatefulMapping, vmap2, vmap_new_states, pmap, map as brainstate_map
-from brainstate.util import filter as state_filter
+from brainstate.transform import StatefulMapping, vmap2, vmap_new_states, pmap, map
+from brainstate.util import filter
 
 
 class TestMap(unittest.TestCase):
@@ -17,7 +17,7 @@ class TestMap(unittest.TestCase):
             return x + 1.0
 
         expected = jax.vmap(fn)(xs)
-        result = brainstate_map(fn, xs)
+        result = map(fn, xs)
         self.assertTrue(jnp.allclose(result, expected))
 
     def test_map_multiple_inputs_and_batch_size(self):
@@ -28,19 +28,19 @@ class TestMap(unittest.TestCase):
             return a * a + b
 
         expected = jax.vmap(fn)(xs, ys)
-        result = brainstate_map(fn, xs, ys, batch_size=2)
+        result = map(fn, xs, ys, batch_size=2)
         self.assertTrue(jnp.allclose(result, expected))
 
 
 class TestVmapIntegration(unittest.TestCase):
     def test_decorator_batched_stateful_function(self):
-        counter = bst.ShortTermState(jnp.zeros(3))
+        counter = brainstate.ShortTermState(jnp.zeros(3))
 
         @vmap2(
             in_axes=0,
             out_axes=0,
-            state_in_axes={0: state_filter.OfType(bst.ShortTermState)},
-            state_out_axes={0: state_filter.OfType(bst.ShortTermState)},
+            state_in_axes={0: filter.OfType(brainstate.ShortTermState)},
+            state_out_axes={0: filter.OfType(brainstate.ShortTermState)},
         )
         def accumulate(x):
             counter.value = counter.value + x
@@ -70,7 +70,7 @@ class TestVmapIntegration(unittest.TestCase):
             a = brainstate.random.rand(2)
             b = rng1.randn(2)
             c = rng2.random(2)
-            return a + x,  b, c
+            return a + x, b, c
 
         r = brainstate.transform.StatefulMapping(f)(jnp.asarray([1.0, 2.0]))
         print()
@@ -79,12 +79,11 @@ class TestVmapIntegration(unittest.TestCase):
         print(r[2])
 
 
-
 class TestVmapNewStates(unittest.TestCase):
     def test_new_states_are_vectorized(self):
         @vmap_new_states(in_axes=0, out_axes=0)
         def build(x):
-            scratch = bst.ShortTermState(jnp.array(0.0), tag='scratch')
+            scratch = brainstate.ShortTermState(jnp.array(0.0), tag='scratch')
             scratch.value = scratch.value + x
             return scratch.value
 
@@ -98,14 +97,14 @@ class TestVmapNewStates(unittest.TestCase):
 class TestPmapIntegration(unittest.TestCase):
     @unittest.skipIf(jax.local_device_count() < 2, "Requires at least 2 devices")
     def test_pmap_stateful_execution(self):
-        param = bst.ParamState(jnp.ones((4,)))
+        param = brainstate.ParamState(jnp.ones((4,)))
 
         @pmap(
             in_axes=0,
             out_axes=0,
             axis_name='devices',
-            state_in_axes={0: state_filter.OfType(bst.ParamState)},
-            state_out_axes={0: state_filter.OfType(bst.ParamState)},
+            state_in_axes={0: filter.OfType(brainstate.ParamState)},
+            state_out_axes={0: filter.OfType(brainstate.ParamState)},
         )
         def update(delta):
             param.value = param.value + delta

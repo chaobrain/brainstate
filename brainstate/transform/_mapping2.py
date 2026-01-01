@@ -37,6 +37,7 @@ __all__ = [
     'vmap2',
     'pmap',
     'map',
+    'vmap2_new_states',
 ]
 
 F = TypeVar("F", bound=Callable)

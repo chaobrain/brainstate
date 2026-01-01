@@ -20,9 +20,9 @@ from typing import Any, Sequence, Hashable, Dict
 
 from brainstate import environ
 from brainstate._state import State
-from brainstate.transform import vmap, vmap2
-from brainstate.transform._mapping2 import vmap2_new_states
+from brainstate.transform import vmap, vmap2, vmap2_new_states
 from brainstate.typing import Filter
+from brainstate.util import filter
 from ._module import Module
 
 AxisName = Hashable

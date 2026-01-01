@@ -37,7 +37,7 @@ from ._mapping1 import (
     vmap, vmap_new_states,
 )
 from ._mapping2 import (
-    StatefulMapping, vmap2, pmap, map,
+    StatefulMapping, vmap2, pmap, map, vmap2_new_states,
 )
 from ._mapping3 import (
     StateAxes, model_vmap, model_pmap,
@@ -120,6 +120,7 @@ __all__ = [
     'vmap_new_states',
     'StatefulMapping',
     'vmap2',
+    'vmap2_new_states',
     'pmap',
     'map',
     'StateAxes',
