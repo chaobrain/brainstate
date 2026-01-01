@@ -78,6 +78,12 @@ from ._paddings import (
     ReplicationPad3d, ZeroPad1d, ZeroPad2d, ZeroPad3d, ConstantPad1d, ConstantPad2d,
     ConstantPad3d, CircularPad1d, CircularPad2d, CircularPad3d,
 )
+from ._par_module import (
+    ParamM, ConstM,
+)
+from ._param_data import (
+    HiData,
+)
 from ._poolings import (
     Flatten, Unflatten, AvgPool1d, AvgPool2d, AvgPool3d, MaxPool1d, MaxPool2d, MaxPool3d,
     MaxUnpool1d, MaxUnpool2d, MaxUnpool3d, LPPool1d, LPPool2d, LPPool3d,
@@ -91,10 +97,16 @@ from ._utils import (
     count_parameters, clip_grad_norm,
 )
 from ._regularization import (
-    Regularization,
+    Regularization, ChainedReg, GaussianReg, L1Reg, L2Reg, ElasticNetReg, HuberReg,
+    GroupLassoReg, TotalVariationReg, MaxNormReg, EntropyReg, OrthogonalReg,
+    SpectralNormReg, StudentTReg, CauchyReg, UniformReg, LogNormalReg,
+    ExponentialReg, GammaReg, BetaReg, HorseshoeReg, InverseGammaReg,
+    LogUniformReg, SpikeAndSlabReg, DirichletReg,
 )
 from ._transform import (
-    Transform,
+    Transform, IdentityT, SigmoidT, SoftplusT, NegSoftplusT, LogT, ExpT,
+    TanhT, SoftsignT, AffineT, ChainT, MaskedT, ClipT, ReluT, PositiveT,
+    NegativeT, ScaledSigmoidT, PowerT, OrderedT, SimplexT, UnitVectorT,
 )
 
 
@@ -253,6 +265,9 @@ __all__ = [
     'CircularPad1d',
     'CircularPad2d',
     'CircularPad3d',
+    'ParamM',
+    'ConstM',
+    'HiData',
     'Flatten',
     'Unflatten',
     'AvgPool1d',
@@ -281,10 +296,52 @@ __all__ = [
     'URLSTMCell',
     'count_parameters',
     'clip_grad_norm',
-
     'Regularization',
-
+    'ChainedReg',
+    'GaussianReg',
+    'L1Reg',
+    'L2Reg',
+    'ElasticNetReg',
+    'HuberReg',
+    'GroupLassoReg',
+    'TotalVariationReg',
+    'MaxNormReg',
+    'EntropyReg',
+    'OrthogonalReg',
+    'SpectralNormReg',
+    'StudentTReg',
+    'CauchyReg',
+    'UniformReg',
+    'LogNormalReg',
+    'ExponentialReg',
+    'GammaReg',
+    'BetaReg',
+    'HorseshoeReg',
+    'InverseGammaReg',
+    'LogUniformReg',
+    'SpikeAndSlabReg',
+    'DirichletReg',
     'Transform',
+    'IdentityT',
+    'SigmoidT',
+    'SoftplusT',
+    'NegSoftplusT',
+    'LogT',
+    'ExpT',
+    'TanhT',
+    'SoftsignT',
+    'AffineT',
+    'ChainT',
+    'MaskedT',
+    'ClipT',
+    'ReluT',
+    'PositiveT',
+    'NegativeT',
+    'ScaledSigmoidT',
+    'PowerT',
+    'OrderedT',
+    'SimplexT',
+    'UnitVectorT',
 ]
 
 # Deprecated names that redirect to brainpy
