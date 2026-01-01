@@ -14,9 +14,62 @@
 # ==============================================================================
 
 
+from ._context import (
+    split_context,
+    merge_context,
+)
+from ._convert import (
+    graph_to_tree,
+    tree_to_graph,
+    NodeStates,
+)
 from ._node import Node
-from ._operation import *
-from ._operation import __all__ as operation_all
+from ._operation import (
+    register_graph_node_type,
+    pop_states,
+    nodes,
+    states,
+    treefy_states,
+    update_states,
+    flatten,
+    unflatten,
+    treefy_split,
+    treefy_merge,
+    iter_leaf,
+    iter_node,
+    clone,
+    graphdef,
+    RefMap,
+    GraphDef,
+    NodeDef,
+    NodeRef,
+)
 
-__all__ = ['Node'] + operation_all
-del operation_all
+__all__ = [
+    'Node',
+    'graph_to_tree',
+    'tree_to_graph',
+    'NodeStates',
+
+    'split_context',
+    'merge_context',
+
+    'register_graph_node_type',
+    'pop_states',
+    'nodes',
+    'states',
+    'treefy_states',
+    'update_states',
+    'flatten',
+    'unflatten',
+    'treefy_split',
+    'treefy_merge',
+    'iter_leaf',
+    'iter_node',
+    'clone',
+    'graphdef',
+    'RefMap',
+    'GraphDef',
+    'NodeDef',
+    'NodeRef',
+]
