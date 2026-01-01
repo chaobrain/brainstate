@@ -74,7 +74,7 @@ class TestModule(unittest.TestCase):
         self.assertGreater(total_loss, 0.0)
 
         # Get loss from L2-regularized params only (compute manually)
-        all_params = mod.par_modules()
+        all_params = mod.param_modules()
         l2_params = [v for v in all_params if isinstance(v.reg, L2Reg)]
         l2_loss = sum(p.reg_loss() for p in l2_params)
         self.assertGreater(l2_loss, 0.0)
@@ -94,7 +94,7 @@ class TestModule(unittest.TestCase):
                 self.beta = Param(jnp.ones(5), fit_par=True)
 
         mod = TestModule()
-        named = list(mod.named_par_modules())
+        named = list(mod.named_param_modules())
 
         self.assertEqual(len(named), 2)
         names = [name for name, _ in named]
@@ -233,7 +233,7 @@ class TestModule(unittest.TestCase):
         self.assertEqual(len(params), 2)
 
         # Should be equivalent to para_modules()
-        para_mods = tuple(mod.par_modules())
+        para_mods = tuple(mod.param_modules())
         self.assertEqual(len(params), len(para_mods))
 
     def test_named_parameters(self):

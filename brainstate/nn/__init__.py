@@ -25,7 +25,7 @@ from ._collective_ops import (
     reset_all_states, vmap_reset_all_states, assign_state_values,
 )
 from ._common import (
-    EnvironContext, Vmap, Vmap2, Vmap3, Vmap2Module,
+    EnvironContext, Vmap, Vmap2Module,
 )
 from ._conv import (
     Conv1d, Conv2d, Conv3d, ScaledWSConv1d, ScaledWSConv2d, ScaledWSConv3d,
@@ -78,10 +78,10 @@ from ._paddings import (
     ReplicationPad3d, ZeroPad1d, ZeroPad2d, ZeroPad3d, ConstantPad1d, ConstantPad2d,
     ConstantPad3d, CircularPad1d, CircularPad2d, CircularPad3d,
 )
-from ._par_module import (
+from ._param import (
     Param, Const,
 )
-from ._param_data import (
+from ._hidata import (
     HiData,
 )
 from ._poolings import (
@@ -90,12 +90,6 @@ from ._poolings import (
     AdaptiveAvgPool1d, AdaptiveAvgPool2d, AdaptiveAvgPool3d, AdaptiveMaxPool1d,
     AdaptiveMaxPool2d, AdaptiveMaxPool3d,
 )
-from ._rnns import (
-    RNNCell, ValinaRNNCell, GRUCell, MGUCell, LSTMCell, URLSTMCell,
-)
-from ._utils import (
-    count_parameters, clip_grad_norm,
-)
 from ._regularization import (
     Regularization, ChainedReg, GaussianReg, L1Reg, L2Reg, ElasticNetReg, HuberReg,
     GroupLassoReg, TotalVariationReg, MaxNormReg, EntropyReg, OrthogonalReg,
@@ -103,12 +97,17 @@ from ._regularization import (
     ExponentialReg, GammaReg, BetaReg, HorseshoeReg, InverseGammaReg,
     LogUniformReg, SpikeAndSlabReg, DirichletReg,
 )
+from ._rnns import (
+    RNNCell, ValinaRNNCell, GRUCell, MGUCell, LSTMCell, URLSTMCell,
+)
 from ._transform import (
     Transform, IdentityT, SigmoidT, SoftplusT, NegSoftplusT, LogT, ExpT,
     TanhT, SoftsignT, AffineT, ChainT, MaskedT, ClipT, ReluT, PositiveT,
     NegativeT, ScaledSigmoidT, PowerT, OrderedT, SimplexT, UnitVectorT,
 )
-
+from ._utils import (
+    count_parameters, clip_grad_norm,
+)
 
 __all__ = [
     'init',
@@ -156,8 +155,6 @@ __all__ = [
     'assign_state_values',
     'EnvironContext',
     'Vmap',
-    'Vmap2',
-    'Vmap3',
     'Vmap2Module',
     'Conv1d',
     'Conv2d',

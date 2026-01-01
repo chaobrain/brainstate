@@ -175,7 +175,6 @@ class StatefulMapping:
         out_axes: Union[int, Tuple[int, ...], None] = 0,
         state_in_axes: Optional[Union[Dict[AxisName, Filter], Filter]] = None,
         state_out_axes: Optional[Union[Dict[AxisName, Filter], Filter]] = None,
-        new_state_axes: Optional[Union[Dict[AxisName, Filter], Filter]] = None,
         unexpected_out_state_mapping: str = 'raise',
         # JIT specific parameters
         static_argnums: Union[int, Iterable[int]] = (),
@@ -224,13 +223,6 @@ class StatefulMapping:
         state_out_axes = {k: filter.to_predicate(v) for k, v in state_out_axes.items()}  # type: ignore
         self.state_out_axes = state_out_axes
 
-        if new_state_axes is None:
-            new_state_axes = dict()
-        elif not isinstance(new_state_axes, dict):
-            new_state_axes = {0: filter.to_predicate(new_state_axes)}
-        new_state_axes = {k: filter.to_predicate(v) for k, v in new_state_axes.items()}  # type: ignore
-        self.new_state_axes = new_state_axes
-
         self.axis_size = axis_size
         self.axis_name = axis_name
         self.mapping_fn = mapping_fn
@@ -244,6 +236,27 @@ class StatefulMapping:
         self._cached_map_batch_size = BoundedCache(maxsize=128)
 
     def __infer_batch_size(self, args, in_axes):
+        """Infer the batch size from arguments and their mapping axes.
+
+        Parameters
+        ----------
+        args : tuple
+            Positional arguments to be mapped.
+        in_axes : int, tuple, list, or None
+            Axis specification for each argument.
+
+        Returns
+        -------
+        int
+            Inferred batch size.
+
+        Raises
+        ------
+        ValueError
+            If batch sizes are inconsistent across arguments or cannot be inferred.
+        TypeError
+            If in_axes has an unsupported type.
+        """
         def get_batch_size_from_arg(arg_, axis_):
             if axis_ is None:
                 return None
@@ -299,6 +312,22 @@ class StatefulMapping:
         return batch_sizes[0]
 
     def __new_batch_arg(self, trace, batch_size: int, dim_to_states: dict):
+        """Create a wrapper that handles batching of state arguments.
+
+        Parameters
+        ----------
+        trace : BatchTrace
+            JAX batch trace context.
+        batch_size : int
+            Size of the batch dimension.
+        dim_to_states : dict
+            Dictionary mapping dimensions to lists of states.
+
+        Returns
+        -------
+        callable
+            Wrapper function that processes state values for batching.
+        """
         RandomState = _import_rand_state()
 
         def wrapper(x):
@@ -316,6 +345,23 @@ class StatefulMapping:
         return wrapper
 
     def __find_batch_dim(self, st):
+        """Find the batch dimension of a state by examining its leaves.
+
+        Parameters
+        ----------
+        st : State
+            State object to analyze.
+
+        Returns
+        -------
+        int or None
+            The batch dimension if all leaves agree, otherwise None.
+
+        Raises
+        ------
+        ValueError
+            If the state has inconsistent batch dimensions across its leaves.
+        """
         leaves = jax.tree.leaves(st._value)
         batch_dims = set([leaf.batch_dim if isinstance(leaf, BatchTracer) else None for leaf in leaves])
         if len(batch_dims) != 1:
@@ -468,6 +514,27 @@ class StatefulMapping:
         return tuple(rand_vals), tuple(rand_recover_vals)
 
     def __call__(self, *args, **kwargs) -> Tuple[Any, Tuple[State, ...]]:
+        """Execute the stateful mapping on the given arguments.
+
+        Parameters
+        ----------
+        *args
+            Positional arguments to be mapped over.
+        **kwargs
+            Keyword arguments (currently not supported).
+
+        Returns
+        -------
+        Any
+            Result of the mapped computation with state updates applied.
+
+        Raises
+        ------
+        NotImplementedError
+            If keyword arguments are provided.
+        ValueError
+            If batch sizes cannot be inferred or are inconsistent.
+        """
         if len(kwargs):
             raise NotImplementedError(
                 'StatefulMapping currently does not support keyword arguments.'
@@ -773,6 +840,27 @@ def pmap(
 
 
 def _batch_and_remainder(x, batch_size: int):
+    """Split a pytree into batches and remainder.
+
+    Parameters
+    ----------
+    x : Any
+        PyTree to split into batches.
+    batch_size : int
+        Size of each batch.
+
+    Returns
+    -------
+    tuple
+        A tuple of (batched_tree, remainder_tree). The batched_tree has shape
+        (num_batches, batch_size, ...) and remainder_tree contains leftover
+        elements, or None if there's no remainder.
+
+    Raises
+    ------
+    ValueError
+        If inputs have inconsistent lengths along the leading dimension.
+    """
     leaves, tree_def = jax.tree.flatten(x)
 
     scan_leaves = []
@@ -801,6 +889,18 @@ def _batch_and_remainder(x, batch_size: int):
 
 
 def _flatten(x):
+    """Flatten the first two dimensions of an array.
+
+    Parameters
+    ----------
+    x : array
+        Array with at least 2 dimensions.
+
+    Returns
+    -------
+    array
+        Array with first two dimensions flattened into one.
+    """
     return x.reshape(-1, *x.shape[2:])
 
 
@@ -881,13 +981,104 @@ def map(
     return ys
 
 
-def vmap_new_states2(
+@set_module_as('brainstate.transform')
+def vmap2_new_states(
     module: 'Module',
-    kwargs: Dict,
+    init_kwargs: Dict,
     state_tag: str = None,
     axis_size: int = None,
     state_out_axes: Dict[int, Filter] = None,
 ):
+    """
+    Initialize and vectorize newly created states within a module.
+
+    This function creates vectorized versions of all states that are initialized
+    when calling ``module.init_all_states(**init_kwargs)``. It uses :func:`vmap2`
+    to create multiple copies of each state along specified axes, enabling
+    efficient batched operations on modules with stateful components.
+
+    Parameters
+    ----------
+    module : Module
+        Module whose states should be vectorized. Must have an ``init_all_states``
+        method.
+    init_kwargs : dict
+        Keyword arguments forwarded to ``module.init_all_states(**init_kwargs)``
+        during the vectorized initialization.
+    state_tag : str, optional
+        Tag for identifying and grouping the newly created states. Defaults to
+        ``None``.
+    axis_size : int, optional
+        Size of the vectorization axis. Determines how many copies of each state
+        will be created. Defaults to ``None``, which requires inference from the
+        mapped arguments.
+    state_out_axes : Dict[int, Filter] or Filter, optional
+        Specification for how to map output states along different axes. Can be:
+
+        - A dictionary mapping axis indices (int) to filters
+        - A single filter (treated as ``{0: filter}``)
+        - ``None`` (default: all states go to axis 0, except NonBatchState)
+
+        Filters determine which states are assigned to which axes. States matching
+        :class:`~brainstate.NonBatchState` are automatically assigned to axis
+        ``None`` (not batched).
+
+    Returns
+    -------
+    dict[int, list[State]]
+        Dictionary mapping axis indices to lists of vectorized states. Keys are
+        the axis indices specified in ``state_out_axes`` (plus ``None`` for
+        non-batched states), and values are lists of state objects with their
+        values set to the vectorized arrays.
+
+    Notes
+    -----
+    This function performs several critical operations:
+
+    1. Wraps ``module.init_all_states`` in a :func:`vmap2` call
+    2. Executes the initialization ``axis_size`` times in parallel
+    3. Captures all newly created states
+    4. Assigns states to axes based on ``state_out_axes`` predicates
+    5. Restores vectorized values to the actual state objects
+    6. Adjusts state stack levels to prevent JAX tracing leakage
+
+    The returned states have their values properly vectorized and can be used
+    with :class:`~brainstate.nn.Vmap2Module` for efficient batched computations.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate
+        >>> import jax.numpy as jnp
+        >>> from brainstate.util.filter import OfType
+        >>>
+        >>> class MyModule(brainstate.nn.Module):
+        ...     def __init__(self, input_size):
+        ...         super().__init__()
+        ...         self.input_size = input_size
+        ...
+        ...     def init_state(self, axis):
+        ...         self.weight = brainstate.ParamState(jnp.zeros(self.input_size))
+        ...         self.counter = brainstate.ShortTermState(0)
+        >>>
+        >>> module = MyModule()
+        >>> vmap_states = brainstate.transform.vmap2_new_states(
+        ...     module,
+        ...     init_kwargs={'axis': 10},
+        ...     axis_size=5,
+        ...     state_out_axes={1: OfType(brainstate.ParamState)}
+        ... )
+        >>> # module.weight.value now has shape (10, 5)
+        >>> module.weight.value.shape
+        (10, 5)
+
+    See Also
+    --------
+    vmap2 : Vectorize a callable with state semantics.
+    brainstate.nn.Vmap2Module : Module wrapper for vectorized execution.
+    brainstate.State : Base class for stateful objects.
+    """
     if state_out_axes is None:
         state_out_axes = dict()
     if not isinstance(state_out_axes, dict):
@@ -903,12 +1094,13 @@ def vmap_new_states2(
     if 0 not in state_out_axes:
         state_out_axes[0] = filter.to_predicate(...)
 
+    # initialize a dictionary to store vmapped states
     dict_vmap_states = defaultdict(list)
 
     @vmap2(axis_size=axis_size, out_axes=tuple(state_out_axes.keys()))
-    def new_fun():
+    def fn_to_new_state_initialization():
         with catch_new_states() as catcher_:
-            module.init_all_states(**kwargs)
+            module.init_all_states(**init_kwargs)
         vmap_state_vals_ = defaultdict(list)
         for st_ in catcher_.get_states():
             for out_axis_, predicate_ in state_out_axes.items():
@@ -923,8 +1115,8 @@ def vmap_new_states2(
         return outs
 
     # restore vmapped state values
-    with catch_new_states(state_tag) as catcher:
-        tuple_vmap_state_vals = new_fun()
+    with catch_new_states(state_tag):
+        tuple_vmap_state_vals = fn_to_new_state_initialization()
     tuple_vmap_states = tuple(dict_vmap_states.get(k, tuple()) for k in state_out_axes)
     for st_vals, states in zip(tuple_vmap_state_vals, tuple_vmap_states):
         for val, st in zip(st_vals, states):

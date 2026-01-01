@@ -939,7 +939,7 @@ class TestContextManagers(unittest.TestCase):
 
 
 class TestStateCatcher(unittest.TestCase):
-    """Test StateCatcher functionality via catch_new_states context manager."""
+    """Test NewStateCatcher functionality via catch_new_states context manager."""
 
     def test_catch_new_states_basic(self):
         """Test basic catch_new_states functionality."""

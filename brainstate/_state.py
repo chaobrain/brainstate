@@ -61,6 +61,7 @@ __all__ = [
     'HiddenTreeState',
     'ParamState',
     'BatchState',
+    'DelayState',
     'TreefyState',
     'FakeState',
 
@@ -69,9 +70,8 @@ __all__ = [
     'check_state_value_tree',
     'check_state_jax_tracer',
     'catch_new_states',
+    'NewStateCatcher',
     'maybe_state',
-
-    'DelayState',
 ]
 
 A = TypeVar('A')
@@ -104,7 +104,7 @@ class ThreadLocalStack(threading.local):
         state_stack (List[StateTraceStack]): A list to store StateTraceStack objects for the current thread.
         tree_check (List[bool]): A list of boolean flags for tree structure checking, initialized with [False].
         jax_tracer_check (List[bool]): A list of boolean flags for JAX tracer checking, initialized with [False].
-        new_state_catcher (List[StateCatcher]): A list to store Catcher objects for capturing new states in the current thread.
+        new_state_catcher (List[NewStateCatcher]): A list to store Catcher objects for capturing new states in the current thread.
     """
 
     def __init__(self):
@@ -118,7 +118,7 @@ class ThreadLocalStack(threading.local):
         self.state_stack: List[StateTraceStack] = []
         self.tree_check: List[bool] = [False]
         self.jax_tracer_check: List[bool] = [False]
-        self.new_state_catcher: List[StateCatcher] = []
+        self.new_state_catcher: List[NewStateCatcher] = []
 
     def get_trace_stack_level(self) -> int:
         return len(self.state_stack)
@@ -888,7 +888,7 @@ def record_state_init(st: State[A]):
         is created to ensure proper tracking and management of states within
         the current execution context.
     """
-    trace: StateCatcher
+    trace: NewStateCatcher
     for trace in TRACE_CONTEXT.new_state_catcher:
         trace.append(st)
 
@@ -2292,7 +2292,7 @@ jax.tree_util.register_pytree_with_keys(
 )
 
 
-class StateCatcher(PrettyObject):
+class NewStateCatcher(PrettyObject):
     """
     The catcher to catch and manage new states.
 
@@ -2466,7 +2466,7 @@ def catch_new_states(
         # Access caught states through catcher object
     """
     try:
-        catcher = StateCatcher(state_tag=state_tag, state_to_exclude=state_to_exclude)
+        catcher = NewStateCatcher(state_tag=state_tag, state_to_exclude=state_to_exclude)
         TRACE_CONTEXT.new_state_catcher.append(catcher)
         yield catcher
     finally:
