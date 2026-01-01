@@ -35,9 +35,9 @@ from ._make_jaxpr import StatefulFunction, BoundedCache, get_arg_cache_key
 __all__ = [
     'StatefulMapping',
     'vmap2',
+    'vmap2_new_states',
     'pmap',
     'map',
-    'vmap2_new_states',
 ]
 
 F = TypeVar("F", bound=Callable)
@@ -961,7 +961,7 @@ def map(
     See Also
     --------
     vmap : Vectorised mapping with automatic batching.
-    jax.lax.scan : Primitive used for the sequential fallback.
+    scan : Primitive used for the sequential fallback.
     """
     if batch_size is not None:
         scan_xs, remainder_xs = _batch_and_remainder(xs, batch_size)
