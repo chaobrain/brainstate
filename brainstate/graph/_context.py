@@ -27,7 +27,15 @@ from typing_extensions import Unpack
 
 from brainstate.typing import Filter
 from brainstate.util import NestedDict
-from ._operation import (flatten, unflatten, _split_state, GraphDef, RefMap, Index, A)
+from ._operation import (
+    flatten,
+    unflatten,
+    _split_state,
+    GraphDef,
+    RefMap,
+    Index,
+    A,
+)
 
 __all__ = [
     'split_context',

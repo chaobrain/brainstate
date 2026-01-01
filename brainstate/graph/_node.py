@@ -19,11 +19,11 @@ from abc import ABCMeta
 from copy import deepcopy
 from typing import Any, Type, TypeVar, Tuple, TYPE_CHECKING, Callable
 
+from brainstate._error import TraceContextError
 from brainstate._state import State, TreefyState
 from brainstate.typing import Key
-from brainstate.util._pretty_pytree import PrettyObject
+from brainstate.util import PrettyObject
 from ._operation import register_graph_node_type, treefy_split, treefy_merge
-from brainstate._error import TraceContextError
 
 __all__ = [
     'Node',

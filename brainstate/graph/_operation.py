@@ -30,8 +30,16 @@ from typing_extensions import TypeGuard, Unpack
 from brainstate._state import State, TreefyState
 from brainstate._utils import set_module_as
 from brainstate.typing import PathParts, Filter, Predicate, Key
-from brainstate.util._pretty_pytree import NestedDict, FlattedDict, PrettyDict
-from brainstate.util._pretty_repr import PrettyRepr, PrettyType, PrettyAttr, PrettyMapping, MappingReprMixin
+from brainstate.util import (
+    PrettyRepr,
+    PrettyType,
+    PrettyAttr,
+    PrettyMapping,
+    MappingReprMixin,
+    NestedDict,
+    FlattedDict,
+    PrettyDict,
+)
 from brainstate.util.filter import to_predicate
 from brainstate.util.struct import FrozenDict
 
@@ -925,7 +933,7 @@ def _graph_pop(
 
 @set_module_as('brainstate.graph')
 def pop_states(
-    node: Any,  *filters: Any
+    node: Any, *filters: Any
 ) -> Union[NestedDict, Tuple[NestedDict, ...]]:
     """
     Pop one or more :class:`State` types from the graph node.
