@@ -320,7 +320,13 @@ class WithTag:
             True if the object has a 'tag' attribute matching the specified tag,
             False otherwise.
         """
-        return hasattr(x, 'tag') and x.tag == self.tag
+        if hasattr(x, 'tag'):
+            tag = x.tag
+            if isinstance(tag, str):
+                return tag == self.tag
+            elif isinstance(tag, (list, tuple, set)):
+                return self.tag in tag
+        return False
 
     def __repr__(self) -> str:
         return f'WithTag({self.tag!r})'

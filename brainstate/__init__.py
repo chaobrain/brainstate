@@ -17,7 +17,7 @@
 A ``State``-based Transformation System for Program Compilation and Augmentation
 """
 
-__version__ = "0.2.8"
+__version__ = "0.2.9"
 __versio_info__ = tuple(map(int, __version__.split('.')))
 
 from . import environ
@@ -30,10 +30,60 @@ from . import typing
 from . import util
 # Create deprecated module proxies with scoped APIs
 from ._deprecation import create_deprecated_module_proxy
-from ._error import *
-from ._error import __all__ as _error_all
-from ._state import *
-from ._state import __all__ as _state_all
+from ._error import (
+    BrainStateError,
+    TraceContextError,
+    BatchAxisError,
+)
+from ._state import (
+    State,
+    ShortTermState,
+    LongTermState,
+    HiddenState,
+    HiddenGroupState,
+    HiddenTreeState,
+    ParamState,
+    BatchState,
+    TreefyState,
+    FakeState,
+    StateDictManager,
+    StateTraceStack,
+    check_state_value_tree,
+    check_state_jax_tracer,
+    catch_new_states,
+    maybe_state,
+    DelayState,
+)
+from ._state_global_hooks import (
+    GlobalHookRegistry,
+    register_state_hook,
+    unregister_state_hook,
+    clear_state_hooks,
+    has_state_hooks,
+    list_state_hooks,
+)
+# Import hook API
+from ._state_hook_context import (
+    HookContext,
+    ReadHookContext,
+    WriteHookContext,
+    MutableWriteHookContext,
+    RestoreHookContext,
+    InitHookContext,
+)
+from ._state_hook_core import (
+    Hook,
+    HookHandle,
+    HookError,
+    HookExecutionError,
+    HookRegistrationError,
+    HookCancellationError,
+    HookWarning,
+)
+from ._state_hook_manager import (
+    HookConfig,
+    HookManager,
+)
 
 # Augment module scope
 _augment_apis = {
@@ -160,7 +210,56 @@ __all__ = [
     'augment',
     'compile',
     'functional',
+
+    # errors
+    'BatchAxisError',
+    'BrainStateError',
+    'TraceContextError',
+
+    # states
+    'State',
+    'ShortTermState',
+    'LongTermState',
+    'HiddenState',
+    'HiddenGroupState',
+    'HiddenTreeState',
+    'ParamState',
+    'BatchState',
+    'TreefyState',
+    'FakeState',
+    'StateDictManager',
+    'StateTraceStack',
+    'check_state_value_tree',
+    'check_state_jax_tracer',
+    'catch_new_states',
+    'maybe_state',
+    'DelayState',
+
+    # Context objects
+    'HookContext',
+    'ReadHookContext',
+    'WriteHookContext',
+    'MutableWriteHookContext',
+    'RestoreHookContext',
+    'InitHookContext',
+    # Core classes
+    'Hook',
+    'HookHandle',
+    # Manager classes
+    'HookManager',
+    'HookConfig',
+    'GlobalHookRegistry',
+    # Exception classes
+    'HookError',
+    'HookExecutionError',
+    'HookRegistrationError',
+    'HookCancellationError',
+    'HookWarning',
+    # Global hook functions
+    'register_state_hook',
+    'unregister_state_hook',
+    'clear_state_hooks',
+    'has_state_hooks',
+    'list_state_hooks',
 ]
-__all__ = __all__ + _state_all + _error_all
-del _state_all, create_deprecated_module_proxy, _augment_apis, _compile_apis, _functional_apis
-del _error_all
+del create_deprecated_module_proxy, _augment_apis, _compile_apis, _functional_apis

@@ -17,11 +17,12 @@
 
 from abc import ABCMeta
 from copy import deepcopy
-from typing import Any, Type, TypeVar, Tuple, TYPE_CHECKING
+from typing import Any, Type, TypeVar, Tuple, TYPE_CHECKING, Callable
 
+from brainstate._error import TraceContextError
 from brainstate._state import State, TreefyState
 from brainstate.typing import Key
-from brainstate.util._pretty_pytree import PrettyObject
+from brainstate.util import PrettyObject
 from ._operation import register_graph_node_type, treefy_split, treefy_merge
 
 __all__ = [
@@ -104,6 +105,13 @@ class Node(PrettyObject, metaclass=GraphNodeMeta):
         graphdef = deepcopy(graphdef)
         state = deepcopy(state)
         return treefy_merge(graphdef, state)
+
+    def check_valid_context(self, error_msg: Callable[[], str]) -> None:
+        """
+        Check if the current context is valid for the object to be mutated.
+        """
+        if not self._trace_state.is_valid():
+            raise TraceContextError(error_msg())
 
 
 # -------------------------------

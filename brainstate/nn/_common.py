@@ -19,8 +19,10 @@ from collections import defaultdict
 from typing import Any, Sequence, Hashable, Dict
 
 from brainstate import environ
-from brainstate.transform import vmap
+from brainstate._state import State
+from brainstate.transform import vmap, vmap2, vmap2_new_states
 from brainstate.typing import Filter
+from brainstate.util import filter
 from ._module import Module
 
 AxisName = Hashable
@@ -28,6 +30,7 @@ AxisName = Hashable
 __all__ = [
     'EnvironContext',
     'Vmap',
+    'Vmap2Module',
 ]
 
 
@@ -144,7 +147,12 @@ def _filter_states(
 
 
 class Vmap(Module):
-    """Vectorize a module with ``brainstate.transform.vmap``.
+    """
+    Vectorize a module with ``brainstate.transform.vmap``.
+
+    This wrapper applies vectorized mapping over a module, enabling efficient
+    batch processing by automatically mapping over specified axes of inputs
+    and states.
 
     Parameters
     ----------
@@ -154,10 +162,23 @@ class Vmap(Module):
         Specification for mapping over inputs. Defaults to ``0``.
     out_axes : Any, optional
         Specification for mapping over outputs. Defaults to ``0``.
+    vmap_states : Filter or Dict[int, Filter], optional
+        Filter specifying which states should be mapped. Can be a single filter
+        or a dictionary mapping axes (int) to filters. Defaults to ``None``.
+    vmap_out_states : Dict[int, Dict] or Any or None, optional
+        Specification for how to map output states. Can be a dictionary mapping
+        axes to state specifications. Defaults to ``None``.
     axis_name : AxisName or None, optional
         Name of the axis being mapped. Defaults to ``None``.
     axis_size : int or None, optional
         Size of the mapped axis. Defaults to ``None``.
+
+    Attributes
+    ----------
+    module : Module
+        The wrapped module being vectorized.
+    vmapped_fn : Callable
+        The vectorized function that executes the module.
 
     Examples
     --------
@@ -180,12 +201,11 @@ class Vmap(Module):
     ):
         super().__init__()
 
-        # parameters
+        assert isinstance(module, Module), 'The module must be an instance of Module.'
         self.in_axes = in_axes
         self.out_axes = out_axes
         self.axis_name = axis_name
         self.axis_size = axis_size
-        assert isinstance(module, Module), 'The module must be an instance of Module.'
         self.module = module
         vmap_states = _filter_states(module, vmap_states)
         vmap_out_states = _filter_states(module, vmap_out_states)
@@ -220,3 +240,191 @@ class Vmap(Module):
             Result of executing the vmapped module.
         """
         return self.vmapped_fn(*args, **kwargs)
+
+
+class ToPredicate:
+    """Helper predicate class for filtering states by identity.
+
+    This class creates a predicate that matches states based on their object
+    identity (id), used internally for state filtering in vectorized mapping.
+
+    Parameters
+    ----------
+    states : Iterable[State]
+        Collection of states to match against.
+
+    Attributes
+    ----------
+    state_ids : set
+        Set of state object IDs for efficient lookup.
+    """
+
+    def __init__(self, states):
+        self.state_ids = set([id(st) for st in states])
+
+    def __call__(self, path, st: State):
+        """Check if a state matches the predicate.
+
+        Parameters
+        ----------
+        path : Any
+            Path to the state (unused).
+        st : State
+            State to check.
+
+        Returns
+        -------
+        bool
+            True if the state's ID is in the predicate's state set.
+        """
+        return id(st) in self.state_ids
+
+
+class Vmap2Module(Module):
+    """
+    Vectorize a module using the new ``brainstate.transform.vmap2`` interface.
+
+    This is an enhanced vectorization wrapper that provides more control over
+    state management during vectorized mapping. Unlike ``Vmap``, this class
+    requires explicit initialization of vectorized states before use.
+
+    Parameters
+    ----------
+    module : Module
+        Module to wrap with vectorized mapping.
+    state_tag : str, optional
+        Tag for identifying and grouping states during vectorization.
+        Defaults to ``None``.
+    in_axes : int or Sequence[Any], optional
+        Specification for mapping over inputs. Defaults to ``0``.
+    out_axes : Any, optional
+        Specification for mapping over outputs. Defaults to ``0``.
+    axis_name : AxisName or None, optional
+        Name of the axis being mapped. Defaults to ``None``.
+    spmd_axis_name : AxisName or None, optional
+        Name for SPMD (Single Program Multiple Data) axis. Defaults to ``None``.
+    state_in_axes : Dict[int, Filter], optional
+        Dictionary mapping axes to filters for input states. Specifies how
+        input states should be mapped over different axes. Defaults to ``None``.
+    state_out_axes : Dict[int, Filter], optional
+        Dictionary mapping axes to filters for output states. Specifies how
+        output states should be mapped over different axes. Defaults to ``None``.
+
+    Notes
+    -----
+    This module requires calling ``init_all_states`` before the first ``update``
+    call. Failure to do so will raise a ValueError.
+
+    Examples
+    --------
+    .. code-block:: python
+
+       >>> from brainstate.nn import Vmap2Module
+       >>> vmapped = Vmap2Module(module, in_axes=0, axis_name="batch")
+       >>> vmapped.init_all_states(vmap_axis=10)
+       >>> outputs = vmapped.update(inputs)
+    """
+
+    def __init__(
+        self,
+        module: 'Module',
+        state_tag: str = None,
+        in_axes=0,
+        out_axes=0,
+        axis_name=None,
+        spmd_axis_name=None,
+        state_in_axes: Dict[int, Filter] = None,
+        state_out_axes: Dict[int, Filter] = None,
+    ):
+        super().__init__()
+        self.module = module
+        self.state_tag = state_tag
+        self.in_axes = in_axes
+        self.out_axes = out_axes
+        self.axis_name = axis_name
+        self.spmd_axis_name = spmd_axis_name
+        self.state_in_axes = state_in_axes
+        self.state_out_axes = state_out_axes
+
+        self._init = False
+
+    def init_all_states(self, vmap_axis: int, **kwargs):
+        """Initialize vectorized states for the wrapped module.
+
+        This method must be called before the first ``update`` call. It creates
+        and configures vectorized versions of the module's states based on the
+        specified axis size.
+
+        Parameters
+        ----------
+        vmap_axis : int
+            Size of the vectorization axis. Determines how many copies of the
+            states will be created for vectorized execution.
+
+        Notes
+        -----
+        This method updates ``state_in_axes`` and ``state_out_axes`` to include
+        predicates for the newly created vectorized states.
+        """
+        dict_vmap_states = vmap2_new_states(
+            self.module,
+            dict(vmap_axis=vmap_axis),
+            state_tag=self.state_tag,
+            axis_size=vmap_axis,
+            state_out_axes=self.state_out_axes
+        )
+        state_in_axes = self.state_in_axes
+        state_out_axes = self.state_out_axes
+
+        if state_in_axes is None:
+            state_in_axes = dict()
+        if state_out_axes is None:
+            state_out_axes = dict()
+        for k, v in tuple(state_in_axes.items()):
+            if k in dict_vmap_states:
+                state_in_axes[k] = filter.Any(v, ToPredicate(dict_vmap_states[k]))
+        for k, v in tuple(state_out_axes.items()):
+            if k in dict_vmap_states:
+                state_out_axes[k] = filter.Any(v, ToPredicate(dict_vmap_states[k]))
+        for k, v in dict_vmap_states.items():
+            if k not in state_in_axes:
+                state_in_axes[k] = ToPredicate(v)
+                state_out_axes[k] = ToPredicate(v)
+
+        self.state_out_axes = state_out_axes
+        self.state_in_axes = state_in_axes
+        self._init = True
+
+    def update(self, *args, **kwargs):
+        """Execute the vectorized module with the given arguments.
+
+        Parameters
+        ----------
+        *args
+            Positional arguments forwarded to the vectorized module.
+        **kwargs
+            Keyword arguments forwarded to the vectorized module.
+
+        Returns
+        -------
+        Any
+            Result of executing the vectorized module.
+
+        Raises
+        ------
+        ValueError
+            If ``init_all_states`` has not been called before this method.
+        """
+        if not self._init:
+            raise ValueError(
+                'Vmap2Module.update called before init_all_states. Please call init_all_states first.'
+            )
+        return vmap2(
+            self.module,
+            in_axes=self.in_axes,
+            out_axes=self.out_axes,
+            axis_name=self.axis_name,
+            spmd_axis_name=self.spmd_axis_name,
+            state_in_axes=self.state_in_axes,
+            state_out_axes=self.state_out_axes,
+        )(*args, **kwargs)

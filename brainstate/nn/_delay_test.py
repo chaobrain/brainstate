@@ -16,6 +16,7 @@
 
 import unittest
 
+import jax
 import jax.numpy as jnp
 
 import brainstate
@@ -241,3 +242,246 @@ class TestDelay(unittest.TestCase):
             print(index[1])
             print(data)
             assert data.shape == (2, 2)
+
+
+class TestUpgradedDelay(unittest.TestCase):
+    """Tests for the upgraded delay mechanism with new features."""
+
+    def setUp(self):
+        brainstate.environ.set(dt=0.1)
+
+    def tearDown(self):
+        brainstate.environ.pop('dt')
+
+    def test_write_ptr_tracking(self):
+        """Test that write_ptr correctly tracks buffer position and wraps around."""
+        delay = brainstate.nn.Delay(jnp.zeros((1,)), time=1.0)
+        delay.init_state()
+
+        # Initial write_ptr should be 0
+        self.assertEqual(delay.write_ptr.value, 0)
+
+        # Update several times and check write_ptr increments
+        max_length = delay.max_length
+        for i in range(max_length * 2 + 5):
+            delay.update(jnp.ones((1,)) * i)
+            expected_ptr = (i + 1) % max_length
+            self.assertEqual(delay.write_ptr.value, expected_ptr,
+                             f"write_ptr mismatch at step {i}: expected {expected_ptr}, got {delay.write_ptr.value}")
+
+    def test_write_ptr_no_environ_i_dependency(self):
+        """Verify that delays work without setting environ.I."""
+        delay = brainstate.nn.Delay(jnp.zeros((1,)), time=1.0)
+        delay.register_entry('a', 0.5)
+        delay.init_state()
+
+        # Update without setting environ.I (should use write_ptr instead)
+        for i in range(20):
+            delay.update(jnp.ones((1,)) * i)
+            # This should work without environ.I
+            result = delay.at('a')
+            self.assertEqual(result.shape, (1,))
+
+    def test_interpolation_nearest(self):
+        """Test nearest/round interpolation method."""
+        delay = brainstate.nn.Delay(jnp.zeros((1,)), time=2.0, interpolation='nearest')
+        delay.init_state()
+
+        # Populate history
+        for i in range(30):
+            delay.update(jnp.ones((1,)) * i)
+
+        # Test retrieval with float time steps
+        with brainstate.environ.context(t=3.0):
+            # Should round to nearest
+            result = delay.retrieve_at_time(1.4)  # Should round to 1.0 second ago
+            print(f"Nearest interpolation result: {result}")
+
+    def test_interpolation_linear(self):
+        """Test linear interpolation method."""
+        delay = brainstate.nn.Delay(jnp.zeros((1,)), time=2.0, interpolation='linear')
+        delay.init_state()
+
+        # Populate with known values
+        for i in range(30):
+            delay.update(jnp.ones((1,)) * i)
+
+        with brainstate.environ.context(t=3.0):
+            # Linear interpolation between two values
+            result = delay.retrieve_at_time(2.5)  # 0.5 seconds ago
+            print(f"Linear interpolation result: {result}")
+
+    def test_interpolation_cubic(self):
+        """Test cubic spline interpolation method."""
+        delay = brainstate.nn.Delay(jnp.zeros((1,)), time=2.0, interpolation='cubic')
+        delay.init_state()
+
+        for i in range(30):
+            delay.update(jnp.ones((1,)) * i)
+
+        with brainstate.environ.context(t=3.0):
+            result = delay.retrieve_at_time(2.5)
+            print(f"Cubic interpolation result: {result}")
+            self.assertEqual(result.shape, (1,))
+
+    def test_interpolation_hermite(self):
+        """Test Hermite spline interpolation method."""
+        delay = brainstate.nn.Delay(jnp.zeros((1,)), time=2.0, interpolation='hermite')
+        delay.init_state()
+
+        for i in range(30):
+            delay.update(jnp.ones((1,)) * i)
+
+        with brainstate.environ.context(t=3.0):
+            result = delay.retrieve_at_time(2.5)
+            print(f"Hermite interpolation result: {result}")
+            self.assertEqual(result.shape, (1,))
+
+    def test_interpolation_polynomial2(self):
+        """Test quadratic polynomial interpolation method."""
+        delay = brainstate.nn.Delay(jnp.zeros((1,)), time=2.0, interpolation='polynomial2')
+        delay.init_state()
+
+        for i in range(30):
+            delay.update(jnp.ones((1,)) * i)
+
+        with brainstate.environ.context(t=3.0):
+            result = delay.retrieve_at_time(2.5)
+            print(f"Polynomial2 interpolation result: {result}")
+            self.assertEqual(result.shape, (1,))
+
+    def test_interpolation_polynomial3(self):
+        """Test cubic polynomial interpolation method."""
+        delay = brainstate.nn.Delay(jnp.zeros((1,)), time=2.0, interpolation='polynomial3')
+        delay.init_state()
+
+        for i in range(30):
+            delay.update(jnp.ones((1,)) * i)
+
+        with brainstate.environ.context(t=3.0):
+            result = delay.retrieve_at_time(2.5)
+            print(f"Polynomial3 interpolation result: {result}")
+            self.assertEqual(result.shape, (1,))
+
+    def test_custom_interpolation(self):
+        """Test custom interpolation method registration."""
+
+        # Define custom interpolation function
+        def my_interp(history, indices, float_idx, max_length):
+            # Simple: always return the floor value
+            i = jnp.floor(float_idx).astype(jnp.int32) % max_length
+            idx = (i,) + indices
+            return jax.tree.map(lambda h: h[idx], history)
+
+        # Register custom interpolation
+        brainstate.nn.InterpolationRegistry.register('my_custom', my_interp)
+
+        # Use custom interpolation
+        delay = brainstate.nn.Delay(jnp.zeros((1,)), time=2.0, interpolation='my_custom')
+        delay.init_state()
+
+        for i in range(30):
+            delay.update(jnp.ones((1,)) * i)
+
+        with brainstate.environ.context(t=3.0):
+            result = delay.retrieve_at_time(2.5)
+            print(f"Custom interpolation result: {result}")
+            self.assertEqual(result.shape, (1,))
+
+    def test_backward_compatibility_delay_method(self):
+        """Test backward compatibility with old delay_method parameter."""
+        import warnings
+
+        # Test that concat mode triggers deprecation warning
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            delay = brainstate.nn.Delay(jnp.zeros((1,)), time=1.0, delay_method='concat')
+            delay.init_state()
+
+            # Check deprecation warning was raised
+            self.assertTrue(len(w) >= 1)
+            self.assertTrue(issubclass(w[0].category, DeprecationWarning))
+            self.assertIn("deprecated", str(w[0].message).lower())
+
+        # Verify it still works (uses rotation internally)
+        delay.register_entry('a', 0.5)
+        for i in range(20):
+            delay.update(jnp.ones((1,)) * i)
+        result = delay.at('a')
+        self.assertEqual(result.shape, (1,))
+
+    def test_backward_compatibility_interp_method(self):
+        """Test backward compatibility with old interp_method parameter."""
+        # Old API: interp_method='linear_interp'
+        delay = brainstate.nn.Delay(jnp.zeros((1,)), time=1.0, interp_method='linear_interp')
+        delay.init_state()
+        self.assertEqual(delay.interp_method, 'linear')  # Should map to 'linear'
+
+        # Old API: interp_method='round'
+        delay2 = brainstate.nn.Delay(jnp.zeros((1,)), time=1.0, interp_method='round')
+        delay2.init_state()
+        self.assertEqual(delay2.interp_method, 'nearest')  # Should map to 'nearest'
+
+    def test_batched_delays_with_write_ptr(self):
+        """Test batched delays with shared write pointer."""
+        batch_size = 4
+        delay = brainstate.nn.Delay(jnp.zeros((5,)), time=1.0)
+        delay.init_state(batch_size=batch_size)
+
+        # write_ptr should be scalar (shared across batches) since updates are synchronized
+        self.assertEqual(delay.write_ptr.value.shape, ())
+        self.assertEqual(delay.write_ptr.value, 0)
+
+        # Update with batched data
+        for i in range(20):
+            batched_data = jnp.ones((batch_size, 5)) * i
+            delay.update(batched_data)
+
+        # write_ptr should track the synchronized updates
+        expected_ptr = 20 % delay.max_length
+        self.assertEqual(delay.write_ptr.value, expected_ptr)
+
+    def test_interpolation_registry_list_methods(self):
+        """Test that all expected interpolation methods are registered."""
+        methods = brainstate.nn.InterpolationRegistry.list_methods()
+
+        # Check all built-in methods are present
+        expected_methods = ['nearest', 'round', 'linear', 'linear_interp',
+                            'cubic', 'hermite', 'polynomial2', 'polynomial3']
+        for method in expected_methods:
+            self.assertIn(method, methods,
+                          f"Expected interpolation method '{method}' not found in registry")
+
+    def test_reset_state_resets_write_ptr(self):
+        """Test that reset_state properly resets write_ptr to 0."""
+        delay = brainstate.nn.Delay(jnp.zeros((1,)), time=1.0)
+        delay.init_state()
+
+        # Update several times to advance write_ptr
+        for i in range(15):
+            delay.update(jnp.ones((1,)) * i)
+
+        # write_ptr should be non-zero
+        self.assertNotEqual(delay.write_ptr.value, 0)
+
+        # Reset state
+        delay.reset_state()
+
+        # write_ptr should be back to 0
+        self.assertEqual(delay.write_ptr.value, 0)
+
+    def test_unified_ring_buffer_rotation_only(self):
+        """Test that all delays now use rotation (unified ring buffer)."""
+        # Even if we try to specify concat, it should use rotation
+        delay = brainstate.nn.Delay(jnp.zeros((1,)), time=1.0)
+        delay.init_state()
+
+        # delay_method should always be rotation
+        self.assertEqual(delay.delay_method, 'rotation')
+
+        # Verify ring buffer behavior
+        for i in range(30):
+            delay.update(jnp.ones((1,)) * i)
+
+        # write_ptr should wrap around
+        self.assertTrue(0 <= delay.write_ptr.value < delay.max_length)

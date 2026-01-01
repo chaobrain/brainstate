@@ -519,6 +519,10 @@ def not_implemented(func):
     return wrapper
 
 
+def is_not_implemented(fn):
+    return hasattr(fn, 'not_implemented')
+
+
 class _JointGenericAlias(_GenericAlias, _root=True):
     """
     Generic alias for JointTypes (intersection types).

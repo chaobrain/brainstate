@@ -215,7 +215,14 @@ class Dynamics(Module):
         """
         return Prefetch(self, item)
 
-    def prefetch_delay(self, state: str, delay_time, init: Callable = None) -> 'PrefetchDelayAt':
+    def prefetch_delay(
+        self,
+        state: str,
+        *time_and_index: Tuple,
+        init: Optional[Union[Callable, ArrayLike]] = None,
+        interpolation: Optional[str] = None,
+        delay_cls: type = StateWithDelay,
+    ) -> 'PrefetchDelayAt':
         """
         Create a reference to a delayed state or variable in the module.
 
@@ -225,17 +232,31 @@ class Dynamics(Module):
 
         Args:
             state (str): The name of the state or variable to reference.
-            delay_time (ArrayLike): The amount of time to delay the variable access,
+            time_and_index: The amount of time to delay the variable access,
                 typically in time units (e.g., milliseconds).
             init (Callable, optional): An optional initialization function to provide
                 a default value if the delayed state is not yet available.
+            interpolation (str, optional): The interpolation method to use.
 
         Returns:
             PrefetchDelayAt: An object that provides access to the variable at the specified delay time.
         """
-        return PrefetchDelayAt(self, state, delay_time, init=init)
+        return PrefetchDelayAt(
+            self,
+            state,
+            *time_and_index,
+            delay_init=init,
+            interpolation=interpolation,
+            delay_cls=delay_cls
+        )
 
-    def output_delay(self, *delay_time) -> 'OutputDelayAt':
+    def output_delay(
+        self,
+        *time_and_index,
+        init: Optional[Union[Callable, ArrayLike]] = None,
+        interpolation: Optional[str] = None,
+        delay_cls: type = Delay,
+    ) -> 'OutputDelayAt':
         """
         Create a reference to the delayed output of the module.
 
@@ -244,13 +265,22 @@ class Dynamics(Module):
         at the specified delay time.
 
         Args:
-            delay (Optional[ArrayLike]): The amount of time to delay the output access,
+            time_and_index: The amount of time to delay the output access,
                 typically in time units (e.g., milliseconds). Defaults to None.
+            init: Delay initialization function or value. If the delayed output is not yet
+                available, this function or value will be used to provide a default.
+            interpolation (str, optional): The interpolation method to use.
 
         Returns:
             OutputDelayAt: An object that provides access to the module's output at the specified delay time.
         """
-        return OutputDelayAt(self, delay_time)
+        return OutputDelayAt(
+            self,
+            *time_and_index,
+            interpolation=interpolation,
+            delay_init=init,
+            delay_cls=delay_cls,
+        )
 
     @property
     def before_updates(self):
@@ -516,7 +546,6 @@ class Prefetch(Node):
             An object that provides access to delayed versions of the prefetched item.
         """
         return PrefetchDelay(self.module, self.item)
-        # return PrefetchDelayAt(self.module, self.item, time)
 
     def __call__(self, *args, **kwargs):
         """
@@ -639,8 +668,10 @@ class PrefetchDelayAt(Node):
         self,
         module: Dynamics,
         item: str,
-        delay_time: Tuple,
-        init: Callable = None
+        *time_and_index: Tuple,
+        delay_init: Optional[Union[Callable, ArrayLike]] = None,
+        interpolation: Optional[str] = None,
+        delay_cls: type = StateWithDelay,
     ):
         """
         Initialize a PrefetchDelayAt object.
@@ -651,27 +682,25 @@ class PrefetchDelayAt(Node):
             The dynamics module that contains the referenced state or variable.
         item : str
             The name of the state or variable to access with delay.
-        delay_time : Tuple
+        time_and_index : Tuple
             The amount of time to delay access by, typically in time units (e.g., milliseconds).
         """
         super().__init__()
         assert isinstance(module, Dynamics), 'The module should be an instance of Dynamics.'
         self.module = module
         self.item = item
-        if not isinstance(delay_time, (tuple, list)):
-            delay_time = (delay_time,)
-        self.delay_time = delay_time
-        if len(delay_time) > 0:
+        if len(time_and_index) == 1 and isinstance(time_and_index[0], (tuple, list)):
+            time_and_index = time_and_index[0]
+        if not isinstance(time_and_index, (tuple, list)):
+            time_and_index = (time_and_index,)
+        self.delay_time = time_and_index
+        if len(time_and_index) > 0:
             key = _get_prefetch_delay_key(item)
             if not module.has_after_update(key):
-                module.add_after_update(
-                    key,
-                    not_receive_update_output(
-                        StateWithDelay(module, item, init=init)
-                    )
-                )
-            self.state_delay: StateWithDelay = module.get_after_update(key)
-            self.delay_info = self.state_delay.register_delay(*delay_time)
+                delay = delay_cls(module, item, init=delay_init, interpolation=interpolation)
+                module.add_after_update(key, not_receive_update_output(delay))
+            self.state_delay = module.get_after_update(key)
+            self.delay_info = self.state_delay.register_delay(*time_and_index)
 
     def __call__(self, *args, **kwargs):
         """
@@ -718,16 +747,24 @@ class OutputDelayAt(Node):
     def __init__(
         self,
         module: Dynamics,
-        delay_time: Tuple,
+        *delay_time,
+        delay_init: Optional[Union[Callable, ArrayLike]] = None,
+        interpolation: Optional[str] = None,
+        delay_cls: type = Delay,
     ):
         super().__init__()
         assert isinstance(module, Dynamics), 'The module should be an instance of Dynamics.'
         self.module = module
         key = _get_output_delay_key()
         if not module.has_after_update(key):
-            delay = Delay(jax.ShapeDtypeStruct(module.out_size, dtype=environ.dftype()), take_aware_unit=True)
+            delay = delay_cls(
+                jax.ShapeDtypeStruct(module.out_size, dtype=environ.dftype()),
+                take_aware_unit=True,
+                init=delay_init,
+                interpolation=interpolation,
+            )
             module.add_after_update(key, receive_update_output(delay))
-        self.out_delay: Delay = module.get_after_update(key)
+        self.out_delay = module.get_after_update(key)
         self.delay_info = self.out_delay.register_delay(*delay_time)
 
     def __call__(self, *args, **kwargs):
@@ -799,8 +836,6 @@ def maybe_init_prefetch(target, *args, **kwargs):
 
     elif isinstance(target, PrefetchDelayAt):
         pass
-        # delay = _get_prefetch_item_delay(target)
-        # delay.register_delay(*target.delay_time)
 
 
 def receive_update_output(cls: object):

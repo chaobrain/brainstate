@@ -17,6 +17,7 @@
 __all__ = [
     'BrainStateError',
     'BatchAxisError',
+    'TraceContextError',
 ]
 
 
@@ -43,3 +44,7 @@ class BatchAxisError(BrainStateError):
         BrainStateError: The base error class for BrainState-related exceptions.
     """
     __module__ = 'brainstate.transform'
+
+
+class TraceContextError(BrainStateError):
+    pass

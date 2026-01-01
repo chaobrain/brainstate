@@ -14,76 +14,334 @@
 # ==============================================================================
 
 from . import init
-from ._activations import *
-from ._activations import __all__ as activation_all
-from ._collective_ops import *
-from ._collective_ops import __all__ as collective_ops_all
-from ._common import *
-from ._common import __all__ as common_all
-from ._conv import *
-from ._conv import __all__ as conv_all
-from ._delay import *
-from ._delay import __all__ as state_delay_all
-from ._dropout import *
-from ._dropout import __all__ as dropout_all
-from ._dynamics import *
-from ._dynamics import __all__ as dyn_all
-from ._elementwise import *
-from ._elementwise import __all__ as elementwise_all
-from ._embedding import *
-from ._embedding import __all__ as embed_all
-from ._event_fixedprob import *
-from ._event_fixedprob import __all__ as fixedprob_all
-from ._event_linear import *
-from ._event_linear import __all__ as linear_mv_all
-from ._exp_euler import *
-from ._exp_euler import __all__ as exp_euler_all
-from ._linear import *
-from ._linear import __all__ as linear_all
-from ._metrics import *
-from ._metrics import __all__ as metrics_all
-from ._module import *
-from ._module import __all__ as module_all
-from ._normalizations import *
-from ._normalizations import __all__ as normalizations_all
-from ._paddings import *
-from ._paddings import __all__ as paddings_all
-from ._poolings import *
-from ._poolings import __all__ as poolings_all
-from ._rnns import *
-from ._rnns import __all__ as rate_rnns
-from ._utils import *
-from ._utils import __all__ as utils_all
-
-__all__ = ['init'] + activation_all + metrics_all
-__all__ = __all__ + collective_ops_all + common_all + elementwise_all + module_all + exp_euler_all
-__all__ = __all__ + utils_all + dyn_all + state_delay_all + conv_all
-__all__ = __all__ + linear_all + normalizations_all + paddings_all + poolings_all + fixedprob_all + linear_mv_all
-__all__ = __all__ + embed_all + dropout_all + elementwise_all
-__all__ = __all__ + rate_rnns
-
-del (
-    metrics_all,
-    activation_all,
-    collective_ops_all,
-    common_all,
-    module_all,
-    exp_euler_all,
-    utils_all,
-    dyn_all,
-    state_delay_all,
-    conv_all,
-    linear_all,
-    normalizations_all,
-    paddings_all,
-    poolings_all,
-    embed_all,
-    fixedprob_all,
-    linear_mv_all,
-    dropout_all,
-    elementwise_all,
-    rate_rnns,
+from ._activations import (
+    tanh, relu, squareplus, softplus, soft_sign, sigmoid, silu, swish, log_sigmoid, elu,
+    leaky_relu, hard_tanh, celu, selu, gelu, glu, logsumexp, log_softmax, softmax,
+    standardize, one_hot, relu6, hard_sigmoid, hard_silu, hard_swish, hard_shrink, rrelu,
+    mish, soft_shrink, prelu, tanh_shrink, softmin, sparse_plus, sparse_sigmoid,
 )
+from ._collective_ops import (
+    call_order, call_all_fns, vmap_call_all_fns, init_all_states, vmap_init_all_states,
+    reset_all_states, vmap_reset_all_states, assign_state_values,
+)
+from ._common import (
+    EnvironContext, Vmap, Vmap2Module,
+)
+from ._conv import (
+    Conv1d, Conv2d, Conv3d, ScaledWSConv1d, ScaledWSConv2d, ScaledWSConv3d,
+    ConvTranspose1d, ConvTranspose2d, ConvTranspose3d,
+)
+from ._delay import (
+    Delay, DelayAccess, StateWithDelay, InterpolationRegistry,
+)
+from ._dropout import (
+    Dropout, Dropout1d, Dropout2d, Dropout3d, AlphaDropout, FeatureAlphaDropout, DropoutFixed,
+)
+from ._dynamics import (
+    Dynamics, receive_update_output, not_receive_update_output, receive_update_input,
+    not_receive_update_input, Prefetch, PrefetchDelay, PrefetchDelayAt, OutputDelayAt,
+)
+from ._elementwise import (
+    Threshold, ReLU, RReLU, Hardtanh, ReLU6, Sigmoid, Hardsigmoid, Tanh, SiLU, Mish,
+    Hardswish, ELU, CELU, SELU, GLU, GELU, Hardshrink, LeakyReLU, LogSigmoid, Softplus,
+    Softshrink, PReLU, Softsign, Tanhshrink, Softmin, Softmax, Softmax2d, LogSoftmax,
+    Identity, SpikeBitwise,
+)
+from ._embedding import (
+    Embedding,
+)
+from ._event_fixedprob import (
+    FixedNumConn, EventFixedNumConn, EventFixedProb,
+)
+from ._event_linear import (
+    EventLinear,
+)
+from ._exp_euler import (
+    exp_euler_step,
+)
+from ._linear import (
+    Linear, ScaledWSLinear, SignedWLinear, SparseLinear, AllToAll, OneToOne, LoRA,
+)
+from ._metrics import (
+    MetricState, Metric, AverageMetric, WelfordMetric, AccuracyMetric, MultiMetric,
+    PrecisionMetric, RecallMetric, F1ScoreMetric, ConfusionMatrix,
+)
+from ._module import (
+    Module, ElementWiseBlock, Sequential,
+)
+from ._normalizations import (
+    weight_standardization, BatchNorm0d, BatchNorm1d, BatchNorm2d, BatchNorm3d,
+    LayerNorm, RMSNorm, GroupNorm,
+)
+from ._paddings import (
+    ReflectionPad1d, ReflectionPad2d, ReflectionPad3d, ReplicationPad1d, ReplicationPad2d,
+    ReplicationPad3d, ZeroPad1d, ZeroPad2d, ZeroPad3d, ConstantPad1d, ConstantPad2d,
+    ConstantPad3d, CircularPad1d, CircularPad2d, CircularPad3d,
+)
+from ._param import (
+    Param, Const,
+)
+from ._hidata import (
+    HiData,
+)
+from ._poolings import (
+    Flatten, Unflatten, AvgPool1d, AvgPool2d, AvgPool3d, MaxPool1d, MaxPool2d, MaxPool3d,
+    MaxUnpool1d, MaxUnpool2d, MaxUnpool3d, LPPool1d, LPPool2d, LPPool3d,
+    AdaptiveAvgPool1d, AdaptiveAvgPool2d, AdaptiveAvgPool3d, AdaptiveMaxPool1d,
+    AdaptiveMaxPool2d, AdaptiveMaxPool3d,
+)
+from ._regularization import (
+    Regularization, ChainedReg, GaussianReg, L1Reg, L2Reg, ElasticNetReg, HuberReg,
+    GroupLassoReg, TotalVariationReg, MaxNormReg, EntropyReg, OrthogonalReg,
+    SpectralNormReg, StudentTReg, CauchyReg, UniformReg, LogNormalReg,
+    ExponentialReg, GammaReg, BetaReg, HorseshoeReg, InverseGammaReg,
+    LogUniformReg, SpikeAndSlabReg, DirichletReg,
+)
+from ._rnns import (
+    RNNCell, ValinaRNNCell, GRUCell, MGUCell, LSTMCell, URLSTMCell,
+)
+from ._transform import (
+    Transform, IdentityT, SigmoidT, SoftplusT, NegSoftplusT, LogT, ExpT,
+    TanhT, SoftsignT, AffineT, ChainT, MaskedT, ClipT, ReluT, PositiveT,
+    NegativeT, ScaledSigmoidT, PowerT, OrderedT, SimplexT, UnitVectorT,
+)
+from ._utils import (
+    count_parameters, clip_grad_norm,
+)
+
+__all__ = [
+    'init',
+    'tanh',
+    'relu',
+    'squareplus',
+    'softplus',
+    'soft_sign',
+    'sigmoid',
+    'silu',
+    'swish',
+    'log_sigmoid',
+    'elu',
+    'leaky_relu',
+    'hard_tanh',
+    'celu',
+    'selu',
+    'gelu',
+    'glu',
+    'logsumexp',
+    'log_softmax',
+    'softmax',
+    'standardize',
+    'one_hot',
+    'relu6',
+    'hard_sigmoid',
+    'hard_silu',
+    'hard_swish',
+    'hard_shrink',
+    'rrelu',
+    'mish',
+    'soft_shrink',
+    'prelu',
+    'tanh_shrink',
+    'softmin',
+    'sparse_plus',
+    'sparse_sigmoid',
+    'call_order',
+    'call_all_fns',
+    'vmap_call_all_fns',
+    'init_all_states',
+    'vmap_init_all_states',
+    'reset_all_states',
+    'vmap_reset_all_states',
+    'assign_state_values',
+    'EnvironContext',
+    'Vmap',
+    'Vmap2Module',
+    'Conv1d',
+    'Conv2d',
+    'Conv3d',
+    'ScaledWSConv1d',
+    'ScaledWSConv2d',
+    'ScaledWSConv3d',
+    'ConvTranspose1d',
+    'ConvTranspose2d',
+    'ConvTranspose3d',
+    'Delay',
+    'DelayAccess',
+    'StateWithDelay',
+    'InterpolationRegistry',
+    'Dropout',
+    'Dropout1d',
+    'Dropout2d',
+    'Dropout3d',
+    'AlphaDropout',
+    'FeatureAlphaDropout',
+    'DropoutFixed',
+    'Dynamics',
+    'receive_update_output',
+    'not_receive_update_output',
+    'receive_update_input',
+    'not_receive_update_input',
+    'Prefetch',
+    'PrefetchDelay',
+    'PrefetchDelayAt',
+    'OutputDelayAt',
+    'Threshold',
+    'ReLU',
+    'RReLU',
+    'Hardtanh',
+    'ReLU6',
+    'Sigmoid',
+    'Hardsigmoid',
+    'Tanh',
+    'SiLU',
+    'Mish',
+    'Hardswish',
+    'ELU',
+    'CELU',
+    'SELU',
+    'GLU',
+    'GELU',
+    'Hardshrink',
+    'LeakyReLU',
+    'LogSigmoid',
+    'Softplus',
+    'Softshrink',
+    'PReLU',
+    'Softsign',
+    'Tanhshrink',
+    'Softmin',
+    'Softmax',
+    'Softmax2d',
+    'LogSoftmax',
+    'Identity',
+    'SpikeBitwise',
+    'Embedding',
+    'FixedNumConn',
+    'EventFixedNumConn',
+    'EventFixedProb',
+    'EventLinear',
+    'exp_euler_step',
+    'Linear',
+    'ScaledWSLinear',
+    'SignedWLinear',
+    'SparseLinear',
+    'AllToAll',
+    'OneToOne',
+    'LoRA',
+    'MetricState',
+    'Metric',
+    'AverageMetric',
+    'WelfordMetric',
+    'AccuracyMetric',
+    'MultiMetric',
+    'PrecisionMetric',
+    'RecallMetric',
+    'F1ScoreMetric',
+    'ConfusionMatrix',
+    'Module',
+    'ElementWiseBlock',
+    'Sequential',
+    'weight_standardization',
+    'BatchNorm0d',
+    'BatchNorm1d',
+    'BatchNorm2d',
+    'BatchNorm3d',
+    'LayerNorm',
+    'RMSNorm',
+    'GroupNorm',
+    'ReflectionPad1d',
+    'ReflectionPad2d',
+    'ReflectionPad3d',
+    'ReplicationPad1d',
+    'ReplicationPad2d',
+    'ReplicationPad3d',
+    'ZeroPad1d',
+    'ZeroPad2d',
+    'ZeroPad3d',
+    'ConstantPad1d',
+    'ConstantPad2d',
+    'ConstantPad3d',
+    'CircularPad1d',
+    'CircularPad2d',
+    'CircularPad3d',
+    'Param',
+    'Const',
+    'HiData',
+    'Flatten',
+    'Unflatten',
+    'AvgPool1d',
+    'AvgPool2d',
+    'AvgPool3d',
+    'MaxPool1d',
+    'MaxPool2d',
+    'MaxPool3d',
+    'MaxUnpool1d',
+    'MaxUnpool2d',
+    'MaxUnpool3d',
+    'LPPool1d',
+    'LPPool2d',
+    'LPPool3d',
+    'AdaptiveAvgPool1d',
+    'AdaptiveAvgPool2d',
+    'AdaptiveAvgPool3d',
+    'AdaptiveMaxPool1d',
+    'AdaptiveMaxPool2d',
+    'AdaptiveMaxPool3d',
+    'RNNCell',
+    'ValinaRNNCell',
+    'GRUCell',
+    'MGUCell',
+    'LSTMCell',
+    'URLSTMCell',
+    'count_parameters',
+    'clip_grad_norm',
+    'Regularization',
+    'ChainedReg',
+    'GaussianReg',
+    'L1Reg',
+    'L2Reg',
+    'ElasticNetReg',
+    'HuberReg',
+    'GroupLassoReg',
+    'TotalVariationReg',
+    'MaxNormReg',
+    'EntropyReg',
+    'OrthogonalReg',
+    'SpectralNormReg',
+    'StudentTReg',
+    'CauchyReg',
+    'UniformReg',
+    'LogNormalReg',
+    'ExponentialReg',
+    'GammaReg',
+    'BetaReg',
+    'HorseshoeReg',
+    'InverseGammaReg',
+    'LogUniformReg',
+    'SpikeAndSlabReg',
+    'DirichletReg',
+    'Transform',
+    'IdentityT',
+    'SigmoidT',
+    'SoftplusT',
+    'NegSoftplusT',
+    'LogT',
+    'ExpT',
+    'TanhT',
+    'SoftsignT',
+    'AffineT',
+    'ChainT',
+    'MaskedT',
+    'ClipT',
+    'ReluT',
+    'PositiveT',
+    'NegativeT',
+    'ScaledSigmoidT',
+    'PowerT',
+    'OrderedT',
+    'SimplexT',
+    'UnitVectorT',
+]
 
 # Deprecated names that redirect to brainpy
 _DEPRECATED_NAMES = {

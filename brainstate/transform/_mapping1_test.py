@@ -46,7 +46,7 @@ import jax.numpy as jnp
 import pytest
 
 import brainstate as bst
-from brainstate.transform._mapping_old import (
+from brainstate.transform._mapping1 import (
     vmap,
     vmap_new_states,
     _flatten_in_out_states,

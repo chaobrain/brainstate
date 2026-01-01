@@ -16,7 +16,10 @@
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import threading
+import weakref
+from collections.abc import Mapping
 from functools import partial
 from typing import (
     Any,
@@ -31,7 +34,8 @@ from typing import (
     List,
     Sequence,
     Generator,
-    Protocol
+    Literal,
+    Set,
 )
 
 import brainunit as u
@@ -40,8 +44,11 @@ import numpy as np
 from jax.api_util import shaped_abstractify
 from jax.extend import source_info_util
 
+from brainstate._error import TraceContextError
+from brainstate._state_global_hooks import GlobalHookRegistry
+from brainstate._state_hook_manager import HookManager
 from brainstate.typing import ArrayLike, PyTree, Missing, Filter
-from brainstate.util import DictManager, PrettyObject
+from brainstate.util import DictManager, PrettyObject, StateJaxTracer
 from brainstate.util.filter import Nothing
 
 __all__ = [
@@ -53,6 +60,7 @@ __all__ = [
     'HiddenTreeState',
     'ParamState',
     'BatchState',
+    'DelayState',
     'TreefyState',
     'FakeState',
 
@@ -61,9 +69,8 @@ __all__ = [
     'check_state_value_tree',
     'check_state_jax_tracer',
     'catch_new_states',
+    'NewStateCatcher',
     'maybe_state',
-
-    'DelayState',
 ]
 
 A = TypeVar('A')
@@ -72,6 +79,14 @@ T = TypeVar('T')
 F = TypeVar('F', bound=Callable[..., Any])
 
 max_int = np.iinfo(np.int32)
+init_param = None
+
+
+def _get_param_init():
+    global init_param
+    if init_param is None:
+        from braintools.init import param as init_param
+    return init_param
 
 
 # The global state of the state stack is accessed by a thread-local object.
@@ -88,7 +103,7 @@ class ThreadLocalStack(threading.local):
         state_stack (List[StateTraceStack]): A list to store StateTraceStack objects for the current thread.
         tree_check (List[bool]): A list of boolean flags for tree structure checking, initialized with [False].
         jax_tracer_check (List[bool]): A list of boolean flags for JAX tracer checking, initialized with [False].
-        new_state_catcher (List[StateCatcher]): A list to store Catcher objects for capturing new states in the current thread.
+        new_state_catcher (List[NewStateCatcher]): A list to store Catcher objects for capturing new states in the current thread.
     """
 
     def __init__(self):
@@ -102,7 +117,7 @@ class ThreadLocalStack(threading.local):
         self.state_stack: List[StateTraceStack] = []
         self.tree_check: List[bool] = [False]
         self.jax_tracer_check: List[bool] = [False]
-        self.new_state_catcher: List[StateCatcher] = []
+        self.new_state_catcher: List[NewStateCatcher] = []
 
     def get_trace_stack_level(self) -> int:
         return len(self.state_stack)
@@ -200,6 +215,18 @@ def check_state_jax_tracer(val: bool = True) -> Generator[None, None, None]:
         TRACE_CONTEXT.jax_tracer_check.pop()
 
 
+@dataclasses.dataclass
+class StateMetadata(Generic[A]):
+    """
+    The state metadata.
+
+    Args:
+      raw_value: The raw value.
+      metadata: The metadata.
+    """
+    raw_value: A
+    metadata: Mapping[str, Any] = dataclasses.field(default_factory=dict)
+
 
 class State(Generic[A], PrettyObject):
     """
@@ -257,12 +284,15 @@ class State(Generic[A], PrettyObject):
         tag: Optional[str]. The tag of the state.
     """
     __module__ = 'brainstate'
+
     _level: int
     _source_info: source_info_util.SourceInfo
+    _trace_state: StateJaxTracer
+    _hooks_manager: HookManager
     _name: Optional[str]
     _value: PyTree
     _been_writen: bool  # useful in `unflatten` and `flatten` graph processing
-    tag: Optional[str]
+    tag: Optional[Set[str]]
 
     def __init__(
         self,
@@ -290,6 +320,16 @@ class State(Generic[A], PrettyObject):
             sets up internal attributes, and records the state initialization.
         """
         tag = metadata.pop('tag', None)
+        if isinstance(tag, str):
+            tag = set([tag])
+
+        # avoid using self._setattr to avoid the check
+        vars(self)['_trace_state'] = StateJaxTracer()
+
+        # set the value and metadata
+        if isinstance(value, StateMetadata):
+            metadata.update(dict(value.metadata))
+            value = value.raw_value
 
         # set the value and metadata
         if isinstance(value, State):
@@ -300,6 +340,7 @@ class State(Generic[A], PrettyObject):
             _value=value,
             _level=TRACE_CONTEXT.get_trace_stack_level(),
             _source_info=source_info_util.current(),
+            _hooks_manager=HookManager(),
             _name=name,
             _been_writen=False,
             tag=tag,
@@ -310,6 +351,46 @@ class State(Generic[A], PrettyObject):
 
         # record the state initialization
         record_state_init(self)
+
+        # Execute init hooks
+        self._execute_init_hooks(value, metadata)
+
+    if not TYPE_CHECKING:
+        def __setattr__(self, name: str, value: Any) -> None:
+            return self._setattr(name, value)
+
+    def add_tag(self, tag: str):
+        """
+        Add a tag to the state.
+
+        Args:
+            tag: The tag to add.
+        """
+        if self.tag is None:
+            self.tag = set()
+        if tag not in self.tag:
+            self.tag.add(tag)
+
+    def _setattr(self, name: str, value: Any):
+        """
+        Check if the state is valid to mutate.
+        """
+        if TRACE_CONTEXT.jax_tracer_check[-1]:
+            self.check_valid_trace(lambda: f'Cannot mutate {type(self).__name__} from a different trace level')
+        object.__setattr__(self, name, value)
+
+    def _setattr_no_check(self, name: str, value: Any):
+        """
+        Set the attribute without checking the trace level.
+        """
+        vars(self)[name] = value
+
+    def check_valid_trace(self, error_msg: Callable[[], str]):
+        """
+        Check if the state is valid to trace.
+        """
+        if not self._trace_state.is_valid():
+            raise TraceContextError(error_msg())
 
     def decrease_stack_level(self):
         """
@@ -343,7 +424,7 @@ class State(Generic[A], PrettyObject):
         """
         Set the name of the state.
         """
-        self._name = name
+        self._setattr_no_check('_name', name)
 
     @property
     def value(self) -> PyTree[ArrayLike]:
@@ -351,7 +432,9 @@ class State(Generic[A], PrettyObject):
         The data and its value.
         """
         record_state_value_read(self)
-        return self._read_value()
+        val = self._read_value()
+        self._execute_read_hooks(val)
+        return val
 
     @value.setter
     def value(self, v) -> None:
@@ -366,9 +449,17 @@ class State(Generic[A], PrettyObject):
         if isinstance(v, State):  # value checking
             raise ValueError('Cannot set value to a State, ' 'use `copy_from` method instead')
         self._check_value_tree(v)  # check the tree structure
+
+        # Execute write_before hooks (can transform or cancel)
+        old_value = self._value
+        v = self._execute_write_before_hooks(v, old_value)
+
         record_state_value_write(self)  # record the value by the stack (>= level)
         self._been_writen = True  # set the flag
         self._write_value(v)  # write the value
+
+        # Execute write_after hooks (notification only)
+        self._execute_write_after_hooks(v, old_value)
 
     @property
     def stack_level(self):
@@ -415,10 +506,15 @@ class State(Generic[A], PrettyObject):
             raise ValueError('Cannot set value to a State, ' 'use `copy_from` method instead')
         with check_state_value_tree():
             self._check_value_tree(v)
+
+        old_value = self._value
         # record the value by the stack (>= level)
         record_state_value_restore(self)
         # set the value
         self._value = v
+
+        # Execute restore hooks
+        self._execute_restore_hooks(v, old_value)
 
     def value_call(self, func: Callable[..., Any]) -> Any:
         """
@@ -487,8 +583,10 @@ class State(Generic[A], PrettyObject):
             # remove value from kwargs
             kwargs.pop('_value')
             if type(self) is not type(value):
-                raise ValueError('Cannot replace value from incompatible container, '
-                                 f'expected {type(self).__name__}, got {type(value).__name__}')
+                raise ValueError(
+                    f'Cannot replace value from incompatible container, '
+                    f'expected {type(self).__name__}, got {type(value).__name__}'
+                )
             # if kwargs aren't empty, recursively call replace
             # else return variable value
             if kwargs:
@@ -512,6 +610,7 @@ class State(Generic[A], PrettyObject):
         attributes = vars(self).copy()
         # keep its own trace state and stack level
         attributes['_level'] = TRACE_CONTEXT.get_trace_stack_level()
+        attributes['_trace_state'] = StateJaxTracer()
         attributes['_source_info'] = source_info_util.current()
         attributes.pop('_been_writen', None)
         # update the metadata
@@ -521,10 +620,12 @@ class State(Generic[A], PrettyObject):
     def to_state_ref(self: State[A]) -> TreefyState[A]:
         metadata = vars(self).copy()
         del metadata['_value']
+        del metadata['_trace_state']
+        del metadata['_level']
         return TreefyState(type(self), self._value, **metadata)
 
     def __pretty_repr_item__(self, k, v):
-        if k in ['_level', '_source_info', '_been_writen']:
+        if k in ['_level', '_source_info', '_been_writen', '_trace_state', '_hooks_manager']:
             return None
         if k == '_value':
             return 'value', jax.tree.map(shaped_abstractify, v)
@@ -571,6 +672,205 @@ class State(Generic[A], PrettyObject):
         sizes = [jax.numpy.size(val) for val in jax.tree.leaves(self._value)]
         return sum(sizes)
 
+    @classmethod
+    def init(cls, fn, in_size, batch_size: int = None, tag: str = None):
+        return cls(_get_param_init()(fn, in_size, batch_size), tag=tag)
+
+    def copy_from(self, other: State[A]) -> None:
+        """
+        Copy the state from another state.
+        """
+        if type(self) is not type(other):
+            raise ValueError(
+                f'Cannot copy from incompatible container, '
+                f'expected {type(self).__name__}, got {type(other).__name__}'
+            )
+        if self is other:
+            return
+
+        # keep the trace state and stack level
+        trace_state = self._trace_state
+        level = self._level
+        source_info = self._source_info
+
+        # copy other metadata
+        other_vars = vars(other).copy()
+        del other_vars['_trace_state']
+        del other_vars['_level']
+        del other_vars['_source_info']
+
+        # update the metadata
+        vars_dict = vars(self)
+        vars_dict.clear()
+        vars_dict.update(other_vars, _trace_state=trace_state, _level=level, _source_info=source_info)
+
+    # Hook execution methods
+
+    def _execute_read_hooks(self, value: Any) -> None:
+        """Execute read hooks for this state."""
+
+        # Fast path: check if any hooks exist
+        has_instance_hooks = self.hooks.has_hooks('read')
+        has_global_hooks = GlobalHookRegistry.instance().has_hooks('read')
+
+        if not (has_instance_hooks or has_global_hooks):
+            return
+
+        state_ref = weakref.ref(self)
+
+        # Execute global hooks first
+        if has_global_hooks:
+            GlobalHookRegistry.instance().execute_read_hooks(value, state_ref)
+
+        # Execute instance hooks
+        if has_instance_hooks:
+            self.hooks.execute_read_hooks(value, state_ref)
+
+    def _execute_write_before_hooks(self, new_value: Any, old_value: Any) -> Any:
+        """Execute write_before hooks. Returns potentially transformed value."""
+
+        has_instance_hooks = self.hooks.has_hooks('write_before')
+        has_global_hooks = GlobalHookRegistry.instance().has_hooks('write_before')
+
+        if not (has_instance_hooks or has_global_hooks):
+            return new_value
+
+        state_ref = weakref.ref(self)
+
+        # Execute global hooks first, then instance hooks (sequential chaining)
+        if has_global_hooks:
+            new_value = GlobalHookRegistry.instance().execute_write_before_hooks(
+                new_value, old_value, state_ref
+            )
+
+        if has_instance_hooks:
+            new_value = self.hooks.execute_write_before_hooks(
+                new_value, old_value, state_ref
+            )
+
+        return new_value
+
+    def _execute_write_after_hooks(self, new_value: Any, old_value: Any) -> None:
+        """Execute write_after hooks."""
+
+        has_instance_hooks = self.hooks.has_hooks('write_after')
+        has_global_hooks = GlobalHookRegistry.instance().has_hooks('write_after')
+
+        if not (has_instance_hooks or has_global_hooks):
+            return
+
+        state_ref = weakref.ref(self)
+
+        if has_global_hooks:
+            GlobalHookRegistry.instance().execute_write_after_hooks(new_value, old_value, state_ref)
+
+        if has_instance_hooks:
+            self.hooks.execute_write_after_hooks(new_value, old_value, state_ref)
+
+    def _execute_restore_hooks(self, new_value: Any, old_value: Any) -> None:
+        """Execute restore hooks."""
+
+        has_instance_hooks = self.hooks.has_hooks('restore')
+        has_global_hooks = GlobalHookRegistry.instance().has_hooks('restore')
+
+        if not (has_instance_hooks or has_global_hooks):
+            return
+
+        state_ref = weakref.ref(self)
+
+        if has_global_hooks:
+            GlobalHookRegistry.instance().execute_restore_hooks(new_value, old_value, state_ref)
+
+        if has_instance_hooks:
+            self.hooks.execute_restore_hooks(new_value, old_value, state_ref)
+
+    def _execute_init_hooks(self, value: Any, init_metadata: Dict[str, Any]) -> None:
+        """Execute init hooks."""
+        has_instance_hooks = self.hooks.has_hooks('init')
+        has_global_hooks = GlobalHookRegistry.instance().has_hooks('init')
+
+        if not (has_instance_hooks or has_global_hooks):
+            return
+
+        state_ref = weakref.ref(self)
+
+        if has_global_hooks:
+            GlobalHookRegistry.instance().execute_init_hooks(value, state_ref, init_metadata)
+
+        if has_instance_hooks:
+            self.hooks.execute_init_hooks(value, state_ref, init_metadata)
+
+    # Hook registration API methods
+
+    def register_hook(
+        self,
+        hook_type: Literal['read', 'write_before', 'write_after', 'restore', 'init'],
+        callback: Callable,
+        priority: int = 0,
+        name: Optional[str] = None,
+        enabled: bool = True,
+    ):
+        """Register a hook for this state instance.
+
+        Args:
+            hook_type: Type of hook ('read', 'write_before', 'write_after', 'restore', 'init')
+            callback: Callable that receives HookContext
+            priority: Priority for execution order (higher = earlier, default 0)
+            name: Optional name for the hook
+            enabled: Whether hook is enabled initially (default True)
+
+        Returns:
+            HookHandle for managing the hook (enable/disable/remove)
+
+        Example:
+            >>> state = brainstate.State(0)
+            >>> handle = state.register_hook('read', lambda ctx: print(f"Read: {ctx.value}"))
+            >>> state.value  # Prints: Read: 0
+            >>> handle.remove()
+        """
+        return self.hooks.register_hook(hook_type, callback, priority, name, enabled)
+
+    def unregister_hook(self, handle) -> bool:
+        """Unregister a hook using its handle."""
+        return self.hooks.unregister_hook(handle)
+
+    def list_hooks(self, hook_type: Optional[str] = None):
+        """List all registered hooks, optionally filtered by type."""
+        return self.hooks.get_hooks(hook_type)
+
+    def clear_hooks(self, hook_type: Optional[str] = None) -> None:
+        """Clear hooks, optionally filtered by type."""
+        self.hooks.clear_hooks(hook_type)
+
+    def has_hooks(self, hook_type: Optional[str] = None) -> bool:
+        """Check if this state has any hooks registered."""
+        return self.hooks.has_hooks(hook_type)
+
+    @property
+    def hooks(self):
+        """Access the hook manager for this state."""
+        return self._hooks_manager
+
+    @contextlib.contextmanager
+    def temporary_hook(
+        self,
+        hook_type: str,
+        callback: Callable,
+        priority: int = 0
+    ):
+        """Context manager for temporary hooks that auto-unregister.
+
+        Example:
+            >>> with state.temporary_hook('write_before', validate_positive):
+            ...     state.value = 5  # Validation applied
+            >>> state.value = -1  # Validation no longer applied
+        """
+        handle = self.register_hook(hook_type, callback, priority)
+        try:
+            yield handle
+        finally:
+            self.unregister_hook(handle)
+
 
 def record_state_init(st: State[A]):
     """
@@ -587,7 +887,7 @@ def record_state_init(st: State[A]):
         is created to ensure proper tracking and management of states within
         the current execution context.
     """
-    trace: StateCatcher
+    trace: NewStateCatcher
     for trace in TRACE_CONTEXT.new_state_catcher:
         trace.append(st)
 
@@ -772,9 +1072,9 @@ class HiddenState(ShortTermState):
 
     value: ArrayLike
 
-    def __init__(self, value: ArrayLike, name: Optional[str] = None):
+    def __init__(self, value: ArrayLike, name: Optional[str] = None, **kwargs):
         self._check_value(value)
-        super().__init__(value, name=name)
+        super().__init__(value, name=name, **kwargs)
 
     @property
     def varshape(self) -> Tuple[int, ...]:
@@ -857,10 +1157,10 @@ class HiddenGroupState(HiddenState):
     value: ArrayLike
     name2index: Dict[str, int]
 
-    def __init__(self, value: ArrayLike):
+    def __init__(self, value: ArrayLike, **kwargs):
         value, name2index = self._check_value(value)
         self.name2index = name2index
-        ShortTermState.__init__(self, value)
+        ShortTermState.__init__(self, value, **kwargs)
 
     @property
     def varshape(self) -> Tuple[int, ...]:
@@ -1109,13 +1409,14 @@ class HiddenTreeState(HiddenGroupState):
     def __init__(
         self,
         value: Dict[str, ArrayLike] | Sequence[ArrayLike],
+        **kwargs
     ):
         value, name2unit, name2index = self._check_value(value)
         self.name2unit: Dict[str, u.Unit] = name2unit
         self.name2index: Dict[str, int] = name2index
         self.index2unit: Dict[int, u.Unit] = {i: v for i, v in enumerate(name2unit.values())}
         self.index2name: Dict[int, str] = {v: k for k, v in name2index.items()}
-        ShortTermState.__init__(self, value)
+        ShortTermState.__init__(self, value, **kwargs)
 
     @property
     def varshape(self) -> Tuple[int, ...]:
@@ -1297,7 +1598,7 @@ class FakeState:
 
     __module__ = 'brainstate'
 
-    def __init__(self, value: Any, name: Optional[str] = None):
+    def __init__(self, value: Any, name: Optional[str] = None, **kwargs):
         """
         Initialize a FakeState instance.
 
@@ -1437,6 +1738,7 @@ class StateTraceStack(Generic[A]):
         self,
         new_arg: Callable = None,
         name: Optional[str] = None,
+        check_read: Callable = None
     ):
         self.name = name
         self.states: List[State] = []
@@ -1445,6 +1747,7 @@ class StateTraceStack(Generic[A]):
         self._original_state_values = []
         self._jax_trace_new_arg: Callable = new_arg
         self._stack_level = None
+        self.check_read = check_read
 
     def __str__(self) -> str:
         _stack_level = self.name if self._stack_level is None else self._stack_level
@@ -1496,11 +1799,13 @@ class StateTraceStack(Generic[A]):
 
     def __enter__(self) -> 'StateTraceStack':
         TRACE_CONTEXT.state_stack.append(self)
+        # print('enter', [s.name for s in TRACE_CONTEXT.state_stack])
         self._stack_level = ' / '.join([st.name for st in TRACE_CONTEXT.state_stack if st.name is not None])
         return self
 
     def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
         TRACE_CONTEXT.state_stack.pop()
+        # print('pop', [s.name for s in TRACE_CONTEXT.state_stack])
 
     def read_its_value(self, state: State) -> None:
         """
@@ -1521,6 +1826,9 @@ class StateTraceStack(Generic[A]):
             This method updates the internal tracking of state accesses.
             It doesn't actually read or return the state's value.
         """
+        if self.check_read is not None:
+            self.check_read(state)
+
         id_ = id(state)
         if id_ not in self._state_id_index:
             self._state_id_index[id_] = len(self.states)
@@ -1983,7 +2291,7 @@ jax.tree_util.register_pytree_with_keys(
 )
 
 
-class StateCatcher(PrettyObject):
+class NewStateCatcher(PrettyObject):
     """
     The catcher to catch and manage new states.
 
@@ -2014,6 +2322,14 @@ class StateCatcher(PrettyObject):
         self.state_tag = state_tag
         self.state_ids = set()
         self.states = []
+
+    def decrease_stack_level(self):
+        for st in self.states:
+            st.decrease_stack_level()
+
+    @property
+    def values(self):
+        return self.get_state_values()
 
     def get_state_values(self) -> List[PyTree]:
         """
@@ -2048,7 +2364,7 @@ class StateCatcher(PrettyObject):
         if id(state) not in self.state_ids:
             self.state_ids.add(id(state))
             self.states.append(state)
-            state.tag = self.state_tag
+            state.add_tag(self.state_tag)
 
     def __iter__(self):
         """
@@ -2127,7 +2443,7 @@ class StateCatcher(PrettyObject):
 def catch_new_states(
     state_tag: str = None,
     state_to_exclude: Filter = Nothing()
-) -> Generator[StateCatcher, None, None]:
+):
     """
     A context manager that catches and tracks new states created within its scope.
 
@@ -2141,10 +2457,6 @@ def catch_new_states(
         state_to_exclude (Filter, optional): A filter object to specify which states
             should be excluded from catching. Defaults to Nothing(), which excludes no states.
 
-    Yields:
-        Catcher: A Catcher object that can be used to access and manage the
-            newly created states within the context.
-
     Example::
 
         with catch_new_states("my_tag") as catcher:
@@ -2153,7 +2465,7 @@ def catch_new_states(
         # Access caught states through catcher object
     """
     try:
-        catcher = StateCatcher(state_tag=state_tag, state_to_exclude=state_to_exclude)
+        catcher = NewStateCatcher(state_tag=state_tag, state_to_exclude=state_to_exclude)
         TRACE_CONTEXT.new_state_catcher.append(catcher)
         yield catcher
     finally:
@@ -2163,5 +2475,12 @@ def catch_new_states(
 class DelayState(ShortTermState):
     """
     Short-term state for storing delay data.
+    """
+    pass
+
+
+class NonBatchState(ShortTermState):
+    """
+    Short-term state for storing non-batched data.
     """
     pass

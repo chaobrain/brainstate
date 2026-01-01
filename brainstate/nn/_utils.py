@@ -23,6 +23,7 @@ import jax
 import jax.numpy as jnp
 
 from brainstate.typing import PyTree
+from brainstate._state import State
 
 __all__ = [
     "count_parameters",
@@ -214,3 +215,76 @@ def clip_grad_norm(
     if return_norm:
         return clipped_grad, total_norm
     return clipped_grad
+
+
+
+def get_value(param):
+    """
+    Extract the underlying value from a parameter.
+
+    If the parameter is a ``brainstate.State`` instance, returns its ``.value``
+    attribute. Otherwise, returns the parameter unchanged.
+
+    Parameters
+    ----------
+    param : State or any
+        A parameter that may be wrapped in a State object.
+
+    Returns
+    -------
+    any
+        The unwrapped parameter value.
+
+    Examples
+    --------
+    >>> import brainstate
+    >>> state = brainstate.ParamState(1.0)
+    >>> get_value(state)
+    1.0
+    >>> get_value(2.0)
+    2.0
+    """
+    if isinstance(param, State):
+        return param.value
+    else:
+        return param
+
+
+def get_size(size):
+    """
+    Normalize a size specification to a tuple.
+
+    Converts various size representations (int, tuple, list) to a consistent
+    tuple format for use with array creation functions.
+
+    Parameters
+    ----------
+    size : int, tuple, or list
+        Size specification. If int, converted to single-element tuple.
+        If tuple or list, converted to tuple.
+
+    Returns
+    -------
+    tuple
+        Size as a tuple.
+
+    Raises
+    ------
+    ValueError
+        If size is not an int, tuple, or list.
+
+    Examples
+    --------
+    >>> get_size(5)
+    (5,)
+    >>> get_size((3, 4))
+    (3, 4)
+    >>> get_size([2, 3, 4])
+    (2, 3, 4)
+    """
+    if isinstance(size, int):
+        return (size,)
+    elif isinstance(size, (tuple, list)):
+        return tuple(size)
+    else:
+        raise ValueError(f"size must be int, tuple, or list, got {type(size).__name__}")

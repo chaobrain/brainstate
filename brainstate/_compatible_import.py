@@ -51,29 +51,38 @@ from jax.core import Tracer
 from saiunit._compatible_import import wrap_init
 
 __all__ = [
-    'ClosedJaxpr',
+
+    # IR
     'DropVar',
-    'Primitive',
-    'extend_axis_env_nd',
-    'jaxpr_as_fun',
-    'get_aval',
-    'Tracer',
-    'to_concrete_aval',
-    'safe_map',
-    'safe_zip',
-    'unzip2',
-    'wraps',
-    'Device',
-    'wrap_init',
+    'ClosedJaxpr',
     'Var',
     'JaxprEqn',
     'Jaxpr',
     'Literal',
+    'Tracer',
+
+    # batching
     'make_iota',
     'to_elt',
     'BatchTracer',
     'BatchTrace',
+
+    # utilities
+    'safe_map',
+    'safe_zip',
+    'unzip2',
+    'wraps',
+
+    # others
     'is_jit_primitive',
+    'Primitive',
+    'extend_axis_env_nd',
+    'jaxpr_as_fun',
+    'get_aval',
+    'to_concrete_aval',
+    'Device',
+    'wrap_init',
+
 ]
 
 
