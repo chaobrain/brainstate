@@ -70,7 +70,7 @@ def split_context():
     GRAPH_CONTEXT.ref_index_stack.append(flatten_ctx)
 
     try:
-        yield flatten_ctx
+        yield flatten_ctx, index_ref
     finally:
         GRAPH_CONTEXT.ref_index_stack.pop()
         del flatten_ctx.ref_index
@@ -101,12 +101,11 @@ def merge_context():
     A context manager for handling graph merging.
     """
     index_ref: dict[Index, Any] = {}
-
     unflatten_ctx = MergeContext(index_ref)
     GRAPH_CONTEXT.index_ref_stack.append(unflatten_ctx)
 
     try:
-        yield unflatten_ctx
+        yield unflatten_ctx, dict(unflatten_ctx.index_ref)
     finally:
         GRAPH_CONTEXT.index_ref_stack.pop()
         del unflatten_ctx.index_ref

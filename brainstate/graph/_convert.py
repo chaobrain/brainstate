@@ -39,7 +39,14 @@ from brainstate.typing import Missing, PyTree, SeedOrKey, PathParts
 from brainstate.util import PyTreeNode, field
 from ._context import SplitContext, MergeContext, split_context, merge_context
 from ._node import Node as GraphNode
-from ._operation import (RefMap, iter_leaf as iter_graph, _is_graph_node, GraphDef, GraphStateMapping)
+from ._operation import (
+    RefMap,
+    iter_leaf as iter_graph,
+    _is_graph_node,
+    GraphDef,
+    GraphStateMapping,
+    states,
+)
 
 __all__ = [
     'graph_to_tree', 'tree_to_graph', 'NodeStates'
@@ -185,7 +192,6 @@ def graph_to_tree(
     split_fn: Callable[[SplitContext, KeyPath, Prefix, Leaf], Any] = _default_split_fn,
     map_non_graph_nodes: bool = False,
     check_aliasing: bool = True,
-    rng_splits: int = 0
 ) -> Tuple[PyTree, Dict[KeyPath, SeedOrKey]]:
     """
     Convert a tree of pytree objects to a tree of TreeNode objects.
@@ -197,7 +203,7 @@ def graph_to_tree(
     assert len(leaf_keys) == len(leaf_prefixes)
 
     # Split the tree
-    with split_context() as ctx:
+    with split_context() as (ctx, index_ref):
         leaves_out = []
         node_prefixes = RefMap[Any, list[tuple[PathParts, Any]]]()
         for (keypath, leaf), leaf_prefix in zip(leaf_keys, leaf_prefixes):
@@ -209,17 +215,11 @@ def graph_to_tree(
                 if map_non_graph_nodes:
                     leaf = split_fn(ctx, keypath, leaf_prefix, leaf)
                 leaves_out.append(leaf)
-        assert isinstance(rng_splits, int) and rng_splits >= 0, 'rng_splits must be a non-negative integer'
-        rng_backup = dict()
-        if rng_splits > 0:
-            for path, node in iter_graph(leaves_out):
-                if isinstance(node, _get_rand_state()):
-                    batch_keys = node.split_key(rng_splits)
-                    rng_backup[path] = node.value  # record the random key to restore randomness
-                    node.value = batch_keys  # assign the batched random keys
+        pass
 
+    find_states = states(index_ref._mapping)
     pytree_out = jax.tree.unflatten(treedef, leaves_out)
-    return pytree_out, rng_backup
+    return pytree_out, find_states
 
 
 def _is_tree_node(x):
@@ -242,7 +242,6 @@ def tree_to_graph(
     is_node_leaf: Callable[[Leaf], bool] = _is_tree_node,
     is_leaf: Callable[[Leaf], bool] = _is_tree_node,
     map_non_graph_nodes: bool = False,
-    rng_backup: Dict[KeyPath, SeedOrKey] = ()
 ) -> Any:
     """
     Convert a tree of TreeNode objects to a tree of pytree objects.
@@ -263,7 +262,7 @@ def tree_to_graph(
     leaf_keys, treedef = jax.tree_util.tree_flatten_with_path(tree, is_leaf=is_leaf)
     assert len(leaf_keys) == len(leaf_prefixes), "Mismatched number of keys and prefixes"
 
-    with merge_context() as ctx:
+    with merge_context() as (ctx, index_ref):
         leaves_out = []
         for (keypath, leaf), leaf_prefix in zip(leaf_keys, leaf_prefixes):
             if is_node_leaf(leaf):
@@ -273,13 +272,7 @@ def tree_to_graph(
                 if map_non_graph_nodes:
                     leaf = merge_fn(ctx, keypath, leaf_prefix, leaf)
                 leaves_out.append(leaf)
-        if len(rng_backup):
-            rng_backup = dict(**rng_backup)
-            for path, node in iter_graph(leaves_out):
-                if isinstance(node, _get_rand_state()) and path in rng_backup:
-                    node.value = rng_backup.pop(path)  # restore the random key
-            if len(rng_backup):
-                raise ValueError(f'Random keys not restored: {rng_backup}')
 
+    find_states = states(index_ref)
     pytree_out = jax.tree.unflatten(treedef, leaves_out)
     return pytree_out
