@@ -106,7 +106,7 @@ class StateFinder:
         self._return_type = return_type
         self._key_fn = key_fn if key_fn is not None else self._default_key_fn
         self._filter = to_predicate(filter) if filter is not None else None
-        self.stateful_fn = StatefulFunction(self.fn)
+        self.stateful_fn = StatefulFunction(self.fn, name='statefinder')
 
     def __call__(self, *args, **kwargs):
         """

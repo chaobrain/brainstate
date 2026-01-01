@@ -1800,11 +1800,13 @@ class StateTraceStack(Generic[A]):
 
     def __enter__(self) -> 'StateTraceStack':
         TRACE_CONTEXT.state_stack.append(self)
+        # print('enter', [s.name for s in TRACE_CONTEXT.state_stack])
         self._stack_level = ' / '.join([st.name for st in TRACE_CONTEXT.state_stack if st.name is not None])
         return self
 
     def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
         TRACE_CONTEXT.state_stack.pop()
+        # print('pop', [s.name for s in TRACE_CONTEXT.state_stack])
 
     def read_its_value(self, state: State) -> None:
         """

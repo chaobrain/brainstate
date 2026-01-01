@@ -140,12 +140,22 @@ def _jax_v04_new_jax_trace():
     return frame, trace
 
 
+def _check_input_ouput(x):
+    if isinstance(x, State):
+        x.raise_error_with_source_info(
+            ValueError(
+                'Inputs/outputs for brainstate transformations cannot be an instance of State. '
+                f'But we got {x}'
+            )
+        )
+
+
 def get_arg_cache_key(
     static_argnums,
     static_argnames,
     args: Tuple,
     kwargs: Dict,
-    fn_to_check: Callable = None
+    fn_to_check: Callable = _check_input_ouput,
 ) -> hashabledict:
     # args
     static_args, dyn_args = [], []
@@ -154,8 +164,7 @@ def get_arg_cache_key(
             static_args.append(arg)
         else:
             dyn_args.append(arg)
-    if fn_to_check is not None:
-        jax.tree.map(fn_to_check, dyn_args, is_leaf=lambda x: isinstance(x, State))
+    jax.tree.map(fn_to_check, dyn_args, is_leaf=lambda x: isinstance(x, State))
     dyn_args = jax.tree.map(shaped_abstractify, dyn_args)
 
     # kwargs
@@ -351,6 +360,55 @@ class StatefulFunction(PrettyObject):
         if k.startswith('_'):
             return None
         return k, v
+
+    def get_arg_cache_key(self, *args, compile_if_miss: bool = False, **kwargs) -> hashabledict:
+        """
+        Compute the cache key for the given arguments.
+
+        This method separates static and dynamic arguments and creates a hashable
+        key that can be used to cache compiled jaxpr representations.
+
+        Parameters
+        ----------
+        *args
+            The positional arguments to the function.
+        compile_if_miss : bool, optional
+            Whether to compile the function if the cache key does not exist.
+            Default is False.
+        **kwargs
+            The keyword arguments to the function.
+
+        Returns
+        -------
+        hashabledict
+            A hashable dictionary containing the cache key with fields:
+            'static_args', 'dyn_args', 'static_kwargs', 'dyn_kwargs'.
+
+        Examples
+        --------
+        .. code-block:: python
+
+            >>> import brainstate
+            >>> import jax.numpy as jnp
+            >>>
+            >>> def f(x, n):
+            ...     return x ** n
+            >>>
+            >>> sf = brainstate.transform.StatefulFunction(
+            ...     f, static_argnums=(1,)
+            ... )
+            >>> cache_key = sf.get_arg_cache_key(jnp.array([1.0, 2.0]), 2)
+        """
+
+        cache_key = get_arg_cache_key(
+            self.static_argnums,
+            self.static_argnames,
+            args,
+            kwargs,
+        )
+        if cache_key not in self._cached_state_trace and compile_if_miss:
+            self.make_jaxpr(*args, **kwargs)
+        return cache_key
 
     def get_jaxpr_by_cache(self, cache_key: Hashable) -> ClosedJaxpr:
         """
@@ -636,65 +694,6 @@ class StatefulFunction(PrettyObject):
         cache_key = self.get_arg_cache_key(*args, **kwargs, compile_if_miss=compile_if_miss)
         return self.get_write_states_by_cache(cache_key)
 
-    def _check_input_ouput(self, x):
-        if isinstance(x, State):
-            x.raise_error_with_source_info(
-                ValueError(
-                    'Inputs/outputs for brainstate transformations cannot be an instance of State. '
-                    f'But we got {x}'
-                )
-            )
-
-    def get_arg_cache_key(self, *args, compile_if_miss: bool = False, **kwargs) -> hashabledict:
-        """
-        Compute the cache key for the given arguments.
-
-        This method separates static and dynamic arguments and creates a hashable
-        key that can be used to cache compiled jaxpr representations.
-
-        Parameters
-        ----------
-        *args
-            The positional arguments to the function.
-        compile_if_miss : bool, optional
-            Whether to compile the function if the cache key does not exist.
-            Default is False.
-        **kwargs
-            The keyword arguments to the function.
-
-        Returns
-        -------
-        hashabledict
-            A hashable dictionary containing the cache key with fields:
-            'static_args', 'dyn_args', 'static_kwargs', 'dyn_kwargs'.
-
-        Examples
-        --------
-        .. code-block:: python
-
-            >>> import brainstate
-            >>> import jax.numpy as jnp
-            >>>
-            >>> def f(x, n):
-            ...     return x ** n
-            >>>
-            >>> sf = brainstate.transform.StatefulFunction(
-            ...     f, static_argnums=(1,)
-            ... )
-            >>> cache_key = sf.get_arg_cache_key(jnp.array([1.0, 2.0]), 2)
-        """
-
-        cache_key = get_arg_cache_key(
-            self.static_argnums,
-            self.static_argnames,
-            args,
-            kwargs,
-            self._check_input_ouput
-        )
-        if cache_key not in self._cached_state_trace and compile_if_miss:
-            self.make_jaxpr(*args, **kwargs)
-        return cache_key
-
     def clear_cache(self) -> None:
         """
         Clear all compilation caches.
@@ -773,7 +772,7 @@ class StatefulFunction(PrettyObject):
             depending on return_only_write setting).
         """
         # state trace
-        state_trace: StateTraceStack = StateTraceStack(self.name)
+        state_trace: StateTraceStack = StateTraceStack(name=self.name)
         if jax.__version_info__ < (0, 4, 36):
             state_trace.set_new_arg(self.__jax_v04_new_arg())
         else:
@@ -790,7 +789,7 @@ class StatefulFunction(PrettyObject):
 
         # State instance as functional returns is not allowed.
         # Checking whether the states are returned.
-        jax.tree.map(self._check_input_ouput, out, is_leaf=lambda x: isinstance(x, State))
+        jax.tree.map(_check_input_ouput, out, is_leaf=lambda x: isinstance(x, State))
         return out, state_values
 
     def make_jaxpr(self, *args, **kwargs):

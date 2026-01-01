@@ -4,6 +4,7 @@ import jax
 import jax.numpy as jnp
 
 import brainstate as bst
+import brainstate.random
 from brainstate.transform import StatefulMapping, vmap2, vmap_new_states, pmap, map as brainstate_map
 from brainstate.util import filter as state_filter
 
@@ -60,6 +61,23 @@ class TestVmapIntegration(unittest.TestCase):
         self.assertIsInstance(mapped, StatefulMapping)
         xs = jnp.arange(3.0)
         self.assertTrue(jnp.allclose(mapped(xs), xs * 2.0))
+
+    def test_vmap_rand(self):
+        rng1 = brainstate.random.RandomState(42)
+        rng2 = brainstate.random.RandomState(43)
+
+        def f(x):
+            a = brainstate.random.rand(2)
+            b = rng1.randn(2)
+            c = rng2.random(2)
+            return a + x,  b, c
+
+        r = brainstate.transform.StatefulMapping(f)(jnp.asarray([1.0, 2.0]))
+        print()
+        print(r[0])
+        print(r[1])
+        print(r[2])
+
 
 
 class TestVmapNewStates(unittest.TestCase):

@@ -25,7 +25,7 @@ from ._collective_ops import (
     reset_all_states, vmap_reset_all_states, assign_state_values,
 )
 from ._common import (
-    EnvironContext, Vmap, Vmap2, Vmap3,
+    EnvironContext, Vmap, Vmap2, Vmap3, Vmap2Module,
 )
 from ._conv import (
     Conv1d, Conv2d, Conv3d, ScaledWSConv1d, ScaledWSConv2d, ScaledWSConv3d,
@@ -158,6 +158,7 @@ __all__ = [
     'Vmap',
     'Vmap2',
     'Vmap3',
+    'Vmap2Module',
     'Conv1d',
     'Conv2d',
     'Conv3d',

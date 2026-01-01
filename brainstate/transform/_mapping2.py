@@ -24,13 +24,13 @@ from jax._src import source_info_util
 
 from brainstate._compatible_import import Device, make_iota, to_elt, BatchTracer, BatchTrace
 from brainstate._error import BatchAxisError
-from brainstate._state import State, StateTraceStack
+from brainstate._state import State, StateTraceStack, NonBatchState, catch_new_states
 from brainstate._utils import set_module_as
 from brainstate.typing import Missing, Filter
 from brainstate.util import NestedDict
-from brainstate.util.filter import to_predicate
+from brainstate.util import filter
 from ._loop_collect_return import scan
-from ._make_jaxpr import StatefulFunction, BoundedCache
+from ._make_jaxpr import StatefulFunction, BoundedCache, get_arg_cache_key
 
 __all__ = [
     'StatefulMapping',
@@ -42,6 +42,7 @@ __all__ = [
 F = TypeVar("F", bound=Callable)
 AxisName = Hashable
 _rand = None
+INIT_NO_BATCHING = 'INIT_NO_BATCHING'
 
 
 def _import_rand_state():
@@ -52,7 +53,7 @@ def _import_rand_state():
     return _rand
 
 
-class StatefulMapping(StatefulFunction):
+class StatefulMapping:
     """
     Vectorized wrapper that preserves BrainState state semantics during mapping.
 
@@ -164,10 +165,6 @@ class StatefulMapping(StatefulFunction):
         >>> counter.value
         Array(3., dtype=float32)
 
-    See Also
-    --------
-    brainstate.transform.vmap : Convenience API returning a ``StatefulMapping``.
-    brainstate.transform.pmap : Device-mapped variant aware of BrainState states.
     """
     __module__ = "brainstate.transform"
 
@@ -193,13 +190,10 @@ class StatefulMapping(StatefulFunction):
         mapping_fn: Callable = jax.vmap,
         mapping_kwargs: Dict = None
     ):
-        super().__init__(
-            self.__wrapped_fun,
-            static_argnums=static_argnums,
-            static_argnames=static_argnames,
-            axis_env=axis_env,
-            return_only_write=return_only_write,
-        )
+        self.static_argnums = static_argnums,
+        self.static_argnames = static_argnames,
+        self.axis_env = axis_env,
+        self.return_only_write = return_only_write,
         self.origin_fun = fun
         self.traced_fn = StatefulFunction(
             fun,
@@ -207,6 +201,7 @@ class StatefulMapping(StatefulFunction):
             static_argnames=static_argnames,
             axis_env=axis_env,
             return_only_write=return_only_write,
+            name='vmap2_eval'
         )
 
         self.name = name
@@ -215,9 +210,9 @@ class StatefulMapping(StatefulFunction):
         if state_in_axes is None:
             state_in_axes = dict()
         elif not isinstance(state_in_axes, dict):
-            state_in_axes = {0: to_predicate(state_in_axes)}
+            state_in_axes = {0: filter.to_predicate(state_in_axes)}
         state_in_axes = {
-            k: to_predicate(v)
+            k: filter.to_predicate(v)
             for k, v in state_in_axes.items()
         }  # type: ignore
         self.state_in_axes = state_in_axes
@@ -225,15 +220,15 @@ class StatefulMapping(StatefulFunction):
         if state_out_axes is None:
             state_out_axes = dict()
         elif not isinstance(state_out_axes, dict):
-            state_out_axes = {0: to_predicate(state_out_axes)}
-        state_out_axes = {k: to_predicate(v) for k, v in state_out_axes.items()}  # type: ignore
+            state_out_axes = {0: filter.to_predicate(state_out_axes)}
+        state_out_axes = {k: filter.to_predicate(v) for k, v in state_out_axes.items()}  # type: ignore
         self.state_out_axes = state_out_axes
 
         if new_state_axes is None:
             new_state_axes = dict()
         elif not isinstance(new_state_axes, dict):
-            new_state_axes = {0: to_predicate(new_state_axes)}
-        new_state_axes = {k: to_predicate(v) for k, v in new_state_axes.items()}  # type: ignore
+            new_state_axes = {0: filter.to_predicate(new_state_axes)}
+        new_state_axes = {k: filter.to_predicate(v) for k, v in new_state_axes.items()}  # type: ignore
         self.new_state_axes = new_state_axes
 
         self.axis_size = axis_size
@@ -472,14 +467,14 @@ class StatefulMapping(StatefulFunction):
             rand_recover_vals.append(st.value)
         return tuple(rand_vals), tuple(rand_recover_vals)
 
-    def __wrapped_fun(self, *args, **kwargs) -> Tuple[Any, Tuple[State, ...]]:
+    def __call__(self, *args, **kwargs) -> Tuple[Any, Tuple[State, ...]]:
         if len(kwargs):
             raise NotImplementedError(
                 'StatefulMapping currently does not support keyword arguments.'
             )
 
         batch_size = self.__infer_batch_size(args, self.in_axes)
-        cache_key = self.get_arg_cache_key(*args, **kwargs)
+        cache_key = get_arg_cache_key(self.static_argnums, self.static_argnames, args, kwargs)
         if cache_key not in self._cached_map_state_trace:
             self._cached_map_batch_size.set(cache_key, batch_size)
             self.__eval(cache_key, *args, **kwargs)
@@ -884,3 +879,60 @@ def map(
         g = lambda _, x: ((), f(*x))
         _, ys = scan(g, (), xs)
     return ys
+
+
+def vmap_new_states2(
+    module: 'Module',
+    kwargs: Dict,
+    state_tag: str = None,
+    axis_size: int = None,
+    state_out_axes: Dict[int, Filter] = None,
+):
+    if state_out_axes is None:
+        state_out_axes = dict()
+    if not isinstance(state_out_axes, dict):
+        state_out_axes = {0: state_out_axes}
+    # convert filters to predicates
+    state_out_axes = {k: filter.to_predicate(v) for k, v in state_out_axes.items()}
+    # ensure NonBatchState goes to None axis
+    if None not in state_out_axes:
+        state_out_axes[None] = filter.to_predicate(NonBatchState)
+    else:
+        state_out_axes[None] = filter.Any(INIT_NO_BATCHING, state_out_axes[None])
+    # ensure default axis 0
+    if 0 not in state_out_axes:
+        state_out_axes[0] = filter.to_predicate(...)
+
+    dict_vmap_states = defaultdict(list)
+
+    @vmap2(axis_size=axis_size, out_axes=tuple(state_out_axes.keys()))
+    def new_fun():
+        with catch_new_states() as catcher_:
+            module.init_all_states(**kwargs)
+        vmap_state_vals_ = defaultdict(list)
+        for st_ in catcher_.get_states():
+            for out_axis_, predicate_ in state_out_axes.items():
+                if predicate_(tuple(), st_):
+                    vmap_state_vals_[out_axis_].append(st_.value)
+                    dict_vmap_states[out_axis_].append(st_)
+                    break
+            else:
+                vmap_state_vals_[0].append(st_.value)
+                dict_vmap_states[0].append(st_)
+        outs = tuple(vmap_state_vals_.get(k, tuple()) for k in state_out_axes)
+        return outs
+
+    # restore vmapped state values
+    with catch_new_states(state_tag) as catcher:
+        tuple_vmap_state_vals = new_fun()
+    tuple_vmap_states = tuple(dict_vmap_states.get(k, tuple()) for k in state_out_axes)
+    for st_vals, states in zip(tuple_vmap_state_vals, tuple_vmap_states):
+        for val, st in zip(st_vals, states):
+            st.restore_value(val)
+            # ------------------------------------------------
+            # --- this is CRUCIAL to avoid jax tracing leakage
+            # ------------------------------------------------
+            st.decrease_stack_level()  # 'vmap2_eval' StateStackTrace
+            st.decrease_stack_level()  # 'vmap2' StateStackTrace
+
+    return dict_vmap_states

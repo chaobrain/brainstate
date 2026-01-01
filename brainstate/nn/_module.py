@@ -49,7 +49,6 @@ __all__ = [
 
 # maximum integer
 max_int = np.iinfo(np.int32).max
-INIT_NON_BATCHING = 'non_init_batch'
 
 
 class Module(Node, ParamDesc):

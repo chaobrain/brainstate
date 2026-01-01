@@ -19,11 +19,12 @@ from collections import defaultdict
 from typing import Any, Sequence, Hashable, Dict, Union
 
 from brainstate import environ
-from brainstate._state import StateCatcher
-from brainstate.transform import vmap
+from brainstate._state import StateCatcher, State
+from brainstate.transform import vmap, vmap2
+from brainstate.transform._mapping2 import vmap_new_states2
 from brainstate.typing import Filter
-from ._module import Module, _vmap_new_states
 from ._collective_ops import vmap_init_all_states
+from ._module import Module, _vmap_new_states
 
 AxisName = Hashable
 
@@ -32,6 +33,7 @@ __all__ = [
     'Vmap',
     'Vmap2',
     'Vmap3',
+    'Vmap2Module',
 ]
 
 
@@ -375,3 +377,81 @@ class Vmap3(Module):
             in_states=_filter_states(self, 'new'),
         )
         return vmap_fn(*args, **kwargs)
+
+
+class ToPredicate:
+    def __init__(self, states):
+        self.state_ids = set([id(st) for st in states])
+
+    def __call__(self, path, st: State):
+        return id(st) in self.state_ids
+
+
+class Vmap2Module(Module):
+    def __init__(
+        self,
+        module: 'Module',
+        state_tag: str = None,
+        in_axes=0,
+        out_axes=0,
+        axis_name=None,
+        spmd_axis_name=None,
+        state_in_axes: Dict[int, Filter] = None,
+        state_out_axes: Dict[int, Filter] = None,
+    ):
+        super().__init__()
+        self.module = module
+        self.state_tag = state_tag
+        self.in_axes = in_axes
+        self.out_axes = out_axes
+        self.axis_name = axis_name
+        self.spmd_axis_name = spmd_axis_name
+        self.state_in_axes = state_in_axes
+        self.state_out_axes = state_out_axes
+
+        self._init = False
+
+    def init_all_states(self, vmap_axis: int):
+        dict_vmap_states = vmap_new_states2(
+            self.module,
+            dict(vmap_axis=vmap_axis),
+            state_tag=self.state_tag,
+            axis_size=vmap_axis,
+            state_out_axes=self.state_out_axes
+        )
+        state_in_axes = self.state_in_axes
+        state_out_axes = self.state_out_axes
+
+        if state_in_axes is None:
+            state_in_axes = dict()
+        if state_out_axes is None:
+            state_out_axes = dict()
+        for k, v in tuple(state_in_axes.items()):
+            if k in dict_vmap_states:
+                state_in_axes[k] = filter.Any(v, ToPredicate(dict_vmap_states[k]))
+        for k, v in tuple(state_out_axes.items()):
+            if k in dict_vmap_states:
+                state_out_axes[k] = filter.Any(v, ToPredicate(dict_vmap_states[k]))
+        for k, v in dict_vmap_states.items():
+            if k not in state_in_axes:
+                state_in_axes[k] = ToPredicate(v)
+                state_out_axes[k] = ToPredicate(v)
+
+        self.state_out_axes = state_out_axes
+        self.state_in_axes = state_in_axes
+        self._init = True
+
+    def update(self, *args, **kwargs):
+        if not self._init:
+            raise ValueError(
+                'Vmap2Module.update called before init_all_states. Please call init_all_states first.'
+            )
+        return vmap2(
+            self.module,
+            in_axes=self.in_axes,
+            out_axes=self.out_axes,
+            axis_name=self.axis_name,
+            spmd_axis_name=self.spmd_axis_name,
+            state_in_axes=self.state_in_axes,
+            state_out_axes=self.state_out_axes,
+        )(*args, **kwargs)
