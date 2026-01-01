@@ -13,80 +13,160 @@
 # limitations under the License.
 # ==============================================================================
 
+# Core transformation infrastructure
+from ._make_jaxpr import (
+    StatefulFunction, make_jaxpr,
+)
+from ._grad_transform import (
+    GradientTransform,
+)
 
-from ._conditions import *
-from ._conditions import __all__ as _conditions_all
-from ._error_if import *
-from ._error_if import __all__ as _error_if_all
-from ._eval_shape import *
-from ._eval_shape import __all__ as eval_shape_all
-from ._find_state import *
-from ._find_state import __all__ as _find_all
-from ._grad_checkpoint import *
-from ._grad_checkpoint import __all__ as _ad_checkpoint_all
-from ._grad_grad import *
-from ._grad_grad import __all__ as _autograd_all
-from ._grad_hessian import *
-from ._grad_hessian import __all__ as _grad_hessian_all
-from ._grad_jacobian import *
-from ._grad_jacobian import __all__ as _grad_jac_all
-from ._grad_sofo import *
-from ._grad_sofo import __all__ as _sofo_all
-from ._grad_transform import *
-from ._grad_transform import __all__ as _grad_transform_all
-from ._ir_inline import *
-from ._ir_inline import __all__ as _ir_inline_jit_all
-from ._ir_optim import *
-from ._ir_optim import __all__ as _constant_fold_all
-from ._jit import *
-from ._jit import __all__ as _jit_all
-from ._jit_named_scope import *
-from ._jit_named_scope import __all__ as _jit_named_scope_all
-from ._loop_collect_return import *
-from ._loop_collect_return import __all__ as _loop_collect_return_all
-from ._loop_no_collection import *
-from ._loop_no_collection import __all__ as _loop_no_collection_all
-from ._make_jaxpr import *
-from ._make_jaxpr import __all__ as _make_jaxpr_all
-from ._mapping1 import *
-from ._mapping1 import __all__ as _find_state_vmap
-from ._mapping2 import *
-from ._mapping2 import __all__ as _mapping_all
-from ._mapping3 import *
-from ._mapping3 import __all__ as _mapping_v3_all
-from ._progress_bar import *
-from ._progress_bar import __all__ as _progress_bar_all
-from ._unvmap import *
-from ._unvmap import __all__ as _unvmap_all
+# JIT compilation
+from ._jit import (
+    jit,
+)
+from ._jit_named_scope import (
+    jit_named_scope,
+)
+from ._grad_checkpoint import (
+    checkpoint, remat,
+)
 
-__all__ = _ad_checkpoint_all + _autograd_all + _conditions_all + _error_if_all + _find_all
-__all__ += _jit_all + _loop_collect_return_all + _loop_no_collection_all
-__all__ += _make_jaxpr_all + _mapping_all + _progress_bar_all + _unvmap_all
-__all__ += _constant_fold_all + _find_state_vmap + _ir_inline_jit_all
-__all__ += _jit_named_scope_all + _sofo_all
-__all__ += _grad_transform_all
-__all__ += _grad_jac_all
-__all__ += _grad_hessian_all
-__all__ += eval_shape_all
-__all__ += _mapping_v3_all
-del _find_all, _find_state_vmap
-del _constant_fold_all
-del _ad_checkpoint_all
-del _autograd_all
-del _conditions_all
-del _error_if_all
-del _jit_all
-del _loop_collect_return_all
-del _loop_no_collection_all
-del _make_jaxpr_all
-del _mapping_all
-del _progress_bar_all
-del _unvmap_all
-del _sofo_all
-del _grad_transform_all
-del _grad_jac_all
-del _grad_hessian_all
-del eval_shape_all
-del _mapping_v3_all
-del _ir_inline_jit_all
-del _jit_named_scope_all
+# Mapping transformations
+from ._mapping1 import (
+    vmap, vmap_new_states,
+)
+from ._mapping2 import (
+    StatefulMapping, vmap2, pmap, map,
+)
+from ._mapping3 import (
+    StateAxes, model_vmap, model_pmap,
+)
+
+# Gradient transformations
+from ._grad_grad import (
+    vector_grad, grad, fwd_grad,
+)
+from ._grad_jacobian import (
+    jacrev, jacfwd, jacobian,
+)
+from ._grad_hessian import (
+    hessian,
+)
+from ._grad_sofo import (
+    sofo_grad,
+)
+
+# Control flow
+from ._conditions import (
+    cond, switch, ifelse,
+)
+from ._loop_no_collection import (
+    while_loop, bounded_while_loop,
+)
+from ._loop_collect_return import (
+    scan, checkpointed_scan, for_loop, checkpointed_for_loop,
+)
+
+# Utilities
+from ._error_if import (
+    jit_error_if,
+)
+from ._find_state import (
+    StateFinder,
+)
+from ._progress_bar import (
+    ProgressBar,
+)
+from ._unvmap import (
+    unvmap,
+)
+from ._eval_shape import (
+    eval_shape,
+)
+
+# IR (Internal Representation) utilities
+from ._ir_inline import (
+    inline_jit,
+)
+from ._ir_optim import (
+    constant_fold, dead_code_elimination, common_subexpression_elimination,
+    copy_propagation, algebraic_simplification, optimize_jaxpr,
+)
+from ._ir_processing import (
+    eqns_to_closed_jaxpr, eqns_to_jaxpr,
+)
+from ._ir_tocode import (
+    fn_to_python_code, jaxpr_to_python_code,
+)
+from ._ir_visualize import (
+    draw, view_pydot, draw_dot_graph,
+)
+
+__all__ = [
+    # Core transformation infrastructure
+    'StatefulFunction',
+    'make_jaxpr',
+    'GradientTransform',
+
+    # JIT compilation
+    'jit',
+    'jit_named_scope',
+    'checkpoint',
+    'remat',
+
+    # Mapping transformations
+    'vmap',
+    'vmap_new_states',
+    'StatefulMapping',
+    'vmap2',
+    'pmap',
+    'map',
+    'StateAxes',
+    'model_vmap',
+    'model_pmap',
+
+    # Gradient transformations
+    'vector_grad',
+    'grad',
+    'fwd_grad',
+    'jacrev',
+    'jacfwd',
+    'jacobian',
+    'hessian',
+    'sofo_grad',
+
+    # Control flow
+    'cond',
+    'switch',
+    'ifelse',
+    'while_loop',
+    'bounded_while_loop',
+    'scan',
+    'checkpointed_scan',
+    'for_loop',
+    'checkpointed_for_loop',
+
+    # Utilities
+    'jit_error_if',
+    'StateFinder',
+    'ProgressBar',
+    'unvmap',
+    'eval_shape',
+
+    # IR utilities
+    'inline_jit',
+    'constant_fold',
+    'dead_code_elimination',
+    'common_subexpression_elimination',
+    'copy_propagation',
+    'algebraic_simplification',
+    'optimize_jaxpr',
+    'eqns_to_closed_jaxpr',
+    'eqns_to_jaxpr',
+    'fn_to_python_code',
+    'jaxpr_to_python_code',
+    'draw',
+    'view_pydot',
+    'draw_dot_graph',
+]
