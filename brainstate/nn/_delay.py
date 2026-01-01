@@ -28,6 +28,7 @@ from brainstate import environ
 from brainstate._state import ShortTermState, State, DelayState
 from brainstate.graph import Node
 from brainstate.transform import jit_error_if
+from brainstate.transform._mapping2 import INIT_NO_BATCHING
 from brainstate.typing import ArrayLike, PyTree
 from ._collective_ops import call_order
 from ._module import Module
@@ -532,7 +533,7 @@ class Delay(Module):
     def init_state(self, batch_size: int = None, **kwargs):
         # Initialize write pointer as ShortTermState (always scalar, not batched)
         # All batches share the same write pointer as they update synchronously
-        self.write_ptr = ShortTermState(jnp.array(0, dtype=environ.ditype()), tag='INIT_NO_BATCHING')
+        self.write_ptr = ShortTermState(jnp.array(0, dtype=environ.ditype()), tag=INIT_NO_BATCHING)
 
         # Initialize history buffer
         fun = partial(self._f_to_init, length=self.max_length, batch_size=batch_size)
