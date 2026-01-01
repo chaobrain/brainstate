@@ -18,16 +18,17 @@ from typing import Callable, TypeVar, Any
 
 import jax
 
-from brainstate.graph._convert import graph_to_tree, tree_to_graph
+from brainstate._state import StateTraceStack
+from brainstate.graph import graph_to_tree, tree_to_graph
+
+__all__ = [
+    'eval_shape',
+]
 
 A = TypeVar('A')
 
-__all__ = [
-    'model_eval_shape',
-]
 
-
-def model_eval_shape(
+def eval_shape(
     f: Callable[..., A],
     *args: Any,
     **kwargs: Any,
@@ -35,13 +36,21 @@ def model_eval_shape(
     """
     Evaluate the shape of the output of a function.
     """
+    from brainstate.random import DEFAULT
+    def check_state(st):
+        if st is not DEFAULT and id(st) not in find_state_ids:
+            st.raise_error_with_source_info(
+                ValueError('')
+            )
 
     @functools.wraps(f)
     def _eval_shape_fn(*args_, **kwargs_):
         args_, kwargs_ = tree_to_graph((args_, kwargs_))
-        out_ = f(*args_, **kwargs_)
+        with StateTraceStack(check_read=check_state) as stack:
+            out_ = f(*args_, **kwargs_)
         return graph_to_tree(out_)[0]
 
-    args, kwargs = graph_to_tree((args, kwargs))[0]
+    (args, kwargs), find_states = graph_to_tree((args, kwargs))
+    find_state_ids = set(id(s) for s in find_states.values())
     out = jax.eval_shape(_eval_shape_fn, *args, **kwargs)
     return tree_to_graph(out)

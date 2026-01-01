@@ -20,15 +20,16 @@ from typing import Any, Sequence, Hashable, Dict, Union
 
 from brainstate import environ
 from brainstate._state import StateCatcher
-from brainstate.transform import vmap, vmap2
+from brainstate.transform import vmap
 from brainstate.typing import Filter
-from ._module import Module
+from ._module import Module, _vmap_new_states
 
 AxisName = Hashable
 
 __all__ = [
     'EnvironContext',
     'Vmap',
+    'Vmap2',
 ]
 
 
@@ -262,15 +263,20 @@ class Vmap2(Module):
         self.out_axes = out_axes
         self.axis_name = axis_name
         self.module = module
+        if state_out_axes is None:
+            state_out_axes = {0: ...}
         self.state_out_axes = state_out_axes
 
-    def init_all_states(self, tag: str = None, vmap_size: int = None, **kwargs) -> StateCatcher:
-        return super().init_all_states(
+    def init_all_states(self, vmap_size: int = None, tag: str = None, **kwargs) -> StateCatcher:
+        assert vmap_size is not None, 'vmap_size must be specified when initializing states for Vmap2.'
+        catcher = _vmap_new_states(
+            super().init_all_states,
+            kwargs,
             state_tag=tag,
-            vmap_size=vmap_size,
-            state_out_axes=self.state_out_axes,
-            **kwargs,
+            axis_size=vmap_size,
+            state_out_axes=self.state_out_axes
         )
+        self.catcher = catcher
 
     def update(self, *args, **kwargs):
         """Execute the vmapped module with the given arguments.
@@ -287,11 +293,11 @@ class Vmap2(Module):
         Any
             Result of executing the vmapped module.
         """
-        vmap_fn = vmap2(
+        vmap_fn = vmap(
             self.module,
             in_axes=self.in_axes,
             out_axes=self.out_axes,
             axis_name=self.axis_name,
-            state_in_axes=self.state_out_axes,
+            in_states={0: self.catcher.get_states()},
         )
         return vmap_fn(*args, **kwargs)

@@ -18,7 +18,7 @@ import unittest
 import jax.numpy as jnp
 
 import brainstate
-from brainstate.nn import ParaM, L2Reg, L1Reg
+from brainstate.nn import ParamM, L2Reg, L1Reg
 
 
 class TestModule(unittest.TestCase):
@@ -61,11 +61,11 @@ class TestModule(unittest.TestCase):
             def __init__(self):
                 super().__init__()
                 # Parameter with L2 regularization
-                self.param1 = ParaM(jnp.ones(10), reg=L2Reg(0.1), fit_par=True)
+                self.param1 = ParamM(jnp.ones(10), reg=L2Reg(0.1), fit_par=True)
                 # Parameter with L1 regularization
-                self.param2 = ParaM(jnp.ones(5), reg=L1Reg(0.05), fit_par=True)
+                self.param2 = ParamM(jnp.ones(5), reg=L1Reg(0.05), fit_par=True)
                 # Parameter without regularization
-                self.param3 = ParaM(jnp.ones(3), fit_par=True)
+                self.param3 = ParamM(jnp.ones(3), fit_par=True)
 
         mod = TestModule()
 
@@ -75,7 +75,7 @@ class TestModule(unittest.TestCase):
 
         # Get loss from L2-regularized params only (compute manually)
         all_params = mod.par_modules()
-        l2_params = [v for  v in all_params if isinstance(v.reg, L2Reg)]
+        l2_params = [v for v in all_params if isinstance(v.reg, L2Reg)]
         l2_loss = sum(p.reg_loss() for p in l2_params)
         self.assertGreater(l2_loss, 0.0)
         self.assertLess(l2_loss, total_loss)
@@ -90,8 +90,8 @@ class TestModule(unittest.TestCase):
         class TestModule(brainstate.nn.Module):
             def __init__(self):
                 super().__init__()
-                self.alpha = ParaM(jnp.ones(10), fit_par=True)
-                self.beta = ParaM(jnp.ones(5), fit_par=True)
+                self.alpha = ParamM(jnp.ones(10), fit_par=True)
+                self.beta = ParamM(jnp.ones(5), fit_par=True)
 
         mod = TestModule()
         named = list(mod.named_par_modules())
@@ -129,7 +129,7 @@ class TestModule(unittest.TestCase):
         class SubModule(brainstate.nn.Module):
             def __init__(self):
                 super().__init__()
-                self.weight = ParaM(jnp.ones(10))
+                self.weight = ParamM(jnp.ones(10))
 
         class TestModule(brainstate.nn.Module):
             def __init__(self):
@@ -223,8 +223,8 @@ class TestModule(unittest.TestCase):
         class TestModule(brainstate.nn.Module):
             def __init__(self):
                 super().__init__()
-                self.param1 = ParaM(jnp.ones(10), fit_par=True)
-                self.param2 = ParaM(jnp.ones(5), fit_par=True)
+                self.param1 = ParamM(jnp.ones(10), fit_par=True)
+                self.param2 = ParamM(jnp.ones(5), fit_par=True)
 
         mod = TestModule()
 
@@ -242,8 +242,8 @@ class TestModule(unittest.TestCase):
         class TestModule(brainstate.nn.Module):
             def __init__(self):
                 super().__init__()
-                self.alpha = ParaM(jnp.ones(10), fit_par=True)
-                self.beta = ParaM(jnp.ones(5), fit_par=True)
+                self.alpha = ParamM(jnp.ones(10), fit_par=True)
+                self.beta = ParamM(jnp.ones(5), fit_par=True)
 
         mod = TestModule()
 
@@ -265,7 +265,7 @@ class TestModule(unittest.TestCase):
         class Linear(brainstate.nn.Module):
             def __init__(self, in_size, out_size):
                 super().__init__()
-                self.weight = ParaM(brainstate.random.rand(in_size, out_size))
+                self.weight = ParamM(brainstate.random.rand(in_size, out_size))
 
         class MLP(brainstate.nn.Module):
             def __init__(self):
@@ -286,11 +286,11 @@ class TestModule(unittest.TestCase):
         self.assertEqual(len(named_params), 2)
 
         # Test PyTorch-style module iteration
-        # Note: ParaM instances are also modules, so count includes them
+        # Note: ParamM instances are also modules, so count includes them
         module_count = 0
         for module in model.modules():
             module_count += 1
-        self.assertEqual(module_count, 5)  # MLP + fc1 + fc2 + 2 ParaM
+        self.assertEqual(module_count, 5)  # MLP + fc1 + fc2 + 2 ParamM
 
         # Test PyTorch-style children iteration
         children = list(model.children())

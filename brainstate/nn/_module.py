@@ -33,14 +33,13 @@ from typing import Sequence, Optional, Tuple, Union, TYPE_CHECKING, Callable, Di
 import numpy as np
 
 from brainstate._error import BrainStateError
-from brainstate._state import catch_new_states, StateCatcher, ParamState, NonBatchState
+from brainstate._state import catch_new_states, StateCatcher, ParamState, NonBatchState, ShortTermState
 from brainstate.graph import Node, states, nodes, flatten
-from brainstate.mixin import ParamDescriber, ParamDesc
+from brainstate.mixin import ParamDescriber, ParamDesc, not_implemented, is_not_implemented
 from brainstate.transform._mapping2 import vmap2
 from brainstate.typing import Size, Filter
 from brainstate.util import FlattedDict, NestedDict
 from brainstate.util.filter import to_predicate, Any as AnyPredicate
-from ._param_data import ParamData
 
 __all__ = [
     'Module',
@@ -157,6 +156,7 @@ class Module(Node, ParamDesc):
         assert isinstance(out_size, (tuple, list)), f"Invalid type of out_size: {type(out_size)}"
         self._out_size = tuple(out_size)
 
+    @not_implemented
     def update(self, *args, **kwargs):
         """
         The function to specify the updating rule.
@@ -177,11 +177,22 @@ class Module(Node, ParamDesc):
             Transformed output. Default implementation returns args[0] if available,
             otherwise None.
         """
-        raise NotImplementedError(
-            f'Subclass of {self.__class__.__name__} must implement "update" function. \n'
-            f'This instance is: \n'
-            f'{self}'
-        )
+        if is_not_implemented(self.forward):
+            raise NotImplementedError(
+                f'Subclass of {self.__class__.__name__} must implement "update" function. \n'
+                f'This instance is: \n'
+                f'{self}'
+            )
+        else:
+            states = self.get_states()
+            params = self.get_params()
+            states, out = self.forward(states, params, *args, **kwargs)
+            for path, state in self.states(ShortTermState).items():
+                name = '.'.join([str(n) for n in path])
+                if name not in states:
+                    raise BrainStateError(f'State "{name}" not found in provided states.')
+                state.value = states[name]
+            return out
 
     def __pretty_repr_item__(self, name, value):
         if name.startswith('_'):
@@ -382,9 +393,9 @@ class Module(Node, ParamDesc):
 
     def par_modules(
         self, allowed_hierarchy: Tuple[int, int] = (0, max_int),
-    ) -> Iterator['ParaM']:
+    ) -> Iterator['ParamM']:
         """
-        Collect all ParaM parameters in this module and children.
+        Collect all ParamM parameters in this module and children.
 
         Parameters
         ----------
@@ -394,7 +405,7 @@ class Module(Node, ParamDesc):
         Returns
         -------
         params : FlattedDict, tuple of FlattedDict
-          The collection contained (the path, the ParaM parameter).
+          The collection contained (the path, the ParamM parameter).
 
         Examples
         --------
@@ -424,7 +435,7 @@ class Module(Node, ParamDesc):
         ------
         name : str
             Dot-separated path to the parameter.
-        param : ParaM
+        param : ParamM
             The parameter instance.
 
         Examples
@@ -435,8 +446,8 @@ class Module(Node, ParamDesc):
         layer1.bias: (20,)
         layer2.weight: (20, 5)
         """
-        from ._par_module import ParaM
-        params_dict = self.nodes(ParaM, allowed_hierarchy=allowed_hierarchy)
+        from ._par_module import ParamM
+        params_dict = self.nodes(ParamM, allowed_hierarchy=allowed_hierarchy)
         for path, param in params_dict.items():
             # Convert path tuple to dot-separated string
             name = '.'.join(str(p) for p in path)
@@ -444,7 +455,7 @@ class Module(Node, ParamDesc):
 
     def reg_loss(self):
         """
-        Compute total regularization loss from all ParaM parameters.
+        Compute total regularization loss from all ParamM parameters.
 
         Returns
         -------
@@ -469,14 +480,14 @@ class Module(Node, ParamDesc):
 
     def cache_par_modules(self, allowed_hierarchy: Tuple[int, int] = (0, max_int)):
         """
-        Cache all ParaM parameters in this module and children.
+        Cache all ParamM parameters in this module and children.
         """
         for par_module in self.par_modules(allowed_hierarchy=allowed_hierarchy):
             par_module.cache()
 
     def uncache_par_modules(self, allowed_hierarchy: Tuple[int, int] = (0, max_int)):
         """
-        clear-cache all ParaM parameters in this module and children.
+        clear-cache all ParamM parameters in this module and children.
         """
         for par_module in self.par_modules(allowed_hierarchy=allowed_hierarchy):
             par_module.clear_cache()
@@ -502,7 +513,7 @@ class Module(Node, ParamDesc):
     ) -> StateCatcher:
         if vmap_size is not None:
             return _vmap_new_states(
-                self,
+                self.init_all_states,
                 kwargs,
                 state_tag=tag,
                 axis_size=vmap_size,
@@ -524,7 +535,7 @@ class Module(Node, ParamDesc):
         """
         Return module parameters.
 
-        PyTorch-compatible alias for para_modules(). Returns ParaM instances.
+        PyTorch-compatible alias for para_modules(). Returns ParamM instances.
 
         Parameters
         ----------
@@ -570,7 +581,7 @@ class Module(Node, ParamDesc):
         ------
         name : str
             Name of the parameter (with prefix if provided).
-        param : ParaM
+        param : ParamM
             Parameter instance.
 
         Examples
@@ -598,42 +609,9 @@ class Module(Node, ParamDesc):
 
             yield name, param
 
-    def define_param_data(self, *args, **kwargs) -> ParamData:
-        """
-        Define all dynamics parameters.
-
-        Default behavior: auto-compose from child dynamics.
-        Override this method for leaf dynamics or custom behavior.
-
-        Returns:
-            Parameter object. For hierarchical dynamics, returns
-            ComposedData containing all child parameters.
-
-        Raises:
-            NotImplementedError: If this is a leaf dynamics without
-                                child dynamics and method is not overridden.
-        """
-        children = {}
-        assert isinstance(self, Module), f'This class must be a nn.Module, but {type(self)}.'
-        for name, module in self.nodes(allowed_hierarchy=(1, 1)).items():
-            name = name[0] if len(name) == 1 else '.'.join([str(n) for n in name])
-            children[str(name)] = module
-        if not children:
-            raise NotImplementedError(
-                f"{self.__class__.__name__} is a leaf dynamics and must "
-                "implement get_param()"
-            )
-        children_data = dict()
-        for name, child in children.items():
-            params = child.define_param_data(*args, **kwargs)
-            if len(params):
-                children_data[name] = params
-
-        return ParamData(children=children_data, name=f'{self.__class__.__name__}_param')
-
 
 def _vmap_new_states(
-    self,
+    init_fn,
     kwargs: Dict,
     state_tag: str = None,
     axis_size: int = None,
@@ -658,7 +636,7 @@ def _vmap_new_states(
 
     @vmap2(axis_size=axis_size, out_axes=tuple(state_out_axes.keys()))
     def new_fun():
-        catcher_ = self.init_all_states(tag=state_tag, **kwargs)
+        catcher_ = init_fn(tag=state_tag, **kwargs)
         vmap_state_vals_ = defaultdict(list)
         for st_ in catcher_.get_states():
             for out_axis_, predicate_ in state_out_axes.items():

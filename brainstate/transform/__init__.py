@@ -88,3 +88,5 @@ del _grad_jac_all
 del _grad_hessian_all
 del eval_shape_all
 del _mapping_v3_all
+del _ir_inline_jit_all
+del _jit_named_scope_all
