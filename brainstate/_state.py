@@ -48,8 +48,7 @@ from brainstate._error import TraceContextError
 from brainstate._state_global_hooks import GlobalHookRegistry
 from brainstate._state_hook_manager import HookManager
 from brainstate.typing import ArrayLike, PyTree, Missing, Filter
-from brainstate.util import DictManager, PrettyObject
-from brainstate.util._tracers import StateJaxTracer
+from brainstate.util import DictManager, PrettyObject, StateJaxTracer
 from brainstate.util.filter import Nothing
 
 __all__ = [
