@@ -25,7 +25,9 @@ __all__ = [
 
 def current_jax_trace():
     """Returns the Jax tracing state."""
-    return jax.core.get_opaque_trace_state()
+    if jax.__version_info__ <= (0, 4, 33):
+        return jax.core.thread_local_state.trace_state.trace_stack.dynamic
+    return jax.core.get_opaque_trace_state(convention="nnx")
 
 
 class StateJaxTracer(PrettyRepr):
