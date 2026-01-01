@@ -674,8 +674,8 @@ class State(Generic[A], PrettyObject):
         return sum(sizes)
 
     @classmethod
-    def by(cls, fn, in_size, batch_size: int = None):
-        return cls(_get_param_init()(fn, in_size, batch_size))
+    def init(cls, fn, in_size, batch_size: int = None, tag: str = None):
+        return cls(_get_param_init()(fn, in_size, batch_size), tag=tag)
 
     def copy_from(self, other: State[A]) -> None:
         """
@@ -1073,9 +1073,9 @@ class HiddenState(ShortTermState):
 
     value: ArrayLike
 
-    def __init__(self, value: ArrayLike, name: Optional[str] = None):
+    def __init__(self, value: ArrayLike, name: Optional[str] = None, **kwargs):
         self._check_value(value)
-        super().__init__(value, name=name)
+        super().__init__(value, name=name, **kwargs)
 
     @property
     def varshape(self) -> Tuple[int, ...]:
@@ -1158,10 +1158,10 @@ class HiddenGroupState(HiddenState):
     value: ArrayLike
     name2index: Dict[str, int]
 
-    def __init__(self, value: ArrayLike):
+    def __init__(self, value: ArrayLike, **kwargs):
         value, name2index = self._check_value(value)
         self.name2index = name2index
-        ShortTermState.__init__(self, value)
+        ShortTermState.__init__(self, value, **kwargs)
 
     @property
     def varshape(self) -> Tuple[int, ...]:
@@ -1410,13 +1410,14 @@ class HiddenTreeState(HiddenGroupState):
     def __init__(
         self,
         value: Dict[str, ArrayLike] | Sequence[ArrayLike],
+        **kwargs
     ):
         value, name2unit, name2index = self._check_value(value)
         self.name2unit: Dict[str, u.Unit] = name2unit
         self.name2index: Dict[str, int] = name2index
         self.index2unit: Dict[int, u.Unit] = {i: v for i, v in enumerate(name2unit.values())}
         self.index2name: Dict[int, str] = {v: k for k, v in name2index.items()}
-        ShortTermState.__init__(self, value)
+        ShortTermState.__init__(self, value, **kwargs)
 
     @property
     def varshape(self) -> Tuple[int, ...]:
@@ -1598,7 +1599,7 @@ class FakeState:
 
     __module__ = 'brainstate'
 
-    def __init__(self, value: Any, name: Optional[str] = None):
+    def __init__(self, value: Any, name: Optional[str] = None, **kwargs):
         """
         Initialize a FakeState instance.
 
@@ -1738,6 +1739,7 @@ class StateTraceStack(Generic[A]):
         self,
         new_arg: Callable = None,
         name: Optional[str] = None,
+        check_read: Callable = None
     ):
         self.name = name
         self.states: List[State] = []
@@ -1746,6 +1748,7 @@ class StateTraceStack(Generic[A]):
         self._original_state_values = []
         self._jax_trace_new_arg: Callable = new_arg
         self._stack_level = None
+        self.check_read = check_read
 
     def __str__(self) -> str:
         _stack_level = self.name if self._stack_level is None else self._stack_level
@@ -1822,6 +1825,9 @@ class StateTraceStack(Generic[A]):
             This method updates the internal tracking of state accesses.
             It doesn't actually read or return the state's value.
         """
+        if self.check_read is not None:
+            self.check_read(state)
+
         id_ = id(state)
         if id_ not in self._state_id_index:
             self._state_id_index[id_] = len(self.states)
@@ -2315,6 +2321,10 @@ class StateCatcher(PrettyObject):
         self.state_tag = state_tag
         self.state_ids = set()
         self.states = []
+
+    def decrease_stack_level(self):
+        for st in self.states:
+            st.decrease_stack_level()
 
     @property
     def values(self):
