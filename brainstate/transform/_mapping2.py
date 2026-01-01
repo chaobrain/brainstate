@@ -515,7 +515,7 @@ class StatefulMapping:
             rand_recover_vals.append(st.value)
         return tuple(rand_vals), tuple(rand_recover_vals)
 
-    def __call__(self, *args, **kwargs) -> Tuple[Any, Tuple[State, ...]]:
+    def __call__(self, *args, **kwargs):
         """Execute the stateful mapping on the given arguments.
 
         Parameters
