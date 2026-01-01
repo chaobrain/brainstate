@@ -13,31 +13,135 @@
 # limitations under the License.
 # ==============================================================================
 
-# Module imports (exposed as submodules)
-from . import filter
-
-# Wildcard imports from internal modules (alphabetically sorted)
-from ._cache import *
-from ._cache import __all__ as _cache_all
-from ._others import *
-from ._others import __all__ as _others_all
-from ._pretty_pytree import *
-from ._pretty_pytree import __all__ as _pretty_pytree_all
-from ._pretty_repr import *
-from ._pretty_repr import __all__ as _pretty_repr_all
-from ._tracers import *
-from ._tracers import __all__ as _tracers_all
-from .struct import *
-from .struct import __all__ as _struct_all
-
-__all__ = (
-    ['filter']
-    + _cache_all
-    + _others_all
-    + _pretty_pytree_all
-    + _pretty_repr_all
-    + _struct_all
-    + _tracers_all
+# Import tracer utilities
+from ._tracers import (
+    StateJaxTracer,
 )
 
-del _cache_all, _others_all, _pretty_pytree_all, _pretty_repr_all, _struct_all, _tracers_all
+# Import cache utilities
+from ._cache import (
+    BoundedCache,
+)
+
+# Import pretty representation utilities
+from ._pretty_repr import (
+    yield_unique_pretty_repr_items,
+    PrettyType,
+    PrettyAttr,
+    PrettyRepr,
+    PrettyMapping,
+    MappingReprMixin,
+)
+
+# Import other utilities
+from ._others import (
+    split_total,
+    clear_buffer_memory,
+    not_instance_eval,
+    is_instance_eval,
+    DictManager,
+    DotDict,
+    get_unique_name,
+    merge_dicts,
+    flatten_dict,
+    unflatten_dict,
+)
+
+# Import filter utilities
+from .filter import (
+    to_predicate,
+    WithTag,
+    PathContains,
+    OfType,
+    Any,
+    All,
+    Nothing,
+    Not,
+    Everything,
+)
+
+# Import struct utilities
+from .struct import (
+    field,
+    is_dataclass,
+    dataclass,
+    PyTreeNode,
+    FrozenDict,
+    freeze,
+    unfreeze,
+    copy,
+    pop,
+    pretty_repr,
+)
+
+# Import pretty pytree utilities
+from ._pretty_pytree import (
+    PrettyDict,
+    NestedDict,
+    FlattedDict,
+    flat_mapping,
+    nest_mapping,
+    PrettyList,
+    PrettyObject,
+)
+
+__all__ = [
+    # Tracer utilities
+    'StateJaxTracer',
+
+    # Cache utilities
+    'BoundedCache',
+
+    # Pretty representation utilities
+    'yield_unique_pretty_repr_items',
+    'PrettyType',
+    'PrettyAttr',
+    'PrettyRepr',
+    'PrettyMapping',
+    'MappingReprMixin',
+
+    # Other utilities
+    'split_total',
+    'clear_buffer_memory',
+    'not_instance_eval',
+    'is_instance_eval',
+    'DictManager',
+    'DotDict',
+    'get_unique_name',
+    'merge_dicts',
+    'flatten_dict',
+    'unflatten_dict',
+
+    # Filter utilities
+    'to_predicate',
+    'WithTag',
+    'PathContains',
+    'OfType',
+    'Any',
+    'All',
+    'Nothing',
+    'Not',
+    'Everything',
+
+    # Struct utilities
+    'field',
+    'is_dataclass',
+    'dataclass',
+    'PyTreeNode',
+    'FrozenDict',
+    'freeze',
+    'unfreeze',
+    'copy',
+    'pop',
+    'pretty_repr',
+
+    # Pretty pytree utilities
+    'PrettyDict',
+    'NestedDict',
+    'FlattedDict',
+    'flat_mapping',
+    'nest_mapping',
+    'PrettyList',
+    'PrettyObject',
+]
+
