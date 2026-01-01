@@ -29,6 +29,19 @@ computations.
    all
 
 
+Environment State
+-----------------
+
+Thread-local environment container used for custom or isolated configurations.
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+   :template: classtemplate.rst
+
+   EnvironmentState
+
+
 Platform and Device Settings
 -----------------------------
 
@@ -80,6 +93,41 @@ provide information about the current execution mode and time step settings for 
    :template: classtemplate.rst
 
    get_dt
+
+
+Environment Keys and Flags
+--------------------------
+
+Common environment key constants used with ``get``/``set``/``context``.
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+   :template: classtemplate.rst
+
+   I
+   T
+   DT
+   PRECISION
+   PLATFORM
+   HOST_DEVICE_COUNT
+   JIT_ERROR_CHECK
+   FIT
+
+
+Defaults and Supported Values
+------------------------------
+
+Default values and supported platform/precision settings.
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+   :template: classtemplate.rst
+
+   DEFAULT_PRECISION
+   SUPPORTED_PLATFORMS
+   SUPPORTED_PRECISIONS
 
 
 Behavior Registration
