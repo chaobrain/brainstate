@@ -30,7 +30,7 @@ from numba import njit
 from torch.utils.data import DataLoader, IterableDataset
 
 import brainpy
-import brainscale
+import braintrace
 import brainstate
 import braintools
 
@@ -212,7 +212,7 @@ class GifNet(brainstate.nn.Module):
         self.num_in = num_in
         self.num_rec = num_rec
         self.num_out = num_out
-        self.ir2r = brainscale.nn.Linear(num_in + num_rec, num_rec, w_init=w, b_init=braintools.init.ZeroInit(unit=u.mA))
+        self.ir2r = braintrace.nn.Linear(num_in + num_rec, num_rec, w_init=w, b_init=braintools.init.ZeroInit(unit=u.mA))
         self.exp = brainpy.state.Expon(num_rec, tau=args.tau_syn * u.ms, g_initializer=braintools.init.ZeroInit(unit=u.mA))
         tau_I2 = brainstate.random.uniform(100., args.tau_I2 * 1.5, num_rec)
         self.r = GIF(
@@ -224,7 +224,7 @@ class GifNet(brainstate.nn.Module):
             tau=args.tau_neu * u.ms,
             tau_I2=tau_I2 * u.ms
         )
-        self.out = brainscale.nn.LeakyRateReadout(
+        self.out = braintrace.nn.LeakyRateReadout(
             num_rec,
             num_out,
             tau=args.tau_o * u.ms,
@@ -426,15 +426,15 @@ class Trainer(object):
 
         # initialize the online learning model
         if self.args.method == 'expsm_diag':
-            model = brainscale.IODimVjpAlgorithm(
+            model = braintrace.IODimVjpAlgorithm(
                 model, int(self.args.etrace_decay) if self.args.etrace_decay > 1. else self.args.etrace_decay,
             )
         elif self.args.method == 'diag':
-            model = brainscale.ParamDimVjpAlgorithm(
+            model = braintrace.ParamDimVjpAlgorithm(
                 model, mode=brainstate.mixin.Batching()
             )
         elif self.args.method == 'hybrid':
-            model = brainscale.HybridDimVjpAlgorithm(
+            model = braintrace.HybridDimVjpAlgorithm(
                 model,
                 int(self.args.etrace_decay) if self.args.etrace_decay > 1. else self.args.etrace_decay,
                 mode=brainstate.mixin.Batching()
