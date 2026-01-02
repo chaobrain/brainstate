@@ -62,11 +62,11 @@ class TestModule(unittest.TestCase):
             def __init__(self):
                 super().__init__()
                 # Parameter with L2 regularization
-                self.param1 = Param(jnp.ones(10), reg=L2Reg(0.1), fit_par=True)
+                self.param1 = Param(jnp.ones(10), reg=L2Reg(0.1), fit=True)
                 # Parameter with L1 regularization
-                self.param2 = Param(jnp.ones(5), reg=L1Reg(0.05), fit_par=True)
+                self.param2 = Param(jnp.ones(5), reg=L1Reg(0.05), fit=True)
                 # Parameter without regularization
-                self.param3 = Param(jnp.ones(3), fit_par=True)
+                self.param3 = Param(jnp.ones(3), fit=True)
 
         mod = TestModule()
 
@@ -91,8 +91,8 @@ class TestModule(unittest.TestCase):
         class TestModule(brainstate.nn.Module):
             def __init__(self):
                 super().__init__()
-                self.alpha = Param(jnp.ones(10), fit_par=True)
-                self.beta = Param(jnp.ones(5), fit_par=True)
+                self.alpha = Param(jnp.ones(10), fit=True)
+                self.beta = Param(jnp.ones(5), fit=True)
 
         mod = TestModule()
         named = list(mod.named_param_modules())
@@ -224,8 +224,8 @@ class TestModule(unittest.TestCase):
         class TestModule(brainstate.nn.Module):
             def __init__(self):
                 super().__init__()
-                self.param1 = Param(jnp.ones(10), fit_par=True)
-                self.param2 = Param(jnp.ones(5), fit_par=True)
+                self.param1 = Param(jnp.ones(10), fit=True)
+                self.param2 = Param(jnp.ones(5), fit=True)
 
         mod = TestModule()
 
@@ -243,8 +243,8 @@ class TestModule(unittest.TestCase):
         class TestModule(brainstate.nn.Module):
             def __init__(self):
                 super().__init__()
-                self.alpha = Param(jnp.ones(10), fit_par=True)
-                self.beta = Param(jnp.ones(5), fit_par=True)
+                self.alpha = Param(jnp.ones(10), fit=True)
+                self.beta = Param(jnp.ones(5), fit=True)
 
         mod = TestModule()
 
@@ -454,11 +454,11 @@ class TestParamPrecompute(unittest.TestCase):
             def __init__(self):
                 super().__init__()
                 # Trainable parameter with transform
-                self.trainable_param = Param(jnp.ones(5), t=SoftplusT(0.0), fit_par=True)
+                self.trainable_param = Param(jnp.ones(5), t=SoftplusT(0.0), fit=True)
                 # Non-trainable parameter
-                self.fixed_param = Param(jnp.ones(3), fit_par=False)
+                self.fixed_param = Param(jnp.ones(3), fit=False)
                 # Parameter with regularization
-                self.reg_param = Param(jnp.ones(4), reg=L2Reg(0.1), fit_par=True)
+                self.reg_param = Param(jnp.ones(4), reg=L2Reg(0.1), fit=True)
                 # Non-parameter state
                 self.state = brainstate.State(jnp.ones(2))
 
@@ -500,7 +500,7 @@ class TestParamPrecompute(unittest.TestCase):
         class TestModule(Module):
             def __init__(self):
                 super().__init__()
-                self.param = Param(jnp.ones(5), t=SoftplusT(0.0), fit_par=True)
+                self.param = Param(jnp.ones(5), t=SoftplusT(0.0), fit=True)
 
         mod = TestModule()
 
