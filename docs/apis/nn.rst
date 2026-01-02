@@ -7,6 +7,11 @@
 Base Module Classes
 -------------------
 
+Core building blocks for neural network construction. ``Module`` is the base class
+for all components in BrainState, providing utilities for parameter management,
+state traversal, and hierarchical composition. ``Sequential`` enables easy chaining
+of modules for feedforward architectures.
+
 .. autosummary::
    :toctree: generated/
    :nosignatures:
@@ -16,8 +21,120 @@ Base Module Classes
    ElementWiseBlock
    Sequential
 
+Parameter Containers
+--------------------
+
+Flexible parameter containers that integrate with BrainState's module system.
+``Param`` supports bijective transformations for constrained optimization and
+optional regularization. ``Const`` provides non-trainable constant parameters.
+Both support automatic caching of transformed values for improved performance.
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+   :template: classtemplate.rst
+
+   Param
+   Const
+
+Parameter Transforms
+--------------------
+
+Bijective transformations for constrained parameter optimization. These transforms
+map between unconstrained and constrained spaces, enabling gradient-based optimization
+of parameters with constraints (positivity, boundedness, simplex, etc.). All transforms
+implement ``forward()``, ``inverse()``, and optional ``log_abs_det_jacobian()`` for
+probabilistic applications. Use with ``Param`` for automatic constraint handling.
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+   :template: classtemplate.rst
+
+   Transform
+   IdentityT
+   ClipT
+   AffineT
+   SigmoidT
+   TanhT
+   SoftsignT
+   ScaledSigmoidT
+   SoftplusT
+   NegSoftplusT
+   LogT
+   ExpT
+   ReluT
+   PositiveT
+   NegativeT
+   PowerT
+   OrderedT
+   SimplexT
+   UnitVectorT
+   ChainT
+   MaskedT
+
+Standard Regularizations
+------------------------
+
+Classical regularization methods for parameter penalization and constraint enforcement.
+These regularizations add penalty terms to the loss function to encourage desired
+properties like sparsity (L1), smoothness (L2), or structural constraints (orthogonality,
+spectral norms). Use with ``Param`` to automatically include regularization losses in
+training objectives.
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+   :template: classtemplate.rst
+
+   Regularization
+   L1Reg
+   L2Reg
+   ElasticNetReg
+   HuberReg
+   GroupLassoReg
+   TotalVariationReg
+   MaxNormReg
+   EntropyReg
+   OrthogonalReg
+   SpectralNormReg
+   ChainedReg
+
+Prior Distribution-Based Regularizations
+-----------------------------------------
+
+Probabilistic regularizations based on prior distributions for Bayesian-inspired
+parameter estimation. These regularizations encode domain knowledge or assumptions
+about parameter distributions (Gaussian, heavy-tailed, bounded, etc.). Particularly
+useful for variational inference, maximum a posteriori (MAP) estimation, and
+uncertainty quantification. Each regularization implements ``loss()``, ``sample_init()``,
+and ``reset_value()`` for prior-based parameter initialization.
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+   :template: classtemplate.rst
+
+   GaussianReg
+   StudentTReg
+   CauchyReg
+   UniformReg
+   BetaReg
+   LogNormalReg
+   ExponentialReg
+   GammaReg
+   InverseGammaReg
+   LogUniformReg
+   HorseshoeReg
+   SpikeAndSlabReg
+   DirichletReg
+
 Common Wrappers
 ---------------
+
+Utility wrappers for context management and vectorization. ``EnvironContext`` manages
+environment-specific configurations, while ``Vmap`` and ``Vmap2Module`` enable efficient
+batching and vectorization of module operations across multiple inputs.
 
 .. autosummary::
    :toctree: generated/
@@ -26,9 +143,15 @@ Common Wrappers
 
    EnvironContext
    Vmap
+   Vmap2Module
 
 Linear Layers
 -------------
+
+Fully-connected linear transformation layers with various specializations.
+Includes standard dense layers, weight-standardized variants for improved training
+stability, sparse connections for efficiency, and low-rank adaptation (LoRA) for
+parameter-efficient fine-tuning.
 
 .. autosummary::
    :toctree: generated/
@@ -45,6 +168,11 @@ Linear Layers
 
 Convolutional Layers
 --------------------
+
+Convolutional layers for 1D, 2D, and 3D spatial feature extraction. Includes standard
+convolutions, weight-standardized variants for improved normalization, and transposed
+convolutions for upsampling operations. Essential for processing sequential data, images,
+and volumetric inputs.
 
 .. autosummary::
    :toctree: generated/
@@ -63,6 +191,11 @@ Convolutional Layers
 
 Pooling and Reshaping
 ---------------------
+
+Downsampling, upsampling, and shape manipulation operations for spatial data.
+Includes average pooling, max pooling, Lp-norm pooling, unpooling for reconstruction,
+and adaptive pooling for fixed output sizes. ``Flatten`` and ``Unflatten`` enable
+seamless transitions between spatial and flat representations.
 
 .. autosummary::
    :toctree: generated/
@@ -93,6 +226,10 @@ Pooling and Reshaping
 Padding Layers
 --------------
 
+Spatial padding operations with various boundary conditions. Supports reflection,
+replication, zero, constant value, and circular padding for 1D, 2D, and 3D inputs.
+Essential for controlling output sizes in convolutional networks and handling edge effects.
+
 .. autosummary::
    :toctree: generated/
    :nosignatures:
@@ -117,6 +254,11 @@ Padding Layers
 Normalization Layers
 --------------------
 
+Normalization techniques for stabilizing training and improving convergence.
+Includes batch normalization variants (0D-3D), layer normalization, RMS normalization,
+group normalization, and weight standardization. Each normalization strategy addresses
+different aspects of internal covariate shift and gradient flow.
+
 .. autosummary::
    :toctree: generated/
    :nosignatures:
@@ -134,6 +276,11 @@ Normalization Layers
 Dropout Layers
 --------------
 
+Regularization through stochastic neuron dropping during training. Includes standard
+dropout, spatial dropout variants (1D-3D), alpha dropout for self-normalizing networks,
+and fixed dropout with deterministic masking. Prevents overfitting by encouraging
+robust feature learning.
+
 .. autosummary::
    :toctree: generated/
    :nosignatures:
@@ -150,6 +297,9 @@ Dropout Layers
 Embedding
 ---------
 
+Learnable embedding layers for mapping discrete tokens to continuous vector representations.
+Essential for processing categorical inputs, text, and discrete symbols in neural networks.
+
 .. autosummary::
    :toctree: generated/
    :nosignatures:
@@ -159,6 +309,12 @@ Embedding
 
 Element-wise Layers
 -------------------
+
+Non-linear activation layers that operate element-wise on input tensors. Includes
+rectified linear units (ReLU and variants), sigmoid functions, hyperbolic tangent,
+softmax for probability distributions, and specialized activations for specific
+architectures (SELU, GELU, SiLU, Mish). These introduce non-linearity enabling
+networks to learn complex patterns.
 
 .. autosummary::
    :toctree: generated/
@@ -198,6 +354,11 @@ Element-wise Layers
 
 Activation Functions
 --------------------
+
+Functional (non-module) activation functions for flexible composition. These are
+pure functions that can be used directly in ``update()`` methods or combined with
+JAX transformations. Provides the same activations as the layer-based equivalents
+but without state or module overhead.
 
 .. autosummary::
    :toctree: generated/
@@ -242,6 +403,10 @@ Activation Functions
 Event-based Connectivity
 ------------------------
 
+Sparse, event-driven connectivity patterns for neuromorphic computing and spiking
+neural networks. Supports fixed connection counts, probabilistic connectivity, and
+event-based linear transformations for efficient processing of sparse temporal signals.
+
 .. autosummary::
    :toctree: generated/
    :nosignatures:
@@ -254,6 +419,11 @@ Event-based Connectivity
 
 Recurrent Cells
 ---------------
+
+Recurrent neural network cells for sequential data processing and temporal modeling.
+Includes vanilla RNN, gated recurrent units (GRU), minimal gated units (MGU), long
+short-term memory (LSTM), and unbalanced LSTM variants. Each cell maintains internal
+state across time steps for memory-dependent computations.
 
 .. autosummary::
    :toctree: generated/
@@ -270,6 +440,11 @@ Recurrent Cells
 Dynamics Base Classes
 ---------------------
 
+Base classes for implementing dynamical systems and time-evolving neural models.
+``Dynamics`` provides the foundation for differential equation-based models, while
+``DynamicsGroup`` enables hierarchical composition of multiple dynamical components.
+Essential for neuromorphic computing and brain-inspired architectures.
+
 .. autosummary::
    :toctree: generated/
    :nosignatures:
@@ -280,6 +455,10 @@ Dynamics Base Classes
 
 Dynamics Utilities
 ------------------
+
+Utilities for managing temporal dynamics, prefetching, and delayed outputs in
+dynamical systems. Enable efficient handling of time-stepped simulations and
+asynchronous signal processing in recurrent and spiking neural networks.
 
 .. autosummary::
    :toctree: generated/
@@ -294,6 +473,11 @@ Dynamics Utilities
 Delay Utilities
 ---------------
 
+Temporal delay buffers and state management for neural dynamics with synaptic delays.
+``Delay`` provides ring buffer storage, ``DelayAccess`` enables retrieval of past values,
+and ``StateWithDelay`` integrates delay mechanisms with state variables for realistic
+neural modeling.
+
 .. autosummary::
    :toctree: generated/
    :nosignatures:
@@ -305,6 +489,11 @@ Delay Utilities
 
 Collective Operations
 ---------------------
+
+Batch operations for managing states and function calls across module hierarchies.
+Includes utilities for initialization, resetting, and vectorized execution (vmap)
+of all states and functions in a network. Essential for efficient batch processing
+and state management in complex neural architectures.
 
 .. autosummary::
    :toctree: generated/
@@ -323,6 +512,10 @@ Collective Operations
 Numerical Integration
 ---------------------
 
+Numerical integration methods for solving ordinary differential equations (ODEs)
+in dynamical systems. ``exp_euler_step`` implements the exponential Euler method
+for stable integration of linear and nonlinear dynamics in neuronal models.
+
 .. autosummary::
    :toctree: generated/
    :nosignatures:
@@ -332,6 +525,11 @@ Numerical Integration
 
 Metrics
 -------
+
+Performance metrics for model evaluation and monitoring during training. Includes
+accuracy, precision, recall, F1 score, confusion matrices, and running statistics
+(average, Welford variance). ``MetricState`` provides state containers, while
+``MultiMetric`` enables tracking multiple metrics simultaneously.
 
 .. autosummary::
    :toctree: generated/
@@ -349,8 +547,26 @@ Metrics
    F1ScoreMetric
    ConfusionMatrix
 
+Hierarchical Data
+-----------------
+
+Data structures for managing hierarchical and nested information in neural networks.
+``HiData`` provides utilities for organizing and accessing tree-structured data,
+useful for compositional models and hierarchical state management.
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+   :template: classtemplate.rst
+
+   HiData
+
 Utility Functions
 -----------------
+
+General-purpose utilities for neural network operations. ``count_parameters`` tallies
+trainable and total parameters in a model, while ``clip_grad_norm`` implements gradient
+clipping for training stability.
 
 .. autosummary::
    :toctree: generated/
@@ -362,6 +578,12 @@ Utility Functions
 
 Parameter Initialization
 ------------------------
+
+Weight initialization strategies for neural network parameters. Includes zero and
+constant initialization, random distributions (normal, uniform, truncated normal),
+and variance-scaling methods (Kaiming/He, Xavier/Glorot, LeCun) designed for specific
+activation functions. Orthogonal initialization supports recurrent networks. Proper
+initialization is crucial for training stability and convergence.
 
 .. currentmodule:: brainstate.nn.init
 

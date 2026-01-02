@@ -63,8 +63,6 @@ Special-purpose state types for advanced use cases and PyTree integration.
    FakeState
    TreefyState
 
-- **FakeState**: Lightweight state-like object without tracing functionality
-- **TreefyState**: PyTree-compatible state reference for functional transformations
 
 
 State Management
@@ -85,12 +83,6 @@ Organize and manipulate multiple states as cohesive units.
 
    StateDictManager
 
-**StateDictManager** provides dict-like interface for state collections with built-in operations:
-
-- Batch value assignment and collection
-- Type-based filtering and splitting
-- Integration with training loops and checkpointing
-
 
 State Tracing
 ~~~~~~~~~~~~~
@@ -103,12 +95,6 @@ Track state read/write operations for automatic differentiation and program tran
    :template: classtemplate.rst
 
    StateTraceStack
-
-**StateTraceStack** enables automatic state management in JAX transformations:
-
-- Records which states are read vs. written
-- Manages state values across transformation boundaries
-- Supports state recovery and rollback operations
 
 
 State Utilities
@@ -130,9 +116,6 @@ Control state behavior within specific code blocks.
    check_state_jax_tracer
    catch_new_states
 
-- **check_state_value_tree**: Validates that state value structure remains consistent on assignment
-- **check_state_jax_tracer**: Ensures states are properly traced during JAX compilation
-- **catch_new_states**: Captures and tags newly created states within a context
 
 
 Helper Functions
@@ -146,8 +129,6 @@ Utility functions for common state operations.
 
    maybe_state
 
-**maybe_state** extracts values from State objects, or returns non-State values unchanged.
-Useful for writing functions that accept both states and raw values.
 
 
 Error Handling
@@ -167,6 +148,4 @@ Exception Classes
    BrainStateError
    BatchAxisError
 
-- **BrainStateError**: Base exception class for all BrainState-specific errors
-- **BatchAxisError**: Raised when batch axis handling fails in transformations
 
