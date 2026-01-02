@@ -16,7 +16,7 @@
 # -*- coding: utf-8 -*-
 
 from collections import defaultdict
-from typing import Any, Sequence, Hashable, Dict
+from typing import Any, Sequence, Hashable, Dict, Optional, Callable
 
 from brainstate import environ
 from brainstate._state import State
@@ -280,6 +280,33 @@ class ToPredicate:
         return id(st) in self.state_ids
 
 
+class Vmap2ModuleCaller:
+    def __init__(
+        self,
+        fn: Callable,
+        in_axes: Any = 0,
+        out_axes: Any = 0,
+        axis_name: Optional[str] = None,
+        state_axes: Dict[int, Filter] = None,
+    ):
+        self.in_axes = in_axes
+        self.out_axes = out_axes
+        self.axis_name = axis_name
+        self.state_axes = state_axes
+
+        self.vmap_fn = vmap2(
+            fn,
+            in_axes=in_axes,
+            out_axes=out_axes,
+            axis_name=axis_name,
+            state_in_axes=state_axes,
+            state_out_axes=state_axes,
+        )
+
+    def __call__(self, *args, **kwargs):
+        return self.vmap_fn(*args, **kwargs)
+
+
 class Vmap2Module(Module):
     """
     Vectorize a module using the new ``brainstate.transform.vmap2`` interface.
@@ -328,71 +355,58 @@ class Vmap2Module(Module):
     def __init__(
         self,
         module: 'Module',
+        init_map_size: int,
+        init_state_axes: Dict[int, Filter] = None,
         state_tag: str = None,
         in_axes=0,
         out_axes=0,
         axis_name=None,
         spmd_axis_name=None,
-        state_in_axes: Dict[int, Filter] = None,
-        state_out_axes: Dict[int, Filter] = None,
+        call_state_axes: Dict[int, Filter] = None,
     ):
         super().__init__()
+        assert isinstance(init_map_size, int), 'init_map_size must be an integer.'
+        self.init_map_size = init_map_size
         self.module = module
         self.state_tag = state_tag
         self.in_axes = in_axes
         self.out_axes = out_axes
         self.axis_name = axis_name
         self.spmd_axis_name = spmd_axis_name
-        self.state_in_axes = state_in_axes
-        self.state_out_axes = state_out_axes
+        self.call_state_axes = call_state_axes
+        self.init_state_axes = init_state_axes
+        self.dict_vmap_states = None
 
         self._init = False
+        self._call_state_axes = None
 
-    def init_all_states(self, vmap_axis: int, **kwargs):
+    def _integrate_state_axes(self, call_state_axes):
+        if call_state_axes is None:
+            call_state_axes = dict()
+        call_state_axes = dict(call_state_axes)
+        for k, v in tuple(call_state_axes.items()):
+            if k in self.dict_vmap_states:
+                call_state_axes[k] = filter.Any(v, ToPredicate(self.dict_vmap_states[k]))
+        for k, v in self.dict_vmap_states.items():
+            if k not in call_state_axes:
+                call_state_axes[k] = ToPredicate(v)
+        return call_state_axes
+
+    def init_all_states(self, **kwargs):
         """Initialize vectorized states for the wrapped module.
 
         This method must be called before the first ``update`` call. It creates
         and configures vectorized versions of the module's states based on the
         specified axis size.
-
-        Parameters
-        ----------
-        vmap_axis : int
-            Size of the vectorization axis. Determines how many copies of the
-            states will be created for vectorized execution.
-
-        Notes
-        -----
-        This method updates ``state_in_axes`` and ``state_out_axes`` to include
-        predicates for the newly created vectorized states.
         """
-        dict_vmap_states = vmap2_new_states(
+        self.dict_vmap_states = vmap2_new_states(
             self.module,
-            dict(vmap_axis=vmap_axis),
+            kwargs,
             state_tag=self.state_tag,
-            axis_size=vmap_axis,
-            state_out_axes=self.state_out_axes
+            axis_size=self.init_map_size,
+            state_out_axes=self.init_state_axes,
         )
-        state_in_axes = self.state_in_axes
-        state_out_axes = self.state_out_axes
-
-        if state_in_axes is None:
-            state_in_axes = dict()
-        if state_out_axes is None:
-            state_out_axes = dict()
-        for k, v in tuple(state_in_axes.items()):
-            if k in dict_vmap_states:
-                state_in_axes[k] = filter.Any(v, ToPredicate(dict_vmap_states[k]))
-        for k, v in tuple(state_out_axes.items()):
-            if k in dict_vmap_states:
-                state_out_axes[k] = filter.Any(v, ToPredicate(dict_vmap_states[k]))
-        for k, v in dict_vmap_states.items():
-            if k not in state_in_axes:
-                state_in_axes[k] = ToPredicate(v)
-                state_out_axes[k] = ToPredicate(v)
-
-        self.state_out_axes = state_out_axes
-        self.state_in_axes = state_in_axes
+        self._call_state_axes = self._integrate_state_axes(self.call_state_axes)
         self._init = True
 
     def update(self, *args, **kwargs):
@@ -425,6 +439,46 @@ class Vmap2Module(Module):
             out_axes=self.out_axes,
             axis_name=self.axis_name,
             spmd_axis_name=self.spmd_axis_name,
-            state_in_axes=self.state_in_axes,
-            state_out_axes=self.state_out_axes,
+            state_in_axes=self._call_state_axes,
+            state_out_axes=self._call_state_axes,
         )(*args, **kwargs)
+
+    def vmap(
+        self,
+        fn: str,
+        in_axes: Any = 0,
+        out_axes: Any = 0,
+        axis_name: Optional[str] = None,
+        state_axes: Dict[int, Filter] = None,
+    ) -> Vmap2ModuleCaller:
+        """Access the wrapped module's methods with vectorized mapping.
+
+        Returns
+        -------
+        Vmap2ModuleCaller
+            An object that allows calling methods of the wrapped module
+            with vectorized mapping.
+
+        Examples
+        --------
+        .. code-block:: python
+
+           >>> vmapped = Vmap2Module(module, in_axes=0)
+           >>> vmapped.init_all_states(vmap_axis=10)
+           >>> outputs = vmapped.vmap('predict')(inputs)
+        """
+        try:
+            fn = getattr(self.module, fn)
+        except AttributeError:
+            raise AttributeError(f'Module has no method named {fn}.') from None
+        if not self._init:
+            raise ValueError(
+                'Vmap2Module.update called before init_all_states. Please call init_all_states first.'
+            )
+        return Vmap2ModuleCaller(
+            fn,
+            in_axes=in_axes,
+            out_axes=out_axes,
+            axis_name=axis_name,
+            state_axes=self._integrate_state_axes(state_axes),
+        )
