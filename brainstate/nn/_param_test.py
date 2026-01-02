@@ -44,13 +44,13 @@ class TestParamBasic(unittest.TestCase):
     def test_trainable_by_default(self):
         """Test that parameters are trainable by default."""
         param = Param(jnp.array([1.0]))
-        self.assertTrue(param.fit_par)
+        self.assertTrue(param.fit)
         self.assertIsInstance(param.val, brainstate.ParamState)
 
     def test_non_trainable(self):
         """Test creating non-trainable parameter."""
         param = Param(jnp.array([1.0]), fit_par=False)
-        self.assertFalse(param.fit_par)
+        self.assertFalse(param.fit)
         self.assertNotIsInstance(param.val, brainstate.State)
 
     def test_value_method(self):
@@ -205,11 +205,11 @@ class TestConst(unittest.TestCase):
     def test_not_trainable(self):
         """Test that Const is not trainable."""
         const = Const(jnp.array([1.0]))
-        self.assertFalse(const.fit_par)
+        self.assertFalse(const.fit)
 
     def test_reg_loss_zero(self):
         """Test that Const returns zero reg loss even with reg."""
-        # Const doesn't take reg parameter, so this tests the fit_par=False behavior
+        # Const doesn't take reg parameter, so this tests the fit=False behavior
         const = Const(jnp.array([1.0]))
         self.assertEqual(const.reg_loss(), 0.0)
 

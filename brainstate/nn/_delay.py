@@ -23,13 +23,13 @@ import brainunit as u
 import jax
 import jax.numpy as jnp
 import numpy as np
-
 from brainstate import environ
 from brainstate._state import ShortTermState, State, DelayState
 from brainstate.graph import Node
 from brainstate.transform import jit_error_if
 from brainstate.transform._mapping2 import INIT_NO_BATCHING
 from brainstate.typing import ArrayLike, PyTree
+
 from ._collective_ops import call_order
 from ._module import Module
 
@@ -352,7 +352,10 @@ def _get_delay(delay_time):
     if delay_time is None:
         return 0. * environ.get_dt(), 0
     delay_step = delay_time / environ.get_dt()
-    assert u.get_dim(delay_step) == u.DIMENSIONLESS
+    assert u.get_dim(delay_step) == u.DIMENSIONLESS, (
+        f'The delay_time should have time dimension. '
+        f'Got delay time unit {u.get_unit(delay_time)}, and dt unit {u.get_unit(environ.get_dt())}.'
+    )
     delay_step = jnp.ceil(delay_step).astype(environ.ditype())
     return delay_time, delay_step
 

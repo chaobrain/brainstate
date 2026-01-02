@@ -131,7 +131,7 @@ class TestParamCachingBasic(unittest.TestCase):
 
     def test_non_trainable_param_no_hooks(self):
         """Test that non-trainable params don't register hooks."""
-        param = Param(jnp.array([1.0, 2.0]), fit_par=False)
+        param = Param(jnp.array([1.0, 2.0]), fit=False)
         # Should still cache, but no hooks (no ParamState)
         self.assertIsNotNone(param._cache_lock)
         self.assertIsNone(param._cache_invalidation_hook_handle)

@@ -30,7 +30,7 @@ import jax
 import numpy as np
 
 from brainstate import environ
-from brainstate._state import ParamState, State
+from brainstate._state import ParamState, State, maybe_state
 from brainstate.typing import ArrayLike
 from ._module import Module
 from ._regularization import Regularization
@@ -61,7 +61,7 @@ class Param(Module):
         Bijective transformation to apply. Default is ``IdentityT()``.
     reg : Regularization, optional
         Regularization to apply. Default is ``None``.
-    fit_par : bool, optional
+    fit : bool, optional
         Whether the parameter is trainable. Default is ``True``.
     enable_cache_logging : bool, optional
         Whether to enable INFO-level logging for cache events. Default is ``False``.
@@ -69,7 +69,7 @@ class Param(Module):
 
     Attributes
     ----------
-    fit_par : bool
+    fit : bool
         Whether the parameter is trainable.
     t : Transform
         The bijective transformation.
@@ -121,12 +121,12 @@ class Param(Module):
         t: Transform = IdentityT(),
         reg: Optional[Regularization] = None,
         precompute: Optional[Callable] = None,
-        fit_par: bool = True,
+        fit: bool = True,
         enable_cache_logging: bool = False,
     ):
         super().__init__()
 
-        self.fit_par = fit_par
+        self.fit = fit
         self.t = t
         self.reg = reg
         assert precompute is None or callable(precompute), 'precompute must be a callable function or None.'
@@ -152,12 +152,12 @@ class Param(Module):
         if not isinstance(t, Transform):
             raise TypeError(f't must be an instance of Transform. But got {type(t)}.')
         val_tensor = t.inverse(val_tensor)
-        if fit_par:
+        if fit:
             val_tensor = ParamState(val_tensor)
         self.val = val_tensor
 
         # Register hooks for automatic cache invalidation
-        if fit_par and isinstance(self.val, State):
+        if fit and isinstance(self.val, State):
             self._cache_invalidation_hook_handle = self.val.register_hook(
                 'write_after',
                 self._on_param_state_write,
@@ -239,11 +239,6 @@ class Param(Module):
         array_like
             Parameter value in the constrained space.
         """
-        # Get unconstrained value
-        if isinstance(self.val, State):
-            val = self.val.value
-        else:
-            val = self.val
 
         # Check cache
         with self._cache_lock:
@@ -251,10 +246,12 @@ class Param(Module):
                 self._log_cache_event('hit')
                 return self._cached_value
 
-            transformed = self.t.forward(val)
-            if self.precompute is not None:
-                transformed = self.precompute(transformed)
-            return transformed
+        # Get unconstrained value
+        val = maybe_state(self.val)
+        transformed = self.t.forward(val)
+        if self.precompute is not None:
+            transformed = self.precompute(transformed)
+        return transformed
 
     def set_value(self, value: ArrayLike):
         """
@@ -268,7 +265,6 @@ class Param(Module):
         value : array_like
             New value in the constrained space.
         """
-        value = self.t.inverse(value)
 
         # Invalidate cache BEFORE writing
         with self._cache_lock:
@@ -276,6 +272,7 @@ class Param(Module):
             self._cached_value = None
             self._log_cache_event('invalidate', reason='set_value')
 
+        value = self.t.inverse(value)
         if isinstance(self.val, State):
             self.val.value = value  # This will also trigger write_after hook
         else:
@@ -291,7 +288,7 @@ class Param(Module):
             Regularization loss. Returns 0.0 for fixed parameters
             or parameters without regularization.
         """
-        if not self.fit_par:
+        if not self.fit:
             return 0.0
 
         if self.reg is None:
@@ -403,10 +400,10 @@ class Param(Module):
     def init(
         cls,
         data: Union[Callable, ArrayLike, 'Param'],
-        sizes: Union[int, Sequence[int]],
+        sizes: Union[int, Sequence[int]] = None,
         allow_none: bool = True,
         **param_kwargs,
-    ):
+    ) -> Union['Param', 'Const']:
 
         """
         Initialize parameters.
@@ -427,10 +424,6 @@ class Param(Module):
         **param_kwargs
             Additional keyword arguments passed to the initialization.
 
-        Returns
-        -------
-        param: ArrayType, float, int, bool, None
-          The initialized parameter.
         """
         # Check if the parameter is None
         if data is None:
@@ -443,11 +436,15 @@ class Param(Module):
                 )
 
         # Convert sizes to a tuple
-        sizes = tuple(_to_size(sizes))
+        if sizes is not None:
+            sizes = tuple(_to_size(sizes))
 
         if not isinstance(data, Param):
             # Check if the parameter is a callable function
             if callable(data):
+                assert sizes is not None, (
+                    'When the parameter is a callable function, the size must be provided.'
+                )
                 data = data(sizes, **param_kwargs)
             if u.math.isscalar(data):
                 pass
@@ -457,7 +454,8 @@ class Param(Module):
                 raise TypeError(f'Unknown parameter type: {type(data)}')
             data = Const(data)
 
-        _check_shape(data.value(), sizes)
+        if sizes is not None:
+            _check_shape(data.value(), sizes)
         return data
 
 
@@ -466,7 +464,7 @@ class Const(Param):
     A module has non-trainable constant parameter.
 
     A convenience class that creates a fixed (non-trainable) parameter.
-    Equivalent to ``ParamM(value, fit_par=False)``.
+    Equivalent to ``ParamM(value, fit=False)``.
 
     Parameters
     ----------
@@ -482,7 +480,7 @@ class Const(Param):
     """
 
     def __init__(self, value: ArrayLike):
-        super().__init__(value, fit_par=False)
+        super().__init__(value, fit=False)
 
 
 def _check_shape(init, sizes):
