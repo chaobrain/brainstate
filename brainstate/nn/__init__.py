@@ -25,7 +25,7 @@ from ._collective_ops import (
     reset_all_states, vmap_reset_all_states, assign_state_values,
 )
 from ._common import (
-    EnvironContext, Vmap, Vmap2Module,
+    EnvironContext, Vmap, ModuleMapper,
 )
 from ._conv import (
     Conv1d, Conv2d, Conv3d, ScaledWSConv1d, ScaledWSConv2d, ScaledWSConv3d,
@@ -40,6 +40,7 @@ from ._dropout import (
 from ._dynamics import (
     Dynamics, receive_update_output, not_receive_update_output, receive_update_input,
     not_receive_update_input, Prefetch, PrefetchDelay, PrefetchDelayAt, OutputDelayAt,
+    init_maybe_prefetch,
 )
 from ._elementwise import (
     Threshold, ReLU, RReLU, Hardtanh, ReLU6, Sigmoid, Hardsigmoid, Tanh, SiLU, Mish,
@@ -58,6 +59,9 @@ from ._event_linear import (
 )
 from ._exp_euler import (
     exp_euler_step,
+)
+from ._hidata import (
+    HiData,
 )
 from ._linear import (
     Linear, ScaledWSLinear, SignedWLinear, SparseLinear, AllToAll, OneToOne, LoRA,
@@ -80,9 +84,6 @@ from ._paddings import (
 )
 from ._param import (
     Param, Const,
-)
-from ._hidata import (
-    HiData,
 )
 from ._poolings import (
     Flatten, Unflatten, AvgPool1d, AvgPool2d, AvgPool3d, MaxPool1d, MaxPool2d, MaxPool3d,
@@ -155,7 +156,7 @@ __all__ = [
     'assign_state_values',
     'EnvironContext',
     'Vmap',
-    'Vmap2Module',
+    'ModuleMapper',
     'Conv1d',
     'Conv2d',
     'Conv3d',
@@ -184,6 +185,7 @@ __all__ = [
     'Prefetch',
     'PrefetchDelay',
     'PrefetchDelayAt',
+    'init_maybe_prefetch',
     'OutputDelayAt',
     'Threshold',
     'ReLU',

@@ -59,6 +59,7 @@ __all__ = [
     'PrefetchDelay',
     'PrefetchDelayAt',
     'OutputDelayAt',
+    'init_maybe_prefetch',
 ]
 
 
@@ -792,7 +793,7 @@ def _get_prefetch_item_delay(target: Union[Prefetch, PrefetchDelay, PrefetchDela
     return delay
 
 
-def maybe_init_prefetch(target, *args, **kwargs):
+def init_maybe_prefetch(target, *args, **kwargs):
     """
     Initialize a prefetch target if needed, based on its type.
 

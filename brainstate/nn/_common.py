@@ -20,7 +20,7 @@ from typing import Any, Sequence, Hashable, Dict, Optional, Callable
 
 from brainstate import environ
 from brainstate._state import State
-from brainstate.transform import vmap, vmap2, vmap2_new_states
+from brainstate.transform import vmap, vmap2, vmap2_new_states, pmap2, pmap2_new_states
 from brainstate.typing import Filter
 from brainstate.util import filter
 from ._module import Module
@@ -30,7 +30,7 @@ AxisName = Hashable
 __all__ = [
     'EnvironContext',
     'Vmap',
-    'Vmap2Module',
+    'ModuleMapper',
 ]
 
 
@@ -280,10 +280,11 @@ class ToPredicate:
         return id(st) in self.state_ids
 
 
-class Vmap2ModuleCaller:
+class _ModuleMapperCalling:
     def __init__(
         self,
         fn: Callable,
+        behavior: str,
         in_axes: Any = 0,
         out_axes: Any = 0,
         axis_name: Optional[str] = None,
@@ -293,8 +294,18 @@ class Vmap2ModuleCaller:
         self.out_axes = out_axes
         self.axis_name = axis_name
         self.state_axes = state_axes
+        self.behavior = behavior
 
-        self.vmap_fn = vmap2(
+        if behavior == 'vmap':
+            map_fn = vmap2
+        elif behavior == 'pmap':
+            map_fn = pmap2
+        else:
+            raise ValueError(
+                'Invalid behavior specified. Must be "vmap" or "pmap".'
+            )
+
+        self.map_fn = map_fn(
             fn,
             in_axes=in_axes,
             out_axes=out_axes,
@@ -304,10 +315,10 @@ class Vmap2ModuleCaller:
         )
 
     def __call__(self, *args, **kwargs):
-        return self.vmap_fn(*args, **kwargs)
+        return self.map_fn(*args, **kwargs)
 
 
-class Vmap2Module(Module):
+class ModuleMapper(Module):
     """
     Vectorize a module using the new ``brainstate.transform.vmap2`` interface.
 
@@ -346,26 +357,36 @@ class Vmap2Module(Module):
     --------
     .. code-block:: python
 
-       >>> from brainstate.nn import Vmap2Module
-       >>> vmapped = Vmap2Module(module, in_axes=0, axis_name="batch")
+       >>> from brainstate.nn import ModuleMapper
+       >>> vmapped = ModuleMapper(module, in_axes=0, axis_name="batch")
        >>> vmapped.init_all_states(vmap_axis=10)
        >>> outputs = vmapped.update(inputs)
     """
 
+    __module__ = 'brainstate.nn'
+
     def __init__(
         self,
         module: 'Module',
+
+        # vmap parameters for init_all_states
         init_map_size: int,
         init_state_axes: Dict[int, Filter] = None,
         state_tag: str = None,
+
+        # vmap parameters for update calls
         in_axes=0,
         out_axes=0,
         axis_name=None,
         spmd_axis_name=None,
         call_state_axes: Dict[int, Filter] = None,
+
+        # type to parallelize
+        behavior: str = 'vmap',
     ):
         super().__init__()
         assert isinstance(init_map_size, int), 'init_map_size must be an integer.'
+        assert behavior in ['vmap', 'pmap'], 'behavior must be either "vmap" or "pmap".'
         self.init_map_size = init_map_size
         self.module = module
         self.state_tag = state_tag
@@ -376,6 +397,7 @@ class Vmap2Module(Module):
         self.call_state_axes = call_state_axes
         self.init_state_axes = init_state_axes
         self.dict_vmap_states = None
+        self.behavior = behavior
 
         self._init = False
         self._call_state_axes = None
@@ -399,7 +421,16 @@ class Vmap2Module(Module):
         and configures vectorized versions of the module's states based on the
         specified axis size.
         """
-        self.dict_vmap_states = vmap2_new_states(
+        if self.behavior == 'vmap':
+            map_fn = vmap2_new_states
+        elif self.behavior == 'pmap':
+            map_fn = pmap2_new_states
+        else:
+            raise ValueError(
+                'Invalid behavior specified. Must be "vmap" or "pmap".'
+            )
+
+        self.dict_vmap_states = map_fn(
             self.module,
             kwargs,
             state_tag=self.state_tag,
@@ -431,9 +462,18 @@ class Vmap2Module(Module):
         """
         if not self._init:
             raise ValueError(
-                'Vmap2Module.update called before init_all_states. Please call init_all_states first.'
+                'ModuleMapper.update called before init_all_states. Please call init_all_states first.'
             )
-        return vmap2(
+        if self.behavior == 'vmap':
+            map_fn = vmap2
+        elif self.behavior == 'pmap':
+            map_fn = pmap2
+        else:
+            raise ValueError(
+                'Invalid behavior specified. Must be "vmap" or "pmap".'
+            )
+
+        return map_fn(
             self.module,
             in_axes=self.in_axes,
             out_axes=self.out_axes,
@@ -443,19 +483,20 @@ class Vmap2Module(Module):
             state_out_axes=self._call_state_axes,
         )(*args, **kwargs)
 
-    def vmap(
+    def map(
         self,
         fn: str,
         in_axes: Any = 0,
         out_axes: Any = 0,
         axis_name: Optional[str] = None,
         state_axes: Dict[int, Filter] = None,
-    ) -> Vmap2ModuleCaller:
-        """Access the wrapped module's methods with vectorized mapping.
+    ) -> _ModuleMapperCalling:
+        """
+        Access the wrapped module's methods with vectorized mapping.
 
         Returns
         -------
-        Vmap2ModuleCaller
+        _ModuleMapperCalling
             An object that allows calling methods of the wrapped module
             with vectorized mapping.
 
@@ -463,7 +504,7 @@ class Vmap2Module(Module):
         --------
         .. code-block:: python
 
-           >>> vmapped = Vmap2Module(module, in_axes=0)
+           >>> vmapped = ModuleMapper(module, in_axes=0)
            >>> vmapped.init_all_states(vmap_axis=10)
            >>> outputs = vmapped.vmap('predict')(inputs)
         """
@@ -473,10 +514,11 @@ class Vmap2Module(Module):
             raise AttributeError(f'Module has no method named {fn}.') from None
         if not self._init:
             raise ValueError(
-                'Vmap2Module.update called before init_all_states. Please call init_all_states first.'
+                'ModuleMapper.update called before init_all_states. Please call init_all_states first.'
             )
-        return Vmap2ModuleCaller(
+        return _ModuleMapperCalling(
             fn,
+            behavior=self.behavior,
             in_axes=in_axes,
             out_axes=out_axes,
             axis_name=axis_name,

@@ -36,7 +36,8 @@ __all__ = [
     'StatefulMapping',
     'vmap2',
     'vmap2_new_states',
-    'pmap',
+    'pmap2',
+    'pmap2_new_states',
     'map',
 ]
 
@@ -700,7 +701,7 @@ def vmap2(
 
 
 @set_module_as('brainstate.transform')
-def pmap(
+def pmap2(
     fn: Callable[[NestedDict, ...], Any] | Missing = Missing(),
     axis_name: Optional[AxisName] = None,
     *,
@@ -781,7 +782,7 @@ def pmap(
         >>>
         >>> weights = brainstate.ParamState(jnp.ones((4,)))
         >>>
-        >>> @brainstate.transform.pmap(
+        >>> @brainstate.transform.pmap2(
         ...     axis_name='devices',
         ...     in_axes=0,
         ...     out_axes=0,
@@ -807,7 +808,7 @@ def pmap(
 
     if isinstance(fn, Missing):
         return functools.partial(
-            pmap,
+            pmap2,
             axis_name=axis_name,
             in_axes=in_axes,
             out_axes=out_axes,
@@ -984,6 +985,66 @@ def map(
 
 
 @set_module_as('brainstate.transform')
+def _map_new_states(
+    map_fn: Callable,
+    module: 'Module',
+    init_kwargs: Dict,
+    state_tag: str = None,
+    axis_size: int = None,
+    state_out_axes: Dict[int, Filter] = None,
+):
+    if state_out_axes is None:
+        state_out_axes = dict()
+    if not isinstance(state_out_axes, dict):
+        state_out_axes = {0: state_out_axes}
+    # convert filters to predicates
+    state_out_axes = {k: filter.to_predicate(v) for k, v in state_out_axes.items()}
+    # ensure NonBatchState goes to None axis
+    if None not in state_out_axes:
+        state_out_axes[None] = filter.to_predicate(NonBatchState)
+    else:
+        state_out_axes[None] = filter.Any(INIT_NO_BATCHING, state_out_axes[None])
+    # ensure default axis 0
+    if 0 not in state_out_axes:
+        state_out_axes[0] = filter.to_predicate(...)
+
+    # initialize a dictionary to store vmapped states
+    dict_vmap_states = defaultdict(list)
+
+    @map_fn(axis_size=axis_size, out_axes=tuple(state_out_axes.keys()))
+    def fn_to_new_state_initialization():
+        with catch_new_states() as catcher_:
+            module.init_all_states(**init_kwargs)
+        vmap_state_vals_ = defaultdict(list)
+        for st_ in catcher_.get_states():
+            for out_axis_, predicate_ in state_out_axes.items():
+                if predicate_(tuple(), st_):
+                    vmap_state_vals_[out_axis_].append(st_.value)
+                    dict_vmap_states[out_axis_].append(st_)
+                    break
+            else:
+                vmap_state_vals_[0].append(st_.value)
+                dict_vmap_states[0].append(st_)
+        outs = tuple(vmap_state_vals_.get(k, tuple()) for k in state_out_axes)
+        return outs
+
+    # restore vmapped state values
+    with catch_new_states(state_tag):
+        tuple_vmap_state_vals = fn_to_new_state_initialization()
+    tuple_vmap_states = tuple(dict_vmap_states.get(k, tuple()) for k in state_out_axes)
+    for st_vals, states in zip(tuple_vmap_state_vals, tuple_vmap_states):
+        for val, st in zip(st_vals, states):
+            st.restore_value(val)
+            # ------------------------------------------------
+            # --- this is CRUCIAL to avoid jax tracing leakage
+            # ------------------------------------------------
+            st.decrease_stack_level()  # 'vmap2_eval' StateStackTrace
+            st.decrease_stack_level()  # 'vmap2' StateStackTrace
+
+    return dict_vmap_states
+
+
+@set_module_as('brainstate.transform')
 def vmap2_new_states(
     module: 'Module',
     init_kwargs: Dict,
@@ -1044,9 +1105,6 @@ def vmap2_new_states(
     5. Restores vectorized values to the actual state objects
     6. Adjusts state stack levels to prevent JAX tracing leakage
 
-    The returned states have their values properly vectorized and can be used
-    with :class:`~brainstate.nn.Vmap2Module` for efficient batched computations.
-
     Examples
     --------
     .. code-block:: python
@@ -1078,55 +1136,31 @@ def vmap2_new_states(
     See Also
     --------
     vmap2 : Vectorize a callable with state semantics.
-    brainstate.nn.Vmap2Module : Module wrapper for vectorized execution.
     brainstate.State : Base class for stateful objects.
     """
-    if state_out_axes is None:
-        state_out_axes = dict()
-    if not isinstance(state_out_axes, dict):
-        state_out_axes = {0: state_out_axes}
-    # convert filters to predicates
-    state_out_axes = {k: filter.to_predicate(v) for k, v in state_out_axes.items()}
-    # ensure NonBatchState goes to None axis
-    if None not in state_out_axes:
-        state_out_axes[None] = filter.to_predicate(NonBatchState)
-    else:
-        state_out_axes[None] = filter.Any(INIT_NO_BATCHING, state_out_axes[None])
-    # ensure default axis 0
-    if 0 not in state_out_axes:
-        state_out_axes[0] = filter.to_predicate(...)
+    return _map_new_states(
+        vmap2,
+        module,
+        init_kwargs,
+        state_tag=state_tag,
+        axis_size=axis_size,
+        state_out_axes=state_out_axes,
+    )
 
-    # initialize a dictionary to store vmapped states
-    dict_vmap_states = defaultdict(list)
 
-    @vmap2(axis_size=axis_size, out_axes=tuple(state_out_axes.keys()))
-    def fn_to_new_state_initialization():
-        with catch_new_states() as catcher_:
-            module.init_all_states(**init_kwargs)
-        vmap_state_vals_ = defaultdict(list)
-        for st_ in catcher_.get_states():
-            for out_axis_, predicate_ in state_out_axes.items():
-                if predicate_(tuple(), st_):
-                    vmap_state_vals_[out_axis_].append(st_.value)
-                    dict_vmap_states[out_axis_].append(st_)
-                    break
-            else:
-                vmap_state_vals_[0].append(st_.value)
-                dict_vmap_states[0].append(st_)
-        outs = tuple(vmap_state_vals_.get(k, tuple()) for k in state_out_axes)
-        return outs
-
-    # restore vmapped state values
-    with catch_new_states(state_tag):
-        tuple_vmap_state_vals = fn_to_new_state_initialization()
-    tuple_vmap_states = tuple(dict_vmap_states.get(k, tuple()) for k in state_out_axes)
-    for st_vals, states in zip(tuple_vmap_state_vals, tuple_vmap_states):
-        for val, st in zip(st_vals, states):
-            st.restore_value(val)
-            # ------------------------------------------------
-            # --- this is CRUCIAL to avoid jax tracing leakage
-            # ------------------------------------------------
-            st.decrease_stack_level()  # 'vmap2_eval' StateStackTrace
-            st.decrease_stack_level()  # 'vmap2' StateStackTrace
-
-    return dict_vmap_states
+@set_module_as('brainstate.transform')
+def pmap2_new_states(
+    module: 'Module',
+    init_kwargs: Dict,
+    state_tag: str = None,
+    axis_size: int = None,
+    state_out_axes: Dict[int, Filter] = None,
+):
+    _map_new_states(
+        pmap2,
+        module,
+        init_kwargs,
+        state_tag=state_tag,
+        axis_size=axis_size,
+        state_out_axes=state_out_axes,
+    )
