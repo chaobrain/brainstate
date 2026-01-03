@@ -87,6 +87,8 @@ class Regularization(Module, ABC):
     terms to the training loss.
     """
 
+    __module__ = 'brainstate.nn'
+
     def __init__(self, fit_hyper: bool = False):
         super().__init__()
         self.fit_hyper = fit_hyper
@@ -187,6 +189,7 @@ class ChainedReg(Regularization):
     - An empty chain will return zero loss and zero for sample_init/reset_value.
     - Each regularization is stored as a submodule for proper state management.
     """
+    __module__ = 'brainstate.nn'
 
     def __init__(
         self,
@@ -301,6 +304,7 @@ class GaussianReg(Regularization):
     >>> value = jnp.array([0.5, -0.5])
     >>> loss = reg.loss(value)
     """
+    __module__ = 'brainstate.nn'
 
     def __init__(
         self,
@@ -409,6 +413,7 @@ class L1Reg(Regularization):
     -----
     L1 regularization encourages sparsity in the parameter values.
     """
+    __module__ = 'brainstate.nn'
 
     def __init__(
         self,
@@ -506,6 +511,8 @@ class L2Reg(Regularization):
     numerically stable than L1 regularization.
     """
 
+    __module__ = 'brainstate.nn'
+
     def __init__(
         self,
         weight: float = 1.0,
@@ -600,6 +607,8 @@ class ElasticNetReg(Regularization):
     stability of L2 regularization, making it useful when there are
     correlated features.
     """
+
+    __module__ = 'brainstate.nn'
 
     def __init__(
         self,
@@ -718,6 +727,8 @@ class HuberReg(Regularization):
     more stable than L1 for small values.
     """
 
+    __module__ = 'brainstate.nn'
+
     def __init__(
         self,
         weight: float = 1.0,
@@ -823,6 +834,8 @@ class GroupLassoReg(Regularization):
     all weights connecting to one neuron) and you want entire groups
     to be zeroed out together.
     """
+
+    __module__ = 'brainstate.nn'
 
     def __init__(
         self,
@@ -935,6 +948,8 @@ class TotalVariationReg(Regularization):
     piecewise constant solutions while preserving edges.
     """
 
+    __module__ = 'brainstate.nn'
+
     def __init__(
         self,
         weight: float = 1.0,
@@ -1039,6 +1054,8 @@ class MaxNormReg(Regularization):
     Max Norm regularization is useful for constraining the capacity of
     neural networks without penalizing small weights.
     """
+
+    __module__ = 'brainstate.nn'
 
     def __init__(
         self,
@@ -1150,6 +1167,8 @@ class EntropyReg(Regularization):
     reinforcement learning to encourage exploration.
     """
 
+    __module__ = 'brainstate.nn'
+
     def __init__(
         self,
         weight: float = 1.0,
@@ -1259,6 +1278,8 @@ class OrthogonalReg(Regularization):
     helps prevent vanishing/exploding gradients. Works best with
     2D weight matrices.
     """
+
+    __module__ = 'brainstate.nn'
 
     def __init__(
         self,
@@ -1389,6 +1410,8 @@ class SpectralNormReg(Regularization):
     Spectral normalization is useful for stabilizing GAN training and
     controlling the Lipschitz constant of neural networks.
     """
+
+    __module__ = 'brainstate.nn'
 
     def __init__(
         self,
@@ -1546,6 +1569,8 @@ class StudentTReg(Regularization):
     it approaches a Gaussian distribution. df=1 gives the Cauchy distribution.
     """
 
+    __module__ = 'brainstate.nn'
+
     def __init__(
         self,
         weight: float = 1.0,
@@ -1653,6 +1678,8 @@ class CauchyReg(Regularization):
     robust but also allowing outliers. It has no defined mean or variance.
     """
 
+    __module__ = 'brainstate.nn'
+
     def __init__(
         self,
         weight: float = 1.0,
@@ -1755,6 +1782,8 @@ class UniformReg(Regularization):
     This is a soft constraint; values outside the bounds are penalized but
     not strictly prohibited.
     """
+
+    __module__ = 'brainstate.nn'
 
     def __init__(
         self,
@@ -1864,6 +1893,8 @@ class LogNormalReg(Regularization):
     such as scales or variances. Values <= 0 will produce invalid results.
     """
 
+    __module__ = 'brainstate.nn'
+
     def __init__(
         self,
         weight: float = 1.0,
@@ -1971,6 +2002,8 @@ class ExponentialReg(Regularization):
     It's the continuous analog of L1 regularization for positive parameters.
     """
 
+    __module__ = 'brainstate.nn'
+
     def __init__(
         self,
         weight: float = 1.0,
@@ -2074,6 +2107,8 @@ class GammaReg(Regularization):
     Gamma prior is flexible for positive parameters. alpha=1 gives
     exponential distribution. The mode is (alpha-1)/beta for alpha >= 1.
     """
+
+    __module__ = 'brainstate.nn'
 
     def __init__(
         self,
@@ -2188,6 +2223,8 @@ class BetaReg(Regularization):
     uniform distribution. The mode is (a-1)/(a+b-2) for a,b > 1.
     """
 
+    __module__ = 'brainstate.nn'
+
     def __init__(
         self,
         weight: float = 1.0,
@@ -2298,6 +2335,8 @@ class HorseshoeReg(Regularization):
     This is useful for sparse signal recovery and variable selection.
     """
 
+    __module__ = 'brainstate.nn'
+
     def __init__(
         self,
         weight: float = 1.0,
@@ -2401,6 +2440,8 @@ class InverseGammaReg(Regularization):
     Inverse-Gamma is commonly used as a prior for variance parameters
     in Bayesian models. The mode is beta/(alpha+1).
     """
+
+    __module__ = 'brainstate.nn'
 
     def __init__(
         self,
@@ -2514,6 +2555,8 @@ class LogUniformReg(Regularization):
     Log-uniform (Jeffreys) prior is scale-invariant and commonly used
     as a weakly informative prior for scale parameters.
     """
+
+    __module__ = 'brainstate.nn'
 
     def __init__(
         self,
@@ -2633,6 +2676,8 @@ class SpikeAndSlabReg(Regularization):
     and variable selection. The spike component encourages exact sparsity
     while the slab allows for large coefficients.
     """
+
+    __module__ = 'brainstate.nn'
 
     def __init__(
         self,
@@ -2760,6 +2805,8 @@ class DirichletReg(Regularization):
     and other probability simplexes. alpha=1 is uniform, alpha<1 encourages
     sparsity, alpha>1 encourages uniformity.
     """
+
+    __module__ = 'brainstate.nn'
 
     def __init__(
         self,

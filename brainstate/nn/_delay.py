@@ -353,7 +353,7 @@ def _get_delay(delay_time):
         return 0. * environ.get_dt(), 0
     delay_step = delay_time / environ.get_dt()
     assert u.get_dim(delay_step) == u.DIMENSIONLESS, (
-        f'The delay_time should have time dimension. '
+        f'The time_and_idx should have time dimension. '
         f'Got delay time unit {u.get_unit(delay_time)}, and dt unit {u.get_unit(environ.get_dt())}.'
     )
     delay_step = jnp.ceil(delay_step).astype(environ.ditype())
@@ -388,7 +388,7 @@ class DelayAccess(Node):
         self._delay_entry = entry
         self.delay_info = delay.register_entry(self._delay_entry, *time)
 
-    def update(self):
+    def __call__(self, *args, **kwargs):
         return self.delay.at(self._delay_entry)
 
 
@@ -486,9 +486,8 @@ class Delay(Module):
         super().__init__()
 
         # delay data
-        if init is not None:
-            if not isinstance(init, (numbers.Number, jax.Array, np.ndarray, Callable)):
-                raise TypeError(f'init should be Array, Callable, or None. But got {init}')
+        if init is not None and not isinstance(init, (numbers.Number, jax.Array, np.ndarray, Callable)):
+            raise TypeError(f'init should be Array, Callable, or None. But got {init}')
         self._init = init
         self._history = None
 
@@ -497,11 +496,11 @@ class Delay(Module):
 
         # other info
         if entries is not None:
-            for entry, delay_time in entries.items():
-                if isinstance(delay_time, (tuple, list)):
-                    self.register_entry(entry, *delay_time)
+            for entry, time_and_idx in entries.items():
+                if isinstance(time_and_idx, (tuple, list)):
+                    self.register_entry(entry, *time_and_idx)
                 else:
-                    self.register_entry(entry, delay_time)
+                    self.register_entry(entry, time_and_idx)
 
         self.take_aware_unit = take_aware_unit
         self._unit = None
@@ -550,7 +549,7 @@ class Delay(Module):
         fun = partial(self._f_to_init, length=self.max_length, batch_size=batch_size)
         self.history.value = jax.tree.map(fun, self.target_info)
 
-    def register_delay(self, *delay_time):
+    def register_delay(self, *time_and_idx):
         """
         Register delay times and update the maximum delay configuration.
 
@@ -559,7 +558,7 @@ class Delay(Module):
         delay times, ensuring all vector delays have the same size.
 
         Args:
-            *delay_time: Variable number of delay time arguments. The first argument should be
+            *time_and_idx: Variable number of delay time arguments. The first argument should be
                 the primary delay time (float, int, or array-like). Additional arguments are
                 treated as indices or secondary delay parameters. All delay times should be
                 non-negative numbers or arrays of the same size.
@@ -586,53 +585,53 @@ class Delay(Module):
             >>> delay_obj.register_delay(5.0)  # Register 5ms delay
             >>> delay_obj.register_delay(jnp.array([2.0, 3.0]), 0, 1)  # Vector delay with indices
         """
-        assert len(delay_time) >= 1, 'You should provide at least one delay time.'
-        for dt in delay_time[1:]:
+        assert len(time_and_idx) >= 1, 'You should provide at least one delay time.'
+        for dt in time_and_idx[1:]:
             assert jnp.issubdtype(u.math.get_dtype(dt), jnp.integer), f'The index should be integer. But got {dt}.'
-        if delay_time[0] is None:
+        if time_and_idx[0] is None:
             return None
         with jax.ensure_compile_time_eval():
-            time, delay_step = _get_delay(delay_time[0])
+            time, delay_step = _get_delay(time_and_idx[0])
             max_delay_step = jnp.max(delay_step)
             self.max_time = u.math.max(time)
 
             # delay variable
             if self.max_length <= max_delay_step + 1:
                 self.max_length = int(max_delay_step + 1)
-            return delay_step, *delay_time[1:]
+            return delay_step, *time_and_idx[1:]
 
-    def register_entry(self, entry: str, *delay_time) -> 'Delay':
+    def register_entry(self, entry: str, *time_and_idx) -> 'Delay':
         """
         Register an entry to access the delay data.
 
         Args:
             entry: str. The entry to access the delay data.
-            delay_time: The delay time of the entry, the first element is the delay time,
+            time_and_idx: The delay time of the entry, the first element is the delay time,
                 the second and later element is the index.
         """
         if entry in self._registered_entries:
             raise KeyError(
                 f'Entry {entry} has been registered. '
                 f'The existing delay for the key {entry} is {self._registered_entries[entry]}. '
-                f'The new delay for the key {entry} is {delay_time}. '
+                f'The new delay for the key {entry} is {time_and_idx}. '
                 f'You can use another key. '
             )
-        delay_info = self.register_delay(*delay_time)
+        delay_info = self.register_delay(*time_and_idx)
         self._registered_entries[entry] = delay_info
         return delay_info
 
-    def access(self, entry: str, *delay_time) -> DelayAccess:
+    def access(self, entry: str, *time_and_idx) -> DelayAccess:
         """
         Create a DelayAccess object for a specific delay entry and delay time.
 
         Args:
             entry (str): The name of the delay entry to access.
-            delay_time (Sequence): The delay time or parameters associated with the entry.
+            time_and_idx (Sequence): The delay time or parameters associated with the entry.
 
         Returns:
             DelayAccess: An object that provides access to the delay data for the specified entry and time.
         """
-        return DelayAccess(self, *delay_time, entry=entry)
+        return DelayAccess(self, *time_and_idx, entry=entry)
 
     def at(self, entry: str) -> ArrayLike:
         """
