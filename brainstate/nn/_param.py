@@ -479,8 +479,11 @@ class Const(Param):
     >>> const.value()
     """
 
-    def __init__(self, value: ArrayLike):
-        super().__init__(value, fit=False)
+    def __init__(self, value: ArrayLike, **param_kwargs):
+        fit = param_kwargs.pop('fit', False)
+        if fit:
+            raise ValueError('Const parameters must be non-trainable (fit=False).')
+        super().__init__(value, fit=False, **param_kwargs)
 
 
 def _check_shape(init, sizes):
