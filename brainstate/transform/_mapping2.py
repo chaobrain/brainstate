@@ -1060,83 +1060,156 @@ def vmap2_new_states(
     to create multiple copies of each state along specified axes, enabling
     efficient batched operations on modules with stateful components.
 
+    The vectorization process wraps the module's initialization in a :func:`vmap2`
+    transform, executes it in parallel across ``axis_size`` instances, and then
+    restores the vectorized state values back to the original state objects. This
+    allows subsequent operations on the module to work with batched states
+    transparently.
+
     Parameters
     ----------
     module : Module
         Module whose states should be vectorized. Must have an ``init_all_states``
-        method.
+        method that creates the states to be vectorized.
     init_kwargs : dict
         Keyword arguments forwarded to ``module.init_all_states(**init_kwargs)``
-        during the vectorized initialization.
+        during the vectorized initialization. These arguments are passed to each
+        parallel initialization call.
     state_tag : str, optional
-        Tag for identifying and grouping the newly created states. Defaults to
-        ``None``.
+        Tag for identifying and grouping the newly created states. Used by
+        BrainState's state tracking system. Defaults to ``None``.
     axis_size : int, optional
         Size of the vectorization axis. Determines how many copies of each state
-        will be created. Defaults to ``None``, which requires inference from the
-        mapped arguments.
+        will be created along the mapped axis. If ``None``, the size must be
+        inferrable from the vectorized function's execution context.
     state_out_axes : Dict[int, Filter] or Filter, optional
         Specification for how to map output states along different axes. Can be:
 
-        - A dictionary mapping axis indices (int) to filters
-        - A single filter (treated as ``{0: filter}``)
-        - ``None`` (default: all states go to axis 0, except NonBatchState)
+        - A dictionary mapping axis indices (int) to :mod:`brainstate.util.filter`
+          predicates that identify which states belong to which axis
+        - A single filter (treated as ``{0: filter}`` for convenience)
+        - ``None`` (default: all states assigned to axis 0, except
+          :class:`~brainstate.NonBatchState` which goes to axis ``None``)
 
-        Filters determine which states are assigned to which axes. States matching
+        Filters are converted to predicates via
+        :func:`brainstate.util.filter.to_predicate`. States matching
         :class:`~brainstate.NonBatchState` are automatically assigned to axis
-        ``None`` (not batched).
+        ``None`` (unbatched) regardless of other specifications.
 
     Returns
     -------
     dict[int, list[State]]
         Dictionary mapping axis indices to lists of vectorized states. Keys are
         the axis indices specified in ``state_out_axes`` (plus ``None`` for
-        non-batched states), and values are lists of state objects with their
-        values set to the vectorized arrays.
+        non-batched states), and values are lists of :class:`~brainstate.State`
+        objects with their ``.value`` attributes set to the vectorized arrays.
+
+    Raises
+    ------
+    ValueError
+        If state assignment is ambiguous or if ``axis_size`` cannot be inferred.
 
     Notes
     -----
-    This function performs several critical operations:
+    **Initialization Process:**
 
-    1. Wraps ``module.init_all_states`` in a :func:`vmap2` call
+    1. Wraps ``module.init_all_states`` in a :func:`vmap2` transform
     2. Executes the initialization ``axis_size`` times in parallel
-    3. Captures all newly created states
+    3. Captures all newly created states using :func:`catch_new_states`
     4. Assigns states to axes based on ``state_out_axes`` predicates
     5. Restores vectorized values to the actual state objects
     6. Adjusts state stack levels to prevent JAX tracing leakage
 
+    **State Axis Assignment:**
+
+    States are assigned to axes in priority order:
+
+    - First, :class:`~brainstate.NonBatchState` → axis ``None`` (unbatched)
+    - Then, states matching custom filters in ``state_out_axes``
+    - Finally, remaining states → axis 0 (default batch axis)
+
+    **Critical Implementation Detail:**
+
+    After restoring values, the function decreases the stack level twice on each
+    state to prevent JAX tracing leakage. This is necessary because the
+    :func:`vmap2` transform creates two nested state trace contexts
+    (``'vmap2_eval'`` and ``'vmap2'``) that must be unwound.
+
     Examples
     --------
+    **Basic vectorization with default axis:**
+
     .. code-block:: python
 
         >>> import brainstate
         >>> import jax.numpy as jnp
+        >>>
+        >>> class Counter(brainstate.nn.Module):
+        ...     def init_state(self):
+        ...         self.count = brainstate.ShortTermState(jnp.array(0))
+        >>>
+        >>> module = Counter()
+        >>> vmap_states = brainstate.transform.vmap2_new_states(
+        ...     module,
+        ...     init_kwargs={},
+        ...     axis_size=5
+        ... )
+        >>> module.count.value.shape
+        (5,)
+
+    **Custom axis assignment with filters:**
+
+    .. code-block:: python
+
         >>> from brainstate.util.filter import OfType
         >>>
         >>> class MyModule(brainstate.nn.Module):
-        ...     def __init__(self, input_size):
-        ...         super().__init__()
-        ...         self.input_size = input_size
-        ...
-        ...     def init_state(self, axis):
-        ...         self.weight = brainstate.ParamState(jnp.zeros(self.input_size))
+        ...     def init_state(self, size):
+        ...         self.weight = brainstate.ParamState(jnp.zeros(size))
         ...         self.counter = brainstate.ShortTermState(0)
         >>>
         >>> module = MyModule()
         >>> vmap_states = brainstate.transform.vmap2_new_states(
         ...     module,
-        ...     init_kwargs={'axis': 10},
+        ...     init_kwargs={'size': 10},
         ...     axis_size=5,
-        ...     state_out_axes={1: OfType(brainstate.ParamState)}
+        ...     state_out_axes={
+        ...         1: OfType(brainstate.ParamState),  # weights on axis 1
+        ...         0: OfType(brainstate.ShortTermState),  # counter on axis 0
+        ...     }
         ... )
-        >>> # module.weight.value now has shape (10, 5)
-        >>> module.weight.value.shape
+        >>> module.weight.value.shape  # (size, axis_size)
         (10, 5)
+        >>> module.counter.value.shape  # (axis_size,)
+        (5,)
+
+    **Non-batched states:**
+
+    .. code-block:: python
+
+        >>> class MixedModule(brainstate.nn.Module):
+        ...     def init_state(self):
+        ...         self.batched = brainstate.ShortTermState(0)
+        ...         self.shared = brainstate.NonBatchState(jnp.array([1, 2, 3]))
+        >>>
+        >>> module = MixedModule()
+        >>> vmap_states = brainstate.transform.vmap2_new_states(
+        ...     module,
+        ...     init_kwargs={},
+        ...     axis_size=5
+        ... )
+        >>> module.batched.value.shape  # batched across 5 instances
+        (5,)
+        >>> module.shared.value.shape  # not batched
+        (3,)
 
     See Also
     --------
     vmap2 : Vectorize a callable with state semantics.
+    pmap2_new_states : Parallel version for multi-device initialization.
     brainstate.State : Base class for stateful objects.
+    brainstate.NonBatchState : Marker for states that should not be batched.
+    catch_new_states : Context manager for capturing newly created states.
     """
     return _map_new_states(
         vmap2,
@@ -1156,7 +1229,201 @@ def pmap2_new_states(
     axis_size: int = None,
     state_out_axes: Dict[int, Filter] = None,
 ):
-    _map_new_states(
+    """
+    Initialize and parallelize newly created states across multiple devices.
+
+    This function creates device-replicated or device-sharded versions of all
+    states initialized by ``module.init_all_states(**init_kwargs)``. It uses
+    :func:`pmap2` to distribute state initialization across multiple devices,
+    enabling efficient multi-device parallelism for modules with stateful
+    components.
+
+    The parallelization process wraps the module's initialization in a
+    :func:`pmap2` transform, executes it in parallel across ``axis_size`` devices,
+    and then restores the device-distributed state values back to the original
+    state objects. This allows subsequent operations on the module to work with
+    device-parallelized states transparently.
+
+    Parameters
+    ----------
+    module : Module
+        Module whose states should be parallelized across devices. Must have an
+        ``init_all_states`` method that creates the states to be distributed.
+    init_kwargs : dict
+        Keyword arguments forwarded to ``module.init_all_states(**init_kwargs)``
+        during the parallel initialization. These arguments are passed to each
+        device's initialization call.
+    state_tag : str, optional
+        Tag for identifying and grouping the newly created states. Used by
+        BrainState's state tracking system. Defaults to ``None``.
+    axis_size : int, optional
+        Size of the parallel axis, typically the number of devices to map over.
+        If ``None``, defaults to the number of available devices (e.g.,
+        ``jax.local_device_count()``).
+    state_out_axes : Dict[int, Filter] or Filter, optional
+        Specification for how to distribute output states across devices and axes.
+        Can be:
+
+        - A dictionary mapping axis indices (int) to :mod:`brainstate.util.filter`
+          predicates that identify which states are distributed along which axis
+        - A single filter (treated as ``{0: filter}`` for convenience)
+        - ``None`` (default: all states distributed along axis 0, except
+          :class:`~brainstate.NonBatchState` which is replicated)
+
+        Filters are converted to predicates via
+        :func:`brainstate.util.filter.to_predicate`. States matching
+        :class:`~brainstate.NonBatchState` are automatically replicated
+        (axis ``None``) across all devices regardless of other specifications.
+
+    Returns
+    -------
+    dict[int, list[State]]
+        Dictionary mapping axis indices to lists of parallelized states. Keys are
+        the axis indices specified in ``state_out_axes`` (plus ``None`` for
+        replicated states), and values are lists of :class:`~brainstate.State`
+        objects with their ``.value`` attributes set to device-distributed arrays.
+
+    Raises
+    ------
+    ValueError
+        If state assignment is ambiguous, if ``axis_size`` exceeds available
+        devices, or if device configuration is invalid.
+
+    Notes
+    -----
+    **Initialization Process:**
+
+    1. Wraps ``module.init_all_states`` in a :func:`pmap2` transform
+    2. Executes the initialization on ``axis_size`` devices in parallel
+    3. Captures all newly created states using :func:`catch_new_states`
+    4. Assigns states to axes based on ``state_out_axes`` predicates
+    5. Restores device-distributed values to the actual state objects
+    6. Adjusts state stack levels to prevent JAX tracing leakage
+
+    **State Device Distribution:**
+
+    States are assigned to axes (and thus distributed across devices) in priority
+    order:
+
+    - First, :class:`~brainstate.NonBatchState` → axis ``None`` (replicated)
+    - Then, states matching custom filters in ``state_out_axes``
+    - Finally, remaining states → axis 0 (default device-parallel axis)
+
+    **Device Semantics:**
+
+    - Axis 0 (default): States are sharded across devices along the first dimension
+    - Axis ``None``: States are replicated identically on all devices
+    - Custom axes: States can be sharded along different dimensions based on filters
+
+    **Multi-Host Considerations:**
+
+    In multi-host setups, ``axis_size`` typically corresponds to the local device
+    count. The devices must be specified consistently across all hosts when using
+    explicit device lists with :func:`pmap2`.
+
+    Examples
+    --------
+    **Basic parallel initialization:**
+
+    .. code-block:: python
+
+        >>> import brainstate
+        >>> import jax
+        >>> import jax.numpy as jnp
+        >>>
+        >>> class ParallelCounter(brainstate.nn.Module):
+        ...     def init_state(self):
+        ...         self.count = brainstate.ShortTermState(jnp.array(0))
+        >>>
+        >>> module = ParallelCounter()
+        >>> pmap_states = brainstate.transform.pmap2_new_states(
+        ...     module,
+        ...     init_kwargs={},
+        ...     axis_size=jax.local_device_count()
+        ... )
+        >>> module.count.value.shape
+        (jax.local_device_count(),)
+
+    **Parallel model with device-sharded parameters:**
+
+    .. code-block:: python
+
+        >>> from brainstate.util.filter import OfType
+        >>>
+        >>> class ParallelModel(brainstate.nn.Module):
+        ...     def init_state(self, layer_size):
+        ...         self.weight = brainstate.ParamState(
+        ...             jax.random.normal(jax.random.PRNGKey(0), (layer_size,))
+        ...         )
+        ...         self.bias = brainstate.ParamState(jnp.zeros(layer_size))
+        >>>
+        >>> model = ParallelModel()
+        >>> n_devices = jax.local_device_count()
+        >>> pmap_states = brainstate.transform.pmap2_new_states(
+        ...     model,
+        ...     init_kwargs={'layer_size': 128},
+        ...     axis_size=n_devices,
+        ...     state_out_axes={0: OfType(brainstate.ParamState)}
+        ... )
+        >>> # Parameters are sharded across devices
+        >>> model.weight.value.shape
+        (n_devices, 128)
+
+    **Mixed replicated and sharded states:**
+
+    .. code-block:: python
+
+        >>> class MixedParallelModule(brainstate.nn.Module):
+        ...     def init_state(self):
+        ...         # Sharded state (different on each device)
+        ...         self.local_state = brainstate.ShortTermState(jnp.array(0))
+        ...         # Replicated state (same on all devices)
+        ...         self.global_config = brainstate.NonBatchState(
+        ...             jnp.array([1.0, 2.0, 3.0])
+        ...         )
+        >>>
+        >>> module = MixedParallelModule()
+        >>> pmap_states = brainstate.transform.pmap2_new_states(
+        ...     module,
+        ...     init_kwargs={},
+        ...     axis_size=jax.local_device_count()
+        ... )
+        >>> module.local_state.value.shape  # sharded
+        (jax.local_device_count(),)
+        >>> module.global_config.value.shape  # replicated (not sharded)
+        (3,)
+
+    **Using with ModuleMapper for data parallelism:**
+
+    .. code-block:: python
+
+        >>> from brainstate.nn import ModuleMapper
+        >>>
+        >>> model = ParallelModel()
+        >>> pmapper = ModuleMapper(
+        ...     model,
+        ...     init_map_size=jax.local_device_count(),
+        ...     behavior='pmap',
+        ...     axis_name='devices'
+        ... )
+        >>> pmapper.init_all_states(layer_size=128)
+        >>> # Data-parallel training across devices
+        >>> batch_per_device = inputs.shape[0] // jax.local_device_count()
+        >>> sharded_inputs = inputs.reshape(
+        ...     jax.local_device_count(), batch_per_device, -1
+        ... )
+        >>> outputs = pmapper.update(sharded_inputs)
+
+    See Also
+    --------
+    pmap2 : Parallel mapping across devices with state semantics.
+    vmap2_new_states : Vectorized version for single-device batching.
+    brainstate.State : Base class for stateful objects.
+    brainstate.NonBatchState : Marker for states that should be replicated.
+    jax.pmap : Underlying JAX parallel mapping primitive.
+    catch_new_states : Context manager for capturing newly created states.
+    """
+    return _map_new_states(
         pmap2,
         module,
         init_kwargs,

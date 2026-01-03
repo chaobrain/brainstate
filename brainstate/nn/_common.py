@@ -320,47 +320,138 @@ class _ModuleMapperCalling:
 
 class ModuleMapper(Module):
     """
-    Vectorize a module using the new ``brainstate.transform.vmap2`` interface.
+    Vectorize or parallelize a module using ``brainstate.transform.vmap2`` or ``pmap2``.
 
-    This is an enhanced vectorization wrapper that provides more control over
-    state management during vectorized mapping. Unlike ``Vmap``, this class
-    requires explicit initialization of vectorized states before use.
+    This wrapper provides enhanced control over state management during vectorized
+    or parallel mapping operations. Unlike ``Vmap``, ``ModuleMapper`` requires
+    explicit initialization of vectorized states before use, enabling fine-grained
+    control over how states are distributed across mapping axes.
+
+    The class supports two modes of operation:
+
+    - ``behavior='vmap'``: Vectorized mapping using :func:`vmap2` for single-device batching
+    - ``behavior='pmap'``: Parallel mapping using :func:`pmap2` for multi-device parallelization
 
     Parameters
     ----------
     module : Module
-        Module to wrap with vectorized mapping.
+        Module to wrap with vectorized or parallel mapping.
+    init_map_size : int
+        Size of the mapping axis used during state initialization. This determines
+        how many copies of each state will be created.
+    init_state_axes : Dict[int, Filter], optional
+        Dictionary mapping axis indices to filters for state initialization.
+        Controls how newly created states are distributed across axes. Defaults to
+        ``None``, which assigns all states to axis 0 except :class:`NonBatchState`.
     state_tag : str, optional
         Tag for identifying and grouping states during vectorization.
         Defaults to ``None``.
     in_axes : int or Sequence[Any], optional
-        Specification for mapping over inputs. Defaults to ``0``.
+        Specification for mapping over inputs during ``update`` calls, following
+        the semantics of :func:`jax.vmap`. Defaults to ``0``.
     out_axes : Any, optional
-        Specification for mapping over outputs. Defaults to ``0``.
+        Specification for mapping over outputs during ``update`` calls.
+        Defaults to ``0``.
     axis_name : AxisName or None, optional
-        Name of the axis being mapped. Defaults to ``None``.
+        Name of the mapped axis used by collective primitives (e.g., ``lax.psum``).
+        Defaults to ``None``.
     spmd_axis_name : AxisName or None, optional
-        Name for SPMD (Single Program Multiple Data) axis. Defaults to ``None``.
-    state_in_axes : Dict[int, Filter], optional
-        Dictionary mapping axes to filters for input states. Specifies how
-        input states should be mapped over different axes. Defaults to ``None``.
-    state_out_axes : Dict[int, Filter], optional
-        Dictionary mapping axes to filters for output states. Specifies how
-        output states should be mapped over different axes. Defaults to ``None``.
+        Name for SPMD (Single Program Multiple Data) axis when using nested
+        mapping transforms. Defaults to ``None``.
+    call_state_axes : Dict[int, Filter], optional
+        Dictionary mapping axes to filters for states during ``update`` calls.
+        Specifies how states should be mapped over different axes. This is
+        automatically integrated with states created during initialization.
+        Defaults to ``None``.
+    behavior : {'vmap', 'pmap'}, default 'vmap'
+        Type of parallelization to use. ``'vmap'`` for vectorized single-device
+        mapping, ``'pmap'`` for multi-device parallel mapping.
+
+    Attributes
+    ----------
+    module : Module
+        The wrapped module being vectorized or parallelized.
+    init_map_size : int
+        Size of the mapping axis for state initialization.
+    dict_vmap_states : dict[int, list[State]] or None
+        Dictionary mapping axis indices to lists of vectorized states, populated
+        after calling :meth:`init_all_states`.
+
+    Raises
+    ------
+    ValueError
+        If ``behavior`` is not ``'vmap'`` or ``'pmap'``, or if ``update`` is called
+        before :meth:`init_all_states`.
+    AssertionError
+        If ``init_map_size`` is not an integer.
 
     Notes
     -----
-    This module requires calling ``init_all_states`` before the first ``update``
-    call. Failure to do so will raise a ValueError.
+    This module requires calling :meth:`init_all_states` before the first
+    :meth:`update` call. The initialization process:
+
+    1. Calls ``module.init_all_states(**kwargs)`` under vectorized/parallel mapping
+    2. Captures all newly created states
+    3. Distributes states across axes based on ``init_state_axes``
+    4. Integrates these states into ``call_state_axes`` for subsequent ``update`` calls
 
     Examples
     --------
+    **Basic vectorized mapping:**
+
     .. code-block:: python
 
+       >>> import brainstate
        >>> from brainstate.nn import ModuleMapper
-       >>> vmapped = ModuleMapper(module, in_axes=0, axis_name="batch")
-       >>> vmapped.init_all_states(vmap_axis=10)
-       >>> outputs = vmapped.update(inputs)
+       >>> from brainstate.util.filter import OfType
+       >>>
+       >>> class MyModule(brainstate.nn.Module):
+       ...     def init_state(self, size):
+       ...         self.weight = brainstate.ParamState(jnp.zeros(size))
+       ...     def update(self, x):
+       ...         return x @ self.weight.value
+       >>>
+       >>> module = MyModule()
+       >>> vmapper = ModuleMapper(
+       ...     module,
+       ...     init_map_size=10,
+       ...     in_axes=0,
+       ...     axis_name="batch"
+       ... )
+       >>> vmapper.init_all_states(size=(5,))  # Creates 10 copies of the state
+       >>> outputs = vmapper.update(inputs)  # inputs.shape = (10, 5)
+
+    **Parallel mapping across devices:**
+
+    .. code-block:: python
+
+       >>> import jax
+       >>> pmapper = ModuleMapper(
+       ...     module,
+       ...     init_map_size=jax.device_count(),
+       ...     behavior='pmap',
+       ...     axis_name="devices"
+       ... )
+       >>> pmapper.init_all_states(size=(5,))
+       >>> # inputs replicated across devices
+       >>> outputs = pmapper.update(inputs)
+
+    **Mapping custom module methods:**
+
+    .. code-block:: python
+
+       >>> vmapper = ModuleMapper(module, init_map_size=10)
+       >>> vmapper.init_all_states(size=(5,))
+       >>> # Call a specific method with custom mapping
+       >>> predictions = vmapper.map('predict', in_axes=0)(inputs)
+
+    See Also
+    --------
+    brainstate.transform.vmap2 : Vectorized mapping with state semantics.
+    brainstate.transform.pmap2 : Parallel mapping across devices.
+    brainstate.transform.vmap2_new_states : Initialize vectorized states.
+    brainstate.transform.pmap2_new_states : Initialize parallel states.
+    Vmap : Simpler vectorization wrapper without explicit state initialization.
     """
 
     __module__ = 'brainstate.nn'
@@ -401,6 +492,15 @@ class ModuleMapper(Module):
 
         self._init = False
         self._call_state_axes = None
+
+    def __pretty_repr_item__(self, name, value):
+        if name in [
+            '_init',
+            'dict_vmap_states',
+            '_call_state_axes'
+        ]:
+            return None
+        return name, value
 
     def _integrate_state_axes(self, call_state_axes):
         if call_state_axes is None:
