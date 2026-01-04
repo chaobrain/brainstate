@@ -240,7 +240,11 @@ class GradientTransform(PrettyRepr):
                 other_vals[id_] = st.value
         if len(all_ids):
             if self.check_states:
-                err = f"Some states are not found in the state trace when performing gradient transformations.\n "
+                err = (
+                    f"Some states are not found in the state trace when performing gradient transformations.\n "
+                    f"You can turn off this check by setting `check_states=False` in "
+                    f"GradientTransform` initialization. Missing states: "
+                )
                 for i, id_ in enumerate(all_ids):
                     st = self._grad_id_to_state[id_]
                     st.raise_error_with_source_info(ValueError(err + str(st)))
