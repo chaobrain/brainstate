@@ -26,6 +26,7 @@ The basic classes include:
 
 """
 
+from contextlib import contextmanager
 from typing import Sequence, Optional, Tuple, Union, TYPE_CHECKING, Callable, Iterable, Iterator
 
 import numpy as np
@@ -473,18 +474,90 @@ class Module(Node, ParamDesc):
         losses = [param.reg_loss() for param in param_dict]
         return sum(losses)
 
+    @contextmanager
     def param_precompute(
         self,
-        cache: bool = True,
         allowed_hierarchy: Tuple[int, int] = (0, max_int),
     ):
         """
-        Cache all Param parameters in this module and children.
+        Context manager to temporarily cache all Param parameters.
+
+        This context manager warms up (caches) all parameter transformations
+        on entry and clears all caches on exit, ensuring efficient computation
+        within the context while maintaining clean state outside.
+
+        Parameters
+        ----------
+        allowed_hierarchy : tuple of int, optional
+            The hierarchy range of parameters to cache, specified as (min_level, max_level).
+            Default is (0, max_int) to cache all parameters at all levels.
+
+        Yields
+        ------
+        None
+            This context manager doesn't yield any value but provides
+            a cached parameter environment for the enclosed code block.
+
+        Examples
+        --------
+        Cache all parameters during computation:
+
+        >>> class MyModule(brainstate.nn.Module):
+        ...     def __init__(self):
+        ...         super().__init__()
+        ...         self.param = brainstate.nn.Param(
+        ...             jnp.ones(100),
+        ...             t=brainstate.nn.SoftplusT()
+        ...         )
+
+        >>> model = MyModule()
+        >>> with model.param_precompute():
+        ...     # First access computes and caches
+        ...     val1 = model.param.value()
+        ...     # Subsequent accesses use cache (fast!)
+        ...     val2 = model.param.value()
+        ...     val3 = model.param.value()
+        >>> # Cache is automatically cleared here
+
+        Cache only immediate child parameters:
+
+        >>> with model.param_precompute(allowed_hierarchy=(1, 1)):
+        ...     # Only level-1 params are cached
+        ...     result = model(input_data)
+
+        Exception safety - cache is cleared even on errors:
+
+        >>> try:
+        ...     with model.param_precompute():
+        ...         result = model(data)
+        ...         raise ValueError("Something went wrong")
+        ... except ValueError:
+        ...     pass
+        >>> # Parameter caches are still cleared
+
+        Notes
+        -----
+        - The context manager is thread-safe (Param's cache uses RLock)
+        - Caches are automatically invalidated on parameter updates
+        - Exception safety is guaranteed - caches are cleared even if
+          exceptions occur within the context
+        - For performance-critical code, cache all parameters before
+          entering a tight loop or JIT-compiled function
+
+        See Also
+        --------
+        Param.cache : Manually cache a single parameter
+        Param.clear_cache : Manually clear a single parameter's cache
         """
+        # Cache all parameters in the hierarchy
         for par_module in self.param_modules(allowed_hierarchy=allowed_hierarchy):
-            if cache:
-                par_module.cache()
-            else:
+            par_module.cache()
+
+        try:
+            yield
+        finally:
+            # Always clear caches on exit, even if exception occurred
+            for par_module in self.param_modules(allowed_hierarchy=allowed_hierarchy):
                 par_module.clear_cache()
 
     def init_state(self, *args, **kwargs):

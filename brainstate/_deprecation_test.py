@@ -51,8 +51,7 @@ class TestDeprecatedAugmentModule(unittest.TestCase):
         # Check that expected APIs are available
         expected_apis = [
             'GradientTransform', 'grad', 'vector_grad', 'hessian', 'jacobian',
-            'jacrev', 'jacfwd', 'vmap', 'pmap', 'map',
-            'vmap_new_states',
+            'jacrev', 'jacfwd', 'vmap',
         ]
 
         for api in expected_apis:
@@ -1380,9 +1379,6 @@ class TestDeprecatedAugment(unittest.TestCase):
             'jacrev',
             'jacfwd',
             'vmap',
-            'pmap',
-            'map',
-            'vmap_new_states',
         ]
 
         for func_name in augment_funcs:
@@ -1471,13 +1467,6 @@ class TestDeprecatedAugment(unittest.TestCase):
             vmap = brainstate.augment.vmap
             self.assertIsNotNone(vmap)
 
-            # Test pmap
-            pmap = brainstate.augment.pmap
-            self.assertIsNotNone(pmap)
-
-            # Test map
-            map_func = brainstate.augment.map
-            self.assertIsNotNone(map_func)
 
     def test_vmap_function(self):
         """Test vmap function functionality."""
@@ -1490,16 +1479,6 @@ class TestDeprecatedAugment(unittest.TestCase):
             self.assertIsNotNone(vmap)
             # Just check that it's callable
             self.assertTrue(callable(vmap))
-
-    def test_vmap_new_states(self):
-        """Test vmap_new_states function."""
-        with warnings.catch_warnings(record=True):
-            warnings.simplefilter("always")
-            import brainstate
-
-            # Test vmap_new_states
-            vmap_new_states = brainstate.augment.vmap_new_states
-            self.assertIsNotNone(vmap_new_states)
 
     def test_module_attributes(self):
         """Test module-level attributes."""

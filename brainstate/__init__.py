@@ -94,10 +94,7 @@ _augment_apis = {
     'jacobian': 'brainstate.transform._autograd',
     'jacrev': 'brainstate.transform._autograd',
     'jacfwd': 'brainstate.transform._autograd',
-    'vmap': 'brainstate.transform._mapping',
-    'pmap': 'brainstate.transform._mapping',
-    'map': 'brainstate.transform._mapping',
-    'vmap_new_states': 'brainstate.transform._mapping',
+    'vmap': 'brainstate.transform._mapping1',
 }
 
 augment = create_deprecated_module_proxy(

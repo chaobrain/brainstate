@@ -5,7 +5,7 @@ import jax.numpy as jnp
 
 import brainstate
 import brainstate.random
-from brainstate.transform import StatefulMapping, vmap2, vmap_new_states, pmap, map
+from brainstate.transform import StatefulMapping, vmap2, vmap_new_states, pmap2, map
 from brainstate.util import filter
 
 
@@ -99,7 +99,7 @@ class TestPmapIntegration(unittest.TestCase):
     def test_pmap_stateful_execution(self):
         param = brainstate.ParamState(jnp.ones((4,)))
 
-        @pmap(
+        @pmap2(
             in_axes=0,
             out_axes=0,
             axis_name='devices',

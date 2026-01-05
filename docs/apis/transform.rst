@@ -298,6 +298,9 @@ with enhanced state handling and control over batching axes.
 
    vmap
    vmap2
+   vmap_new_states
+   vmap2_new_states
+   map
 
 
 Parallel and Sequential Mapping
@@ -308,21 +311,8 @@ Execute computations in parallel across devices or sequentially with batching.
 .. autosummary::
    :toctree: generated/
 
-   pmap
-   map
-
-
-State Initialization
-~~~~~~~~~~~~~~~~~~~~
-
-Initialize and vectorize newly created states within mapped computations.
-
-.. autosummary::
-   :toctree: generated/
-
-   vmap_new_states
-   vmap2_new_states
-
+   pmap2
+   pmap2_new_states
 
 
 

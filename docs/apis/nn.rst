@@ -133,7 +133,7 @@ Common Wrappers
 ---------------
 
 Utility wrappers for context management and vectorization. ``EnvironContext`` manages
-environment-specific configurations, while ``Vmap`` and ``Vmap2Module`` enable efficient
+environment-specific configurations, while ``Vmap`` and ``ModuleMapper`` enable efficient
 batching and vectorization of module operations across multiple inputs.
 
 .. autosummary::
@@ -143,7 +143,7 @@ batching and vectorization of module operations across multiple inputs.
 
    EnvironContext
    Vmap
-   Vmap2Module
+   ModuleMapper
 
 Linear Layers
 -------------

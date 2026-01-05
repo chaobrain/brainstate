@@ -124,7 +124,7 @@ class Transform(ABC):
     ...     def inverse(self, y):
     ...         return jnp.sqrt(y)
     """
-    __module__ = 'braintools.param'
+    __module__ = 'brainstate.nn'
 
     def __repr__(self) -> str:
         """Return a string representation of the transform."""
@@ -248,7 +248,7 @@ class Transform(ABC):
 
 class IdentityT(Transform):
     """Identity transformation (no-op)."""
-    __module__ = 'braintools.param'
+    __module__ = 'brainstate.nn'
 
     def __repr__(self):
         return "IdentityT()"
@@ -321,7 +321,7 @@ class SigmoidT(Transform):
     >>> y = transform.forward(x)
     >>> # y ≈ [0.0]
     """
-    __module__ = 'braintools.param'
+    __module__ = 'brainstate.nn'
 
     def __init__(self, lower: ArrayLike, upper: ArrayLike) -> None:
         r"""
@@ -455,7 +455,7 @@ class SoftplusT(Transform):
     >>> y = transform.forward(x)
     >>> # y ≈ [2.693]
     """
-    __module__ = 'braintools.param'
+    __module__ = 'brainstate.nn'
 
     def __init__(self, lower: ArrayLike) -> None:
         """
@@ -582,7 +582,7 @@ class NegSoftplusT(SoftplusT):
     >>> y = transform.forward(x)
     >>> # y ≈ [-2.693]
     """
-    __module__ = 'braintools.param'
+    __module__ = 'brainstate.nn'
 
     def __init__(self, upper: ArrayLike) -> None:
         """
@@ -655,7 +655,7 @@ class LogT(Transform):
     lower : array_like
         Lower bound of the target interval.
     """
-    __module__ = 'braintools.param'
+    __module__ = 'brainstate.nn'
 
     def __init__(self, lower: ArrayLike) -> None:
         super().__init__()
@@ -682,7 +682,7 @@ class ExpT(Transform):
 
     Equivalent to Log; provided for explicit naming.
     """
-    __module__ = 'braintools.param'
+    __module__ = 'brainstate.nn'
 
     def __init__(self, lower: ArrayLike) -> None:
         super().__init__()
@@ -710,7 +710,7 @@ class TanhT(Transform):
     y = lower + width * (tanh(x) + 1) / 2
     x = arctanh(2 * (y - lower) / width - 1)
     """
-    __module__ = 'braintools.param'
+    __module__ = 'brainstate.nn'
 
     def __init__(self, lower: ArrayLike, upper: ArrayLike) -> None:
         super().__init__()
@@ -736,7 +736,7 @@ class SoftsignT(Transform):
     y = lower + width * (x / (1 + |x|) + 1) / 2
     x = z / (1 - |z|), where z = 2 * (y - lower) / width - 1, z in (-1, 1)
     """
-    __module__ = 'braintools.param'
+    __module__ = 'brainstate.nn'
 
     def __init__(self, lower: ArrayLike, upper: ArrayLike) -> None:
         super().__init__()
@@ -798,7 +798,7 @@ class ClipT(Transform):
     >>> y = transform.forward(x)
     >>> # y = [0.0, 0.5, 1.0]
     """
-    __module__ = 'braintools.param'
+    __module__ = 'brainstate.nn'
 
     def __init__(self, lower: ArrayLike, upper: ArrayLike) -> None:
         """
@@ -911,7 +911,7 @@ class AffineT(Transform):
     >>> fahrenheit = transform.forward(celsius)
     >>> # fahrenheit ≈ [32.0, 212.0]
     """
-    __module__ = 'braintools.param'
+    __module__ = 'brainstate.nn'
 
     def __init__(self, scale: ArrayLike, shift: ArrayLike):
         """
@@ -1027,7 +1027,7 @@ class ChainT(Transform):
     >>> softplus = SoftplusT(0)
     >>> chain = ChainT(standardize, softplus)
     """
-    __module__ = 'braintools.param'
+    __module__ = 'brainstate.nn'
 
     def __init__(self, *transforms: Sequence[Transform]) -> None:
         """
@@ -1174,7 +1174,7 @@ class MaskedT(Transform):
     >>> sigmoid = SigmoidT(-1, 1)
     >>> transform = MaskedT(corr_mask, sigmoid)
     """
-    __module__ = 'braintools.param'
+    __module__ = 'brainstate.nn'
 
     def __init__(self, mask: ArrayLike, transform: Transform) -> None:
         """
@@ -1290,7 +1290,7 @@ class PositiveT(Transform):
     >>> y = transform.forward(x)
     >>> # y ≈ [0.368, 1.0, 2.718]
     """
-    __module__ = 'braintools.param'
+    __module__ = 'brainstate.nn'
 
     def __init__(self) -> None:
         """Initialize the positive transformation."""
@@ -1336,7 +1336,7 @@ class NegativeT(Transform):
     >>> y = transform.forward(x)
     >>> # y ≈ [-5.007, -0.693, -0.007]
     """
-    __module__ = 'braintools.param'
+    __module__ = 'brainstate.nn'
 
     def __init__(self) -> None:
         """Initialize the negative transformation."""
@@ -1392,7 +1392,7 @@ class ScaledSigmoidT(Transform):
     >>> # Smooth sigmoid
     >>> transform_smooth = ScaledSigmoidT(0.0, 1.0, beta=0.5)
     """
-    __module__ = 'braintools.param'
+    __module__ = 'brainstate.nn'
 
     def __init__(self, lower: ArrayLike, upper: ArrayLike, beta: float = 1.0) -> None:
         """
@@ -1471,7 +1471,7 @@ class PowerT(Transform):
     >>> y = transform.forward(x)
     >>> # y ≈ [0, 2, 4]
     """
-    __module__ = 'braintools.param'
+    __module__ = 'brainstate.nn'
 
     def __init__(self, lmbda: float = 0.5) -> None:
         """
@@ -1525,7 +1525,7 @@ class OrderedT(Transform):
     >>> # y is monotonically increasing
     >>> assert jnp.all(jnp.diff(y) > 0)
     """
-    __module__ = 'braintools.param'
+    __module__ = 'brainstate.nn'
 
     def __init__(self) -> None:
         """Initialize the ordered transformation."""
@@ -1578,7 +1578,7 @@ class SimplexT(Transform):
     >>> assert jnp.allclose(jnp.sum(y), 1.0)
     >>> assert jnp.all(y > 0)
     """
-    __module__ = 'braintools.param'
+    __module__ = 'brainstate.nn'
 
     def __init__(self) -> None:
         """Initialize the simplex transformation."""
@@ -1642,7 +1642,7 @@ class UnitVectorT(Transform):
     >>> # y has unit norm
     >>> assert jnp.allclose(jnp.linalg.norm(y), 1.0)
     """
-    __module__ = 'braintools.param'
+    __module__ = 'brainstate.nn'
 
     def __init__(self) -> None:
         """Initialize the unit vector transformation."""

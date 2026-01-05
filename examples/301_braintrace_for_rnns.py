@@ -27,7 +27,7 @@ from torch.utils.data import DataLoader
 from torch.utils.data import IterableDataset
 from tqdm import tqdm
 
-import brainscale
+import braintrace
 import brainstate
 import braintools
 from braintools import metric
@@ -160,10 +160,10 @@ def get_rnn_data(args, cache_dir=os.path.expanduser("./data")):
 
 class RateRnnNet(brainstate.nn.Module):
     name2model = {
-        'lstm': brainscale.nn.LSTMCell,
-        'urlstm': brainscale.nn.URLSTMCell,
-        'rnn': brainscale.nn.ValinaRNNCell,
-        'gru': brainscale.nn.GRUCell,
+        'lstm': braintrace.nn.LSTMCell,
+        'urlstm': braintrace.nn.URLSTMCell,
+        'rnn': braintrace.nn.ValinaRNNCell,
+        'gru': braintrace.nn.GRUCell,
     }
 
     def __init__(self, n_in, n_rec, n_out, n_layer, args, filepath: str = None):
@@ -174,7 +174,7 @@ class RateRnnNet(brainstate.nn.Module):
             layers.append(self.name2model[args.model](n_in, n_rec))
             n_in = n_rec
         self.layer = brainstate.nn.Sequential(*layers)
-        self.readout = brainscale.nn.Linear(n_rec, n_out)
+        self.readout = braintrace.nn.Linear(n_rec, n_out)
 
     def update(self, i, x):
         with brainstate.environ.context(i=i):
@@ -257,11 +257,11 @@ class Trainer(object):
 
         # initialize the online learning model
         if self.args.method == 'expsm_diag':
-            model = brainscale.IODimVjpAlgorithm(model, self.args.etrace_decay)
+            model = braintrace.IODimVjpAlgorithm(model, self.args.etrace_decay)
         elif self.args.method == 'diag':
-            model = brainscale.ParamDimVjpAlgorithm(model, mode=brainstate.mixin.Batching())
+            model = braintrace.ParamDimVjpAlgorithm(model, mode=brainstate.mixin.Batching())
         elif self.args.method == 'hybrid':
-            model = brainscale.HybridDimVjpAlgorithm(model, self.args.etrace_decay, mode=brainstate.mixin.Batching())
+            model = braintrace.HybridDimVjpAlgorithm(model, self.args.etrace_decay, mode=brainstate.mixin.Batching())
         else:
             raise ValueError(f'Unknown online learning methods: {self.args.method}.')
         model.compile_graph(0, jax.ShapeDtypeStruct(inputs.shape[1:], inputs.dtype))

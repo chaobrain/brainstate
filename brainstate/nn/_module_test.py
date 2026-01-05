@@ -62,11 +62,11 @@ class TestModule(unittest.TestCase):
             def __init__(self):
                 super().__init__()
                 # Parameter with L2 regularization
-                self.param1 = Param(jnp.ones(10), reg=L2Reg(0.1), fit_par=True)
+                self.param1 = Param(jnp.ones(10), reg=L2Reg(0.1), fit=True)
                 # Parameter with L1 regularization
-                self.param2 = Param(jnp.ones(5), reg=L1Reg(0.05), fit_par=True)
+                self.param2 = Param(jnp.ones(5), reg=L1Reg(0.05), fit=True)
                 # Parameter without regularization
-                self.param3 = Param(jnp.ones(3), fit_par=True)
+                self.param3 = Param(jnp.ones(3), fit=True)
 
         mod = TestModule()
 
@@ -91,8 +91,8 @@ class TestModule(unittest.TestCase):
         class TestModule(brainstate.nn.Module):
             def __init__(self):
                 super().__init__()
-                self.alpha = Param(jnp.ones(10), fit_par=True)
-                self.beta = Param(jnp.ones(5), fit_par=True)
+                self.alpha = Param(jnp.ones(10), fit=True)
+                self.beta = Param(jnp.ones(5), fit=True)
 
         mod = TestModule()
         named = list(mod.named_param_modules())
@@ -224,8 +224,8 @@ class TestModule(unittest.TestCase):
         class TestModule(brainstate.nn.Module):
             def __init__(self):
                 super().__init__()
-                self.param1 = Param(jnp.ones(10), fit_par=True)
-                self.param2 = Param(jnp.ones(5), fit_par=True)
+                self.param1 = Param(jnp.ones(10), fit=True)
+                self.param2 = Param(jnp.ones(5), fit=True)
 
         mod = TestModule()
 
@@ -243,8 +243,8 @@ class TestModule(unittest.TestCase):
         class TestModule(brainstate.nn.Module):
             def __init__(self):
                 super().__init__()
-                self.alpha = Param(jnp.ones(10), fit_par=True)
-                self.beta = Param(jnp.ones(5), fit_par=True)
+                self.alpha = Param(jnp.ones(10), fit=True)
+                self.beta = Param(jnp.ones(5), fit=True)
 
         mod = TestModule()
 
@@ -302,7 +302,7 @@ class TestParamPrecompute(unittest.TestCase):
     """Test suite for Module.param_precompute method."""
 
     def test_basic_cache_enable(self):
-        """Test that param_precompute(cache=True) caches all parameters."""
+        """Test that param_precompute context manager caches all parameters."""
 
         class TestModule(Module):
             def __init__(self):
@@ -316,17 +316,16 @@ class TestParamPrecompute(unittest.TestCase):
         self.assertFalse(mod.param1.cache_stats['valid'])
         self.assertFalse(mod.param2.cache_stats['valid'])
 
-        # Call param_precompute to cache all parameters
-        mod.param_precompute(cache=True)
-
-        # Now cache should be valid
-        self.assertTrue(mod.param1.cache_stats['valid'])
-        self.assertTrue(mod.param2.cache_stats['valid'])
-        self.assertTrue(mod.param1.cache_stats['has_cached_value'])
-        self.assertTrue(mod.param2.cache_stats['has_cached_value'])
+        # Use context manager to cache all parameters
+        with mod.param_precompute():
+            # Inside context, cache should be valid
+            self.assertTrue(mod.param1.cache_stats['valid'])
+            self.assertTrue(mod.param2.cache_stats['valid'])
+            self.assertTrue(mod.param1.cache_stats['has_cached_value'])
+            self.assertTrue(mod.param2.cache_stats['has_cached_value'])
 
     def test_basic_cache_disable(self):
-        """Test that param_precompute(cache=False) clears all parameter caches."""
+        """Test that param_precompute context manager clears caches on exit."""
 
         class TestModule(Module):
             def __init__(self):
@@ -336,15 +335,12 @@ class TestParamPrecompute(unittest.TestCase):
 
         mod = TestModule()
 
-        # First cache the parameters
-        mod.param_precompute(cache=True)
-        self.assertTrue(mod.param1.cache_stats['valid'])
-        self.assertTrue(mod.param2.cache_stats['valid'])
+        # Use context manager - caches should be valid inside
+        with mod.param_precompute():
+            self.assertTrue(mod.param1.cache_stats['valid'])
+            self.assertTrue(mod.param2.cache_stats['valid'])
 
-        # Now clear the cache
-        mod.param_precompute(cache=False)
-
-        # Cache should be invalid
+        # After exiting context, cache should be cleared
         self.assertFalse(mod.param1.cache_stats['valid'])
         self.assertFalse(mod.param2.cache_stats['valid'])
 
@@ -365,11 +361,10 @@ class TestParamPrecompute(unittest.TestCase):
         mod = ParentModule()
 
         # Cache only parameters at hierarchy level 0 (none, since params are at level 1+)
-        mod.param_precompute(allowed_hierarchy=(0, 0), cache=True)
-
-        # Neither parent nor child params should be cached (they're at level 1+)
-        self.assertFalse(mod.parent_param.cache_stats['valid'])
-        self.assertFalse(mod.child.child_param.cache_stats['valid'])
+        with mod.param_precompute(allowed_hierarchy=(0, 0)):
+            # Neither parent nor child params should be cached (they're at level 1+)
+            self.assertFalse(mod.parent_param.cache_stats['valid'])
+            self.assertFalse(mod.child.child_param.cache_stats['valid'])
 
     def test_hierarchy_level_1(self):
         """Test param_precompute with allowed_hierarchy=(1, 1) - only immediate children."""
@@ -394,14 +389,13 @@ class TestParamPrecompute(unittest.TestCase):
         mod = ParentModule()
 
         # Cache only parameters at hierarchy level 1 (immediate children)
-        mod.param_precompute(allowed_hierarchy=(1, 1), cache=True)
+        with mod.param_precompute(allowed_hierarchy=(1, 1)):
+            # Only parent_param (at level 1) should be cached
+            self.assertTrue(mod.parent_param.cache_stats['valid'])
 
-        # Only parent_param (at level 1) should be cached
-        self.assertTrue(mod.parent_param.cache_stats['valid'])
-
-        # Child and grandchild params should not be cached
-        self.assertFalse(mod.child.child_param.cache_stats['valid'])
-        self.assertFalse(mod.child.grandchild.grandchild_param.cache_stats['valid'])
+            # Child and grandchild params should not be cached
+            self.assertFalse(mod.child.child_param.cache_stats['valid'])
+            self.assertFalse(mod.child.grandchild.grandchild_param.cache_stats['valid'])
 
     def test_hierarchy_all_levels(self):
         """Test param_precompute with default hierarchy - all levels."""
@@ -426,12 +420,11 @@ class TestParamPrecompute(unittest.TestCase):
         mod = ParentModule()
 
         # Cache all parameters (default behavior)
-        mod.param_precompute(cache=True)
-
-        # All parameters should be cached
-        self.assertTrue(mod.parent_param.cache_stats['valid'])
-        self.assertTrue(mod.child.child_param.cache_stats['valid'])
-        self.assertTrue(mod.child.grandchild.grandchild_param.cache_stats['valid'])
+        with mod.param_precompute():
+            # All parameters should be cached
+            self.assertTrue(mod.parent_param.cache_stats['valid'])
+            self.assertTrue(mod.child.child_param.cache_stats['valid'])
+            self.assertTrue(mod.child.grandchild.grandchild_param.cache_stats['valid'])
 
     def test_empty_module(self):
         """Test param_precompute on module with no parameters."""
@@ -444,8 +437,8 @@ class TestParamPrecompute(unittest.TestCase):
         mod = EmptyModule()
 
         # Should not raise an error
-        mod.param_precompute(cache=True)
-        mod.param_precompute(cache=False)
+        with mod.param_precompute():
+            pass  # Should complete without errors
 
     def test_mixed_param_types(self):
         """Test param_precompute with different parameter types."""
@@ -454,23 +447,22 @@ class TestParamPrecompute(unittest.TestCase):
             def __init__(self):
                 super().__init__()
                 # Trainable parameter with transform
-                self.trainable_param = Param(jnp.ones(5), t=SoftplusT(0.0), fit_par=True)
+                self.trainable_param = Param(jnp.ones(5), t=SoftplusT(0.0), fit=True)
                 # Non-trainable parameter
-                self.fixed_param = Param(jnp.ones(3), fit_par=False)
+                self.fixed_param = Param(jnp.ones(3), fit=False)
                 # Parameter with regularization
-                self.reg_param = Param(jnp.ones(4), reg=L2Reg(0.1), fit_par=True)
+                self.reg_param = Param(jnp.ones(4), reg=L2Reg(0.1), fit=True)
                 # Non-parameter state
                 self.state = brainstate.State(jnp.ones(2))
 
         mod = TestModule()
 
         # Cache all parameters
-        mod.param_precompute(cache=True)
-
-        # All Param instances should be cached
-        self.assertTrue(mod.trainable_param.cache_stats['valid'])
-        self.assertTrue(mod.fixed_param.cache_stats['valid'])
-        self.assertTrue(mod.reg_param.cache_stats['valid'])
+        with mod.param_precompute():
+            # All Param instances should be cached
+            self.assertTrue(mod.trainable_param.cache_stats['valid'])
+            self.assertTrue(mod.fixed_param.cache_stats['valid'])
+            self.assertTrue(mod.reg_param.cache_stats['valid'])
 
     def test_cached_values_correctness(self):
         """Test that cached values are computed correctly."""
@@ -485,34 +477,33 @@ class TestParamPrecompute(unittest.TestCase):
         # Get value before caching (should compute)
         value_before = mod.param.value()
 
-        # Cache the parameter
-        mod.param_precompute(cache=True)
+        # Cache the parameter and get value
+        with mod.param_precompute():
+            # Get value after caching (should use cache)
+            value_after = mod.param.value()
 
-        # Get value after caching (should use cache)
-        value_after = mod.param.value()
-
-        # Values should be the same
-        np.testing.assert_array_equal(value_before, value_after)
+            # Values should be the same
+            np.testing.assert_array_equal(value_before, value_after)
 
     def test_cache_invalidation_on_update(self):
-        """Test that cache is invalidated when parameter is updated."""
+        """Test that cache is invalidated when parameter is updated inside context."""
 
         class TestModule(Module):
             def __init__(self):
                 super().__init__()
-                self.param = Param(jnp.ones(5), t=SoftplusT(0.0), fit_par=True)
+                self.param = Param(jnp.ones(5), t=SoftplusT(0.0), fit=True)
 
         mod = TestModule()
 
         # Cache the parameter
-        mod.param_precompute(cache=True)
-        self.assertTrue(mod.param.cache_stats['valid'])
+        with mod.param_precompute():
+            self.assertTrue(mod.param.cache_stats['valid'])
 
-        # Update the parameter
-        mod.param.set_value(jnp.ones(5) * 2)
+            # Update the parameter inside context
+            mod.param.set_value(jnp.ones(5) * 2)
 
-        # Cache should be invalidated
-        self.assertFalse(mod.param.cache_stats['valid'])
+            # Cache should be invalidated by the update
+            self.assertFalse(mod.param.cache_stats['valid'])
 
     def test_precompute_function(self):
         """Test param_precompute with parameters that have precompute functions."""
@@ -532,15 +523,14 @@ class TestParamPrecompute(unittest.TestCase):
         mod = TestModule()
 
         # Cache the parameter
-        mod.param_precompute(cache=True)
+        with mod.param_precompute():
+            # Cache should be valid
+            self.assertTrue(mod.param.cache_stats['valid'])
 
-        # Cache should be valid
-        self.assertTrue(mod.param.cache_stats['valid'])
-
-        # Get cached value and verify precompute was applied
-        cached_value = mod.param.value()
-        expected = custom_precompute(jnp.array([1.0, 2.0, 3.0]))
-        np.testing.assert_array_almost_equal(cached_value, expected)
+            # Get cached value and verify precompute was applied
+            cached_value = mod.param.value()
+            expected = custom_precompute(jnp.array([1.0, 2.0, 3.0]))
+            np.testing.assert_array_almost_equal(cached_value, expected)
 
     def test_sequential_module(self):
         """Test param_precompute with Sequential module."""
@@ -551,11 +541,10 @@ class TestParamPrecompute(unittest.TestCase):
         )
 
         # Cache all parameters
-        model.param_precompute(cache=True)
-
-        # Check that parameters in all layers are cached
-        for param in model.param_modules():
-            self.assertTrue(param.cache_stats['valid'])
+        with model.param_precompute():
+            # Check that parameters in all layers are cached
+            for param in model.param_modules():
+                self.assertTrue(param.cache_stats['valid'])
 
     def test_selective_hierarchy_caching(self):
         """Test param_precompute with selective hierarchy ranges."""
@@ -580,17 +569,16 @@ class TestParamPrecompute(unittest.TestCase):
         mod = Level1Module()
 
         # Cache only levels 1-2
-        mod.param_precompute(allowed_hierarchy=(1, 2), cache=True)
+        with mod.param_precompute(allowed_hierarchy=(1, 2)):
+            # param1 and param2 should be cached (levels 1 and 2)
+            self.assertTrue(mod.param1.cache_stats['valid'])
+            self.assertTrue(mod.level2.param2.cache_stats['valid'])
 
-        # param1 and param2 should be cached (levels 1 and 2)
-        self.assertTrue(mod.param1.cache_stats['valid'])
-        self.assertTrue(mod.level2.param2.cache_stats['valid'])
-
-        # param3 should not be cached (level 3)
-        self.assertFalse(mod.level2.level3.param3.cache_stats['valid'])
+            # param3 should not be cached (level 3)
+            self.assertFalse(mod.level2.level3.param3.cache_stats['valid'])
 
     def test_multiple_calls_toggle_cache(self):
-        """Test multiple calls to param_precompute with different cache values."""
+        """Test multiple context manager calls cache and clear correctly."""
 
         class TestModule(Module):
             def __init__(self):
@@ -599,17 +587,19 @@ class TestParamPrecompute(unittest.TestCase):
 
         mod = TestModule()
 
-        # Enable caching
-        mod.param_precompute(cache=True)
-        self.assertTrue(mod.param.cache_stats['valid'])
+        # First context - should cache
+        with mod.param_precompute():
+            self.assertTrue(mod.param.cache_stats['valid'])
 
-        # Disable caching
-        mod.param_precompute(cache=False)
+        # After exiting, cache should be cleared
         self.assertFalse(mod.param.cache_stats['valid'])
 
-        # Enable again
-        mod.param_precompute(cache=True)
-        self.assertTrue(mod.param.cache_stats['valid'])
+        # Second context - should cache again
+        with mod.param_precompute():
+            self.assertTrue(mod.param.cache_stats['valid'])
+
+        # After exiting again, cache should be cleared
+        self.assertFalse(mod.param.cache_stats['valid'])
 
     def test_default_parameters(self):
         """Test param_precompute with default parameters."""
@@ -623,11 +613,10 @@ class TestParamPrecompute(unittest.TestCase):
         mod = TestModule()
 
         # Call with default parameters (should cache all)
-        mod.param_precompute()
-
-        # Both parameters should be cached
-        self.assertTrue(mod.param1.cache_stats['valid'])
-        self.assertTrue(mod.param2.cache_stats['valid'])
+        with mod.param_precompute():
+            # Both parameters should be cached
+            self.assertTrue(mod.param1.cache_stats['valid'])
+            self.assertTrue(mod.param2.cache_stats['valid'])
 
     def test_nested_modules_partial_caching(self):
         """Test caching behavior with complex nested module structures."""
@@ -653,22 +642,20 @@ class TestParamPrecompute(unittest.TestCase):
         mod = OuterModule()
 
         # Cache only immediate children (level 1)
-        mod.param_precompute(allowed_hierarchy=(1, 1), cache=True)
-
-        # Only outer_param should be cached
-        self.assertTrue(mod.outer_param.cache_stats['valid'])
-        self.assertFalse(mod.middle.middle_param.cache_stats['valid'])
-        self.assertFalse(mod.middle.inner1.inner_param.cache_stats['valid'])
-        self.assertFalse(mod.middle.inner2.inner_param.cache_stats['valid'])
+        with mod.param_precompute(allowed_hierarchy=(1, 1)):
+            # Only outer_param should be cached
+            self.assertTrue(mod.outer_param.cache_stats['valid'])
+            self.assertFalse(mod.middle.middle_param.cache_stats['valid'])
+            self.assertFalse(mod.middle.inner1.inner_param.cache_stats['valid'])
+            self.assertFalse(mod.middle.inner2.inner_param.cache_stats['valid'])
 
         # Now cache all levels
-        mod.param_precompute(cache=True)
-
-        # All parameters should be cached
-        self.assertTrue(mod.outer_param.cache_stats['valid'])
-        self.assertTrue(mod.middle.middle_param.cache_stats['valid'])
-        self.assertTrue(mod.middle.inner1.inner_param.cache_stats['valid'])
-        self.assertTrue(mod.middle.inner2.inner_param.cache_stats['valid'])
+        with mod.param_precompute():
+            # All parameters should be cached
+            self.assertTrue(mod.outer_param.cache_stats['valid'])
+            self.assertTrue(mod.middle.middle_param.cache_stats['valid'])
+            self.assertTrue(mod.middle.inner1.inner_param.cache_stats['valid'])
+            self.assertTrue(mod.middle.inner2.inner_param.cache_stats['valid'])
 
     def test_performance_benefit_of_caching(self):
         """Test that caching provides performance benefit for transformed parameters."""
@@ -685,13 +672,72 @@ class TestParamPrecompute(unittest.TestCase):
         value1 = mod.param.value()
 
         # Cache the parameter
-        mod.param_precompute(cache=True)
+        with mod.param_precompute():
+            # Second call - should use cache
+            value2 = mod.param.value()
 
-        # Second call - should use cache
-        value2 = mod.param.value()
+            # Values should be identical (not just close)
+            self.assertTrue(jnp.all(value1 == value2))
 
-        # Values should be identical (not just close)
-        self.assertTrue(jnp.all(value1 == value2))
+            # Cache should still be valid after access
+            self.assertTrue(mod.param.cache_stats['valid'])
 
-        # Cache should still be valid after access
-        self.assertTrue(mod.param.cache_stats['valid'])
+    def test_exception_safety(self):
+        """Test that cache is cleared even when exception occurs in context."""
+
+        class TestModule(Module):
+            def __init__(self):
+                super().__init__()
+                self.param = Param(jnp.ones(5), t=SoftplusT(0.0))
+
+        mod = TestModule()
+
+        # Cache should be cleared even if exception occurs
+        try:
+            with mod.param_precompute():
+                # Cache should be valid inside context
+                self.assertTrue(mod.param.cache_stats['valid'])
+                # Raise an exception
+                raise ValueError("Test error")
+        except ValueError:
+            pass
+
+        # Cache should still be cleared after exception
+        self.assertFalse(mod.param.cache_stats['valid'])
+
+    def test_nested_contexts(self):
+        """Test nested param_precompute contexts."""
+
+        class ChildModule(Module):
+            def __init__(self):
+                super().__init__()
+                self.child_param = Param(jnp.ones(3), t=SoftplusT(0.0))
+
+        class ParentModule(Module):
+            def __init__(self):
+                super().__init__()
+                self.parent_param = Param(jnp.ones(5), t=SoftplusT(0.0))
+                self.child = ChildModule()
+
+        mod = ParentModule()
+
+        # Outer context caches all parameters
+        with mod.param_precompute():
+            self.assertTrue(mod.parent_param.cache_stats['valid'])
+            self.assertTrue(mod.child.child_param.cache_stats['valid'])
+
+            # Inner context with different hierarchy
+            with mod.param_precompute(allowed_hierarchy=(1, 1)):
+                # Both should still be cached (inner context caches level 1)
+                self.assertTrue(mod.parent_param.cache_stats['valid'])
+                # Child param is at level 2, so not cached by inner context
+                # But it was already cached by outer context
+                self.assertTrue(mod.child.child_param.cache_stats['valid'])
+
+            # After inner context exits, it clears level 1 params
+            # Outer context doesn't re-cache until we exit and re-enter
+            self.assertFalse(mod.parent_param.cache_stats['valid'])
+
+        # After outer context exits, all caches should be cleared
+        self.assertFalse(mod.parent_param.cache_stats['valid'])
+        self.assertFalse(mod.child.child_param.cache_stats['valid'])
