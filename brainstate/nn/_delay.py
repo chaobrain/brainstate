@@ -23,13 +23,13 @@ import brainunit as u
 import jax
 import jax.numpy as jnp
 import numpy as np
+
 from brainstate import environ
 from brainstate._state import ShortTermState, State, DelayState
 from brainstate.graph import Node
-from brainstate.transform import jit_error_if
+from brainstate.transform import jit_error_if, cond
 from brainstate.transform._mapping2 import INIT_NO_BATCHING
 from brainstate.typing import ArrayLike, PyTree
-
 from ._collective_ops import call_order
 from ._module import Module
 
@@ -348,13 +348,13 @@ InterpolationRegistry.register('polynomial2', _polynomial2_interpolation)
 InterpolationRegistry.register('polynomial3', _polynomial3_interpolation)
 
 
-def _get_delay(delay_time):
+def _get_delay(delay_time, dt):
     if delay_time is None:
-        return 0. * environ.get_dt(), 0
-    delay_step = delay_time / environ.get_dt()
+        return 0. * dt, 0
+    delay_step = delay_time / dt
     assert u.get_dim(delay_step) == u.DIMENSIONLESS, (
         f'The time_and_idx should have time dimension. '
-        f'Got delay time unit {u.get_unit(delay_time)}, and dt unit {u.get_unit(environ.get_dt())}.'
+        f'Got delay time unit {u.get_unit(delay_time)}, and dt unit {u.get_unit(dt)}.'
     )
     delay_step = jnp.ceil(delay_step).astype(environ.ditype())
     return delay_time, delay_step
@@ -407,7 +407,7 @@ class Delay(Module):
          delay = length          data ]
 
     Args:
-      time: int, float. The delay time.
+      time: int, float, or Quantity. The delay time.
       init: Any. The delay data. It can be a Python number, like float, int, boolean values.
         It can also be arrays. Or a callable function or instance of ``Connector``.
         Note that ``initial_delay_data`` should be arranged as the following way::
@@ -419,7 +419,50 @@ class Delay(Module):
            delay = length-1        data
            delay = length          data ]
       entries: optional, dict. The delay access entries.
-      delay_method: str. The method used for updating delay. Default None.
+      interpolation: str or Callable. The interpolation method for continuous-time retrieval.
+        Built-in methods: 'nearest', 'linear', 'cubic', 'hermite', 'polynomial2', 'polynomial3'.
+        Can also be a custom callable following the InterpolationMethod protocol.
+      take_aware_unit: bool. Whether to track and preserve units from brainunit.
+      update_every: optional, float or Quantity. Time interval between buffer updates.
+        If None (default), the buffer is updated every time update() is called.
+        If specified, the buffer is only updated when the accumulated time since the
+        last update exceeds this threshold. Supports brainunit quantities (e.g., 5.0*u.ms).
+        Example: update_every=5.0 means update every 5 time units.
+      update_strategy: str. Strategy for handling updates between threshold crossings.
+        Options:
+        - 'hold' (default): Skip writes between thresholds, keep last written value.
+        - 'latest': Always cache the newest value, write it when threshold is crossed.
+        - 'aggregate': Accumulate all values between thresholds and write aggregated result.
+      aggregate_fn: optional, str or Callable. Aggregation function for 'aggregate' strategy.
+        Built-in options (strings): 'mean', 'sum', 'max', 'min', 'last'.
+        Custom: Any callable that takes an array and axis parameter and returns aggregated value.
+        Default: 'mean' when update_strategy='aggregate'.
+        Ignored for other strategies.
+      delay_method: str. Deprecated parameter kept for backward compatibility.
+        The unified ring buffer implementation now uses rotation for all delays.
+      interp_method: str. Deprecated parameter kept for backward compatibility.
+        Use 'interpolation' parameter instead.
+
+    Examples:
+      Basic delay with default behavior (update every call)::
+
+        >>> import brainstate
+        >>> import jax.numpy as jnp
+        >>> delay = brainstate.nn.Delay(jnp.zeros((10,)), time=5.0)
+        >>> delay.init_state()
+        >>> for i in range(100):
+        ...     delay.update(jnp.ones((10,)) * i)
+
+      Delay with update frequency control (hold strategy)::
+
+        >>> import brainunit as u
+        >>> delay = brainstate.nn.Delay(
+        ...     jnp.zeros((10,)),
+        ...     time=10.0 * u.ms,
+        ...     update_every=5.0 * u.ms,  # Update every 5ms
+        ... )
+        >>> delay.init_state()
+
     """
 
     __module__ = 'brainstate.nn'
@@ -437,10 +480,14 @@ class Delay(Module):
         entries: Optional[Dict] = None,  # delay access entry
         interpolation: Optional[Union[str, Callable]] = None,  # interpolation method (new parameter)
         take_aware_unit: bool = False,
+        # NEW PARAMETERS for update frequency control
+        update_every: Optional[Union[float, u.Quantity]] = None,  # time interval between buffer updates
         # deprecated parameters for backward compatibility
         delay_method: Optional[str] = _DELAY_ROTATE,  # delay method (deprecated, kept for compatibility)
         interp_method: str = _INTERP_LINEAR,  # interpolation method (deprecated, use interpolation)
     ):
+        super().__init__()
+
         # target information
         self.target_info = jax.tree.map(lambda a: jax.ShapeDtypeStruct(a.shape, a.dtype), target_info)
 
@@ -480,10 +527,11 @@ class Delay(Module):
 
         # delay length and time
         with jax.ensure_compile_time_eval():
-            self.max_time, delay_length = _get_delay(time)
+            self.max_time, delay_length = _get_delay(
+                time,
+                environ.get_dt() if update_every is None else update_every
+            )
             self.max_length = delay_length + 1
-
-        super().__init__()
 
         # delay data
         if init is not None and not isinstance(init, (numbers.Number, jax.Array, np.ndarray, Callable)):
@@ -504,6 +552,27 @@ class Delay(Module):
 
         self.take_aware_unit = take_aware_unit
         self._unit = None
+
+        # Validate and convert update_every
+        if update_every is not None:
+            if isinstance(update_every, u.Quantity):
+                update_every = float(u.get_magnitude(update_every))
+            if update_every < 0:
+                raise ValueError(f"update_every must be >= 0, got {update_every}")
+            jit_error_if(
+                update_every < environ.get_dt(),
+                lambda ue, dt: ValueError(
+                    f"update_every must be >= dt ({dt}), got {ue}"
+                ),
+                update_every,
+                environ.get_dt(),
+            )
+
+            self.update_every = update_every
+            self.update_every_step = int(update_every / environ.get_dt())
+        else:
+            self.update_every = None
+            self.update_every_step = 1
 
         # Thread safety locks (lazy initialization)
         self._update_lock = threading.RLock()
@@ -591,7 +660,10 @@ class Delay(Module):
         if time_and_idx[0] is None:
             return None
         with jax.ensure_compile_time_eval():
-            time, delay_step = _get_delay(time_and_idx[0])
+            time, delay_step = _get_delay(
+                time_and_idx[0],
+                environ.get_dt() if self.update_every is None else self.update_every
+            )
             max_delay_step = jnp.max(delay_step)
             self.max_time = u.math.max(time)
 
@@ -690,7 +762,7 @@ class Delay(Module):
         with jax.ensure_compile_time_eval():
             # Use write_ptr instead of environ.get(environ.I)
             # Note: write_ptr points to the NEXT write position, so current position is write_ptr - 1
-            current_ptr = self.write_ptr.value - 1
+            current_ptr = self.write_ptr.value // self.update_every_step - 1
             di = current_ptr - delay_step
             delay_idx = jnp.asarray(di % self.max_length, dtype=jnp.int32)
             delay_idx = jax.lax.stop_gradient(delay_idx)
@@ -755,25 +827,29 @@ class Delay(Module):
             float_time_step = diff / dt
 
             # Use interpolation methods that call retrieve_at_step for bounds checking
-            if (self.interp_method == 'linear' or
+            if (
+                self.interp_method == 'linear' or
                 self.interp_method == 'linear_interp' or
-                self.interp_method == _INTERP_LINEAR):
+                self.interp_method == _INTERP_LINEAR
+            ):
                 # Linear interpolation - call retrieve_at_step for bounds checking
                 data_at_t0 = self.retrieve_at_step(jnp.asarray(jnp.floor(float_time_step), dtype=jnp.int32), *indices)
                 data_at_t1 = self.retrieve_at_step(jnp.asarray(jnp.ceil(float_time_step), dtype=jnp.int32), *indices)
                 t_diff = float_time_step - jnp.floor(float_time_step)
                 return jax.tree.map(lambda a, b: a * (1 - t_diff) + b * t_diff, data_at_t0, data_at_t1)
 
-            elif (self.interp_method == 'nearest' or
-                  self.interp_method == 'round' or
-                  self.interp_method == _INTERP_ROUND):
+            elif (
+                self.interp_method == 'nearest' or
+                self.interp_method == 'round' or
+                self.interp_method == _INTERP_ROUND
+            ):
                 # Round interpolation - call retrieve_at_step for bounds checking
                 return self.retrieve_at_step(jnp.asarray(jnp.round(float_time_step), dtype=jnp.int32), *indices)
 
             else:
                 # For other interpolation methods (cubic, hermite, polynomial), use the registry
                 # Calculate the buffer position accounting for ring buffer
-                current_ptr = self.write_ptr.value - 1
+                current_ptr = self.write_ptr.value // self.update_every_step - 1
                 float_buffer_idx = current_ptr - float_time_step
 
                 if isinstance(self.interp_method, str):
@@ -784,6 +860,32 @@ class Delay(Module):
 
                 # Call interpolation function with history, indices, float buffer index, and max_length
                 return interp_func(self.history.value, indices, float_buffer_idx, self.max_length)
+
+    def _write_to_buffer(self, value: PyTree) -> None:
+        """Write a value to the ring buffer at current write_ptr position."""
+        idx = jnp.asarray(self.write_ptr.value // self.update_every_step, dtype=environ.dutype())
+        idx = jax.lax.stop_gradient(idx)
+        self.history.value = jax.tree.map(
+            lambda hist, val: hist.at[idx].set(val),
+            self.history.value,
+            value
+        )
+        self.write_ptr.value = (self.write_ptr.value + 1) % self.max_length
+
+    def _frequency_controlled_update(self, current: PyTree) -> None:
+        """Handle frequency-controlled updates with different strategies."""
+
+        # Update time accumulator
+        should_update = self.write_ptr.value % self.update_every_step == 0
+
+        def do_nothing():
+            pass
+
+        # Hold: Only write when threshold crossed
+        def write_and_reset():
+            self._write_to_buffer(current)
+
+        cond(should_update, write_and_reset, do_nothing)
 
     def update(self, current: PyTree) -> None:
         """
@@ -801,17 +903,13 @@ class Delay(Module):
             if self.take_aware_unit and self._unit is None:
                 self._unit = jax.tree.map(lambda x: u.get_unit(x), current, is_leaf=u.math.is_quantity)
 
-            # unified ring buffer: update at current write_ptr position
-            idx = jnp.asarray(self.write_ptr.value % self.max_length, dtype=environ.dutype())
-            idx = jax.lax.stop_gradient(idx)
-            self.history.value = jax.tree.map(
-                lambda hist, cur: hist.at[idx].set(cur),
-                self.history.value,
-                current
-            )
-
-            # increment write pointer for next update
-            self.write_ptr.value = (self.write_ptr.value + 1) % self.max_length
+            # Check if frequency control is enabled
+            if self.update_every is None:
+                # Default: update every call
+                self._write_to_buffer(current)
+            else:
+                # Frequency-controlled update
+                self._frequency_controlled_update(current)
 
 
 class StateWithDelay(Delay):
@@ -892,7 +990,7 @@ class StateWithDelay(Delay):
     >>> # additional taps (in steps or time) via its Delay interface
     >>> _ = lif.prefetch('V').delay.at(2.0 * u.ms)   # additional delay
     >>> # Direct access to buffer by steps (advanced)
-    >>> # lif._get_after_update('V-prefetch-delay').retrieve_at_step(3)
+    >>> # lif.get_after_update('V-prefetch-delay').retrieve_at_step(3)
     """
 
     __module__ = 'brainstate.nn'
@@ -905,8 +1003,9 @@ class StateWithDelay(Delay):
         item: str,
         init: Callable = None,
         interpolation: Optional[str] = _INTERP_ROUND,
+        **kwargs
     ):
-        super().__init__(None, init=init, interpolation=interpolation)
+        super().__init__(None, init=init, interpolation=interpolation, **kwargs)
 
         self._target = target
         self._target_term = item
