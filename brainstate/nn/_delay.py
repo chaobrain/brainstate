@@ -555,10 +555,6 @@ class Delay(Module):
 
         # Validate and convert update_every
         if update_every is not None:
-            if isinstance(update_every, u.Quantity):
-                update_every = float(u.get_magnitude(update_every))
-            if update_every < 0:
-                raise ValueError(f"update_every must be >= 0, got {update_every}")
             jit_error_if(
                 update_every < environ.get_dt(),
                 lambda ue, dt: ValueError(
