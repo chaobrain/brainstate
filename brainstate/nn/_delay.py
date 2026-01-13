@@ -537,12 +537,9 @@ class Delay(Module):
         if init is not None and not isinstance(init, (numbers.Number, jax.Array, np.ndarray, Callable)):
             raise TypeError(f'init should be Array, Callable, or None. But got {init}')
         self._init = init
-        self._history = None
 
-        # other info
+        # delay entries
         self._registered_entries = dict()
-
-        # other info
         if entries is not None:
             for entry, time_and_idx in entries.items():
                 if isinstance(time_and_idx, (tuple, list)):
@@ -550,37 +547,24 @@ class Delay(Module):
                 else:
                     self.register_entry(entry, time_and_idx)
 
+        # unit handling
         self.take_aware_unit = take_aware_unit
         self._unit = None
 
         # Validate and convert update_every
-        if update_every is not None:
-            jit_error_if(
-                update_every < environ.get_dt(),
-                lambda ue, dt: ValueError(
-                    f"update_every must be >= dt ({dt}), got {ue}"
-                ),
-                update_every,
-                environ.get_dt(),
-            )
-
-            self.update_every = update_every
-            self.update_every_step = int(update_every / environ.get_dt())
-        else:
-            self.update_every = None
-            self.update_every_step = 1
+        with jax.ensure_compile_time_eval():
+            if update_every is not None:
+                if update_every < environ.get_dt():
+                    raise ValueError(f"update_every must be >= dt ({environ.get_dt()}), got {update_every}")
+                self.update_every = update_every
+                self.update_every_step = int(update_every / environ.get_dt())
+            else:
+                self.update_every = None
+                self.update_every_step = 1
 
         # Thread safety locks (lazy initialization)
         self._update_lock = threading.RLock()
         self._retrieve_lock = threading.RLock()
-
-    @property
-    def history(self):
-        return self._history
-
-    @history.setter
-    def history(self, value):
-        self._history = value
 
     def _f_to_init(self, a, batch_size, length):
         shape = list(a.shape)
@@ -711,8 +695,10 @@ class Delay(Module):
         Returns:
           The data.
         """
-        assert isinstance(entry, str), (f'entry should be a string for describing the '
-                                        f'entry of the delay data. But we got {entry}.')
+        assert isinstance(entry, str), (
+            f'entry should be a string for describing the '
+            f'entry of the delay data. But we got {entry}.'
+        )
         if entry not in self._registered_entries:
             raise KeyError(f'Does not find delay entry "{entry}".')
         delay_step = self._registered_entries[entry]
