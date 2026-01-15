@@ -40,7 +40,7 @@ from brainstate.nn import (
     ReluT,
     ClipT,
 )
-from braintools.param._transform import save_exp
+from brainstate.nn._transform import save_exp
 
 
 class TestSaveExp(unittest.TestCase):

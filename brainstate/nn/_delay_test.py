@@ -485,3 +485,14 @@ class TestUpgradedDelay(unittest.TestCase):
 
         # write_ptr should wrap around
         self.assertTrue(0 <= delay.write_ptr.value < delay.max_length)
+
+    def test_update_frequency_default(self):
+        """Test that default behavior (update_every=None) works as before."""
+        delay = brainstate.nn.Delay(jnp.zeros((1,)), time=1.0)
+        delay.init_state()
+
+        for i in range(20):
+            delay.update(jnp.ones((1,)) * i)
+
+        # Should have updated every call
+        self.assertEqual(delay.write_ptr.value, 20 % delay.max_length)

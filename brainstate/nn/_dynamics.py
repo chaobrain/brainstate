@@ -35,6 +35,7 @@ For handling the delays:
 
 from typing import Any, Dict, Callable, Hashable, Optional, Union, TypeVar, Tuple
 
+import brainunit as u
 import jax
 import numpy as np
 
@@ -219,9 +220,10 @@ class Dynamics(Module):
     def prefetch_delay(
         self,
         state: str,
-        *time_and_index: Tuple,
+        *time_and_index,
         init: Optional[Union[Callable, ArrayLike]] = None,
         interpolation: Optional[str] = None,
+        **kwargs
     ) -> 'PrefetchDelayAt':
         """
         Create a reference to a delayed state or variable in the module.
@@ -247,6 +249,7 @@ class Dynamics(Module):
             *time_and_index,
             delay_init=init,
             interpolation=interpolation,
+            **kwargs
         )
 
     def output_delay(
@@ -254,6 +257,7 @@ class Dynamics(Module):
         *time_and_index,
         init: Optional[Union[Callable, ArrayLike]] = None,
         interpolation: Optional[str] = None,
+        **kwargs
     ) -> 'OutputDelayAt':
         """
         Create a reference to the delayed output of the module.
@@ -277,6 +281,7 @@ class Dynamics(Module):
             *time_and_index,
             interpolation=interpolation,
             delay_init=init,
+            **kwargs
         )
 
     @property
@@ -652,6 +657,7 @@ class PrefetchDelayAt(Node):
 
     Examples
     --------
+    >>> import brainpy
     >>> import brainstate
     >>> import brainunit as u
     >>> neuron = brainpy.state.LIF(10)
@@ -668,6 +674,8 @@ class PrefetchDelayAt(Node):
         *time_and_index: Tuple,
         delay_init: Optional[Union[Callable, ArrayLike]] = None,
         interpolation: Optional[str] = None,
+        update_every: Optional[Union[float, u.Quantity]] = None,
+        **kwargs
     ):
         """
         Initialize a PrefetchDelayAt object.
@@ -691,9 +699,16 @@ class PrefetchDelayAt(Node):
             time_and_index = (time_and_index,)
         self.delay_time = time_and_index
         if len(time_and_index) > 0:
-            key = _get_prefetch_delay_key(item)
+            key = _get_prefetch_delay_key(item, update_every)
             if not module.has_after_update(key):
-                delay = StateWithDelay(module, item, init=delay_init, interpolation=interpolation)
+                delay = StateWithDelay(
+                    module,
+                    item,
+                    init=delay_init,
+                    interpolation=interpolation,
+                    update_every=update_every,
+                    **kwargs
+                )
                 module.add_after_update(key, not_receive_update_output(delay))
             self.state_delay = module.get_after_update(key)
             self.delay_info = self.state_delay.register_delay(*time_and_index)
@@ -746,17 +761,21 @@ class OutputDelayAt(Node):
         *delay_time,
         delay_init: Optional[Union[Callable, ArrayLike]] = None,
         interpolation: Optional[str] = None,
+        update_every: Optional[Union[float, u.Quantity]] = None,
+        **kwargs
     ):
         super().__init__()
         assert isinstance(module, Dynamics), 'The module should be an instance of Dynamics.'
         self.module = module
-        key = _get_output_delay_key()
+        key = _get_output_delay_key(update_every)
         if not module.has_after_update(key):
             delay = Delay(
                 jax.ShapeDtypeStruct(module.out_size, dtype=environ.dftype()),
                 take_aware_unit=True,
                 init=delay_init,
                 interpolation=interpolation,
+                update_every=update_every,
+                **kwargs
             )
             module.add_after_update(key, receive_update_output(delay))
         self.out_delay = module.get_after_update(key)
@@ -766,12 +785,12 @@ class OutputDelayAt(Node):
         return self.out_delay.retrieve_at_step(*self.delay_info)
 
 
-def _get_prefetch_delay_key(item) -> str:
-    return f'{item}-prefetch-delay'
+def _get_prefetch_delay_key(item, update_every) -> str:
+    return f'{item}-prefetch-delay-{update_every}'
 
 
-def _get_output_delay_key() -> str:
-    return f'output-delay'
+def _get_output_delay_key(update_every) -> str:
+    return f'output-delay-{update_every}'
 
 
 def _get_prefetch_item(target: Union[Prefetch, PrefetchDelayAt]) -> Any:
