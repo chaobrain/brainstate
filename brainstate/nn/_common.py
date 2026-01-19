@@ -585,7 +585,7 @@ class ModuleMapper(Module):
 
     def map(
         self,
-        fn: str,
+        fn: str | Callable,
         in_axes: Any = 0,
         out_axes: Any = 0,
         axis_name: Optional[str] = None,
@@ -594,24 +594,140 @@ class ModuleMapper(Module):
         """
         Access the wrapped module's methods with vectorized mapping.
 
+        This method allows you to call any method of the wrapped module with custom
+        vectorization settings, overriding the default ``in_axes``, ``out_axes``,
+        ``axis_name``, and ``state_axes`` specified during ``ModuleMapper`` initialization.
+
+        Parameters
+        ----------
+        fn : str or Callable
+            The method name (as a string) or callable function to execute with
+            vectorized mapping. If a string, it must be the name of an existing
+            method on the wrapped module.
+        in_axes : Any, optional
+            Specification for mapping over input arguments. Can be an integer
+            specifying which axis to map over, a tuple/dict for complex structures,
+            or ``None`` to broadcast without mapping. Default is ``0``.
+        out_axes : Any, optional
+            Specification for mapping over outputs. Can be an integer specifying
+            which axis to map over, a tuple/dict for complex structures, or ``None``
+            to collect outputs without mapping. Default is ``0``.
+        axis_name : str, optional
+            Name for the mapped axis used by collective operations like ``lax.psum``
+            or ``lax.pmean``. If ``None``, uses the axis name specified during
+            ``ModuleMapper`` initialization. Default is ``None``.
+        state_axes : Dict[int, Filter], optional
+            Dictionary mapping axis indices to state filters for fine-grained control
+            over which states are mapped along which axes. Keys are axis indices,
+            values are filter functions that select which states to map. If ``None``,
+            uses the default state mapping behavior. Default is ``None``.
+
         Returns
         -------
         _ModuleMapperCalling
-            An object that allows calling methods of the wrapped module
-            with vectorized mapping.
+            A callable wrapper that applies the specified vectorized mapping when
+            invoked. Call this object with the arguments you want to pass to the
+            mapped function.
+
+        Raises
+        ------
+        ValueError
+            If ``init_all_states()`` has not been called before using this method.
+        AttributeError
+            If ``fn`` is a string but the module has no method with that name.
 
         Examples
         --------
+        **Basic usage with method name:**
+
         .. code-block:: python
 
-           >>> vmapped = ModuleMapper(module, in_axes=0)
-           >>> vmapped.init_all_states(vmap_axis=10)
-           >>> outputs = vmapped.vmap('predict')(inputs)
+           >>> import brainstate as bst
+           >>> import jax.numpy as jnp
+           >>>
+           >>> class MyModule(bst.nn.Module):
+           ...     def init_state(self):
+           ...         self.weight = bst.ParamState(jnp.ones(5))
+           ...     def predict(self, x):
+           ...         return x @ self.weight.value
+           >>>
+           >>> module = MyModule()
+           >>> vmapper = bst.nn.ModuleMapper(module, init_map_size=10)
+           >>> vmapper.init_all_states()
+           >>> inputs = jnp.ones((10, 5))  # batch of 10 inputs
+           >>> outputs = vmapper.map('predict')(inputs)  # shape: (10,)
+
+        **Using a callable function:**
+
+        .. code-block:: python
+
+           >>> def custom_fn(module, x, scale):
+           ...     return module.predict(x) * scale
+           >>>
+           >>> vmapper = bst.nn.ModuleMapper(module, init_map_size=10)
+           >>> vmapper.init_all_states()
+           >>> outputs = vmapper.map(lambda m, x, s: custom_fn(m, x, s))(
+           ...     inputs, scale=2.0
+           ... )
+
+        **Custom in_axes and out_axes:**
+
+        .. code-block:: python
+
+           >>> class MultiInputModule(bst.nn.Module):
+           ...     def init_state(self, size):
+           ...         self.state = bst.State(jnp.zeros(size))
+           ...     def process(self, x, y):
+           ...         return x + y, x * y
+           >>>
+           >>> module = MultiInputModule()
+           >>> vmapper = bst.nn.ModuleMapper(module, init_map_size=10)
+           >>> vmapper.init_all_states(size=(5,))
+           >>> x = jnp.ones((10, 5))  # mapped over axis 0
+           >>> y = jnp.ones(5)        # broadcasted (not mapped)
+           >>> # Map over first input but broadcast second, both outputs mapped
+           >>> result1, result2 = vmapper.map(
+           ...     'process',
+           ...     in_axes=(0, None),
+           ...     out_axes=(0, 0)
+           ... )(x, y)
+
+        **Using state_axes for fine-grained control:**
+
+        .. code-block:: python
+
+           >>> from brainstate.util.filter import OfType
+           >>>
+           >>> class StatefulModule(bst.nn.Module):
+           ...     def init_state(self, size):
+           ...         self.params = bst.ParamState(jnp.ones(size))
+           ...         self.buffer = bst.State(jnp.zeros(size))
+           ...     def update(self, x):
+           ...         self.buffer.value = x
+           ...         return x @ self.params.value
+           >>>
+           >>> module = StatefulModule()
+           >>> vmapper = bst.nn.ModuleMapper(module, init_map_size=10)
+           >>> vmapper.init_all_states(size=(5,))
+           >>> # Map only ParamState along axis 0, keep State shared
+           >>> outputs = vmapper.map(
+           ...     'update',
+           ...     state_axes={0: OfType(bst.ParamState)}
+           ... )(inputs)
+
+        See Also
+        --------
+        update : Execute the vectorized module with default settings.
+        brainstate.transform.vmap2 : Underlying vectorization transform.
+        brainstate.transform.pmap2 : Underlying parallel mapping transform.
+        init_all_states : Required initialization method before using map.
         """
-        try:
-            fn = getattr(self.module, fn)
-        except AttributeError:
-            raise AttributeError(f'Module has no method named {fn}.') from None
+        if isinstance(fn, str):
+            try:
+                fn = getattr(self.module, fn)
+            except AttributeError:
+                raise AttributeError(f'Module has no method named {fn}.') from None
+        assert callable(fn), 'fn must be a callable or the name of a method.'
         if not self._init:
             raise ValueError(
                 'ModuleMapper.update called before init_all_states. Please call init_all_states first.'
