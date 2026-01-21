@@ -105,7 +105,7 @@ if jax.__version_info__ < (0, 5, 0):
 else:
     from jax import Device
 
-if jax.__version_info__ < (0.8, 0):
+if jax.__version_info__ < (0, 8, 0):
     from jax.lib.xla_client import get_backend
 else:
     from jax.extend.backend import get_backend
