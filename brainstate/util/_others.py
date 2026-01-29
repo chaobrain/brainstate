@@ -596,7 +596,7 @@ def clear_buffer_memory(
     """
     if array:
         try:
-            from jax.extend.backend import get_backend
+            from brainstate._compatible_import import get_backend
             backend = get_backend(platform)
             for buf in backend.live_buffers():
                 buf.delete()
