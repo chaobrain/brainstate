@@ -232,6 +232,7 @@ class GradientTransform(PrettyRepr):
         self.stateful_target = StatefulFunction(target, name='gradient', return_only_write=True)
 
         # transform
+        self.transform = transform
         grad_setting = dict() if transform_params is None else transform_params
         if self.has_aux:
             self._transform = transform(
@@ -453,8 +454,12 @@ class GradientTransform(PrettyRepr):
             def grad_fn(gv, ov, a, kw):
                 return self._transform(gv, ov, *a, **kw)
 
-            debug_nan_if(has_nan, grad_fn,
-                         grad_vals, other_vals, args, kwargs)
+            debug_nan_if(
+                has_nan,
+                grad_fn,
+                grad_vals, other_vals, args, kwargs,
+                phase=str(self.transform.__name__)
+            )
 
             # # Flatten args for passing through the callback
             # flat_args, _ = jax.tree.flatten((grad_vals, other_vals, args, kwargs))

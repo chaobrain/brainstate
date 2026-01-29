@@ -242,7 +242,7 @@ def _eval_cond_primitive(eqn, invals) -> Tuple[List, List[Dict], List[str]]:
     return outputs, nan_report, eqn_strs
 
 
-def _eval_expanded_primitive(eqn, invals) -> Tuple[List, List[Dict], List[str]]:
+def _eval_primitive(eqn, invals) -> Tuple[List, List[Dict], List[str]]:
     """
     Evaluate a high-level primitive by recursively evaluating its inner jaxpr.
 
@@ -319,10 +319,10 @@ def _eval_jaxpr_with_nan_check(jaxpr, consts, *args) -> Tuple[List, List[Dict], 
         input_has_nan, _ = _check_pytree_for_nan(invals, f"eqn_{eqn_idx}_inputs")
 
         # Check if this is an expandable primitive (jit, cond, etc.)
-        if _is_expandable_primitive(eqn):
-            # Recursively evaluate inner jaxpr
-            outvals, inner_nan_report, inner_eqn_strs = _eval_expanded_primitive(eqn, invals)
+        # Recursively evaluate inner jaxpr
+        outvals, inner_nan_report, inner_eqn_strs = _eval_primitive(eqn, invals)
 
+        if _is_expandable_primitive(eqn):
             # Add inner NaN reports with adjusted indices
             for report in inner_nan_report:
                 report['outer_eqn_index'] = eqn_idx
@@ -331,12 +331,6 @@ def _eval_jaxpr_with_nan_check(jaxpr, consts, *args) -> Tuple[List, List[Dict], 
 
             # Add inner equation strings for context (indented)
             all_eqn_strs.extend([f"  [inner] {s}" for s in inner_eqn_strs])
-        else:
-            # Evaluate the primitive normally
-            subfuns, bind_params = eqn.primitive.get_bind_params(eqn.params)
-            outvals = eqn.primitive.bind(*subfuns, *invals, **bind_params)
-            if not eqn.primitive.multiple_results:
-                outvals = [outvals]
 
         # Check outputs for NaN
         output_has_nan, output_nan_details = _check_pytree_for_nan(outvals, f"eqn_{eqn_idx}_outputs")
@@ -344,16 +338,18 @@ def _eval_jaxpr_with_nan_check(jaxpr, consts, *args) -> Tuple[List, List[Dict], 
         # If NaN appeared in output but wasn't in input, record it
         # (Skip for expandable primitives as NaN is already reported from inner)
         if output_has_nan and not input_has_nan and not _is_expandable_primitive(eqn):
-            nan_report.append({
-                'eqn_index': eqn_idx,
-                'primitive': eqn.primitive.name,
-                'input_shapes': [getattr(v, 'shape', None) for v in invals],
-                'output_shapes': [getattr(v, 'shape', None) for v in outvals],
-                'input_values': invals,  # Include actual input values for debugging
-                'nan_details': output_nan_details,
-                'equation_str': str(eqn),
-                'source_info': getattr(eqn, 'source_info', None),
-            })
+            nan_report.append(
+                {
+                    'eqn_index': eqn_idx,
+                    'primitive': eqn.primitive.name,
+                    'input_shapes': [getattr(v, 'shape', None) for v in invals],
+                    'output_shapes': [getattr(v, 'shape', None) for v in outvals],
+                    'input_values': invals,  # Include actual input values for debugging
+                    'nan_details': output_nan_details,
+                    'equation_str': str(eqn),
+                    'source_info': getattr(eqn, 'source_info', None),
+                }
+            )
 
         # Store outputs in environment
         for var, val in zip(eqn.outvars, outvals):
@@ -457,7 +453,7 @@ def _format_nan_report(
 # =============================================================================
 
 
-def _nan_error_callback(name, jaxpr_info):
+def _nan_error_callback(name, jaxpr_info, phase):
     """
     Callback to raise error with detailed NaN/Inf analysis.
 
@@ -479,21 +475,24 @@ def _nan_error_callback(name, jaxpr_info):
     flat_args = jaxpr_info['flat_args']
 
     outputs, nan_report, all_eqn_strs = _eval_jaxpr_with_nan_check(jaxpr, consts, *flat_args)
+    if phase:
+        for item in nan_report:
+            item['phase'] = phase
 
     if nan_report:
-        for item in nan_report:
-            item['phase'] = 'gradient'
         report = _format_nan_report(nan_report, len(jaxpr.eqns), all_eqn_strs)
-        raise RuntimeError(f"NaN/Inf detected in {name}:\n"
-                           f"{report}")
-    raise RuntimeError(
-        f'NaN/Inf detected in {name}, but detailed analysis found no specific source. '
-        'This may indicate NaN/Inf existed in inputs or was introduced in a way '
-        'not captured by equation-by-equation analysis.'
-    )
+        raise RuntimeError(
+            f"NaN/Inf detected in {name}:\n{report}"
+        )
+    raise ValueError('NaN/Inf is not found during detailed analysis, unexpected state.')
+    # raise RuntimeError(
+    #     f'NaN/Inf detected in {name}, but detailed analysis found no specific source. '
+    #     'This may indicate NaN/Inf existed in inputs or was introduced in a way '
+    #     'not captured by equation-by-equation analysis.'
+    # )
 
 
-def debug_nan(fn: Callable, *args):
+def debug_nan(fn: Callable, *args, phase: str = ''):
     stateful_fn = StatefulFunction(fn)
     grad_jaxpr = stateful_fn.get_jaxpr(*args, compile_if_miss=True)
 
@@ -504,7 +503,7 @@ def debug_nan(fn: Callable, *args):
             'consts': consts,  # Concrete values from callback
             'flat_args': flat_args_concrete  # Concrete values from callback
         }
-        _nan_error_callback("gradient computation", jaxpr_info)
+        _nan_error_callback("gradient computation", jaxpr_info, phase)
 
     # Pack grads and flat_args together as operand
     # Flatten args for passing through the callback
@@ -516,10 +515,15 @@ def debug_nan(fn: Callable, *args):
     jax.debug.callback(error_callback, flat_args_unvmapped, grad_jaxpr.consts)
 
 
-def debug_nan_if(has_nan: bool | jax.Array, fn: Callable, *args):
+def debug_nan_if(
+    has_nan: bool | jax.Array,
+    fn: Callable,
+    *args,
+    phase: str = ''
+):
     jax.lax.cond(
         unvmap(has_nan, op='any'),
-        lambda *args_: debug_nan(fn, *args_),
-        lambda operand: None,
+        lambda *args_: debug_nan(fn, *args_, phase=phase),
+        lambda *args_: None,
         *args,
     )
