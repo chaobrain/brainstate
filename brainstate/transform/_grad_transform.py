@@ -21,7 +21,7 @@ import jax.numpy as jnp
 
 from brainstate._compatible_import import DropVar, Literal
 from brainstate._state import State
-from brainstate.transform._make_jaxpr import StatefulFunction
+from brainstate.transform._make_jaxpr import StatefulFunction, make_jaxpr
 from brainstate.transform._unvmap import unvmap
 from brainstate.typing import PyTree
 from brainstate.util import PrettyType, PrettyAttr, PrettyRepr
@@ -285,7 +285,7 @@ def _check_nan_jit_compatible(values) -> jax.Array:
     return has_bad
 
 
-def _nan_error_callback(grads, name, jaxpr_info=None):
+def _nan_error_callback(name, jaxpr_info=None):
     """
     Callback to raise error with detailed NaN/Inf analysis.
 
@@ -294,8 +294,6 @@ def _nan_error_callback(grads, name, jaxpr_info=None):
 
     Parameters
     ----------
-    grads : PyTree
-        The gradient values that contain NaN/Inf.
     name : str
         A descriptive name for the computation (e.g., "gradient computation").
     jaxpr_info : dict, optional
@@ -303,44 +301,17 @@ def _nan_error_callback(grads, name, jaxpr_info=None):
         for detailed equation-by-equation analysis.
     """
     # Try detailed jaxpr analysis if info is available
-    try:
-        jaxpr = jaxpr_info['jaxpr']
-        consts = jaxpr_info['consts']
-        flat_args = jaxpr_info['flat_args']
+    jaxpr = jaxpr_info['jaxpr']
+    consts = jaxpr_info['consts']
+    flat_args = jaxpr_info['flat_args']
 
-        outputs, nan_report, all_eqn_strs = _eval_jaxpr_with_nan_check(
-            jaxpr, consts, *flat_args
-        )
+    outputs, nan_report, all_eqn_strs = _eval_jaxpr_with_nan_check(jaxpr, consts, *flat_args)
 
-        if nan_report:
-            for item in nan_report:
-                item['phase'] = 'gradient'
-            report = _format_nan_report(nan_report, len(jaxpr.eqns), all_eqn_strs)
-            raise RuntimeError(f"NaN/Inf detected in {name}:\n{report}")
-    except Exception as e:
-        # If detailed analysis fails, fall through to basic error
-        if "NaN/Inf detected" in str(e):
-            raise  # Re-raise if it's our error
-
-    # Fallback: basic error without jaxpr info
-    details = []
-    for i, leaf in enumerate(jax.tree.leaves(grads)):
-        if hasattr(leaf, 'dtype') and jnp.issubdtype(leaf.dtype, jnp.floating):
-            bad_mask = jnp.isnan(leaf) | jnp.isinf(leaf)
-            if jnp.any(bad_mask):
-                bad_count = int(jnp.sum(bad_mask))
-                # Show sample bad values
-                if leaf.size <= 10:
-                    details.append(
-                        f"  Leaf {i}: shape={leaf.shape}, dtype={leaf.dtype}, bad_count={bad_count}, values={leaf}"
-                    )
-                else:
-                    details.append(
-                        f"  Leaf {i}: shape={leaf.shape}, dtype={leaf.dtype}, bad_count={bad_count}"
-                    )
-    raise RuntimeError(
-        f"NaN/Inf detected in {name}!\n" + "\n".join(details)
-    )
+    if nan_report:
+        for item in nan_report:
+            item['phase'] = 'gradient'
+        report = _format_nan_report(nan_report, len(jaxpr.eqns), all_eqn_strs)
+        raise RuntimeError(f"NaN/Inf detected in {name}:\n{report}")
 
 
 class GradientTransform(PrettyRepr):
@@ -727,55 +698,45 @@ class GradientTransform(PrettyRepr):
         read_state_vals = state_trace.get_read_state_values(True)
         grad_vals, other_vals = self._split_state_vals(state_trace)
 
+        # Compute gradients (JIT-compatible)
+        rets = self._transform(grad_vals, other_vals, *args, **kwargs)
+        grads = rets[0]
+
         if self.debug_nan:
-            # Check if we're inside a JIT trace by examining if arguments are tracers
-            flat_args, _ = jax.tree.flatten((grad_vals, other_vals, args, kwargs))
-            is_tracing = any(isinstance(x, jax.core.Tracer) for x in flat_args)
-
-            if is_tracing:
-                # Inside JIT: can't do detailed jaxpr analysis (tracers become invalid in callback)
-                # Use basic error reporting instead
-                jaxpr_info = None
-            else:
-                # Not inside JIT: capture jaxpr for detailed analysis
-                def grad_fn(gv, ov, *a, **kw):
-                    return self._transform(gv, ov, *a, **kw)
-
-                grad_jaxpr, out_tree = jax.make_jaxpr(grad_fn, return_shape=True)(
-                    grad_vals, other_vals, *args, **kwargs
-                )
-
-                # Store jaxpr info for callback (will be used if NaN detected)
-                jaxpr_info = {
-                    'jaxpr': grad_jaxpr.jaxpr,
-                    'consts': grad_jaxpr.consts,
-                    'flat_args': flat_args
-                }
-
-            # Compute gradients (JIT-compatible)
-            rets = self._transform(grad_vals, other_vals, *args, **kwargs)
-
-            # Extract gradient values for NaN check
-            grads = rets[0]
-
             # Check for NaN/Inf using JIT-compatible operations
             has_nan = _check_nan_jit_compatible(grads)
 
-            # Create callback with jaxpr_info in closure for detailed analysis
-            def error_callback(grads_unvmapped):
-                _nan_error_callback(grads_unvmapped, "gradient computation", jaxpr_info)
+            # Capture jaxpr for detailed analysis (jaxpr and consts are static, safe to capture)
+            def grad_fn(gv, ov, *a, **kw):
+                return self._transform(gv, ov, *a, **kw)
 
-            # Use jax.lax.cond to conditionally raise error
+            grad_jaxpr = jax.make_jaxpr(grad_fn)(grad_vals, other_vals, *args, **kwargs)
+            # st_fn = StatefulFunction(grad_fn).make_jaxpr(grad_vals, other_vals, *args, **kwargs)
+            # grad_jaxpr = st_fn.get_jaxpr(grad_vals, other_vals, *args, **kwargs)
+
+            # Flatten args for passing through the callback
+            flat_args, _ = jax.tree.flatten((grad_vals, other_vals, args, kwargs))
+
+            # Create callback that receives flat_args as concrete values
+            def error_callback(flat_args_concrete, consts):
+                jaxpr_info = {
+                    'jaxpr': grad_jaxpr.jaxpr,  # Static, captured in closure
+                    'consts': consts,  # Static, captured in closure
+                    'flat_args': flat_args_concrete  # Concrete values from callback
+                }
+                _nan_error_callback("gradient computation", jaxpr_info)
+
+            # Pack grads and flat_args together as operand
+            flat_args_unvmapped = jax.tree.map(functools.partial(unvmap, op='none'), flat_args)
+
+            # Use jax.lax.cond - pass flat_args through so they become concrete in callback
             # This is compatible with jax.jit
             jax.lax.cond(
                 unvmap(has_nan, op='any'),
-                lambda g: jax.debug.callback(error_callback, g),
-                lambda g: None,
-                jax.tree.map(functools.partial(unvmap, op='none'), grads),
+                lambda operand: jax.debug.callback(error_callback, *operand),
+                lambda operand: None,
+                (flat_args_unvmapped, grad_jaxpr.consts),
             )
-        else:
-            # Compute gradients (JIT-compatible)
-            rets = self._transform(grad_vals, other_vals, *args, **kwargs)
 
         # analyze and return the results
         res = self._return(rets, read_state_vals, state_trace)

@@ -18,9 +18,6 @@
 from ._cache import (
     BoundedCache,
 )
-from ._debug import (
-    breakpoint_if,
-)
 # Import other utilities
 from ._others import (
     split_total,

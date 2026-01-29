@@ -64,7 +64,7 @@ def example_log_of_zero():
         return grad_fn(x)
 
     x = jnp.array([1.0, 1.0, 1.0])
-    grads = grad_fn(x)
+    grads = fn(x)
     print(f"Gradients: {grads}")
     print()
 
