@@ -14,6 +14,15 @@
 # ==============================================================================
 
 
+from ._context import (
+    split_context,
+    merge_context,
+)
+from ._convert import (
+    graph_to_tree,
+    tree_to_graph,
+    NodeStates,
+)
 from ._node import Node
 from ._operation import (
     register_graph_node_type,
@@ -38,6 +47,13 @@ from ._operation import (
 
 __all__ = [
     'Node',
+    'graph_to_tree',
+    'tree_to_graph',
+    'NodeStates',
+
+    'split_context',
+    'merge_context',
+
     'register_graph_node_type',
     'pop_states',
     'nodes',
