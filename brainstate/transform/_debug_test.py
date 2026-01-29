@@ -420,9 +420,9 @@ class TestFormatNanReport(unittest.TestCase):
         }]
         eqn_strs = [f'eqn_{i}' for i in range(10)]
 
-        result = _format_nan_report(nan_report, 10, eqn_strs, context_window=2)
+        result = _format_nan_report(nan_report, 10, eqn_strs, context=2)
 
-        # Should show equations 3, 4, 5, 6, 7 (within context_window=2 of index 5)
+        # Should show equations 3, 4, 5, 6, 7 (within context=2 of index 5)
         self.assertIn("eqn_3", result)
         self.assertIn("eqn_4", result)
         self.assertIn("eqn_5", result)
@@ -471,14 +471,19 @@ class TestNestedHighLevelPrimitives(unittest.TestCase):
         def level1(x):
             return level2(x) * 2
 
-        jaxpr = jax.make_jaxpr(level1)(jnp.array([0.0, 1.0, 2.0]))
-        outputs, nan_report, eqn_strs = _eval_jaxpr_with_nan_check(
-            jaxpr.jaxpr, jaxpr.consts, jnp.array([0.0, 1.0, 2.0])
-        )
+        with self.assertRaises(RuntimeError) as cm:
+            debug_nan(level1, jnp.array([0.0, 1.0, 2.0]))
+        self.assertIn("NaN/Inf detected", str(cm.exception))
+        self.assertIn("log", str(cm.exception))
 
-        self.assertTrue(len(nan_report) > 0)
-        found_log = any(r['primitive'] == 'log' for r in nan_report)
-        self.assertTrue(found_log)
+        # jaxpr = jax.make_jaxpr(level1)(jnp.array([0.0, 1.0, 2.0]))
+        # outputs, nan_report, eqn_strs = _eval_jaxpr_with_nan_check(
+        #     jaxpr.jaxpr, jaxpr.consts, jnp.array([0.0, 1.0, 2.0])
+        # )
+        #
+        # self.assertTrue(len(nan_report) > 0)
+        # found_log = any(r['primitive'] == 'log' for r in nan_report)
+        # self.assertTrue(found_log)
 
     def test_jit_with_clean_inner(self):
         """JIT with clean inner computation should have no NaN report."""
@@ -685,6 +690,248 @@ class TestNestedHighLevelPrimitives(unittest.TestCase):
 
         with self.assertRaises(Exception):
             debug_nan_if(True, fn, jnp.array([1.0, 0.0]))
+
+
+class TestWhilePrimitive(unittest.TestCase):
+    """Tests for while_loop NaN detection."""
+
+    def test_while_nan_in_first_iteration(self):
+        """Should detect NaN in the first iteration of while loop."""
+        def fn(x):
+            def cond(val):
+                return val[0] < 10
+
+            def body(val):
+                return jnp.log(val)  # NaN if val contains 0 or negative
+
+            return jax.lax.while_loop(cond, body, x)
+
+        jaxpr = jax.make_jaxpr(fn)(jnp.array([0.5]))
+        outputs, nan_report, eqn_strs = _eval_jaxpr_with_nan_check(
+            jaxpr.jaxpr, jaxpr.consts, jnp.array([0.0])  # 0.0 causes NaN
+        )
+
+        self.assertTrue(len(nan_report) > 0)
+        # Check that it's tagged as inside_while
+        has_while_flag = any(r.get('inside_while', False) for r in nan_report)
+        self.assertTrue(has_while_flag)
+
+    def test_while_clean_no_nan(self):
+        """Clean while loop should produce no NaN report."""
+        def fn(x):
+            def cond(val):
+                return val[0] < 10
+
+            def body(val):
+                return val + 1.0
+
+            return jax.lax.while_loop(cond, body, x)
+
+        jaxpr = jax.make_jaxpr(fn)(jnp.array([0.0]))
+        outputs, nan_report, eqn_strs = _eval_jaxpr_with_nan_check(
+            jaxpr.jaxpr, jaxpr.consts, jnp.array([0.0])
+        )
+
+        self.assertEqual(len(nan_report), 0)
+
+    def test_while_report_has_iteration_metadata(self):
+        """NaN report from while should include iteration metadata."""
+        def fn(x):
+            def cond(val):
+                return val[0] < 10
+
+            def body(val):
+                return jnp.log(val)
+
+            return jax.lax.while_loop(cond, body, x)
+
+        jaxpr = jax.make_jaxpr(fn)(jnp.array([0.5]))
+        outputs, nan_report, eqn_strs = _eval_jaxpr_with_nan_check(
+            jaxpr.jaxpr, jaxpr.consts, jnp.array([0.0])
+        )
+
+        self.assertTrue(len(nan_report) > 0)
+        report = nan_report[0]
+        self.assertIn('inside_while', report)
+        self.assertIn('iteration_index', report)
+        self.assertIn('while_part', report)
+
+
+class TestScanPrimitive(unittest.TestCase):
+    """Tests for scan NaN detection."""
+
+    def test_scan_nan_in_first_iteration(self):
+        """Should detect NaN in the first iteration of scan."""
+        def fn(xs):
+            def body(carry, x):
+                return carry + jnp.log(x), carry
+
+            return jax.lax.scan(body, 0.0, xs)
+
+        jaxpr = jax.make_jaxpr(fn)(jnp.array([0.0, 1.0, 2.0]))
+        outputs, nan_report, eqn_strs = _eval_jaxpr_with_nan_check(
+            jaxpr.jaxpr, jaxpr.consts, jnp.array([0.0, 1.0, 2.0])  # First element causes NaN
+        )
+
+        self.assertTrue(len(nan_report) > 0)
+        # Should detect log as the NaN source
+        found_log = any(r['primitive'] == 'log' for r in nan_report)
+        self.assertTrue(found_log)
+
+    def test_scan_nan_in_later_iteration(self):
+        """Should detect NaN that appears in a later iteration."""
+        def fn(xs):
+            def body(carry, x):
+                return carry + jnp.log(x), x * 2
+
+            return jax.lax.scan(body, 0.0, xs)
+
+        jaxpr = jax.make_jaxpr(fn)(jnp.array([1.0, 0.0, 2.0]))
+        outputs, nan_report, eqn_strs = _eval_jaxpr_with_nan_check(
+            jaxpr.jaxpr, jaxpr.consts, jnp.array([1.0, 0.0, 2.0])  # Second element causes NaN
+        )
+
+        self.assertTrue(len(nan_report) > 0)
+        # Check iteration index
+        has_scan_flag = any(r.get('inside_scan', False) for r in nan_report)
+        self.assertTrue(has_scan_flag)
+
+    def test_scan_clean_no_nan(self):
+        """Clean scan should produce no NaN report."""
+        def fn(xs):
+            def body(carry, x):
+                return carry + x, x * 2
+
+            return jax.lax.scan(body, 0.0, xs)
+
+        jaxpr = jax.make_jaxpr(fn)(jnp.array([1.0, 2.0, 3.0]))
+        outputs, nan_report, eqn_strs = _eval_jaxpr_with_nan_check(
+            jaxpr.jaxpr, jaxpr.consts, jnp.array([1.0, 2.0, 3.0])
+        )
+
+        self.assertEqual(len(nan_report), 0)
+
+    def test_scan_report_has_iteration_metadata(self):
+        """NaN report from scan should include iteration metadata."""
+        def fn(xs):
+            def body(carry, x):
+                return carry + jnp.log(x), carry
+
+            return jax.lax.scan(body, 0.0, xs)
+
+        jaxpr = jax.make_jaxpr(fn)(jnp.array([0.0, 1.0]))
+        outputs, nan_report, eqn_strs = _eval_jaxpr_with_nan_check(
+            jaxpr.jaxpr, jaxpr.consts, jnp.array([0.0, 1.0])
+        )
+
+        self.assertTrue(len(nan_report) > 0)
+        report = nan_report[0]
+        self.assertIn('inside_scan', report)
+        self.assertIn('iteration_index', report)
+
+    def test_scan_with_multiple_carry(self):
+        """Should handle scan with multiple carry values."""
+        def fn(xs):
+            def body(carry, x):
+                c1, c2 = carry
+                new_c1 = c1 + jnp.log(x)  # NaN source
+                new_c2 = c2 * x
+                return (new_c1, new_c2), c1
+
+            return jax.lax.scan(body, (0.0, 1.0), xs)
+
+        jaxpr = jax.make_jaxpr(fn)(jnp.array([0.0, 1.0]))
+        outputs, nan_report, eqn_strs = _eval_jaxpr_with_nan_check(
+            jaxpr.jaxpr, jaxpr.consts, jnp.array([0.0, 1.0])
+        )
+
+        self.assertTrue(len(nan_report) > 0)
+
+
+class TestNestedWhileScanPrimitives(unittest.TestCase):
+    """Tests for nested combinations of while, scan, cond, and jit."""
+
+    def test_while_inside_jit(self):
+        """while_loop inside JIT should be expanded and checked."""
+        @jax.jit
+        def fn(x):
+            def cond(val):
+                return val[0] < 10
+
+            def body(val):
+                return jnp.log(val)
+
+            return jax.lax.while_loop(cond, body, x)
+
+        jaxpr = jax.make_jaxpr(fn)(jnp.array([0.5]))
+        outputs, nan_report, eqn_strs = _eval_jaxpr_with_nan_check(
+            jaxpr.jaxpr, jaxpr.consts, jnp.array([0.0])
+        )
+
+        self.assertTrue(len(nan_report) > 0)
+
+    def test_scan_inside_jit(self):
+        """scan inside JIT should be expanded and checked."""
+        @jax.jit
+        def fn(xs):
+            def body(carry, x):
+                return carry + jnp.log(x), carry
+
+            return jax.lax.scan(body, 0.0, xs)
+
+        jaxpr = jax.make_jaxpr(fn)(jnp.array([0.0, 1.0]))
+        outputs, nan_report, eqn_strs = _eval_jaxpr_with_nan_check(
+            jaxpr.jaxpr, jaxpr.consts, jnp.array([0.0, 1.0])
+        )
+
+        self.assertTrue(len(nan_report) > 0)
+
+    def test_scan_inside_cond(self):
+        """scan inside cond should be expanded and checked."""
+        def fn(x, xs):
+            def true_branch(xs_):
+                def body(carry, x):
+                    return carry + jnp.log(x), carry
+
+                return jax.lax.scan(body, 0.0, xs_)[0]
+
+            def false_branch(xs_):
+                return jnp.sum(xs_)
+
+            return jax.lax.cond(x > 0, true_branch, false_branch, xs)
+
+        jaxpr = jax.make_jaxpr(fn)(1.0, jnp.array([0.0, 1.0]))
+        # Taking true branch with NaN-causing input
+        outputs, nan_report, eqn_strs = _eval_jaxpr_with_nan_check(
+            jaxpr.jaxpr, jaxpr.consts, 1.0, jnp.array([0.0, 1.0])
+        )
+
+        self.assertTrue(len(nan_report) > 0)
+
+    def test_debug_nan_if_with_while(self):
+        """debug_nan_if should work with while_loop."""
+        def fn(x):
+            def cond(val):
+                return val[0] < 10
+
+            def body(val):
+                return jnp.log(val)
+
+            return jax.lax.while_loop(cond, body, x)
+
+        with self.assertRaises(Exception):
+            debug_nan_if(True, fn, jnp.array([0.0]))
+
+    def test_debug_nan_if_with_scan(self):
+        """debug_nan_if should work with scan."""
+        def fn(xs):
+            def body(carry, x):
+                return carry + jnp.log(x), carry
+
+            return jax.lax.scan(body, 0.0, xs)[0]
+
+        with self.assertRaises(Exception):
+            debug_nan_if(True, fn, jnp.array([0.0, 1.0]))
 
 
 if __name__ == '__main__':
