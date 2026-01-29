@@ -39,9 +39,6 @@ from ._mapping1 import (
 from ._mapping2 import (
     StatefulMapping, vmap2, pmap2, map, vmap2_new_states, pmap2_new_states,
 )
-from ._mapping3 import (
-    StateAxes, model_vmap, model_pmap,
-)
 
 # Gradient transformations
 from ._grad_grad import (
@@ -124,9 +121,6 @@ __all__ = [
     'pmap2',
     'pmap2_new_states',
     'map',
-    'StateAxes',
-    'model_vmap',
-    'model_pmap',
 
     # Gradient transformations
     'vector_grad',
