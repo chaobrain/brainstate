@@ -63,8 +63,6 @@ class RandomState(State):
 
     __module__ = 'brainstate.random'
 
-    # __slots__ = ('_backup', '_value')
-
     def __init__(
         self,
         seed_or_key: Optional[SeedOrKey] = None
