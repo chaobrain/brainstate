@@ -164,6 +164,8 @@ class GradientTransform(PrettyRepr):
         transform_params: Optional[Dict[str, Any]] = None,
         check_states: bool = True,
         debug_nan: bool = False,
+        debug_depth: int = 1,
+        debug_context: int = 5,
     ):
         """
         Initialize a ``GradientTransform`` instance.
@@ -225,6 +227,8 @@ class GradientTransform(PrettyRepr):
         self.return_value = return_value
         self.has_aux = has_aux
         self.debug_nan = debug_nan
+        self.debug_depth = debug_depth
+        self.debug_context = debug_context
 
         # target
         assert callable(target), "The target should be a callable object."
@@ -458,54 +462,10 @@ class GradientTransform(PrettyRepr):
                 has_nan,
                 grad_fn,
                 grad_vals, other_vals, args, kwargs,
-                phase=str(self.transform.__name__)
+                phase=str(self.transform.__name__),
+                depth=self.debug_depth,
+                context=self.debug_context,
             )
-
-            # # Flatten args for passing through the callback
-            # flat_args, _ = jax.tree.flatten((grad_vals, other_vals, args, kwargs))
-            #
-            # # Check if we're inside a JIT trace
-            # is_tracing = any(isinstance(x, jax.core.Tracer) for x in flat_args)
-            #
-            # if is_tracing:
-            #     # Inside JIT: jaxpr capture would produce stale results on subsequent calls
-            #     # Fall back to basic error reporting
-            #     def error_callback(grads_concrete):
-            #         _nan_error_callback("gradient computation", None, grads_concrete)
-            #
-            #     grads_unvmapped = jax.tree.map(functools.partial(unvmap, op='none'), grads)
-            #
-            #     jax.lax.cond(
-            #         unvmap(has_nan, op='any'),
-            #         lambda g: jax.debug.callback(error_callback, g),
-            #         lambda g: None,
-            #         grads_unvmapped,
-            #     )
-            # else:
-            #
-            #
-            #     grad_jaxpr = jax.make_jaxpr(grad_fn)(grad_vals, other_vals, *args, **kwargs)
-            #
-            #     # Create callback that receives flat_args as concrete values
-            #     def error_callback(flat_args_concrete, consts):
-            #         jaxpr_info = {
-            #             'jaxpr': grad_jaxpr.jaxpr,  # Static, captured in closure
-            #             'consts': consts,  # Concrete values from callback
-            #             'flat_args': flat_args_concrete  # Concrete values from callback
-            #         }
-            #         _nan_error_callback("gradient computation", jaxpr_info)
-            #
-            #     # Pack grads and flat_args together as operand
-            #     flat_args_unvmapped = jax.tree.map(functools.partial(unvmap, op='none'), flat_args)
-            #
-            #     # Use jax.lax.cond - pass flat_args through so they become concrete in callback
-            #     # This is compatible with jax.jit
-            #     jax.lax.cond(
-            #         unvmap(has_nan, op='any'),
-            #         lambda operand: jax.debug.callback(error_callback, *operand),
-            #         lambda operand: None,
-            #         (flat_args_unvmapped, grad_jaxpr.consts),
-            #     )
 
         # analyze and return the results
         res = self._return(rets, read_state_vals, state_trace)

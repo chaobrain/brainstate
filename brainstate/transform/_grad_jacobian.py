@@ -118,7 +118,7 @@ def jacrev(
     allow_int: bool = False,
     unit_aware: bool = False,
     check_states: bool = True,
-    debug_nan: bool = False,
+    **kwargs
 ) -> GradientTransform:
     """
     Extending automatic Jacobian (reverse-mode) of ``func`` to classes.
@@ -192,7 +192,7 @@ def jacrev(
             unit_aware=unit_aware,
         ),
         check_states=check_states,
-        debug_nan=debug_nan,
+        **kwargs
     )
 
 
@@ -209,7 +209,7 @@ def jacfwd(
     holomorphic: bool = False,
     unit_aware: bool = False,
     check_states: bool = True,
-    debug_nan: bool = False,
+    **kwargs
 ) -> GradientTransform:
     """Extending automatic Jacobian (forward-mode) of ``func`` to classes.
 
@@ -273,5 +273,5 @@ def jacfwd(
         has_aux=False if has_aux is None else has_aux,
         transform_params=dict(holomorphic=holomorphic, unit_aware=unit_aware),
         check_states=check_states,
-        debug_nan=debug_nan,
+        **kwargs
     )
