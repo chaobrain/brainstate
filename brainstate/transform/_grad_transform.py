@@ -13,12 +13,16 @@
 # limitations under the License.
 # ==============================================================================
 
-from typing import Union, Callable, Dict, Sequence, Optional, Any, Tuple, TypeVar, Iterator
+import functools
+from typing import Union, Callable, Dict, Sequence, Optional, Any, Tuple, TypeVar, Iterator, List
 
 import jax
+import jax.numpy as jnp
 
+from brainstate._compatible_import import DropVar, Literal
 from brainstate._state import State
 from brainstate.transform._make_jaxpr import StatefulFunction
+from brainstate.transform._unvmap import unvmap
 from brainstate.typing import PyTree
 from brainstate.util import PrettyType, PrettyAttr, PrettyRepr
 
@@ -31,6 +35,312 @@ Gradient = PyTree
 LossValue = PyTree
 AuxData = PyTree
 TransformFn = Callable
+
+
+def _check_for_nan(x) -> Tuple[bool, int, Optional[Any]]:
+    """
+    Check if an array contains NaN or Inf values.
+
+    Parameters
+    ----------
+    x : array-like
+        The array to check for NaN/Inf values.
+
+    Returns
+    -------
+    tuple
+        A tuple of (has_bad, bad_count, bad_indices) where:
+        - has_bad: bool indicating if any NaN/Inf values exist
+        - bad_count: number of NaN/Inf values found
+        - bad_indices: indices of NaN/Inf values (None if none found)
+    """
+    if not hasattr(x, 'dtype'):
+        return False, 0, None
+    if not jnp.issubdtype(x.dtype, jnp.floating):
+        return False, 0, None
+    # Check for both NaN and Inf
+    bad_mask = jnp.isnan(x) | jnp.isinf(x)
+    has_bad = bool(jnp.any(bad_mask))
+    if has_bad:
+        bad_count = int(jnp.sum(bad_mask))
+        # Handle scalar arrays (0d arrays)
+        if x.ndim == 0:
+            bad_indices = ()
+        else:
+            bad_indices = jnp.where(bad_mask)
+        return True, bad_count, bad_indices
+    return False, 0, None
+
+
+def _check_pytree_for_nan(pytree, name: str = "") -> Tuple[bool, List[Dict]]:
+    """
+    Check an entire pytree for NaN values.
+
+    Parameters
+    ----------
+    pytree : PyTree
+        The pytree to check for NaN values.
+    name : str, optional
+        A name to identify the pytree in reports.
+
+    Returns
+    -------
+    tuple
+        A tuple of (has_nan, results) where:
+        - has_nan: bool indicating if any NaN values exist in the pytree
+        - results: list of dicts with details about each leaf containing NaN
+    """
+    results = []
+    leaves = jax.tree.leaves(pytree)
+    for i, leaf in enumerate(leaves):
+        has_nan, count, indices = _check_for_nan(leaf)
+        if has_nan:
+            results.append(
+                {
+                    'leaf_index': i,
+                    'nan_count': count,
+                    'indices': indices,
+                    'shape': getattr(leaf, 'shape', None),
+                    'dtype': getattr(leaf, 'dtype', None),
+                }
+            )
+    return len(results) > 0, results
+
+
+def _eval_jaxpr_with_nan_check(jaxpr, consts, *args) -> Tuple[List, List[Dict], List[str]]:
+    """
+    Evaluate a jaxpr equation by equation, checking for NaN after each operation.
+
+    This function implements a custom jaxpr interpreter that evaluates each
+    primitive operation and checks if NaN values are introduced in the outputs.
+
+    Parameters
+    ----------
+    jaxpr : Jaxpr
+        The jaxpr to evaluate.
+    consts : sequence
+        The constant values for the jaxpr.
+    *args
+        The input arguments for the jaxpr.
+
+    Returns
+    -------
+    tuple
+        A tuple of (outputs, nan_report, all_eqn_strs) where:
+        - outputs: list of output values from the jaxpr evaluation
+        - nan_report: list of dicts with NaN detection info for each equation
+          that first introduced NaN values
+        - all_eqn_strs: list of equation strings for all equations
+    """
+    env = {}
+    nan_report = []
+    all_eqn_strs = []  # Collect all equation strings for context display
+
+    # Bind constants to their variables
+    for var, val in zip(jaxpr.constvars, consts):
+        env[var] = val
+
+    # Bind input arguments to their variables
+    for var, val in zip(jaxpr.invars, args):
+        env[var] = val
+
+    # Evaluate each equation
+    for eqn_idx, eqn in enumerate(jaxpr.eqns):
+        all_eqn_strs.append(str(eqn))  # Store equation string for context
+        # Get input values for this equation
+        invals = [env[v] if not isinstance(v, Literal) else v.val for v in eqn.invars]
+
+        # Check inputs for NaN (to track propagation vs. introduction)
+        input_has_nan, _ = _check_pytree_for_nan(invals, f"eqn_{eqn_idx}_inputs")
+
+        # Evaluate the primitive
+        subfuns, bind_params = eqn.primitive.get_bind_params(eqn.params)
+        outvals = eqn.primitive.bind(*subfuns, *invals, **bind_params)
+        if not eqn.primitive.multiple_results:
+            outvals = [outvals]
+
+        # Check outputs for NaN
+        output_has_nan, output_nan_details = _check_pytree_for_nan(outvals, f"eqn_{eqn_idx}_outputs")
+
+        # If NaN appeared in output but wasn't in input, record it
+        if output_has_nan and not input_has_nan:
+            nan_report.append({
+                'eqn_index': eqn_idx,
+                'primitive': eqn.primitive.name,
+                'input_shapes': [getattr(v, 'shape', None) for v in invals],
+                'output_shapes': [getattr(v, 'shape', None) for v in outvals],
+                'input_values': invals,  # Include actual input values for debugging
+                'nan_details': output_nan_details,
+                'equation_str': str(eqn),
+                'source_info': getattr(eqn, 'source_info', None),
+            })
+
+        # Store outputs in environment
+        for var, val in zip(eqn.outvars, outvals):
+            if not isinstance(var, DropVar):
+                env[var] = val
+
+    # Get final outputs
+    outputs = [env[v] if not isinstance(v, Literal) else v.val for v in jaxpr.outvars]
+    return outputs, nan_report, all_eqn_strs
+
+
+def _format_nan_report(
+    nan_report: List[Dict],
+    total_eqns: int,
+    all_eqn_strs: Optional[List[str]] = None,
+    context_window: int = 5
+) -> str:
+    """
+    Format a NaN/Inf report into a human-readable string with context window.
+
+    Parameters
+    ----------
+    nan_report : list
+        List of dicts containing NaN/Inf detection information.
+    total_eqns : int
+        Total number of equations that were evaluated.
+    all_eqn_strs : list of str, optional
+        List of all equation strings for context display.
+    context_window : int, default 5
+        Number of equations to show before and after each NaN/Inf source.
+
+    Returns
+    -------
+    str
+        A formatted string describing where NaN/Inf values were detected.
+    """
+    if not nan_report:
+        return f"No NaN/Inf detected in {total_eqns} equations."
+
+    lines = [f"NaN/Inf detected! Found in {len(nan_report)} equation(s) out of {total_eqns}:"]
+
+    for info in nan_report:
+        eqn_idx = info['eqn_index']
+        phase = info.get('phase', 'unknown')
+
+        # Show context header
+        lines.append(f"\n=== [{phase.upper()}] Context around Equation {eqn_idx} ({info['primitive']}) ===")
+
+        # Show context window if equation strings are available
+        if all_eqn_strs:
+            start_idx = max(0, eqn_idx - context_window)
+            end_idx = min(total_eqns, eqn_idx + context_window + 1)
+
+            for i in range(start_idx, end_idx):
+                marker = "  <-- NaN/Inf introduced here" if i == eqn_idx else ""
+                lines.append(f"  Equation {i}: {all_eqn_strs[i]}{marker}")
+
+        # Show details about the NaN/Inf source
+        lines.append(f"\n  Primitive: {info['primitive']}")
+        lines.append(f"  Input shapes: {info['input_shapes']}")
+        lines.append(f"  Output shapes: {info['output_shapes']}")
+
+        # Format source info nicely if available
+        source_info = info.get('source_info')
+        if source_info is not None:
+            try:
+                # Try to get traceback from source_info
+                if hasattr(source_info, 'traceback') and source_info.traceback:
+                    tb = source_info.traceback()
+                    if tb:
+                        lines.append(f"  Source: {tb[-1] if tb else 'unknown'}")
+            except Exception:
+                pass  # Skip if source info extraction fails
+
+        # Show input values that led to NaN/Inf (truncated for large arrays)
+        for i, (shape, val) in enumerate(zip(info['input_shapes'], info['input_values'])):
+            if hasattr(val, 'size') and val.size <= 10:
+                lines.append(f"  Input {i} value: {val}")
+            elif hasattr(val, 'size'):
+                lines.append(
+                    f"  Input {i} value (truncated): shape={shape}, min={float(jnp.min(val)):.4g}, max={float(jnp.max(val)):.4g}")
+
+    return '\n'.join(lines)
+
+
+# =============================================================================
+# JIT-compatible NaN/Inf detection functions
+# =============================================================================
+
+def _check_nan_jit_compatible(values) -> jax.Array:
+    """
+    Check for NaN/Inf in a pytree, JIT-compatible.
+
+    Parameters
+    ----------
+    values : PyTree
+        The pytree of values to check for NaN/Inf.
+
+    Returns
+    -------
+    jax.Array
+        A scalar boolean indicating if any NaN/Inf values exist.
+    """
+    leaves = jax.tree.leaves(values)
+    has_bad = jnp.array(False)
+    for leaf in leaves:
+        if hasattr(leaf, 'dtype') and jnp.issubdtype(leaf.dtype, jnp.floating):
+            has_bad = has_bad | jnp.any(jnp.isnan(leaf) | jnp.isinf(leaf))
+    return has_bad
+
+
+def _nan_error_callback(grads, name, jaxpr_info=None):
+    """
+    Callback to raise error with detailed NaN/Inf analysis.
+
+    This function is called via jax.debug.callback when NaN/Inf is detected.
+    If jaxpr_info is provided, it performs detailed equation-by-equation analysis.
+
+    Parameters
+    ----------
+    grads : PyTree
+        The gradient values that contain NaN/Inf.
+    name : str
+        A descriptive name for the computation (e.g., "gradient computation").
+    jaxpr_info : dict, optional
+        Contains {'jaxpr': jaxpr, 'consts': consts, 'flat_args': flat_args}
+        for detailed equation-by-equation analysis.
+    """
+    # Try detailed jaxpr analysis if info is available
+    try:
+        jaxpr = jaxpr_info['jaxpr']
+        consts = jaxpr_info['consts']
+        flat_args = jaxpr_info['flat_args']
+
+        outputs, nan_report, all_eqn_strs = _eval_jaxpr_with_nan_check(
+            jaxpr, consts, *flat_args
+        )
+
+        if nan_report:
+            for item in nan_report:
+                item['phase'] = 'gradient'
+            report = _format_nan_report(nan_report, len(jaxpr.eqns), all_eqn_strs)
+            raise RuntimeError(f"NaN/Inf detected in {name}:\n{report}")
+    except Exception as e:
+        # If detailed analysis fails, fall through to basic error
+        if "NaN/Inf detected" in str(e):
+            raise  # Re-raise if it's our error
+
+    # Fallback: basic error without jaxpr info
+    details = []
+    for i, leaf in enumerate(jax.tree.leaves(grads)):
+        if hasattr(leaf, 'dtype') and jnp.issubdtype(leaf.dtype, jnp.floating):
+            bad_mask = jnp.isnan(leaf) | jnp.isinf(leaf)
+            if jnp.any(bad_mask):
+                bad_count = int(jnp.sum(bad_mask))
+                # Show sample bad values
+                if leaf.size <= 10:
+                    details.append(
+                        f"  Leaf {i}: shape={leaf.shape}, dtype={leaf.dtype}, bad_count={bad_count}, values={leaf}"
+                    )
+                else:
+                    details.append(
+                        f"  Leaf {i}: shape={leaf.shape}, dtype={leaf.dtype}, bad_count={bad_count}"
+                    )
+    raise RuntimeError(
+        f"NaN/Inf detected in {name}!\n" + "\n".join(details)
+    )
 
 
 class GradientTransform(PrettyRepr):
@@ -59,6 +369,9 @@ class GradientTransform(PrettyRepr):
         Additional parameters for the transformation function.
     check_states : bool, default True
         Whether to check that all grad_states are found in the function.
+    debug_nan : bool, default False
+        Whether to enable NaN debugging. When True, raises RuntimeError with
+        detailed diagnostics if NaN is detected during gradient computation.
 
     Attributes
     ----------
@@ -136,6 +449,7 @@ class GradientTransform(PrettyRepr):
         has_aux: bool = False,
         transform_params: Optional[Dict[str, Any]] = None,
         check_states: bool = True,
+        debug_nan: bool = False,
     ):
         """
         Initialize a ``GradientTransform`` instance.
@@ -158,6 +472,11 @@ class GradientTransform(PrettyRepr):
             Additional parameters for the transformation function.
         check_states : bool, default True
             Whether to check that all grad_states are found in the function.
+        debug_nan : bool, default False
+            Whether to enable NaN debugging. When True, the gradient computation
+            is evaluated equation-by-equation, and if NaN is detected, a RuntimeError
+            is raised with detailed information about which primitive operation
+            first introduced the NaN values.
 
         Raises
         ------
@@ -191,6 +510,7 @@ class GradientTransform(PrettyRepr):
         self.true_argnums = _argnums
         self.return_value = return_value
         self.has_aux = has_aux
+        self.debug_nan = debug_nan
 
         # target
         assert callable(target), "The target should be a callable object."
@@ -398,9 +718,6 @@ class GradientTransform(PrettyRepr):
             The computed gradients, potentially including function value and/or auxiliary data.
             The exact return structure depends on the settings of return_value and has_aux.
         """
-
-        # TODO: support jax.disable_jit()
-
         # compute the model
         self.stateful_target.make_jaxpr(*args, **kwargs)
         cache = self.stateful_target.get_arg_cache_key(*args, **kwargs)
@@ -408,7 +725,57 @@ class GradientTransform(PrettyRepr):
         # apply the gradient transformation
         state_trace = self.stateful_target.get_state_trace_by_cache(cache)
         read_state_vals = state_trace.get_read_state_values(True)
-        rets = self._transform(*self._split_state_vals(state_trace), *args, **kwargs)
+        grad_vals, other_vals = self._split_state_vals(state_trace)
+
+        if self.debug_nan:
+            # Check if we're inside a JIT trace by examining if arguments are tracers
+            flat_args, _ = jax.tree.flatten((grad_vals, other_vals, args, kwargs))
+            is_tracing = any(isinstance(x, jax.core.Tracer) for x in flat_args)
+
+            if is_tracing:
+                # Inside JIT: can't do detailed jaxpr analysis (tracers become invalid in callback)
+                # Use basic error reporting instead
+                jaxpr_info = None
+            else:
+                # Not inside JIT: capture jaxpr for detailed analysis
+                def grad_fn(gv, ov, *a, **kw):
+                    return self._transform(gv, ov, *a, **kw)
+
+                grad_jaxpr, out_tree = jax.make_jaxpr(grad_fn, return_shape=True)(
+                    grad_vals, other_vals, *args, **kwargs
+                )
+
+                # Store jaxpr info for callback (will be used if NaN detected)
+                jaxpr_info = {
+                    'jaxpr': grad_jaxpr.jaxpr,
+                    'consts': grad_jaxpr.consts,
+                    'flat_args': flat_args
+                }
+
+            # Compute gradients (JIT-compatible)
+            rets = self._transform(grad_vals, other_vals, *args, **kwargs)
+
+            # Extract gradient values for NaN check
+            grads = rets[0]
+
+            # Check for NaN/Inf using JIT-compatible operations
+            has_nan = _check_nan_jit_compatible(grads)
+
+            # Create callback with jaxpr_info in closure for detailed analysis
+            def error_callback(grads_unvmapped):
+                _nan_error_callback(grads_unvmapped, "gradient computation", jaxpr_info)
+
+            # Use jax.lax.cond to conditionally raise error
+            # This is compatible with jax.jit
+            jax.lax.cond(
+                unvmap(has_nan, op='any'),
+                lambda g: jax.debug.callback(error_callback, g),
+                lambda g: None,
+                jax.tree.map(functools.partial(unvmap, op='none'), grads),
+            )
+        else:
+            # Compute gradients (JIT-compatible)
+            rets = self._transform(grad_vals, other_vals, *args, **kwargs)
 
         # analyze and return the results
         res = self._return(rets, read_state_vals, state_trace)

@@ -56,6 +56,7 @@ def grad(
     return_value: Optional[bool] = False,
     unit_aware: bool = False,
     check_states: bool = True,
+    debug_nan: bool = False,
 ) -> GradientTransform | Callable[[Callable], GradientTransform]:
     """
     Compute the gradient of a scalar-valued function with respect to its arguments.
@@ -106,6 +107,8 @@ def grad(
         Whether to return the gradient in the unit-aware mode.
     check_states : bool, default True
         Whether to check that all grad_states are found in the function.
+    debug_nan: bool, default False
+        Whether to enable NaN debugging for the gradient computation.
 
     Returns
     -------
@@ -178,7 +181,8 @@ def grad(
                 return_value=return_value,
                 has_aux=False if has_aux is None else has_aux,
                 transform_params=dict(holomorphic=holomorphic, allow_int=allow_int),
-                check_states=check_states
+                check_states=check_states,
+                debug_nan=debug_nan,
             )
 
         return transform
@@ -191,7 +195,8 @@ def grad(
         return_value=return_value,
         has_aux=False if has_aux is None else has_aux,
         transform_params=dict(holomorphic=holomorphic, allow_int=allow_int),
-        check_states=check_states
+        check_states=check_states,
+        debug_nan=debug_nan,
     )
 
 
@@ -204,6 +209,7 @@ def vector_grad(
     has_aux: Optional[bool] = None,
     unit_aware: bool = False,
     check_states: bool = True,
+    debug_nan: bool = True,
 ) -> GradientTransform | Callable[[Callable], GradientTransform]:
     """
     Take vector-valued gradients for function ``func``.
@@ -301,7 +307,8 @@ def vector_grad(
                 argnums=argnums,
                 return_value=return_value,
                 has_aux=False if has_aux is None else has_aux,
-                check_states=check_states
+                check_states=check_states,
+                debug_nan=debug_nan,
             )
 
         return transform
@@ -314,7 +321,8 @@ def vector_grad(
             argnums=argnums,
             return_value=return_value,
             has_aux=False if has_aux is None else has_aux,
-            check_states=check_states
+            check_states=check_states,
+            debug_nan=debug_nan,
         )
 
 
@@ -374,6 +382,7 @@ def fwd_grad(
     tangent_size: Optional[int] = None,
     drct_der_clip: Optional[float] = None,
     key: SeedOrKey = None,
+    debug_nan: bool = False,
 ) -> GradientTransform | Callable[[Callable], GradientTransform]:
     """
     Take forward first-order gradients for function ``func``.
@@ -474,7 +483,8 @@ def fwd_grad(
                     tangent_size=tangent_size,
                     drct_der_clip=drct_der_clip,
                     key=key,
-                )
+                ),
+                debug_nan=debug_nan,
             )
 
         return transform
@@ -491,5 +501,6 @@ def fwd_grad(
                 tangent_size=tangent_size,
                 drct_der_clip=drct_der_clip,
                 key=key,
-            )
+            ),
+            debug_nan=debug_nan,
         )
