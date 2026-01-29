@@ -30,6 +30,7 @@ AxisName = Hashable
 __all__ = [
     'EnvironContext',
     'Vmap',
+    'Map',
     'ModuleMapper',
 ]
 
@@ -318,7 +319,7 @@ class _ModuleMapperCalling:
         return self.map_fn(*args, **kwargs)
 
 
-class ModuleMapper(Module):
+class Map(Module):
     """
     Vectorize or parallelize a module using ``brainstate.transform.vmap2`` or ``pmap2``.
 
@@ -402,7 +403,7 @@ class ModuleMapper(Module):
     .. code-block:: python
 
        >>> import brainstate
-       >>> from brainstate.nn import ModuleMapper
+       >>> from brainstate.nn import Map
        >>> from brainstate.util.filter import OfType
        >>>
        >>> class MyModule(brainstate.nn.Module):
@@ -412,7 +413,7 @@ class ModuleMapper(Module):
        ...         return x @ self.weight.value
        >>>
        >>> module = MyModule()
-       >>> vmapper = ModuleMapper(
+       >>> vmapper = Map(
        ...     module,
        ...     init_map_size=10,
        ...     in_axes=0,
@@ -426,7 +427,7 @@ class ModuleMapper(Module):
     .. code-block:: python
 
        >>> import jax
-       >>> pmapper = ModuleMapper(
+       >>> pmapper = Map(
        ...     module,
        ...     init_map_size=jax.device_count(),
        ...     behavior='pmap',
@@ -440,7 +441,7 @@ class ModuleMapper(Module):
 
     .. code-block:: python
 
-       >>> vmapper = ModuleMapper(module, init_map_size=10)
+       >>> vmapper = Map(module, init_map_size=10)
        >>> vmapper.init_all_states(size=(5,))
        >>> # Call a specific method with custom mapping
        >>> predictions = vmapper.map('predict', in_axes=0)(inputs)
@@ -562,7 +563,7 @@ class ModuleMapper(Module):
         """
         if not self._init:
             raise ValueError(
-                'ModuleMapper.update called before init_all_states. Please call init_all_states first.'
+                'Map.update called before init_all_states. Please call init_all_states first.'
             )
         if self.behavior == 'vmap':
             map_fn = vmap2
@@ -652,7 +653,7 @@ class ModuleMapper(Module):
            ...         return x @ self.weight.value
            >>>
            >>> module = MyModule()
-           >>> vmapper = bst.nn.ModuleMapper(module, init_map_size=10)
+           >>> vmapper = bst.nn.Map(module, init_map_size=10)
            >>> vmapper.init_all_states()
            >>> inputs = jnp.ones((10, 5))  # batch of 10 inputs
            >>> outputs = vmapper.map('predict')(inputs)  # shape: (10,)
@@ -664,7 +665,7 @@ class ModuleMapper(Module):
            >>> def custom_fn(module, x, scale):
            ...     return module.predict(x) * scale
            >>>
-           >>> vmapper = bst.nn.ModuleMapper(module, init_map_size=10)
+           >>> vmapper = bst.nn.Map(module, init_map_size=10)
            >>> vmapper.init_all_states()
            >>> outputs = vmapper.map(lambda m, x, s: custom_fn(m, x, s))(
            ...     inputs, scale=2.0
@@ -681,7 +682,7 @@ class ModuleMapper(Module):
            ...         return x + y, x * y
            >>>
            >>> module = MultiInputModule()
-           >>> vmapper = bst.nn.ModuleMapper(module, init_map_size=10)
+           >>> vmapper = bst.nn.Map(module, init_map_size=10)
            >>> vmapper.init_all_states(size=(5,))
            >>> x = jnp.ones((10, 5))  # mapped over axis 0
            >>> y = jnp.ones(5)        # broadcasted (not mapped)
@@ -707,7 +708,7 @@ class ModuleMapper(Module):
            ...         return x @ self.params.value
            >>>
            >>> module = StatefulModule()
-           >>> vmapper = bst.nn.ModuleMapper(module, init_map_size=10)
+           >>> vmapper = bst.nn.Map(module, init_map_size=10)
            >>> vmapper.init_all_states(size=(5,))
            >>> # Map only ParamState along axis 0, keep State shared
            >>> outputs = vmapper.map(
@@ -730,7 +731,7 @@ class ModuleMapper(Module):
         assert callable(fn), 'fn must be a callable or the name of a method.'
         if not self._init:
             raise ValueError(
-                'ModuleMapper.update called before init_all_states. Please call init_all_states first.'
+                'Map.update called before init_all_states. Please call init_all_states first.'
             )
         return _ModuleMapperCalling(
             fn,
@@ -740,3 +741,4 @@ class ModuleMapper(Module):
             axis_name=axis_name,
             state_axes=self._integrate_state_axes(state_axes),
         )
+

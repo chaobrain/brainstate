@@ -25,7 +25,7 @@ from ._collective_ops import (
     reset_all_states, vmap_reset_all_states, assign_state_values,
 )
 from ._common import (
-    EnvironContext, Vmap, ModuleMapper,
+    EnvironContext, Vmap, Map,
 )
 from ._conv import (
     Conv1d, Conv2d, Conv3d, ScaledWSConv1d, ScaledWSConv2d, ScaledWSConv3d,
@@ -156,7 +156,7 @@ __all__ = [
     'assign_state_values',
     'EnvironContext',
     'Vmap',
-    'ModuleMapper',
+    'Map',
     'Conv1d',
     'Conv2d',
     'Conv3d',
@@ -391,6 +391,15 @@ def __getattr__(name: str):
             stacklevel=2
         )
         return Module
+
+    if name == 'ModuleMapper':
+        warnings.warn(
+            f"'brainstate.nn.{name}' is deprecated and will be removed in a future version. "
+            f"Please use 'brainstate.nn.Map' instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        return Map
 
     if name in _DEPRECATED_NAMES:
         new_name = _DEPRECATED_NAMES[name]
