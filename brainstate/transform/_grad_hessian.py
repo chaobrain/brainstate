@@ -51,6 +51,7 @@ def hessian(
     has_aux: Optional[bool] = None,
     unit_aware: bool = False,
     check_states: bool = True,
+    debug_nan: bool = False,
 ) -> GradientTransform:
     """
     Hessian of ``func`` as a dense array.
@@ -113,5 +114,6 @@ def hessian(
         return_value=return_value,
         has_aux=False if has_aux is None else has_aux,
         transform_params=dict(holomorphic=holomorphic),
-        check_states=check_states
+        check_states=check_states,
+        debug_nan=debug_nan,
     )
