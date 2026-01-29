@@ -13,7 +13,6 @@
 # limitations under the License.
 # ==============================================================================
 
-import functools
 from typing import Callable, Dict, Optional, Any, Tuple, List
 
 import jax
@@ -766,7 +765,8 @@ def _format_nan_report(
             else:
                 # Fallback if no equation strings available
                 eqn_str = innermost_entry['eqn_str']
-                lines.append(f"{innermost_indent}[{inner_eqn_idx}] {get_first_line(eqn_str)}  <-- NaN/Inf introduced here")
+                lines.append(
+                    f"{innermost_indent}[{inner_eqn_idx}] {get_first_line(eqn_str)}  <-- NaN/Inf introduced here")
 
             # Close innermost level - use parent's indent (aligns with the opening)
             if total_levels > 1:
@@ -843,59 +843,12 @@ def _format_nan_report(
 # =============================================================================
 
 
-def _nan_error_callback(name, jaxpr_info, phase, depth=1, context=5):
+class DebugNan:
     """
-    Callback to raise error with detailed NaN/Inf analysis.
+    JIT-compatible NaN/Inf debugging utility.
 
-    This function is called via jax.debug.callback when NaN/Inf is detected.
-    If jaxpr_info is provided, it performs detailed equation-by-equation analysis.
-    Otherwise, it reports basic information about which leaves have NaN/Inf.
-
-    Parameters
-    ----------
-    name : str
-        A descriptive name for the computation (e.g., "gradient computation").
-    jaxpr_info : dict, optional
-        Contains {'jaxpr': jaxpr, 'consts': consts, 'flat_args': flat_args}
-        for detailed equation-by-equation analysis.
-    depth : int, default 1
-        Number of nesting levels to display. Use -1 for all levels.
-    context : int, default 5
-        Number of equations before/after NaN to show. Use -1 for all.
-    """
-    # Detailed jaxpr analysis
-    jaxpr = jaxpr_info['jaxpr']
-    consts = jaxpr_info['consts']
-    flat_args = jaxpr_info['flat_args']
-
-    outputs, nan_report, all_eqn_strs = _eval_jaxpr_with_nan_check(jaxpr, consts, *flat_args)
-    if phase:
-        for item in nan_report:
-            item['phase'] = phase
-
-    if nan_report:
-        report = _format_nan_report(nan_report, len(jaxpr.eqns), all_eqn_strs,
-                                    context=context, depth=depth)
-        raise RuntimeError(
-            f"NaN/Inf detected in {name}:\n{report}"
-        )
-    raise ValueError('NaN/Inf is not found during detailed analysis, unexpected state.')
-    # raise RuntimeError(
-    #     f'NaN/Inf detected in {name}, but detailed analysis found no specific source. '
-    #     'This may indicate NaN/Inf existed in inputs or was introduced in a way '
-    #     'not captured by equation-by-equation analysis.'
-    # )
-
-
-def debug_nan(
-    fn: Callable,
-    *args,
-    phase: str = '',
-    depth: int = 1,
-    context: int = 5,
-):
-    """
-    Debug NaN/Inf in a function by analyzing its jaxpr.
+    Uses jax.debug.callback for host-side analysis and jax.lax.cond for
+    conditional execution, making it fully compatible with jax.jit.
 
     Parameters
     ----------
@@ -915,26 +868,107 @@ def debug_nan(
         Number of equations before/after NaN to show.
         Use -1 to show all equations.
     """
-    stateful_fn = StatefulFunction(fn)
-    grad_jaxpr = stateful_fn.get_jaxpr(*args, compile_if_miss=True)
 
-    # Create callback that receives flat_args as concrete values
-    def error_callback(flat_args_concrete, consts):
-        jaxpr_info = {
-            'jaxpr': grad_jaxpr.jaxpr,  # Static, captured in closure
-            'consts': consts,  # Concrete values from callback
-            'flat_args': flat_args_concrete  # Concrete values from callback
-        }
-        _nan_error_callback("gradient computation", jaxpr_info, phase, depth=depth, context=context)
+    def __init__(
+        self,
+        fn: Callable,
+        *args,
+        phase: str = '',
+        depth: int = 1,
+        context: int = 5
+    ):
+        self.fn = fn
+        self.args = args
+        self.phase = phase
+        self.depth = depth
+        self.context = context
 
-    # Pack grads and flat_args together as operand
-    # Flatten args for passing through the callback
-    flat_args, _ = jax.tree.flatten(args)
-    flat_args_unvmapped = jax.tree.map(functools.partial(unvmap, op='none'), flat_args)
+        # Build jaxpr once during initialization
+        self.stateful_fn = StatefulFunction(fn)
+        self.jaxpr_info = self.stateful_fn.get_jaxpr(*args, compile_if_miss=True)
 
-    # Use jax.lax.cond - pass flat_args through so they become concrete in callback
-    # This is compatible with jax.jit
-    jax.debug.callback(error_callback, flat_args_unvmapped, grad_jaxpr.consts)
+    def _do_nan_analysis(self, *flat_args_concrete):
+        """Host callback that performs detailed NaN analysis."""
+        outputs, nan_report, all_eqn_strs = _eval_jaxpr_with_nan_check(
+            self.jaxpr_info.jaxpr,
+            self.jaxpr_info.consts,
+            *flat_args_concrete
+        )
+        if self.phase:
+            for item in nan_report:
+                item['phase'] = self.phase
+
+        if nan_report:
+            report = _format_nan_report(
+                nan_report,
+                len(self.jaxpr_info.jaxpr.eqns),
+                all_eqn_strs,
+                context=self.context,
+                depth=self.depth
+            )
+            raise RuntimeError(f"NaN/Inf detected:\n{report}")
+        raise ValueError('NaN/Inf is not found during detailed analysis, unexpected state.')
+
+    def check(self):
+        """Unconditionally run NaN analysis (JIT-compatible via callback)."""
+        flat_args, _ = jax.tree.flatten(self.args)
+        jax.debug.callback(self._do_nan_analysis, *flat_args)
+
+    def check_if(self, has_nan):
+        """
+        Conditionally run NaN analysis only if has_nan is True (JIT-compatible).
+
+        Parameters
+        ----------
+        has_nan : bool or jax.Array
+            Condition to trigger debugging.
+        """
+        flat_args, _ = jax.tree.flatten(self.args)
+
+        def _do_check():
+            jax.debug.callback(self._do_nan_analysis, *flat_args)
+
+        def _no_op():
+            pass
+
+        jax.lax.cond(
+            unvmap(has_nan, op='any'),
+            _do_check,
+            _no_op,
+        )
+
+
+def debug_nan(
+    fn: Callable,
+    *args,
+    phase: str = '',
+    depth: int = 1,
+    context: int = 5,
+):
+    """
+    Debug NaN/Inf in a function by analyzing its jaxpr.
+
+    This function is JIT-compatible via jax.debug.callback.
+
+    Parameters
+    ----------
+    fn : Callable
+        The function to debug.
+    *args
+        Arguments to pass to the function.
+    phase : str, optional
+        Phase name for the error message.
+    depth : int, default 1
+        Number of nesting levels to display.
+
+        - depth=1: Show only innermost jaxpr
+        - depth=2: Show innermost + one outer jaxpr
+        - depth=-1: Show all nesting levels
+    context : int, default 5
+        Number of equations before/after NaN to show.
+        Use -1 to show all equations.
+    """
+    DebugNan(fn, *args, phase=phase, depth=depth, context=context).check()
 
 
 def debug_nan_if(
@@ -947,6 +981,8 @@ def debug_nan_if(
 ):
     """
     Conditionally debug NaN/Inf in a function.
+
+    This function is JIT-compatible via jax.lax.cond and jax.debug.callback.
 
     Parameters
     ----------
@@ -968,9 +1004,4 @@ def debug_nan_if(
         Number of equations before/after NaN to show.
         Use -1 to show all equations.
     """
-    jax.lax.cond(
-        unvmap(has_nan, op='any'),
-        lambda *args_: debug_nan(fn, *args_, phase=phase, depth=depth, context=context),
-        lambda *args_: None,
-        *args,
-    )
+    DebugNan(fn, *args, phase=phase, depth=depth, context=context).check_if(has_nan)
