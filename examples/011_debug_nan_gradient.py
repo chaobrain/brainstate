@@ -251,17 +251,38 @@ def example_decorator():
     print()
 
 
+def exp_exprel():
+    """
+    Demonstrates using grad with debug_nan as a decorator.
+    """
+
+    import brainunit as u
+
+    @brainstate.transform.grad(argnums=0, return_value=True)
+    def loss_fn(x):
+        return jnp.sum(u.math.exprel(x))
+
+    x = jnp.array([0.0, 1.0, 1.0, 1.0])
+    grads = loss_fn(x)
+    print(f"Gradients (no NaN): {grads}")
+
+    print()
+
+
 # =============================================================================
 # Main
 # =============================================================================
 
 if __name__ == "__main__":
-    example_log_of_zero()
+    # example_log_of_zero()
     # example_division_by_zero()
     # example_sqrt_negative()
     # example_comparison()
     # example_neural_network()
     # example_decorator()
+
+    exp_exprel()
+
     #
     # print("=" * 60)
     # print("Examples completed!")

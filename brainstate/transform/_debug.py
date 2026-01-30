@@ -22,7 +22,7 @@ from brainstate._compatible_import import DropVar, Literal, ClosedJaxpr, is_jit_
 from ._conditions import cond
 from ._make_jaxpr import StatefulFunction
 from ._unvmap import unvmap
-from ._unvmap import unvmap_any
+from ._ir_optim import optimize_jaxpr
 
 __all__ = [
     'breakpoint',
@@ -46,7 +46,7 @@ def breakpoint(pred, **breakpoint_kwargs):
 
     token = breakpoint_kwargs.get("token", None)
     return cond(
-        unvmap_any(pred),
+        unvmap(pred, op='any'),
         lambda: jax.debug.breakpoint(**breakpoint_kwargs),
         lambda: token,
     )
@@ -888,9 +888,12 @@ class DebugNan:
         self.jaxpr_info = self.stateful_fn.get_jaxpr(*args, compile_if_miss=True)
         self.flat_args, _ = jax.tree.flatten(self.args)
 
+        self.nan_reports = []
+
     def _do_nan_analysis(self, flat_args, cnsts):
         """Host callback that performs detailed NaN analysis."""
-        outputs, nan_report, all_eqn_strs = _eval_jaxpr_with_nan_check(self.jaxpr_info.jaxpr, cnsts, flat_args)
+        jaxpr = optimize_jaxpr(self.jaxpr_info.jaxpr, optimizations=['dce', 'constant_fold'])
+        outputs, nan_report, all_eqn_strs = _eval_jaxpr_with_nan_check(jaxpr, cnsts, *flat_args)
 
         if self.phase:
             for item in nan_report:
