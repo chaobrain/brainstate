@@ -21,6 +21,12 @@ from ._grad_transform import (
     GradientTransform,
 )
 
+# debugging utilities
+from ._debug import (
+    debug_nan,
+    debug_nan_if,
+)
+
 # JIT compilation
 from ._jit import (
     jit,
@@ -105,6 +111,10 @@ __all__ = [
     'StatefulFunction',
     'make_jaxpr',
     'GradientTransform',
+
+    # debugging
+    'debug_nan',
+    'debug_nan_if',
 
     # JIT compilation
     'jit',
