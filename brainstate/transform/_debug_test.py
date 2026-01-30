@@ -472,7 +472,7 @@ class TestNestedHighLevelPrimitives(unittest.TestCase):
             return level2(x) * 2
 
         with self.assertRaises(RuntimeError) as cm:
-            debug_nan(level1, jnp.array([0.0, 1.0, 2.0]))
+            debug_nan(level1, jnp.array([0.0, 1.0, 2.0]), depth=-1)
         self.assertIn("NaN/Inf detected", str(cm.exception))
         self.assertIn("log", str(cm.exception))
 

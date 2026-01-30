@@ -886,14 +886,12 @@ class DebugNan:
         # Build jaxpr once during initialization
         self.stateful_fn = StatefulFunction(fn)
         self.jaxpr_info = self.stateful_fn.get_jaxpr(*args, compile_if_miss=True)
+        self.flat_args, _ = jax.tree.flatten(self.args)
 
-    def _do_nan_analysis(self, *flat_args_concrete):
+    def _do_nan_analysis(self, flat_args, cnsts):
         """Host callback that performs detailed NaN analysis."""
-        outputs, nan_report, all_eqn_strs = _eval_jaxpr_with_nan_check(
-            self.jaxpr_info.jaxpr,
-            self.jaxpr_info.consts,
-            *flat_args_concrete
-        )
+        outputs, nan_report, all_eqn_strs = _eval_jaxpr_with_nan_check(self.jaxpr_info.jaxpr, cnsts, flat_args)
+
         if self.phase:
             for item in nan_report:
                 item['phase'] = self.phase
@@ -910,9 +908,11 @@ class DebugNan:
         raise ValueError('NaN/Inf is not found during detailed analysis, unexpected state.')
 
     def check(self):
-        """Unconditionally run NaN analysis (JIT-compatible via callback)."""
-        flat_args, _ = jax.tree.flatten(self.args)
-        jax.debug.callback(self._do_nan_analysis, *flat_args)
+        """
+        Unconditionally run NaN analysis (JIT-compatible via callback).
+        """
+
+        jax.debug.callback(self._do_nan_analysis, self.flat_args, self.jaxpr_info.consts)
 
     def check_if(self, has_nan):
         """
@@ -923,10 +923,8 @@ class DebugNan:
         has_nan : bool or jax.Array
             Condition to trigger debugging.
         """
-        flat_args, _ = jax.tree.flatten(self.args)
-
         def _do_check():
-            jax.debug.callback(self._do_nan_analysis, *flat_args)
+            jax.debug.callback(self._do_nan_analysis, self.flat_args, self.jaxpr_info.consts)
 
         def _no_op():
             pass
