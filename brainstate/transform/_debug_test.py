@@ -24,7 +24,27 @@ from brainstate.transform._debug import (
     _format_nan_report,
     debug_nan,
     debug_nan_if,
+    DebugNan,
 )
+
+
+def _eval_jaxpr_with_nan_check(jaxpr, consts, *args):
+    """
+    Helper function to evaluate a jaxpr with NaN checking.
+
+    This creates a temporary DebugNan instance to access the
+    _eval_jaxpr_with_nan_check method for testing purposes.
+    """
+    # Create a dummy function that we won't actually use
+    def dummy_fn(x):
+        return x
+
+    # Create DebugNan instance with dummy function
+    # We use a simple input to initialize it
+    debug_instance = DebugNan(dummy_fn, jnp.array([0.0]))
+
+    # Directly call the internal method with our jaxpr
+    return debug_instance._eval_jaxpr_with_nan_check(jaxpr, consts, *args)
 
 
 class TestCheckForNan(unittest.TestCase):
