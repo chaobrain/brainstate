@@ -21,7 +21,6 @@ import jax.numpy as jnp
 from brainstate.transform._debug import (
     _check_for_nan,
     _check_pytree_for_nan,
-    _eval_jaxpr_with_nan_check,
     _format_nan_report,
     debug_nan,
     debug_nan_if,
@@ -252,98 +251,6 @@ class TestDebugNan(unittest.TestCase):
             error_msg = str(e)
             # Should show the input value that caused NaN
             self.assertIn("0.", error_msg)
-
-
-class TestEvalJaxprWithNanCheck(unittest.TestCase):
-    """Tests for _eval_jaxpr_with_nan_check function."""
-
-    def test_log_of_zero(self):
-        """Should detect NaN from log(0)."""
-        def fn(x):
-            return jnp.log(x)
-
-        jaxpr = jax.make_jaxpr(fn)(jnp.array([0.0, 1.0, 2.0]))
-        outputs, nan_report, eqn_strs = _eval_jaxpr_with_nan_check(
-            jaxpr.jaxpr, jaxpr.consts, jnp.array([0.0, 1.0, 2.0])
-        )
-
-        self.assertTrue(len(nan_report) > 0)
-        self.assertEqual(nan_report[0]['primitive'], 'log')
-
-    def test_division_by_zero(self):
-        """Should detect NaN from division by zero."""
-        def fn(x):
-            return 1.0 / x
-
-        jaxpr = jax.make_jaxpr(fn)(jnp.array([0.0, 1.0, 2.0]))
-        outputs, nan_report, eqn_strs = _eval_jaxpr_with_nan_check(
-            jaxpr.jaxpr, jaxpr.consts, jnp.array([0.0, 1.0, 2.0])
-        )
-
-        self.assertTrue(len(nan_report) > 0)
-        self.assertEqual(nan_report[0]['primitive'], 'div')
-
-    def test_sqrt_negative(self):
-        """Should detect NaN from sqrt of negative number."""
-        def fn(x):
-            return jnp.sqrt(x)
-
-        jaxpr = jax.make_jaxpr(fn)(jnp.array([-1.0, 1.0, 4.0]))
-        outputs, nan_report, eqn_strs = _eval_jaxpr_with_nan_check(
-            jaxpr.jaxpr, jaxpr.consts, jnp.array([-1.0, 1.0, 4.0])
-        )
-
-        self.assertTrue(len(nan_report) > 0)
-        self.assertEqual(nan_report[0]['primitive'], 'sqrt')
-
-    def test_clean_function(self):
-        """Clean function should produce no NaN report."""
-        def fn(x):
-            return x * 2 + 1
-
-        jaxpr = jax.make_jaxpr(fn)(jnp.array([1.0, 2.0, 3.0]))
-        outputs, nan_report, eqn_strs = _eval_jaxpr_with_nan_check(
-            jaxpr.jaxpr, jaxpr.consts, jnp.array([1.0, 2.0, 3.0])
-        )
-
-        self.assertEqual(len(nan_report), 0)
-
-    def test_nan_report_format(self):
-        """NaN report should contain expected fields."""
-        def fn(x):
-            return jnp.log(x)
-
-        jaxpr = jax.make_jaxpr(fn)(jnp.array([0.0, 1.0]))
-        outputs, nan_report, eqn_strs = _eval_jaxpr_with_nan_check(
-            jaxpr.jaxpr, jaxpr.consts, jnp.array([0.0, 1.0])
-        )
-
-        self.assertTrue(len(nan_report) > 0)
-        report = nan_report[0]
-        self.assertIn('eqn_index', report)
-        self.assertIn('primitive', report)
-        self.assertIn('input_shapes', report)
-        self.assertIn('output_shapes', report)
-        self.assertIn('input_values', report)
-
-    def test_nested_jit_expansion(self):
-        """Should expand and check inside JIT primitives."""
-        @jax.jit
-        def inner_fn(x):
-            return jnp.log(x)
-
-        def outer_fn(x):
-            return inner_fn(x) * 2
-
-        jaxpr = jax.make_jaxpr(outer_fn)(jnp.array([0.0, 1.0, 2.0]))
-        outputs, nan_report, eqn_strs = _eval_jaxpr_with_nan_check(
-            jaxpr.jaxpr, jaxpr.consts, jnp.array([0.0, 1.0, 2.0])
-        )
-
-        self.assertTrue(len(nan_report) > 0)
-        # Should detect NaN inside the JIT
-        found_log = any(r['primitive'] == 'log' for r in nan_report)
-        self.assertTrue(found_log)
 
 
 class TestFormatNanReport(unittest.TestCase):
