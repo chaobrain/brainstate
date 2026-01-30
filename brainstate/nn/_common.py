@@ -31,7 +31,6 @@ __all__ = [
     'EnvironContext',
     'Vmap',
     'Map',
-    'ModuleMapper',
 ]
 
 
@@ -281,7 +280,7 @@ class ToPredicate:
         return id(st) in self.state_ids
 
 
-class _ModuleMapperCalling:
+class _MapCaller:
     def __init__(
         self,
         fn: Callable,
@@ -591,7 +590,7 @@ class Map(Module):
         out_axes: Any = 0,
         axis_name: Optional[str] = None,
         state_axes: Dict[int, Filter] = None,
-    ) -> _ModuleMapperCalling:
+    ) -> _MapCaller:
         """
         Access the wrapped module's methods with vectorized mapping.
 
@@ -625,7 +624,7 @@ class Map(Module):
 
         Returns
         -------
-        _ModuleMapperCalling
+        _MapCaller
             A callable wrapper that applies the specified vectorized mapping when
             invoked. Call this object with the arguments you want to pass to the
             mapped function.
@@ -733,7 +732,7 @@ class Map(Module):
             raise ValueError(
                 'Map.update called before init_all_states. Please call init_all_states first.'
             )
-        return _ModuleMapperCalling(
+        return _MapCaller(
             fn,
             behavior=self.behavior,
             in_axes=in_axes,
