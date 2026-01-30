@@ -1,6 +1,55 @@
 # Release Notes
 
 
+## Version 0.2.10
+
+This release introduces a comprehensive NaN debugging system for gradient computations, refactors the module mapping API for improved clarity, and adds graph context utilities for advanced state management.
+
+### New Features
+
+#### NaN Debugging System
+
+- **JIT-Compatible NaN/Inf Debugging**: New debugging utilities for identifying NaN and Inf values during gradient computations
+  - `debug_nan`: Analyze a function for NaN/Inf values with detailed reporting
+  - `debug_nan_if`: Conditional NaN debugging with predicate-based activation
+  - Full JIT compatibility for seamless integration into compiled workflows
+  - Support for debugging NaN in `while` and `scan` primitives
+  - Detailed analysis output including variable names, shapes, and affected indices
+
+- **Gradient Function Integration**: Added `debug_nan` parameter to gradient transformation functions
+  - `grad`: Enable NaN debugging during gradient computation
+  - `vector_grad`: NaN debugging for vectorized gradients
+  - `jacobian` and `jacobian_reverse`: NaN debugging for Jacobian computations
+  - `hessian`: NaN debugging for Hessian computations
+
+- **Breakpoint Utility**: New `breakpoint` function for conditional debugging
+  - Wraps `jax.debug.breakpoint` with predicate support
+  - Only triggers when the specified condition is True
+
+### API Changes
+
+#### Module System
+
+- **Renamed `ModuleMapper` to `Map`**: Simplified naming for the vectorized module wrapper
+  - `Map` provides vectorized (`vmap2`) and parallel (`pmap2`) mapping over modules
+  - `ModuleMapper` retained as a deprecated alias for backward compatibility
+  - Internal `_ModuleMapperCalling` renamed to `_MapCaller` for consistency
+
+- **Enhanced `Map.map()` Method**: Now accepts callable functions for flexible mapping operations
+
+### Bug Fixes
+
+- Fixed `get_backend` import for JAX version compatibility across different JAX releases
+- Removed `abstractmethod` decorators from `Regularization` class to allow proper instantiation
+- Cleaned up unused imports in module initialization files
+
+### Internal Changes
+
+- Added comprehensive test suite for NaN debugging (`_debug_test.py`, 938 lines)
+- Removed deprecated `_mapping3.py` module and associated tests
+- Streamlined module exports in `__init__.py` files
+
+
 ## Version 0.2.9
 
 This release introduces a powerful state hook system for advanced state management, refactors neural network modules with enhanced parameter handling, and improves delay mechanisms with frequency-controlled updates.
@@ -179,20 +228,6 @@ This release introduces a powerful state hook system for advanced state manageme
   - `init_all_states()` now accepts additional keyword arguments
   - `param_precompute()` signature updated to support caching and custom functions
   - Module initialization methods enhanced with keyword argument support
-
-### Testing
-
-- **Comprehensive Test Coverage**: Added 4,000+ lines of new tests
-  - Thread safety tests: 346 tests ensuring thread-safe operations
-  - Hook system tests: 320 tests for state hooks
-  - State management tests: 924 tests expanded coverage
-  - Parameter caching tests: 391 tests for caching behavior
-  - Delay mechanism tests: 244 tests for delay functionality
-  - HiData tests: 463 tests for hierarchical data structures
-  - Module tests: 661 tests expanded coverage
-  - Regularization tests: 1,261 tests
-  - Transform tests: 452 tests
-  - Mapping tests: Updated for `vmap2` and `pmap2`
 
 ### Bug Fixes
 

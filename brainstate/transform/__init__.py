@@ -25,6 +25,7 @@ from ._grad_transform import (
 from ._debug import (
     debug_nan,
     debug_nan_if,
+    breakpoint_if,
 )
 
 # JIT compilation
@@ -115,6 +116,7 @@ __all__ = [
     # debugging
     'debug_nan',
     'debug_nan_if',
+    'breakpoint_if',
 
     # JIT compilation
     'jit',
