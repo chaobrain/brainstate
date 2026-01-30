@@ -20,9 +20,9 @@ import jax.numpy as jnp
 
 from brainstate._compatible_import import DropVar, Literal, ClosedJaxpr, is_jit_primitive
 from ._conditions import cond
+from ._ir_optim import optimize_jaxpr
 from ._make_jaxpr import StatefulFunction
 from ._unvmap import unvmap
-from ._ir_optim import optimize_jaxpr
 
 __all__ = [
     'breakpoint',
@@ -120,6 +120,104 @@ def _check_pytree_for_nan(pytree, name: str = "") -> Tuple[bool, List[Dict]]:
                 }
             )
     return len(results) > 0, results
+
+
+def _build_var_names(jaxpr) -> Dict[int, str]:
+    """
+    Build a mapping from Var id to continuous names.
+
+    Parameters
+    ----------
+    jaxpr : Jaxpr
+        The jaxpr to build variable names for.
+
+    Returns
+    -------
+    Dict[int, str]
+        A mapping from variable id to continuous name like 'v0', 'v1', etc.
+        Constants (constvars) are not named - they will be displayed by value.
+    """
+    var_names = {}
+    var_counter = 0
+
+    # Don't name constvars - they will show as their value
+
+    # Name input vars with 'v' prefix
+    for var in jaxpr.invars:
+        var_names[id(var)] = f"v{var_counter}"
+        var_counter += 1
+
+    # Name output vars from equations
+    for eqn in jaxpr.eqns:
+        for var in eqn.outvars:
+            if not isinstance(var, DropVar):
+                var_names[id(var)] = f"v{var_counter}"
+                var_counter += 1
+
+    return var_names
+
+
+def _format_var(var, var_names: Dict[int, str]) -> str:
+    """
+    Format a variable with its continuous name.
+
+    Parameters
+    ----------
+    var : Var or Literal
+        The variable to format.
+    var_names : Dict[int, str]
+        Mapping from variable id to name.
+
+    Returns
+    -------
+    str
+        Formatted variable string like 'v0:f32[64,50]' or '2.0' for literals.
+    """
+    if isinstance(var, Literal):
+        # Format literal value cleanly
+        val = var.val
+        if hasattr(val, 'item') and val.ndim == 0:
+            val = val.item()  # Convert scalar array to Python scalar
+        return str(val)
+
+    name = var_names.get(id(var))
+    if name is None:
+        # This is a constvar - show without name, just the type
+        return f"const:{var.aval.str_short()}"
+
+    return f"{name}:{var.aval.str_short()}"
+
+
+def _format_eqn(eqn, var_names: Dict[int, str]) -> str:
+    """
+    Format an equation with continuous variable names.
+
+    Parameters
+    ----------
+    eqn : JaxprEqn
+        The equation to format.
+    var_names : Dict[int, str]
+        Mapping from variable id to name.
+
+    Returns
+    -------
+    str
+        Formatted equation string.
+    """
+    # Format output variables
+    outvars = ' '.join(_format_var(v, var_names) for v in eqn.outvars)
+    # Format input variables
+    invars = ' '.join(_format_var(v, var_names) for v in eqn.invars)
+    # Format primitive with params (exclude large nested jaxprs)
+    prim_str = eqn.primitive.name
+    # if eqn.params:
+    #     excluded_params = {'jaxpr', 'call_jaxpr', 'branches', 'cond_jaxpr', 'body_jaxpr', 'cond_nconsts',
+    #                        'body_nconsts'}
+    #     param_items = [(k, v) for k, v in eqn.params.items() if k not in excluded_params]
+    #     if param_items:
+    #         param_str = ', '.join(f'{k}={v}' for k, v in param_items)
+    #         prim_str = f"{prim_str}[{param_str}]"
+    return f"{outvars} = {prim_str} {invars}"
 
 
 def _is_expandable_primitive(eqn) -> bool:
@@ -556,8 +654,11 @@ def _eval_jaxpr_with_nan_check(jaxpr, consts, *args) -> Tuple[List, List[Dict], 
     env = {}
     nan_report = []
 
+    # Build continuous variable names for this jaxpr
+    var_names = _build_var_names(jaxpr)
+
     # Collect all equation strings upfront for context display
-    all_eqn_strs = [str(eqn) for eqn in jaxpr.eqns]
+    all_eqn_strs = [_format_eqn(eqn, var_names) for eqn in jaxpr.eqns]
 
     # Bind constants to their variables
     for var, val in zip(jaxpr.constvars, consts):
@@ -590,7 +691,7 @@ def _eval_jaxpr_with_nan_check(jaxpr, consts, *args) -> Tuple[List, List[Dict], 
                 outer_entry = {
                     'eqn_index': eqn_idx,
                     'primitive': eqn.primitive.name,
-                    'eqn_str': str(eqn),
+                    'eqn_str': _format_eqn(eqn, var_names),
                     'display_type': display_info['type'],
                     'display_name': display_info['name'],
                     'all_eqn_strs': all_eqn_strs.copy(),  # Store outer jaxpr equations
@@ -618,19 +719,21 @@ def _eval_jaxpr_with_nan_check(jaxpr, consts, *args) -> Tuple[List, List[Dict], 
                     'output_shapes': [getattr(v, 'shape', None) for v in outvals],
                     'input_values': invals,  # Include actual input values for debugging
                     'nan_details': output_nan_details,
-                    'equation_str': str(eqn),
+                    'equation_str': _format_eqn(eqn, var_names),
                     'source_info': getattr(eqn, 'source_info', None),
                     # Initialize nesting_path with this equation as the innermost
-                    'nesting_path': [{
-                        'eqn_index': eqn_idx,
-                        'primitive': eqn.primitive.name,
-                        'eqn_str': str(eqn),
-                        'all_eqn_strs': all_eqn_strs.copy(),
-                        'total_eqns': len(jaxpr.eqns),
-                        'display_type': eqn.primitive.name,
-                        'display_name': eqn.primitive.name,
-                        'is_nan_source': True,  # Mark this as the actual NaN source
-                    }],
+                    'nesting_path': [
+                        {
+                            'eqn_index': eqn_idx,
+                            'primitive': eqn.primitive.name,
+                            'eqn_str': _format_eqn(eqn, var_names),
+                            'all_eqn_strs': all_eqn_strs.copy(),
+                            'total_eqns': len(jaxpr.eqns),
+                            'display_type': eqn.primitive.name,
+                            'display_name': eqn.primitive.name,
+                            'is_nan_source': True,  # Mark this as the actual NaN source
+                        }
+                    ],
                 }
             )
 
@@ -926,6 +1029,7 @@ class DebugNan:
         has_nan : bool or jax.Array
             Condition to trigger debugging.
         """
+
         def _do_check():
             jax.debug.callback(self._do_nan_analysis, self.flat_args, self.jaxpr_info.consts)
 

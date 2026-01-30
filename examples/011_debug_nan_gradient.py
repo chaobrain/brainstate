@@ -258,11 +258,11 @@ def exp_exprel():
 
     import brainunit as u
 
-    @brainstate.transform.grad(argnums=0, return_value=True)
+    @brainstate.transform.grad(argnums=0, return_value=True, debug_nan=True)
     def loss_fn(x):
         return jnp.sum(u.math.exprel(x))
 
-    x = jnp.array([0.0, 1.0, 1.0, 1.0])
+    x = jnp.array([0.0, 1.0])
     grads = loss_fn(x)
     print(f"Gradients (no NaN): {grads}")
 
