@@ -13,14 +13,16 @@
 # limitations under the License.
 # ==============================================================================
 
-from typing import Union, Callable, Dict, Sequence, Optional, Any, Tuple, TypeVar, Iterator
+from typing import Union, Callable, Dict, Sequence, Optional, Any, Tuple, TypeVar, Iterator, List
 
 import jax
+import jax.numpy as jnp
 
 from brainstate._state import State
-from brainstate.transform._make_jaxpr import StatefulFunction
 from brainstate.typing import PyTree
 from brainstate.util import PrettyType, PrettyAttr, PrettyRepr
+from ._debug import debug_nan_if
+from ._make_jaxpr import StatefulFunction
 
 __all__ = [
     'GradientTransform',
@@ -31,6 +33,28 @@ Gradient = PyTree
 LossValue = PyTree
 AuxData = PyTree
 TransformFn = Callable
+
+
+def _check_nan_jit_compatible(values) -> jax.Array:
+    """
+    Check for NaN/Inf in a pytree, JIT-compatible.
+
+    Parameters
+    ----------
+    values : PyTree
+        The pytree of values to check for NaN/Inf.
+
+    Returns
+    -------
+    jax.Array
+        A scalar boolean indicating if any NaN/Inf values exist.
+    """
+    leaves = jax.tree.leaves(values)
+    has_bad = jnp.array(False)
+    for leaf in leaves:
+        if hasattr(leaf, 'dtype') and jnp.issubdtype(leaf.dtype, jnp.floating):
+            has_bad = has_bad | jnp.any(jnp.isnan(leaf) | jnp.isinf(leaf))
+    return has_bad
 
 
 class GradientTransform(PrettyRepr):
@@ -59,6 +83,9 @@ class GradientTransform(PrettyRepr):
         Additional parameters for the transformation function.
     check_states : bool, default True
         Whether to check that all grad_states are found in the function.
+    debug_nan : bool, default False
+        Whether to enable NaN debugging. When True, raises RuntimeError with
+        detailed diagnostics if NaN is detected during gradient computation.
 
     Attributes
     ----------
@@ -136,6 +163,9 @@ class GradientTransform(PrettyRepr):
         has_aux: bool = False,
         transform_params: Optional[Dict[str, Any]] = None,
         check_states: bool = True,
+        debug_nan: bool = False,
+        debug_depth: int = 1,
+        debug_context: int = 5,
     ):
         """
         Initialize a ``GradientTransform`` instance.
@@ -158,6 +188,11 @@ class GradientTransform(PrettyRepr):
             Additional parameters for the transformation function.
         check_states : bool, default True
             Whether to check that all grad_states are found in the function.
+        debug_nan : bool, default False
+            Whether to enable NaN debugging. When True, the gradient computation
+            is evaluated equation-by-equation, and if NaN is detected, a RuntimeError
+            is raised with detailed information about which primitive operation
+            first introduced the NaN values.
 
         Raises
         ------
@@ -191,6 +226,9 @@ class GradientTransform(PrettyRepr):
         self.true_argnums = _argnums
         self.return_value = return_value
         self.has_aux = has_aux
+        self.debug_nan = debug_nan
+        self.debug_depth = debug_depth
+        self.debug_context = debug_context
 
         # target
         assert callable(target), "The target should be a callable object."
@@ -198,6 +236,7 @@ class GradientTransform(PrettyRepr):
         self.stateful_target = StatefulFunction(target, name='gradient', return_only_write=True)
 
         # transform
+        self.transform = transform
         grad_setting = dict() if transform_params is None else transform_params
         if self.has_aux:
             self._transform = transform(
@@ -398,9 +437,6 @@ class GradientTransform(PrettyRepr):
             The computed gradients, potentially including function value and/or auxiliary data.
             The exact return structure depends on the settings of return_value and has_aux.
         """
-
-        # TODO: support jax.disable_jit()
-
         # compute the model
         self.stateful_target.make_jaxpr(*args, **kwargs)
         cache = self.stateful_target.get_arg_cache_key(*args, **kwargs)
@@ -408,7 +444,28 @@ class GradientTransform(PrettyRepr):
         # apply the gradient transformation
         state_trace = self.stateful_target.get_state_trace_by_cache(cache)
         read_state_vals = state_trace.get_read_state_values(True)
-        rets = self._transform(*self._split_state_vals(state_trace), *args, **kwargs)
+        grad_vals, other_vals = self._split_state_vals(state_trace)
+
+        # Compute gradients (JIT-compatible)
+        rets = self._transform(grad_vals, other_vals, *args, **kwargs)
+        grads = rets[0]
+
+        if self.debug_nan:
+            # Check for NaN/Inf using JIT-compatible operations
+            has_nan = _check_nan_jit_compatible(grads)
+
+            # Not inside JIT: capture jaxpr for detailed analysis
+            def grad_fn(gv, ov, a, kw):
+                return self._transform(gv, ov, *a, **kw)
+
+            debug_nan_if(
+                has_nan,
+                grad_fn,
+                grad_vals, other_vals, args, kwargs,
+                phase=str(self.transform.__name__),
+                depth=self.debug_depth,
+                context=self.debug_context,
+            )
 
         # analyze and return the results
         res = self._return(rets, read_state_vals, state_trace)

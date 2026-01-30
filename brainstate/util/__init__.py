@@ -13,26 +13,11 @@
 # limitations under the License.
 # ==============================================================================
 
-# Import tracer utilities
-from ._tracers import (
-    StateJaxTracer,
-)
 
 # Import cache utilities
 from ._cache import (
     BoundedCache,
 )
-
-# Import pretty representation utilities
-from ._pretty_repr import (
-    yield_unique_pretty_repr_items,
-    PrettyType,
-    PrettyAttr,
-    PrettyRepr,
-    PrettyMapping,
-    MappingReprMixin,
-)
-
 # Import other utilities
 from ._others import (
     split_total,
@@ -46,7 +31,29 @@ from ._others import (
     flatten_dict,
     unflatten_dict,
 )
-
+# Import pretty pytree utilities
+from ._pretty_pytree import (
+    PrettyDict,
+    NestedDict,
+    FlattedDict,
+    flat_mapping,
+    nest_mapping,
+    PrettyList,
+    PrettyObject,
+)
+# Import pretty representation utilities
+from ._pretty_repr import (
+    yield_unique_pretty_repr_items,
+    PrettyType,
+    PrettyAttr,
+    PrettyRepr,
+    PrettyMapping,
+    MappingReprMixin,
+)
+# Import tracer utilities
+from ._tracers import (
+    StateJaxTracer,
+)
 # Import filter utilities
 from .filter import (
     to_predicate,
@@ -59,7 +66,6 @@ from .filter import (
     Not,
     Everything,
 )
-
 # Import struct utilities
 from .struct import (
     field,
@@ -72,17 +78,6 @@ from .struct import (
     copy,
     pop,
     pretty_repr,
-)
-
-# Import pretty pytree utilities
-from ._pretty_pytree import (
-    PrettyDict,
-    NestedDict,
-    FlattedDict,
-    flat_mapping,
-    nest_mapping,
-    PrettyList,
-    PrettyObject,
 )
 
 __all__ = [
@@ -143,5 +138,6 @@ __all__ = [
     'nest_mapping',
     'PrettyList',
     'PrettyObject',
-]
 
+    'breakpoint_if',
+]

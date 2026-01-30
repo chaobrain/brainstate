@@ -82,6 +82,7 @@ __all__ = [
     'to_concrete_aval',
     'Device',
     'wrap_init',
+    'get_backend',
 
 ]
 
@@ -103,6 +104,12 @@ if jax.__version_info__ < (0, 5, 0):
     from jax.lib.xla_client import Device
 else:
     from jax import Device
+
+if jax.__version_info__ < (0, 8, 0):
+    from jax.lib.xla_bridge import get_backend
+else:
+    from jax.extend.backend import get_backend
+
 
 if jax.__version_info__ < (0, 7, 1):
     from jax.interpreters.batching import make_iota, to_elt, BatchTracer, BatchTrace

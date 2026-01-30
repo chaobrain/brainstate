@@ -91,6 +91,23 @@ values during backpropagation rather than storing them all in memory.
 
 
 
+Debugging
+---------
+
+JIT-compatible debugging utilities for identifying NaN and Inf values during
+gradient computations. These tools help diagnose numerical issues in compiled
+code without sacrificing performance.
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+
+   debug_nan
+   debug_nan_if
+   breakpoint_if
+
+
+
 Compilation Tools
 -----------------
 

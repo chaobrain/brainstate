@@ -21,6 +21,13 @@ from ._grad_transform import (
     GradientTransform,
 )
 
+# debugging utilities
+from ._debug import (
+    debug_nan,
+    debug_nan_if,
+    breakpoint_if,
+)
+
 # JIT compilation
 from ._jit import (
     jit,
@@ -38,9 +45,6 @@ from ._mapping1 import (
 )
 from ._mapping2 import (
     StatefulMapping, vmap2, pmap2, map, vmap2_new_states, pmap2_new_states,
-)
-from ._mapping3 import (
-    StateAxes, model_vmap, model_pmap,
 )
 
 # Gradient transformations
@@ -109,6 +113,11 @@ __all__ = [
     'make_jaxpr',
     'GradientTransform',
 
+    # debugging
+    'debug_nan',
+    'debug_nan_if',
+    'breakpoint_if',
+
     # JIT compilation
     'jit',
     'jit_named_scope',
@@ -124,9 +133,6 @@ __all__ = [
     'pmap2',
     'pmap2_new_states',
     'map',
-    'StateAxes',
-    'model_vmap',
-    'model_pmap',
 
     # Gradient transformations
     'vector_grad',

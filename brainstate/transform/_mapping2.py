@@ -1397,10 +1397,10 @@ def pmap2_new_states(
 
     .. code-block:: python
 
-        >>> from brainstate.nn import ModuleMapper
+        >>> from brainstate.nn import Map
         >>>
         >>> model = ParallelModel()
-        >>> pmapper = ModuleMapper(
+        >>> pmapper = Map(
         ...     model,
         ...     init_map_size=jax.local_device_count(),
         ...     behavior='pmap',

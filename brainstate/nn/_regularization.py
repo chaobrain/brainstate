@@ -62,7 +62,7 @@ __all__ = [
 ]
 
 
-class Regularization(Module, ABC):
+class Regularization(Module):
     """
     Abstract base class for parameter regularization.
 
@@ -93,7 +93,6 @@ class Regularization(Module, ABC):
         super().__init__()
         self.fit_hyper = fit_hyper
 
-    @abstractmethod
     def loss(self, value: Data) -> Data:
         """
         Calculate regularization loss.
@@ -110,7 +109,6 @@ class Regularization(Module, ABC):
         """
         raise NotImplementedError
 
-    @abstractmethod
     def sample_init(self, shape: Size) -> Data:
         """
         Sample initial value from the regularization's implied prior distribution.
@@ -127,7 +125,6 @@ class Regularization(Module, ABC):
         """
         raise NotImplementedError
 
-    @abstractmethod
     def reset_value(self) -> Data:
         """
         Return the reset value (e.g., prior mean).

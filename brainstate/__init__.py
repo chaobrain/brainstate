@@ -17,7 +17,7 @@
 A ``State``-based Transformation System for Program Compilation and Augmentation
 """
 
-__version__ = "0.2.9"
+__version__ = "0.2.10"
 __versio_info__ = tuple(map(int, __version__.split('.')))
 
 from . import environ
@@ -203,6 +203,7 @@ __all__ = [
     'transform',
     'typing',
     'util',
+
     # Deprecated modules
     'augment',
     'compile',

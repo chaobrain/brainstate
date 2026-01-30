@@ -41,3 +41,51 @@ Graph Operation
    clone
    graphdef
 
+
+Context Management
+------------------
+
+Context managers for handling complex state updates during graph transformations.
+These utilities enable splitting and merging graph states in a thread-safe manner.
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+
+   split_context
+   merge_context
+
+
+Graph Conversion
+----------------
+
+Utilities for converting between graph and tree representations, enabling
+flexible manipulation of nested module structures.
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+   :template: classtemplate.rst
+
+   graph_to_tree
+   tree_to_graph
+   NodeStates
+
+
+Graph Definition Classes
+------------------------
+
+Core classes for representing graph structure, node definitions, and references.
+These classes provide the foundation for graph operations and state management.
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+   :template: classtemplate.rst
+
+   GraphDef
+   NodeDef
+   NodeRef
+   RefMap
+   register_graph_node_type
+
