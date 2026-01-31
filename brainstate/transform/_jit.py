@@ -15,7 +15,7 @@
 
 import functools
 from collections.abc import Iterable, Sequence
-from typing import (Any, Callable, Union)
+from typing import Callable, Union
 
 import jax
 from jax._src import sharding_impls

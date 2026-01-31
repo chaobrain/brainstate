@@ -834,7 +834,7 @@ class StatefulFunction(PrettyObject):
                 dyn_args = tuple(args[i] for i in range(len(args)) if i not in self.static_argnums)
 
                 # jaxpr
-                if jax.__version_info__ >= (0, 8, 2):
+                if jax.__version_info__ >= (0, 8, 0):
                     jaxpr, (out_shapes, state_shapes) = jax.make_jaxpr(
                         functools.partial(
                             self._wrapped_fun_to_eval,

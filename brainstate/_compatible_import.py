@@ -110,7 +110,6 @@ if jax.__version_info__ < (0, 8, 0):
 else:
     from jax.extend.backend import get_backend
 
-
 if jax.__version_info__ < (0, 7, 1):
     from jax.interpreters.batching import make_iota, to_elt, BatchTracer, BatchTrace
 else:
@@ -119,13 +118,16 @@ else:
 from jax.core import DropVar
 
 if jax.__version_info__ < (0, 4, 38):
-    from jax.core import ClosedJaxpr, extend_axis_env_nd, Primitive, jaxpr_as_fun
-    from jax.core import Primitive, Var, JaxprEqn, Jaxpr, ClosedJaxpr, Literal
+    from jax.core import (
+        extend_axis_env_nd, jaxpr_as_fun,
+        ClosedJaxpr, Primitive, Var, JaxprEqn, Jaxpr, ClosedJaxpr, Literal
+    )
 else:
-    from jax.extend.core import ClosedJaxpr, Primitive, jaxpr_as_fun
-    from jax.extend.core import Primitive, Var, JaxprEqn, Jaxpr, ClosedJaxpr, Literal
-    from jax.core import trace_ctx
-
+    from jax.extend.core import (
+        ClosedJaxpr, jaxpr_as_fun,
+        Primitive, Var, JaxprEqn, Jaxpr, ClosedJaxpr, Literal
+    )
+    from jax.extend.core import trace_ctx
 
     @contextmanager
     def extend_axis_env_nd(name_size_pairs: Iterable[tuple[Hashable, int]]):
