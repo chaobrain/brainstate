@@ -79,6 +79,7 @@ __all__ = [
     'extend_axis_env_nd',
     'jaxpr_as_fun',
     'get_aval',
+    'mapped_aval',
     'to_concrete_aval',
     'Device',
     'wrap_init',
@@ -105,6 +106,11 @@ if jax.__version_info__ < (0, 5, 0):
 else:
     from jax import Device
 
+
+if jax.__version_info__ < (0, 8, 2):
+    from jax.core import mapped_aval
+else:
+    from jax.extend.core import mapped_aval
 if jax.__version_info__ < (0, 8, 0):
     from jax.lib.xla_bridge import get_backend
 else:

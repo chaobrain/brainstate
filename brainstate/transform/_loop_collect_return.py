@@ -20,7 +20,7 @@ from typing import Callable, Optional, TypeVar, Tuple, Any
 import jax
 import jax.numpy as jnp
 
-from brainstate._compatible_import import get_aval
+from brainstate._compatible_import import get_aval, mapped_aval
 from brainstate._utils import set_module_as
 from ._make_jaxpr import StatefulFunction
 from ._progress_bar import ProgressBar
@@ -244,7 +244,7 @@ def scan(
     # evaluate jaxpr, get all states #
     # ------------------------------ #
     xs_avals = [get_aval(x) for x in xs_flat]
-    x_avals = [jax.core.mapped_aval(length, 0, aval) for aval in xs_avals]
+    x_avals = [mapped_aval(length, 0, aval) for aval in xs_avals]
     args = [init, xs_tree.unflatten(x_avals)]
     stateful_fun = StatefulFunction(f, name='scan').make_jaxpr(*args)
     state_trace = stateful_fun.get_state_trace(*args)
@@ -383,7 +383,7 @@ def checkpointed_scan(
 
     # evaluate jaxpr
     xs_avals = [get_aval(x) for x in xs_flat]
-    x_avals = [jax.core.mapped_aval(length, 0, aval) for aval in xs_avals]
+    x_avals = [mapped_aval(length, 0, aval) for aval in xs_avals]
     args = (init, xs_tree.unflatten(x_avals))
     stateful_fun = StatefulFunction(f, name='checkpoint_scan').make_jaxpr(*args)
     state_trace = stateful_fun.get_state_trace(*args)
