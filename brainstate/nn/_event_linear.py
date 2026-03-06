@@ -18,6 +18,7 @@ from typing import Union, Callable, Optional
 import brainevent
 import brainunit as u
 import jax
+import jax.numpy as jnp
 
 from brainstate._state import ParamState
 from brainstate.typing import Size, ArrayLike
@@ -78,6 +79,6 @@ class EventLinear(Module):
             return u.math.ones(self.out_size) * (u.math.sum(spk) * weight)
 
         if self.float_as_event:
-            return brainevent.EventArray(spk) @ weight
+            return jnp.asarray(spk) @ weight
         else:
             return spk @ weight

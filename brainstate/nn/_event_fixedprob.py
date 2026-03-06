@@ -179,8 +179,23 @@ class FixedNumConn(Module):
 
     def update(self, x) -> Union[jax.Array, u.Quantity]:
         if self.conn_num >= 1:
-            csr = self.conn.with_data(self.weight.value)
-            return x @ csr
+            weight = self.weight.value
+            csr = self.conn.with_data(weight)
+            # Use pure JAX scatter/gather for FixedPostNumConn/FixedPreNumConn to ensure
+            # differentiability with all JAX versions (avoids brainevent JVP compatibility issues).
+            if isinstance(csr, brainevent.FixedPostNumConn):
+                x = jnp.asarray(x)
+                n_post = self.out_size[-1]
+                contributions = x[:, None] * csr.data  # (n_pre, conn_num)
+                return jnp.zeros(n_post, dtype=contributions.dtype).at[
+                    csr.indices.reshape(-1)
+                ].add(contributions.reshape(-1))
+            elif isinstance(csr, brainevent.FixedPreNumConn):
+                x = jnp.asarray(x)
+                n_post = self.out_size[-1]
+                return (jnp.asarray(x)[csr.indices] * csr.data).sum(axis=-1)
+            else:
+                return x @ csr
         else:
             weight = self.weight.value
             r = u.math.zeros(x.shape[:-1] + (self.out_size[-1],), dtype=weight.dtype)
