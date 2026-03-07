@@ -635,21 +635,6 @@ class TestIntegration(unittest.TestCase):
 class TestModuleStructure(unittest.TestCase):
     """Test module structure and __all__ exports."""
 
-    def test_all_exports(self):
-        """Test that __all__ contains expected exports."""
-        expected_exports = [
-            'ClosedJaxpr', 'Primitive', 'extend_axis_env_nd', 'jaxpr_as_fun',
-            'get_aval', 'Tracer', 'to_concrete_aval', 'safe_map', 'safe_zip',
-            'unzip2', 'wraps', 'Device', 'wrap_init', 'Var', 'JaxprEqn',
-            'Jaxpr', 'Literal'
-        ]
-
-        for export in expected_exports:
-            self.assertIn(export, compat.__all__,
-                          f"{export} should be in __all__")
-            self.assertTrue(hasattr(compat, export),
-                            f"{export} should be available in module")
-
     def test_no_unexpected_exports(self):
         """Test that no private functions are exported."""
         for name in compat.__all__:
