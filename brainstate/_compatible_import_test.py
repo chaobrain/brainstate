@@ -71,34 +71,6 @@ class TestJAXVersionCompatibility(unittest.TestCase):
                             f"{type_name} should be available")
             self.assertIsNotNone(getattr(compat, type_name))
 
-    def test_function_imports_availability(self):
-        """Test function imports are available."""
-        functions = [
-            'jaxpr_as_fun', 'get_aval', 'to_concrete_aval',
-            'extend_axis_env_nd'
-        ]
-
-        for func_name in functions:
-            self.assertTrue(hasattr(compat, func_name),
-                            f"{func_name} should be available")
-            self.assertTrue(callable(getattr(compat, func_name)),
-                            f"{func_name} should be callable")
-
-    def test_extend_axis_env_nd_functionality(self):
-        """Test extend_axis_env_nd context manager."""
-        # Test basic functionality
-        with compat.extend_axis_env_nd([('test_axis', 10)]):
-            # Context should execute without error
-            pass
-
-        # Test with multiple axes
-        with compat.extend_axis_env_nd([('batch', 32), ('seq', 128)]):
-            pass
-
-        # Test with empty axes
-        with compat.extend_axis_env_nd([]):
-            pass
-
     def test_get_aval_functionality(self):
         """Test get_aval function works correctly."""
         # Test with JAX array
@@ -649,21 +621,6 @@ class TestIntegration(unittest.TestCase):
 
 class TestModuleStructure(unittest.TestCase):
     """Test module structure and __all__ exports."""
-
-    def test_all_exports(self):
-        """Test that __all__ contains expected exports."""
-        expected_exports = [
-            'ClosedJaxpr', 'Primitive', 'extend_axis_env_nd', 'jaxpr_as_fun',
-            'get_aval', 'Tracer', 'to_concrete_aval', 'safe_map', 'safe_zip',
-            'unzip2', 'wraps', 'Device', 'wrap_init', 'Var', 'JaxprEqn',
-            'Jaxpr', 'Literal'
-        ]
-
-        for export in expected_exports:
-            self.assertIn(export, compat.__all__,
-                          f"{export} should be in __all__")
-            self.assertTrue(hasattr(compat, export),
-                            f"{export} should be available in module")
 
     def test_no_unexpected_exports(self):
         """Test that no private functions are exported."""

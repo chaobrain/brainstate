@@ -52,29 +52,23 @@ function.
 """
 
 import functools
-import inspect
 import operator
 import threading
 from collections.abc import Hashable, Iterable, Sequence
-from contextlib import ExitStack
 from typing import Any, Callable, Dict, Optional, Tuple, Union
 
 import jax
 import jax.numpy as jnp
 from jax._src import source_info_util
 from jax.api_util import shaped_abstractify
-from jax.extend.linear_util import transformation_with_aux
 from jax.interpreters import partial_eval as pe
 
-from brainstate._compatible_import import (
-    ClosedJaxpr, extend_axis_env_nd, safe_map, safe_zip, unzip2, wraps, wrap_init,
-)
+from brainstate._compatible_import import ClosedJaxpr, safe_map, wraps
 from brainstate._state import State, StateTraceStack
 from brainstate._utils import set_module_as
 from brainstate.typing import PyTree
 from brainstate.util import PrettyObject
 from brainstate.util._cache import BoundedCache
-from ._ir_optim import optimize_jaxpr
 
 __all__ = [
     "StatefulFunction",
@@ -834,29 +828,16 @@ class StatefulFunction(PrettyObject):
                 dyn_args = tuple(args[i] for i in range(len(args)) if i not in self.static_argnums)
 
                 # jaxpr
-                if jax.__version_info__ >= (0, 8, 2):
-                    jaxpr, (out_shapes, state_shapes) = jax.make_jaxpr(
-                        functools.partial(
-                            self._wrapped_fun_to_eval,
-                            cache_key,
-                            static_kwargs,
-                        ),
-                        static_argnums=self.static_argnums,
-                        axis_env=self.axis_env,
-                        return_shape=True,
-                    )(*args, **dyn_kwargs)
-                else:
-                    jaxpr, (out_shapes, state_shapes) = _make_jaxpr(
-                        functools.partial(
-                            self._wrapped_fun_to_eval,
-                            cache_key,
-                            static_kwargs,
-                        ),
-                        static_argnums=self.static_argnums,
-                        axis_env=self.axis_env,
-                        return_shape=True,
-                        ir_optimizations=self.ir_optimizations,
-                    )(*args, **dyn_kwargs)
+                jaxpr, (out_shapes, state_shapes) = jax.make_jaxpr(
+                    functools.partial(
+                        self._wrapped_fun_to_eval,
+                        cache_key,
+                        static_kwargs,
+                    ),
+                    static_argnums=self.static_argnums,
+                    axis_env=self.axis_env,
+                    return_shape=True,
+                )(*args, **dyn_kwargs)
 
                 self._cached_jaxpr_out_tree.set(cache_key, jax.tree.structure((out_shapes, state_shapes)))
                 self._cached_out_shapes.set(cache_key, (out_shapes, state_shapes))
@@ -1205,147 +1186,6 @@ def make_jaxpr(
             )
 
     # wrapped jaxpr builder function
-    make_jaxpr_f.__module__ = "brainstate.transform"
-    if hasattr(fun, "__qualname__"):
-        make_jaxpr_f.__qualname__ = f"make_jaxpr({fun.__qualname__})"
-    if hasattr(fun, "__name__"):
-        make_jaxpr_f.__name__ = f"make_jaxpr({fun.__name__})"
-    return make_jaxpr_f
-
-
-def _check_callable(fun):
-    # In Python 3.10+, the only thing stopping us from supporting static methods
-    # is that we can't take weak references to them, which the C++ JIT requires.
-    if isinstance(fun, staticmethod):
-        raise TypeError(f"staticmethod arguments are not supported, got {fun}")
-    if not callable(fun):
-        raise TypeError(f"Expected a callable value, got {fun}")
-    if inspect.isgeneratorfunction(fun):
-        raise TypeError(f"Expected a function, got a generator function: {fun}")
-
-
-@transformation_with_aux
-def _flatten_fun(in_tree, *args_flat):
-    py_args, py_kwargs = jax.tree.unflatten(in_tree, args_flat)
-    ans = yield py_args, py_kwargs
-    yield jax.tree.flatten(ans)
-
-
-def _make_jaxpr(
-    fun: Callable,
-    static_argnums: int | Iterable[int] = (),
-    axis_env: Sequence[tuple[AxisName, int]] | None = None,
-    return_shape: bool = False,
-    ir_optimizations: Union[str, Sequence[str]] = None,
-) -> Callable[..., (ClosedJaxpr | tuple[ClosedJaxpr, Any])]:
-    """
-    Create a function that produces its jaxpr given example args (internal implementation).
-
-    This is an internal implementation function. Users should use the public
-    ``make_jaxpr`` function instead.
-
-    Parameters
-    ----------
-    fun : Callable
-        The function whose ``jaxpr`` is to be computed. Its positional
-        arguments and return value should be arrays, scalars, or standard Python
-        containers (tuple/list/dict) thereof.
-    static_argnums : int or iterable of int, optional
-        See the :py:func:`jax.jit` docstring.
-    axis_env : sequence of tuple, optional
-        A sequence of pairs where the first element is an axis
-        name and the second element is a positive integer representing the size of
-        the mapped axis with that name. This parameter is useful when lowering
-        functions that involve parallel communication collectives, and it
-        specifies the axis name/size environment that would be set up by
-        applications of :py:func:`jax.pmap`.
-    return_shape : bool, default False
-        If ``True``, the wrapped function returns a pair where the first element
-        is the ``ClosedJaxpr`` representation of ``fun`` and the second element
-        is a pytree with the same structure as the output of ``fun`` and where
-        the leaves are objects with ``shape``, ``dtype``, and ``named_shape``
-        attributes representing the corresponding types of the output leaves.
-    ir_optimizations: str or sequence of str, optional
-        A string or sequence of strings specifying IR optimizations to apply
-        during jaxpr tracing. If None, no optimizations are applied.
-
-    Returns
-    -------
-    Callable
-        A wrapped version of ``fun`` that when applied to example arguments returns
-        a ``ClosedJaxpr`` representation of ``fun`` on those arguments. If the
-        argument ``return_shape`` is ``True``, then the returned function instead
-        returns a pair where the first element is the ``ClosedJaxpr``
-        representation of ``fun`` and the second element is a pytree representing
-        the structure, shape, dtypes, and named shapes of the output of ``fun``.
-
-    Notes
-    -----
-    A ``jaxpr`` is JAX's intermediate representation for program traces. The
-    ``jaxpr`` language is based on the simply-typed first-order lambda calculus
-    with let-bindings. This function adapts a function to return its
-    ``jaxpr``, which we can inspect to understand what JAX is doing internally.
-    The ``jaxpr`` returned is a trace of ``fun`` abstracted to
-    :py:class:`ShapedArray` level. Other levels of abstraction exist internally.
-
-    Examples
-    --------
-    .. code-block:: python
-
-        >>> import jax
-        >>>
-        >>> def f(x): return jax.numpy.sin(jax.numpy.cos(x))
-        >>> print(f(3.0))
-        -0.83602
-        >>> _make_jaxpr(f)(3.0)
-        { lambda ; a:f32[]. let b:f32[] = cos a; c:f32[] = sin b in (c,) }
-        >>> _make_jaxpr(jax.grad(f))(3.0)
-        { lambda ; a:f32[]. let
-            b:f32[] = cos a
-            c:f32[] = sin a
-            _:f32[] = sin b
-            d:f32[] = cos b
-            e:f32[] = mul 1.0 d
-            f:f32[] = neg e
-            g:f32[] = mul f c
-          in (g,) }
-    """
-    from jax._src.traceback_util import api_boundary
-    from jax._src.linear_util import annotate
-
-    _check_callable(fun)
-    static_argnums = _ensure_index_tuple(static_argnums)
-
-    def _abstractify(args, kwargs):
-        flat_args, in_tree = jax.tree.flatten((args, kwargs))
-        return map(shaped_abstractify, flat_args), in_tree, [True] * len(flat_args)
-
-    @wraps(fun)
-    @api_boundary
-    def make_jaxpr_f(*args, **kwargs):
-        f = wrap_init(fun, (), {}, 'brainstate.transform.make_jaxpr')
-        if static_argnums:
-            dyn_argnums = [i for i in range(len(args)) if i not in static_argnums]
-            f, args = jax.api_util.argnums_partial(f, dyn_argnums, args)
-        in_avals, in_tree, keep_inputs = _abstractify(args, kwargs)
-        in_type = tuple(safe_zip(in_avals, keep_inputs))
-        f, out_tree = _flatten_fun(f, in_tree)
-        f = annotate(f, in_type)
-        with ExitStack() as stack:
-            if axis_env is not None:
-                stack.enter_context(extend_axis_env_nd(axis_env))
-            jaxpr, out_type, consts = pe.trace_to_jaxpr_dynamic2(f)
-        closed_jaxpr = ClosedJaxpr(jaxpr, consts)
-        if ir_optimizations is not None:
-            closed_jaxpr = closed_jaxpr.replace(
-                jaxpr=optimize_jaxpr(closed_jaxpr.jaxpr, optimizations=ir_optimizations)
-            )
-        if return_shape:
-            out_avals, _ = unzip2(out_type)
-            out_shapes_flat = [jax.ShapeDtypeStruct(a.shape, a.dtype) for a in out_avals]
-            return closed_jaxpr, jax.tree.unflatten(out_tree(), out_shapes_flat)
-        return closed_jaxpr
-
     make_jaxpr_f.__module__ = "brainstate.transform"
     if hasattr(fun, "__qualname__"):
         make_jaxpr_f.__qualname__ = f"make_jaxpr({fun.__qualname__})"

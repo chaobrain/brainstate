@@ -28,7 +28,7 @@ __all__ = [
 
 
 def _err_jit_true_branch(err_fun, args, kwargs):
-    jax.debug.callback(err_fun, *args, **kwargs)
+    jax.debug.callback(err_fun, *args, **kwargs, ordered=True)
 
 
 def _err_jit_false_branch(args, kwargs):
