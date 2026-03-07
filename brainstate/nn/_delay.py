@@ -538,20 +538,11 @@ class Delay(Module):
             raise TypeError(f'init should be Array, Callable, or None. But got {init}')
         self._init = init
 
-        # delay entries
-        self._registered_entries = dict()
-        if entries is not None:
-            for entry, time_and_idx in entries.items():
-                if isinstance(time_and_idx, (tuple, list)):
-                    self.register_entry(entry, *time_and_idx)
-                else:
-                    self.register_entry(entry, time_and_idx)
-
         # unit handling
         self.take_aware_unit = take_aware_unit
         self._unit = None
 
-        # Validate and convert update_every
+        # Validate and convert update_every (must be set before register_entry is called)
         with jax.ensure_compile_time_eval():
             if update_every is not None:
                 if update_every < environ.get_dt():
@@ -561,6 +552,15 @@ class Delay(Module):
             else:
                 self.update_every = None
                 self.update_every_step = 1
+
+        # delay entries
+        self._registered_entries = dict()
+        if entries is not None:
+            for entry, time_and_idx in entries.items():
+                if isinstance(time_and_idx, (tuple, list)):
+                    self.register_entry(entry, *time_and_idx)
+                else:
+                    self.register_entry(entry, time_and_idx)
 
         # Thread safety locks (lazy initialization)
         self._update_lock = threading.RLock()
