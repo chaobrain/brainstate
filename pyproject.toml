@@ -73,29 +73,29 @@ repository = 'https://github.com/chaobrain/brainstate'
 
 [project.optional-dependencies]
 cpu = [
-    'jax[cpu]',
+    'jax[cpu]>=0.6.0',
     'brainunit',
     'brainevent',
 ]
 cuda12 = [
-    'jax[cuda12]',
+    'jax[cuda12]>=0.6.0',
     'brainunit',
     'brainevent',
 ]
 cuda13 = [
-    'jax[cuda13]',
+    'jax[cuda13]>=0.6.0',
     'brainunit',
     'brainevent',
 ]
 tpu = [
-    'jax[tpu]',
+    'jax[tpu]>=0.6.0',
     'brainunit',
     'brainevent',
 ]
 testing = [
     'absl-py',
     'pytest',
-    'jax',
+    'jax>=0.6.0',
     'brainunit',
     'brainevent',
 ]
