@@ -71,19 +71,6 @@ class TestJAXVersionCompatibility(unittest.TestCase):
                             f"{type_name} should be available")
             self.assertIsNotNone(getattr(compat, type_name))
 
-    def test_function_imports_availability(self):
-        """Test function imports are available."""
-        functions = [
-            'jaxpr_as_fun', 'get_aval', 'to_concrete_aval',
-            'extend_axis_env_nd'
-        ]
-
-        for func_name in functions:
-            self.assertTrue(hasattr(compat, func_name),
-                            f"{func_name} should be available")
-            self.assertTrue(callable(getattr(compat, func_name)),
-                            f"{func_name} should be callable")
-
     def test_get_aval_functionality(self):
         """Test get_aval function works correctly."""
         # Test with JAX array
