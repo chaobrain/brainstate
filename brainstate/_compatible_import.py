@@ -42,9 +42,8 @@ Examples:
     >>> # These imports work across different JAX versions
 """
 
-from contextlib import contextmanager
 from functools import partial
-from typing import Iterable, Hashable, TypeVar, Callable
+from typing import Iterable, TypeVar, Callable
 
 import jax
 from jax.core import Tracer
@@ -76,7 +75,6 @@ __all__ = [
     # others
     'is_jit_primitive',
     'Primitive',
-    'extend_axis_env_nd',
     'jaxpr_as_fun',
     'get_aval',
     'mapped_aval',
@@ -106,7 +104,6 @@ if jax.__version_info__ < (0, 5, 0):
 else:
     from jax import Device
 
-
 if jax.__version_info__ < (0, 8, 2):
     from jax.core import mapped_aval
 else:
@@ -133,34 +130,6 @@ else:
         ClosedJaxpr, jaxpr_as_fun,
         Primitive, Var, JaxprEqn, Jaxpr, ClosedJaxpr, Literal
     )
-    from jax.extend.core import trace_ctx
-
-    @contextmanager
-    def extend_axis_env_nd(name_size_pairs: Iterable[tuple[Hashable, int]]):
-        """
-        Context manager to temporarily extend the JAX axis environment.
-
-        Extends the current JAX axis environment with new named axes for
-        vectorized computations, then restores the previous environment.
-
-        Args:
-            name_size_pairs: Iterable of (name, size) tuples specifying
-                           the named axes to add to the environment.
-
-        Yields:
-            None: Context with extended axis environment.
-
-        Examples:
-            >>> with extend_axis_env_nd([('batch', 32), ('seq', 128)]):
-            ...     # Code using vectorized operations with named axes
-            ...     pass
-        """
-        prev = trace_ctx.axis_env
-        try:
-            trace_ctx.set_axis_env(prev.extend_pure(name_size_pairs))
-            yield
-        finally:
-            trace_ctx.set_axis_env(prev)
 
 if jax.__version_info__ < (0, 6, 0):
     from jax.util import safe_map, safe_zip, unzip2, wraps
@@ -265,30 +234,6 @@ else:
 
 
     def fun_name(fun: Callable):
-        """
-        Extract the name of a function, handling special cases.
-
-        Attempts to get the name of a function, with special handling for
-        partial functions and fallback for unnamed functions.
-
-        Args:
-            fun: The function to get the name from.
-
-        Returns:
-            str: The function name, or "<unnamed function>" if no name available.
-
-        Examples:
-            >>> def my_function():
-            ...     pass
-            >>> fun_name(my_function)
-            'my_function'
-
-            >>> from functools import partial
-            >>> add = lambda x, y: x + y
-            >>> add_one = partial(add, 1)
-            >>> fun_name(add_one)
-            '<lambda>'
-        """
         name = getattr(fun, "__name__", None)
         if name is not None:
             return name
