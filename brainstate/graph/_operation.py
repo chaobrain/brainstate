@@ -641,7 +641,7 @@ def _split_state(
 
 
 @set_module_as('brainstate.graph')
-def treefy_split(node: A, *filters: Filter):
+def treefy_split(node: A, *filters):
     """Split a graph node into a GraphDef and one or more state NestedDicts.
 
     If no filters are given, returns (graphdef, state).
@@ -694,7 +694,7 @@ def _split_flatted(
 
 @set_module_as('brainstate.graph')
 def nodes(
-    node, *filters: Filter, allowed_hierarchy: tuple[int, int] = (0, MAX_INT)
+    node, *filters, allowed_hierarchy: tuple[int, int] = (0, MAX_INT)
 ) -> FlattedDict | tuple[FlattedDict, ...]:
     """Return all graph nodes, optionally filtered and limited by hierarchy depth."""
     num_filters = len(filters)
@@ -719,7 +719,7 @@ def _states_generator(node, allowed_hierarchy) -> Iterable[tuple[PathParts, Stat
 
 @set_module_as('brainstate.graph')
 def states(
-    node, *filters: Filter, allowed_hierarchy: tuple[int, int] = (0, MAX_INT)
+    node, *filters, allowed_hierarchy: tuple[int, int] = (0, MAX_INT)
 ) -> FlattedDict | tuple[FlattedDict, ...]:
     """Return all State objects from a graph node, optionally filtered."""
     num_filters = len(filters)
