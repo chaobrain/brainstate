@@ -1,17 +1,3 @@
-# Copyright 2025 BrainX Ecosystem Limited. All Rights Reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-# ==============================================================================
 # The file is adapted from the Flax library (https://github.com/google/flax).
 # The credit should go to the Flax authors.
 #
@@ -28,9 +14,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-# ==============================================================================
 
-from typing import Any, Callable, Iterable, TypeVar, Hashable, Optional, Tuple, List, Dict
+from __future__ import annotations
+
+from collections.abc import Callable, Iterable
+from typing import Any, TypeVar
 
 import jax
 
@@ -54,8 +42,7 @@ __all__ = [
 
 Node = TypeVar('Node')
 Leaf = TypeVar('Leaf')
-
-KeyEntry = TypeVar('KeyEntry', bound=Hashable)
+KeyEntry = TypeVar('KeyEntry')
 KeyPath = tuple[KeyEntry, ...]
 Prefix = Any
 RandomState = None
@@ -70,15 +57,15 @@ def _get_rand_state() -> type:
 
 
 def check_consistent_aliasing(
-    node: Tuple[Any, ...],
-    prefix: Tuple[Any, ...],
+    node: tuple[Any, ...],
+    prefix: tuple[Any, ...],
     /,
     *,
-    node_prefixes: Optional[RefMap[Any, List[Tuple[PathParts, Any]]]] = None,
-):
+    node_prefixes: RefMap[Any, list[tuple[PathParts, Any]]] | None = None,
+) -> None:
+    """Check that shared nodes have consistent prefixes across all paths."""
     node_prefixes = RefMap() if node_prefixes is None else node_prefixes
 
-    # collect all paths and prefixes for each node
     for path, value in iter_graph(node):
         if _is_graph_node(value) or isinstance(value, State):
             if isinstance(value, GraphNode):
@@ -90,52 +77,34 @@ def check_consistent_aliasing(
                     lambda: f'Trying to extract graph node from different trace level, got {value!r}'
                 )
             if value in node_prefixes:
-                paths_prefixes = node_prefixes[value]
-                paths_prefixes.append((path, prefix))
+                node_prefixes[value].append((path, prefix))
             else:
                 node_prefixes[value] = [(path, prefix)]
 
-    # check for inconsistent aliasing
     node_msgs = []
     for node, paths_prefixes in node_prefixes.items():
         unique_prefixes = {prefix for _, prefix in paths_prefixes}
         if len(unique_prefixes) > 1:
-            path_prefix_repr = '\n'.join([f'  {"/".join(map(str, path)) if path else "<root>"}: {prefix}'
-                                          for path, prefix in paths_prefixes])
-            nodes_msg = f'Node: {type(node)}\n{path_prefix_repr}'
-            node_msgs.append(nodes_msg)
+            path_prefix_repr = '\n'.join([
+                f'  {"/".join(map(str, path)) if path else "<root>"}: {prefix}'
+                for path, prefix in paths_prefixes
+            ])
+            node_msgs.append(f'Node: {type(node)}\n{path_prefix_repr}')
 
     if node_msgs:
-        raise ValueError('Inconsistent aliasing detected. The '
-                         'following nodes have different prefixes:\n'
-                         + '\n'.join(node_msgs))
+        raise ValueError(
+            'Inconsistent aliasing detected. The following nodes have different prefixes:\n'
+            + '\n'.join(node_msgs)
+        )
 
-
-# -----------------------------
-# to_tree/from_tree
-# -----------------------------
 
 def broadcast_prefix(
     prefix_tree: Any,
     full_tree: Any,
-    prefix_is_leaf: Optional[Callable[[Any], bool]] = None,
-    tree_is_leaf: Optional[Callable[[Any], bool]] = None,
-) -> List[Any]:
-    """
-    Broadcasts a prefix tree to a full tree.
-
-    Args:
-      prefix_tree: A prefix tree.
-      full_tree: A full tree.
-      prefix_is_leaf: A function that checks if a prefix is a leaf.
-      tree_is_leaf: A function that checks if a tree is a leaf.
-
-    Returns:
-      A list of prefixes.
-    """
-    # If prefix_tree is not a tree prefix of full_tree, this code can raise a
-    # ValueError; use prefix_errors to find disagreements and raise more precise
-    # error messages.
+    prefix_is_leaf: Callable[[Any], bool] | None = None,
+    tree_is_leaf: Callable[[Any], bool] | None = None,
+) -> list[Any]:
+    """Broadcast a prefix tree to match the leaves of a full tree."""
     result = []
     num_leaves = lambda t: jax.tree_util.tree_structure(t, is_leaf=tree_is_leaf).num_leaves
     add_leaves = lambda x, subtree: result.extend([x] * num_leaves(subtree))
@@ -144,6 +113,12 @@ def broadcast_prefix(
 
 
 class NodeStates(PyTreeNode):
+    """A JAX pytree wrapper that carries both a GraphDef and one or more state mappings.
+
+    Used by ``graph_to_tree`` / ``tree_to_graph`` to represent graph nodes as
+    pure pytrees so that JAX transforms (vmap, jit, etc.) can operate on them.
+    """
+
     _graphdef: GraphDef[Any] | None
     states: tuple[GraphStateMapping, ...]
     metadata: Any = field(pytree_node=False)
@@ -168,19 +143,19 @@ class NodeStates(PyTreeNode):
         /,
         *states: GraphStateMapping,
         metadata: Any = None,
-    ):
+    ) -> NodeStates:
         return cls(_graphdef=graphdef, states=(state, *states), metadata=metadata)
 
     @classmethod
-    def from_states(cls, state: GraphStateMapping, *states: GraphStateMapping):
+    def from_states(cls, state: GraphStateMapping, *states: GraphStateMapping) -> NodeStates:
         return cls(_graphdef=None, states=(state, *states), metadata=None)
 
     @classmethod
-    def from_prefixes(cls, prefixes: Iterable[Any], /, *, metadata: Any = None):
+    def from_prefixes(cls, prefixes: Iterable[Any], /, *, metadata: Any = None) -> NodeStates:
         return cls(_graphdef=None, states=tuple(prefixes), metadata=metadata)
 
 
-def _default_split_fn(ctx: SplitContext, path: KeyPath, prefix: Prefix, leaf: Leaf):
+def _default_split_fn(ctx: SplitContext, path: KeyPath, prefix: Prefix, leaf: Leaf) -> NodeStates:
     return NodeStates.from_split(*ctx.treefy_split(leaf))
 
 
@@ -192,20 +167,16 @@ def graph_to_tree(
     split_fn: Callable[[SplitContext, KeyPath, Prefix, Leaf], Any] = _default_split_fn,
     map_non_graph_nodes: bool = False,
     check_aliasing: bool = True,
-) -> Tuple[PyTree, Dict[KeyPath, SeedOrKey]]:
-    """
-    Convert a tree of pytree objects to a tree of TreeNode objects.
-    """
+) -> tuple[PyTree, dict[KeyPath, SeedOrKey]]:
+    """Convert a pytree that may contain graph nodes into a pure pytree of NodeStates."""
     leaf_prefixes = broadcast_prefix(prefix, may_have_graph_nodes, prefix_is_leaf=lambda x: x is None)
     leaf_keys, treedef = jax.tree_util.tree_flatten_with_path(may_have_graph_nodes)
 
-    # Check that the number of keys and prefixes match
     assert len(leaf_keys) == len(leaf_prefixes)
 
-    # Split the tree
     with split_context() as (ctx, index_ref):
         leaves_out = []
-        node_prefixes = RefMap[Any, list[tuple[PathParts, Any]]]()
+        node_prefixes: RefMap[Any, list[tuple[PathParts, Any]]] = RefMap()
         for (keypath, leaf), leaf_prefix in zip(leaf_keys, leaf_prefixes):
             if _is_graph_node(leaf):
                 if check_aliasing:
@@ -215,15 +186,16 @@ def graph_to_tree(
                 if map_non_graph_nodes:
                     leaf = split_fn(ctx, keypath, leaf_prefix, leaf)
                 leaves_out.append(leaf)
-        pass
 
-    find_states = states(index_ref._mapping)
+    # Build a dict mirroring RefMap's content via the public API, then extract
+    # State objects from it.  We must not access the private ._mapping attribute.
+    public_map = {id(k): (k, v) for k, v in index_ref.items()}
+    find_states = states(public_map)
     pytree_out = jax.tree.unflatten(treedef, leaves_out)
     return pytree_out, find_states
 
 
-def _is_tree_node(x):
-    """Check if x is a TreeNode."""
+def _is_tree_node(x: Any) -> bool:
     return isinstance(x, NodeStates)
 
 
@@ -243,20 +215,7 @@ def tree_to_graph(
     is_leaf: Callable[[Leaf], bool] = _is_tree_node,
     map_non_graph_nodes: bool = False,
 ) -> Any:
-    """
-    Convert a tree of TreeNode objects to a tree of pytree objects.
-
-    Args:
-      tree: A tree of TreeNode objects.
-      prefix: A tree of prefixes.
-      merge_fn: A function that merges a TreeNode object.
-      is_node_leaf: A function that checks if a leaf is a TreeNode.
-      is_leaf: A function that checks if a leaf is a TreeNode.
-      map_non_graph_nodes: A boolean indicating whether to map non-graph nodes.
-
-    Returns:
-      A tree of pytree objects.
-    """
+    """Convert a pytree of NodeStates back into graph nodes."""
     _prefix_is_leaf = lambda x: x is None or is_leaf(x)
     leaf_prefixes = broadcast_prefix(prefix, tree, prefix_is_leaf=_prefix_is_leaf, tree_is_leaf=is_leaf)
     leaf_keys, treedef = jax.tree_util.tree_flatten_with_path(tree, is_leaf=is_leaf)
@@ -266,13 +225,10 @@ def tree_to_graph(
         leaves_out = []
         for (keypath, leaf), leaf_prefix in zip(leaf_keys, leaf_prefixes):
             if is_node_leaf(leaf):
-                leaf_out = merge_fn(ctx, keypath, leaf_prefix, leaf)
-                leaves_out.append(leaf_out)
+                leaves_out.append(merge_fn(ctx, keypath, leaf_prefix, leaf))
             else:
                 if map_non_graph_nodes:
                     leaf = merge_fn(ctx, keypath, leaf_prefix, leaf)
                 leaves_out.append(leaf)
 
-    find_states = states(index_ref)
-    pytree_out = jax.tree.unflatten(treedef, leaves_out)
-    return pytree_out
+    return jax.tree.unflatten(treedef, leaves_out)

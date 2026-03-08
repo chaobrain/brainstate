@@ -20,7 +20,9 @@ from typing import Tuple, Union, List
 
 import jax
 
-from brainstate._compatible_import import Var
+from brainstate._compatible_import import (
+    Var, ClosedJaxpr, Jaxpr, JaxprEqn, Literal, DropVar
+)
 
 pydot_is_installed = importlib.util.find_spec("pydot") is not None
 
@@ -167,7 +169,7 @@ if pydot_is_installed:
 
 
     def draw_dot_graph(
-        fn: jax.core.ClosedJaxpr, collapse_primitives: bool, show_avals: bool
+        fn: ClosedJaxpr, collapse_primitives: bool, show_avals: bool
     ) -> pydot.Graph:
         """
         Generate a pydot representation of an XLA graph
@@ -201,7 +203,7 @@ if pydot_is_installed:
 
 
     def get_conditional(
-        conditional: jax.core.Jaxpr,
+        conditional: Jaxpr,
         parent_id: str,
         n: int,
         collapse_primitives: bool,
@@ -212,7 +214,7 @@ if pydot_is_installed:
 
         Parameters
         ----------
-        conditional: jax.core.Jaxpr
+        conditional: Jaxpr
             Jaxpr of the conditional function
         parent_id: str
             ID of the parent subgraph of the conditional node
@@ -262,7 +264,7 @@ if pydot_is_installed:
 
         cond_var = conditional.invars[0]
         cond_var_id = f"{parent_id}_{cond_var}"
-        if isinstance(cond_var, jax.core.Literal):
+        if isinstance(cond_var, Literal):
             new_nodes.append(
                 get_arg_node(cond_var_id, cond_var, show_avals, True)
             )
@@ -270,7 +272,7 @@ if pydot_is_installed:
 
         for arg in conditional.invars[1:]:
             arg_id = f"{cond_graph_id}_{arg}"
-            is_literal = isinstance(arg, jax.core.Literal)
+            is_literal = isinstance(arg, Literal)
             cond_arguments.add_node(
                 get_arg_node(arg_id, arg, show_avals, is_literal)
             )
@@ -328,7 +330,7 @@ if pydot_is_installed:
                         eqn.params["name"] if "name" in eqn.params else eqn.primitive.name
                     )
                     no_literal_inputs = any(
-                        [isinstance(a, jax.core.Literal) for a in branch.jaxpr.invars]
+                        [isinstance(a, Literal) for a in branch.jaxpr.invars]
                     )
                     collapse_branch = no_literal_inputs or collapse_primitives
                     if collapse_branch:
@@ -442,7 +444,7 @@ if pydot_is_installed:
 
 
     def _get_node(
-        eqn: jax.core.JaxprEqn,
+        eqn: JaxprEqn,
         graph_id: str,
         show_avals: bool,
         n: int,
@@ -454,7 +456,7 @@ if pydot_is_installed:
 
         Parameters
         ----------
-        eqn: jax.core.JaxprEqn
+        eqn: JaxprEqn
             JaxprEqn of the function
         graph_id: str
             Id of the computation graph containing this node
@@ -499,7 +501,7 @@ if pydot_is_installed:
         out_edges = list()
 
         for var in eqn.invars:
-            if isinstance(var, jax.core.Literal):
+            if isinstance(var, Literal):
                 new_nodes.append(
                     get_arg_node(f"{graph_id}_{var}", var, show_avals, True)
                 )
@@ -514,7 +516,7 @@ if pydot_is_installed:
 
 
     def expand_non_primitive(
-        eqn: jax.core.JaxprEqn,
+        eqn: JaxprEqn,
         parent_id: str,
         n: int,
         collapse_primitives: bool,
@@ -525,7 +527,7 @@ if pydot_is_installed:
 
         Parameters
         ----------
-        eqn: jax.core.JaxprEqn
+        eqn: JaxprEqn
             JaxprEqn of the function
         parent_id: str
             ID of the parent graph to this eqn
@@ -611,7 +613,7 @@ if pydot_is_installed:
 
 
     def expand_pjit_primitive(
-        jaxpr: jax.core.Jaxpr,
+        jaxpr: Jaxpr,
         parent_id: str,
         n: int,
         collapse_primitives: bool,
@@ -623,7 +625,7 @@ if pydot_is_installed:
 
         Parameters
         ----------
-        jaxpr: jax.core.Jaxpr
+        jaxpr: Jaxpr
             JaxprEqn of the function
         parent_id: str
             ID of the parent graph to this eqn
@@ -708,7 +710,7 @@ if pydot_is_installed:
 
 
     def get_scan(
-        eqn: jax.core.JaxprEqn,
+        eqn: JaxprEqn,
         parent_id: str,
         n: int,
         collapse_primitives: bool,
@@ -810,7 +812,7 @@ if pydot_is_installed:
 
 
     def get_while_branch(
-        jaxpr: jax.core.Jaxpr,
+        jaxpr: Jaxpr,
         parent_id: str,
         parent_args: List[Var],
         parent_outvars: List[Var],
@@ -838,12 +840,12 @@ if pydot_is_installed:
                 # TODO: What does the underscore mean?
                 if str(var)[-1] == "_":
                     continue
-                is_literal = isinstance(var, jax.core.Literal)
+                is_literal = isinstance(var, Literal)
                 if not is_literal:
                     arg_edges.append(pydot.Edge(f"{parent_id}_{p_var}", graph_id))
 
             for (var, p_var) in zip(jaxpr.outvars, parent_outvars):
-                if isinstance(var, jax.core.DropVar):
+                if isinstance(var, DropVar):
                     continue
                 out_edges.append(pydot.Edge(graph_id, f"{parent_id}_{p_var}"))
 
@@ -895,7 +897,7 @@ if pydot_is_installed:
 
 
     def get_while(
-        eqn: jax.core.JaxprEqn,
+        eqn: JaxprEqn,
         parent_id: str,
         n: int,
         collapse_primitives: bool,
@@ -916,7 +918,7 @@ if pydot_is_installed:
 
         for var in eqn.invars:
             arg_id = f"{while_graph_id}_{var}"
-            is_literal = isinstance(var, jax.core.Literal)
+            is_literal = isinstance(var, Literal)
             while_graph.add_node(
                 get_arg_node(arg_id, var, show_avals, is_literal)
             )
@@ -963,14 +965,14 @@ if pydot_is_installed:
         for var in eqn.outvars:
             arg_id = f"{while_graph_id}_{var}"
             while_graph.add_node(get_out_node(arg_id, var, show_avals))
-            if not isinstance(var, jax.core.DropVar):
+            if not isinstance(var, DropVar):
                 out_edges.append(pydot.Edge(arg_id, f"{parent_id}_{var}"))
 
         return while_graph, arg_edges, [], out_edges, n
 
 
     def get_sub_graph(
-        eqn: jax.core.JaxprEqn,
+        eqn: JaxprEqn,
         parent_id: str,
         n: int,
         collapse_primitives: bool,
@@ -985,7 +987,7 @@ if pydot_is_installed:
 
         Parameters
         ----------
-        eqn: jax.core.JaxprEqn
+        eqn: JaxprEqn
             JaxprEqn of the function
         parent_id: str
             ID of the
@@ -1073,7 +1075,7 @@ if pydot_is_installed:
 
     def get_arg_node(
         arg_id: str,
-        var: Union[Var, jax.core.Literal],
+        var: Union[Var, Literal],
         show_avals: bool,
         is_literal: bool,
     ) -> pydot.Node:
@@ -1106,7 +1108,7 @@ if pydot_is_installed:
 
     def get_const_node(
         arg_id: str,
-        var: Union[Var, jax.core.Literal],
+        var: Union[Var, Literal],
         show_avals: bool,
     ) -> pydot.Node:
         """
@@ -1251,7 +1253,7 @@ if pydot_is_installed:
             if str(var)[-1] == "_":
                 continue
             arg_id = f"{graph_id}_{var}"
-            is_literal = isinstance(var, jax.core.Literal)
+            is_literal = isinstance(var, Literal)
             argument_nodes.add_node(get_arg_node(arg_id, var, show_avals, is_literal))
             if not is_literal:
                 argument_edges.append(pydot.Edge(f"{parent_id}_{p_var}", arg_id))
@@ -1316,8 +1318,8 @@ if pydot_is_installed:
                 continue
             arg_id = f"{graph_id}_{var}"
 
-            var_is_literal = isinstance(var, jax.core.Literal)
-            parent_is_literal = isinstance(p_var, jax.core.Literal)
+            var_is_literal = isinstance(var, Literal)
+            parent_is_literal = isinstance(p_var, Literal)
             is_literal = var_is_literal or parent_is_literal
 
             if parent_is_literal:
@@ -1499,7 +1501,7 @@ if pydot_is_installed:
 
 
     def get_node_label(
-        v: Union[Var, jax.core.Literal],
+        v: Union[Var, Literal],
         show_avals: bool
     ) -> str:
         """
@@ -1523,7 +1525,7 @@ if pydot_is_installed:
             return str(v)
 
 
-    def is_not_primitive(x: jax.core.JaxprEqn) -> bool:
+    def is_not_primitive(x: JaxprEqn) -> bool:
         """
         Test if a JaxprEqn is a primitive.
 
@@ -1539,7 +1541,7 @@ if pydot_is_installed:
         return x.primitive.name == "pjit"
 
 
-    def contains_non_primitives(eqns: List[jax.core.JaxprEqn]) -> bool:
+    def contains_non_primitives(eqns: List[JaxprEqn]) -> bool:
         """
         Check it the sub-functions of a JaxPR contains only JAX primitives
 
