@@ -164,8 +164,6 @@ class GradientTransform(PrettyRepr):
         transform_params: Optional[Dict[str, Any]] = None,
         check_states: bool = True,
         debug_nan: bool = False,
-        debug_depth: int = 1,
-        debug_context: int = 5,
     ):
         """
         Initialize a ``GradientTransform`` instance.
@@ -227,8 +225,6 @@ class GradientTransform(PrettyRepr):
         self.return_value = return_value
         self.has_aux = has_aux
         self.debug_nan = debug_nan
-        self.debug_depth = debug_depth
-        self.debug_context = debug_context
 
         # target
         assert callable(target), "The target should be a callable object."
@@ -463,8 +459,6 @@ class GradientTransform(PrettyRepr):
                 grad_fn,
                 grad_vals, other_vals, args, kwargs,
                 phase=str(self.transform.__name__),
-                depth=self.debug_depth,
-                context=self.debug_context,
             )
 
         # analyze and return the results

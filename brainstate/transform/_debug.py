@@ -13,16 +13,39 @@
 # limitations under the License.
 # ==============================================================================
 
-from typing import Callable, Dict, Optional, Any, Tuple, List
+import threading
+import traceback as tb_module
+from typing import Callable, Dict, List
 
 import jax
 import jax.numpy as jnp
+from jax.extend import source_info_util
 
 from brainstate._compatible_import import DropVar, Literal, ClosedJaxpr, is_jit_primitive
 from ._conditions import cond
-from ._ir_optim import optimize_jaxpr
 from ._make_jaxpr import StatefulFunction
 from ._unvmap import unvmap
+
+# ---------------------------------------------------------------------------
+# Thread-local NaN detection store
+#
+# Callbacks must NOT raise inside jax.debug.callback because JAX wraps any
+# exception in JaxRuntimeError("INTERNAL: CpuCallback error …"), burying the
+# user-facing message.  Instead the callback stores (message, raw_source_info)
+# here; _interpret_jaxpr_with_nan_check checks after every run and raises via
+# source_info_util.user_context — the same mechanism used by
+# State.raise_error_with_source_info — so the exception traceback points
+# directly at the user code that introduced NaN.
+# ---------------------------------------------------------------------------
+
+_nan_store = threading.local()
+
+
+def _nan_store_get() -> List[tuple]:
+    """Each entry is (formatted_message: str, raw_source_info | None)."""
+    if not hasattr(_nan_store, 'records'):
+        _nan_store.records = []
+    return _nan_store.records
 
 __all__ = [
     'breakpoint_if',
@@ -30,1022 +53,585 @@ __all__ = [
     'debug_nan_if',
 ]
 
+# ---------------------------------------------------------------------------
+# Source info: IDE-clickable location strings
+# ---------------------------------------------------------------------------
 
-def breakpoint_if(pred, **breakpoint_kwargs):
-    """As `jax.debug.breakpoint`, but only triggers if `pred` is True.
-
-    **Arguments:**
-
-    - `pred`: the predicate for whether to trigger the breakpoint.
-    - `**breakpoint_kwargs`: any other keyword arguments to forward to `jax.debug.breakpoint`.
-
+def _extract_user_source(source_info) -> str:
     """
+    Extract a human-readable, IDE-clickable source location from a jaxpr
+    equation's source_info.
 
-    # We can't just write `jax.debug.breakpoint` for the second branch. For some reason
-    # it needs as lambda wrapper.
-
-    token = breakpoint_kwargs.get("token", None)
-    return cond(
-        unvmap(pred, op='any'),
-        lambda: jax.debug.breakpoint(**breakpoint_kwargs),
-        lambda: token,
-    )
-
-
-def _check_for_nan(x) -> Tuple[bool, int, Optional[Any]]:
+    Filters out JAX internal frames and returns the innermost user frame in
+    standard Python traceback format:  ``File "path", line N, in func_name``
+    which VSCode / PyCharm recognise as a hyperlink.
     """
-    Check if an array contains NaN or Inf values.
-
-    Parameters
-    ----------
-    x : array-like
-        The array to check for NaN/Inf values.
-
-    Returns
-    -------
-    tuple
-        A tuple of (has_bad, bad_count, bad_indices) where:
-        - has_bad: bool indicating if any NaN/Inf values exist
-        - bad_count: number of NaN/Inf values found
-        - bad_indices: indices of NaN/Inf values (None if none found)
-    """
-    if not hasattr(x, 'dtype'):
-        return False, 0, None
-    if not jnp.issubdtype(x.dtype, jnp.floating):
-        return False, 0, None
-    # Check for both NaN and Inf
-    bad_mask = jnp.isnan(x) | jnp.isinf(x)
-    has_bad = bool(jnp.any(bad_mask))
-    if has_bad:
-        bad_count = int(jnp.sum(bad_mask))
-        # Handle scalar arrays (0d arrays)
-        if x.ndim == 0:
-            bad_indices = ()
-        else:
-            bad_indices = jnp.where(bad_mask)
-        return True, bad_count, bad_indices
-    return False, 0, None
+    if source_info is None:
+        return "<unknown source>"
+    tb = getattr(source_info, 'traceback', None)
+    if tb is None:
+        return "<unknown source>"
+    try:
+        py_tb = tb.as_python_traceback()
+        lines = tb_module.format_tb(py_tb)
+        user_lines = [
+            line for line in lines
+            if '/site-packages/' not in line and 'jax/_src/' not in line
+        ]
+        if user_lines:
+            # Last user frame is the innermost call site — format it cleanly.
+            return user_lines[-1].strip()
+    except Exception:
+        pass
+    # Fallback to JAX's own summarise helper
+    try:
+        return source_info_util.summarize(source_info)
+    except Exception:
+        return "<unknown source>"
 
 
-def _check_pytree_for_nan(pytree) -> Tuple[bool, List[Dict]]:
-    """
-    Check an entire pytree for NaN values.
-
-    Parameters
-    ----------
-    pytree : PyTree
-        The pytree to check for NaN values.
-
-    Returns
-    -------
-    tuple
-        A tuple of (has_nan, results) where:
-        - has_nan: bool indicating if any NaN values exist in the pytree
-        - results: list of dicts with details about each leaf containing NaN
-    """
-    results = []
-    leaves = jax.tree.leaves(pytree)
-    for i, leaf in enumerate(leaves):
-        has_nan, count, indices = _check_for_nan(leaf)
-        if has_nan:
-            results.append(
-                {
-                    'leaf_index': i,
-                    'nan_count': count,
-                    'indices': indices,
-                    'shape': getattr(leaf, 'shape', None),
-                    'dtype': getattr(leaf, 'dtype', None),
-                }
-            )
-    return len(results) > 0, results
-
+# ---------------------------------------------------------------------------
+# Jaxpr variable formatting (shared helpers)
+# ---------------------------------------------------------------------------
 
 def _build_var_names(jaxpr) -> Dict[int, str]:
-    """
-    Build a mapping from Var id to continuous names.
-
-    Parameters
-    ----------
-    jaxpr : Jaxpr
-        The jaxpr to build variable names for.
-
-    Returns
-    -------
-    Dict[int, str]
-        A mapping from variable id to continuous name like 'v0', 'v1', etc.
-        Constants (constvars) are not named - they will be displayed by value.
-    """
-    var_names = {}
-    var_counter = 0
-
-    # Don't name constvars - they will show as their value
-
-    # Name input vars with 'v' prefix
+    var_names: Dict[int, str] = {}
+    counter = 0
     for var in jaxpr.invars:
-        var_names[id(var)] = f"v{var_counter}"
-        var_counter += 1
-
-    # Name output vars from equations
+        var_names[id(var)] = f"v{counter}"
+        counter += 1
     for eqn in jaxpr.eqns:
         for var in eqn.outvars:
             if not isinstance(var, DropVar):
-                var_names[id(var)] = f"v{var_counter}"
-                var_counter += 1
-
+                var_names[id(var)] = f"v{counter}"
+                counter += 1
     return var_names
 
 
 def _format_var(var, var_names: Dict[int, str]) -> str:
-    """
-    Format a variable with its continuous name.
-
-    Parameters
-    ----------
-    var : Var or Literal
-        The variable to format.
-    var_names : Dict[int, str]
-        Mapping from variable id to name.
-
-    Returns
-    -------
-    str
-        Formatted variable string like 'v0:f32[64,50]' or '2.0' for literals.
-    """
     if isinstance(var, Literal):
-        # Format literal value cleanly
         val = var.val
         if hasattr(val, 'item') and val.ndim == 0:
-            val = val.item()  # Convert scalar array to Python scalar
+            val = val.item()
         return str(val)
-
     name = var_names.get(id(var))
     if name is None:
-        # This is a constvar - show without name, just the type
         return f"const:{var.aval.str_short()}"
-
     return f"{name}:{var.aval.str_short()}"
 
 
 def _format_eqn(eqn, var_names: Dict[int, str]) -> str:
-    """
-    Format an equation with continuous variable names.
-
-    Parameters
-    ----------
-    eqn : JaxprEqn
-        The equation to format.
-    var_names : Dict[int, str]
-        Mapping from variable id to name.
-
-    Returns
-    -------
-    str
-        Formatted equation string.
-    """
-    # Format output variables
     outvars = ' '.join(_format_var(v, var_names) for v in eqn.outvars)
-    # Format input variables
     invars = ' '.join(_format_var(v, var_names) for v in eqn.invars)
-    # Format primitive with params (exclude large nested jaxprs)
-    prim_str = eqn.primitive.name
-    # if eqn.params:
-    #     excluded_params = {'jaxpr', 'call_jaxpr', 'branches', 'cond_jaxpr', 'body_jaxpr', 'cond_nconsts',
-    #                        'body_nconsts'}
-    #     param_items = [(k, v) for k, v in eqn.params.items() if k not in excluded_params]
-    #     if param_items:
-    #         param_str = ', '.join(f'{k}={v}' for k, v in param_items)
-    #         prim_str = f"{prim_str}[{param_str}]"
-    return f"{outvars} = {prim_str} {invars}"
+    return f"{outvars} = {eqn.primitive.name} {invars}"
 
 
-def _is_expandable_primitive(eqn) -> bool:
-    """
-    Check if a primitive contains inner jaxpr(s) that should be expanded for NaN checking.
+# ---------------------------------------------------------------------------
+# On-device NaN / Inf detection helpers (run inside JIT on the device)
+# ---------------------------------------------------------------------------
 
-    Parameters
-    ----------
-    eqn : JaxprEqn
-        The equation to check.
-
-    Returns
-    -------
-    bool
-        True if the primitive contains inner jaxpr(s) that can be expanded.
-    """
-    if is_jit_primitive(eqn):
-        return True
-    if eqn.primitive.name in ['cond', 'while', 'scan']:
-        return True
-    return False
+def _is_float_array(x) -> bool:
+    return hasattr(x, 'dtype') and jnp.issubdtype(x.dtype, jnp.floating)
 
 
-def _get_primitive_display_info(eqn, report: Dict = None) -> Dict:
-    """
-    Extract display information from a primitive for tree visualization.
-
-    Parameters
-    ----------
-    eqn : JaxprEqn
-        The equation to extract info from.
-    report : dict, optional
-        The NaN report dict containing additional metadata like iteration index.
-
-    Returns
-    -------
-    dict
-        A dict with 'type' (primitive type) and 'name' (display name).
-    """
-    prim_name = eqn.primitive.name
-    info = {'type': prim_name, 'name': prim_name}
-
-    if is_jit_primitive(eqn):
-        # Extract function name from jit/pjit params
-        func_name = eqn.params.get('name', 'jit')
-        info['type'] = 'jit'
-        info['name'] = func_name
-
-    elif prim_name == 'scan':
-        info['type'] = 'scan'
-        if report and 'iteration_index' in report:
-            info['name'] = f"iteration {report['iteration_index']}"
-        else:
-            info['name'] = 'body'
-
-    elif prim_name == 'while':
-        info['type'] = 'while'
-        if report:
-            part = report.get('while_part', 'body')
-            iter_idx = report.get('iteration_index', '?')
-            info['name'] = f"{part} (iter {iter_idx})"
-        else:
-            info['name'] = 'body'
-
-    elif prim_name == 'cond':
-        info['type'] = 'cond'
-        if report and 'branch_index' in report:
-            info['name'] = f"branch {report['branch_index']}"
-        else:
-            info['name'] = 'branch'
-
-    return info
+def _has_nan_flag(vals) -> jax.Array:
+    """Return a scalar bool JAX array: True iff any float value has NaN or Inf."""
+    flags = [
+        jnp.any(jnp.isnan(v) | jnp.isinf(v))
+        for v in vals if _is_float_array(v)
+    ]
+    if not flags:
+        return jnp.array(False)
+    return jnp.any(jnp.stack(flags))
 
 
-def _format_nan_report(
-    nan_report: List[Dict],
-    total_eqns: int,
-    all_eqn_strs: Optional[List[str]] = None,
-    context: int = 5,
-    depth: int = 1
-) -> str:
-    """
-    Format a NaN/Inf report into a human-readable string with context window.
+# ---------------------------------------------------------------------------
+# NaN callback factory
+# ---------------------------------------------------------------------------
 
-    Parameters
-    ----------
-    nan_report : list
-        List of dicts containing NaN/Inf detection information.
-    total_eqns : int
-        Total number of equations that were evaluated.
-    all_eqn_strs : list of str, optional
-        List of all equation strings for context display.
-    context : int, default 5
-        Number of equations to show before and after each NaN/Inf source.
-        Use -1 to show all equations.
-    depth : int, default 1
-        Number of nesting levels to display fully.
-        - depth=1: Show only innermost jaxpr
-        - depth=2: Show innermost + one outer jaxpr
-        - depth=-1: Show all nesting levels
-
-    Returns
-    -------
-    str
-        A formatted string describing where NaN/Inf values were detected.
-    """
-    if not nan_report:
-        return f"No NaN/Inf detected in {total_eqns} equations."
-
-    lines = [f"NaN/Inf detected! Found in {len(nan_report)} equation(s) out of {total_eqns}:"]
-
-    for info in nan_report:
-        eqn_idx = info['eqn_index']
-        phase = info.get('phase', 'unknown')
-
-        # Build context header with nesting info
-        header_parts = [f"[{phase.upper()}]"]
-        if 'outer_primitive' in info:
-            header_parts.append(f"inside {info['outer_primitive']}")
-        if 'inside_jit' in info:
-            header_parts.append("(JIT expanded)")
-        if 'inside_cond' in info:
-            header_parts.append(f"(cond branch {info.get('branch_index', '?')})")
-        if 'inside_while' in info:
-            iter_idx = info.get('iteration_index', '?')
-            while_part = info.get('while_part', 'body')
-            header_parts.append(f"(while {while_part}, iteration {iter_idx})")
-        if 'inside_scan' in info:
-            iter_idx = info.get('iteration_index', '?')
-            header_parts.append(f"(scan iteration {iter_idx})")
-
-        header = " ".join(header_parts)
-        lines.append(f"\n=== {header} Context around Equation {eqn_idx} ({info['primitive']}) ===")
-
-        # Show unified primitive display based on depth parameter
-        nesting_path = info.get('nesting_path', [])
-        if nesting_path:
-            lines.append("\n  Primitives:")
-
-            total_levels = len(nesting_path)
-
-            def get_first_line(eqn_str: str) -> str:
-                """Get first line of equation, adding ... if truncated."""
-                first_line = eqn_str.split('\n')[0]
-                if '\n' in eqn_str:
-                    # Multi-line equation, indicate truncation
-                    return first_line + " ..."
-                return first_line
-
-            def is_level_within_depth(level_idx: int) -> bool:
-                """Check if a level should show full equations based on depth."""
-                if depth == -1:
-                    return True
-                # level_idx is 0-based from outermost
-                # depth=1 means only innermost (level total_levels-1)
-                # depth=2 means innermost + one outer (levels total_levels-2, total_levels-1)
-                return (total_levels - level_idx) <= depth
-
-            # Pass 1: Opening lines (outermost to innermost)
-            # For each non-innermost level, show the nested call equation
-            for level_idx in range(total_levels - 1):
-                path_entry = nesting_path[level_idx]
-                indent = "    " + "  " * level_idx
-                nested_eqn_idx = path_entry['eqn_index']
-                eqn_str = path_entry['eqn_str']
-
-                # Show the nested call equation (opening)
-                lines.append(f"{indent}[{nested_eqn_idx}] {get_first_line(eqn_str)}")
-
-            # Pass 2: Innermost level content (context window)
-            innermost_entry = nesting_path[total_levels - 1]
-            innermost_indent = "    " + "  " * (total_levels - 1)
-            inner_eqn_strs = innermost_entry.get('all_eqn_strs', [])
-            inner_total = innermost_entry.get('total_eqns', len(inner_eqn_strs))
-            inner_eqn_idx = innermost_entry['eqn_index']
-
-            if inner_eqn_strs:
-                # Determine range based on context parameter
-                if context == -1:
-                    ctx_start, ctx_end = 0, inner_total
-                else:
-                    ctx_start = max(0, inner_eqn_idx - context)
-                    ctx_end = min(inner_total, inner_eqn_idx + context + 1)
-
-                for i in range(ctx_start, ctx_end):
-                    if i < len(inner_eqn_strs):
-                        marker = "  <-- NaN/Inf introduced here" if i == inner_eqn_idx else ""
-                        lines.append(f"{innermost_indent}[{i}] {get_first_line(inner_eqn_strs[i])}{marker}")
-
-                # Show ellipsis if more equations after context
-                if ctx_end < inner_total:
-                    lines.append(f"{innermost_indent}...")
-            else:
-                # Fallback if no equation strings available
-                eqn_str = innermost_entry['eqn_str']
+def _format_nan_message(eqn_idx: int, total_eqns: int, prim_name: str,
+                        eqn_str: str, source_loc: str, phase: str,
+                        float_vals) -> str:
+    phase_tag = f" [{phase}]" if phase else ""
+    lines = [
+        f"NaN/Inf detected{phase_tag}!",
+        f"  Introduced by primitive : `{prim_name}`",
+        f"  Source location         :",
+        f"    {source_loc}",
+        f"  Equation [{eqn_idx + 1}/{total_eqns}]: {eqn_str}",
+    ]
+    if float_vals:
+        lines.append("  Float input values:")
+        for i, v in enumerate(float_vals):
+            if hasattr(v, 'size') and v.size <= 8:
+                lines.append(f"    input[{i}] = {v}")
+            elif hasattr(v, 'shape'):
+                nan_cnt = int(jnp.sum(jnp.isnan(v)))
+                inf_cnt = int(jnp.sum(jnp.isinf(v)))
                 lines.append(
-                    f"{innermost_indent}[{inner_eqn_idx}] {get_first_line(eqn_str)}  <-- NaN/Inf introduced here")
-
-            # Close innermost level - use parent's indent (aligns with the opening)
-            if total_levels > 1:
-                parent_indent = "    " + "  " * (total_levels - 2)
-                lines.append(f"{parent_indent}]")
-
-            # Pass 3: Closing lines (innermost to outermost)
-            # For each non-innermost level, show remaining equations and close bracket
-            for level_idx in range(total_levels - 2, -1, -1):
-                path_entry = nesting_path[level_idx]
-                indent = "    " + "  " * level_idx
-                nested_eqn_idx = path_entry['eqn_index']
-                outer_eqn_strs = path_entry.get('all_eqn_strs', [])
-                outer_total = path_entry.get('total_eqns', len(outer_eqn_strs))
-
-                if is_level_within_depth(level_idx):
-                    # Show remaining equations after the nested call
-                    for i in range(nested_eqn_idx + 1, outer_total):
-                        if i < len(outer_eqn_strs):
-                            lines.append(f"{indent}[{i}] {get_first_line(outer_eqn_strs[i])}")
-                    # Close with ]
-                    lines.append(f"{indent}]")
-                else:
-                    # Just show closing with ellipsis
-                    lines.append(f"{indent}...]")
-
-        # Show context window if equation strings are available (fallback for non-nested)
-        elif all_eqn_strs:
-            lines.append("\n  Primitives:")
-            if context == -1:
-                start_idx, end_idx = 0, total_eqns
-            else:
-                start_idx = max(0, eqn_idx - context)
-                end_idx = min(total_eqns, eqn_idx + context + 1)
-
-            for i in range(start_idx, end_idx):
-                marker = "  <-- NaN/Inf introduced here" if i == eqn_idx else ""
-                lines.append(f"    [{i}] {all_eqn_strs[i]}{marker}")
-
-        # Show details about the NaN/Inf source
-        lines.append(f"\n  Primitive: {info['primitive']}")
-        lines.append(f"  Input shapes: {info['input_shapes']}")
-        lines.append(f"  Output shapes: {info['output_shapes']}")
-
-        # Format source info nicely if available
-        source_info = info.get('source_info')
-        if source_info is not None:
-            try:
-                # Try to get traceback from source_info
-                if hasattr(source_info, 'traceback') and source_info.traceback:
-                    tb = source_info.traceback()
-                    if tb:
-                        lines.append(f"  Source: {tb[-1] if tb else 'unknown'}")
-            except Exception:
-                pass  # Skip if source info extraction fails
-
-        # Show input values that led to NaN/Inf (truncated for large arrays)
-        for i, (shape, val) in enumerate(zip(info['input_shapes'], info['input_values'])):
-            if hasattr(val, 'size') and val.size <= 10:
-                lines.append(f"  Input {i} value: {val}")
-            elif hasattr(val, 'size'):
-                lines.append(
-                    f"  Input {i} value (truncated): "
-                    f"shape={shape}, "
-                    f"min={float(jnp.min(val)):.4g}, "
-                    f"max={float(jnp.max(val)):.4g}"
+                    f"    input[{i}]: shape={v.shape}  "
+                    f"min={float(jnp.min(v)):.4g}  max={float(jnp.max(v)):.4g}  "
+                    f"NaNs={nan_cnt}  Infs={inf_cnt}"
                 )
-
     return '\n'.join(lines)
 
 
-# =============================================================================
-# JIT-compatible NaN/Inf detection functions
-# =============================================================================
+def _make_nan_callback(eqn_idx: int, total_eqns: int, prim_name: str,
+                       eqn_str: str, source_loc: str, raw_source_info,
+                       phase: str, raise_in_callback: bool = False):
+    """
+    Return a host callback that reports a NaN detection.
 
+    Two modes:
+    - ``raise_in_callback=False`` (default, used outside JIT):
+      Stores ``(message, raw_source_info)`` in thread-local storage.
+      ``_raise_if_nan_detected`` then raises a **clean** ``RuntimeError``
+      via ``source_info_util.user_context``, pointing the traceback at the
+      user code — same mechanism as ``State.raise_error_with_source_info``.
+
+    - ``raise_in_callback=True`` (used inside JIT / ``jax.lax.cond`` with
+      traced predicate):
+      Raises ``RuntimeError`` directly so JAX can propagate it.  The error
+      will be wrapped in ``JaxRuntimeError`` but the full message (with source
+      info) is still visible in ``str(exc)``.
+    """
+    def _report(*float_vals):
+        msg = _format_nan_message(
+            eqn_idx, total_eqns, prim_name, eqn_str, source_loc, phase, float_vals
+        )
+        if raise_in_callback:
+            raise RuntimeError(msg)
+        else:
+            _nan_store_get().append((msg, raw_source_info))
+
+    return _report
+
+
+# ---------------------------------------------------------------------------
+# Core: instrumented jaxpr interpreter (all ops stay on device)
+# ---------------------------------------------------------------------------
+
+def _get_invals(eqn, env):
+    return [env[v] if not isinstance(v, Literal) else v.val for v in eqn.invars]
+
+
+def _store_outvals(eqn, outvals, env):
+    for var, val in zip(eqn.outvars, outvals):
+        if not isinstance(var, DropVar):
+            env[var] = val
+
+
+def _raise_if_nan_detected(store_snapshot: int) -> None:
+    """
+    After an instrumented run, check the thread-local store for new NaN records.
+
+    Uses ``source_info_util.user_context`` — the same mechanism as
+    ``State.raise_error_with_source_info`` — so that JAX's traceback filtering
+    shows the *user code* that introduced the NaN rather than library internals.
+    """
+    records = _nan_store_get()
+    new = records[store_snapshot:]
+    if not new:
+        return
+    msg, raw_src = new[0]
+    if raw_src is not None:
+        tb = getattr(raw_src, 'traceback', None)
+        name_stack = (
+            source_info_util.current_name_stack()
+            + getattr(raw_src, 'name_stack', source_info_util.NameStack())
+        )
+        with source_info_util.user_context(tb, name_stack=name_stack):
+            raise RuntimeError(msg)
+    raise RuntimeError(msg)
+
+
+def _interpret_jaxpr_with_nan_check(
+    jaxpr, consts, *flat_args, phase: str = '', raise_in_callback: bool = False
+) -> list:
+    """
+    Replay *jaxpr* equation-by-equation using real JAX primitives (JIT-compatible).
+
+    After each equation an on-device NaN flag is computed.  When a primitive
+    *introduces* NaN (output has NaN but input did not), ``jax.debug.callback``
+    appends a report to thread-local storage.  After the full run,
+    ``_raise_if_nan_detected`` checks for new reports and raises a clean
+    ``RuntimeError`` via ``source_info_util.user_context``, so the traceback
+    points to the user's code — not to library internals.
+    """
+    var_names = _build_var_names(jaxpr)
+    total_eqns = len(jaxpr.eqns)
+
+    # Snapshot store length before this call so nested calls don't interfere
+    store_snapshot = len(_nan_store_get())
+
+    # Build per-equation static metadata at Python / compile time
+    eqn_meta: List[dict] = []
+    for i, eqn in enumerate(jaxpr.eqns):
+        raw_src = getattr(eqn, 'source_info', None)
+        eqn_meta.append({
+            'idx': i,
+            'total': total_eqns,
+            'prim': eqn.primitive.name,
+            'eqn_str': _format_eqn(eqn, var_names),
+            'source_loc': _extract_user_source(raw_src),
+            'raw_src': raw_src,
+        })
+
+    # Set up environment
+    env: dict = {}
+    for var, val in zip(jaxpr.constvars, consts):
+        env[var] = val
+    for var, val in zip(jaxpr.invars, flat_args):
+        env[var] = val
+
+    for eqn, meta in zip(jaxpr.eqns, eqn_meta):
+        invals = _get_invals(eqn, env)
+
+        # On-device: does the input already carry NaN?
+        input_has_nan = _has_nan_flag(invals)
+
+        # Execute the primitive (with recursive instrumentation for nested ones)
+        outvals = _execute_eqn(eqn, invals, phase, raise_in_callback)
+
+        # On-device: did this op introduce new NaN?
+        output_has_nan = _has_nan_flag(outvals)
+        nan_introduced = output_has_nan & ~input_has_nan
+
+        # Collect float inputs to pass to the callback
+        float_invals = [v for v in invals if _is_float_array(v)]
+
+        # Build callback closed over static metadata
+        cb = _make_nan_callback(
+            meta['idx'], meta['total'], meta['prim'],
+            meta['eqn_str'], meta['source_loc'], meta['raw_src'], phase,
+            raise_in_callback=raise_in_callback,
+        )
+
+        # Conditionally fire the callback (both branches return None)
+        if float_invals:
+            captured = tuple(float_invals)
+
+            def _do_report(vals=captured, fn=cb):
+                jax.debug.callback(fn, *vals, ordered=True)
+
+            jax.lax.cond(nan_introduced, _do_report, lambda: None)
+        else:
+            jax.lax.cond(
+                nan_introduced,
+                lambda fn=cb: jax.debug.callback(fn, ordered=True),
+                lambda: None,
+            )
+
+        _store_outvals(eqn, outvals, env)
+
+    return [env[v] if not isinstance(v, Literal) else v.val for v in jaxpr.outvars]
+
+
+# ---------------------------------------------------------------------------
+# Primitive dispatch helpers
+# ---------------------------------------------------------------------------
+
+def _execute_eqn(eqn, invals, phase: str, raise_in_callback: bool = False) -> list:
+    """Dispatch to specialised handlers for nested high-level primitives."""
+    if is_jit_primitive(eqn):
+        return _execute_jit_eqn(eqn, invals, phase, raise_in_callback)
+    name = eqn.primitive.name
+    if name == 'cond':
+        return _execute_cond_eqn(eqn, invals, phase, raise_in_callback)
+    if name == 'while':
+        return _execute_while_eqn(eqn, invals, phase, raise_in_callback)
+    if name == 'scan':
+        return _execute_scan_eqn(eqn, invals, phase, raise_in_callback)
+    # Plain primitive: execute normally
+    subfuns, bind_params = eqn.primitive.get_bind_params(eqn.params)
+    outvals = eqn.primitive.bind(*subfuns, *invals, **bind_params)
+    if not eqn.primitive.multiple_results:
+        outvals = [outvals]
+    return outvals
+
+
+def _extract_closed_jaxpr(obj):
+    """Return (inner_jaxpr, inner_consts) from a ClosedJaxpr or bare Jaxpr."""
+    if isinstance(obj, ClosedJaxpr):
+        return obj.jaxpr, obj.consts
+    return obj, ()
+
+
+def _execute_jit_eqn(eqn, invals, phase: str, raise_in_callback: bool = False) -> list:
+    """Replace a pjit/jit call with its recursively-instrumented inner jaxpr."""
+    call_jaxpr = eqn.params.get('jaxpr') or eqn.params.get('call_jaxpr')
+    if call_jaxpr is None:
+        subfuns, bind_params = eqn.primitive.get_bind_params(eqn.params)
+        outvals = eqn.primitive.bind(*subfuns, *invals, **bind_params)
+        return [outvals] if not eqn.primitive.multiple_results else outvals
+    inner_jaxpr, inner_consts = _extract_closed_jaxpr(call_jaxpr)
+    return _interpret_jaxpr_with_nan_check(
+        inner_jaxpr, inner_consts, *invals, phase=phase, raise_in_callback=raise_in_callback
+    )
+
+
+def _execute_cond_eqn(eqn, invals, phase: str, raise_in_callback: bool = False) -> list:
+    """
+    Replace a ``cond`` call with instrumented branches.
+
+    JAX's cond jaxpr stores a sequence of ``ClosedJaxpr`` branches in
+    ``eqn.params['branches']``.  The first inval is the integer index and
+    the rest are the shared operands passed to every branch.
+    """
+    branches = eqn.params.get('branches')
+    if branches is None:
+        subfuns, bind_params = eqn.primitive.get_bind_params(eqn.params)
+        outvals = eqn.primitive.bind(*subfuns, *invals, **bind_params)
+        return [outvals] if not eqn.primitive.multiple_results else outvals
+
+    index = invals[0]
+    operands = tuple(invals[1:])
+
+    def make_branch_fn(closed_jaxpr):
+        b_jaxpr, b_consts = _extract_closed_jaxpr(closed_jaxpr)
+
+        def branch_fn(*ops):
+            result = _interpret_jaxpr_with_nan_check(
+                b_jaxpr, b_consts, *ops, phase=phase, raise_in_callback=raise_in_callback
+            )
+            return tuple(result)
+
+        return branch_fn
+
+    branch_fns = [make_branch_fn(b) for b in branches]
+    result = jax.lax.switch(index, branch_fns, *operands)
+    return list(result) if isinstance(result, tuple) else [result]
+
+
+def _execute_while_eqn(eqn, invals, phase: str, raise_in_callback: bool = False) -> list:
+    """
+    Replace a ``while`` call with an instrumented while loop.
+
+    The body and condition jaxprs are instrumented so NaN checking occurs on
+    every iteration without any CPU fallback.
+    """
+    cond_jaxpr_param = eqn.params.get('cond_jaxpr')
+    body_jaxpr_param = eqn.params.get('body_jaxpr')
+    if cond_jaxpr_param is None or body_jaxpr_param is None:
+        subfuns, bind_params = eqn.primitive.get_bind_params(eqn.params)
+        outvals = eqn.primitive.bind(*subfuns, *invals, **bind_params)
+        return [outvals] if not eqn.primitive.multiple_results else outvals
+
+    cond_jaxpr, cond_consts = _extract_closed_jaxpr(cond_jaxpr_param)
+    body_jaxpr, body_consts = _extract_closed_jaxpr(body_jaxpr_param)
+
+    def cond_fn(carry):
+        result = _interpret_jaxpr_with_nan_check(
+            cond_jaxpr, cond_consts, *carry, phase=phase, raise_in_callback=raise_in_callback
+        )
+        return result[0]  # single bool output
+
+    def body_fn(carry):
+        result = _interpret_jaxpr_with_nan_check(
+            body_jaxpr, body_consts, *carry, phase=phase, raise_in_callback=raise_in_callback
+        )
+        return tuple(result)
+
+    init_carry = tuple(invals)
+    final_carry = jax.lax.while_loop(cond_fn, body_fn, init_carry)
+    return list(final_carry) if isinstance(final_carry, tuple) else [final_carry]
+
+
+def _execute_scan_eqn(eqn, invals, phase: str, raise_in_callback: bool = False) -> list:
+    """
+    Replace a ``scan`` call with an instrumented scan.
+
+    The scan body jaxpr is instrumented so each iteration's NaN introduction
+    is detected on the device.  The overall scan still runs natively via
+    ``jax.lax.scan`` — no manual Python-level unrolling needed.
+    """
+    scan_jaxpr_param = eqn.params.get('jaxpr')
+    if scan_jaxpr_param is None:
+        subfuns, bind_params = eqn.primitive.get_bind_params(eqn.params)
+        outvals = eqn.primitive.bind(*subfuns, *invals, **bind_params)
+        return [outvals] if not eqn.primitive.multiple_results else outvals
+
+    num_consts = eqn.params.get('num_consts', 0)
+    num_carry = eqn.params.get('num_carry', 0)
+    length = eqn.params.get('length')
+    reverse = eqn.params.get('reverse', False)
+    unroll = eqn.params.get('unroll', 1)
+
+    inner_jaxpr, inner_consts_param = _extract_closed_jaxpr(scan_jaxpr_param)
+
+    # Split outer invals: consts_from_outer | carry | xs
+    outer_consts = tuple(invals[:num_consts])
+    carry_init = tuple(invals[num_consts:num_consts + num_carry])
+    xs_list = invals[num_consts + num_carry:]
+
+    def scan_body(carry, x):
+        # Reconstruct full argument list for the inner jaxpr:
+        # inner_consts_param (closed) + outer_consts + carry + x_slices
+        if len(xs_list) == 0:
+            x_slices = ()
+        elif len(xs_list) == 1:
+            x_slices = (x,)
+        else:
+            x_slices = tuple(x)  # JAX passes a tuple when multiple xs
+
+        all_inputs = list(outer_consts) + list(carry) + list(x_slices)
+        outputs = _interpret_jaxpr_with_nan_check(
+            inner_jaxpr, inner_consts_param, *all_inputs,
+            phase=phase, raise_in_callback=raise_in_callback
+        )
+        new_carry = tuple(outputs[:num_carry])
+        ys = tuple(outputs[num_carry:])
+        return new_carry, ys
+
+    if len(xs_list) == 0:
+        xs_arg = None
+    elif len(xs_list) == 1:
+        xs_arg = xs_list[0]
+    else:
+        xs_arg = tuple(xs_list)
+
+    final_carry, stacked_ys = jax.lax.scan(
+        scan_body, carry_init, xs_arg,
+        length=length, reverse=reverse, unroll=unroll,
+    )
+
+    carry_out = list(final_carry) if isinstance(final_carry, tuple) else [final_carry]
+
+    num_ys = len(inner_jaxpr.outvars) - num_carry
+    if num_ys == 0:
+        ys_out = []
+    elif num_ys == 1:
+        ys_out = [stacked_ys]
+    else:
+        ys_out = list(stacked_ys) if isinstance(stacked_ys, tuple) else [stacked_ys]
+
+    return carry_out + ys_out
+
+
+# ---------------------------------------------------------------------------
+# Public class
+# ---------------------------------------------------------------------------
 
 class DebugNan:
     """
-    JIT-compatible NaN/Inf debugging utility.
+    JIT-compatible NaN / Inf debugging utility.
 
-    Uses jax.debug.callback for host-side analysis and jax.lax.cond for
-    conditional execution, making it fully compatible with jax.jit.
+    Instead of moving computation to the CPU when NaN is detected, this class
+    instruments the function's jaxpr so that NaN checks run **on the device**
+    (inside JIT) alongside the regular computation.  A lightweight
+    ``jax.debug.callback`` fires only when NaN is actually introduced,
+    reporting:
+
+    * The primitive that introduced the NaN.
+    * The **IDE-clickable** source location (``File "...", line N``).
+    * The equation string from the jaxpr.
+    * The float input values (or their statistics for large arrays).
 
     Parameters
     ----------
     fn : Callable
-        The function to debug.
+        The stateful function to debug.
     *args
-        Arguments to pass to the function.
+        Example arguments used to trace the jaxpr (shapes / dtypes matter;
+        values are used for the actual debug run).
     phase : str, optional
-        Phase name for the error message.
-    depth : int, default 1
-        Number of nesting levels to display.
-
-        - depth=1: Show only innermost jaxpr
-        - depth=2: Show innermost + one outer jaxpr
-        - depth=-1: Show all nesting levels
-    context : int, default 5
-        Number of equations before/after NaN to show.
-        Use -1 to show all equations.
+        Label prepended to the error message (e.g. ``"forward"``).
     """
 
-    def __init__(
-        self,
-        fn: Callable,
-        *args,
-        phase: str = '',
-        depth: int = 1,
-        context: int = 5
-    ):
+    def __init__(self, fn: Callable, *args, phase: str = ''):
         self.fn = fn
-        self.args = args
         self.phase = phase
-        self.depth = depth
-        self.context = context
 
-        # Build jaxpr once during initialization
-        self.stateful_fn = StatefulFunction(fn)
-        self.jaxpr_info = self.stateful_fn.get_jaxpr(*args, compile_if_miss=True)
-        self.flat_args, _ = jax.tree.flatten(self.args)
+        self._stateful_fn = StatefulFunction(fn)
+        # Compile once to get the jaxpr and the list of State objects accessed.
+        cache_key = self._stateful_fn.get_arg_cache_key(*args, compile_if_miss=True)
+        closed_jaxpr: ClosedJaxpr = self._stateful_fn.get_jaxpr_by_cache(cache_key)
+        self._jaxpr = closed_jaxpr.jaxpr
+        self._consts = closed_jaxpr.consts
+        # User-provided args flattened (no state values yet)
+        self._flat_user_args: list = jax.tree.leaves(args)
+        # Keep the State objects so we can read their *current* values at call
+        # time — state may have been updated between __init__ and check().
+        self._states = self._stateful_fn.get_states_by_cache(cache_key)
 
-        self.nan_reports = []
+    def _build_flat_args(self) -> list:
+        """Concatenate flat user args with current state values."""
+        flat_state_vals: list = jax.tree.leaves([s.value for s in self._states])
+        return self._flat_user_args + flat_state_vals
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
     def check(self):
         """
-        Unconditionally run NaN analysis (JIT-compatible via callback).
-        """
+        Unconditionally run the instrumented function (JIT-compatible).
 
-        jax.debug.callback(self._do_nan_analysis, self.flat_args, self.jaxpr_info.consts)
+        All NaN checks execute on the device; the host callback fires only
+        when NaN is detected, and the RuntimeError is raised cleanly after the
+        instrumented run completes (no JAX INTERNAL wrapping).
+        """
+        flat_args = self._build_flat_args()
+        store_snapshot = len(_nan_store_get())
+        _interpret_jaxpr_with_nan_check(
+            self._jaxpr, self._consts, *flat_args, phase=self.phase
+        )
+        # Callbacks are synchronous in eager mode; raise in Python space so
+        # the user sees a clean RuntimeError, not "INTERNAL: CpuCallback …".
+        _raise_if_nan_detected(store_snapshot)
+        return None
 
     def check_if(self, has_nan):
         """
-        Conditionally run NaN analysis only if has_nan is True (JIT-compatible).
+        Conditionally run the instrumented function only when *has_nan* is True.
 
         Parameters
         ----------
         has_nan : bool or jax.Array
-            Condition to trigger debugging.
+            Scalar boolean condition.  Supports vmapped / batched arrays via
+            ``unvmap(..., op='any')``.
+
+        Notes
+        -----
+        Two modes based on whether we are inside a JIT-compiled function:
+
+        * **Eager mode** (pred is concrete): uses the clean store-based raise
+          so the RuntimeError points directly at user code.
+        * **JIT-traced mode** (pred is a JAX Tracer): uses ``jax.lax.cond``
+          with ``raise_in_callback=True`` so the callback raises inside XLA;
+          the error surfaces as a JaxRuntimeError wrapping our message.
         """
-
-        def _do_check():
-            jax.debug.callback(self._do_nan_analysis, self.flat_args, self.jaxpr_info.consts)
-
-        def _no_op():
-            pass
-
-        jax.lax.cond(
-            unvmap(has_nan, op='any'),
-            _do_check,
-            _no_op,
-        )
-
-    def _do_nan_analysis(self, flat_args, cnsts):
-        """Host callback that performs detailed NaN analysis."""
-        jaxpr = optimize_jaxpr(self.jaxpr_info.jaxpr, optimizations=['dce', 'constant_fold'])
-        outputs, nan_report, all_eqn_strs = self._eval_jaxpr_with_nan_check(jaxpr, cnsts, *flat_args)
-
-        if self.phase:
-            for item in nan_report:
-                item['phase'] = self.phase
-
-        if nan_report:
-            report = _format_nan_report(
-                nan_report,
-                len(self.jaxpr_info.jaxpr.eqns),
-                all_eqn_strs,
-                context=self.context,
-                depth=self.depth
-            )
-            raise RuntimeError(f"NaN/Inf detected:\n{report}")
-        raise ValueError('NaN/Inf is not found during detailed analysis, unexpected state.')
-
-    def _eval_jit_primitive(self, eqn, invals) -> Tuple[List, List[Dict], List[str]]:
-        """
-        Evaluate a JIT primitive by recursively evaluating its inner jaxpr.
-
-        Parameters
-        ----------
-        eqn : JaxprEqn
-            The JIT equation to evaluate.
-        invals : list
-            Input values for the equation.
-
-        Returns
-        -------
-        tuple
-            A tuple of (outputs, nan_report, eqn_strs).
-        """
-        # Try different parameter names for the inner jaxpr
-        # JAX uses 'jaxpr' for pjit, 'call_jaxpr' for some older primitives
-        call_jaxpr = eqn.params.get('jaxpr') or eqn.params.get('call_jaxpr')
-        if call_jaxpr is None:
-            # Fallback: evaluate normally
-            subfuns, bind_params = eqn.primitive.get_bind_params(eqn.params)
-            outvals = eqn.primitive.bind(*subfuns, *invals, **bind_params)
-            if not eqn.primitive.multiple_results:
-                outvals = [outvals]
-            return outvals, [], []
-
-        # Extract jaxpr and consts
-        if isinstance(call_jaxpr, ClosedJaxpr):
-            inner_jaxpr = call_jaxpr.jaxpr
-            inner_consts = call_jaxpr.consts
-        else:
-            inner_jaxpr = call_jaxpr
-            inner_consts = ()
-
-        # Recursively evaluate the inner jaxpr
-        outputs, nan_report, eqn_strs = self._eval_jaxpr_with_nan_check(
-            inner_jaxpr, inner_consts, *invals
-        )
-
-        # Mark reports as coming from JIT
-        for report in nan_report:
-            report['inside_jit'] = True
-
-        return outputs, nan_report, eqn_strs
-
-    def _eval_cond_primitive(self, eqn, invals) -> Tuple[List, List[Dict], List[str]]:
-        """
-        Evaluate a cond primitive by evaluating the taken branch.
-
-        Parameters
-        ----------
-        eqn : JaxprEqn
-            The cond equation to evaluate.
-        invals : list
-            Input values for the equation. First value is the predicate.
-
-        Returns
-        -------
-        tuple
-            A tuple of (outputs, nan_report, eqn_strs).
-        """
-        branches = eqn.params.get('branches')
-        if branches is None:
-            # Fallback: evaluate normally
-            subfuns, bind_params = eqn.primitive.get_bind_params(eqn.params)
-            outvals = eqn.primitive.bind(*subfuns, *invals, **bind_params)
-            if not eqn.primitive.multiple_results:
-                outvals = [outvals]
-            return outvals, [], []
-
-        # First input is the predicate (index), rest are operands
-        pred_idx = int(invals[0])
-        operands = invals[1:]
-
-        # Select the branch based on predicate
-        branch_jaxpr = branches[pred_idx]
-        if isinstance(branch_jaxpr, ClosedJaxpr):
-            inner_jaxpr = branch_jaxpr.jaxpr
-            inner_consts = branch_jaxpr.consts
-        else:
-            inner_jaxpr = branch_jaxpr
-            inner_consts = ()
-
-        # Recursively evaluate the selected branch
-        outputs, nan_report, eqn_strs = self._eval_jaxpr_with_nan_check(
-            inner_jaxpr, inner_consts, *operands
-        )
-
-        # Mark reports as coming from cond
-        for report in nan_report:
-            report['inside_cond'] = True
-            report['branch_index'] = pred_idx
-
-        return outputs, nan_report, eqn_strs
-
-    def _eval_while_primitive(self, eqn, invals, max_iterations: int = 100) -> Tuple[List, List[Dict], List[str]]:
-        """
-        Evaluate a while primitive by iterating and checking for NaN at each step.
-
-        Parameters
-        ----------
-        eqn : JaxprEqn
-            The while equation to evaluate.
-        invals : list
-            Input values for the equation (initial carry values).
-        max_iterations : int
-            Maximum number of iterations to evaluate (to avoid infinite loops).
-
-        Returns
-        -------
-        tuple
-            A tuple of (outputs, nan_report, eqn_strs).
-        """
-        cond_jaxpr = eqn.params.get('cond_jaxpr')
-        body_jaxpr = eqn.params.get('body_jaxpr')
-
-        if cond_jaxpr is None or body_jaxpr is None:
-            # Fallback: evaluate normally
-            subfuns, bind_params = eqn.primitive.get_bind_params(eqn.params)
-            outvals = eqn.primitive.bind(*subfuns, *invals, **bind_params)
-            if not eqn.primitive.multiple_results:
-                outvals = [outvals]
-            return outvals, [], []
-
-        # Extract jaxprs and consts
-        if isinstance(cond_jaxpr, ClosedJaxpr):
-            cond_inner_jaxpr = cond_jaxpr.jaxpr
-            cond_consts = cond_jaxpr.consts
-        else:
-            cond_inner_jaxpr = cond_jaxpr
-            cond_consts = ()
-
-        if isinstance(body_jaxpr, ClosedJaxpr):
-            body_inner_jaxpr = body_jaxpr.jaxpr
-            body_consts = body_jaxpr.consts
-        else:
-            body_inner_jaxpr = body_jaxpr
-            body_consts = ()
-
-        # Iterate and check for NaN
-        all_nan_reports = []
-        all_eqn_strs = []
-        carry = list(invals)
-
-        for iteration in range(max_iterations):
-            # Evaluate condition
-            cond_outputs, cond_nan_report, cond_eqn_strs = self._eval_jaxpr_with_nan_check(
-                cond_inner_jaxpr, cond_consts, *carry
-            )
-
-            # Tag cond reports
-            for report in cond_nan_report:
-                report['inside_while'] = True
-                report['while_part'] = 'cond'
-                report['iteration_index'] = iteration
-            all_nan_reports.extend(cond_nan_report)
-            all_eqn_strs.extend([f"  [while iter {iteration} cond] {s}" for s in cond_eqn_strs])
-
-            # Check if we should continue
-            cond_result = cond_outputs[0] if cond_outputs else False
-            if not bool(cond_result):
-                break
-
-            # Evaluate body
-            body_outputs, body_nan_report, body_eqn_strs = self._eval_jaxpr_with_nan_check(
-                body_inner_jaxpr, body_consts, *carry
-            )
-
-            # Tag body reports
-            for report in body_nan_report:
-                report['inside_while'] = True
-                report['while_part'] = 'body'
-                report['iteration_index'] = iteration
-            all_nan_reports.extend(body_nan_report)
-            all_eqn_strs.extend([f"  [while iter {iteration} body] {s}" for s in body_eqn_strs])
-
-            # Update carry for next iteration
-            carry = body_outputs
-
-            # If NaN was detected, we can stop early
-            if all_nan_reports:
-                break
-
-        return carry, all_nan_reports, all_eqn_strs
-
-    def _eval_scan_primitive(self, eqn, invals, max_iterations: int = 100) -> Tuple[List, List[Dict], List[str]]:
-        """
-        Evaluate a scan primitive by iterating over the axis and checking for NaN.
-
-        Parameters
-        ----------
-        eqn : JaxprEqn
-            The scan equation to evaluate.
-        invals : list
-            Input values for the equation (consts + carry + xs).
-        max_iterations : int
-            Maximum number of iterations to check (to limit debugging time).
-
-        Returns
-        -------
-        tuple
-            A tuple of (outputs, nan_report, eqn_strs).
-        """
-        scan_jaxpr = eqn.params.get('jaxpr')
-        num_consts = eqn.params.get('num_consts', 0)
-        num_carry = eqn.params.get('num_carry', 0)
-        reverse = eqn.params.get('reverse', False)
-        length = eqn.params.get('length')
-
-        if scan_jaxpr is None:
-            # Fallback: evaluate normally
-            subfuns, bind_params = eqn.primitive.get_bind_params(eqn.params)
-            outvals = eqn.primitive.bind(*subfuns, *invals, **bind_params)
-            if not eqn.primitive.multiple_results:
-                outvals = [outvals]
-            return outvals, [], []
-
-        # Extract jaxpr and consts
-        if isinstance(scan_jaxpr, ClosedJaxpr):
-            inner_jaxpr = scan_jaxpr.jaxpr
-            inner_consts = scan_jaxpr.consts
-        else:
-            inner_jaxpr = scan_jaxpr
-            inner_consts = ()
-
-        # Split inputs: consts, carry, xs
-        consts = list(invals[:num_consts])
-        carry = list(invals[num_consts:num_consts + num_carry])
-        xs = list(invals[num_consts + num_carry:])
-
-        # Determine iteration length
-        if length is None and xs:
-            # Infer from xs shape
-            length = xs[0].shape[0] if hasattr(xs[0], 'shape') and xs[0].ndim > 0 else 1
-        elif length is None:
-            length = 0
-
-        # Limit iterations for debugging
-        num_iters = min(length, max_iterations)
-
-        # Iterate and check for NaN
-        all_nan_reports = []
-        all_eqn_strs = []
-        num_ys = len(inner_jaxpr.outvars) - num_carry
-        all_ys = [[] for _ in range(num_ys)]
-
-        indices = range(num_iters)
-        if reverse:
-            indices = reversed(list(indices))
-
-        for iteration in indices:
-            # Slice xs for this iteration
-            x_slices = [x[iteration] if hasattr(x, '__getitem__') and x.ndim > 0 else x for x in xs]
-
-            # Build inputs: consts + carry + x_slices
-            iter_inputs = consts + carry + x_slices
-
-            # Evaluate the scan function
-            outputs, nan_report, eqn_strs = self._eval_jaxpr_with_nan_check(
-                inner_jaxpr, inner_consts, *iter_inputs
-            )
-
-            # Tag reports
-            for report in nan_report:
-                report['inside_scan'] = True
-                report['iteration_index'] = iteration
-            all_nan_reports.extend(nan_report)
-            all_eqn_strs.extend([f"  [scan iter {iteration}] {s}" for s in eqn_strs])
-
-            # Split outputs into new carry and ys
-            new_carry = outputs[:num_carry]
-            ys = outputs[num_carry:]
-
-            # Collect outputs
-            for i, y in enumerate(ys):
-                all_ys[i].append(y)
-
-            # Update carry
-            carry = new_carry
-
-            # If NaN was detected, we can stop early
-            if all_nan_reports:
-                break
-
-        # Stack ys along axis 0 (for iterations we've done)
-        stacked_ys = []
-        for y_list in all_ys:
-            if y_list:
-                stacked_ys.append(jnp.stack(y_list, axis=0))
-            else:
-                stacked_ys.append(jnp.array([]))
-
-        # Final outputs: carry + stacked_ys
-        final_outputs = carry + stacked_ys
-
-        return final_outputs, all_nan_reports, all_eqn_strs
-
-    def _eval_primitive(self, eqn, invals) -> Tuple[List, List[Dict], List[str]]:
-        """
-        Evaluate a high-level primitive by recursively evaluating its inner jaxpr.
-
-        Parameters
-        ----------
-        eqn : JaxprEqn
-            The equation to evaluate.
-        invals : list
-            Input values for the equation.
-
-        Returns
-        -------
-        tuple
-            A tuple of (outputs, nan_report, eqn_strs).
-        """
-        if is_jit_primitive(eqn):
-            return self._eval_jit_primitive(eqn, invals)
-        elif eqn.primitive.name == 'cond':
-            return self._eval_cond_primitive(eqn, invals)
-        elif eqn.primitive.name == 'while':
-            return self._eval_while_primitive(eqn, invals)
-        elif eqn.primitive.name == 'scan':
-            return self._eval_scan_primitive(eqn, invals)
-        else:
-            subfuns, bind_params = eqn.primitive.get_bind_params(eqn.params)
-            outvals = eqn.primitive.bind(*subfuns, *invals, **bind_params)
-            if not eqn.primitive.multiple_results:
-                outvals = [outvals]
-            return outvals, [], []
-
-    def _eval_jaxpr_with_nan_check(self, jaxpr, consts, *args) -> Tuple[List, List[Dict], List[str]]:
-        """
-        Evaluate a jaxpr equation by equation, checking for NaN after each operation.
-
-        This function implements a custom jaxpr interpreter that evaluates each
-        primitive operation and checks if NaN values are introduced in the outputs.
-
-        Parameters
-        ----------
-        jaxpr : Jaxpr
-            The jaxpr to evaluate.
-        consts : sequence
-            The constant values for the jaxpr.
-        *args
-            The input arguments for the jaxpr.
-
-        Returns
-        -------
-        tuple
-            A tuple of (outputs, nan_report, all_eqn_strs) where:
-            - outputs: list of output values from the jaxpr evaluation
-            - nan_report: list of dicts with NaN detection info for each equation
-              that first introduced NaN values
-            - all_eqn_strs: list of equation strings for all equations
-        """
-        env = {}
-        nan_report = []
-
-        # Build continuous variable names for this jaxpr
-        var_names = _build_var_names(jaxpr)
-
-        # Collect all equation strings upfront for context display
-        all_eqn_strs = [_format_eqn(eqn, var_names) for eqn in jaxpr.eqns]
-
-        # Bind constants to their variables
-        for var, val in zip(jaxpr.constvars, consts):
-            env[var] = val
-
-        # Bind input arguments to their variables
-        for var, val in zip(jaxpr.invars, args):
-            env[var] = val
-
-        # Evaluate each equation
-        for eqn_idx, eqn in enumerate(jaxpr.eqns):
-            # Get input values for this equation
-            invals = [env[v] if not isinstance(v, Literal) else v.val for v in eqn.invars]
-
-            # Check inputs for NaN (to track propagation vs. introduction)
-            input_has_nan, _ = _check_pytree_for_nan(invals)
-
-            # Check if this is an expandable primitive (jit, cond, etc.)
-            # Recursively evaluate inner jaxpr
-            outvals, inner_nan_report, inner_eqn_strs = self._eval_primitive(eqn, invals)
-
-            if _is_expandable_primitive(eqn):
-                # Add inner NaN reports with adjusted indices and nesting path
-                for report in inner_nan_report:
-                    report['outer_eqn_index'] = eqn_idx
-                    report['outer_primitive'] = eqn.primitive.name
-                    # Get display info for this primitive
-                    display_info = _get_primitive_display_info(eqn, report)
-                    # Prepend this equation to the nesting path
-                    outer_entry = {
-                        'eqn_index': eqn_idx,
-                        'primitive': eqn.primitive.name,
-                        'eqn_str': _format_eqn(eqn, var_names),
-                        'display_type': display_info['type'],
-                        'display_name': display_info['name'],
-                        'all_eqn_strs': all_eqn_strs.copy(),  # Store outer jaxpr equations
-                        'total_eqns': len(jaxpr.eqns),
-                    }
-                    if 'nesting_path' not in report:
-                        report['nesting_path'] = []
-                    report['nesting_path'].insert(0, outer_entry)
-                nan_report.extend(inner_nan_report)
-
-                # Add inner equation strings for context (indented)
-                all_eqn_strs.extend([f"  [inner] {s}" for s in inner_eqn_strs])
-
-            # Check outputs for NaN
-            output_has_nan, output_nan_details = _check_pytree_for_nan(outvals)
-
-            # If NaN appeared in output but wasn't in input, record it
-            # (Skip for expandable primitives as NaN is already reported from inner)
-            if output_has_nan and not input_has_nan and not _is_expandable_primitive(eqn):
-                nan_report.append(
-                    {
-                        'eqn_index': eqn_idx,
-                        'primitive': eqn.primitive.name,
-                        'input_shapes': [getattr(v, 'shape', None) for v in invals],
-                        'output_shapes': [getattr(v, 'shape', None) for v in outvals],
-                        'input_values': invals,  # Include actual input values for debugging
-                        'nan_details': output_nan_details,
-                        'equation_str': _format_eqn(eqn, var_names),
-                        'source_info': getattr(eqn, 'source_info', None),
-                        # Initialize nesting_path with this equation as the innermost
-                        'nesting_path': [
-                            {
-                                'eqn_index': eqn_idx,
-                                'primitive': eqn.primitive.name,
-                                'eqn_str': _format_eqn(eqn, var_names),
-                                'all_eqn_strs': all_eqn_strs.copy(),
-                                'total_eqns': len(jaxpr.eqns),
-                                'display_type': eqn.primitive.name,
-                                'display_name': eqn.primitive.name,
-                                'is_nan_source': True,  # Mark this as the actual NaN source
-                            }
-                        ],
-                    }
+        flat_args = self._build_flat_args()
+        pred = unvmap(has_nan, op='any')
+
+        if isinstance(pred, jax.core.Tracer):
+            # Inside JIT: Python code won't re-run at execution time, so we
+            # must raise inside the device callback.
+            def _do_check():
+                _interpret_jaxpr_with_nan_check(
+                    self._jaxpr, self._consts, *flat_args,
+                    phase=self.phase, raise_in_callback=True,
                 )
+                return None
 
-            # Store outputs in environment
-            for var, val in zip(eqn.outvars, outvals):
-                if not isinstance(var, DropVar):
-                    env[var] = val
+            jax.lax.cond(pred, _do_check, lambda: None)
+        else:
+            # Eager mode: cleaner error — raise after callbacks complete.
+            if bool(pred):
+                store_snapshot = len(_nan_store_get())
+                _interpret_jaxpr_with_nan_check(
+                    self._jaxpr, self._consts, *flat_args, phase=self.phase
+                )
+                _raise_if_nan_detected(store_snapshot)
 
-        # Get final outputs
-        outputs = [env[v] if not isinstance(v, Literal) else v.val for v in jaxpr.outvars]
-        return outputs, nan_report, all_eqn_strs
 
+# ---------------------------------------------------------------------------
+# Convenience functions
+# ---------------------------------------------------------------------------
 
-def debug_nan(
-    fn: Callable,
-    *args,
-    phase: str = '',
-    depth: int = 1,
-    context: int = 5,
-):
+def debug_nan(fn: Callable, *args, phase: str = ''):
     """
-    Debug NaN/Inf in a function by analyzing its jaxpr.
-
-    This function is JIT-compatible via jax.debug.callback.
+    Run *fn* with on-device NaN / Inf detection (JIT-compatible).
 
     Parameters
     ----------
@@ -1054,32 +640,26 @@ def debug_nan(
     *args
         Arguments to pass to the function.
     phase : str, optional
-        Phase name for the error message.
-    depth : int, default 1
-        Number of nesting levels to display.
+        Label prepended to the error message.
 
-        - depth=1: Show only innermost jaxpr
-        - depth=2: Show innermost + one outer jaxpr
-        - depth=-1: Show all nesting levels
-    context : int, default 5
-        Number of equations before/after NaN to show.
-        Use -1 to show all equations.
+    Notes
+    -----
+    This function is fully JIT-compatible.  All NaN checks run on the device;
+    no data is moved to the CPU unless NaN is actually detected.
     """
-    DebugNan(fn, *args, phase=phase, depth=depth, context=context).check()
+    DebugNan(fn, *args, phase=phase).check()
 
 
-def debug_nan_if(
-    has_nan: bool | jax.Array,
-    fn: Callable,
-    *args,
-    phase: str = '',
-    depth: int = 1,
-    context: int = 5
-):
+def debug_nan_if(has_nan, fn: Callable, *args, phase: str = ''):
     """
-    Conditionally debug NaN/Inf in a function.
+    Conditionally run *fn* with on-device NaN / Inf detection.
 
-    This function is JIT-compatible via jax.lax.cond and jax.debug.callback.
+    Equivalent to::
+
+        if has_nan:
+            debug_nan(fn, *args, phase=phase)
+
+    but JIT-compatible via ``jax.lax.cond``.
 
     Parameters
     ----------
@@ -1090,15 +670,25 @@ def debug_nan_if(
     *args
         Arguments to pass to the function.
     phase : str, optional
-        Phase name for the error message.
-    depth : int, default 1
-        Number of nesting levels to display.
-
-        - depth=1: Show only innermost jaxpr
-        - depth=2: Show innermost + one outer jaxpr
-        - depth=-1: Show all nesting levels
-    context : int, default 5
-        Number of equations before/after NaN to show.
-        Use -1 to show all equations.
+        Label prepended to the error message.
     """
-    DebugNan(fn, *args, phase=phase, depth=depth, context=context).check_if(has_nan)
+    DebugNan(fn, *args, phase=phase).check_if(has_nan)
+
+
+def breakpoint_if(pred, **breakpoint_kwargs):
+    """
+    As ``jax.debug.breakpoint``, but only triggers if *pred* is True.
+
+    Parameters
+    ----------
+    pred : bool or jax.Array
+        Predicate for whether to trigger the breakpoint.
+    **breakpoint_kwargs
+        Forwarded to ``jax.debug.breakpoint``.
+    """
+    token = breakpoint_kwargs.get("token", None)
+    return cond(
+        unvmap(pred, op='any'),
+        lambda: jax.debug.breakpoint(**breakpoint_kwargs),
+        lambda: token,
+    )
