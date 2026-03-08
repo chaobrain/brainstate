@@ -14,14 +14,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-# ==============================================================================
 
 from __future__ import annotations
 
 import contextlib
 import dataclasses
 import threading
-from typing import (Any, Tuple, List)
+from typing import Any
 
 from typing_extensions import Unpack
 
@@ -45,11 +44,14 @@ __all__ = [
 
 @dataclasses.dataclass
 class GraphContext(threading.local):
+    """Thread-local stacks of active split/merge contexts.
+
+    Inheriting from ``threading.local`` ensures each thread has its own
+    independent context stacks, making nested transforms safe under parallelism.
     """
-    A context manager for handling complex state updates.
-    """
-    ref_index_stack: List[SplitContext] = dataclasses.field(default_factory=list)
-    index_ref_stack: List[MergeContext] = dataclasses.field(default_factory=list)
+
+    ref_index_stack: list[SplitContext] = dataclasses.field(default_factory=list)
+    index_ref_stack: list[MergeContext] = dataclasses.field(default_factory=list)
 
 
 GRAPH_CONTEXT = GraphContext()
@@ -57,12 +59,11 @@ GRAPH_CONTEXT = GraphContext()
 
 @dataclasses.dataclass
 class SplitContext:
-    """
-    A context manager for handling graph splitting.
-    """
+    """Context for splitting graph nodes, tracking shared references."""
+
     ref_index: RefMap[Any, Index]
 
-    def treefy_split(self, node: A, *filters: Filter) -> Tuple[GraphDef[A], Unpack[Tuple[NestedDict, ...]]]:
+    def treefy_split(self, node: A, *filters: Filter) -> tuple[GraphDef[A], Unpack[tuple[NestedDict, ...]]]:
         graphdef, statetree = flatten(node, self.ref_index)
         state_mappings = _split_state(statetree, filters)
         return graphdef, *state_mappings
@@ -70,13 +71,10 @@ class SplitContext:
 
 @contextlib.contextmanager
 def split_context():
-    """
-    A context manager for handling graph splitting.
-    """
+    """Context manager for splitting multiple graph nodes sharing a reference index."""
     index_ref: RefMap[Any, Index] = RefMap()
     flatten_ctx = SplitContext(index_ref)
     GRAPH_CONTEXT.ref_index_stack.append(flatten_ctx)
-
     try:
         yield flatten_ctx, index_ref
     finally:
@@ -86,9 +84,8 @@ def split_context():
 
 @dataclasses.dataclass
 class MergeContext:
-    """
-    A context manager for handling graph merging.
-    """
+    """Context for merging graph nodes, tracking shared references."""
+
     index_ref: dict[Index, Any]
 
     def treefy_merge(
@@ -96,22 +93,18 @@ class MergeContext:
         graphdef: GraphDef[A],
         state_mapping: NestedDict,
         /,
-        *state_mappings: NestedDict
+        *state_mappings: NestedDict,
     ) -> A:
         state_mapping = NestedDict.merge(state_mapping, *state_mappings)
-        node = unflatten(graphdef, state_mapping, index_ref=self.index_ref)
-        return node
+        return unflatten(graphdef, state_mapping, index_ref=self.index_ref)
 
 
 @contextlib.contextmanager
 def merge_context():
-    """
-    A context manager for handling graph merging.
-    """
+    """Context manager for merging multiple graph nodes sharing a reference index."""
     index_ref: dict[Index, Any] = {}
     unflatten_ctx = MergeContext(index_ref)
     GRAPH_CONTEXT.index_ref_stack.append(unflatten_ctx)
-
     try:
         yield unflatten_ctx, dict(unflatten_ctx.index_ref)
     finally:

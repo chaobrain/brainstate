@@ -22,7 +22,7 @@ exclude = [
 name = "brainstate"
 description = "A State-based Transformation System for Brain Modeling."
 readme = 'README.md'
-requires-python = '>=3.10'
+requires-python = '>=3.11'
 authors = [{ name = 'BrainState Developers', email = 'chao.brain@qq.com' }]
 classifiers = [
     'Natural Language :: English',
@@ -31,7 +31,6 @@ classifiers = [
     'Intended Audience :: Developers',
     'Intended Audience :: Science/Research',
     'Programming Language :: Python :: 3',
-    'Programming Language :: Python :: 3.10',
     'Programming Language :: Python :: 3.11',
     'Programming Language :: Python :: 3.12',
     'Programming Language :: Python :: 3.13',
