@@ -27,10 +27,10 @@ from brainstate._error import BatchAxisError
 from brainstate._state import State, StateTraceStack, NonBatchState, catch_new_states
 from brainstate._utils import set_module_as
 from brainstate.typing import Missing, Filter
-from brainstate.util import NestedDict
-from brainstate.util import filter
+from brainstate.util import NestedDict, filter
+from brainstate.util._cache import BoundedCache
 from ._loop_collect_return import scan
-from ._make_jaxpr import StatefulFunction, BoundedCache, get_arg_cache_key
+from ._make_jaxpr import StatefulFunction, get_arg_cache_key
 
 __all__ = [
     'StatefulMapping',

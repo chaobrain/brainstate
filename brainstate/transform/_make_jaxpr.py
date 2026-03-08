@@ -55,13 +55,12 @@ import functools
 import operator
 import threading
 from collections.abc import Hashable, Iterable, Sequence
-from typing import Any, Callable, Dict, Optional, Tuple, Union
+from typing import Any, Callable, Dict, NamedTuple, Optional, Tuple, Union
 
 import jax
 import jax.numpy as jnp
 from jax._src import source_info_util
 from jax.api_util import shaped_abstractify
-from jax.interpreters import partial_eval as pe
 
 from brainstate._compatible_import import ClosedJaxpr, safe_map, wraps
 from brainstate._state import State, StateTraceStack
@@ -78,10 +77,37 @@ __all__ = [
 AxisName = Hashable
 
 
-class hashabledict(dict):
-    def __hash__(self):
-        return hash(tuple(sorted(self.items())))
+# ---------------------------------------------------------------------------
+# Immutable cache key (replaces the old mutable hashabledict)
+# ---------------------------------------------------------------------------
 
+class CacheKey(NamedTuple):
+    """Immutable, hashable cache key for compiled jaxpr lookups."""
+    static_args: tuple
+    dyn_args: tuple
+    static_kwargs: tuple
+    dyn_kwargs: tuple
+
+
+# ---------------------------------------------------------------------------
+# Unified compilation result
+# ---------------------------------------------------------------------------
+
+class _CachedCompilation:
+    """Stores all compilation artefacts for a single cache key."""
+    __slots__ = ('jaxpr', 'out_shapes', 'out_treedef', 'state_trace', 'state_avals')
+
+    def __init__(self, jaxpr, out_shapes, out_treedef, state_trace, state_avals):
+        self.jaxpr = jaxpr
+        self.out_shapes = out_shapes
+        self.out_treedef = out_treedef
+        self.state_trace = state_trace
+        self.state_avals = state_avals  # tuple of abstract state values at compile time
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 def _ensure_str(x: str) -> str:
     if not isinstance(x, str):
@@ -106,34 +132,6 @@ def _ensure_str_tuple(x: str | Iterable[str]) -> tuple[str, ...]:
         return tuple(safe_map(_ensure_str, x))
 
 
-def _jax_v04_new_arg_fn(frame, trace, aval):
-    """
-    Transform a new argument to a tracer.
-
-    Modified from jax.interpreters.partial_eval.DynamicJaxprTrace.new_arg()
-
-    Args:
-      frame: The frame.
-      trace: The trace.
-      aval: The abstract value.
-
-    Returns:
-      The tracer.
-    """
-    tracer = pe.DynamicJaxprTracer(trace, aval, source_info_util.current())
-    frame.tracers.append(tracer)
-    frame.tracer_to_var[id(tracer)] = var = frame.newvar(aval)
-    frame.invars.append(var)
-    return tracer
-
-
-def _jax_v04_new_jax_trace():
-    main = jax.core.thread_local_state.trace_state.trace_stack.stack[-1]
-    frame = main.jaxpr_stack[-1]
-    trace = pe.DynamicJaxprTrace(main, jax.core.cur_sublevel())
-    return frame, trace
-
-
 def _check_input_ouput(x):
     if isinstance(x, State):
         x.raise_error_with_source_info(
@@ -150,7 +148,7 @@ def get_arg_cache_key(
     args: Tuple,
     kwargs: Dict,
     fn_to_check: Callable = _check_input_ouput,
-) -> hashabledict:
+) -> CacheKey:
     # args
     static_args, dyn_args = [], []
     for i, arg in enumerate(args):
@@ -177,13 +175,12 @@ def get_arg_cache_key(
     static_kwargs = _make_hashable(static_kwargs)
     dyn_kwargs = _make_hashable(dyn_kwargs)
 
-    cache_key = hashabledict(
+    return CacheKey(
         static_args=static_args,
         dyn_args=dyn_args,
         static_kwargs=static_kwargs,
         dyn_kwargs=dyn_kwargs,
     )
-    return cache_key
 
 
 class StatefulFunction(PrettyObject):
@@ -238,9 +235,18 @@ class StatefulFunction(PrettyObject):
         If True, only return states that were written to during execution
         (not just read). This can reduce memory usage when you only care
         about modified states. Default is True.
+
+        .. note::
+           The standalone :func:`make_jaxpr` function defaults ``return_only_write``
+           to ``False`` because it is designed for inspection where seeing all
+           state flows (both reads and writes) is typically desired.  In contrast,
+           ``StatefulFunction`` defaults to ``True`` because it is an execution-
+           oriented API where only written states need to be propagated back.
     ir_optimizations: str or sequence of str, optional
         The IR optimizations to apply to the generated jaxpr. Can be a single
-        optimization name or a sequence of names. If None, no optimizations are applied.
+        optimization name or a sequence of names. Available optimizations:
+        'constant_fold', 'algebraic_simplification', 'copy_propagation', 'cse', 'dce'.
+        If None, no optimizations are applied.
 
     Attributes
     ----------
@@ -314,9 +320,9 @@ class StatefulFunction(PrettyObject):
 
     Notes
     -----
-    This class maintains internal thread-safe caches for compiled jaxprs, output
-    shapes, and state traces. The cache size is bounded at 128 entries per cache
-    type. Use ``clear_cache()`` to manually clear the caches if needed.
+    This class maintains an internal thread-safe cache for compiled jaxprs, output
+    shapes, and state traces. The cache size is bounded at 128 entries.
+    Use ``clear_cache()`` to manually clear the cache if needed.
 
     State objects should not be passed as direct inputs or outputs to the wrapped
     function. Instead, they should be accessed within the function body, and the
@@ -341,13 +347,12 @@ class StatefulFunction(PrettyObject):
         self.axis_env = axis_env
         self.name = name
         self.return_only_write = return_only_write
+        if ir_optimizations is not None and isinstance(ir_optimizations, str):
+            ir_optimizations = (ir_optimizations,)
         self.ir_optimizations = ir_optimizations
 
-        # implicit parameters - thread-safe bounded caches
-        self._cached_jaxpr = BoundedCache(maxsize=128)
-        self._cached_out_shapes = BoundedCache(maxsize=128)
-        self._cached_jaxpr_out_tree = BoundedCache(maxsize=128)
-        self._cached_state_trace = BoundedCache(maxsize=128)
+        # Unified compilation cache: CacheKey -> _CachedCompilation
+        self._compilation_cache = BoundedCache(maxsize=128)
         self._cache_lock = threading.RLock()
 
     def __pretty_repr_item__(self, k, v):
@@ -355,7 +360,7 @@ class StatefulFunction(PrettyObject):
             return None
         return k, v
 
-    def get_arg_cache_key(self, *args, compile_if_miss: bool = False, **kwargs) -> hashabledict:
+    def get_arg_cache_key(self, *args, compile_if_miss: bool = False, **kwargs) -> CacheKey:
         """
         Compute the cache key for the given arguments.
 
@@ -374,8 +379,8 @@ class StatefulFunction(PrettyObject):
 
         Returns
         -------
-        hashabledict
-            A hashable dictionary containing the cache key with fields:
+        CacheKey
+            An immutable named tuple containing the cache key with fields:
             'static_args', 'dyn_args', 'static_kwargs', 'dyn_kwargs'.
 
         Examples
@@ -400,9 +405,17 @@ class StatefulFunction(PrettyObject):
             args,
             kwargs,
         )
-        if cache_key not in self._cached_state_trace and compile_if_miss:
+        if cache_key not in self._compilation_cache and compile_if_miss:
             self.make_jaxpr(*args, **kwargs)
         return cache_key
+
+    # ---- Cache accessors (by cache key) ----------------------------------
+
+    def _get_compilation(self, cache_key: Hashable) -> _CachedCompilation:
+        """Retrieve the cached compilation result, raising on miss."""
+        return self._compilation_cache.get(
+            cache_key, raise_on_miss=True, error_context="JAX expression"
+        )
 
     def get_jaxpr_by_cache(self, cache_key: Hashable) -> ClosedJaxpr:
         """
@@ -423,7 +436,7 @@ class StatefulFunction(PrettyObject):
         ValueError
             If the function has not been compiled for the given cache key.
         """
-        return self._cached_jaxpr.get(cache_key, raise_on_miss=True, error_context="JAX expression")
+        return self._get_compilation(cache_key).jaxpr
 
     def get_jaxpr(self, *args, compile_if_miss: bool = True, **kwargs) -> ClosedJaxpr:
         """
@@ -465,7 +478,7 @@ class StatefulFunction(PrettyObject):
         ValueError
             If the function has not been compiled for the given cache key.
         """
-        return self._cached_out_shapes.get(cache_key, raise_on_miss=True, error_context="Output shapes")
+        return self._get_compilation(cache_key).out_shapes
 
     def get_out_shapes(self, *args, compile_if_miss: bool = True, **kwargs) -> PyTree:
         """
@@ -507,7 +520,7 @@ class StatefulFunction(PrettyObject):
         ValueError
             If the function has not been compiled for the given cache key.
         """
-        return self._cached_jaxpr_out_tree.get(cache_key, raise_on_miss=True, error_context="Output tree")
+        return self._get_compilation(cache_key).out_treedef
 
     def get_out_treedef(self, *args, compile_if_miss: bool = True, **kwargs) -> PyTree:
         """
@@ -549,7 +562,7 @@ class StatefulFunction(PrettyObject):
         ValueError
             If the function has not been compiled for the given cache key.
         """
-        return self._cached_state_trace.get(cache_key, raise_on_miss=True, error_context="State trace")
+        return self._get_compilation(cache_key).state_trace
 
     def get_state_trace(self, *args, compile_if_miss: bool = True, **kwargs) -> StateTraceStack:
         """
@@ -710,19 +723,17 @@ class StatefulFunction(PrettyObject):
             >>> sf.make_jaxpr(jnp.array([1.0, 2.0]))
             >>> sf.clear_cache()  # Clear all cached compilations
         """
-        self._cached_jaxpr.clear()
-        self._cached_out_shapes.clear()
-        self._cached_jaxpr_out_tree.clear()
-        self._cached_state_trace.clear()
+        with self._cache_lock:
+            self._compilation_cache.clear()
 
-    def __jax_v04_new_arg(self):
-        # Should be within the calling of ``jax.make_jaxpr()``
-        frame, trace = _jax_v04_new_jax_trace()
-        # Set the function to transform the new argument to a tracer
-        fn = functools.partial(_jax_v04_new_arg_fn, frame, trace)
-        return fn
+    # ---- JAX tracing helpers ---------------------------------------------
 
-    def __jax_new_version_new_arg(self):
+    def _make_new_arg(self):
+        """Create a function that transforms state values into JAX tracers.
+
+        Must be called inside a ``jax.make_jaxpr()`` tracing context.
+        Requires JAX >= 0.6.0.
+        """
         trace = jax.core.trace_ctx.trace
 
         def wrapper(x):
@@ -736,7 +747,7 @@ class StatefulFunction(PrettyObject):
 
     def _wrapped_fun_to_eval(
         self,
-        cache_key,
+        _result_holder: dict,
         static_kwargs: dict,
         *args,
         **dyn_kwargs,
@@ -749,8 +760,9 @@ class StatefulFunction(PrettyObject):
 
         Parameters
         ----------
-        cache_key
-            The cache key for storing the state trace.
+        _result_holder : dict
+            A mutable container to pass the state_trace back to the caller.
+            The key ``'state_trace'`` is set to the :class:`StateTraceStack`.
         static_kwargs : dict
             Static keyword arguments that were separated out.
         *args
@@ -767,11 +779,11 @@ class StatefulFunction(PrettyObject):
         """
         # state trace
         state_trace: StateTraceStack = StateTraceStack(name=self.name)
-        if jax.__version_info__ < (0, 4, 36):
-            state_trace.set_new_arg(self.__jax_v04_new_arg())
-        else:
-            state_trace.set_new_arg(self.__jax_new_version_new_arg())
-        self._cached_state_trace.set(cache_key, state_trace)
+        state_trace.set_new_arg(self._make_new_arg())
+
+        # Store in the caller-provided container (NOT in the cache)
+        _result_holder['state_trace'] = state_trace
+
         with state_trace:
             out = self.fun(*args, **dyn_kwargs, **static_kwargs)
             state_values = (
@@ -809,12 +821,32 @@ class StatefulFunction(PrettyObject):
         ------
         TypeError
             If State objects are passed as arguments or returned from the function.
+        ValueError
+            If ``static_argnums`` contains indices that exceed the number of
+            positional arguments.
         """
 
         # static args
         cache_key = self.get_arg_cache_key(*args, **kwargs)
 
-        if cache_key not in self._cached_state_trace:
+        # Validate static_argnums bounds
+        if self.static_argnums and args:
+            max_idx = max(self.static_argnums)
+            if max_idx >= len(args):
+                raise ValueError(
+                    f'static_argnums contains index {max_idx}, but only '
+                    f'{len(args)} positional arguments were provided.'
+                )
+
+        # Fast path: already compiled
+        if cache_key in self._compilation_cache:
+            return self
+
+        with self._cache_lock:
+            # Double-check under lock to avoid concurrent duplicate compilation
+            if cache_key in self._compilation_cache:
+                return self
+
             try:
                 # kwargs separation
                 static_kwargs, dyn_kwargs = {}, {}
@@ -824,14 +856,14 @@ class StatefulFunction(PrettyObject):
                     else:
                         dyn_kwargs[k] = v
 
-                # args separation
-                dyn_args = tuple(args[i] for i in range(len(args)) if i not in self.static_argnums)
+                # Mutable container for state_trace (set inside _wrapped_fun_to_eval)
+                _result_holder = {}
 
                 # jaxpr
                 jaxpr, (out_shapes, state_shapes) = jax.make_jaxpr(
                     functools.partial(
                         self._wrapped_fun_to_eval,
-                        cache_key,
+                        _result_holder,
                         static_kwargs,
                     ),
                     static_argnums=self.static_argnums,
@@ -839,16 +871,39 @@ class StatefulFunction(PrettyObject):
                     return_shape=True,
                 )(*args, **dyn_kwargs)
 
-                self._cached_jaxpr_out_tree.set(cache_key, jax.tree.structure((out_shapes, state_shapes)))
-                self._cached_out_shapes.set(cache_key, (out_shapes, state_shapes))
-                self._cached_jaxpr.set(cache_key, jaxpr)
+                state_trace = _result_holder['state_trace']
 
-            except Exception as e:
-                # Clean up partial cache entries on error
-                self._cached_state_trace.pop(cache_key, None)
-                self._cached_out_shapes.pop(cache_key, None)
-                self._cached_jaxpr.pop(cache_key, None)
-                raise e
+                # Apply IR optimizations if configured
+                if self.ir_optimizations is not None:
+                    from brainstate.transform._ir_optim import optimize_jaxpr
+                    jaxpr = optimize_jaxpr(
+                        jaxpr,
+                        optimizations=list(self.ir_optimizations),
+                    )
+
+                # Compute abstract state values for later shape validation
+                state_avals = tuple(
+                    jax.tree.map(shaped_abstractify, orig_val)
+                    for orig_val in state_trace.original_state_values
+                )
+
+                out_treedef = jax.tree.structure((out_shapes, state_shapes))
+
+                # Store everything atomically in a single cache entry
+                compilation = _CachedCompilation(
+                    jaxpr=jaxpr,
+                    out_shapes=(out_shapes, state_shapes),
+                    out_treedef=out_treedef,
+                    state_trace=state_trace,
+                    state_avals=state_avals,
+                )
+                self._compilation_cache.set(cache_key, compilation)
+
+            except Exception:
+                # No partial cache entries to clean up since we only write
+                # to the cache on success (state_trace is in _result_holder,
+                # not in the cache).
+                raise
 
         return self
 
@@ -885,7 +940,8 @@ class StatefulFunction(PrettyObject):
         else:
             # state checking
             cache_key = self.get_arg_cache_key(*args, **kwargs, compile_if_miss=True)
-            states: Sequence[State] = self.get_states_by_cache(cache_key)
+            compilation = self._get_compilation(cache_key)
+            states: Sequence[State] = tuple(compilation.state_trace.states)
             if len(state_vals) != len(states):
                 raise ValueError(f'State length mismatch: expected {len(states)} states, got {len(state_vals)}')
 
@@ -897,8 +953,8 @@ class StatefulFunction(PrettyObject):
             # calling the function,
             # note that this function always returns state values
             # that both write and read by the function
-            closed_jaxpr = self.get_jaxpr_by_cache(cache_key)
-            out_treedef = self.get_out_treedef_by_cache(cache_key)
+            closed_jaxpr = compilation.jaxpr
+            out_treedef = compilation.out_treedef
             jaxpr_outs = jax.core.eval_jaxpr(closed_jaxpr.jaxpr, closed_jaxpr.consts, *args)
 
             # output processing
@@ -912,13 +968,14 @@ class StatefulFunction(PrettyObject):
 
     def debug_call(self, state_vals, *args, **kwargs) -> Any:
         cache_key = self.get_arg_cache_key(*args, **kwargs, compile_if_miss=True)
-        states: Sequence[State] = self.get_states_by_cache(cache_key)
+        compilation = self._get_compilation(cache_key)
+        states: Sequence[State] = tuple(compilation.state_trace.states)
         if len(state_vals) != len(states):
             raise ValueError(f'State length mismatch: expected {len(states)} states, got {len(state_vals)}')
         for st, val in zip(states, state_vals):
             st.restore_value(val)
         out = self.fun(*args, **kwargs)
-        state_trace = self.get_state_trace_by_cache(cache_key)
+        state_trace = compilation.state_trace
         new_state_vals = (
             state_trace.get_write_state_values(True)
             if self.return_only_write else
@@ -928,20 +985,17 @@ class StatefulFunction(PrettyObject):
 
     def get_cache_stats(self) -> Dict[str, Any]:
         """
-        Get comprehensive cache statistics for all internal caches.
+        Get comprehensive cache statistics.
 
         Returns
         -------
         dict
-            A dictionary with statistics for each cache including size, hits,
-            misses, and hit rates. Keys are 'jaxpr_cache', 'out_shapes_cache',
-            'jaxpr_out_tree_cache', and 'state_trace_cache'.
+            A dictionary with statistics for the unified compilation cache.
+            Contains a single key 'compilation_cache' with size, maxsize,
+            hits, misses, and hit_rate.
         """
         return {
-            'jaxpr_cache': self._cached_jaxpr.get_stats(),
-            'out_shapes_cache': self._cached_out_shapes.get_stats(),
-            'jaxpr_out_tree_cache': self._cached_jaxpr_out_tree.get_stats(),
-            'state_trace_cache': self._cached_state_trace.get_stats(),
+            'compilation_cache': self._compilation_cache.get_stats(),
         }
 
     def validate_states(self, cache_key: Hashable) -> bool:
@@ -963,7 +1017,8 @@ class StatefulFunction(PrettyObject):
         ValueError
             If any states are invalid or missing required attributes.
         """
-        state_trace = self.get_state_trace_by_cache(cache_key)
+        compilation = self._get_compilation(cache_key)
+        state_trace = compilation.state_trace
         invalid_states = []
         for i, state in enumerate(state_trace.states):
             if not hasattr(state, 'value'):
@@ -988,12 +1043,41 @@ class StatefulFunction(PrettyObject):
             is either True (valid) or an error message string (invalid).
         """
         results = {}
-        for cache_key in self._cached_state_trace.keys():
+        for cache_key in self._compilation_cache.keys():
             try:
                 results[cache_key] = self.validate_states(cache_key)
             except ValueError as e:
                 results[cache_key] = str(e)
         return results
+
+    def _validate_state_shapes(self, cache_key: Hashable) -> None:
+        """
+        Validate that current state shapes/dtypes match those at compile time.
+
+        Parameters
+        ----------
+        cache_key : Hashable
+            The cache key to validate against.
+
+        Raises
+        ------
+        ValueError
+            If any state's shape or dtype has changed since compilation.
+        """
+        compilation = self._get_compilation(cache_key)
+        state_trace = compilation.state_trace
+        compiled_avals = compilation.state_avals
+
+        for i, (state, compiled_aval) in enumerate(zip(state_trace.states, compiled_avals)):
+            current_aval = jax.tree.map(shaped_abstractify, state.value)
+            if current_aval != compiled_aval:
+                raise ValueError(
+                    f'State shape/dtype mismatch for state {i} '
+                    f'(type: {type(state).__name__}): '
+                    f'compiled with {compiled_aval}, but current value has {current_aval}. '
+                    f'Call clear_cache() and recompile, or ensure state shapes '
+                    f'do not change between compilation and execution.'
+                )
 
     def jaxpr_call_auto(self, *args, **kwargs) -> Any:
         """
@@ -1003,6 +1087,12 @@ class StatefulFunction(PrettyObject):
         jaxpr-compiled function, and updates the states with the new values.
         It provides a convenient interface that handles all state management
         automatically.
+
+        .. note::
+           This method does **not** validate state shapes, because internal
+           transforms (e.g. ``vmap``) may intentionally alter state shapes.
+           Use :meth:`__call__` (i.e. ``sf(x)``) for user-facing calls with
+           automatic shape validation.
 
         Parameters
         ----------
@@ -1050,6 +1140,19 @@ class StatefulFunction(PrettyObject):
         return out
 
     def __call__(self, *args, **kwargs):
+        """
+        Call the stateful function with automatic state management and shape validation.
+
+        This is the user-facing entry point. It validates that state shapes/dtypes
+        have not changed since compilation, then delegates to :meth:`jaxpr_call_auto`.
+
+        Raises
+        ------
+        ValueError
+            If state shapes/dtypes have changed since compilation.
+        """
+        cache_key = self.get_arg_cache_key(*args, **kwargs, compile_if_miss=True)
+        self._validate_state_shapes(cache_key)
         return self.jaxpr_call_auto(*args, **kwargs)
 
 
@@ -1104,6 +1207,11 @@ def make_jaxpr(
         If True, only return states that were written to during execution
         (not just read). This can reduce memory usage when you only care
         about modified states.
+
+        .. note::
+           This defaults to ``False`` (unlike :class:`StatefulFunction` which
+           defaults to ``True``) because ``make_jaxpr`` is primarily used for
+           inspection, where seeing all state flows is typically desired.
 
     Returns
     -------
@@ -1209,6 +1317,11 @@ def _make_hashable(obj):
         A hashable representation of the input object. Lists become tuples,
         dicts become sorted tuples of key-value pairs, sets become frozensets,
         and other pytrees are flattened using JAX's tree utilities.
+
+    Raises
+    ------
+    TypeError
+        If the object cannot be made hashable.
     """
     if isinstance(obj, (list, tuple)):
         return tuple(_make_hashable(item) for item in obj)
@@ -1217,11 +1330,17 @@ def _make_hashable(obj):
     elif isinstance(obj, set):
         return frozenset(_make_hashable(item) for item in obj)
     else:
-        # return obj
-        # Use JAX's tree_util for any other pytree structures
+        # Fast path: already hashable
+        try:
+            hash(obj)
+            return obj
+        except TypeError:
+            pass
+        # Fallback: use JAX's tree_util for pytree structures
         try:
             leaves, treedef = jax.tree.flatten(obj)
             return treedef, tuple(leaves)
         except (TypeError, ValueError):
-            # Assume obj is already hashable
-            return obj
+            raise TypeError(
+                f"Cannot make {type(obj).__name__} object hashable for cache key: {obj!r}"
+            )

@@ -25,7 +25,7 @@ import pytest
 import brainstate
 from brainstate._compatible_import import jaxpr_as_fun
 from brainstate._error import BatchAxisError
-from brainstate.transform._make_jaxpr import _make_hashable
+from brainstate.transform._make_jaxpr import _make_hashable, CacheKey
 from brainstate.util import filter as state_filter
 
 
@@ -185,19 +185,16 @@ class TestStatefulFunctionEnhancements(unittest.TestCase):
         # Get cache stats
         stats = sf.get_cache_stats()
 
-        # Verify all cache types are present
-        self.assertIn('jaxpr_cache', stats)
-        self.assertIn('out_shapes_cache', stats)
-        self.assertIn('jaxpr_out_tree_cache', stats)
-        self.assertIn('state_trace_cache', stats)
+        # Verify unified cache is present
+        self.assertIn('compilation_cache', stats)
 
-        # Verify each cache has proper stats
-        for cache_name, cache_stats in stats.items():
-            self.assertIn('size', cache_stats)
-            self.assertIn('maxsize', cache_stats)
-            self.assertIn('hits', cache_stats)
-            self.assertIn('misses', cache_stats)
-            self.assertIn('hit_rate', cache_stats)
+        # Verify cache has proper stats
+        cache_stats = stats['compilation_cache']
+        self.assertIn('size', cache_stats)
+        self.assertIn('maxsize', cache_stats)
+        self.assertIn('hits', cache_stats)
+        self.assertIn('misses', cache_stats)
+        self.assertIn('hit_rate', cache_stats)
 
     def test_validate_states(self):
         """Test validate_states method."""
@@ -258,17 +255,14 @@ class TestStatefulFunctionEnhancements(unittest.TestCase):
 
         # Verify cache has entries
         stats = sf.get_cache_stats()
-        self.assertGreater(stats['jaxpr_cache']['size'], 0)
+        self.assertGreater(stats['compilation_cache']['size'], 0)
 
         # Clear cache
         sf.clear_cache()
 
-        # Verify all caches are empty
+        # Verify cache is empty
         stats = sf.get_cache_stats()
-        self.assertEqual(stats['jaxpr_cache']['size'], 0)
-        self.assertEqual(stats['out_shapes_cache']['size'], 0)
-        self.assertEqual(stats['jaxpr_out_tree_cache']['size'], 0)
-        self.assertEqual(stats['state_trace_cache']['size'], 0)
+        self.assertEqual(stats['compilation_cache']['size'], 0)
 
     def test_return_only_write_parameter(self):
         """Test return_only_write parameter."""
@@ -331,8 +325,7 @@ class TestErrorHandling(unittest.TestCase):
         sf.make_jaxpr(jnp.array([1.0, 2.0]))
 
         # Try to get jaxpr with a different cache key
-        from brainstate.transform._make_jaxpr import hashabledict
-        fake_key = hashabledict(
+        fake_key = CacheKey(
             static_args=(),
             dyn_args=(),
             static_kwargs=(),
@@ -359,20 +352,18 @@ class TestErrorHandling(unittest.TestCase):
 
         sf = brainstate.transform.StatefulFunction(f)
 
-        from brainstate.transform._make_jaxpr import hashabledict
-        fake_key = hashabledict(
+        fake_key = CacheKey(
             static_args=(),
             dyn_args=(),
             static_kwargs=(),
             dyn_kwargs=()
         )
 
-        # Should raise detailed error with context "Output shapes"
+        # Should raise detailed error
         with pytest.raises(ValueError) as exc_info:
             sf.get_out_shapes_by_cache(fake_key)
 
         error_msg = str(exc_info.value)
-        self.assertIn('Output shapes', error_msg)
         self.assertIn('Requested key:', error_msg)
 
     def test_get_out_treedef_not_compiled_detailed_error(self):
@@ -383,20 +374,18 @@ class TestErrorHandling(unittest.TestCase):
 
         sf = brainstate.transform.StatefulFunction(f)
 
-        from brainstate.transform._make_jaxpr import hashabledict
-        fake_key = hashabledict(
+        fake_key = CacheKey(
             static_args=(),
             dyn_args=(),
             static_kwargs=(),
             dyn_kwargs=()
         )
 
-        # Should raise detailed error with context "Output tree"
+        # Should raise detailed error
         with pytest.raises(ValueError) as exc_info:
             sf.get_out_treedef_by_cache(fake_key)
 
         error_msg = str(exc_info.value)
-        self.assertIn('Output tree', error_msg)
         self.assertIn('Requested key:', error_msg)
 
     def test_get_state_trace_not_compiled_detailed_error(self):
@@ -407,20 +396,18 @@ class TestErrorHandling(unittest.TestCase):
 
         sf = brainstate.transform.StatefulFunction(f)
 
-        from brainstate.transform._make_jaxpr import hashabledict
-        fake_key = hashabledict(
+        fake_key = CacheKey(
             static_args=(),
             dyn_args=(),
             static_kwargs=(),
             dyn_kwargs=()
         )
 
-        # Should raise detailed error with context "State trace"
+        # Should raise detailed error
         with pytest.raises(ValueError) as exc_info:
             sf.get_state_trace_by_cache(fake_key)
 
         error_msg = str(exc_info.value)
-        self.assertIn('State trace', error_msg)
         self.assertIn('Requested key:', error_msg)
 
 
@@ -625,12 +612,33 @@ class TestMakeHashable(unittest.TestCase):
         # Should be the same
         self.assertEqual(result1, result2)
 
+    def test_unhashable_raises_type_error(self):
+        """Test that unhashable objects that are not pytrees raise TypeError."""
+        # A list containing an unhashable object that JAX tree_util can't flatten
+        # We need something that both fails hash() and fails jax.tree.flatten()
+        # Use an object that raises during flatten by registering a broken pytree
+        import jax
+
+        class _Broken:
+            __hash__ = None
+
+        def _flatten(x):
+            raise TypeError("cannot flatten")
+
+        jax.tree_util.register_pytree_node(
+            _Broken,
+            _flatten,
+            lambda aux, children: _Broken(),
+        )
+        with pytest.raises(TypeError):
+            _make_hashable(_Broken())
+
 
 class TestCacheCleanupOnError(unittest.TestCase):
     """Test that cache is properly cleaned up when compilation fails."""
 
     def test_cache_cleanup_on_compilation_error(self):
-        """Test that partial cache entries are cleaned up when make_jaxpr fails."""
+        """Test that no partial cache entries remain when make_jaxpr fails."""
 
         def f(x):
             # This will cause an error during JAX tracing
@@ -647,12 +655,9 @@ class TestCacheCleanupOnError(unittest.TestCase):
         except Exception:
             pass  # Expected to fail
 
-        # Cache should be empty after error
+        # Cache should be empty after error (no partial entries)
         stats = sf.get_cache_stats()
-        # All caches should be empty since error cleanup should have removed partial entries
-        # Note: The actual behavior depends on when the error occurs during compilation
-        # If error happens early, no cache entries; if late, entries might exist
-        # This test just verifies the cleanup mechanism exists
+        self.assertEqual(stats['compilation_cache']['size'], 0)
 
 
 class TestMakeJaxprReturnOnlyWrite(unittest.TestCase):
@@ -800,6 +805,19 @@ class TestStatefulFunctionStaticArgs(unittest.TestCase):
 
         # Should have different cache keys
         self.assertNotEqual(cache_key1, cache_key2)
+
+    def test_static_argnums_out_of_bounds(self):
+        """Test that out-of-bounds static_argnums raises ValueError."""
+        state = brainstate.State(jnp.array([1.0]))
+
+        def f(x):
+            state.value += x
+            return state.value
+
+        sf = brainstate.transform.StatefulFunction(f, static_argnums=(5,))
+
+        with pytest.raises(ValueError, match="static_argnums contains index 5"):
+            sf.make_jaxpr(jnp.array([1.0]))
 
 
 class TestStatefulFunctionComplexStates(unittest.TestCase):
@@ -1169,6 +1187,21 @@ class TestStatefulFunctionCacheKey(unittest.TestCase):
         # Should have same cache keys (same structure/shapes)
         self.assertEqual(cache_key1, cache_key2)
 
+    def test_cache_key_is_immutable(self):
+        """Test that cache keys are immutable (CacheKey is a NamedTuple)."""
+
+        def f(x):
+            return x * 2
+
+        sf = brainstate.transform.StatefulFunction(f)
+        x = jnp.array([1.0, 2.0])
+        cache_key = sf.get_arg_cache_key(x)
+
+        # CacheKey is a NamedTuple, which is immutable
+        self.assertIsInstance(cache_key, CacheKey)
+        with pytest.raises(AttributeError):
+            cache_key.static_args = (1, 2)  # Should fail - immutable
+
 
 class TestStatefulFunctionRecompilation(unittest.TestCase):
     """Test recompilation scenarios."""
@@ -1195,8 +1228,8 @@ class TestStatefulFunctionRecompilation(unittest.TestCase):
 
         # Cache size should remain the same
         self.assertEqual(
-            stats1['jaxpr_cache']['size'],
-            stats2['jaxpr_cache']['size']
+            stats1['compilation_cache']['size'],
+            stats2['compilation_cache']['size']
         )
 
     def test_multiple_compilations_different_shapes(self):
@@ -1221,7 +1254,7 @@ class TestStatefulFunctionRecompilation(unittest.TestCase):
         stats = sf.get_cache_stats()
 
         # Should have 3 different cache entries
-        self.assertEqual(stats['jaxpr_cache']['size'], 3)
+        self.assertEqual(stats['compilation_cache']['size'], 3)
 
     def test_clear_and_recompile(self):
         """Test clearing cache and recompiling."""
@@ -1237,15 +1270,124 @@ class TestStatefulFunctionRecompilation(unittest.TestCase):
         # Compile
         sf.make_jaxpr(x)
         stats_before = sf.get_cache_stats()
-        self.assertGreater(stats_before['jaxpr_cache']['size'], 0)
+        self.assertGreater(stats_before['compilation_cache']['size'], 0)
 
         # Clear cache
         sf.clear_cache()
         stats_after_clear = sf.get_cache_stats()
-        self.assertEqual(stats_after_clear['jaxpr_cache']['size'], 0)
+        self.assertEqual(stats_after_clear['compilation_cache']['size'], 0)
 
         # Recompile
         sf.make_jaxpr(x)
         stats_after_recompile = sf.get_cache_stats()
-        self.assertGreater(stats_after_recompile['jaxpr_cache']['size'], 0)
+        self.assertGreater(stats_after_recompile['compilation_cache']['size'], 0)
 
+
+class TestStateShapeValidation(unittest.TestCase):
+    """Test that state shape changes are detected before execution."""
+
+    def test_state_shape_change_detected(self):
+        """Test that changing a state's shape after compilation raises an error."""
+        state = brainstate.State(jnp.array([1.0, 2.0]))
+
+        def f(x):
+            state.value += x
+            return state.value
+
+        sf = brainstate.transform.StatefulFunction(f)
+        x = jnp.array([1.0, 2.0])
+        sf.make_jaxpr(x)
+
+        # Change state shape
+        state._value = jnp.array([1.0, 2.0, 3.0])
+
+        # Should detect shape mismatch
+        with pytest.raises(ValueError, match="State shape/dtype mismatch"):
+            sf(x)
+
+    def test_state_dtype_change_detected(self):
+        """Test that changing a state's dtype after compilation raises an error."""
+        state = brainstate.State(jnp.array([1.0, 2.0], dtype=jnp.float32))
+
+        def f(x):
+            state.value += x
+            return state.value
+
+        sf = brainstate.transform.StatefulFunction(f)
+        x = jnp.array([1.0, 2.0], dtype=jnp.float32)
+        sf.make_jaxpr(x)
+
+        # Change state dtype
+        state._value = jnp.array([1, 2], dtype=jnp.int32)
+
+        # Should detect dtype mismatch
+        with pytest.raises(ValueError, match="State shape/dtype mismatch"):
+            sf(x)
+
+    def test_state_unchanged_passes_validation(self):
+        """Test that unchanged states pass validation."""
+        state = brainstate.State(jnp.array([1.0, 2.0]))
+
+        def f(x):
+            state.value += x
+            return state.value
+
+        sf = brainstate.transform.StatefulFunction(f)
+        x = jnp.array([1.0, 2.0])
+        sf.make_jaxpr(x)
+
+        # Should not raise
+        result = sf(x)
+        self.assertIsNotNone(result)
+
+
+class TestIROptimizations(unittest.TestCase):
+    """Test ir_optimizations parameter integration."""
+
+    def test_ir_optimizations_applied(self):
+        """Test that IR optimizations are applied when specified."""
+        state = brainstate.State(jnp.array([1.0, 2.0]))
+
+        def f(x):
+            # Some redundant operations that can be optimized
+            y = x + 0.0  # algebraic simplification: x + 0 = x
+            state.value += y
+            return state.value
+
+        sf = brainstate.transform.StatefulFunction(
+            f, ir_optimizations=['algebraic_simplification', 'dce']
+        )
+        x = jnp.array([1.0, 2.0])
+        sf.make_jaxpr(x)
+
+        cache_key = sf.get_arg_cache_key(x)
+        jaxpr = sf.get_jaxpr_by_cache(cache_key)
+
+        # Should compile successfully with optimizations
+        self.assertIsNotNone(jaxpr)
+
+    def test_ir_optimizations_string(self):
+        """Test that a single string optimization name works."""
+        def f(x):
+            return x * 1.0  # algebraic simplification: x * 1 = x
+
+        sf = brainstate.transform.StatefulFunction(f, ir_optimizations='dce')
+        x = jnp.array([1.0])
+        sf.make_jaxpr(x)
+
+        cache_key = sf.get_arg_cache_key(x)
+        jaxpr = sf.get_jaxpr_by_cache(cache_key)
+        self.assertIsNotNone(jaxpr)
+
+    def test_ir_optimizations_none(self):
+        """Test that None ir_optimizations means no optimization."""
+        def f(x):
+            return x * 2
+
+        sf = brainstate.transform.StatefulFunction(f, ir_optimizations=None)
+        x = jnp.array([1.0])
+        sf.make_jaxpr(x)
+
+        cache_key = sf.get_arg_cache_key(x)
+        jaxpr = sf.get_jaxpr_by_cache(cache_key)
+        self.assertIsNotNone(jaxpr)
