@@ -203,8 +203,8 @@ class TestDebugNan(unittest.TestCase):
         msg = str(ctx.exception)
         # Message should contain source location pointing to user code
         self.assertIn('Source location', msg)
-        # Should reference the function/method where NaN was introduced
-        self.assertIn('__call__', msg)
+        # Should reference the primitive that introduced NaN
+        self.assertIn('log', msg)
         # Should NOT reference brainstate tracing infrastructure
         self.assertNotIn('_make_jaxpr.py', msg)
 
