@@ -165,7 +165,7 @@ def example_comparison():
     x = jnp.array([1.0, 1.0, 1.0])
     grads = grad_fn_no_debug(x)
     print(f"  Gradients (may contain NaN): {grads}")
-    print(f"  Has NaN: {jnp.any(jnp.isnan(grads))}")
+    print(f"  Has NaN: {jnp.any(jnp.isnan(grads[0]))}")
 
     # Reset weight value
     weight.value = jnp.array([0.0, 1.0, 2.0])
@@ -178,8 +178,19 @@ def example_comparison():
     )
 
     print("\nWith debug_nan=True:")
-    grads = grad_fn_with_debug(x)
-    print(f"  Gradients: {grads}")
+    try:
+        grads = grad_fn_with_debug(x)
+        print(f"  Gradients: {grads}")
+    except RuntimeError as e:
+        # Extract the NaN detection message from the (possibly JAX-wrapped) error
+        msg = str(e)
+        nan_marker = "NaN/Inf detected"
+        idx = msg.find(nan_marker)
+        if idx >= 0:
+            msg = msg[idx:]
+        print(f"  RuntimeError caught!")
+        for line in msg.strip().splitlines()[:6]:
+            print(f"    {line}")
 
     print()
 
@@ -251,24 +262,6 @@ def example_decorator():
     print()
 
 
-def exp_exprel():
-    """
-    Demonstrates using grad with debug_nan as a decorator.
-    """
-
-    import brainunit as u
-
-    @brainstate.transform.grad(argnums=0, return_value=True, debug_nan=True)
-    def loss_fn(x):
-        return jnp.sum(u.math.exprel(x))
-
-    x = jnp.array([0.0, 1.0])
-    grads = loss_fn(x)
-    print(f"Gradients (no NaN): {grads}")
-
-    print()
-
-
 # =============================================================================
 # Main
 # =============================================================================
@@ -277,13 +270,6 @@ if __name__ == "__main__":
     # example_log_of_zero()
     # example_division_by_zero()
     # example_sqrt_negative()
-    # example_comparison()
-    # example_neural_network()
-    # example_decorator()
-
-    exp_exprel()
-
-    #
-    # print("=" * 60)
-    # print("Examples completed!")
-    # print("=" * 60)
+    example_comparison()
+    example_neural_network()
+    example_decorator()
