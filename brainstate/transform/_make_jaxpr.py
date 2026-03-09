@@ -169,9 +169,18 @@ def get_arg_cache_key(
     if fn_to_check is not None:
         jax.tree.map(fn_to_check, dyn_kwargs, is_leaf=lambda x: isinstance(x, State))
 
+    # Flatten dynamic args/kwargs into (treedef, leaves) for consistent hashing.
+    # Custom pytree nodes (e.g. Quantity) may have __hash__ implementations that
+    # are non-deterministic for abstract JAX types, so we flatten to leaves
+    # (ShapedArray objects with proper content-based hashing) and treedef.
+    dyn_arg_leaves, dyn_arg_treedef = jax.tree.flatten(tuple(dyn_args))
+    dyn_args = (dyn_arg_treedef, tuple(dyn_arg_leaves))
+    dyn_kwarg_leaves, dyn_kwarg_treedef = jax.tree.flatten(dyn_kwargs)
+    dyn_kwargs = (dyn_kwarg_treedef, tuple(dyn_kwarg_leaves))
+
     # hashable
     static_args = _make_hashable(tuple(static_args))
-    dyn_args = _make_hashable(tuple(dyn_args))
+    dyn_args = _make_hashable(dyn_args)
     static_kwargs = _make_hashable(static_kwargs)
     dyn_kwargs = _make_hashable(dyn_kwargs)
 

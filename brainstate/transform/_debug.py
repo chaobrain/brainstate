@@ -84,7 +84,7 @@ def _extract_user_source(source_info) -> str:
             lines = tb_module.format_tb(filtered_tb)
             # Step 2: further strip any remaining site-packages frames
             # (e.g. jax.numpy helpers not in JAX's exclude list)
-            user_lines = [l for l in lines if '/site-packages/' not in l]
+            user_lines = [l for l in lines if '/site-packages/' not in l and '\\site-packages\\' not in l]
             if user_lines:
                 return user_lines[-1].strip()
             # Fallback: return the innermost filtered frame
@@ -269,9 +269,6 @@ def _interpret_jaxpr_with_nan_check(
     """
     var_names = _build_var_names(jaxpr)
     total_eqns = len(jaxpr.eqns)
-
-    # Snapshot store length before this call so nested calls don't interfere
-    store_snapshot = len(_nan_store_get())
 
     # Build per-equation static metadata at Python / compile time
     eqn_meta: List[dict] = []
