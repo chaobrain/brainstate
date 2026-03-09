@@ -27,6 +27,12 @@ from ._conditions import cond
 from ._make_jaxpr import StatefulFunction
 from ._unvmap import unvmap
 
+__all__ = [
+    'breakpoint_if',
+    'debug_nan',
+    'debug_nan_if',
+]
+
 # ---------------------------------------------------------------------------
 # Thread-local NaN detection store
 #
@@ -48,11 +54,6 @@ def _nan_store_get() -> List[tuple]:
         _nan_store.records = []
     return _nan_store.records
 
-__all__ = [
-    'breakpoint_if',
-    'debug_nan',
-    'debug_nan_if',
-]
 
 # ---------------------------------------------------------------------------
 # Source info: IDE-clickable location strings
@@ -158,9 +159,11 @@ def _has_nan_flag(vals) -> jax.Array:
 # NaN callback factory
 # ---------------------------------------------------------------------------
 
-def _format_nan_message(eqn_idx: int, total_eqns: int, prim_name: str,
-                        eqn_str: str, source_loc: str, phase: str,
-                        float_vals) -> str:
+def _format_nan_message(
+    eqn_idx: int, total_eqns: int, prim_name: str,
+    eqn_str: str, source_loc: str, phase: str,
+    float_vals
+) -> str:
     phase_tag = f" [{phase}]" if phase else ""
     lines = [
         f"NaN/Inf detected{phase_tag}!",
@@ -204,6 +207,7 @@ def _make_nan_callback(eqn_idx: int, total_eqns: int, prim_name: str,
       will be wrapped in ``JaxRuntimeError`` but the full message (with source
       info) is still visible in ``str(exc)``.
     """
+
     def _report(*float_vals):
         msg = _format_nan_message(
             eqn_idx, total_eqns, prim_name, eqn_str, source_loc, phase, float_vals

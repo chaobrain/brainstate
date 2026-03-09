@@ -165,7 +165,7 @@ def example_comparison():
     x = jnp.array([1.0, 1.0, 1.0])
     grads = grad_fn_no_debug(x)
     print(f"  Gradients (may contain NaN): {grads}")
-    print(f"  Has NaN: {jnp.any(jnp.isnan(grads))}")
+    print(f"  Has NaN: {jnp.any(jnp.isnan(grads[0]))}")
 
     # Reset weight value
     weight.value = jnp.array([0.0, 1.0, 2.0])
@@ -178,8 +178,19 @@ def example_comparison():
     )
 
     print("\nWith debug_nan=True:")
-    grads = grad_fn_with_debug(x)
-    print(f"  Gradients: {grads}")
+    try:
+        grads = grad_fn_with_debug(x)
+        print(f"  Gradients: {grads}")
+    except RuntimeError as e:
+        # Extract the NaN detection message from the (possibly JAX-wrapped) error
+        msg = str(e)
+        nan_marker = "NaN/Inf detected"
+        idx = msg.find(nan_marker)
+        if idx >= 0:
+            msg = msg[idx:]
+        print(f"  RuntimeError caught!")
+        for line in msg.strip().splitlines()[:6]:
+            print(f"    {line}")
 
     print()
 
@@ -256,9 +267,9 @@ def example_decorator():
 # =============================================================================
 
 if __name__ == "__main__":
-    example_log_of_zero()
-    example_division_by_zero()
-    example_sqrt_negative()
+    # example_log_of_zero()
+    # example_division_by_zero()
+    # example_sqrt_negative()
     example_comparison()
     example_neural_network()
     example_decorator()
