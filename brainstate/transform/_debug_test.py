@@ -93,6 +93,30 @@ class TestExtractUserSource(unittest.TestCase):
             # Should not be unknown for a real traced function
             self.assertIsInstance(src, str)
 
+    def test_source_excludes_brainstate_internals(self):
+        """Source location should not include brainstate tracing infrastructure."""
+        import brainstate as bst
+        from brainstate.transform._make_jaxpr import StatefulFunction
+
+        class Model(bst.graph.Node):
+            def __init__(self):
+                self.w = bst.State(jnp.array([1.0]))
+
+            def __call__(self, x):
+                return jnp.log(self.w.value) + x
+
+        model = Model()
+        sf = StatefulFunction(model)
+        cache_key = sf.get_arg_cache_key(jnp.array([1.0]), compile_if_miss=True)
+        closed = sf.get_jaxpr_by_cache(cache_key)
+
+        for eqn in closed.jaxpr.eqns:
+            src = _extract_user_source(getattr(eqn, 'source_info', None))
+            # Should NOT contain brainstate tracing infrastructure paths
+            self.assertNotIn('_make_jaxpr.py', src)
+            # Should return something useful, not <unknown source>
+            self.assertNotEqual(src, '<unknown source>')
+
 
 # ---------------------------------------------------------------------------
 # debug_nan – basic detection
@@ -160,6 +184,29 @@ class TestDebugNan(unittest.TestCase):
             debug_nan(fn, jnp.array([0.0]))
         # The callback raises on 'log', not on later ops
         self.assertIn("log", str(ctx.exception))
+
+    def test_error_source_info_in_message(self):
+        """Error message should contain the source location of the NaN-producing equation."""
+        import brainstate as bst
+
+        class Model(bst.graph.Node):
+            def __init__(self):
+                self.w = bst.State(jnp.array([1.0, 0.0]))
+
+            def __call__(self, x):
+                return jnp.log(self.w.value) + x
+
+        model = Model()
+        with self.assertRaises(RuntimeError) as ctx:
+            debug_nan(model, jnp.array([1.0, 2.0]))
+
+        msg = str(ctx.exception)
+        # Message should contain source location pointing to user code
+        self.assertIn('Source location', msg)
+        # Should reference the function/method where NaN was introduced
+        self.assertIn('__call__', msg)
+        # Should NOT reference brainstate tracing infrastructure
+        self.assertNotIn('_make_jaxpr.py', msg)
 
 
 # ---------------------------------------------------------------------------

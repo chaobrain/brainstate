@@ -19,6 +19,7 @@ from typing import Callable, Dict, List
 
 import jax
 import jax.numpy as jnp
+from jax._src import traceback_util as _traceback_util
 from jax.extend import source_info_util
 
 from brainstate._compatible_import import DropVar, Literal, ClosedJaxpr, is_jit_primitive
@@ -62,9 +63,12 @@ def _extract_user_source(source_info) -> str:
     Extract a human-readable, IDE-clickable source location from a jaxpr
     equation's source_info.
 
-    Filters out JAX internal frames and returns the innermost user frame in
-    standard Python traceback format:  ``File "path", line N, in func_name``
-    which VSCode / PyCharm recognise as a hyperlink.
+    Uses JAX's ``filter_traceback`` (which respects ``register_exclusion``
+    registrations from brainstate and other libraries) then further strips
+    any remaining ``site-packages`` frames so that only genuine user frames
+    are shown.  Returns the innermost user frame in standard Python traceback
+    format ``File "path", line N, in func_name`` which VSCode / PyCharm
+    recognise as a hyperlink.
     """
     if source_info is None:
         return "<unknown source>"
@@ -73,14 +77,19 @@ def _extract_user_source(source_info) -> str:
         return "<unknown source>"
     try:
         py_tb = tb.as_python_traceback()
-        lines = tb_module.format_tb(py_tb)
-        user_lines = [
-            line for line in lines
-            if '/site-packages/' not in line and 'jax/_src/' not in line
-        ]
-        if user_lines:
-            # Last user frame is the innermost call site — format it cleanly.
-            return user_lines[-1].strip()
+        # Step 1: use JAX's filter which honours register_exclusion
+        # (this removes brainstate + JAX core frames)
+        filtered_tb = _traceback_util.filter_traceback(py_tb)
+        if filtered_tb:
+            lines = tb_module.format_tb(filtered_tb)
+            # Step 2: further strip any remaining site-packages frames
+            # (e.g. jax.numpy helpers not in JAX's exclude list)
+            user_lines = [l for l in lines if '/site-packages/' not in l]
+            if user_lines:
+                return user_lines[-1].strip()
+            # Fallback: return the innermost filtered frame
+            if lines:
+                return lines[-1].strip()
     except Exception:
         pass
     # Fallback to JAX's own summarise helper
