@@ -17,7 +17,7 @@
 A ``State``-based Transformation System for Program Compilation and Augmentation
 """
 
-__version__ = "0.2.10"
+__version__ = "0.3.0"
 __versio_info__ = tuple(map(int, __version__.split('.')))
 
 # Register brainstate with JAX's traceback filter so that brainstate internal
