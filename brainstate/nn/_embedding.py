@@ -20,8 +20,8 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 import jax.tree_util as jtu
-from jax import core as jax_core
 
+from brainstate._compatible_import import Tracer
 from brainstate._state import ParamState
 from brainstate.typing import ArrayLike, Size
 from . import init as init
@@ -93,7 +93,7 @@ def _embedding_lookup_fn(
 
 def _contains_tracer(tree) -> bool:
     """Return True if the pytree contains any JAX tracer values."""
-    return any(isinstance(leaf, jax_core.Tracer) for leaf in jtu.tree_leaves(tree))
+    return any(isinstance(leaf, Tracer) for leaf in jtu.tree_leaves(tree))
 
 
 

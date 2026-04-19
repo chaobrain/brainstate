@@ -1029,7 +1029,7 @@ class ChainT(Transform):
     """
     __module__ = 'brainstate.nn'
 
-    def __init__(self, *transforms: Sequence[Transform]) -> None:
+    def __init__(self, *transforms: Transform) -> None:
         """
         Initialize the chain transformation.
         

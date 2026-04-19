@@ -61,7 +61,7 @@ dependencies = [
 dynamic = ['version']
 
 [tool.setuptools.dynamic]
-version = { attr = "brainstate.__version__" }
+version = { attr = "brainstate._version.__version__" }
 
 [project.urls]
 homepage = 'https://github.com/chaobrain/brainstate'

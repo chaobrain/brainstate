@@ -83,6 +83,22 @@ __all__ = [
     'wrap_init',
     'get_backend',
 
+    'trace_ctx',
+    'DebugInfo',
+    'DropVar',
+    'CallPrimitive',
+    'Effect',
+    'Effects',
+    'JaxprTypeError',
+    'check_jaxpr',
+    'concrete_or_error',
+    'find_top_trace',
+    'gensym',
+    'get_opaque_trace_state',
+    'jaxprs_in_params',
+    'new_jaxpr_eqn',
+    'no_effects',
+    'valid_jaxtype',
 ]
 
 
@@ -129,6 +145,49 @@ else:
     from jax.extend.core import (
         ClosedJaxpr, jaxpr_as_fun,
         Primitive, Var, JaxprEqn, Jaxpr, ClosedJaxpr, Literal
+    )
+if jax.__version_info__ < (0, 10, 0):
+    from jax.core import trace_ctx
+else:
+    from jax._src.core import trace_ctx
+
+# from jax 0.10.0 release notes
+# https://github.com/jax-ml/jax/releases/tag/jax-v0.10.0
+if jax.__version_info__ < (0, 10, 0):
+    from jax.core import (
+        DebugInfo,
+        DropVar,
+        CallPrimitive,
+        Effect,
+        Effects,
+        JaxprTypeError,
+        check_jaxpr,
+        concrete_or_error,
+        find_top_trace,
+        gensym,
+        get_opaque_trace_state,
+        jaxprs_in_params,
+        new_jaxpr_eqn,
+        no_effects,
+        valid_jaxtype,
+    )
+else:
+    from jax.extend.core import (
+        DebugInfo,
+        DropVar,
+        CallPrimitive,
+        Effect,
+        Effects,
+        JaxprTypeError,
+        check_jaxpr,
+        concrete_or_error,
+        find_top_trace,
+        gensym,
+        get_opaque_trace_state,
+        jaxprs_in_params,
+        new_jaxpr_eqn,
+        no_effects,
+        valid_jaxtype,
     )
 
 if jax.__version_info__ < (0, 6, 0):

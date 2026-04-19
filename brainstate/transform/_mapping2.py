@@ -23,6 +23,7 @@ import jax
 from jax._src import source_info_util
 
 from brainstate._compatible_import import Device, make_iota, to_elt, BatchTracer, BatchTrace
+from brainstate._compatible_import import trace_ctx
 from brainstate._error import BatchAxisError
 from brainstate._state import State, StateTraceStack, NonBatchState, catch_new_states
 from brainstate._utils import set_module_as
@@ -64,7 +65,7 @@ class StatefulMapping:
     instances. It tracks state reads and writes across the mapped axis,
     ensures deterministic random-number handling, and restores side effects
     after each batched execution. The helper is typically constructed by
-    :func:`brainstate.transform.vmap` or :func:`brainstate.transform.pmap`, but
+    :func:`brainstate.transform.vmap2` or :func:`brainstate.transform.pmap2`, but
     it can also be instantiated directly for custom mapping primitives.
 
     Parameters
@@ -383,7 +384,7 @@ class StatefulMapping:
             )
 
         # state trace
-        trace = jax.core.trace_ctx.trace
+        trace = trace_ctx.trace
         assert isinstance(trace, BatchTrace), f"Expected to be called within a BatchTrace context, but got {trace}"
         dim_to_in_states = defaultdict(list)
         state_trace = StateTraceStack(name=self.name)
