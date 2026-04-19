@@ -21,9 +21,9 @@ from typing import Any, Callable, Dict, Optional, Tuple, Union, TypeVar
 
 import jax
 from jax._src import source_info_util
-from jax._src.core import trace_ctx
 
 from brainstate._compatible_import import Device, make_iota, to_elt, BatchTracer, BatchTrace
+from brainstate._compatible_import import trace_ctx
 from brainstate._error import BatchAxisError
 from brainstate._state import State, StateTraceStack, NonBatchState, catch_new_states
 from brainstate._utils import set_module_as

@@ -83,6 +83,7 @@ __all__ = [
     'wrap_init',
     'get_backend',
 
+    'trace_ctx',
     'DebugInfo',
     'DropVar',
     'CallPrimitive',
@@ -145,6 +146,10 @@ else:
         ClosedJaxpr, jaxpr_as_fun,
         Primitive, Var, JaxprEqn, Jaxpr, ClosedJaxpr, Literal
     )
+if jax.__version_info__ < (0, 10, 0):
+    from jax.core import trace_ctx
+else:
+    from jax._src.core import trace_ctx
 
 # from jax 0.10.0 release notes
 # https://github.com/jax-ml/jax/releases/tag/jax-v0.10.0

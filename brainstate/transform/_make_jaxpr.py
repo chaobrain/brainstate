@@ -60,10 +60,10 @@ from typing import Any, Callable, Dict, NamedTuple, Optional, Tuple, Union
 import jax
 import jax.numpy as jnp
 from jax._src import source_info_util
-from jax._src.core import trace_ctx
 from jax.api_util import shaped_abstractify
 
 from brainstate._compatible_import import ClosedJaxpr, concrete_or_error, safe_map, wraps
+from brainstate._compatible_import import trace_ctx
 from brainstate._state import State, StateTraceStack
 from brainstate._utils import set_module_as
 from brainstate.typing import PyTree
