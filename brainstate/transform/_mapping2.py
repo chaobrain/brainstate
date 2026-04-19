@@ -64,7 +64,7 @@ class StatefulMapping:
     instances. It tracks state reads and writes across the mapped axis,
     ensures deterministic random-number handling, and restores side effects
     after each batched execution. The helper is typically constructed by
-    :func:`brainstate.transform.vmap` or :func:`brainstate.transform.pmap`, but
+    :func:`brainstate.transform.vmap2` or :func:`brainstate.transform.pmap2`, but
     it can also be instantiated directly for custom mapping primitives.
 
     Parameters

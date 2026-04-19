@@ -85,9 +85,9 @@ def _extract_user_source(source_info) -> str:
             lines = tb_module.format_tb(filtered_tb)
             # Step 2: further strip any remaining site-packages frames
             # (e.g. jax.numpy helpers not in JAX's exclude list)
-            user_lines = [l for l in lines if '/site-packages/' not in l and '\\site-packages\\' not in l]
-            if user_lines:
-                return user_lines[-1].strip()
+            lines = [l for l in lines if '/site-packages/' not in l and '\\site-packages\\' not in l]
+            if lines:
+                return lines[-1].strip()
             # Fallback: return the innermost filtered frame
             if lines:
                 return lines[-1].strip()
@@ -353,7 +353,11 @@ def _execute_eqn(eqn, invals, phase: str, raise_in_callback: bool = False) -> li
     if name == 'scan':
         return _execute_scan_eqn(eqn, invals, phase, raise_in_callback)
     # Plain primitive: execute normally
-    subfuns, bind_params = eqn.primitive.get_bind_params(eqn.params)
+    try:
+        subfuns, bind_params = eqn.primitive.get_bind_params(eqn.params)
+    except ValueError:
+        bind_params = eqn.primitive.get_bind_params(eqn.params)
+        subfuns = bind_params.pop('subfuns', ())
     outvals = eqn.primitive.bind(*subfuns, *invals, **bind_params)
     if not eqn.primitive.multiple_results:
         outvals = [outvals]
@@ -510,10 +514,11 @@ def _execute_scan_eqn(eqn, invals, phase: str, raise_in_callback: bool = False) 
     num_ys = len(inner_jaxpr.outvars) - num_carry
     if num_ys == 0:
         ys_out = []
-    elif num_ys == 1:
-        ys_out = [stacked_ys]
     else:
-        ys_out = list(stacked_ys) if isinstance(stacked_ys, tuple) else [stacked_ys]
+        if isinstance(stacked_ys, tuple):
+            ys_out = list(stacked_ys)
+        else:
+            ys_out = [stacked_ys]
 
     return carry_out + ys_out
 

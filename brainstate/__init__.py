@@ -17,8 +17,7 @@
 A ``State``-based Transformation System for Program Compilation and Augmentation
 """
 
-__version__ = "0.3.0"
-__versio_info__ = tuple(map(int, __version__.split('.')))
+from ._version import __version__, __version_info__
 
 # Register brainstate with JAX's traceback filter so that brainstate internal
 # frames are hidden in user-facing error tracebacks.  This is the same pattern

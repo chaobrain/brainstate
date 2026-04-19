@@ -442,25 +442,22 @@ class GradientTransform(PrettyRepr):
         read_state_vals = state_trace.get_read_state_values(True)
         grad_vals, other_vals = self._split_state_vals(state_trace)
 
-        # Compute gradients (JIT-compatible)
-        rets = self._transform(grad_vals, other_vals, *args, **kwargs)
-        grads = rets[0]
-
         if self.debug_nan:
+            fn = StatefulFunction(lambda: self._transform(grad_vals, other_vals, *args, **kwargs))
+            rets = fn.jaxpr_call_auto()
+
             # Check for NaN/Inf using JIT-compatible operations
+            grads = rets[0]
             has_nan = _check_nan_jit_compatible(grads)
 
-            # Not inside JIT: capture jaxpr for detailed analysis
-            def grad_fn(gv, ov, a, kw):
-                return self._transform(gv, ov, *a, **kw)
+            # debug nan
+            debug_nan_if(has_nan, fn.jaxpr_call_auto, phase=str(self.transform.__name__))
 
-            debug_nan_if(
-                has_nan,
-                grad_fn,
-                grad_vals, other_vals, args, kwargs,
-                phase=str(self.transform.__name__),
-            )
+        else:
+            # Compute gradients (JIT-compatible)
+            rets = self._transform(grad_vals, other_vals, *args, **kwargs)
 
         # analyze and return the results
         res = self._return(rets, read_state_vals, state_trace)
         return res
+
