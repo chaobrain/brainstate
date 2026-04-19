@@ -83,6 +83,16 @@ __all__ = [
     'wrap_init',
     'get_backend',
 
+    'DebugInfo', 'DropVar', 'CallPrimitive', 'Effect', 'Effects', 'InconclusiveDimensionOperation',
+    'JaxprTypeError', 'check_jaxpr', 'concrete_or_error', 'find_top_trace',
+    'gensym', 'get_opaque_trace_state', 'jaxprs_in_params', 'new_jaxpr_eqn',
+    'no_effects', 'nonempty_axis_env_DO_NOT_USE', 'primal_dtype_to_tangent_dtype',
+    'unsafe_am_i_under_a_jit_DO_NOT_USE', 'unsafe_am_i_under_a_vmap_DO_NOT_USE',
+    'unsafe_get_axis_names_DO_NOT_USE', 'valid_jaxtype', 'JaxprPpContext',
+    'JaxprPpSettings', 'OutputType', 'abstract_token', 'aval_mapping_handlers',
+    'call', 'concretization_function_error', 'custom_typechecks', 'is_concrete',
+    'is_constant_dim', 'is_constant_shape', 'literalable_types', 'no_axis_name',
+    'pytype_aval_mappings', 'trace_ctx'
 ]
 
 
@@ -129,6 +139,47 @@ else:
     from jax.extend.core import (
         ClosedJaxpr, jaxpr_as_fun,
         Primitive, Var, JaxprEqn, Jaxpr, ClosedJaxpr, Literal
+    )
+
+# from jax 0.10.0 release notes
+# https://github.com/jax-ml/jax/releases/tag/jax-v0.10.0
+if jax.__version_info__ < (0, 10, 0):
+    from jax.core import (
+        DebugInfo,
+        DropVar,
+        CallPrimitive,
+        Effect,
+        Effects,
+        InconclusiveDimensionOperation,
+        JaxprTypeError, check_jaxpr, concrete_or_error, find_top_trace,
+        gensym, get_opaque_trace_state, jaxprs_in_params, new_jaxpr_eqn,
+        no_effects, nonempty_axis_env_DO_NOT_USE, primal_dtype_to_tangent_dtype,
+        unsafe_am_i_under_a_jit_DO_NOT_USE, unsafe_am_i_under_a_vmap_DO_NOT_USE,
+        unsafe_get_axis_names_DO_NOT_USE, valid_jaxtype, JaxprPpContext,
+        JaxprPpSettings, OutputType, abstract_token, aval_mapping_handlers,
+        call, concretization_function_error, custom_typechecks, is_concrete,
+        is_constant_dim, is_constant_shape, literalable_types, no_axis_name,
+        pytype_aval_mappings,
+        trace_ctx
+    )
+else:
+    from jax.extend.core import (
+        DebugInfo,
+        DropVar,
+        CallPrimitive,
+        Effect,
+        Effects,
+        InconclusiveDimensionOperation,
+        JaxprTypeError, check_jaxpr, concrete_or_error, find_top_trace,
+        gensym, get_opaque_trace_state, jaxprs_in_params, new_jaxpr_eqn,
+        no_effects, nonempty_axis_env_DO_NOT_USE, primal_dtype_to_tangent_dtype,
+        unsafe_am_i_under_a_jit_DO_NOT_USE, unsafe_am_i_under_a_vmap_DO_NOT_USE,
+        unsafe_get_axis_names_DO_NOT_USE, valid_jaxtype, JaxprPpContext,
+        JaxprPpSettings, OutputType, abstract_token, aval_mapping_handlers,
+        call, concretization_function_error, custom_typechecks, is_concrete,
+        is_constant_dim, is_constant_shape, literalable_types, no_axis_name,
+        pytype_aval_mappings,
+        trace_ctx
     )
 
 if jax.__version_info__ < (0, 6, 0):

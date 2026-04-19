@@ -19,6 +19,7 @@ import jax
 import jax.numpy as jnp
 
 import brainstate
+from brainstate._compatible_import import Tracer
 
 
 class TestCond(unittest.TestCase):
@@ -40,10 +41,10 @@ class TestCond(unittest.TestCase):
             st3.value = (st3.value + 1.) * x
 
         brainstate.transform.cond(True, true_fun, false_fun, 2.)
-        assert not isinstance(st1.value, jax.core.Tracer)
-        assert not isinstance(st2.value, jax.core.Tracer)
-        assert not isinstance(st3.value, jax.core.Tracer)
-        assert not isinstance(st4.value, jax.core.Tracer)
+        assert not isinstance(st1.value, Tracer)
+        assert not isinstance(st2.value, Tracer)
+        assert not isinstance(st3.value, Tracer)
+        assert not isinstance(st4.value, Tracer)
 
 
 class TestSwitch(unittest.TestCase):

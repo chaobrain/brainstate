@@ -16,6 +16,7 @@
 import jax
 import jax.core
 
+from brainstate._compatible_import import get_opaque_trace_state
 from ._pretty_repr import PrettyRepr, PrettyType, PrettyAttr
 
 __all__ = [
@@ -27,7 +28,7 @@ def current_jax_trace():
     """Returns the Jax tracing state."""
     if jax.__version_info__ <= (0, 4, 33):
         return jax.core.thread_local_state.trace_state.trace_stack.dynamic
-    return jax.core.get_opaque_trace_state(convention="nnx")
+    return get_opaque_trace_state(convention="nnx")
 
 
 class StateJaxTracer(PrettyRepr):

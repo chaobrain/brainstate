@@ -22,7 +22,7 @@ from typing import Any, Callable, Dict, Optional, Tuple, Union, TypeVar
 import jax
 from jax._src import source_info_util
 
-from brainstate._compatible_import import Device, make_iota, to_elt, BatchTracer, BatchTrace
+from brainstate._compatible_import import Device, make_iota, to_elt, BatchTracer, BatchTrace, trace_ctx
 from brainstate._error import BatchAxisError
 from brainstate._state import State, StateTraceStack, NonBatchState, catch_new_states
 from brainstate._utils import set_module_as
@@ -383,7 +383,7 @@ class StatefulMapping:
             )
 
         # state trace
-        trace = jax.core.trace_ctx.trace
+        trace = trace_ctx.trace
         assert isinstance(trace, BatchTrace), f"Expected to be called within a BatchTrace context, but got {trace}"
         dim_to_in_states = defaultdict(list)
         state_trace = StateTraceStack(name=self.name)

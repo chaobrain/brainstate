@@ -62,7 +62,7 @@ import jax.numpy as jnp
 from jax._src import source_info_util
 from jax.api_util import shaped_abstractify
 
-from brainstate._compatible_import import ClosedJaxpr, safe_map, wraps
+from brainstate._compatible_import import ClosedJaxpr, concrete_or_error, safe_map, trace_ctx, wraps
 from brainstate._state import State, StateTraceStack
 from brainstate._utils import set_module_as
 from brainstate.typing import PyTree
@@ -117,7 +117,7 @@ def _ensure_str(x: str) -> str:
 
 def _ensure_index_tuple(x: Any) -> tuple[int, ...]:
     """Convert x to a tuple of indices."""
-    x = jax.core.concrete_or_error(None, x, "expected a static index or sequence of indices.")
+    x = concrete_or_error(None, x, "expected a static index or sequence of indices.")
     try:
         return (operator.index(x),)
     except TypeError:
@@ -743,7 +743,7 @@ class StatefulFunction(PrettyObject):
         Must be called inside a ``jax.make_jaxpr()`` tracing context.
         Requires JAX >= 0.6.0.
         """
-        trace = jax.core.trace_ctx.trace
+        trace = trace_ctx.trace
 
         def wrapper(x):
             if jax.__version_info__ < (0, 6, 1):

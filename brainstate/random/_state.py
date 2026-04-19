@@ -23,9 +23,10 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 import numpy as np
-from jax import lax, core
+from jax import lax
 
 from brainstate import environ
+from brainstate._compatible_import import Tracer, concrete_or_error
 from brainstate._state import State
 from brainstate.transform._jit_named_scope import jit_named_scope
 from brainstate.typing import DTypeLike, Size, SeedOrKey
@@ -101,7 +102,7 @@ class RandomState(State):
 
         if (
             isinstance(self._value, jax.Array) and
-            not isinstance(self._value, jax.core.Tracer) and
+            not isinstance(self._value, Tracer) and
             self._value.is_deleted()
         ):
             self.seed()
@@ -918,7 +919,7 @@ class RandomState(State):
         if check_valid:
             from brainstate.transform._error_if import jit_error_if
             jit_error_if(jnp.sum(pvals[:-1]) > 1., self._check_p2, pvals)
-        if isinstance(n, jax.core.Tracer):
+        if isinstance(n, Tracer):
             raise ValueError("The total count parameter `n` should not be a jax abstract array.")
         size = _size2shape(size)
         n_max = int(np.max(jax.device_get(n)))
@@ -1231,7 +1232,7 @@ class RandomState(State):
         key = self.__get_key(key)
         size = _size2shape(size)
         _check_shape("orthogonal", size)
-        n = core.concrete_or_error(index, n, "The error occurred in jax.random.orthogonal()")
+        n = concrete_or_error(index, n, "The error occurred in jax.random.orthogonal()")
         z = jr.normal(key, size + (n, n), dtype=dtype)
         q, r = jnp.linalg.qr(z)
         d = jnp.diagonal(r, 0, -2, -1)

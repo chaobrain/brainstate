@@ -22,7 +22,7 @@ import jax.numpy as jnp
 from jax._src import traceback_util as _traceback_util
 from jax.extend import source_info_util
 
-from brainstate._compatible_import import DropVar, Literal, ClosedJaxpr, is_jit_primitive
+from brainstate._compatible_import import DropVar, Literal, ClosedJaxpr, Tracer, is_jit_primitive
 from ._conditions import cond
 from ._make_jaxpr import StatefulFunction
 from ._unvmap import unvmap
@@ -619,7 +619,7 @@ class DebugNan:
         flat_args = self._build_flat_args()
         pred = unvmap(has_nan, op='any')
 
-        if isinstance(pred, jax.core.Tracer):
+        if isinstance(pred, Tracer):
             # Inside JIT: Python code won't re-run at execution time, so we
             # must raise inside the device callback.
             def _do_check():
