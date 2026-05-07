@@ -235,3 +235,8 @@ cython_debug/
 /brainstate/experimental/instruction.md
 /examples/data/
 /brainstate/experimental/neuroir/try_model.py
+
+# brainx-sphinx-header build artifacts
+docs/_brand/
+docs/_static/css/brainx-header.css
+docs/_static/js/brainx-header.js

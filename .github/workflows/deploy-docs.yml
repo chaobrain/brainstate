@@ -1,0 +1,117 @@
+name: Deploy Docs
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-docs-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DEPLOY_PATH: /var/www/brainx.chaobrain.com.pkgs/brainstate
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-doc.txt
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pandoc
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install -r requirements.txt
+          python -m pip install -r requirements-doc.txt
+          python -m pip install .
+
+      - name: Build documentation
+        env:
+          BRAINX_HEADER_TTL: "0"
+        run: |
+          sphinx-build -b html docs docs/_build/html
+          test -f docs/_build/html/index.html
+
+      - name: Upload documentation artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: docs-html
+          path: docs/_build/html/
+          if-no-files-found: error
+
+      - name: Create release id
+        id: release
+        run: echo "id=$(date -u +%Y%m%d%H%M%S)-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare remote release
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host:     ${{ secrets.DEPLOY_HOST }}
+          port:     ${{ secrets.DEPLOY_PORT }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key:      ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            set -e
+            base="${{ env.DEPLOY_PATH }}"
+            release="$base/releases/${{ steps.release.outputs.id }}"
+            mkdir -p "$base/releases"
+            rm -rf "$release"
+            mkdir -p "$release"
+
+      - name: Upload docs to release
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host:     ${{ secrets.DEPLOY_HOST }}
+          port:     ${{ secrets.DEPLOY_PORT }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key:      ${{ secrets.DEPLOY_SSH_KEY }}
+          source:   "docs/_build/html/*"
+          target:   ${{ env.DEPLOY_PATH }}/releases/${{ steps.release.outputs.id }}
+          strip_components: 3
+
+      - name: Activate release
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host:     ${{ secrets.DEPLOY_HOST }}
+          port:     ${{ secrets.DEPLOY_PORT }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key:      ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            set -e
+            base="${{ env.DEPLOY_PATH }}"
+            release="$base/releases/${{ steps.release.outputs.id }}"
+            test -f "$release/index.html"
+            ln -sfn "$release" "$base/current.next"
+            mv -Tf "$base/current.next" "$base/current"
+            current="$(readlink -f "$base/current")"
+            find "$base/releases" -mindepth 1 -maxdepth 1 -type d \
+              ! -samefile "$current" \
+              -exec rm -rf {} +
+
+      - name: Reload nginx (optional)
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host:     ${{ secrets.DEPLOY_HOST }}
+          port:     ${{ secrets.DEPLOY_PORT }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key:      ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            nginx -t && systemctl reload nginx || true

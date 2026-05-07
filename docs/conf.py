@@ -62,7 +62,10 @@ extensions = [
     'sphinx_thebe',
     'sphinx_design',
     'sphinx_math_dollar',
+    'brainx_sphinx_header',
 ]
+
+html_baseurl = 'https://brainx.chaobrain.com/brainstate/'
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
