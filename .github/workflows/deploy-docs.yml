@@ -62,7 +62,7 @@ jobs:
         run: echo "id=$(date -u +%Y%m%d%H%M%S)-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
       - name: Prepare remote release
-        uses: appleboy/ssh-action@v1.2.0
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host:     ${{ secrets.DEPLOY_HOST }}
           port:     ${{ secrets.DEPLOY_PORT }}
@@ -88,7 +88,7 @@ jobs:
           strip_components: 3
 
       - name: Activate release
-        uses: appleboy/ssh-action@v1.2.0
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host:     ${{ secrets.DEPLOY_HOST }}
           port:     ${{ secrets.DEPLOY_PORT }}
@@ -107,7 +107,7 @@ jobs:
               -exec rm -rf {} +
 
       - name: Reload nginx (optional)
-        uses: appleboy/ssh-action@v1.2.0
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host:     ${{ secrets.DEPLOY_HOST }}
           port:     ${{ secrets.DEPLOY_PORT }}
