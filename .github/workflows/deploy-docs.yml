@@ -77,7 +77,7 @@ jobs:
             mkdir -p "$release"
 
       - name: Upload docs to release
-        uses: appleboy/scp-action@v0.1.7
+        uses: appleboy/scp-action@v1.0.0
         with:
           host:     ${{ secrets.DEPLOY_HOST }}
           port:     ${{ secrets.DEPLOY_PORT }}
