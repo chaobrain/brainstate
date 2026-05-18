@@ -15,4 +15,4 @@ sphinx-remove-toctrees
 jupyter-sphinx>=0.5.3
 sphinx-design
 sphinx_math_dollar
-brainx-sphinx-header>=0.3.0
+brainx-sphinx-header>=0.4.0
