@@ -1,8 +1,6 @@
 name: Deploy Docs
 
 on:
-  push:
-    branches: [main]
   release:
     types: [released]
   workflow_dispatch:
@@ -12,7 +10,7 @@ permissions:
 
 concurrency:
   group: deploy-docs-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'push' }}
+  cancel-in-progress: false
 
 env:
   DEPLOY_PATH: /var/www/brainx.chaobrain.com.pkgs/brainstate
@@ -61,7 +59,6 @@ jobs:
 
   deploy:
     needs: build
-    if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - name: Download documentation artifact
