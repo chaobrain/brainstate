@@ -464,12 +464,12 @@ class TestHiddenTreeState(unittest.TestCase):
     def test_hidden_tree_state_set_value_dict(self):
         """Test setting values with dict."""
         value = {
-            'v': np.random.randn(10, 10) * u.mV,
-            'i': np.random.randn(10, 10) * u.mA,
+            'v': brainstate.random.randn(10, 10) * u.mV,
+            'i': brainstate.random.randn(10, 10) * u.mA,
         }
         state = brainstate.HiddenTreeState(value)
 
-        new_v = np.ones((10, 10)) * u.mV
+        new_v = jnp.ones((10, 10)) * u.mV
         state.set_value({'v': new_v})
 
         retrieved = state.get_value('v')
@@ -478,14 +478,14 @@ class TestHiddenTreeState(unittest.TestCase):
     def test_hidden_tree_state_set_value_list(self):
         """Test setting values with list."""
         value = [
-            np.random.randn(10, 10) * u.mV,
-            np.random.randn(10, 10) * u.mA,
+            brainstate.random.randn(10, 10) * u.mV,
+            brainstate.random.randn(10, 10) * u.mA,
         ]
         state = brainstate.HiddenTreeState(value)
 
         new_vals = [
-            np.ones((10, 10)) * u.mV,
-            np.zeros((10, 10)) * u.mA,
+            jnp.ones((10, 10)) * u.mV,
+            jnp.zeros((10, 10)) * u.mA,
         ]
         state.set_value(new_vals)
 
@@ -2007,9 +2007,9 @@ class TestIntegrationScenarios(unittest.TestCase):
         """Test eligibility trace-based learning with HiddenTreeState."""
         # Create multiple eligibility traces with different units
         traces = brainstate.HiddenTreeState({
-            'v': np.random.randn(10, 10) * u.mV,
-            'u': np.random.randn(10, 10) * u.mV,
-            'g': np.random.randn(10, 10) * u.mS,
+            'v': brainstate.random.randn(10, 10) * u.mV,
+            'u': brainstate.random.randn(10, 10) * u.mV,
+            'g': brainstate.random.randn(10, 10) * u.mS,
         })
 
         # Verify structure
@@ -2017,7 +2017,7 @@ class TestIntegrationScenarios(unittest.TestCase):
         self.assertEqual(traces.varshape, (10, 10))
 
         # Update individual traces
-        new_v = np.ones((10, 10)) * u.mV
+        new_v = jnp.ones((10, 10)) * u.mV
         traces.set_value({'v': new_v})
 
         retrieved_v = traces.get_value('v')
