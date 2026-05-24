@@ -104,11 +104,11 @@ myst_enable_extensions = [
 exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
 
 html_theme = "sphinx_book_theme"
-html_logo = "_static/brainstate.png"
+html_logo = "https://brainx.chaobrain.com/images/brainstate.webp"
 html_title = "brainstate"
 html_copy_source = True
 html_sourcelink_suffix = ""
-html_favicon = "_static/brainstate.png"
+html_favicon = "https://brainx.chaobrain.com/images/brainstate.webp"
 html_last_updated_fmt = ""
 
 # Add any paths that contain custom static files (such as style sheets) here,

@@ -4,7 +4,7 @@
 
 
 <p align="center">
-  	<img alt="Header image of brainstate." src="https://raw.githubusercontent.com/chaobrain/brainstate/main/docs/_static/brainstate.png" width=40%>
+  	<img alt="Header image of brainstate." src="https://brainx.chaobrain.com/images/brainstate.webp" width=40%>
 </p> 
 
 
