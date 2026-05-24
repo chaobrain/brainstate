@@ -12,7 +12,7 @@
 <p align="center">
 	<a href="https://pypi.org/project/brainstate/"><img alt="Supported Python Version" src="https://img.shields.io/pypi/pyversions/brainstate"></a>
 	<a href="https://github.com/chaobrain/brainstate/blob/main/LICENSE"><img alt="LICENSE" src="https://img.shields.io/badge/License-Apache%202.0-blue.svg"></a>
-  	<a href='https://brainstate.readthedocs.io/?badge=latest'>
+  	<a href='https://brainx.chaobrain.com/brainstate/'>
         <img src='https://readthedocs.org/projects/brainstate/badge/?version=latest' alt='Documentation Status' />
     </a>
     <a href="https://badge.fury.io/py/brainstate"><img alt="PyPI version" src="https://badge.fury.io/py/brainstate.svg"></a>
@@ -38,12 +38,12 @@ pip install BrainX -U
 
 ## Documentation
 
-The official documentation is hosted on Read the Docs: [https://brainstate.readthedocs.io/](https://brainstate.readthedocs.io/)
+The official documentation is hosted on Read the Docs: [https://brainx.chaobrain.com/brainstate/](https://brainx.chaobrain.com/brainstate/)
 
 
 
 ## See also the ecosystem
 
-``brainstate`` is one part of our brain simulation ecosystem: https://brainmodeling.readthedocs.io/
+``brainstate`` is one part of our brain simulation ecosystem: https://brainx.chaobrain.com/
 
 

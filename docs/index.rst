@@ -73,7 +73,7 @@ Installation
 See also the ecosystem
 ^^^^^^^^^^^^^^^^^^^^^^
 
-``brainstate`` is one part of our `brain simulation ecosystem <https://brainmodeling.readthedocs.io/>`_.
+``brainstate`` is one part of our `brain simulation ecosystem <https://brainx.chaobrain.com/>`_.
 
 
 ----

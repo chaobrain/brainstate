@@ -66,7 +66,7 @@ version = { attr = "brainstate._version.__version__" }
 [project.urls]
 homepage = 'https://github.com/chaobrain/brainstate'
 repository = 'https://github.com/chaobrain/brainstate'
-"Documentation" = "https://brainstate.readthedocs.io/"
+"Documentation" = "https://brainx.chaobrain.com/brainstate/"
 "Source Code" = "https://github.com/chaobrain/brainstate"
 "Bug Tracker" = "https://github.com/chaobrain/brainstate/issues"
 
