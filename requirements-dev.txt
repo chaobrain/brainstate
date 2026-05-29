@@ -9,6 +9,7 @@ brainpy-state
 
 # test requirements
 pytest
+coverage
 absl-py
 
 # type checking

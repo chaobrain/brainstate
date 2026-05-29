@@ -97,6 +97,7 @@ tpu = [
 testing = [
     'absl-py',
     'pytest',
+    'coverage',
     'jax>=0.6.0',
     'brainunit',
     'brainevent',
@@ -143,3 +144,26 @@ disallow_untyped_defs = true
 disallow_incomplete_defs = true
 warn_return_any = true
 warn_unused_ignores = true
+
+[tool.pytest.ini_options]
+testpaths = ["brainstate"]
+addopts = "-ra"
+markers = [
+    "slow: marks tests as slow (deselected by default; run with --run-slow)",
+]
+
+[tool.coverage.run]
+source = ["brainstate"]
+branch = true
+omit = [
+    "*/*_test.py",
+    "*/test_*.py",
+    "brainstate/_version.py",
+    "brainstate/conftest.py",
+    "brainstate/_testing.py",
+    "brainstate/experimental/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false

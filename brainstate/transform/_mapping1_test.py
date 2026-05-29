@@ -49,6 +49,10 @@ import brainstate as bst
 from brainstate.transform._mapping1 import (
     vmap,
     vmap_new_states,
+)
+# These private helpers moved to the shared engine module when vmap/vmap2 were
+# unified (#156); import them from their current home so collection succeeds.
+from brainstate.transform._mapping_core import (
     _flatten_in_out_states,
     _remove_axis,
     _get_batch_size,
