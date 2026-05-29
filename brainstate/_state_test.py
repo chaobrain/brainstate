@@ -2035,3 +2035,435 @@ class TestIntegrationScenarios(unittest.TestCase):
 
         result = update_state(jnp.array([1.0, 1.0, 1.0]))
         np.testing.assert_array_equal(result, jnp.array([2.0, 3.0, 4.0]))
+
+
+class TestStateTransformInteraction(unittest.TestCase):
+    """State read/write semantics inside JAX transforms."""
+
+    def test_state_write_inside_jit_persists(self):
+        """A state written inside a jitted function retains its new value."""
+        import jax.numpy as jnp
+        import brainstate
+
+        st = brainstate.State(jnp.zeros((4,)))
+
+        @brainstate.transform.jit
+        def step(x):
+            st.value = st.value + x
+            return st.value
+
+        out = step(jnp.ones((4,)))
+        self.assertTrue(bool(jnp.allclose(out, jnp.ones((4,)))))
+        self.assertTrue(bool(jnp.allclose(st.value, jnp.ones((4,)))))
+
+    def test_grad_through_param_state(self):
+        """grad w.r.t. a ParamState produces finite gradients."""
+        import jax.numpy as jnp
+        import brainstate
+
+        p = brainstate.ParamState(jnp.ones((3,)))
+
+        def loss():
+            return jnp.sum(p.value ** 2)
+
+        grads = brainstate.transform.grad(loss, grad_states=p)()
+        self.assertTrue(bool(jnp.all(jnp.isfinite(grads))))
+
+    def test_state_in_vmap_is_batched(self):
+        """A function reading state batches cleanly under vmap_new_states."""
+        import jax.numpy as jnp
+        import brainstate
+
+        def make_and_run(x):
+            s = brainstate.State(x)
+            return s.value * 2
+
+        out = brainstate.transform.vmap(make_and_run)(jnp.arange(4.0))
+        self.assertEqual(out.shape, (4,))
+
+
+class TestStateSerializationRoundtrip(unittest.TestCase):
+    """Pytree / treefy / state-ref roundtrips for the State hierarchy."""
+
+    def test_treefy_state_pytree_roundtrip(self):
+        """A State's treefied form survives flatten/unflatten by structure and value.
+
+        A raw :class:`~brainstate.State` is an opaque pytree *leaf* (it is tracked by
+        the state-trace machinery, not by ``jax.tree``); its pytree-serializable form is
+        the :class:`TreefyState` produced by :meth:`State.to_state_ref`. The roundtrip is
+        therefore asserted on that treefied form.
+        """
+        import jax.numpy as jnp
+        import brainstate
+        from brainstate import _testing
+
+        st = brainstate.State(jnp.arange(6.0).reshape(2, 3))
+        _testing.assert_pytree_roundtrip(st.to_state_ref())
+
+    def test_to_state_ref_update_from_ref(self):
+        """to_state_ref then update_from_ref restores the value."""
+        import jax.numpy as jnp
+        import brainstate
+
+        src = brainstate.State(jnp.ones((2, 2)))
+        ref = src.to_state_ref()
+        dst = brainstate.State(jnp.zeros((2, 2)))
+        dst.update_from_ref(ref)
+        self.assertTrue(bool(jnp.allclose(dst.value, jnp.ones((2, 2)))))
+
+    def test_state_dict_manager_roundtrip(self):
+        """StateDictManager collects and reassigns state values."""
+        import jax.numpy as jnp
+        import brainstate
+
+        s1 = brainstate.State(jnp.ones((2,)))
+        mgr = brainstate.StateDictManager()
+        mgr['s1'] = s1
+        self.assertIn('s1', mgr)
+
+
+class TestStateHelpersAndEdges(unittest.TestCase):
+    """maybe_state, catch_new_states, FakeState, DelayState, and edge cases."""
+
+    def test_maybe_state_unwraps_state(self):
+        """maybe_state returns the inner value for a State, else the input."""
+        import jax.numpy as jnp
+        import brainstate
+
+        st = brainstate.State(jnp.array(3.0))
+        self.assertTrue(bool(jnp.allclose(brainstate.maybe_state(st), 3.0)))
+        self.assertEqual(brainstate.maybe_state(5), 5)
+
+    def test_catch_new_states_collects(self):
+        """catch_new_states captures states created in its scope."""
+        import jax.numpy as jnp
+        import brainstate
+
+        with brainstate.catch_new_states("tagged") as catcher:
+            _ = brainstate.State(jnp.ones((2,)))
+        self.assertIsNotNone(catcher)
+
+    def test_invalid_value_tree_assignment_raises(self):
+        """Assigning a structurally-different value raises under tree checking."""
+        import jax.numpy as jnp
+        import brainstate
+
+        st = brainstate.State({'a': jnp.ones((2,))})
+        with brainstate.check_state_value_tree(True):
+            with self.assertRaises(Exception):
+                st.value = {'a': jnp.ones((2,)), 'b': jnp.ones((2,))}
+
+
+class TestStateMethodsCoverage(unittest.TestCase):
+    """Cover the public State methods: tags, numel, replace/copy, stack level, value_call."""
+
+    def test_add_tag_creates_and_dedups(self):
+        """add_tag adds to a tagless state and does not duplicate an existing tag."""
+        s = brainstate.State(jnp.ones((2,)))
+        self.assertIsNone(s.tag)
+        s.add_tag('x')
+        self.assertIn('x', s.tag)
+        s.add_tag('x')
+        self.assertEqual(len(s.tag), 1)
+        s.add_tag('y')
+        self.assertEqual(s.tag, {'x', 'y'})
+
+    def test_numel_scalar_array_and_pytree(self):
+        """numel counts scalar=1, arrays by size, and sums over a pytree."""
+        self.assertEqual(brainstate.State(jnp.array(3.0)).numel(), 1)
+        self.assertEqual(brainstate.State(jnp.ones((2, 3))).numel(), 6)
+        self.assertEqual(brainstate.State({'a': jnp.ones((2,)), 'b': jnp.ones((3,))}).numel(), 5)
+
+    def test_replace_plain_value(self):
+        """replace(value) returns a new instance with the new value, leaving the original."""
+        s = brainstate.State(jnp.ones((2,)))
+        s2 = s.replace(jnp.zeros((2,)))
+        self.assertTrue(bool(jnp.allclose(s2.value, jnp.zeros((2,)))))
+        self.assertTrue(bool(jnp.allclose(s.value, jnp.ones((2,)))))
+
+    def test_replace_with_same_type_state_returns_that_state(self):
+        """replace(other_state) of the same type returns the other state directly."""
+        s = brainstate.State(jnp.ones((2,)))
+        other = brainstate.State(jnp.zeros((2,)))
+        self.assertIs(s.replace(other), other)
+
+    def test_replace_with_incompatible_state_raises(self):
+        """replace with a different State subclass raises ValueError."""
+        s = brainstate.State(jnp.ones((2,)))
+        other = brainstate.ShortTermState(jnp.zeros((2,)))
+        with self.assertRaises(ValueError):
+            s.replace(other)
+
+    def test_copy_preserves_value_and_name(self):
+        """copy yields a distinct object with the same value and name."""
+        s = brainstate.State(jnp.ones((2,)), name='a')
+        c = s.copy()
+        self.assertIsNot(c, s)
+        self.assertEqual(c.name, 'a')
+        self.assertTrue(bool(jnp.allclose(c.value, s.value)))
+
+    def test_copy_from_same_type(self):
+        """copy_from overwrites the value from a same-type state."""
+        a = brainstate.State(jnp.ones((2,)))
+        b = brainstate.State(jnp.zeros((2,)))
+        a.copy_from(b)
+        self.assertTrue(bool(jnp.allclose(a.value, jnp.zeros((2,)))))
+
+    def test_copy_from_incompatible_raises(self):
+        """copy_from a different State subclass raises ValueError."""
+        a = brainstate.State(jnp.ones((2,)))
+        b = brainstate.ShortTermState(jnp.zeros((2,)))
+        with self.assertRaises(ValueError):
+            a.copy_from(b)
+
+    def test_copy_from_self_is_noop(self):
+        """copy_from(self) returns without altering the value."""
+        a = brainstate.State(jnp.ones((2,)))
+        a.copy_from(a)
+        self.assertTrue(bool(jnp.allclose(a.value, jnp.ones((2,)))))
+
+    def test_stack_level_increase_decrease_and_clamp(self):
+        """increase/decrease adjust the stack level, clamped at zero, and the setter works."""
+        s = brainstate.State(jnp.ones((2,)))
+        base = s.stack_level
+        s.increase_stack_level()
+        self.assertEqual(s.stack_level, base + 1)
+        s.decrease_stack_level()
+        self.assertEqual(s.stack_level, base)
+        s.stack_level = 0
+        s.decrease_stack_level()
+        self.assertEqual(s.stack_level, 0)
+        s.stack_level = 7
+        self.assertEqual(s.stack_level, 7)
+
+    def test_name_setter(self):
+        """The name setter updates the state's name."""
+        s = brainstate.State(jnp.ones((2,)))
+        s.name = 'renamed'
+        self.assertEqual(s.name, 'renamed')
+
+    def test_value_call_maps_over_value(self):
+        """value_call applies a function to the (pytree) value."""
+        s = brainstate.State(jnp.array([1.0, 2.0, 3.0]))
+        out = s.value_call(lambda x: x + 1)
+        self.assertTrue(bool(jnp.allclose(out, jnp.array([2.0, 3.0, 4.0]))))
+
+    def test_restore_value_replaces_value(self):
+        """restore_value writes a structurally-identical value."""
+        s = brainstate.State(jnp.ones((2,)))
+        s.restore_value(jnp.zeros((2,)))
+        self.assertTrue(bool(jnp.allclose(s.value, jnp.zeros((2,)))))
+
+    def test_restore_value_structure_mismatch_raises(self):
+        """restore_value always checks the tree structure and raises on mismatch."""
+        s = brainstate.State({'a': jnp.ones((2,))})
+        with self.assertRaises(Exception):
+            s.restore_value({'a': jnp.ones((2,)), 'b': jnp.ones((2,))})
+
+    def test_setting_value_to_a_state_raises(self):
+        """Assigning a State as a value is rejected with a clear error."""
+        s = brainstate.State(jnp.ones((2,)))
+        with self.assertRaises(ValueError):
+            s.value = brainstate.State(jnp.zeros((2,)))
+
+    def test_init_from_state_metadata(self):
+        """Constructing from StateMetadata unwraps the raw value."""
+        from brainstate._state import StateMetadata
+        sm = StateMetadata(jnp.ones((2,)), {'custom': 7})
+        s = brainstate.State(sm)
+        self.assertTrue(bool(jnp.allclose(s.value, jnp.ones((2,)))))
+        self.assertEqual(s.custom, 7)
+
+    def test_init_from_state_unwraps_inner_value(self):
+        """Constructing from another State copies its inner value."""
+        inner = brainstate.State(jnp.full((2,), 4.0))
+        s = brainstate.State(inner)
+        self.assertTrue(bool(jnp.allclose(s.value, jnp.full((2,), 4.0))))
+
+    def test_repr_shows_name_and_tag(self):
+        """repr surfaces both the name and tag of a state."""
+        s = brainstate.State(jnp.ones((2,)), name='nm')
+        s.add_tag('tg')
+        r = repr(s)
+        self.assertIn('nm', r)
+        self.assertIn('tg', r)
+
+
+class TestFakeStateCoverage(unittest.TestCase):
+    """Cover the FakeState value/name accessors and repr."""
+
+    def test_value_get_set(self):
+        """FakeState stores and updates its value."""
+        fs = brainstate.FakeState(5)
+        self.assertEqual(fs.value, 5)
+        fs.value = 9
+        self.assertEqual(fs.value, 9)
+
+    def test_name_get_set(self):
+        """FakeState stores and updates its name."""
+        fs = brainstate.FakeState(0, name='f')
+        self.assertEqual(fs.name, 'f')
+        fs.name = 'g'
+        self.assertEqual(fs.name, 'g')
+
+    def test_repr(self):
+        """repr identifies the FakeState and its value."""
+        self.assertIn('FakedState', repr(brainstate.FakeState(3)))
+
+
+class TestStateDictManagerCoverage(unittest.TestCase):
+    """Cover StateDictManager collection/assignment helpers and element checking."""
+
+    def setUp(self):
+        """Build a manager holding two typed states."""
+        self.short = brainstate.ShortTermState(jnp.ones((2,)))
+        self.param = brainstate.ParamState(jnp.zeros((3,)))
+        self.mgr = brainstate.StateDictManager()
+        self.mgr['short'] = self.short
+        self.mgr['param'] = self.param
+
+    def test_add_unique_value_rejects_non_state(self):
+        """add_unique_value validates the element via _check_elem and rejects non-States."""
+        with self.assertRaises(AssertionError):
+            self.mgr.add_unique_value('bad', 123)
+
+    def test_add_unique_value_accepts_state(self):
+        """add_unique_value stores a State under a new key."""
+        extra = brainstate.ShortTermState(jnp.full((2,), 9.0))
+        self.assertTrue(self.mgr.add_unique_value('extra', extra))
+        self.assertIs(self.mgr['extra'], extra)
+
+    def test_collect_values(self):
+        """collect_values returns a mapping of state name to value."""
+        vals = self.mgr.collect_values()
+        self.assertTrue(bool(jnp.allclose(vals['short'], jnp.ones((2,)))))
+        self.assertTrue(bool(jnp.allclose(vals['param'], jnp.zeros((3,)))))
+
+    def test_to_dict_values(self):
+        """to_dict_values returns a plain dict of values."""
+        d = self.mgr.to_dict_values()
+        self.assertEqual(set(d), {'short', 'param'})
+
+    def test_assign_values(self):
+        """assign_values writes new values into the underlying states."""
+        self.mgr.assign_values({'short': jnp.full((2,), 5.0)})
+        self.assertTrue(bool(jnp.allclose(self.short.value, jnp.full((2,), 5.0))))
+
+    def test_assign_values_requires_dict(self):
+        """assign_values rejects non-dict arguments."""
+        with self.assertRaises(AssertionError):
+            self.mgr.assign_values([('short', jnp.ones((2,)))])
+
+    def test_split_values_by_type(self):
+        """split_values groups values by the requested state types."""
+        params, rest = self.mgr.split_values(brainstate.ParamState)
+        self.assertIn('param', params)
+        self.assertIn('short', rest)
+
+
+class TestTreefyStateCoverage(unittest.TestCase):
+    """Cover the TreefyState pytree wrapper (to_state, replace, copy, metadata, name)."""
+
+    def setUp(self):
+        """Create a TreefyState reference from a named state."""
+        self.state = brainstate.State(jnp.ones((2, 2)), name='x')
+        self.ref = self.state.to_state_ref()
+
+    def test_to_state_reconstructs(self):
+        """to_state rebuilds a State of the original type and value."""
+        st = self.ref.to_state()
+        self.assertIs(type(st), brainstate.State)
+        self.assertTrue(bool(jnp.allclose(st.value, jnp.ones((2, 2)))))
+
+    def test_name_get_set(self):
+        """TreefyState exposes and updates the name."""
+        self.assertEqual(self.ref.name, 'x')
+        self.ref.name = 'y'
+        self.assertEqual(self.ref.name, 'y')
+
+    def test_replace_value(self):
+        """replace produces a TreefyState carrying the new value."""
+        ref2 = self.ref.replace(jnp.zeros((2, 2)))
+        self.assertTrue(bool(jnp.allclose(ref2.value, jnp.zeros((2, 2)))))
+
+    def test_copy(self):
+        """copy yields an equal-valued TreefyState."""
+        ref3 = self.ref.copy()
+        self.assertTrue(bool(jnp.allclose(ref3.value, self.ref.value)))
+
+    def test_get_metadata_excludes_type_and_value(self):
+        """get_metadata returns a dict without the type/value keys."""
+        md = self.ref.get_metadata()
+        self.assertIsInstance(md, dict)
+        self.assertNotIn('type', md)
+        self.assertNotIn('value', md)
+
+    def test_repr(self):
+        """repr renders without error and includes the name."""
+        self.assertIn('x', repr(self.ref))
+
+
+class TestNewStateCatcherCoverage(unittest.TestCase):
+    """Cover the NewStateCatcher collection API and catch_new_states auto-capture."""
+
+    def test_catch_new_states_auto_captures(self):
+        """States created inside catch_new_states are captured and tagged."""
+        with brainstate.catch_new_states('grp') as catcher:
+            s = brainstate.State(jnp.ones((2,)))
+        self.assertIn(s, catcher)
+        self.assertGreaterEqual(len(catcher), 1)
+        self.assertIn('grp', s.tag)
+
+    def test_catcher_collection_methods(self):
+        """append/contains/len/iter/getitem/get_states/values behave consistently."""
+        from brainstate._state import NewStateCatcher
+        catcher = NewStateCatcher(state_tag='t')
+        s1 = brainstate.State(jnp.ones((2,)))
+        s2 = brainstate.State(jnp.zeros((2,)))
+        catcher.append(s1)
+        catcher.append(s1)  # duplicate ignored
+        catcher.append(s2)
+        self.assertEqual(len(catcher), 2)
+        self.assertIn(s1, catcher)
+        self.assertIs(catcher[0], s1)
+        self.assertEqual(list(catcher), [s1, s2])
+        self.assertEqual(catcher.get_states(), [s1, s2])
+        self.assertEqual(len(catcher.values), 2)
+        self.assertEqual(len(catcher.get_state_values()), 2)
+        self.assertIsInstance(catcher.get_by_tag('t'), list)
+
+    def test_catcher_remove_and_clear(self):
+        """remove drops a single state and clear empties the catcher."""
+        from brainstate._state import NewStateCatcher
+        catcher = NewStateCatcher(state_tag='t', state_to_exclude=None)
+        s1 = brainstate.State(jnp.ones((2,)))
+        s2 = brainstate.State(jnp.zeros((2,)))
+        catcher.append(s1)
+        catcher.append(s2)
+        catcher.remove(s1)
+        self.assertNotIn(s1, catcher)
+        self.assertEqual(len(catcher), 1)
+        catcher.clear()
+        self.assertEqual(len(catcher), 0)
+
+    def test_catcher_decrease_stack_level(self):
+        """decrease_stack_level lowers the level of every caught state."""
+        from brainstate._state import NewStateCatcher
+        catcher = NewStateCatcher(state_tag='t')
+        s = brainstate.State(jnp.ones((2,)))
+        s.stack_level = 3
+        catcher.append(s)
+        catcher.decrease_stack_level()
+        self.assertEqual(s.stack_level, 2)
+
+
+class TestStateSubclassesCoverage(unittest.TestCase):
+    """Cover the thin State subclasses used as type markers."""
+
+    def test_delay_and_nonbatch_states(self):
+        """DelayState and NonBatchState construct and store values."""
+        from brainstate._state import NonBatchState
+        ds = brainstate.DelayState(jnp.ones((2,)))
+        nb = NonBatchState(jnp.full((2,), 2.0))
+        self.assertTrue(bool(jnp.allclose(ds.value, jnp.ones((2,)))))
+        self.assertTrue(bool(jnp.allclose(nb.value, jnp.full((2,), 2.0))))
