@@ -71,6 +71,9 @@ from ._loop_no_collection import (
 from ._loop_collect_return import (
     scan, checkpointed_scan, for_loop, checkpointed_for_loop,
 )
+from ._associative_scan import (
+    associative_scan, linear_recurrence,
+)
 
 # Utilities
 from ._error_if import (
@@ -155,6 +158,8 @@ __all__ = [
     'checkpointed_scan',
     'for_loop',
     'checkpointed_for_loop',
+    'associative_scan',
+    'linear_recurrence',
 
     # Utilities
     'jit_error_if',
