@@ -1013,5 +1013,94 @@ class TestJointTy:
         print(f'Same? {result3 == result4}')
 
 
+class TestMixinCoverage(unittest.TestCase):
+    """Cover ParamDescriber repr/instancecheck, type subscripts, and JointMode attrs."""
+
+    def test_param_describer_repr(self):
+        """ParamDescriber repr names the described class and its parameters."""
+        class Net(brainstate.mixin.ParamDesc):
+            def __init__(self, size, lr=0.01):
+                self.size = size
+                self.lr = lr
+
+        desc = Net.desc(100, lr=0.001)
+        r = repr(desc)
+        self.assertIn('ParamDescriber', r)
+        self.assertIn('Net', r)
+
+    def test_param_describer_instancecheck_branches(self):
+        """__instancecheck__ accepts compatible describers and rejects others."""
+        class Base(brainstate.mixin.ParamDesc):
+            def __init__(self, n=0):
+                self.n = n
+
+        class Sub(Base):
+            pass
+
+        class Other(brainstate.mixin.ParamDesc):
+            def __init__(self):
+                pass
+
+        base_desc = Base.desc()
+        sub_desc = Sub.desc()
+        other_desc = Other.desc()
+        # Non-describer instance -> False
+        self.assertFalse(base_desc.__instancecheck__(123))
+        # Describer of an unrelated class -> False
+        self.assertFalse(base_desc.__instancecheck__(other_desc))
+        # Describer of a subclass -> True
+        self.assertTrue(base_desc.__instancecheck__(sub_desc))
+
+    def test_param_describer_init_alias(self):
+        """ParamDescriber.init is an alias for __call__."""
+        class Net(brainstate.mixin.ParamDesc):
+            def __init__(self, size):
+                self.size = size
+
+        desc = Net.desc(7)
+        self.assertEqual(desc.init().size, 7)
+
+    def test_is_not_implemented(self):
+        """is_not_implemented detects functions marked by the not_implemented decorator."""
+        @brainstate.mixin.not_implemented
+        def stub():
+            pass
+
+        self.assertTrue(brainstate.mixin.is_not_implemented(stub))
+        self.assertFalse(brainstate.mixin.is_not_implemented(lambda: None))
+        with self.assertRaises(NotImplementedError):
+            stub()
+
+    def test_joint_types_single_item_subscript(self):
+        """JointTypes with a single type returns that type directly."""
+        class A:
+            pass
+
+        self.assertIs(brainstate.mixin.JointTypes[A], A)
+
+    def test_one_of_types_single_and_duplicate(self):
+        """OneOfTypes collapses a single type and de-duplicates repeated types."""
+        class A:
+            pass
+
+        self.assertIs(brainstate.mixin.OneOfTypes[A], A)
+        # Duplicate type is de-duplicated; with one unique type the type is returned.
+        self.assertIs(brainstate.mixin.OneOfTypes(A, A), A)
+
+    def test_joint_mode_getattr_found_and_missing(self):
+        """JointMode.__getattr__ forwards to a component mode and raises otherwise."""
+        batching = brainstate.mixin.Batching(batch_size=4, batch_axis=0)
+        training = brainstate.mixin.Training()
+        joint = brainstate.mixin.JointMode(batching, training)
+        self.assertEqual(joint.batch_size, 4)
+        with self.assertRaises(AttributeError):
+            _ = joint.definitely_missing_attr
+
+    def test_module_getattr_unknown_raises(self):
+        """Accessing an unknown attribute on the mixin module raises AttributeError."""
+        with self.assertRaises(AttributeError):
+            _ = brainstate.mixin.ThisNameDoesNotExist
+
+
 if __name__ == '__main__':
     unittest.main()

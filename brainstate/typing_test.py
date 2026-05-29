@@ -27,8 +27,9 @@ from typing import get_type_hints, Union, Any
 import brainunit as u
 import jax
 import jax.numpy as jnp
-import jax.random as jr
 import numpy as np
+
+import brainstate
 
 from brainstate.typing import (
     # Key and path types
@@ -194,10 +195,8 @@ class TestArrayAnnotations(unittest.TestCase):
             return a @ b
 
         # Test with compatible shapes
-        key = jax.random.PRNGKey(42)
-        key1, key2 = jax.random.split(key)
-        a = jax.random.normal(key1, (3, 4))
-        b = jax.random.normal(key2, (4, 5))
+        a = brainstate.random.randn(3, 4)
+        b = brainstate.random.randn(4, 5)
         result = matrix_multiply(a, b)
 
         self.assertEqual(result.shape, (3, 5))
@@ -519,16 +518,14 @@ class TestRandomTypes(unittest.TestCase):
         """Test SeedOrKey type variants."""
 
         def generate_random(key: SeedOrKey, shape: Shape) -> jax.Array:
-            if isinstance(key, int):
-                key = jr.PRNGKey(key)
-            return jr.normal(key, shape)
+            return brainstate.random.RandomState(key).normal(size=shape)
 
         # Integer seed
         result1 = generate_random(42, (3, 4))
         self.assertEqual(result1.shape, (3, 4))
 
         # JAX PRNG key
-        jax_key = jr.PRNGKey(123)
+        jax_key = brainstate.random.split_key()
         result2 = generate_random(jax_key, (5,))
         self.assertEqual(result2.shape, (5,))
 
@@ -541,11 +538,7 @@ class TestRandomTypes(unittest.TestCase):
         """Test that same seeds produce same results."""
 
         def generate_data(seed: SeedOrKey) -> jax.Array:
-            if isinstance(seed, int):
-                key = jr.PRNGKey(seed)
-            else:
-                key = seed
-            return jr.normal(key, (5,))
+            return brainstate.random.RandomState(seed).normal(size=(5,))
 
         # Same integer seeds
         result1 = generate_data(42)
@@ -553,7 +546,7 @@ class TestRandomTypes(unittest.TestCase):
         np.testing.assert_array_equal(result1, result2)
 
         # Same JAX keys
-        key = jr.PRNGKey(999)
+        key = brainstate.random.split_key()
         result3 = generate_data(key)
         result4 = generate_data(key)
         np.testing.assert_array_equal(result3, result4)
@@ -624,11 +617,9 @@ class TestRealWorldUsagePattterns(unittest.TestCase):
 
         # Test with actual arrays
         batch_size, in_features, out_features = 32, 128, 64
-        key = jr.PRNGKey(42)
-        key1, key2, key3 = jr.split(key, 3)
-        x = jr.normal(key1, (batch_size, in_features))
-        weight = jr.normal(key2, (out_features, in_features))
-        bias = jr.normal(key3, (out_features,))
+        x = brainstate.random.randn(batch_size, in_features)
+        weight = brainstate.random.randn(out_features, in_features)
+        bias = brainstate.random.randn(out_features)
 
         result = linear_layer(x, weight, bias)
         self.assertEqual(result.shape, (batch_size, out_features))
@@ -662,10 +653,9 @@ class TestRealWorldUsagePattterns(unittest.TestCase):
         ) -> jax.Array:
             # Convert inputs
             data = jnp.asarray(arrays, dtype=dtype)
-            key = jr.PRNGKey(seed) if isinstance(seed, int) else seed
 
             # Generate noise and add to data
-            noise = jr.normal(key, shape) * 0.1
+            noise = brainstate.random.RandomState(seed).normal(size=shape) * 0.1
             return data.reshape(shape) + noise
 
         # Test with mixed inputs

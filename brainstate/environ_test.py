@@ -1219,5 +1219,201 @@ class TestIntegration(unittest.TestCase):
             self.assertEqual(bst.environ.get('custom_param'), 'test')
 
 
+class TestPrecisionDtypeHelpers(unittest.TestCase):
+    """Cover the precision -> numpy/jax dtype mapping helpers, including error paths."""
+
+    def test_get_uint_variants(self):
+        """_get_uint maps every supported precision and rejects unknown ones."""
+        import numpy as np
+        from brainstate.environ import _get_uint
+        self.assertIs(_get_uint(64), np.uint64)
+        self.assertIs(_get_uint(32), np.uint32)
+        self.assertIs(_get_uint('bf16'), np.uint16)
+        self.assertIs(_get_uint(8), np.uint8)
+        with self.assertRaises(ValueError):
+            _get_uint('nope')
+
+    def test_get_int_variants(self):
+        """_get_int maps every supported precision and rejects unknown ones."""
+        import numpy as np
+        from brainstate.environ import _get_int
+        self.assertIs(_get_int(64), np.int64)
+        self.assertIs(_get_int(16), np.int16)
+        self.assertIs(_get_int(8), np.int8)
+        with self.assertRaises(ValueError):
+            _get_int('nope')
+
+    def test_get_float_variants(self):
+        """_get_float maps fp precisions including bf16/fp8 and rejects unknown ones."""
+        import numpy as np
+        import jax.numpy as jnp
+        from brainstate.environ import _get_float
+        self.assertIs(_get_float(64), np.float64)
+        self.assertIs(_get_float(16), np.float16)
+        self.assertIs(_get_float('bf16'), jnp.bfloat16)
+        self.assertIs(_get_float(8), jnp.float8_e5m2)
+        with self.assertRaises(ValueError):
+            _get_float('nope')
+
+    def test_get_complex_variants(self):
+        """_get_complex maps complex precisions and rejects unknown ones."""
+        import numpy as np
+        from brainstate.environ import _get_complex
+        self.assertIs(_get_complex(64), np.complex128)
+        self.assertIs(_get_complex(16), np.complex64)
+        with self.assertRaises(ValueError):
+            _get_complex('nope')
+
+
+class TestDefaultBehaviorRegistry(unittest.TestCase):
+    """Cover register/unregister/list of default behaviors on an isolated env."""
+
+    def setUp(self):
+        """Use an isolated EnvironmentState so the global registry stays clean."""
+        import brainstate
+        self.env = brainstate.environ.EnvironmentState()
+
+    def test_register_rejects_non_string_key(self):
+        """A non-string key raises TypeError."""
+        import brainstate
+        with self.assertRaises(TypeError):
+            brainstate.environ.register_default_behavior(123, lambda v: None, env=self.env)
+
+    def test_register_rejects_non_callable(self):
+        """A non-callable behavior raises TypeError."""
+        import brainstate
+        with self.assertRaises(TypeError):
+            brainstate.environ.register_default_behavior('k', 5, env=self.env)
+
+    def test_register_duplicate_without_replace_raises(self):
+        """Registering a duplicate key without replace_if_exist raises ValueError."""
+        import brainstate
+        brainstate.environ.register_default_behavior('k', lambda v: None, env=self.env)
+        with self.assertRaises(ValueError):
+            brainstate.environ.register_default_behavior('k', lambda v: None, env=self.env)
+
+    def test_register_replace_and_list_and_unregister(self):
+        """replace_if_exist overrides, list reports the key, unregister removes it."""
+        import brainstate
+        brainstate.environ.register_default_behavior('k', lambda v: None, env=self.env)
+        brainstate.environ.register_default_behavior(
+            'k', lambda v: None, replace_if_exist=True, env=self.env
+        )
+        self.assertIn('k', brainstate.environ.list_registered_behaviors(env=self.env))
+        self.assertTrue(brainstate.environ.unregister_default_behavior('k', env=self.env))
+        self.assertFalse(brainstate.environ.unregister_default_behavior('k', env=self.env))
+        self.assertNotIn('k', brainstate.environ.list_registered_behaviors(env=self.env))
+
+
+class TestEnvironGetEdges(unittest.TestCase):
+    """Cover get() lookup edges on an isolated env."""
+
+    def setUp(self):
+        """Use an isolated EnvironmentState for deterministic lookups."""
+        import brainstate
+        self.env = brainstate.environ.EnvironmentState()
+
+    def test_missing_key_with_description_raises_keyerror(self):
+        """A missing key with a description raises KeyError mentioning the description."""
+        import brainstate
+        with self.assertRaises(KeyError):
+            brainstate.environ.get('absent', desc='the absent knob', env=self.env)
+
+    def test_default_returned_when_missing(self):
+        """A provided default is returned when the key is absent."""
+        import brainstate
+        self.assertEqual(brainstate.environ.get('absent', default=7, env=self.env), 7)
+
+    def test_global_setting_lookup(self):
+        """A value set on the env is retrievable via get()."""
+        import brainstate
+        brainstate.environ.set(my_knob=3, env=self.env)
+        self.assertEqual(brainstate.environ.get('my_knob', env=self.env), 3)
+
+
+class TestEnvironContextCoverage(unittest.TestCase):
+    """Cover context() restricted keys, callback triggering, and restoration."""
+
+    def setUp(self):
+        """Use an isolated EnvironmentState for context manipulation."""
+        import brainstate
+        self.env = brainstate.environ.EnvironmentState()
+
+    def test_context_rejects_platform(self):
+        """context() refuses to set the platform key."""
+        import brainstate
+        with self.assertRaises(ValueError):
+            with brainstate.environ.context(platform='cpu', env=self.env):
+                pass
+
+    def test_context_rejects_host_device_count(self):
+        """context() refuses to set the host_device_count key."""
+        import brainstate
+        with self.assertRaises(ValueError):
+            with brainstate.environ.context(host_device_count=2, env=self.env):
+                pass
+
+    def test_context_precision_on_custom_env(self):
+        """A precision context on a custom env applies and restores the value."""
+        import brainstate
+        brainstate.environ.set(precision=32, env=self.env)
+        with brainstate.environ.context(precision=64, env=self.env):
+            self.assertEqual(brainstate.environ.get('precision', env=self.env), 64)
+        self.assertEqual(brainstate.environ.get('precision', env=self.env), 32)
+
+    def test_per_key_locks_are_reentrant(self):
+        """Per-key locks must be reentrant.
+
+        ``context()`` restoration holds a key's lock while calling ``get()``, which
+        re-acquires the same lock; a non-reentrant lock would deadlock there. This
+        sentinel fails fast (no hang) via a non-blocking second acquire if the lock
+        type ever regresses to a plain ``threading.Lock``.
+        """
+        lock = self.env.locks['some_key']
+        lock.acquire()
+        try:
+            self.assertTrue(
+                lock.acquire(blocking=False),
+                "per-key lock is not reentrant; context() restore would deadlock",
+            )
+            lock.release()
+        finally:
+            lock.release()
+
+    def test_context_triggers_and_restores_callbacks(self):
+        """A registered callback fires on entering and on restoring a context.
+
+        This exercises the restore path that re-acquires the per-key lock via
+        ``get()`` — the path that deadlocks with a non-reentrant lock.
+        """
+        import brainstate
+        calls = []
+        brainstate.environ.set(cb_key='base', env=self.env)
+        brainstate.environ.register_default_behavior(
+            'cb_key', lambda v: calls.append(v), env=self.env
+        )
+        with brainstate.environ.context(cb_key='inner', env=self.env):
+            self.assertEqual(brainstate.environ.get('cb_key', env=self.env), 'inner')
+        self.assertIn('inner', calls)
+        self.assertIn('base', calls)
+
+    def test_context_callback_exceptions_are_warned(self):
+        """Callback exceptions on entry and restoration are downgraded to warnings."""
+        import warnings
+        import brainstate
+
+        def boom(v):
+            raise RuntimeError("callback failure")
+
+        brainstate.environ.set(boom_key='base', env=self.env)
+        brainstate.environ.register_default_behavior('boom_key', boom, env=self.env)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            with brainstate.environ.context(boom_key='inner', env=self.env):
+                pass
+        # The context still exits cleanly despite the failing callback.
+        self.assertEqual(brainstate.environ.get('boom_key', env=self.env), 'base')
+
+
 if __name__ == '__main__':
     unittest.main()
