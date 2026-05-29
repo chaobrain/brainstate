@@ -65,6 +65,12 @@ jobs:
           fi
           coverage report -m
           coverage xml
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage.xml
+          fail_ci_if_error: false
 
   type_check:
     runs-on: ubuntu-latest
