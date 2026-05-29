@@ -282,27 +282,136 @@ unchanged.
 - All four `unexpected_out_state_mapping` values.
 - `pmap2` with `axis_size` > device count → clear error.
 
+**Composition-induced edge cases**
+
+- **Batched predicate** in `cond` / `switch` / `ifelse` under `vmap2`: JAX
+  lowers a batched predicate to a `select`, so *both* branches execute. States
+  written in the not-taken branch must still get correct batch dims via
+  auto-dim inference, and per-lane selection must be correct.
+- **Batched loop condition / bound** in `while_loop` / `bounded_while_loop`
+  under `vmap2`: JAX requires the loop to run until **all** lanes finish (the
+  condition is reduced across the batch). Verify and document this semantics;
+  assert no lane terminates early.
+- State **created inside a `scan`/`for_loop` body** that is itself under
+  `vmap2_new_states`.
+- `RandomState` used **inside a `scan` body inside `vmap2`** — keys must split
+  per batch lane and advance per scan step without lane reuse.
+- Differentiating **through** `vmap2` (`grad(vmap2(f))`) and mapping **over** a
+  gradient (`vmap2(grad(f))`) — both must restore states cleanly and not leak
+  tracers across the transform boundary.
+
 ---
 
 ## 6. Testing plan
 
-- **`_mapping_core_test.py` (new):** axis resolution (filters + instances),
-  discovery pass, cache key shape-awareness, RNG split/advance, robust
-  stack-level unwinding.
-- **`_mapping2_test.py` (rewritten):** remove the `print`-only test; cover each
-  `unexpected_out_state_mapping` value, `state_out_axes`, multi-axis states,
-  `axis_size` inference, `map` batch/remainder, `vmap2_new_states`.
-- **Integration:** batch a small stateful `nn.Module` via `vmap2_new_states`
-  and run it; assert `vmap` shim ≡ `vmap2` on the same workload; assert `vmap`
-  ≡ `jax.vmap` numerically on stateless functions.
-- **Multi-device (`pmap2` / `pmap2_new_states`):** set
-  `os.environ["XLA_FLAGS"] = '--xla_force_host_platform_device_count=8'` at the
-  **top of the test module, before any JAX import**, to run real multi-device
-  execution on a single host.
-- **Compat gate:** `_mapping1_test.py` unchanged + new nested-vmap and
-  cache-invalidation tests.
+Testing is organized into **seven layers**. Every layer uses an explicit
+**correctness oracle** (Python for-loop reference, unmapped baseline, or
+`jax.vmap`/`jax.grad` parity) rather than only shape/smoke checks, and all
+randomness uses `brainstate.random`.
 
-All randomness in tests uses `brainstate.random`.
+### 6.1 Engine unit tests — `_mapping_core_test.py` (new)
+
+- Axis resolution: filters, single instance, collection of instances,
+  `dict[axis → spec]`, bare-value shorthand, conflicting-axis error.
+- Discovery pass: touched-state enumeration; auto-dim detection for written
+  states; broadcast vs batched classification.
+- Cache key: shape-awareness (same args, reshaped closed-over state → re-trace,
+  not corruption); static-arg handling (regression for bug #1).
+- RNG: `split_key(batch_size)` shape, single global advance per call, no key
+  reuse across lanes.
+- Robust stack-level unwinding: `state._level` returns to the captured outer
+  `base` after `*_new_states` (regression for bug #5).
+
+### 6.2 Public-API tests — `_mapping2_test.py` (rewritten)
+
+Remove the `print`-only test. Cover: each `unexpected_out_state_mapping` value
+(`auto`/`raise`/`warn`/`ignore`), `state_out_axes` placements, multi-axis
+states, `axis_size` inference vs. explicit vs. conflict, `map` batch +
+remainder, `vmap2_new_states`, kwargs (broadcast), non-zero `out_axes`,
+empty-message-bug regression (#2).
+
+### 6.3 Integration with `nn`
+
+- Batch a small stateful `nn.Module` via `vmap2_new_states`, then run a forward
+  step; compare to an unmapped per-instance loop.
+- `nn.Map` (`_common.py`) in both `vmap` and `pmap` behaviors.
+- Assert `vmap` shim ≡ `vmap2` on the same stateful workload.
+- Assert `vmap` ≡ `jax.vmap` numerically on stateless functions.
+
+### 6.4 Multi-device — `pmap2` / `pmap2_new_states`
+
+Set `os.environ["XLA_FLAGS"] = '--xla_force_host_platform_device_count=8'` at
+the **top of the test module, before any JAX import**, to run real
+multi-device execution on a single host. Cover sharded params, replicated
+`NonBatchState`, `pmap2_new_states`, and `axis_size` > device-count error.
+
+### 6.5 Transformation-composition matrix (core robustness goal)
+
+Each cell asserts numerical equivalence to a reference and verifies that
+states/RNG are restored cleanly with no tracer leakage across the boundary.
+Where a `vmap` shim equivalent exists, the same case is run through it for
+parity.
+
+**A. `vmap2` × autodiff**
+
+- `vmap2(grad(f))` — per-sample gradients (param read inside); oracle = manual
+  per-example `grad` loop.
+- `grad(vmap2(f))` — differentiate through a batched reduction (sum of batched
+  losses); oracle = `grad` of the explicit summed loss.
+- `vmap2(vector_grad(f))`, `vmap2(jacrev(f))`, `vmap2(jacfwd(f))`,
+  `vmap2(hessian(f))`.
+- `grad` of a function that calls `vmap2` internally (vmap in the forward).
+- Stochastic variant: `RandomState` inside the differentiated + mapped
+  function; gradients finite, keys split per lane.
+
+**B. `vmap2` × control flow** (`brainstate.transform` variants)
+
+- `vmap2(scan(body))` — body reads/writes a `ShortTermState`; batched carry;
+  oracle = per-example scan loop.
+- `vmap2(for_loop(...))`, `vmap2(while_loop(...))`,
+  `vmap2(bounded_while_loop(...))`.
+- Batched `while_loop` condition (runs until all lanes done — assert + document).
+- `scan(vmap2(body))` (the `map` pattern) — state-aware.
+
+**C. `vmap2` × conditionals**
+
+- `vmap2(cond(pred, t, f))` with a **scalar/uniform** predicate (one branch).
+- **Batched** predicate → lowered to `select`, both branches run; states
+  written in both branches auto-dim-scattered correctly; per-lane result correct.
+- `vmap2(switch(idx, branches))` with a batched index.
+
+**D. `vmap2` × jit**
+
+- `jit(vmap2(f))` and `vmap2(f)` called inside a `jit`ed function; state
+  updates survive the jit boundary; cache behaves.
+
+**E. `vmap2` × remat/checkpoint**
+
+- `vmap2(remat(f))` and `grad(vmap2(remat(f)))`.
+
+**F. `vmap2` × `pmap2`** (multi-device, under `XLA_FLAGS`)
+
+- `pmap2(vmap2(f))` — device-parallel outer, vectorized inner.
+
+**G. Deep realistic composition (strongest signal)**
+
+- `grad(vmap2(scan(rnn_step)))` — a tiny RNN/SNN training step: batched over
+  examples, scanned over time, differentiated w.r.t. `ParamState`s, with a
+  `RandomState` for stochastic input. Oracle = explicit per-example, per-step
+  reference. This is the canonical `brainstate` workload and the primary
+  robustness gate.
+
+### 6.6 Correctness oracles
+
+- Stateless: parity with `jax.vmap` / `jax.grad`.
+- Stateful: parity with an explicit Python per-instance loop (no mapping).
+- Gradients: parity with unmapped `grad`, plus finite-difference spot checks on
+  at least one composition (G).
+
+### 6.7 Backward-compat gate
+
+`_mapping1_test.py` (40 tests) runs **unchanged**, plus new nested-`vmap`,
+`vmap`∘`vmap2`, and cache-invalidation tests.
 
 ---
 
@@ -338,6 +447,8 @@ All randomness in tests uses `brainstate.random`.
   Engine-B core with auto-dim inference.
 - `vmap`/`vmap_new_states` shims pass `_mapping1_test.py` unchanged.
 - New + rewritten test suites pass, including real multi-device `pmap2`.
+- The transformation-composition matrix (§6.5) passes against its oracles —
+  including the `grad(vmap2(scan(rnn_step)))` deep-composition gate (§6.5.G).
 - All public symbols carry doctest-accurate NumPy-style docstrings.
 - No direct `jax.random` usage introduced; all randomness via
   `brainstate.random`.
