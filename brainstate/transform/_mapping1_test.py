@@ -49,6 +49,8 @@ import brainstate as bst
 from brainstate.transform._mapping1 import (
     vmap,
     vmap_new_states,
+)
+from brainstate.transform._mapping_core import (
     _flatten_in_out_states,
     _remove_axis,
     _get_batch_size,
