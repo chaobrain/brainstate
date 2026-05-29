@@ -85,6 +85,9 @@ from ._associative_scan import (
 from ._error_if import (
     jit_error_if,
 )
+from ._callback import (
+    pure_callback, io_callback,
+)
 from ._find_state import (
     StateFinder,
 )
@@ -172,6 +175,8 @@ __all__ = [
 
     # Utilities
     'jit_error_if',
+    'pure_callback',
+    'io_callback',
     'StateFinder',
     'ProgressBar',
     'unvmap',
