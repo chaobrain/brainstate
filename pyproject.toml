@@ -18,6 +18,9 @@ exclude = [
     "brainstate/__init__.py",
 ]
 
+[tool.setuptools.package-data]
+brainstate = ["py.typed"]
+
 [project]
 name = "brainstate"
 description = "A State-based Transformation System for Brain Modeling."
@@ -98,3 +101,45 @@ testing = [
     'brainunit',
     'brainevent',
 ]
+
+
+[tool.mypy]
+python_version = "3.11"
+files = ["brainstate"]
+exclude = ['.*_test\.py$']
+warn_redundant_casts = true
+no_implicit_optional = true
+# Gradual baseline: do not fail on un-annotated internals yet.
+disallow_untyped_defs = false
+ignore_missing_imports = false
+follow_imports = "normal"
+# NOTE: `warn_unused_configs` is intentionally omitted -- it spuriously fails on
+# third-party override patterns (e.g. jaxlib/tqdm/braintools) that brainstate
+# does not import directly.
+
+# --- Not-yet-typed modules: suppress errors (the ratchet frontier). ---
+# To "finish" a module, add a stricter concrete override in the ratchet block
+# below; a concrete module pattern takes precedence over this wildcard.
+[[tool.mypy.overrides]]
+module = ["brainstate.*"]
+ignore_errors = true
+
+# --- Third-party libraries with missing/partial type information. ---
+[[tool.mypy.overrides]]
+module = ["jax.*", "jaxlib.*", "numpy.*", "brainunit.*", "brainevent.*", "tqdm.*", "braintools.*"]
+ignore_missing_imports = true
+
+# ======================================================================
+# RATCHET: fully-typed modules, enforced strictly. Append modules here as
+# each is completed. Keep this list sorted for easy review.
+# ======================================================================
+[[tool.mypy.overrides]]
+module = [
+    "brainstate._typing_static_check",
+    "brainstate.typing",
+]
+ignore_errors = false
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+warn_return_any = true
+warn_unused_ignores = true

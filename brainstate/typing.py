@@ -45,10 +45,13 @@ Using PyTree annotations:
     ...     return brainstate.tree_map(lambda x: x * 2, tree)
 """
 
+from __future__ import annotations
+
 import builtins
 import functools
 import importlib
 import inspect
+from types import EllipsisType
 from typing import (
     Any, Callable, Hashable, List, Protocol, Tuple, TypeVar, Union,
     runtime_checkable, TYPE_CHECKING, Generic, Sequence
@@ -206,7 +209,7 @@ Examples
     ...     return len(path) > 0 and "bias" in str(path[-1]) and hasattr(value, 'ndim') and value.ndim == 1
 """
 
-FilterLiteral = Union[type, str, Predicate, bool, Ellipsis, None]
+FilterLiteral = Union[type, str, Predicate, bool, EllipsisType, None]
 """Basic filter types that can be used to select parts of a PyTree.
 
 Components
@@ -376,7 +379,7 @@ class Array:
         ...     pass
     """
 
-    def __class_getitem__(cls, item):
+    def __class_getitem__(cls, item: Any) -> Any:
         """Create a specialized Array type with shape/dtype annotations.
 
         Parameters
@@ -419,7 +422,7 @@ _FakePyTree.__module__ = "builtins"
 class _MetaPyTree(type):
     """Metaclass for PyTree type that prevents instantiation and handles subscripting."""
 
-    def __call__(self, *args, **kwargs):
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
         """Prevent direct instantiation of PyTree type.
 
         Raises
@@ -437,11 +440,13 @@ class _MetaPyTree(type):
     # Likewise we can't do types.new_class("PyTree", (Generic[_T],), {}) because that
     # has __module__ "types", e.g. we get types.PyTree[int].
     @functools.lru_cache(maxsize=None)
-    def __getitem__(cls, item):
+    def __getitem__(cls, item: Any) -> Any:
         if isinstance(item, tuple):
             if len(item) == 2:
 
-                class X(PyTree):
+                # PyTree is a runtime-built metaclass instance used purely for
+                # annotation magic; it cannot be expressed as a static base class.
+                class X(PyTree):  # type: ignore[valid-type, misc]
                     leaftype = item[0]
                     structure = item[1].strip()
 
@@ -483,7 +488,7 @@ class _MetaPyTree(type):
         else:
             name = str(_FakePyTree[item])
 
-            class X(PyTree):
+            class X(PyTree):  # type: ignore[no-redef, valid-type, misc]
                 leaftype = item
                 structure = None
 

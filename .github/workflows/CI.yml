@@ -1,4 +1,4 @@
-# This workflow will install Python dependencies, run tests and lint with a variety of Python versions
+# This workflow will install Python dependencies, run tests, type-check, and lint.
 # For more information see: https://help.github.com/actions/language-and-framework-guides/using-python-with-github-actions
 
 name: Continuous Integration
@@ -8,6 +8,11 @@ on:
     branches:
       - main
   pull_request:
+  schedule:
+    # Runs at 02:00 UTC every day. See https://crontab.guru for cron syntax.
+    - cron: '0 2 * * *'
+  # Allow manual triggering from the Actions tab
+  workflow_dispatch:
 
 
 permissions:
@@ -21,12 +26,13 @@ concurrency:
 
 
 jobs:
-  test_macos:
-    runs-on: macos-latest
+  test_linux:
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        python-version: [ "3.13" ]
+        python-version: ["3.13"]
+        jax-version: ["0.6.0", "0.7.0", "0.8.0", "0.9.0", ""]
 
     steps:
       - uses: actions/checkout@v6
@@ -39,15 +45,20 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip cache purge
-          python -m pip install --upgrade pip build  --no-cache-dir
-          python -m pip install -r requirements-dev.txt  --no-cache-dir
-          pip install .  --no-cache-dir
+          python -m pip install --upgrade pip build
+          python -m pip install -r requirements-dev.txt
+          if [ "${{ matrix.jax-version }}" == "" ]; then
+            python -m pip install jax || exit 1
+          else
+            python -m pip install jax==${{ matrix.jax-version }} || exit 1
+          fi
+          python -m pip install . || exit 1
       - name: Test with pytest
         run: |
           pytest brainstate/
 
-  test_windows:
-    runs-on: windows-latest
+  type_check:
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
@@ -55,18 +66,30 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
-      - name: Print concurrency group
-        run: echo '${{ github.workflow }}-${{ github.ref }}'
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
+      - name: Cache mypy
+        uses: actions/cache@v4
+        with:
+          path: .mypy_cache
+          key: mypy-${{ runner.os }}-py${{ matrix.python-version }}-${{ hashFiles('pyproject.toml', 'requirements-dev.txt') }}
       - name: Install dependencies
         run: |
-          python -m pip cache purge
-          python -m pip install --upgrade pip build  --no-cache-dir
-          python -m pip install -r requirements-dev.txt  --no-cache-dir
-          pip install .  --no-cache-dir
-      - name: Test with pytest
+          python -m pip install --upgrade pip build
+          python -m pip install -r requirements-dev.txt
+          pip install .
+      - name: Type check with mypy
         run: |
-          pytest brainstate/ -p no:faulthandler
+          mypy brainstate/
+      - name: Verify py.typed ships in the wheel
+        run: |
+          python -m build --wheel
+          python - <<'PY'
+          import glob, zipfile
+          whl = sorted(glob.glob('dist/*.whl'))[-1]
+          names = zipfile.ZipFile(whl).namelist()
+          assert 'brainstate/py.typed' in names, f'py.typed NOT in wheel {whl}'
+          print('OK: py.typed present in', whl)
+          PY

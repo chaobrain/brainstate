@@ -31,3 +31,13 @@ repos:
   rev: '7.1.0'
   hooks:
   - id: flake8
+
+- repo: local
+  hooks:
+  - id: mypy
+    name: mypy (brainstate)
+    entry: mypy
+    language: system
+    types: [python]
+    pass_filenames: false
+    args: ["brainstate/"]
