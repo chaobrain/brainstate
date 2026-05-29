@@ -258,6 +258,83 @@ class TestInlineJit(unittest.TestCase):
         out = jax.core.eval_jaxpr(inner, consts, jnp.zeros(3, jnp.float32))
         self.assertTrue(np.allclose(np.asarray(out[0]), np.asarray(outer(jnp.zeros(3, jnp.float32)))))
 
+    def test_should_expand_false_keeps_all_calls(self):
+        """A predicate that always returns False leaves jit calls untouched."""
+        @jax.jit
+        def helper(x):
+            return x * 3.0
+
+        def outer(x):
+            return helper(x) + 1.0
+
+        cj = jax.make_jaxpr(outer)(jnp.float32(2.0))
+        expanded = inline_jit(cj.jaxpr, should_expand=lambda eqn: False)
+        # No expansion: the jit call survives.
+        self.assertEqual(count_call_equations(_as_jaxpr(expanded)),
+                         count_call_equations(cj.jaxpr))
+        out = eval_jaxpr(_as_jaxpr(expanded), jnp.float32(2.0))
+        self.assertTrue(np.allclose(np.array(out), np.array(outer(jnp.float32(2.0)))))
+
+
+class TestInlineJitConstructedEqns(unittest.TestCase):
+    """Cover the jaxpr-variant branches using directly constructed equations."""
+
+    def _jit_primitive(self):
+        cj = jax.make_jaxpr(jax.jit(lambda x: x + 1.0))(jnp.float32(1.0))
+        return [e.primitive for e in cj.jaxpr.eqns if e.primitive.name == 'jit'][0]
+
+    def _make_eqn(self, primitive, invars, outvars, params):
+        from jax._src.core import JaxprEqnContext
+        from jax.extend import source_info_util
+        from brainstate._compatible_import import JaxprEqn
+        try:
+            ctx = JaxprEqnContext()
+        except TypeError:
+            ctx = JaxprEqnContext(None, True)
+        return JaxprEqn(invars, outvars, primitive, params, set(),
+                        source_info_util.new_source_info(), ctx)
+
+    def test_jit_with_bare_jaxpr_param_inlines(self):
+        """A jit equation whose 'jaxpr' param is a bare Jaxpr (no consts) inlines correctly."""
+        import numpy as np
+        from jax._src import core as jcore
+        from brainstate._compatible_import import Jaxpr
+        from brainstate.transform._ir_utils import make_var_factory
+
+        inner_bare = jax.make_jaxpr(lambda a: a + 1.0)(jnp.float32(0.0)).jaxpr
+        factory = make_var_factory()
+        aval = jcore.ShapedArray((), np.float32)
+        inv, outv = factory(aval), factory(aval)
+        eqn = self._make_eqn(self._jit_primitive(), [inv], [outv], {'jaxpr': inner_bare})
+        jpr = Jaxpr(constvars=[], invars=[inv], outvars=[outv], eqns=[eqn])
+
+        res = inline_jit(jpr)
+        inner = _as_jaxpr(res)
+        # The body was inlined: the 'add' primitive now appears directly.
+        self.assertTrue(has_primitive(inner, 'add'))
+        out = jax.core.eval_jaxpr(inner, getattr(res, 'consts', []), jnp.float32(5.0))
+        self.assertTrue(np.allclose(np.asarray(out[0]), 6.0))
+
+    def test_jit_without_jaxpr_param_is_kept(self):
+        """A jit equation that carries no jaxpr/call_jaxpr param is preserved verbatim."""
+        import numpy as np
+        from jax._src import core as jcore
+        from brainstate._compatible_import import Jaxpr, is_jit_primitive
+        from brainstate.transform._ir_utils import make_var_factory
+
+        factory = make_var_factory()
+        aval = jcore.ShapedArray((), np.float32)
+        inv, outv = factory(aval), factory(aval)
+        eqn = self._make_eqn(self._jit_primitive(), [inv], [outv], {})
+        self.assertTrue(is_jit_primitive(eqn))
+        jpr = Jaxpr(constvars=[], invars=[inv], outvars=[outv], eqns=[eqn])
+
+        res = inline_jit(jpr)
+        inner = _as_jaxpr(res)
+        # The unexpandable jit equation is retained.
+        self.assertEqual(len(inner.eqns), 1)
+        self.assertEqual(inner.eqns[0].primitive.name, 'jit')
+
 
 if __name__ == '__main__':
     unittest.main()

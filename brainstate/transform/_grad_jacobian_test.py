@@ -203,6 +203,41 @@ class TestPureFuncJacobian(unittest.TestCase):
             assert (vec == _r).all()
 
 
+class TestJacrevNoAux(unittest.TestCase):
+    """Cover _jacrev with has_aux=False (lines 59-60) and unit_aware=True (line 63)."""
+
+    def test_jacrev_no_aux_hits_else_branch(self):
+        """_jacrev with has_aux=False exercises the else branch (lines 59-60)."""
+        from brainstate.transform._grad_jacobian import _jacrev
+        # has_aux=False -> fun_wrapped takes else branch (lines 59-60)
+        jac = _jacrev(lambda x: x ** 2, has_aux=False)(jnp.array(3.0))
+        expected = jax.jacrev(lambda x: x ** 2)(jnp.array(3.0))
+        self.assertTrue(jnp.allclose(jac, expected))
+
+    def test_jacrev_unit_aware_true(self):
+        """_jacrev with unit_aware=True uses brainunit autograd (line 63)."""
+        from brainstate.transform._grad_jacobian import _jacrev
+        # unit_aware=True -> lines 63-66 taken
+        jac = _jacrev(lambda x: x ** 2, has_aux=False, unit_aware=True)(jnp.array(3.0))
+        expected = jax.jacrev(lambda x: x ** 2)(jnp.array(3.0))
+        self.assertTrue(jnp.allclose(jac, expected))
+
+    def test_jacfwd_unit_aware_true(self):
+        """_jacfwd with unit_aware=True uses brainunit autograd (line 98)."""
+        from brainstate.transform._grad_jacobian import _jacfwd
+        # unit_aware=True -> line 98
+        jac = _jacfwd(lambda x: x ** 2, has_aux=False, unit_aware=True)(jnp.array(3.0))
+        expected = jax.jacfwd(lambda x: x ** 2)(jnp.array(3.0))
+        self.assertTrue(jnp.allclose(jac, expected))
+
+    def test_jacfwd_public_unit_aware(self):
+        """jacfwd public API with unit_aware=True exercises line 267."""
+        x = jnp.array([1.0, 2.0])
+        jac = brainstate.transform.jacfwd(lambda a: a ** 2, unit_aware=True)(x)
+        expected = jax.jacfwd(lambda a: a ** 2)(x)
+        self.assertTrue(jnp.allclose(jac, expected))
+
+
 class TestClassFuncJacobian(unittest.TestCase):
     def test_jacrev1(self):
         def f1(x, y):

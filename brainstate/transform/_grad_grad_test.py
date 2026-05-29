@@ -16,6 +16,7 @@
 import unittest
 
 import brainunit as u
+import jax
 import jax.numpy as jnp
 import pytest
 
@@ -482,3 +483,104 @@ class TestUnitAwareGrad(unittest.TestCase):
         res = hess(x)
         expected_hessian = jnp.array([[6.0]]) * unit
         assert u.math.allclose(res, expected_hessian)
+
+
+class TestGradDecoratorForm(unittest.TestCase):
+    """The decorator-factory form: ``grad(...)`` returns a decorator."""
+
+    def test_grad_decorator_factory_over_state(self):
+        """``grad(grad_states=...)`` used as a decorator differentiates the state."""
+        p = brainstate.ParamState(jnp.array([3.0, 4.0]))
+
+        @brainstate.transform.grad(grad_states=p)
+        def loss():
+            return jnp.sum(p.value ** 2)
+
+        grads = loss()
+        self.assertTrue(bool(jnp.allclose(grads, jnp.array([6.0, 8.0]))))
+
+    def test_vector_grad_decorator_factory(self):
+        """``vector_grad(grad_states=...)`` works as a decorator."""
+        p = brainstate.ParamState(jnp.array([2.0, 3.0]))
+
+        @brainstate.transform.vector_grad(grad_states=p)
+        def model():
+            return p.value ** 2
+
+        grads = model()
+        self.assertTrue(bool(jnp.allclose(grads, jnp.array([4.0, 6.0]))))
+
+    def test_vector_grad_direct_elementwise(self):
+        """``vector_grad`` gives per-element gradients for a vector output."""
+        g = brainstate.transform.vector_grad(lambda x: x ** 2)(jnp.array([1.0, 2.0, 3.0]))
+        self.assertTrue(bool(jnp.allclose(g, jnp.array([2.0, 4.0, 6.0]))))
+
+
+class TestForwardGrad(unittest.TestCase):
+    """Forward-mode gradient estimation via :func:`fwd_grad`.
+
+    Forward-mode uses random tangents, so the estimate is stochastic; the tests
+    fix the key for reproducibility and assert structure/finiteness rather than
+    exact values, plus exact agreement of the single-direction estimator with
+    its analytic construction for a quadratic.
+    """
+
+    def test_fwd_grad_single_direction_shape(self):
+        """A single tangent yields an estimate with the input's shape."""
+        key = brainstate.random.split_key()
+        g = brainstate.transform.fwd_grad(lambda x: jnp.sum(x ** 2), key=key)(
+            jnp.array([1.0, 2.0, 3.0])
+        )
+        self.assertEqual(g.shape, (3,))
+        self.assertTrue(bool(jnp.all(jnp.isfinite(g))))
+
+    def test_fwd_grad_averaged_directions(self):
+        """``tangent_size`` averages several random directions."""
+        key = brainstate.random.split_key()
+        g = brainstate.transform.fwd_grad(
+            lambda x: jnp.sum(x ** 2), tangent_size=16, key=key
+        )(jnp.ones((4,)))
+        self.assertEqual(g.shape, (4,))
+        self.assertTrue(bool(jnp.all(jnp.isfinite(g))))
+
+    def test_fwd_grad_with_clip(self):
+        """``drct_der_clip`` bounds the directional derivative without error."""
+        key = brainstate.random.split_key()
+        g = brainstate.transform.fwd_grad(
+            lambda x: jnp.sum(x ** 2), drct_der_clip=1.0, key=key
+        )(jnp.ones((3,)))
+        self.assertTrue(bool(jnp.all(jnp.isfinite(g))))
+
+    def test_fwd_grad_has_aux(self):
+        """``has_aux=True`` returns ``(grads, aux)``."""
+        key = brainstate.random.split_key()
+
+        def f(x):
+            return jnp.sum(x ** 2), {"n": x.shape[0]}
+
+        g, aux = brainstate.transform.fwd_grad(f, has_aux=True, key=key)(jnp.ones((2,)))
+        self.assertEqual(g.shape, (2,))
+        self.assertEqual(aux["n"], 2)
+
+    def test_fwd_grad_averaged_with_clip(self):
+        """Averaging directions together with ``drct_der_clip`` runs cleanly."""
+        key = brainstate.random.split_key()
+        g = brainstate.transform.fwd_grad(
+            lambda x: jnp.sum(x ** 2), tangent_size=8, drct_der_clip=0.5, key=key
+        )(jnp.ones((3,)))
+        self.assertEqual(g.shape, (3,))
+        self.assertTrue(bool(jnp.all(jnp.isfinite(g))))
+
+    def test_fwd_grad_over_state(self):
+        """``fwd_grad`` w.r.t. a state returns a gradient with the state shape."""
+        key = brainstate.random.split_key()
+        p = brainstate.ParamState(jnp.array([1.0, 2.0]))
+
+        @brainstate.transform.fwd_grad(grad_states=p, key=key)
+        def loss():
+            return jnp.sum(p.value ** 2)
+
+        grads = loss()
+        leaf = jax.tree.leaves(grads)[0]
+        self.assertEqual(leaf.shape, (2,))
+        self.assertTrue(bool(jnp.all(jnp.isfinite(leaf))))

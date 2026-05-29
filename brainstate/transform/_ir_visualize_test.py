@@ -14,6 +14,8 @@
 # ==============================================================================
 
 import importlib.util
+import sys
+import types
 import unittest
 
 import jax
@@ -200,6 +202,428 @@ class TestVisualizeUnsupported(unittest.TestCase):
         jpr = jax.make_jaxpr(f)(jnp.float32(1.0))
         # The single top-level eqn is a leaf primitive (add) -> not a call.
         self.assertIsNone(viz._call_jaxpr_of(jpr.eqns[0]))
+
+
+@unittest.skipUnless(PYDOT, "pydot not installed")
+class TestVisualizeHelpers(unittest.TestCase):
+    """Direct unit tests for the small helper functions."""
+
+    def test_is_dropped_var_trailing_underscore(self):
+        """_is_dropped_var keys off a trailing underscore in the name."""
+        import brainstate.transform._ir_visualize as viz
+        self.assertTrue(viz._is_dropped_var("foo_"))
+        self.assertFalse(viz._is_dropped_var("foo"))
+
+    def test_call_jaxpr_of_skips_control_flow(self):
+        """Dedicated control-flow primitives are never treated as inlinable calls."""
+        import brainstate.transform._ir_visualize as viz
+
+        def f(x):
+            return jax.lax.cond(x[0] > 0, lambda v: v + 1.0, lambda v: v - 1.0, x)
+
+        jpr = jax.make_jaxpr(f)(jnp.float32([1., 2.]))
+        cond_eqn = [e for e in jpr.eqns if e.primitive.name == "cond"][0]
+        self.assertIsNone(viz._call_jaxpr_of(cond_eqn))
+
+    def test_call_jaxpr_of_recognises_jit(self):
+        """A jit equation exposes its inner jaxpr via _call_jaxpr_of."""
+        import brainstate.transform._ir_visualize as viz
+
+        @jax.jit
+        def inner(x):
+            return x * x
+
+        def f(x):
+            return inner(x) + 1.0
+
+        jpr = jax.make_jaxpr(f)(jnp.float32(2.0))
+        jit_eqn = [e for e in jpr.eqns if viz.is_not_primitive(e)][0]
+        self.assertIsNotNone(viz._call_jaxpr_of(jit_eqn))
+
+    def test_eqn_name_prefers_name_param(self):
+        """_eqn_name returns the 'name' param when present, else the primitive name."""
+        import brainstate.transform._ir_visualize as viz
+
+        def f(x):
+            return x + 1.0
+
+        jpr = jax.make_jaxpr(f)(jnp.float32(1.0))
+        add_eqn = jpr.eqns[0]
+        # The add primitive carries no 'name' param.
+        self.assertEqual(viz._eqn_name(add_eqn), "add")
+
+    def test_get_node_label_with_and_without_avals(self):
+        """get_node_label includes the aval type only when show_avals is True."""
+        import brainstate.transform._ir_visualize as viz
+
+        def f(x):
+            return x + 1.0
+
+        jpr = jax.make_jaxpr(f)(jnp.float32(1.0))
+        var = jpr.jaxpr.invars[0]
+        label_with = viz.get_node_label(var, True)
+        label_without = viz.get_node_label(var, False)
+        # With avals, the label appends the short aval type after the var.
+        self.assertEqual(label_with, f"{var}: {var.aval.str_short()}")
+        self.assertEqual(label_without, str(var))
+
+    def test_contains_non_primitives(self):
+        """contains_non_primitives detects nested calls / control flow."""
+        import brainstate.transform._ir_visualize as viz
+
+        def leaf(x):
+            return x + 1.0
+
+        leaf_eqns = jax.make_jaxpr(leaf)(jnp.float32(1.0)).eqns
+        self.assertFalse(viz.contains_non_primitives(leaf_eqns))
+
+        def with_cond(x):
+            return jax.lax.cond(x[0] > 0, lambda v: v + 1.0, lambda v: v, x)
+
+        cond_eqns = jax.make_jaxpr(with_cond)(jnp.float32([1., 2.])).eqns
+        self.assertTrue(viz.contains_non_primitives(cond_eqns))
+
+    def test_get_const_node_builds(self):
+        """get_const_node produces a styled pydot node for a const var."""
+        import brainstate.transform._ir_visualize as viz
+
+        def f(x):
+            return x + 1.0
+
+        var = jax.make_jaxpr(f)(jnp.float32(1.0)).jaxpr.invars[0]
+        node = viz.get_const_node("cid", var, True)
+        self.assertIsNotNone(node)
+
+
+@unittest.skipUnless(PYDOT, "pydot not installed")
+class TestExpandPjitPrimitive(unittest.TestCase):
+    """Cover expand_pjit_primitive (which is not reached via the public draw path)."""
+
+    def test_expand_pjit_primitive_with_constvars(self):
+        """A jaxpr that closes over a constant exercises the const-node argument path."""
+        import brainstate.transform._ir_visualize as viz
+        import pydot
+
+        c = jnp.arange(3, dtype=jnp.float32)
+
+        def f(x):
+            return x + c  # closes over c -> constvar in the jaxpr
+
+        jpr = jax.make_jaxpr(f)(jnp.zeros(3, jnp.float32))
+        self.assertGreater(len(jpr.jaxpr.constvars), 0)
+        graph, arg_edges, out_nodes, out_edges, n = viz.expand_pjit_primitive(
+            jpr.jaxpr, "", 0, True, True, "mygraph"
+        )
+        self.assertIsInstance(graph, pydot.Subgraph)
+        self.assertGreaterEqual(n, 1)
+
+    def test_expand_pjit_primitive_expanded(self):
+        """collapse_primitives=False still renders the inner equations."""
+        import brainstate.transform._ir_visualize as viz
+
+        def f(x):
+            return jnp.sin(x) * 2.0
+
+        jpr = jax.make_jaxpr(f)(jnp.float32(1.0))
+        graph, *_ = viz.expand_pjit_primitive(jpr.jaxpr, "", 0, False, True, "g")
+        self.assertIsNotNone(graph)
+
+
+@unittest.skipUnless(PYDOT, "pydot not installed")
+class TestExpandNonPrimitiveErrors(unittest.TestCase):
+    """expand_non_primitive raises for non-inlinable leaf primitives."""
+
+    def test_unsupported_primitive_raises(self):
+        import brainstate.transform._ir_visualize as viz
+        from brainstate.transform._ir_utils import UnsupportedPrimitiveError
+
+        def f(x):
+            return x + 1.0
+
+        add_eqn = jax.make_jaxpr(f)(jnp.float32(1.0)).eqns[0]
+        with self.assertRaises(UnsupportedPrimitiveError):
+            viz.expand_non_primitive(add_eqn, "", 0, True, True)
+
+
+@unittest.skipUnless(PYDOT, "pydot not installed")
+class TestVisualizeCondEmptyBranches(unittest.TestCase):
+    """cond with empty (selection-only) branches: the len(branch.eqns)==0 path."""
+
+    def _select_cond(self):
+        # Branches that merely select one of their inputs trace to empty
+        # branch jaxprs (zero eqns) whose outvar is one of the invars.
+        def f(pred, x, y):
+            return jax.lax.cond(pred, lambda a, b: a, lambda a, b: b, x, y)
+        return f
+
+    def test_empty_branches_collapsed(self):
+        """collapse_primitives=True renders empty branches as single nodes."""
+        from brainstate.transform import draw
+        g = draw(self._select_cond(), collapse_primitives=True)(
+            True, jnp.float32([1., 2.]), jnp.float32([3., 4.])
+        )
+        self.assertIsNotNone(g)
+
+    def test_empty_branches_expanded(self):
+        """collapse_primitives=False renders empty branches as subgraphs."""
+        from brainstate.transform import draw
+        g = draw(self._select_cond(), collapse_primitives=False)(
+            True, jnp.float32([1., 2.]), jnp.float32([3., 4.])
+        )
+        self.assertIsNotNone(g)
+
+
+@unittest.skipUnless(PYDOT, "pydot not installed")
+class TestVisualizeCondVariants(unittest.TestCase):
+    """Exercise the single-eqn and multi-eqn cond-branch rendering paths."""
+
+    def test_single_eqn_branches_expanded(self):
+        """Single-primitive branches with collapse_primitives=False."""
+        from brainstate.transform import draw
+
+        def f(pred, x):
+            return jax.lax.cond(pred, lambda v: v + 1.0, lambda v: v * 2.0, x)
+
+        g = draw(f, collapse_primitives=False)(True, jnp.float32([1., 2.]))
+        self.assertIsNotNone(g)
+
+    def test_single_eqn_branches_collapsed(self):
+        """Single-primitive branches with collapse_primitives=True."""
+        from brainstate.transform import draw
+
+        def f(pred, x):
+            return jax.lax.cond(pred, lambda v: v + 1.0, lambda v: v * 2.0, x)
+
+        g = draw(f, collapse_primitives=True)(True, jnp.float32([1., 2.]))
+        self.assertIsNotNone(g)
+
+    def test_multi_eqn_branches_collapsed(self):
+        """Multi-primitive branches with collapse_primitives=True (collapsed node)."""
+        from brainstate.transform import draw
+
+        def f(pred, x):
+            return jax.lax.cond(
+                pred,
+                lambda v: jnp.sum(v * v) + 1.0,
+                lambda v: jnp.sum(v) - 1.0,
+                x,
+            )
+
+        g = draw(f, collapse_primitives=True)(True, jnp.float32([1., 2., 3.]))
+        self.assertIsNotNone(g)
+
+    def test_branches_expanded_subgraph(self):
+        """Multi-primitive branches with collapse_primitives=False (full subgraphs)."""
+        from brainstate.transform import draw
+
+        def f(pred, x):
+            return jax.lax.cond(
+                pred,
+                lambda v: jnp.sum(v * v) + 1.0,
+                lambda v: jnp.sum(v) - 1.0,
+                x,
+            )
+
+        g = draw(f, collapse_primitives=False)(True, jnp.float32([1., 2., 3.]))
+        self.assertIsNotNone(g)
+
+
+@unittest.skipUnless(PYDOT, "pydot not installed")
+class TestVisualizeScanExpanded(unittest.TestCase):
+    """Scan body rendered as a subgraph (collapse_primitives=False)."""
+
+    def test_scan_expanded_builds(self):
+        """A scan rendered with collapse_primitives=False expands its body subgraph."""
+        from brainstate.transform import draw
+
+        def f(x):
+            def body(c, inp):
+                return c + inp, c * 2.0
+            final, ys = jax.lax.scan(body, x, jnp.float32([1., 2., 3.]))
+            return final, ys
+
+        g = draw(f, collapse_primitives=False)(jnp.float32(0.0))
+        self.assertIsNotNone(g)
+
+    def test_scan_with_const_argument_builds(self):
+        """A scan with a loop-invariant const exercises the n_const grouping path."""
+        from brainstate.transform import draw
+
+        def f(x, w):
+            def body(c, inp):
+                return c + w * inp, c  # w is a scan const
+            final, ys = jax.lax.scan(body, x, jnp.float32([1., 2., 3.]))
+            return final, ys
+
+        g = draw(f, collapse_primitives=False)(jnp.float32(0.0), jnp.float32(2.0))
+        self.assertIsNotNone(g)
+
+    def test_scan_with_nonprimitive_body_builds(self):
+        """A scan whose body contains a jit is never collapsed."""
+        from brainstate.transform import draw
+
+        @jax.jit
+        def step(c):
+            return c + 1.0
+
+        def f(x):
+            def body(c, _):
+                return step(c), c
+            final, ys = jax.lax.scan(body, x, None, length=3)
+            return final, ys
+
+        g = draw(f, collapse_primitives=True)(jnp.float32(0.0))
+        self.assertIsNotNone(g)
+
+
+@unittest.skipUnless(PYDOT, "pydot not installed")
+class TestVisualizeWhileExpanded(unittest.TestCase):
+    """While cond/body rendered as subgraphs (collapse_primitives=False)."""
+
+    def test_while_nonprimitive_body_builds(self):
+        """A while loop whose body contains a jit forces subgraph expansion."""
+        from brainstate.transform import draw
+
+        @jax.jit
+        def incr(v):
+            return v + 1.0
+
+        def f(x):
+            return jax.lax.while_loop(lambda v: v < 5.0, lambda v: incr(v), x)
+
+        g = draw(f, collapse_primitives=True)(jnp.float32(0.0))
+        self.assertIsNotNone(g)
+
+    def test_while_expanded_with_multi_carry(self):
+        """While with a multi-element carry, fully expanded."""
+        from brainstate.transform import draw
+
+        def f(x):
+            def cond(carry):
+                i, acc = carry
+                return i < 3.0
+
+            def body(carry):
+                i, acc = carry
+                return i + 1.0, acc + i
+
+            return jax.lax.while_loop(cond, body, (x, x))
+
+        g = draw(f, collapse_primitives=False)(jnp.float32(0.0))
+        self.assertIsNotNone(g)
+
+    def test_while_expanded_jit_body_with_passthrough(self):
+        """Expanded while whose body holds a jit (subgraph) and forwards a carry (id-edge)."""
+        from brainstate.transform import draw
+
+        @jax.jit
+        def incr(v):
+            return v + 1.0
+
+        def f(x, y):
+            def cond(c):
+                i, acc = c
+                return i < 3.0
+
+            def body(c):
+                i, acc = c
+                # incr is a jit -> renders as a subgraph; acc is forwarded.
+                return incr(i), acc
+
+            return jax.lax.while_loop(cond, body, (x, y))
+
+        g = draw(f, collapse_primitives=False)(jnp.float32(0.0), jnp.float32(5.0))
+        self.assertIsNotNone(g)
+
+
+@unittest.skipUnless(PYDOT, "pydot not installed")
+class TestVisualizeReturnsArg(unittest.TestCase):
+    """A function that returns one of its inputs exercises the id-edge path."""
+
+    def test_identity_through_jit_builds(self):
+        """Returning an argument through a jit hits get_outputs' id_edges branch."""
+        from brainstate.transform import draw
+
+        @jax.jit
+        def inner(x, y):
+            # Return the first argument unchanged; y is consumed so it survives.
+            return x, y + 1.0
+
+        def f(x, y):
+            a, b = inner(x, y)
+            return a + b
+
+        g = draw(f, collapse_primitives=False)(jnp.float32(1.0), jnp.float32(2.0))
+        self.assertIsNotNone(g)
+
+
+@unittest.skipUnless(PYDOT, "pydot not installed")
+class TestViewPydot(unittest.TestCase):
+    """view_pydot displays a PNG via IPython (mocked to avoid graphviz)."""
+
+    def test_view_pydot_calls_display(self):
+        """view_pydot calls create_png and hands the image to IPython.display."""
+        from brainstate.transform import draw, view_pydot
+
+        @jax.jit
+        def f(x):
+            return x + 1.0
+
+        g = draw(f)(jnp.float32(1.0))
+
+        calls = {}
+
+        # Stub create_png so we never invoke the (absent) graphviz binary.
+        g.create_png = lambda: b"\x89PNG-fake"
+
+        fake_display = types.ModuleType("IPython.display")
+
+        class _Image:
+            def __init__(self, data):
+                calls["image_data"] = data
+
+        def _display(obj):
+            calls["displayed"] = obj
+
+        fake_display.Image = _Image
+        fake_display.display = _display
+        fake_ipython = types.ModuleType("IPython")
+        fake_ipython.display = fake_display
+
+        saved_ip = sys.modules.get("IPython")
+        saved_disp = sys.modules.get("IPython.display")
+        sys.modules["IPython"] = fake_ipython
+        sys.modules["IPython.display"] = fake_display
+        try:
+            view_pydot(g)
+        finally:
+            if saved_ip is not None:
+                sys.modules["IPython"] = saved_ip
+            else:
+                sys.modules.pop("IPython", None)
+            if saved_disp is not None:
+                sys.modules["IPython.display"] = saved_disp
+            else:
+                sys.modules.pop("IPython.display", None)
+
+        self.assertEqual(calls["image_data"], b"\x89PNG-fake")
+        self.assertIn("displayed", calls)
+
+
+@unittest.skipUnless(PYDOT, "pydot not installed")
+class TestDrawDotGraphEmpty(unittest.TestCase):
+    """draw_dot_graph handles an empty top-level jaxpr (no eqns)."""
+
+    def test_empty_jaxpr_with_literal_and_dropped_outputs(self):
+        """An empty jaxpr renders only its in/out nodes without crashing."""
+        from brainstate.transform import draw_dot_graph
+
+        # Returning a constant alongside the input yields a top-level jaxpr
+        # whose only structure is forwarded in/out vars (zero eqns is possible
+        # for pure pass-throughs).
+        jpr = jax.make_jaxpr(lambda x: x)(jnp.float32(1.0))
+        g = draw_dot_graph(jpr, True, True)
+        self.assertIsNotNone(g)
 
 
 if __name__ == '__main__':

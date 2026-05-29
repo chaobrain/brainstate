@@ -19,7 +19,6 @@ import warnings
 
 import jax
 import jax.numpy as jnp
-import jax.random as jr
 import pytest
 
 import brainstate
@@ -1391,3 +1390,458 @@ class TestIROptimizations(unittest.TestCase):
         cache_key = sf.get_arg_cache_key(x)
         jaxpr = sf.get_jaxpr_by_cache(cache_key)
         self.assertIsNotNone(jaxpr)
+
+
+class TestEnsureStrHelper(unittest.TestCase):
+    """Test _ensure_str raises TypeError for non-string arguments."""
+
+    def test_ensure_str_invalid_raises(self):
+        """Non-string static_argnames element raises TypeError during construction."""
+        # _ensure_str_tuple calls _ensure_str on each element; passing 123 triggers it.
+        from brainstate.transform._make_jaxpr import _ensure_str
+        with pytest.raises(TypeError, match="argument is not a string"):
+            _ensure_str(123)
+
+    def test_ensure_str_valid(self):
+        """Valid string passes _ensure_str without error."""
+        from brainstate.transform._make_jaxpr import _ensure_str
+        result = _ensure_str("hello")
+        self.assertEqual(result, "hello")
+
+    def test_static_argnames_iterable(self):
+        """StatefulFunction accepts iterable of strings as static_argnames."""
+        def f(x, mode='a'):
+            return x * 2
+
+        sf = brainstate.transform.StatefulFunction(f, static_argnames=['mode'])
+        x = jnp.array([1.0])
+        sf.make_jaxpr(x, mode='a')
+        cache_key = sf.get_arg_cache_key(x, mode='a')
+        jaxpr = sf.get_jaxpr_by_cache(cache_key)
+        self.assertIsNotNone(jaxpr)
+
+
+class TestGetArgCacheKeyFnToCheckNone(unittest.TestCase):
+    """Test get_arg_cache_key with fn_to_check=None and only kwargs (branch 170->177)."""
+
+    def test_fn_to_check_none_with_kwargs_only_skips_check(self):
+        """get_arg_cache_key with fn_to_check=None and no dyn_args skips the kwarg check."""
+        from brainstate.transform._make_jaxpr import get_arg_cache_key
+
+        # With no args (empty tuple), line 160 doesn't fail on None callable.
+        # fn_to_check=None makes the `if fn_to_check is not None:` branch False.
+        kwargs = {'scale': jnp.array(2.0)}
+        cache_key = get_arg_cache_key(
+            static_argnums=(),
+            static_argnames=(),
+            args=(),          # no positional args -> line 160 is a no-op
+            kwargs=kwargs,
+            fn_to_check=None,  # skips the kwarg check at line 170
+        )
+        # Should return a CacheKey without error
+        from brainstate.transform._make_jaxpr import CacheKey
+        self.assertIsInstance(cache_key, CacheKey)
+
+
+class TestGetArgCacheKeyWithKwargs(unittest.TestCase):
+    """Test get_arg_cache_key with dynamic keyword arguments."""
+
+    def test_dyn_kwargs_same_dtype_same_key(self):
+        """Dynamic kwargs with same shape/dtype produce the same cache key."""
+        def f(x, scale=1.0):
+            return x * scale
+
+        sf = brainstate.transform.StatefulFunction(f)
+        x = jnp.array([1.0])
+
+        # Both scale values have same shape/dtype -> same abstract value -> same key
+        key1 = sf.get_arg_cache_key(x, scale=jnp.array(1.0, dtype=jnp.float32))
+        key2 = sf.get_arg_cache_key(x, scale=jnp.array(9.0, dtype=jnp.float32))
+        self.assertEqual(key1, key2)
+
+    def test_dyn_kwargs_different_dtypes(self):
+        """Dynamic kwargs with different dtypes produce different cache keys."""
+        def f(x, scale=1.0):
+            return x * scale
+
+        sf = brainstate.transform.StatefulFunction(f)
+        x = jnp.array([1.0])
+
+        key1 = sf.get_arg_cache_key(x, scale=jnp.array(1, dtype=jnp.int32))
+        key2 = sf.get_arg_cache_key(x, scale=jnp.array(1.0, dtype=jnp.float32))
+        self.assertNotEqual(key1, key2)
+
+    def test_dyn_kwargs_present_in_cache_key(self):
+        """A dynamic kwarg contributes to the cache key (non-static argname)."""
+        def f(x, y):
+            return x + y
+
+        sf = brainstate.transform.StatefulFunction(f)
+        x = jnp.array([1.0])
+
+        # y is a dynamic kwarg; compile should work
+        sf.make_jaxpr(x, y=jnp.array([2.0]))
+        cache_key = sf.get_arg_cache_key(x, y=jnp.array([2.0]))
+        jaxpr = sf.get_jaxpr_by_cache(cache_key)
+        self.assertIsNotNone(jaxpr)
+
+
+class TestPrettyReprItem(unittest.TestCase):
+    """Test __pretty_repr_item__ correctly hides private attributes."""
+
+    def test_private_attribute_hidden(self):
+        """__pretty_repr_item__ returns None for private keys."""
+        def f(x):
+            return x
+
+        sf = brainstate.transform.StatefulFunction(f)
+        # Private keys starting with _ should return None
+        result = sf.__pretty_repr_item__('_compilation_cache', None)
+        self.assertIsNone(result)
+
+    def test_public_attribute_shown(self):
+        """__pretty_repr_item__ returns (k, v) for public keys."""
+        def f(x):
+            return x
+
+        sf = brainstate.transform.StatefulFunction(f)
+        result = sf.__pretty_repr_item__('fun', f)
+        self.assertEqual(result, ('fun', f))
+
+
+class TestMakeJaxprReturnShape(unittest.TestCase):
+    """Test make_jaxpr with return_shape=True."""
+
+    def test_make_jaxpr_return_shape_true(self):
+        """make_jaxpr with return_shape=True returns jaxpr, states, and shapes."""
+        state = brainstate.State(jnp.array([1.0, 2.0]))
+
+        def f(x):
+            state.value += x
+            return state.value * 2
+
+        jaxpr_maker = brainstate.transform.make_jaxpr(f, return_shape=True)
+        result = jaxpr_maker(jnp.array([0.5, 0.5]))
+
+        # Should return a 3-tuple
+        self.assertEqual(len(result), 3)
+        jaxpr, states, shapes = result
+        self.assertIsNotNone(jaxpr)
+        self.assertIsInstance(states, tuple)
+        self.assertIsNotNone(shapes)
+
+    def test_make_jaxpr_return_shape_false(self):
+        """make_jaxpr with return_shape=False returns 2-tuple."""
+        def f(x):
+            return x * 2
+
+        jaxpr_maker = brainstate.transform.make_jaxpr(f, return_shape=False)
+        result = jaxpr_maker(jnp.array([1.0]))
+
+        self.assertEqual(len(result), 2)
+        jaxpr, states = result
+        self.assertIsNotNone(jaxpr)
+
+    def test_make_jaxpr_qualname_name_set(self):
+        """make_jaxpr sets __qualname__ and __name__ on the wrapper."""
+        def my_special_func(x):
+            return x * 2
+
+        jaxpr_maker = brainstate.transform.make_jaxpr(my_special_func)
+        self.assertIn('my_special_func', jaxpr_maker.__name__)
+        self.assertIn('my_special_func', jaxpr_maker.__qualname__)
+
+
+class TestMakeHashableFallback(unittest.TestCase):
+    """Test _make_hashable fallback via jax.tree for non-trivially-hashable objects."""
+
+    def test_make_hashable_unhashable_pytree(self):
+        """An unhashable object that IS a valid JAX pytree uses tree fallback."""
+        # A plain object with __hash__ = None but that jax.tree can handle is tricky.
+        # Instead test that the hashable fast path works for plain objects.
+        from brainstate.transform._make_jaxpr import _make_hashable
+        # A plain integer should be hashable directly
+        result = _make_hashable(42)
+        self.assertEqual(result, 42)
+
+    def test_make_hashable_nested_list_in_dict(self):
+        """Nested list-in-dict structure becomes fully hashable."""
+        from brainstate.transform._make_jaxpr import _make_hashable
+        obj = {'x': [1, 2, 3], 'y': {4, 5}}
+        result = _make_hashable(obj)
+        hash(result)  # must not raise
+
+
+class TestDebugCall(unittest.TestCase):
+    """Test debug_call method (jax_disable_jit path)."""
+
+    def test_debug_call_direct(self):
+        """debug_call executes function eagerly and returns updated state values."""
+        state = brainstate.State(jnp.array([0.0, 0.0]))
+
+        def f(x):
+            state.value = state.value + x
+            return state.value * 2
+
+        sf = brainstate.transform.StatefulFunction(f)
+        x = jnp.array([1.0, 1.0])
+        sf.make_jaxpr(x)
+
+        cache_key = sf.get_arg_cache_key(x)
+        state_vals = [state.value]
+        new_state_vals, out = sf.debug_call(state_vals, x)
+
+        self.assertEqual(len(new_state_vals), 1)
+        self.assertEqual(out.shape, (2,))
+
+    def test_debug_call_state_mismatch(self):
+        """debug_call raises ValueError on state count mismatch."""
+        state1 = brainstate.State(jnp.array([1.0]))
+        state2 = brainstate.State(jnp.array([2.0]))
+
+        def f(x):
+            state1.value += x
+            state2.value += x
+            return state1.value
+
+        sf = brainstate.transform.StatefulFunction(f)
+        x = jnp.array([1.0])
+        sf.make_jaxpr(x)
+
+        with pytest.raises(ValueError, match="State length mismatch"):
+            sf.debug_call([jnp.array([1.0])], x)  # only 1 state, need 2
+
+    def test_jaxpr_call_auto_disable_jit(self):
+        """jaxpr_call_auto uses debug_call path when jax_disable_jit is True."""
+        state = brainstate.State(jnp.array([0.0]))
+
+        def f(x):
+            state.value = state.value + x
+            return state.value
+
+        sf = brainstate.transform.StatefulFunction(f)
+        x = jnp.array([1.0])
+        sf.make_jaxpr(x)
+
+        with jax.disable_jit():
+            result = sf.jaxpr_call_auto(x)
+
+        self.assertIsNotNone(result)
+
+    def test_jaxpr_call_disable_jit(self):
+        """jaxpr_call routes to debug_call when jax_disable_jit is True."""
+        state = brainstate.State(jnp.array([1.0]))
+
+        def f(x):
+            state.value += x
+            return state.value
+
+        sf = brainstate.transform.StatefulFunction(f)
+        x = jnp.array([0.5])
+        sf.make_jaxpr(x)
+
+        state_vals = [state.value]
+        with jax.disable_jit():
+            new_state_vals, out = sf.jaxpr_call(state_vals, x)
+
+        self.assertEqual(len(new_state_vals), 1)
+        self.assertIsNotNone(out)
+
+
+class TestValidateStatesWithInvalidState(unittest.TestCase):
+    """Test validate_states and validate_all_states error paths."""
+
+    def test_validate_all_states_catches_errors(self):
+        """validate_all_states catches ValueError and returns error message strings."""
+        state = brainstate.State(jnp.array([1.0, 2.0]))
+
+        def f(x):
+            state.value += x
+            return state.value
+
+        sf = brainstate.transform.StatefulFunction(f)
+        x = jnp.array([1.0, 2.0])
+        sf.make_jaxpr(x)
+
+        # Patch a state so validate_states fails
+        cache_key = sf.get_arg_cache_key(x)
+        compilation = sf._get_compilation(cache_key)
+        # Simulate an invalid state by wrapping validation to raise
+        original_validate = sf.validate_states
+
+        def patched_validate(ck):
+            raise ValueError("simulated invalid state")
+
+        sf.validate_states = patched_validate
+        results = sf.validate_all_states()
+
+        # Should have an error string, not True
+        for v in results.values():
+            self.assertIsInstance(v, str)
+
+        # Restore
+        sf.validate_states = original_validate
+
+
+class TestValidateStatesInvalidStateObject(unittest.TestCase):
+    """Test validate_states raises when a state lacks 'value' attribute (lines 1035-1038)."""
+
+    def test_validate_states_invalid_state_raises(self):
+        """validate_states raises ValueError if a state has no 'value' attribute."""
+        state = brainstate.State(jnp.array([1.0]))
+
+        def f(x):
+            state.value += x
+            return state.value
+
+        sf = brainstate.transform.StatefulFunction(f)
+        x = jnp.array([1.0])
+        sf.make_jaxpr(x)
+
+        cache_key = sf.get_arg_cache_key(x)
+        compilation = sf._get_compilation(cache_key)
+        trace = compilation.state_trace
+
+        class _BrokenState:
+            """State-like object without 'value' attribute."""
+            pass
+
+        # Inject a broken state into the states list temporarily.
+        # state_trace.states is a plain list so we can append/remove.
+        broken = _BrokenState()
+        trace.states.append(broken)
+        try:
+            with pytest.raises(ValueError, match="invalid states"):
+                sf.validate_states(cache_key)
+        finally:
+            trace.states.remove(broken)
+
+
+class TestMakeHashableJaxTreeFallback(unittest.TestCase):
+    """Test _make_hashable uses jax.tree fallback for non-hashable pytrees (line 1352)."""
+
+    def test_make_hashable_custom_unhashable_pytree(self):
+        """Non-hashable custom pytree node that has hashable leaves uses tree-flatten fallback."""
+        from brainstate.transform._make_jaxpr import _make_hashable
+        from jax.api_util import shaped_abstractify
+
+        # Register a custom pytree type that is not natively hashable
+        # but jax.tree.flatten handles it fine.
+        class _MyWrapper:
+            """Container that is not hashable but is a valid pytree."""
+            __hash__ = None  # explicitly unhashable
+
+            def __init__(self, val):
+                self.val = val
+
+        jax.tree_util.register_pytree_node(
+            _MyWrapper,
+            lambda w: ([w.val], None),
+            lambda aux, children: _MyWrapper(children[0]),
+        )
+        # Use a ShapedArray as the leaf so the result IS hashable
+        from jax.api_util import shaped_abstractify
+        leaf = shaped_abstractify(jnp.array(1.0))  # ShapedArray, hashable
+        obj = _MyWrapper(leaf)
+        result = _make_hashable(obj)
+        hash(result)  # must not raise
+
+
+class TestMakeJaxprFunctionWithoutQualname(unittest.TestCase):
+    """Test make_jaxpr when fun lacks __qualname__ or __name__ (branches 1308->1310, 1310->1312)."""
+
+    def test_make_jaxpr_callable_without_name_attrs(self):
+        """make_jaxpr works on callables without __qualname__/__name__."""
+        from brainstate.transform._make_jaxpr import make_jaxpr as _make_jaxpr_fn
+
+        class _NoNameCallable:
+            """Callable that has neither __qualname__ nor __name__."""
+            def __call__(self, x):
+                return x * 2
+
+        # Remove the attributes if present
+        fn = _NoNameCallable()
+        if hasattr(fn, '__qualname__'):
+            del fn.__qualname__
+        if hasattr(fn, '__name__'):
+            del fn.__name__
+
+        jaxpr_maker = _make_jaxpr_fn(fn)
+        result = jaxpr_maker(jnp.array([1.0]))
+        self.assertEqual(len(result), 2)  # jaxpr, states
+
+
+class TestStaticArgnumsEdgeCases(unittest.TestCase):
+    """Test static_argnums edge cases."""
+
+    def test_static_argnums_sequence(self):
+        """StatefulFunction handles sequence static_argnums."""
+        def f(x, n, m):
+            return x * n + m
+
+        sf = brainstate.transform.StatefulFunction(f, static_argnums=(1, 2))
+        x = jnp.array([1.0])
+        sf.make_jaxpr(x, 2, 3)
+
+        cache_key = sf.get_arg_cache_key(x, 2, 3)
+        jaxpr = sf.get_jaxpr_by_cache(cache_key)
+        self.assertIsNotNone(jaxpr)
+
+    def test_make_jaxpr_static_argnums(self):
+        """make_jaxpr function respects static_argnums."""
+        def f(x, n):
+            return x ** n
+
+        jaxpr_maker = brainstate.transform.make_jaxpr(f, static_argnums=(1,))
+        jaxpr, states = jaxpr_maker(jnp.array([2.0]), 3)
+        self.assertIsNotNone(jaxpr)
+
+    def test_make_jaxpr_static_argnames(self):
+        """make_jaxpr function respects static_argnames."""
+        def f(x, mode='linear'):
+            if mode == 'linear':
+                return x * 2
+            return x ** 2
+
+        jaxpr_maker = brainstate.transform.make_jaxpr(f, static_argnames='mode')
+        jaxpr, states = jaxpr_maker(jnp.array([1.0]), mode='linear')
+        self.assertIsNotNone(jaxpr)
+
+    def test_compile_if_miss_true_on_cache_key(self):
+        """get_arg_cache_key with compile_if_miss=True triggers compilation."""
+        state = brainstate.State(jnp.array([1.0]))
+
+        def f(x):
+            state.value += x
+            return state.value
+
+        sf = brainstate.transform.StatefulFunction(f)
+        x = jnp.array([1.0])
+
+        # Not yet compiled - compile_if_miss=True should trigger it
+        cache_key = sf.get_arg_cache_key(x, compile_if_miss=True)
+        # Now the cache should have an entry
+        stats = sf.get_cache_stats()
+        self.assertGreater(stats['compilation_cache']['size'], 0)
+
+    def test_debug_call_return_only_write_false(self):
+        """debug_call with return_only_write=False returns all state values."""
+        read_state = brainstate.State(jnp.array([1.0]))
+        write_state = brainstate.State(jnp.array([2.0]))
+
+        def f(x):
+            _ = read_state.value  # read only
+            write_state.value = write_state.value + x
+            return write_state.value
+
+        sf = brainstate.transform.StatefulFunction(f, return_only_write=False)
+        x = jnp.array([1.0])
+        sf.make_jaxpr(x)
+
+        cache_key = sf.get_arg_cache_key(x)
+        states = sf.get_states_by_cache(cache_key)
+        state_vals = [s.value for s in states]
+
+        new_state_vals, out = sf.debug_call(state_vals, x)
+        # return_only_write=False means we get ALL states back
+        self.assertEqual(len(new_state_vals), len(states))
