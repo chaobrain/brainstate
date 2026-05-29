@@ -27,11 +27,13 @@ import numpy as np
 from jax._src.sharding_impls import UNSPECIFIED
 
 from brainstate._compatible_import import Literal, Var, Jaxpr
+from brainstate.transform._ir_utils import IRError, UnsupportedPrimitiveError
 
 
 __all__ = [
     'fn_to_python_code',
     'jaxpr_to_python_code',
+    'register_prim_handler',
 ]
 
 
@@ -178,7 +180,11 @@ def fn_to_python_code(fn, *args, **kwargs):
     try:
         name = fn.__name__
     except AttributeError:
-        name = "unknown"
+        name = "generated_function"
+    # ``<lambda>`` and other non-identifier names cannot be used as a ``def``
+    # name in the generated source.
+    if not isinstance(name, str) or not name.isidentifier():
+        name = "generated_function"
     with catch_imports():
         node = jaxpr_to_py_ast(state, jaxpr, fn_name=name)
         node = _maybe_wrap_fn_for_leaves(node, fn, len(args) + len(kwargs))
@@ -258,11 +264,23 @@ def _assign_stmt(call_expr: Callable):
 
 
 def _binop_fn(op: ast.operator):
-    return _assign_stmt(lambda x, y: ast.BinOp(left=x, op=op, right=y))
+    # Binary arithmetic primitives ignore their params (e.g. ``out_dtype`` in
+    # recent JAX) -- the result is simply ``x <op> y``.
+    def fn(state, eqn):
+        x, y = [_astify_atom(state, v) for v in eqn.invars]
+        outvars = _astify_outvars(state, eqn.outvars)
+        return ast.Assign(outvars, ast.BinOp(left=x, op=op, right=y))
+
+    return fn
 
 
 def _cmpop_fn(op: ast.cmpop):
-    return _assign_stmt(lambda x, y: ast.Compare(left=x, ops=[op], comparators=[y]))
+    def fn(state, eqn):
+        x, y = [_astify_atom(state, v) for v in eqn.invars]
+        outvars = _astify_outvars(state, eqn.outvars)
+        return ast.Assign(outvars, ast.Compare(left=x, ops=[op], comparators=[y]))
+
+    return fn
 
 
 def normal_fn(fn_name):
@@ -284,22 +302,16 @@ def _reduce_fn(fn_name: str):
     def reduce_fn_inner(state: SourcerorState, eqn):
         invars = [_astify_atom(state, v) for v in eqn.invars]
         outvars = _astify_outvars(state, eqn.outvars)
-        if eqn.params:
-            params = eqn.params.copy()
-            params['axis'] = tuple(params['axes'])
-            del params['axes']
-            call_op = ast.Call(
-                func=ast.Name(id=fn_name, ctx=ast.Load()),
-                args=invars,
-                keywords=[ast.keyword(arg=k, value=_astify_value(v)) for k, v in params.items()]
-            )
-        else:
-            call_op = ast.Call(
-                func=ast.Name(id=fn_name, ctx=ast.Load()),
-                args=invars,
-                keywords=[]
-            )
-
+        # Only the reduction axes are forwarded; other params (e.g.
+        # ``out_sharding`` in recent JAX) are not valid numpy kwargs.
+        keywords = []
+        if 'axes' in eqn.params and eqn.params['axes'] is not None:
+            keywords.append(ast.keyword(arg='axis', value=_astify_value(tuple(eqn.params['axes']))))
+        call_op = ast.Call(
+            func=ast.Name(id=fn_name, ctx=ast.Load()),
+            args=invars,
+            keywords=keywords,
+        )
         return ast.Assign(outvars, call_op)
 
     return reduce_fn_inner
@@ -327,6 +339,135 @@ register_prim_handler('reduce_sum', _reduce_fn('jax.numpy.sum'))
 register_prim_handler('transpose', normal_fn('jax.lax.transpose'))
 
 
+def _call_noparams(fn_name: str):
+    """Handler that emits ``fn_name(*invars)``, ignoring equation params.
+
+    Suitable for elementwise primitives whose params (e.g. ``accuracy`` on
+    transcendental ops in recent JAX) are not valid call arguments.
+    """
+    def fn(state, eqn):
+        invars = [_astify_atom(state, v) for v in eqn.invars]
+        outvars = _astify_outvars(state, eqn.outvars)
+        return ast.Assign(
+            outvars,
+            ast.Call(func=ast.Name(id=fn_name, ctx=ast.Load()), args=invars, keywords=[]),
+        )
+
+    return fn
+
+
+# --- Elementwise unary / binary primitives (params ignored) ---
+for _name in (
+    'sin', 'cos', 'tan', 'tanh', 'sinh', 'cosh', 'asin', 'acos', 'atan',
+    'exp', 'exp2', 'log', 'log1p', 'expm1', 'sqrt', 'rsqrt', 'cbrt',
+    'abs', 'sign', 'floor', 'ceil', 'round', 'erf', 'erfc', 'erf_inv',
+    'is_finite', 'logistic', 'square', 'reciprocal', 'not',
+    'pow', 'rem', 'atan2', 'nextafter', 'and', 'or', 'xor',
+    'shift_left', 'shift_right_logical', 'shift_right_arithmetic',
+):
+    if _name not in prim_to_python:
+        register_prim_handler(_name, _call_noparams(f'jax.lax.{_name}'))
+
+
+def _integer_pow_handler(state, eqn):
+    invars = [_astify_atom(state, v) for v in eqn.invars]
+    outvars = _astify_outvars(state, eqn.outvars)
+    return ast.Assign(
+        outvars,
+        ast.Call(
+            func=ast.Name(id='jax.lax.integer_pow', ctx=ast.Load()),
+            args=invars + [_astify_value(eqn.params['y'])],
+            keywords=[],
+        ),
+    )
+
+
+register_prim_handler('integer_pow', _integer_pow_handler)
+
+# --- Reductions (axes -> axis) ---
+register_prim_handler('reduce_max', _reduce_fn('jax.numpy.max'))
+register_prim_handler('reduce_min', _reduce_fn('jax.numpy.min'))
+register_prim_handler('reduce_prod', _reduce_fn('jax.numpy.prod'))
+register_prim_handler('reduce_and', _reduce_fn('jax.numpy.all'))
+register_prim_handler('reduce_or', _reduce_fn('jax.numpy.any'))
+
+
+def _argreduce_fn(fn_name: str):
+    def handler(state, eqn):
+        invars = [_astify_atom(state, v) for v in eqn.invars]
+        outvars = _astify_outvars(state, eqn.outvars)
+        axis = eqn.params['axes'][0]
+        return ast.Assign(
+            outvars,
+            ast.Call(
+                func=ast.Name(id=fn_name, ctx=ast.Load()),
+                args=invars,
+                keywords=[ast.keyword(arg='axis', value=_astify_value(axis))],
+            ),
+        )
+
+    return handler
+
+
+register_prim_handler('argmax', _argreduce_fn('jax.numpy.argmax'))
+register_prim_handler('argmin', _argreduce_fn('jax.numpy.argmin'))
+
+
+def _concatenate_handler(state, eqn):
+    elts = [_astify_atom(state, v) for v in eqn.invars]
+    outvars = _astify_outvars(state, eqn.outvars)
+    return ast.Assign(
+        outvars,
+        ast.Call(
+            func=ast.Name(id='jax.numpy.concatenate', ctx=ast.Load()),
+            args=[ast.List(elts=elts, ctx=ast.Load())],
+            keywords=[ast.keyword(arg='axis', value=_astify_value(eqn.params['dimension']))],
+        ),
+    )
+
+
+register_prim_handler('concatenate', _concatenate_handler)
+
+
+def _expand_dims_handler(state, eqn):
+    invars = [_astify_atom(state, v) for v in eqn.invars]
+    outvars = _astify_outvars(state, eqn.outvars)
+    return ast.Assign(
+        outvars,
+        ast.Call(
+            func=ast.Name(id='jax.lax.expand_dims', ctx=ast.Load()),
+            args=invars + [_astify_value(tuple(eqn.params['dimensions']))],
+            keywords=[],
+        ),
+    )
+
+
+register_prim_handler('expand_dims', _expand_dims_handler)
+
+
+def _cumulative_fn(fn_name: str):
+    def handler(state, eqn):
+        invars = [_astify_atom(state, v) for v in eqn.invars]
+        outvars = _astify_outvars(state, eqn.outvars)
+        keywords = []
+        if 'axis' in eqn.params:
+            keywords.append(ast.keyword(arg='axis', value=_astify_value(eqn.params['axis'])))
+        if 'reverse' in eqn.params:
+            keywords.append(ast.keyword(arg='reverse', value=_astify_value(eqn.params['reverse'])))
+        return ast.Assign(
+            outvars,
+            ast.Call(func=ast.Name(id=fn_name, ctx=ast.Load()), args=invars, keywords=keywords),
+        )
+
+    return handler
+
+
+register_prim_handler('cumsum', _cumulative_fn('jax.lax.cumsum'))
+register_prim_handler('cumprod', _cumulative_fn('jax.lax.cumprod'))
+register_prim_handler('cummax', _cumulative_fn('jax.lax.cummax'))
+register_prim_handler('cummin', _cumulative_fn('jax.lax.cummin'))
+
+
 def _maybe_wrap_fn_for_leaves(node, f, num_args):
     if len(node.args.args) == num_args:
         return node
@@ -348,9 +489,12 @@ def _maybe_wrap_fn_for_leaves(node, f, num_args):
                     args=[
                         ast.Starred(
                             ast.Call(
-                                func=ast.Attribute(value=ast.Name(id="jax", ctx=ast.Load()),
-                                                   attr="tree_leaves",
-                                                   ctx=ast.Load()),
+                                func=ast.Attribute(
+                                    value=ast.Attribute(value=ast.Name(id="jax", ctx=ast.Load()),
+                                                        attr="tree_util",
+                                                        ctx=ast.Load()),
+                                    attr="tree_leaves",
+                                    ctx=ast.Load()),
                                 args=[ast.Tuple(elts=[ast.Name(id="args", ctx=ast.Load()),
                                                       ast.Name(id="kwargs", ctx=ast.Load())],
                                                 ctx=ast.Load())],
@@ -387,10 +531,13 @@ def jaxpr_to_py_ast(state: SourcerorState,
     # Generate body of the function
     for eqn in jaxpr.eqns:
         prim = str(eqn.primitive)
-        if prim in prim_to_python:
-            eqn_stmts = prim_to_python[prim](state, eqn)
-        else:
-            eqn_stmts = normal_fn(prim)(state, eqn)
+        handler = prim_to_python.get(prim)
+        if handler is None:
+            raise UnsupportedPrimitiveError(
+                f"No code-generation handler for primitive '{prim}'. "
+                f"Register one with register_prim_handler('{prim}', handler)."
+            )
+        eqn_stmts = handler(state, eqn)
 
         if isinstance(eqn_stmts, list):
             stmts.extend(eqn_stmts)
@@ -433,7 +580,11 @@ def partial_eval_jaxpr(jaxpr, env):
         elif isinstance(out, Literal):
             return Literal(out.val, var.aval)
         else:
-            assert not isinstance(out, Jaxpr)
+            if isinstance(out, Jaxpr):
+                raise IRError(
+                    "Unexpected nested Jaxpr produced during constant folding "
+                    "while generating Python code."
+                )
             return Literal(out, var.aval)
 
     for eqn in jaxpr.eqns:
@@ -453,7 +604,11 @@ def partial_eval_jaxpr(jaxpr, env):
                 out = (out,)
 
             for var, val in zip(eqn.outvars, out):
-                assert not isinstance(val, Jaxpr)
+                if isinstance(val, Jaxpr):
+                    raise IRError(
+                        "Unexpected nested Jaxpr produced during constant folding "
+                        "while generating Python code."
+                    )
                 if isinstance(val, Literal):
                     env[var] = val.val
                 else:
@@ -467,28 +622,28 @@ def partial_eval_jaxpr(jaxpr, env):
         eqn = eqn.replace(invars=tuple(read_or_self(var) for var in eqn.invars))
         out_eqns.append(eqn)
 
+    # sub in any constants for outvars
+    outvars = tuple(read_or_self(var) for var in jaxpr.outvars)
+
     invars_still_used = IdentitySet()
     for eqn in out_eqns:
         for var in eqn.invars:
             invars_still_used.add(var)
+    # Pass-through invars (forwarded directly to an output without appearing in
+    # any equation, e.g. the identity function) must be retained, otherwise the
+    # generated function loses parameters it still needs to return.
+    for var in outvars:
+        invars_still_used.add(var)
 
     invars = tuple(var for var in jaxpr.invars if var in invars_still_used)
-
-    # sub in any constants for outvars
-    outvars = tuple(read_or_self(var) for var in jaxpr.outvars)
 
     return jaxpr.replace(eqns=out_eqns, outvars=outvars, invars=invars, debug_info=None)
 
 
 def _eval_eqn(eqn, vals) -> Union[Jaxpr, tuple, list, jax.Array]:
     if eqn.primitive.name == "closed_call":
-        assert eqn.primitive.call_primitive
-        assert not eqn.primitive.map_primitive
-
         out = partial_eval_jaxpr(eqn.params['call_jaxpr'].jaxpr,
                                  {var: val for var, val in zip(eqn.params['call_jaxpr'].jaxpr.invars, vals)})
-    elif eqn.primitive.name == "scan":
-        out = eqn.primitive.bind(*vals, **eqn.params)
     else:
         out = eqn.primitive.bind(*vals, **eqn.params)
     return out
@@ -619,11 +774,54 @@ def _astify_convert_element_type(state, eqn):
 
 
 def is_array(arr):
-    return isinstance(arr, (np.ndarray, np.generic, jax.Array))
+    if isinstance(arr, (np.ndarray, np.generic, jax.Array)):
+        return True
+    # Some JAX versions box jaxpr literals in wrapper types (e.g.
+    # ``jax._src.literals.TypedNdArray``) that are array-like - they carry a
+    # ``dtype`` and ``shape`` and convert via ``numpy`` - but are *not*
+    # subclasses of ``jax.Array``. Recognise them by duck-typing so their
+    # values are emitted as real arrays instead of falling through to the
+    # "unknown value" path (which produced syntactically invalid code).
+    return (
+        hasattr(arr, 'dtype')
+        and hasattr(arr, 'shape')
+        and not isinstance(arr, np.dtype)
+    )
+
+
+def _coerce_to_numpy(value):
+    """Realise an array-like literal to a concrete ``numpy`` array.
+
+    Native ``numpy`` scalars/arrays are returned unchanged so the existing
+    ``np.int64`` / 0-d special cases in :func:`_astify_array` keep working.
+    Everything else (``jax.Array`` and boxed literal wrappers) is converted
+    via ``numpy``, with attribute-based fallbacks for wrappers that do not
+    implement the array protocol directly.
+    """
+    if isinstance(value, (np.ndarray, np.generic)):
+        return value
+    # Boxed jaxpr literals (e.g. ``TypedNdArray``) expose the underlying
+    # ndarray via ``.val``; prefer it so the exact dtype is preserved (the
+    # wrapper's ``__array__`` is documented to misbehave on NumPy < 2.3).
+    inner = getattr(value, 'val', None)
+    if isinstance(inner, (np.ndarray, np.generic)):
+        return inner
+    try:
+        return np.asarray(value)
+    except Exception:
+        for attr in ('_value', 'array', 'value'):
+            inner = getattr(value, attr, None)
+            if inner is not None and inner is not value:
+                try:
+                    return np.asarray(inner)
+                except Exception:
+                    continue
+        raise
 
 
 def _astify_array(value):
     assert is_array(value)
+    value = _coerce_to_numpy(value)
     if isinstance(value, np.int64):
         return ast.Constant(value=int(value))
 
@@ -940,62 +1138,42 @@ def _astify_closed_call(state, eqn):
     return [fn_ast, assign]
 
 
-@register_prim_as('pjit')
 def _astify_pjit(state, eqn):
-    # this one's a real pain.
-    # pjit's params are :
-    # jaxpr
-    # donated_invars:
-    # in_shardings, out_shardings
-    # resource env
-    # name (yay)
-    # keep_unused, inline (which we won't use)
+    # The jit/pjit primitive carries a nested jaxpr plus sharding/donation
+    # metadata whose param names vary across JAX versions. Rather than
+    # reconstructing the sharding arguments (fragile and version-specific), emit
+    # a nested function wrapped in a plain ``jax.jit`` and call it. This is
+    # numerically equivalent for the common (unsharded) case.
+    jaxpr = eqn.params.get('jaxpr')
+    if jaxpr is None:
+        jaxpr = eqn.params.get('call_jaxpr')
 
-    jaxpr = eqn.params['jaxpr']
-    donated_invars = eqn.params['donated_invars']
-    in_shardings = eqn.params['in_shardings']
-    out_shardings = eqn.params['out_shardings']
-    resource_env = eqn.params['resource_env']
-    name = eqn.params['name']
-
-    can_ignore_donated = not any(donated_invars)
-
-    # preprocess the function
-    jaxpr = constant_fold_jaxpr(jaxpr.jaxpr)
+    inner = constant_fold_jaxpr(jaxpr.jaxpr)
+    name = eqn.params.get('name', 'jitted')
+    if not isinstance(name, str) or not name.isidentifier():
+        name = 'jitted'
     fn_name = state.skolem(name)
-    fn_ast = jaxpr_to_py_ast(state, jaxpr, fn_name)
-
-    in_shardings = _astify_value(in_shardings)
-    out_shardings = _astify_value(out_shardings)
-
-    keywords = [
-        ast.keyword(arg='in_shardings', value=in_shardings),
-        ast.keyword(arg='out_shardings', value=out_shardings),
-    ]
-
-    if not can_ignore_donated:
-        donated_invars = _astify_value(donated_invars)
-        keywords.append(ast.keyword(arg='donated_invars', value=donated_invars))
+    fn_ast = jaxpr_to_py_ast(state, inner, fn_name)
 
     jitted_fn = ast.Call(
-        func=ast.Attribute(
-            ast.Name(id='jax', ctx=ast.Load()),
-            attr='jit'
-        ),
+        func=ast.Attribute(ast.Name(id='jax', ctx=ast.Load()), attr='jit', ctx=ast.Load()),
         args=[ast.Name(id=fn_name, ctx=ast.Load())],
-        keywords=keywords
+        keywords=[],
     )
-
     assign = ast.Assign(
         targets=_astify_outvars(state, eqn.outvars),
         value=ast.Call(
             func=jitted_fn,
             args=[_astify_atom(state, v) for v in eqn.invars],
-            keywords=[]
-        )
+            keywords=[],
+        ),
     )
-
     return [fn_ast, assign]
+
+
+# The jit primitive is named 'pjit' in older JAX and 'jit' in newer releases.
+register_prim_handler('pjit', _astify_pjit)
+register_prim_handler('jit', _astify_pjit)
 
 
 @register_prim_as('remat2')
@@ -1063,6 +1241,24 @@ def _astify_add_any(state, eqn):
     return _binop_fn(ast.Add())(state, eqn)
 
 
+def _broadcast_in_dim_general(state, eqn):
+    # Emit jax.lax.broadcast_in_dim(operand, shape, broadcast_dimensions),
+    # forwarding only the arguments the public function accepts (recent JAX adds
+    # a ``sharding`` param that must not be passed through).
+    invar = _astify_atom(state, eqn.invars[0])
+    outvars = _astify_outvars(state, eqn.outvars)
+    return ast.Assign(
+        targets=outvars,
+        value=ast.Call(
+            func=ast.Name(id='jax.lax.broadcast_in_dim', ctx=ast.Load()),
+            args=[invar,
+                  _astify_value(eqn.params['shape']),
+                  _astify_value(eqn.params['broadcast_dimensions'])],
+            keywords=[],
+        ),
+    )
+
+
 @register_prim_as('broadcast_in_dim')
 def _astify_broadcast_in_dim(state, eqn):
     # broadcast_in_dim is how zeros, ones, full, etc are implemented,
@@ -1073,10 +1269,10 @@ def _astify_broadcast_in_dim(state, eqn):
     broadcast_dimensions = eqn.params['broadcast_dimensions']
 
     if not isinstance(value, Literal) or broadcast_dimensions != ():
-        return normal_fn('jax.lax.broadcast_in_dim')(state, eqn)
+        return _broadcast_in_dim_general(state, eqn)
 
     if not isinstance(value.val, np.ndarray) or value.val.ndim != 0:
-        return normal_fn('jax.lax.broadcast_in_dim')(state, eqn)
+        return _broadcast_in_dim_general(state, eqn)
     else:
         constant_value = value.val.item()
         if constant_value == 0:
@@ -1132,4 +1328,21 @@ def _astify_random_wrap(state, eqn):
 constant_fold_blacklist = {
     'broadcast_in_dim',
     'broadcast',
+    # Control flow: preserve the structure so dedicated handlers emit code for
+    # it rather than eagerly executing it during constant folding.
+    'scan',
+    'cond',
+    'while',
+    # Randomness / callbacks: never eagerly execute at code-generation time.
+    'rng_uniform',
+    'rng_bit_generator',
+    'random_seed',
+    'random_bits',
+    'random_fold_in',
+    'random_split',
+    'random_wrap',
+    'random_unwrap',
+    'debug_callback',
+    'io_callback',
+    'pure_callback',
 }

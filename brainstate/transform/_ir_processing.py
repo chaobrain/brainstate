@@ -19,6 +19,7 @@ from jax.extend.core.primitives import dot_general_p, conv_general_dilated_p
 
 from brainstate._compatible_import import is_jit_primitive, JaxprEqn, Jaxpr, ClosedJaxpr, Var, Literal
 from brainstate._state import State
+from brainstate.transform._ir_utils import IdentitySet, IRValidationError, check_all_vars
 
 
 __all__ = [
@@ -45,60 +46,62 @@ def eqns_to_jaxpr(
     Returns:
         Jaxpr: A Jaxpr object constructed from the equations
     """
-    # Collect all variables produced by equations
-    produced_vars = set()
+    eqns = list(eqns)
+
+    # Insertion-ordered set of variables produced by the equations.
+    produced_vars = IdentitySet()
     for eqn in eqns:
         produced_vars.update(eqn.outvars)
 
-    # Collect all variables used in equations (excluding Literals)
-    used_vars_set = set()
+    # Ordered list of used Vars (first-use order), de-duplicated by identity.
+    # Using ordered structures (instead of plain ``set`` iteration) makes the
+    # inferred invars/constvars/outvars deterministic across runs.
+    used_order = []
+    used_seen = IdentitySet()
     for eqn in eqns:
         for var in eqn.invars:
-            if isinstance(var, Var):
-                used_vars_set.add(var)
+            if isinstance(var, Var) and var not in used_seen:
+                used_seen.add(var)
+                used_order.append(var)
 
-    # Infer invars if not provided
+    # Infer invars if not provided (used but not produced), else validate.
     if invars is None:
-        # Variables that are used but not produced are potential invars or constvars
-        invars = []
-        for eqn in eqns:
-            for var in eqn.invars:
-                if isinstance(var, Var):
-                    if var not in produced_vars and var not in invars:
-                        invars.append(var)
+        invars = [v for v in used_order if v not in produced_vars]
     else:
         invars = list(invars)
+        check_all_vars(invars, 'invars')
+    invars_set = IdentitySet(invars)
 
-    # Infer constvars if not provided
-    # Constvars are variables used in equations but not in invars or produced_vars
+    # Infer constvars if not provided (used, not produced, not an invar).
     if constvars is None:
-        invars_set = set(invars)
-        constvars = []
-        for var in used_vars_set:
-            if var not in produced_vars and var not in invars_set:
-                if var not in constvars:
-                    constvars.append(var)
+        constvars = [v for v in used_order
+                     if v not in produced_vars and v not in invars_set]
     else:
         constvars = list(constvars)
+        check_all_vars(constvars, 'constvars')
 
-    # Infer outvars if not provided
+    # Infer outvars if not provided: variables produced but never consumed,
+    # in production order (deterministic). Otherwise validate the provided list.
     if outvars is None:
-        # Variables that are produced but not consumed (or only consumed) are outputs
-        consumed_vars = set()
+        consumed_vars = IdentitySet()
         for eqn in eqns:
             for var in eqn.invars:
                 if isinstance(var, Var) and var in produced_vars:
                     consumed_vars.add(var)
-
-        outvars = list(produced_vars - consumed_vars)
+        outvars = []
+        for eqn in eqns:
+            for v in eqn.outvars:
+                if v not in consumed_vars:
+                    outvars.append(v)
     else:
         outvars = list(outvars)
+        check_all_vars(outvars, 'outvars')
 
     return Jaxpr(
         constvars=constvars,
         invars=invars,
         outvars=outvars,
-        eqns=list(eqns),
+        eqns=eqns,
     )
 
 
@@ -141,7 +144,7 @@ def eqns_to_closed_jaxpr(
 
     # Verify consts length matches constvars length
     if len(consts) != len(jaxpr.constvars):
-        raise ValueError(
+        raise IRValidationError(
             f"consts length ({len(consts)}) does not match constvars length ({len(jaxpr.constvars)})"
         )
 

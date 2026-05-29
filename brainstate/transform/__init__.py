@@ -98,7 +98,7 @@ from ._ir_processing import (
     eqns_to_closed_jaxpr, eqns_to_jaxpr,
 )
 from ._ir_tocode import (
-    fn_to_python_code, jaxpr_to_python_code,
+    fn_to_python_code, jaxpr_to_python_code, register_prim_handler,
 )
 from ._ir_visualize import (
     draw, view_pydot, draw_dot_graph,
@@ -170,6 +170,7 @@ __all__ = [
     'eqns_to_jaxpr',
     'fn_to_python_code',
     'jaxpr_to_python_code',
+    'register_prim_handler',
     'draw',
     'view_pydot',
     'draw_dot_graph',
