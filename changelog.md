@@ -1,6 +1,17 @@
 # Release Notes
 
 
+## Unreleased
+
+### New Features
+
+#### Inline Type Information (PEP 561)
+
+- **`py.typed` marker added**: `brainstate` now ships inline type information, so downstream projects' type checkers (mypy, pyright, etc.) pick up brainstate's annotations automatically.
+- **Typing correctness gate**: a `mypy` configuration with a per-module "ratchet" enforces type correctness in CI, starting with `brainstate.typing`. Coverage expands module-by-module over time.
+- All annotations are evaluated lazily (`from __future__ import annotations`), so they impose no import-time or runtime cost.
+
+
 ## Version 0.3.0
 
 This release delivers on-device NaN debugging, a unified compilation cache, simplified JAX compatibility, and major internal cleanup — with a net reduction of ~1,800 lines of code. It raises the minimum requirements to Python 3.11 and JAX 0.6.0.

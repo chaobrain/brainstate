@@ -47,6 +47,40 @@ If you are unsure about the best way to help, feel free to start a discussion in
 - Python code should follow the standards enforced by `flake8` and the rest of the tooling in `.pre-commit-config.yaml`.
 - Keep imports tidy and prefer explicit typing when it clarifies intent.
 
+## Typing
+
+`brainstate` ships inline type information (PEP 561 `py.typed`) verified by a
+blocking `mypy` gate. When adding or modifying code, follow these rules:
+
+1. **Future annotations.** Start every module with `from __future__ import
+   annotations`. Annotations become lazy strings — zero runtime cost, faster
+   imports, and no circular-import headaches.
+2. **One source of truth for shared types.** Import shared aliases/protocols
+   (`ArrayLike`, `Shape`, `Size`, `Axes`, `DTypeLike`, `PyTree`, `SeedOrKey`,
+   `Filter`, `Key`, ...) from `brainstate.typing`. Do not redefine them locally;
+   add new shared concepts there with a docstring.
+3. **Type-only imports go under `TYPE_CHECKING`.** Use `if TYPE_CHECKING:` for
+   imports needed only for annotations so runtime imports stay lean.
+4. **Run mypy before pushing:** `mypy brainstate/` (or `pre-commit run mypy`).
+
+### Advancing the ratchet (typing a new module)
+
+The mypy config in `pyproject.toml` suppresses errors for not-yet-typed modules
+via a `brainstate.*` wildcard and enforces finished modules via concrete
+overrides (a concrete module pattern takes precedence over the wildcard). To
+"finish" a module:
+
+1. Add `from __future__ import annotations`; type its public `__all__` exports,
+   then its internals; move type-only imports under `TYPE_CHECKING`.
+2. Add the module to the sorted `module = [...]` list in the **RATCHET** override
+   block in `pyproject.toml`.
+3. Run `mypy brainstate/` until it reports `Success`.
+4. Where useful, add `assert_type` checks for the module's public APIs to
+   `brainstate/_typing_static_check.py`.
+
+Prefer readable public aliases over raw `Union[...]`; keep `Any` rare and
+intentional. Keep annotations consistent with the NumPy-doc `name : type` field.
+
 ## Testing
 Run the full test suite with:
 ```bash

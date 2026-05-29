@@ -70,3 +70,40 @@ jobs:
       - name: Test with pytest
         run: |
           pytest brainstate/ -p no:faulthandler
+
+  type_check:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: [ "3.13" ]
+
+    steps:
+      - uses: actions/checkout@v6
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Cache mypy
+        uses: actions/cache@v4
+        with:
+          path: .mypy_cache
+          key: mypy-${{ runner.os }}-py${{ matrix.python-version }}-${{ hashFiles('pyproject.toml', 'requirements-dev.txt') }}
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip build
+          python -m pip install -r requirements-dev.txt
+          pip install .
+      - name: Type check with mypy
+        run: |
+          mypy brainstate/
+      - name: Verify py.typed ships in the wheel
+        run: |
+          python -m build --wheel
+          python - <<'PY'
+          import glob, zipfile
+          whl = sorted(glob.glob('dist/*.whl'))[-1]
+          names = zipfile.ZipFile(whl).namelist()
+          assert 'brainstate/py.typed' in names, f'py.typed NOT in wheel {whl}'
+          print('OK: py.typed present in', whl)
+          PY
