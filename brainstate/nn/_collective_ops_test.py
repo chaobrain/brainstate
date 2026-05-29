@@ -772,3 +772,242 @@ class Test_call_all_fns:
 
         assert layer1.method_called
         assert layer2.method_called
+
+
+# ---------------------------------------------------------------------------
+# Appended coverage tests for brainstate.nn._collective_ops.
+# ---------------------------------------------------------------------------
+
+import unittest
+
+from brainstate import _testing
+
+
+class EnsembleModule(brainstate.nn.Module):
+    """Tiny module whose ``init_state`` allocates a single ParamState."""
+
+    def init_state(self, k):
+        """Allocate a ``ParamState`` of length ``k`` with random values."""
+        self.w = brainstate.ParamState(brainstate.random.randn(k))
+
+    def reset_state(self):
+        """Zero the parameter state in place."""
+        self.w.value = jnp.zeros_like(self.w.value)
+
+
+class TestCallAllFnsInvalidPolicy(unittest.TestCase):
+    """Cover the invalid ``fn_if_not_exist`` branch in ``call_all_fns``."""
+
+    def test_invalid_fn_if_not_exist_raises_valueerror(self):
+        """An unrecognized ``fn_if_not_exist`` value raises ValueError."""
+
+        class NoMethod(brainstate.nn.Module):
+            """Module deliberately missing the requested method."""
+
+        with self.assertRaises(ValueError):
+            brainstate.nn.call_all_fns(NoMethod(), 'missing', fn_if_not_exist='bogus')
+
+
+class TestVmapCallAllFns(unittest.TestCase):
+    """Tests for ``vmap_call_all_fns`` batched method invocation."""
+
+    def test_call_completes_and_runs_body(self):
+        """The vmapped call runs to completion over newly created states.
+
+        This exercises the happy-path body of ``vmap_call_all_fns`` (the inner
+        and outer ``catch_new_states`` blocks and the value write-back loop).
+        It deliberately avoids using the resulting state value because of the
+        tracer-leak bug documented in ``test_init_state_leaks_tracer``.
+        """
+        module = EnsembleModule()
+        with _testing.seeded(0):
+            returned = brainstate.nn.vmap_call_all_fns(
+                module, 'init_state', axis_size=_testing.SMALL_BATCH, kwargs={'k': 3}
+            )
+        self.assertIs(returned, module)
+        self.assertTrue(hasattr(module, 'w'))
+
+    @pytest.mark.skip(reason="BUG: vmap_call_all_fns leaks a JAX BatchTracer into "
+                             "newly created state values; the batched value is not "
+                             "committed (shape stays per-lane and later use raises "
+                             "UnexpectedTracerError). See report.")
+    def test_batched_init_creates_leading_axis(self):
+        """Vmapped init_state should create a committed leading batch axis."""
+        module = EnsembleModule()
+        with _testing.seeded(0):
+            brainstate.nn.vmap_call_all_fns(
+                module, 'init_state', axis_size=_testing.SMALL_BATCH, kwargs={'k': 3}
+            )
+        self.assertEqual(module.w.value.shape, (_testing.SMALL_BATCH, 3))
+
+    @pytest.mark.skip(reason="BUG: vmap_call_all_fns leaks a JAX BatchTracer into "
+                             "newly created state values. See report.")
+    def test_batched_init_distinct_per_lane(self):
+        """Each batch lane should receive an independent random initialization."""
+        module = EnsembleModule()
+        with _testing.seeded(1):
+            brainstate.nn.vmap_call_all_fns(
+                module, 'init_state', axis_size=_testing.SMALL_BATCH, kwargs={'k': 4}
+            )
+        self.assertFalse(bool(jnp.allclose(module.w.value[0], module.w.value[1])))
+
+    @pytest.mark.skip(reason="BUG: vmap_call_all_fns leaks a JAX BatchTracer into "
+                             "newly created state values. See report.")
+    def test_positional_single_arg_wrapped(self):
+        """A single non-tuple positional argument is wrapped in a tuple."""
+
+        class Recorder(brainstate.nn.Module):
+            """Module recording the positional args it receives."""
+
+            def init_state(self, value):
+                """Record the scalar argument into a ParamState."""
+                self.v = brainstate.ParamState(jnp.asarray(float(value)))
+
+        module = Recorder()
+        brainstate.nn.vmap_call_all_fns(
+            module, 'init_state', args=2.0, axis_size=_testing.SMALL_BATCH
+        )
+        self.assertEqual(module.v.value.shape, (_testing.SMALL_BATCH,))
+
+    def test_single_non_tuple_arg_wrapped(self):
+        """A single non-tuple positional ``args`` is wrapped before mapping.
+
+        Uses a stateless method so the run completes without hitting the
+        newly-created-state tracer-leak bug, isolating the ``args`` wrap branch.
+        """
+        recorder = {}
+
+        class StatelessRecorder(brainstate.nn.Module):
+            """Module whose mapped method records its positional arg."""
+
+            def note(self, value):
+                """Record the (broadcast) positional argument."""
+                recorder['value'] = value
+
+        module = StatelessRecorder()
+        returned = brainstate.nn.vmap_call_all_fns(
+            module, 'note', args=7, axis_size=_testing.SMALL_BATCH
+        )
+        self.assertIs(returned, module)
+        self.assertEqual(recorder['value'], 7)
+
+    def test_axis_size_zero_raises(self):
+        """A non-positive ``axis_size`` raises ValueError."""
+        with self.assertRaises(ValueError):
+            brainstate.nn.vmap_call_all_fns(EnsembleModule(), 'init_state', axis_size=0)
+
+    def test_axis_size_none_raises(self):
+        """A missing ``axis_size`` raises ValueError."""
+        with self.assertRaises(ValueError):
+            brainstate.nn.vmap_call_all_fns(EnsembleModule(), 'init_state', axis_size=None)
+
+    def test_kwargs_not_mapping_raises(self):
+        """A non-mapping ``kwargs`` raises TypeError."""
+        with self.assertRaises(TypeError):
+            brainstate.nn.vmap_call_all_fns(
+                EnsembleModule(), 'init_state', axis_size=4, kwargs=[1, 2, 3]
+            )
+
+
+class TestVmapInitAllStates(unittest.TestCase):
+    """Tests for ``vmap_init_all_states`` batched initialization."""
+
+    def test_creates_batched_states(self):
+        """Vmapped initialization prepends a batch axis to every state."""
+        module = EnsembleModule()
+        with _testing.seeded(0):
+            brainstate.nn.vmap_init_all_states(module, axis_size=_testing.SMALL_BATCH, k=3)
+        self.assertEqual(module.w.value.shape, (_testing.SMALL_BATCH, 3))
+
+    def test_with_state_to_exclude(self):
+        """Excluded states stay shared (unbatched) across lanes."""
+
+        class TwoStates(brainstate.nn.Module):
+            """Module with a batched param and a shared buffer."""
+
+            def init_state(self, k):
+                """Allocate a random param and a zero buffer."""
+                self.w = brainstate.ParamState(brainstate.random.randn(k))
+                self.buf = brainstate.ShortTermState(jnp.zeros(k))
+
+        module = TwoStates()
+        with _testing.seeded(0):
+            brainstate.nn.vmap_init_all_states(
+                module,
+                axis_size=_testing.SMALL_BATCH,
+                k=3,
+                state_to_exclude=brainstate.util.filter.OfType(brainstate.ShortTermState),
+            )
+        self.assertEqual(module.w.value.shape, (_testing.SMALL_BATCH, 3))
+        self.assertEqual(module.buf.value.shape, (3,))
+
+
+class TestVmapResetAllStates(unittest.TestCase):
+    """Tests for ``vmap_reset_all_states`` batched reset."""
+
+    def test_reset_zeroes_batched_state(self):
+        """Resetting a batched module zeros its parameter while keeping its shape."""
+        module = EnsembleModule()
+        with _testing.seeded(0):
+            brainstate.nn.vmap_init_all_states(module, axis_size=_testing.SMALL_BATCH, k=3)
+        brainstate.nn.vmap_reset_all_states(module, axis_size=_testing.SMALL_BATCH)
+        self.assertEqual(module.w.value.shape, (_testing.SMALL_BATCH, 3))
+        self.assertTrue(bool(jnp.allclose(module.w.value, 0.0)))
+
+
+class TestAssignStateValues(unittest.TestCase):
+    """Tests for ``assign_state_values`` state restoration."""
+
+    def _make_net(self):
+        """Build and initialize a module with two plain-array ParamStates."""
+
+        class Simple(brainstate.nn.Module):
+            """Module with two named ParamStates."""
+
+            def init_state(self):
+                """Allocate weight and bias parameters."""
+                self.w = brainstate.ParamState(jnp.ones(3))
+                self.b = brainstate.ParamState(jnp.zeros(2))
+
+        net = Simple()
+        brainstate.nn.init_all_states(net)
+        return net
+
+    def test_roundtrip_no_mismatch(self):
+        """Saving then restoring all states yields no unexpected/missing keys."""
+        net = self._make_net()
+        snapshot = {path: st.value for path, st in net.states().items()}
+        unexpected, missing = brainstate.nn.assign_state_values(net, snapshot)
+        self.assertEqual(unexpected, [])
+        self.assertEqual(missing, [])
+
+    def test_unexpected_key_reported(self):
+        """Keys absent from the module are returned as unexpected."""
+        net = self._make_net()
+        snapshot = {path: st.value for path, st in net.states().items()}
+        snapshot[('not', 'real')] = jnp.zeros(3)
+        unexpected, missing = brainstate.nn.assign_state_values(net, snapshot)
+        self.assertIn(('not', 'real'), unexpected)
+        self.assertEqual(missing, [])
+
+    def test_missing_keys_reported_and_value_assigned(self):
+        """A partial dict reports missing keys and assigns the provided value."""
+        net = self._make_net()
+        target_key = ('w',)
+        unexpected, missing = brainstate.nn.assign_state_values(
+            net, {target_key: jnp.ones(3) * 9.0}
+        )
+        self.assertEqual(unexpected, [])
+        self.assertIn(('b',), missing)
+        _testing.assert_allclose(net.states()[target_key].value, jnp.ones(3) * 9.0)
+
+    def test_multiple_dicts_merge_last_wins(self):
+        """Later dictionaries override earlier ones for duplicate keys."""
+        net = self._make_net()
+        target_key = ('w',)
+        brainstate.nn.assign_state_values(
+            net,
+            {target_key: jnp.ones(3) * 2.0},
+            {target_key: jnp.ones(3) * 7.0},
+        )
+        _testing.assert_allclose(net.states()[target_key].value, jnp.ones(3) * 7.0)

@@ -13,12 +13,26 @@
 # limitations under the License.
 # ==============================================================================
 
-from absl.testing import absltest
-from absl.testing import parameterized
+import unittest
+
+import brainunit as u
+import jax
 import jax.numpy as jnp
 import numpy as np
+import pytest
+from absl.testing import absltest
+from absl.testing import parameterized
 
 import brainstate
+from brainstate import _testing
+from brainstate._testing import assert_allclose
+from brainstate.nn._normalizations import (
+    canonicalize_dtype,
+    weight_standardization,
+    _canonicalize_axes,
+    _abs_sq,
+    _compute_stats,
+)
 
 
 class TestBatchNorm0d(parameterized.TestCase):
@@ -693,6 +707,246 @@ class TestNormalizationConsistency(parameterized.TestCase):
 
         # Should be deterministic
         np.testing.assert_allclose(output1, output2)
+
+
+class TestWeightStandardizationDetails(unittest.TestCase):
+    """Lower-level behavior of weight_standardization, including unit handling."""
+
+    def test_zeroes_mean_along_fan_in(self):
+        """Standardized weights have ~zero mean along the fan-in axes."""
+        with brainstate.random.seed_context(0):
+            w = brainstate.random.randn(3, 4, 5, 6)
+        w_std = weight_standardization(w)
+        mean = jnp.mean(w_std, axis=(0, 1, 2))
+        np.testing.assert_allclose(mean, 0.0, atol=1e-4)
+
+    def test_negative_out_axis(self):
+        """A negative out_axis is normalized to a positive index."""
+        with brainstate.random.seed_context(1):
+            w = brainstate.random.randn(4, 5)
+        a = weight_standardization(w, out_axis=-1)
+        b = weight_standardization(w, out_axis=1)
+        assert_allclose(a, b)
+
+    def test_unitless_quantity_input(self):
+        """A unitless Quantity input takes the dimensionless rsqrt branch."""
+        w = jnp.ones((3, 4)) * u.UNITLESS
+        w_std = weight_standardization(w)
+        self.assertEqual(u.math.shape(w_std), (3, 4))
+
+    @pytest.mark.skip(
+        reason="BUG: weight_standardization with a unit-carrying Quantity input "
+               "constructs u.Quantity(..., unit=1/unit**0.5); since 1/unit**0.5 "
+               "evaluates to a Quantity (not a Unit), Quantity.__init__ asserts."
+    )
+    def test_unit_carrying_quantity_input(self):
+        """A unit-carrying Quantity should be standardizable (currently buggy)."""
+        w = jnp.ones((3, 4)) * u.mV
+        w_std = weight_standardization(w, eps=1e-4 * u.mV ** 2)
+        self.assertEqual(u.math.shape(w_std), (3, 4))
+
+
+class TestCanonicalizeDtype(unittest.TestCase):
+    """Behavior of the canonicalize_dtype helper."""
+
+    def test_integer_args_promoted_to_float(self):
+        """Integer inputs are promoted to at least float32 when inexact=True."""
+        dtype = canonicalize_dtype(jnp.array([1, 2, 3]))
+        self.assertTrue(jnp.issubdtype(dtype, jnp.inexact))
+
+    def test_explicit_float_dtype_passthrough(self):
+        """An explicit inexact dtype is returned unchanged."""
+        self.assertEqual(canonicalize_dtype(jnp.array([1, 2]), dtype=jnp.float32),
+                         jnp.float32)
+
+    def test_explicit_non_inexact_dtype_raises(self):
+        """An explicit non-inexact dtype with inexact=True raises ValueError."""
+        with self.assertRaises(ValueError):
+            canonicalize_dtype(jnp.array([1, 2]), dtype=jnp.int32, inexact=True)
+
+    def test_non_inexact_allowed_when_flag_false(self):
+        """A non-inexact dtype is allowed when inexact=False."""
+        dtype = canonicalize_dtype(jnp.array([1, 2]), inexact=False)
+        self.assertTrue(jnp.issubdtype(dtype, jnp.integer))
+
+
+class TestNormalizationHelpers(unittest.TestCase):
+    """Tests for low-level normalization helper functions."""
+
+    def test_canonicalize_axes_invalid_raises(self):
+        """_canonicalize_axes rejects out-of-range axes."""
+        with self.assertRaises(ValueError):
+            _canonicalize_axes(2, (5,))
+
+    def test_canonicalize_axes_negative(self):
+        """_canonicalize_axes converts negative axes to positive indices."""
+        self.assertEqual(_canonicalize_axes(3, (-1, -2)), (2, 1))
+
+    def test_abs_sq_complex(self):
+        """_abs_sq computes squared magnitude for complex input."""
+        out = _abs_sq(jnp.array([3 + 4j], dtype=jnp.complex64))
+        np.testing.assert_allclose(np.asarray(out), [25.0], atol=1e-5)
+
+    def test_abs_sq_real(self):
+        """_abs_sq squares a real input."""
+        out = _abs_sq(jnp.array([2.0, -3.0]))
+        np.testing.assert_allclose(np.asarray(out), [4.0, 9.0])
+
+    def test_compute_stats_slow_variance(self):
+        """_compute_stats with use_fast_variance=False matches the fast path."""
+        with brainstate.random.seed_context(2):
+            x = brainstate.random.randn(8, 4)
+        mu_fast, var_fast = _compute_stats(x, axes=(0,), dtype=None,
+                                           use_fast_variance=True)
+        mu_slow, var_slow = _compute_stats(x, axes=(0,), dtype=None,
+                                           use_fast_variance=False)
+        assert_allclose(mu_fast, mu_slow, atol=1e-4)
+        assert_allclose(var_fast, var_slow, atol=1e-4)
+
+    def test_compute_stats_axis_name_pmean(self):
+        """_compute_stats reduces across a named (vmapped) axis via pmean."""
+        with brainstate.random.seed_context(3):
+            x = brainstate.random.randn(2, 6, 4)
+
+        def f(xi):
+            return _compute_stats(xi, axes=(0,), dtype=None, axis_name='b',
+                                  use_fast_variance=True)
+
+        mus, vars_ = jax.vmap(f, axis_name='b')(x)
+        # Means across the named axis are shared, so all replicas agree.
+        assert_allclose(mus[0], mus[1], atol=1e-5)
+        self.assertEqual(mus.shape, (2, 4))
+
+    def test_compute_stats_axis_name_single_array(self):
+        """A named axis with use_fast_variance=False uses single-array pmean calls."""
+        with brainstate.random.seed_context(11):
+            x = brainstate.random.randn(2, 6, 4)
+
+        def f(xi):
+            return _compute_stats(xi, axes=(0,), dtype=None, axis_name='b',
+                                  use_fast_variance=False)
+
+        mus, vars_ = jax.vmap(f, axis_name='b')(x)
+        # Means and variances are reduced across the named axis, so replicas agree.
+        assert_allclose(mus[0], mus[1], atol=1e-5)
+        assert_allclose(vars_[0], vars_[1], atol=1e-5)
+
+
+class TestComputeStatsDtype(unittest.TestCase):
+    """dtype handling inside _compute_stats."""
+
+    def test_default_dtype_inference(self):
+        """When dtype is None, statistics are computed at >=float32 precision."""
+        x = jnp.arange(12, dtype=jnp.int32).reshape(3, 4)
+        mu, var = _compute_stats(x, axes=(0,), dtype=None)
+        self.assertTrue(jnp.issubdtype(mu.dtype, jnp.floating))
+
+
+class TestBatchNormInvalidNdim(unittest.TestCase):
+    """BatchNorm rejects inputs with an unexpected number of dimensions."""
+
+    def setUp(self):
+        """Enter fitting mode."""
+        brainstate.environ.set(fit=True)
+
+    def test_batchnorm1d_wrong_ndim_raises(self):
+        """BatchNorm1d rejects a 1D input (needs 2D or 3D)."""
+        net = brainstate.nn.BatchNorm1d((20, 10))
+        with self.assertRaises(ValueError):
+            net(brainstate.random.randn(20))
+
+    def test_batchnorm0d_wrong_ndim_raises(self):
+        """BatchNorm0d rejects a 3D input (needs 1D or 2D)."""
+        net = brainstate.nn.BatchNorm0d((10,))
+        with self.assertRaises(ValueError):
+            net(brainstate.random.randn(4, 5, 10))
+
+    def test_batchnorm2d_wrong_ndim_raises(self):
+        """BatchNorm2d rejects a 2D input (needs 3D or 4D)."""
+        net = brainstate.nn.BatchNorm2d((8, 8, 3))
+        with self.assertRaises(ValueError):
+            net(brainstate.random.randn(8, 3))
+
+
+class TestBatchNormTrainEval(unittest.TestCase):
+    """Train vs eval behavior of the running statistics."""
+
+    def test_running_stats_update_in_fit(self):
+        """Running mean/var move away from their initial values during fitting."""
+        net = brainstate.nn.BatchNorm1d((6, 4), momentum=0.5)
+        mean0 = np.array(net.running_mean.value)
+        brainstate.environ.set(fit=True)
+        with brainstate.random.seed_context(4):
+            x = brainstate.random.randn(8, 6, 4) + 5.0
+        _ = net(x)
+        # Running mean should have shifted toward the batch mean.
+        self.assertFalse(np.allclose(mean0, np.array(net.running_mean.value)))
+
+    def test_eval_uses_frozen_running_stats(self):
+        """In eval mode the running statistics are used and not updated."""
+        net = brainstate.nn.BatchNorm1d((6, 4))
+        brainstate.environ.set(fit=True)
+        with brainstate.random.seed_context(5):
+            _ = net(brainstate.random.randn(8, 6, 4) + 3.0)
+        snap_mean = np.array(net.running_mean.value)
+        snap_var = np.array(net.running_var.value)
+
+        brainstate.environ.set(fit=False)
+        with brainstate.random.seed_context(6):
+            _ = net(brainstate.random.randn(8, 6, 4) - 2.0)
+        # Eval must not modify the running statistics.
+        np.testing.assert_allclose(snap_mean, np.array(net.running_mean.value))
+        np.testing.assert_allclose(snap_var, np.array(net.running_var.value))
+
+
+class TestGroupNormBranches(unittest.TestCase):
+    """Less-common GroupNorm code paths."""
+
+    def test_group_size_not_divisible_raises(self):
+        """group_size that does not divide the channel count raises ValueError."""
+        with self.assertRaises(ValueError):
+            brainstate.nn.GroupNorm((15,), feature_axis=0, num_groups=None,
+                                    group_size=4)
+
+    def test_explicit_reduction_axes(self):
+        """GroupNorm honors explicit reduction_axes and preserves shape."""
+        net = brainstate.nn.GroupNorm((16,), feature_axis=0, num_groups=4,
+                                      reduction_axes=(1, 2, -1))
+        with brainstate.random.seed_context(7):
+            x = brainstate.random.randn(2, 4, 4, 16)
+        out = net(x)
+        self.assertEqual(out.shape, x.shape)
+
+    def test_groupnorm_with_mask(self):
+        """GroupNorm accepts a broadcastable mask and preserves shape."""
+        net = brainstate.nn.GroupNorm((16,), feature_axis=0, num_groups=4)
+        with brainstate.random.seed_context(8):
+            x = brainstate.random.randn(4, 16)
+        mask = jnp.ones((4, 16), dtype=bool)
+        out = net(x, mask=mask)
+        self.assertEqual(out.shape, x.shape)
+
+
+class TestNormalizationJitGrad(unittest.TestCase):
+    """JIT consistency and gradient finiteness for normalization layers."""
+
+    def test_layernorm_jit_equal(self):
+        """LayerNorm output is identical under JIT and eager execution."""
+        net = brainstate.nn.LayerNorm((8,))
+        with brainstate.random.seed_context(9):
+            x = brainstate.random.randn(4, 8)
+        _testing.assert_jit_equal(net.update, x)
+
+    def test_rmsnorm_grad_finite(self):
+        """Gradients through RMSNorm are finite."""
+        net = brainstate.nn.RMSNorm((8,))
+        with brainstate.random.seed_context(10):
+            x = brainstate.random.randn(4, 8)
+
+        def loss_fn(inp):
+            return jnp.sum(net(inp) ** 2)
+
+        _testing.assert_grad_finite(loss_fn, x)
 
 
 if __name__ == '__main__':

@@ -190,12 +190,15 @@ def param(
     else:
         raise ValueError(f'Unknown parameter type: {type(parameter)}')
 
+    # Resolve the underlying array: a ``State`` stores its array in ``.value`` and
+    # does not expose ``.shape`` directly, so resolve it before any shape checks.
+    param_value = parameter.value if isinstance(parameter, State) else parameter
+
     # Check if the shape of the parameter matches the given size
-    if not are_broadcastable_shapes(parameter.shape, sizes):
-        raise ValueError(f'The shape of the parameter {parameter.shape} does not match with the given size {sizes}')
+    if not are_broadcastable_shapes(param_value.shape, sizes):
+        raise ValueError(f'The shape of the parameter {param_value.shape} does not match with the given size {sizes}')
 
     # Expand the parameter to match the given batch size
-    param_value = parameter.value if isinstance(parameter, State) else parameter
     if batch_size is not None:
         if param_value.ndim <= len(sizes):
             # add a new axis to the params so that it matches the dimensionality of the given shape ``sizes``

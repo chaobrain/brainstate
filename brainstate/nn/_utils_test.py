@@ -14,12 +14,26 @@
 # ==============================================================================
 
 import unittest
+import warnings
+
+import pytest
 from absl.testing import parameterized
 import jax
 import jax.numpy as jnp
 import numpy as np
 
 import brainstate
+from brainstate.nn import _utils as nn_utils
+
+
+def tearDownModule():
+    """Restore 64-bit precision to its default so later test modules are not polluted.
+
+    ``TestClipGradNorm.setUp`` enables ``jax_enable_x64`` globally without restoring
+    it, which leaks into sibling test modules (e.g. ``_hidata_test``) when the whole
+    suite runs in one process.  Reset it once this module finishes.
+    """
+    jax.config.update("jax_enable_x64", False)
 
 
 class TestClipGradNorm(parameterized.TestCase):
@@ -396,6 +410,155 @@ class TestClipGradNorm(parameterized.TestCase):
         except:
             # Expected if None values cause issues
             pass
+
+
+class TestClipGradNormExtraBranches(unittest.TestCase):
+    """Cover the remaining ``clip_grad_norm`` norm-type branches."""
+
+    def test_negative_inf_string_norm(self):
+        """The string ``'-inf'`` maps to the minimum-absolute-value norm."""
+        grads = {'param': jnp.array([2.0, -5.0, 1.0])}
+        clipped, norm = brainstate.nn.clip_grad_norm(
+            grads, max_norm=10.0, norm_type='-inf', return_norm=True
+        )
+        # -inf norm over a flattened vector is the minimum absolute value.
+        self.assertAlmostEqual(float(norm), 1.0, places=5)
+        # norm (1.0) < max_norm (10.0) so gradients are unchanged.
+        np.testing.assert_array_almost_equal(clipped['param'], grads['param'], decimal=5)
+
+    def test_negative_inf_jnp_norm_matches_string(self):
+        """``-jnp.inf`` produces the same norm as the ``'-inf'`` string alias."""
+        grads = {'param': jnp.array([2.0, -5.0, 1.0])}
+        _, norm_str = brainstate.nn.clip_grad_norm(
+            grads, max_norm=10.0, norm_type='-inf', return_norm=True
+        )
+        _, norm_val = brainstate.nn.clip_grad_norm(
+            grads, max_norm=10.0, norm_type=-jnp.inf, return_norm=True
+        )
+        self.assertAlmostEqual(float(norm_str), float(norm_val), places=6)
+
+
+class TestFormatParameterCount(unittest.TestCase):
+    """Cover ``_format_parameter_count`` magnitude scaling and rollover."""
+
+    def test_below_one_thousand_returns_plain_string(self):
+        """Counts under 1000 are returned verbatim without a suffix."""
+        self.assertEqual(nn_utils._format_parameter_count(0), "0")
+        self.assertEqual(nn_utils._format_parameter_count(999), "999")
+
+    def test_thousands_use_k_suffix(self):
+        """Counts in the thousands use the ``K`` suffix."""
+        self.assertEqual(nn_utils._format_parameter_count(1000), "1.00K")
+        self.assertEqual(nn_utils._format_parameter_count(1500), "1.50K")
+
+    def test_millions_use_m_suffix(self):
+        """Counts in the millions use the ``M`` suffix."""
+        self.assertEqual(nn_utils._format_parameter_count(1_500_000), "1.50M")
+
+    def test_precision_argument(self):
+        """The ``precision`` argument controls the number of decimal places."""
+        self.assertEqual(nn_utils._format_parameter_count(1234, precision=3), "1.234K")
+        self.assertEqual(nn_utils._format_parameter_count(2_500_000, precision=1), "2.5M")
+
+    def test_near_thousand_rolls_over_to_next_magnitude(self):
+        """A value that rounds up to 1000 of its magnitude rolls to the next suffix."""
+        # 999999 -> 1000.00K, which rounds up and is promoted to 1.00M.
+        self.assertEqual(nn_utils._format_parameter_count(999_999), "1.00M")
+
+
+class TestCountParameters(unittest.TestCase):
+    """Cover ``count_parameters`` totals, table return, and validation."""
+
+    def test_count_matches_param_numel(self):
+        """The returned total equals the sum of ParamState element counts."""
+        pytest.importorskip("prettytable")
+        model = brainstate.nn.Linear(4, 3)
+        total = brainstate.nn.count_parameters(model)
+        # weight (4x3) + bias (3) = 15.
+        self.assertEqual(total, 15)
+
+    def test_return_table_returns_pair(self):
+        """``return_table=True`` returns a ``(table, total)`` pair."""
+        prettytable = pytest.importorskip("prettytable")
+        model = brainstate.nn.Linear(4, 3)
+        table, total = brainstate.nn.count_parameters(model, return_table=True)
+        self.assertIsInstance(table, prettytable.PrettyTable)
+        self.assertEqual(total, 15)
+
+    def test_non_module_input_raises(self):
+        """A non-Module argument raises an ``AssertionError``."""
+        with self.assertRaises(AssertionError):
+            brainstate.nn.count_parameters(object())
+
+
+class TestGetValue(unittest.TestCase):
+    """Cover the ``get_value`` State-unwrapping helper."""
+
+    def test_unwraps_state(self):
+        """A State instance returns its ``.value``."""
+        state = brainstate.ParamState(jnp.array(1.5))
+        np.testing.assert_array_equal(nn_utils.get_value(state), jnp.array(1.5))
+
+    def test_passes_through_non_state(self):
+        """A plain value is returned unchanged."""
+        self.assertEqual(nn_utils.get_value(2.0), 2.0)
+        obj = object()
+        self.assertIs(nn_utils.get_value(obj), obj)
+
+
+class TestGetSize(unittest.TestCase):
+    """Cover the ``get_size`` normalization helper."""
+
+    def test_int_becomes_single_element_tuple(self):
+        """An int is wrapped into a single-element tuple."""
+        self.assertEqual(nn_utils.get_size(5), (5,))
+
+    def test_tuple_is_preserved(self):
+        """A tuple is returned as an equal tuple."""
+        self.assertEqual(nn_utils.get_size((3, 4)), (3, 4))
+
+    def test_list_becomes_tuple(self):
+        """A list is converted to a tuple."""
+        self.assertEqual(nn_utils.get_size([2, 3, 4]), (2, 3, 4))
+
+    def test_invalid_type_raises_value_error(self):
+        """A non int/tuple/list raises ``ValueError``."""
+        with self.assertRaises(ValueError):
+            nn_utils.get_size("not-a-size")
+
+
+class TestNNPackageGetattr(unittest.TestCase):
+    """Cover the lazy ``brainstate.nn.__getattr__`` deprecation dispatch."""
+
+    def test_dynamics_group_alias(self):
+        """``DynamicsGroup`` resolves to ``Module`` and warns about deprecation."""
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            obj = brainstate.nn.DynamicsGroup
+        self.assertIs(obj, brainstate.nn.Module)
+        self.assertTrue(any(issubclass(w.category, DeprecationWarning) for w in caught))
+
+    def test_module_mapper_alias(self):
+        """``ModuleMapper`` resolves to ``Map`` and warns about deprecation."""
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            obj = brainstate.nn.ModuleMapper
+        self.assertIs(obj, brainstate.nn.Map)
+        self.assertTrue(any(issubclass(w.category, DeprecationWarning) for w in caught))
+
+    def test_deprecated_name_forwards_to_brainpy(self):
+        """A name in ``_DEPRECATED_NAMES`` is forwarded to ``brainpy.state`` with a warning."""
+        brainpy = pytest.importorskip("brainpy")
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            obj = brainstate.nn.IF
+        self.assertIs(obj, brainpy.state.IF)
+        self.assertTrue(any(issubclass(w.category, DeprecationWarning) for w in caught))
+
+    def test_unknown_attribute_raises(self):
+        """An unrecognized attribute raises ``AttributeError``."""
+        with self.assertRaises(AttributeError):
+            _ = brainstate.nn.ThisAttributeDoesNotExist
 
 
 if __name__ == '__main__':
