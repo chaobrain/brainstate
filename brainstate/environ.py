@@ -164,13 +164,15 @@ class EnvironmentState(threading.local):
         Stack of context-specific settings for nested contexts.
     functions : Dict[Hashable, Callable]
         Registered callback functions for environment changes.
-    locks : Dict[str, threading.Lock]
-        Thread locks for synchronized access to critical sections.
+    locks : Dict[str, threading.RLock]
+        Reentrant thread locks for synchronized access to critical sections.
+        These must be reentrant: ``context()`` holds a key's lock across its
+        restore path while calling ``get()``, which re-acquires the same lock.
     """
     settings: Dict[Hashable, Any] = dataclasses.field(default_factory=dict)
     contexts: defaultdict[Hashable, List[Any]] = dataclasses.field(default_factory=lambda: defaultdict(list))
     functions: Dict[Hashable, Callable] = dataclasses.field(default_factory=dict)
-    locks: Dict[str, threading.Lock] = dataclasses.field(default_factory=lambda: defaultdict(threading.Lock))
+    locks: Dict[str, threading.RLock] = dataclasses.field(default_factory=lambda: defaultdict(threading.RLock))
 
     def __post_init__(self):
         """Initialize with default settings."""
