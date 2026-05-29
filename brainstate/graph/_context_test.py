@@ -15,6 +15,8 @@
 
 from __future__ import annotations
 
+import jax.numpy as jnp
+
 import brainstate
 from absl.testing import absltest
 
@@ -66,6 +68,39 @@ class TestGraphUtils(absltest.TestCase):
 
         self.assertIs(m2, m1.layers[0])
         self.assertFalse(hasattr(ctx, 'index_ref'))
+
+
+class TestSplitMergeContextIdentity(absltest.TestCase):
+    """``treefy_split`` / ``treefy_merge`` preserve shared-node identity."""
+
+    def test_merge_restores_shared_state_identity(self):
+        """A state shared across slots remains aliased through split + merge."""
+        shared = brainstate.ParamState(jnp.ones((2,)))
+        g = {"a": shared, "b": shared}
+        graphdef, refs = brainstate.graph.treefy_split(g)
+        rebuilt = brainstate.graph.treefy_merge(graphdef, refs)
+        self.assertIs(rebuilt["a"], rebuilt["b"])
+
+    def test_split_then_merge_value_roundtrip(self):
+        """``treefy_split`` / ``treefy_merge`` round-trips values and statics."""
+        g = [brainstate.ParamState(jnp.arange(3.0)), 7, brainstate.ParamState(jnp.zeros((2,)))]
+        graphdef, refs = brainstate.graph.treefy_split(g)
+        rebuilt = brainstate.graph.treefy_merge(graphdef, refs)
+        self.assertTrue(bool(jnp.allclose(rebuilt[0].value, jnp.arange(3.0))))
+        self.assertEqual(rebuilt[1], 7)
+        self.assertTrue(bool(jnp.allclose(rebuilt[2].value, jnp.zeros((2,)))))
+
+    def test_context_managers_clean_up_state(self):
+        """The context managers tear down their thread-local reference tables."""
+        from brainstate.graph._context import split_context, merge_context
+
+        with split_context() as (ctx, index_ref):
+            self.assertIsNotNone(ctx)
+        self.assertFalse(hasattr(ctx, 'ref_index'))
+
+        with merge_context() as (mctx, idx):
+            self.assertIsNotNone(mctx)
+        self.assertFalse(hasattr(mctx, 'index_ref'))
 
 
 if __name__ == '__main__':

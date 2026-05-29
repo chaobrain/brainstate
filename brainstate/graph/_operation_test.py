@@ -272,7 +272,7 @@ class TestGraphUtils(absltest.TestCase):
 
         assert len(state.to_flat()) == 1
 
-        x = jax.random.randint(jax.random.key(0), (2,), 0, 10)
+        x = brainstate.random.randint(0, 10, (2,))
         y = model(x)
         assert y.shape == (2, 10)
 
@@ -1012,6 +1012,113 @@ class TestThreading(parameterized.TestCase):
         thread = MyThread()
         thread.start()
         thread.join()
+
+
+class _Net(brainstate.graph.Node):
+    """A small node with two parameter states, used by the gap tests."""
+
+    def __init__(self):
+        self.w = brainstate.ParamState(jnp.ones((2,)))
+        self.b = brainstate.ParamState(jnp.zeros((2,)))
+
+
+class TestFilteredSplitAndStates(unittest.TestCase):
+    """Filtered ``treefy_split`` / ``treefy_states`` return single mappings."""
+
+    def test_single_filter_split_returns_one_mapping(self):
+        """A single filter yields one ``NestedDict`` partition."""
+        gd, params = brainstate.graph.treefy_split(_Net(), brainstate.ParamState)
+        self.assertIsInstance(params, brainstate.util.NestedDict)
+        self.assertEqual(len(params.to_flat()), 2)
+
+    def test_treefy_states_with_filter(self):
+        """``treefy_states`` with a filter returns the filtered mapping."""
+        ts = brainstate.graph.treefy_states(_Net(), brainstate.ParamState)
+        self.assertIsInstance(ts, brainstate.util.NestedDict)
+        self.assertEqual(len(ts.to_flat()), 2)
+
+
+class TestPopStates(unittest.TestCase):
+    """``pop_states`` removal semantics and error handling."""
+
+    def test_pop_removes_matching_states(self):
+        """Popping by type removes the matched states from the node."""
+        net = _Net()
+        popped = brainstate.graph.pop_states(net, brainstate.ParamState)
+        self.assertEqual(len(popped.to_flat()), 2)
+        self.assertFalse(hasattr(net, 'w'))
+        self.assertFalse(hasattr(net, 'b'))
+
+    def test_pop_requires_a_filter(self):
+        """Calling without any filter raises ``ValueError``."""
+        with self.assertRaises(ValueError):
+            brainstate.graph.pop_states(_Net())
+
+    def test_pop_from_immutable_subnode_raises(self):
+        """Popping a state nested inside a plain (pytree) container raises."""
+
+        class Holder(brainstate.graph.Node):
+            def __init__(self):
+                self.items = [brainstate.ParamState(jnp.ones((2,)))]
+
+        with self.assertRaises(ValueError):
+            brainstate.graph.pop_states(Holder(), brainstate.ParamState)
+
+
+class TestUpdateStates(unittest.TestCase):
+    """``update_states`` in-place update, re-add, merge, and error paths."""
+
+    def test_update_readds_popped_keys(self):
+        """States popped from a node can be restored via ``update_states``."""
+        net = _Net()
+        popped = brainstate.graph.pop_states(net, brainstate.ParamState)
+        brainstate.graph.update_states(net, popped)
+        self.assertTrue(hasattr(net, 'w'))
+        self.assertTrue(bool(jnp.allclose(net.w.value, jnp.ones((2,)))))
+
+    def test_update_merges_multiple_mappings(self):
+        """Extra mappings are merged before being applied."""
+        net = _Net()
+        _, full = brainstate.graph.treefy_split(net)
+        # Merging with an empty mapping exercises the merge branch.
+        brainstate.graph.update_states(net, full, brainstate.util.NestedDict())
+        self.assertTrue(bool(jnp.allclose(net.w.value, jnp.ones((2,)))))
+
+    def test_update_unsupported_value_type_raises(self):
+        """A value that is neither node, ``TreefyState``, nor leaf raises."""
+        net = _Net()
+        with self.assertRaises(ValueError):
+            brainstate.graph.update_states(net, brainstate.util.NestedDict({'w': 12345}))
+
+    def test_update_subgraph_with_state_leaf_raises(self):
+        """Updating a subgraph key with a bare state leaf raises ``ValueError``."""
+
+        class Outer(brainstate.graph.Node):
+            def __init__(self):
+                self.sub = _Net()
+
+        leaf = brainstate.ParamState(jnp.ones(())).to_state_ref()
+        with self.assertRaises(ValueError):
+            brainstate.graph.update_states(Outer(), brainstate.util.NestedDict({'sub': leaf}))
+
+
+class TestCloneAndGraphdef(unittest.TestCase):
+    """``clone`` and ``graphdef`` thin wrappers."""
+
+    def test_clone_is_independent(self):
+        """``clone`` returns a structurally identical, independent node."""
+        net = _Net()
+        c = brainstate.graph.clone(net)
+        self.assertIsNot(c, net)
+        self.assertIsNot(c.w, net.w)
+        self.assertTrue(bool(jnp.allclose(c.w.value, net.w.value)))
+
+    def test_graphdef_matches_split(self):
+        """``graphdef`` returns the same structure as ``treefy_split``."""
+        net = _Net()
+        gd = brainstate.graph.graphdef(net)
+        gd2, _ = brainstate.graph.treefy_split(net)
+        self.assertEqual(gd, gd2)
 
 
 if __name__ == '__main__':

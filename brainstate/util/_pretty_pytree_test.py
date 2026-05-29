@@ -673,3 +673,38 @@ class TestEdgeCases(unittest.TestCase):
         self.assertEqual(merged['b'], 3)
         self.assertEqual(merged['a'], 1)
         self.assertEqual(merged['c'], 4)
+
+
+class TestGetattrProtocol(absltest.TestCase):
+    """``__getattr__`` honours the attribute protocol for dunder probes.
+
+    Regression test: ``__getattr__`` used to ``return self[key]`` for every
+    name, so probing a missing dunder (e.g. ``__deepcopy__``) raised
+    ``KeyError`` instead of ``AttributeError``. That broke ``copy.deepcopy``,
+    ``pickle``, and ``hasattr`` on any :class:`PrettyDict`.
+    """
+
+    def test_missing_dunder_raises_attribute_error(self):
+        """A missing dunder attribute raises ``AttributeError`` (not ``KeyError``)."""
+        d = NestedDict({'a': 1})
+        with self.assertRaises(AttributeError):
+            getattr(d, '__deepcopy__')
+        self.assertFalse(hasattr(d, '__deepcopy__'))
+
+    def test_missing_non_dunder_key_still_keyerror(self):
+        """A missing ordinary key is still surfaced as ``KeyError``."""
+        d = NestedDict({'a': 1})
+        with self.assertRaises(KeyError):
+            getattr(d, 'does_not_exist')
+
+    def test_deepcopy_roundtrips(self):
+        """``copy.deepcopy`` reproduces the mapping contents."""
+        import copy
+        d = NestedDict({'a': 1, 'b': {'c': 2}})
+        d2 = copy.deepcopy(d)
+        self.assertEqual(d2.to_dict(), {'a': 1, 'b': {'c': 2}})
+
+    def test_existing_key_attribute_access_still_works(self):
+        """Accessing an existing key as an attribute still returns its value."""
+        d = NestedDict({'a': 5})
+        self.assertEqual(d.a, 5)
