@@ -165,13 +165,14 @@ class TestFixedNumConnConstruction:
 
     def test_no_replacement_construction_for_loop(self):
         """``allow_multi_conn=False`` with ``conn_init='for_loop'`` builds a valid module."""
-        m = FixedNumConn(20, 40, 0.2, 1.0, seed=3,
-                         allow_multi_conn=False, conn_init='for_loop')
         try:
+            # jax < 0.10 has no evaluation rule for the 'empty' primitive used by
+            # the for_loop construction path in brainevent; the error is raised as
+            # early as ``FixedNumConn`` construction, so guard both it and the call.
+            m = FixedNumConn(20, 40, 0.2, 1.0, seed=3,
+                             allow_multi_conn=False, conn_init='for_loop')
             out = m(brainstate.random.rand(20))
         except NotImplementedError as e:
-            # jax < 0.10 has no evaluation rule for the 'empty' primitive used by
-            # the for_loop construction path in brainevent.
             if 'empty' in str(e):
                 pytest.skip(f"this JAX version lacks an eval rule for the 'empty' primitive: {e}")
             raise
