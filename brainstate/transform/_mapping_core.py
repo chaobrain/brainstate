@@ -747,6 +747,12 @@ def state_map_transform(
 
     @functools.wraps(f)
     def wrapped(*args, **kwargs):
+        if isinstance(in_axes, tuple) and len(in_axes) != len(args):
+            raise ValueError(
+                "vmap in_axes must be an int, None, or a tuple of entries corresponding "
+                "to the positional arguments passed to the function, but got "
+                f"{len(in_axes)} in_axes entries for {len(args)} positional arguments."
+            )
         cache_key = get_arg_cache_key(static_argnums, static_argnames, args, kwargs)
         plan = cache.get(cache_key, None)
         if plan is None:
