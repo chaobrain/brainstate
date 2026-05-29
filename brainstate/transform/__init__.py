@@ -46,6 +46,9 @@ from ._mapping1 import (
 from ._mapping2 import (
     StatefulMapping, vmap2, pmap2, map, vmap2_new_states, pmap2_new_states,
 )
+from ._shard_map import (
+    shard_map,
+)
 
 # Gradient transformations
 from ._grad_grad import (
@@ -60,6 +63,9 @@ from ._grad_hessian import (
 from ._vjp_jvp import (
     vjp, jvp,
 )
+from ._custom_derivatives import (
+    custom_vjp, custom_jvp,
+)
 
 # Control flow
 from ._conditions import (
@@ -70,6 +76,9 @@ from ._loop_no_collection import (
 )
 from ._loop_collect_return import (
     scan, checkpointed_scan, for_loop, checkpointed_for_loop,
+)
+from ._associative_scan import (
+    associative_scan, linear_recurrence,
 )
 
 # Utilities
@@ -133,6 +142,7 @@ __all__ = [
     'pmap2',
     'pmap2_new_states',
     'map',
+    'shard_map',
 
     # Gradient transformations
     'vector_grad',
@@ -144,6 +154,8 @@ __all__ = [
     'hessian',
     'vjp',
     'jvp',
+    'custom_vjp',
+    'custom_jvp',
 
     # Control flow
     'cond',
@@ -155,6 +167,8 @@ __all__ = [
     'checkpointed_scan',
     'for_loop',
     'checkpointed_for_loop',
+    'associative_scan',
+    'linear_recurrence',
 
     # Utilities
     'jit_error_if',
