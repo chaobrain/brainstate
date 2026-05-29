@@ -281,7 +281,12 @@ class TestInlineJitConstructedEqns(unittest.TestCase):
 
     def _jit_primitive(self):
         cj = jax.make_jaxpr(jax.jit(lambda x: x + 1.0))(jnp.float32(1.0))
-        return [e.primitive for e in cj.jaxpr.eqns if e.primitive.name == 'jit'][0]
+        jit_prims = [e.primitive for e in cj.jaxpr.eqns if e.primitive.name == 'jit']
+        if not jit_prims:
+            # Some JAX versions inline the jit eagerly, leaving no 'jit' equation
+            # in the jaxpr to construct a synthetic equation from.
+            self.skipTest("this JAX version inlines jit; no 'jit' primitive equation available")
+        return jit_prims[0]
 
     def _make_eqn(self, primitive, invars, outvars, params):
         from jax._src.core import JaxprEqnContext
