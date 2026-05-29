@@ -63,6 +63,9 @@ from ._grad_hessian import (
 from ._vjp_jvp import (
     vjp, jvp,
 )
+from ._custom_derivatives import (
+    custom_vjp, custom_jvp,
+)
 
 # Control flow
 from ._conditions import (
@@ -151,6 +154,8 @@ __all__ = [
     'hessian',
     'vjp',
     'jvp',
+    'custom_vjp',
+    'custom_jvp',
 
     # Control flow
     'cond',
