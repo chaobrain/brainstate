@@ -83,112 +83,122 @@ def inline_jit(
         ...     return call_jaxpr and len(call_jaxpr.eqns) <= 5
         >>> expanded = inline_jit(jaxpr.jaxpr, expand_small)
     """
+    from brainstate.transform._ir_utils import IRValidationError, make_var_factory
+
+    if not isinstance(jaxpr, (Jaxpr, ClosedJaxpr)):
+        raise IRValidationError(
+            f"inline_jit expects a Jaxpr or ClosedJaxpr, got {type(jaxpr).__name__}."
+        )
+
     if should_expand is None:
         should_expand = lambda eqn: True
 
     # Handle ClosedJaxpr by unwrapping to Jaxpr
     is_closed = isinstance(jaxpr, ClosedJaxpr)
     original_closed = jaxpr if is_closed else None
-    if is_closed:
-        inner_jaxpr = jaxpr.jaxpr
-    else:
-        inner_jaxpr = jaxpr
+    inner_jaxpr = jaxpr.jaxpr if is_closed else jaxpr
+
+    # Factory for brand-new, unique variables. Inlining a function more than
+    # once must NOT reuse the callee's inner Var objects, or the resulting
+    # jaxpr would bind the same variable twice (a correctness bug).
+    _fresh = make_var_factory()
 
     new_eqns = []
     var_mapping = {v: v for v in inner_jaxpr.invars}
 
+    # Constants lifted from inlined ClosedJaxprs are accumulated here and
+    # attached to the enclosing scope so they remain bound.
+    lifted_constvars = list(inner_jaxpr.constvars)
+    lifted_consts = list(original_closed.consts) if is_closed else []
+
+    def map_outer(v):
+        if isinstance(v, Literal):
+            return v
+        return var_mapping.get(v, v)
+
     for eqn in inner_jaxpr.eqns:
         # Check if this is a jit primitive that should be expanded
         if is_jit_primitive(eqn) and should_expand(eqn):
-            # Get the jaxpr from the jit equation
+            # Get the jaxpr from the jit equation (handle different jit variants)
             call_jaxpr = eqn.params.get('call_jaxpr')
             if call_jaxpr is None:
-                # Fallback for different jit variants
                 call_jaxpr = eqn.params.get('jaxpr')
 
             if call_jaxpr is not None:
-                # Map input variables from outer scope to inner jaxpr
-                # Extract the actual jaxpr if this is a ClosedJaxpr
-                if isinstance(call_jaxpr, ClosedJaxpr):
-                    actual_jaxpr = call_jaxpr.jaxpr
-                else:
-                    actual_jaxpr = call_jaxpr
-
-                inner_var_mapping = {}
-                for inner_var, outer_var in zip(actual_jaxpr.invars, eqn.invars):
-                    mapped_var = var_mapping.get(outer_var, outer_var)
-                    inner_var_mapping[inner_var] = mapped_var
-
-                # Recursively expand the inner jaxpr
+                # Recursively expand the inner jaxpr first; the result may be a
+                # ClosedJaxpr carrying (possibly deeper-lifted) consts.
                 expanded_inner = inline_jit(call_jaxpr, should_expand)
-
-                # Unwrap if ClosedJaxpr
                 if isinstance(expanded_inner, ClosedJaxpr):
-                    expanded_inner = expanded_inner.jaxpr
+                    inner_consts = list(expanded_inner.consts)
+                    inner_actual = expanded_inner.jaxpr
+                else:
+                    inner_consts = []
+                    inner_actual = expanded_inner
 
-                # Inline the equations from the inner jaxpr
-                for inner_eqn in expanded_inner.eqns:
-                    # Remap variables in the inner equation
-                    new_invars = [
-                        inner_var_mapping.get(v, v) if not isinstance(v, Literal) else v
-                        for v in inner_eqn.invars
-                    ]
-                    new_outvars = []
+                # Map callee invars to the caller's (already-remapped) arguments.
+                inner_var_mapping = {}
+                for inner_var, outer_var in zip(inner_actual.invars, eqn.invars):
+                    inner_var_mapping[inner_var] = map_outer(outer_var)
 
-                    for v in inner_eqn.outvars:
-                        if v in inner_var_mapping:
-                            new_outvars.append(inner_var_mapping[v])
-                        else:
-                            # Keep the original variable but add to mapping
-                            # The variable is already unique from the inner scope
-                            inner_var_mapping[v] = v
-                            new_outvars.append(v)
+                # Lift the callee's constvars into the enclosing scope, each
+                # under a fresh variable so they cannot collide.
+                for cvar, cval in zip(inner_actual.constvars, inner_consts):
+                    new_cvar = _fresh(cvar.aval)
+                    inner_var_mapping[cvar] = new_cvar
+                    lifted_constvars.append(new_cvar)
+                    lifted_consts.append(cval)
 
-                    # Create the remapped equation with only parameters that exist
-                    # Build kwargs dynamically to handle different JAX versions
+                def remap(v):
+                    # Literals pass through; every other inner variable gets a
+                    # fresh binder the first time it is seen at this site.
+                    if isinstance(v, Literal):
+                        return v
+                    if v not in inner_var_mapping:
+                        inner_var_mapping[v] = _fresh(v.aval)
+                    return inner_var_mapping[v]
+
+                for inner_eqn in inner_actual.eqns:
+                    new_invars = [remap(v) for v in inner_eqn.invars]
+                    new_outvars = [remap(v) for v in inner_eqn.outvars]
+
                     replace_kwargs = {
                         'primitive': inner_eqn.primitive,
                         'invars': new_invars,
                         'outvars': new_outvars,
                         'params': inner_eqn.params,
                     }
-
-                    # Add optional fields if they exist
                     if hasattr(inner_eqn, 'effects'):
                         replace_kwargs['effects'] = inner_eqn.effects
                     if hasattr(inner_eqn, 'source_info'):
                         replace_kwargs['source_info'] = inner_eqn.source_info
 
-                    new_eqn = inner_eqn.replace(**replace_kwargs)
-                    new_eqns.append(new_eqn)
+                    new_eqns.append(inner_eqn.replace(**replace_kwargs))
 
-                # Map the output variables
-                for inner_out, outer_out in zip(expanded_inner.outvars, eqn.outvars):
-                    var_mapping[outer_out] = inner_var_mapping.get(inner_out, inner_out)
+                # Map this equation's outputs to the (remapped) callee outputs.
+                for inner_out, outer_out in zip(inner_actual.outvars, eqn.outvars):
+                    var_mapping[outer_out] = remap(inner_out)
 
             else:
-                # If we can't find the jaxpr, keep the original equation
-                new_eqns.append(eqn)
+                # If we can't find the jaxpr, keep the original equation.
+                new_eqns.append(eqn.replace(invars=[map_outer(v) for v in eqn.invars]))
                 for v in eqn.outvars:
                     var_mapping[v] = v
         else:
-            # Keep the equation as is, but remap variables
-            new_invars = [
-                var_mapping.get(v, v) if not isinstance(v, Literal) else v
-                for v in eqn.invars
-            ]
-            new_eqns.append(eqn.replace(invars=new_invars))
+            # Keep the equation as is, but remap its inputs.
+            new_eqns.append(eqn.replace(invars=[map_outer(v) for v in eqn.invars]))
             for v in eqn.outvars:
                 var_mapping[v] = v
 
     # Remap output variables
-    new_outvars = [var_mapping.get(v, v) for v in inner_jaxpr.outvars]
+    new_outvars = [map_outer(v) for v in inner_jaxpr.outvars]
 
-    # Create the new jaxpr
-    new_jaxpr = inner_jaxpr.replace(eqns=new_eqns, outvars=new_outvars)
+    # Create the new jaxpr, carrying any lifted constvars.
+    new_jaxpr = inner_jaxpr.replace(
+        eqns=new_eqns, outvars=new_outvars, constvars=lifted_constvars
+    )
 
-    # Rewrap in ClosedJaxpr if that's what we started with
-    if is_closed:
-        return original_closed.replace(jaxpr=new_jaxpr)
-    else:
-        return new_jaxpr
+    # Return a ClosedJaxpr whenever we started closed OR nested consts were
+    # lifted (the only correct way to keep those consts bound).
+    if is_closed or lifted_consts:
+        return ClosedJaxpr(new_jaxpr, lifted_consts)
+    return new_jaxpr
