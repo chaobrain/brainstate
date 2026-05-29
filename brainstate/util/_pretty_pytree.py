@@ -313,8 +313,18 @@ class PrettyDict(dict, PrettyRepr):
             The value associated with the key.
 
         Raises:
-            KeyError: If the key is not found in the dictionary.
+            AttributeError: If a dunder (``__x__``) attribute is missing. The
+                attribute protocol requires ``AttributeError`` here so that
+                ``copy.deepcopy``, ``pickle``, and ``hasattr`` probe special
+                methods (e.g. ``__deepcopy__``) correctly instead of crashing
+                on a ``KeyError``.
+            KeyError: If a non-dunder key is not found in the dictionary.
         """
+        # Dunder probes (``__deepcopy__``, ``__copy__``, ``__getstate__`` ...)
+        # are never stored as items; surfacing them as ``AttributeError`` lets
+        # the standard copy/pickle protocols fall back to their defaults.
+        if key.startswith('__') and key.endswith('__'):
+            raise AttributeError(key)
         return self[key]
 
     def treefy_state(self) -> Any:

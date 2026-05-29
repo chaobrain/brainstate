@@ -21,6 +21,8 @@ from abc import ABCMeta
 from copy import deepcopy
 from typing import Any, Callable, TypeVar, TYPE_CHECKING
 
+import jax
+
 from brainstate._error import TraceContextError
 from brainstate._state import State, TreefyState
 from brainstate.typing import Key
@@ -82,8 +84,14 @@ class Node(PrettyObject, metaclass=GraphNodeMeta):
 
     def __deepcopy__(self: G, memo=None) -> G:
         graphdef, state = treefy_split(self)
-        graphdef = deepcopy(graphdef)
-        state = deepcopy(state)
+        # ``state`` is a pytree of ``TreefyState`` whose only leaves are the
+        # array values; mapping ``deepcopy`` over it copies those values while
+        # leaving the (immutable, unpicklable) source-info metadata untouched.
+        # A plain ``deepcopy(state)`` would instead try to copy that metadata,
+        # which carries a ``jaxlib`` ``Traceback`` and is not picklable. The
+        # ``graphdef`` is static structure and safe to share; ``treefy_merge``
+        # rebuilds fresh ``State`` objects, so the returned node is independent.
+        state = jax.tree.map(deepcopy, state)
         return treefy_merge(graphdef, state)
 
     def check_valid_context(self, error_msg: Callable[[], str]) -> None:

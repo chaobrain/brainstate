@@ -13,7 +13,10 @@
 # limitations under the License.
 # ==============================================================================
 
+import copy
 import unittest
+
+import jax.numpy as jnp
 
 import brainstate
 from brainstate._state import State
@@ -583,6 +586,50 @@ class TestEdgeCases(unittest.TestCase):
         copied = brainstate.graph.treefy_merge(graphdef, state)
         self.assertIsNot(node, copied)
         self.assertEqual(copied.data, 'data')
+
+
+class TestNodeDeepCopy(unittest.TestCase):
+    """``copy.deepcopy`` produces an independent clone of a graph node.
+
+    Regression test: ``Node.__deepcopy__`` previously called
+    ``copy.deepcopy`` on the split state mapping, which (a) tripped a
+    ``KeyError`` in ``NestedDict.__getattr__`` while probing ``__deepcopy__``
+    and (b) tried to copy the state's unpicklable ``jaxlib`` source-info
+    traceback. ``copy.deepcopy`` on any node therefore raised.
+    """
+
+    def _make(self):
+        class Net(Node):
+            def __init__(self):
+                self.w = brainstate.ParamState(jnp.ones((2, 3)))
+                self.b = brainstate.ParamState(jnp.zeros((3,)))
+                self.tag = "net"  # static attribute
+
+        return Net()
+
+    def test_deepcopy_returns_equal_independent_node(self):
+        """The copy preserves type/values and shares no ``State`` objects."""
+        node = self._make()
+        clone = copy.deepcopy(node)
+        self.assertIsInstance(clone, type(node))
+        self.assertIsNot(clone, node)
+        self.assertIsNot(clone.w, node.w)
+        self.assertEqual(clone.tag, "net")
+        self.assertTrue(bool(jnp.allclose(clone.w.value, node.w.value)))
+        self.assertTrue(bool(jnp.allclose(clone.b.value, node.b.value)))
+
+    def test_deepcopy_is_independent(self):
+        """Mutating the copy does not affect the original."""
+        node = self._make()
+        clone = copy.deepcopy(node)
+        clone.w.value = jnp.full((2, 3), 7.0)
+        self.assertTrue(bool(jnp.allclose(node.w.value, jnp.ones((2, 3)))))
+
+    def test_deepcopy_real_module(self):
+        """A real ``nn`` module deep-copies without error."""
+        m = brainstate.nn.Linear(3, 4)
+        m2 = copy.deepcopy(m)
+        self.assertIsInstance(m2, brainstate.nn.Linear)
 
 
 if __name__ == '__main__':
