@@ -16,8 +16,7 @@
 import functools
 from typing import Any, Callable, TypeVar
 
-from brainstate._state import State, catch_new_states
-from brainstate.util._tracers import StateJaxTracer
+from brainstate._state import catch_new_states
 from brainstate.graph import graph_to_tree, tree_to_graph
 from ._make_jaxpr import StatefulFunction
 
@@ -125,29 +124,21 @@ def eval_shape(
     stateful_fn.make_jaxpr(*g_args, **g_kwargs)
     out_shapes, state_shapes = stateful_fn.get_out_shapes(*g_args, **g_kwargs)
 
-    # Reconstruct a Node (if any) from the abstract output pytree. For plain-array
-    # outputs tree_to_graph is a no-op passthrough.
+    # Reconstruct a Node (if any) from the abstract output pytree. ``tree_to_graph``
+    # builds fresh States bound to the current (top-level) trace, so the reconstructed
+    # Node is already a first-class input to subsequent brainstate transformations
+    # (nested eval_shape, jit/grad/vmap, init_all_states). For plain-array outputs
+    # ``tree_to_graph`` is a no-op passthrough.
     out = tree_to_graph(out_shapes)
-
-    # Detach every State on the reconstructed Node from the (now finalized) abstract
-    # trace. The reconstructed States may still carry a tracer bound to the trace that
-    # built them; once that trace ends, any later graph traversal or transform would
-    # raise "created inside a transformation but is being used outside of it". Resetting
-    # to a fresh top-level tracer makes the returned Node a first-class input to
-    # subsequent brainstate transformations. ``check_aliasing=False`` lets us enumerate
-    # the States without triggering that very validity check.
-    _, out_states = graph_to_tree(out, check_aliasing=False)
-    for st in out_states.values():
-        if isinstance(st, State):
-            st._setattr_no_check('_trace_state', StateJaxTracer())
 
     # Build the State -> ShapeDtypeStruct mapping for the optional return. The
     # state_shapes tuple is aligned with state_trace.states.
     state_trace = stateful_fn.get_state_trace(*g_args, **g_kwargs)
     state_shape_map = {st: sh for st, sh in zip(state_trace.states, state_shapes)}
 
-    # Clean up states created inside f so the reconstructed Node is trace-able by
-    # subsequent transforms (avoids JAX tracing leakage). Mirrors vmap_new_states.
+    # States created INSIDE f (the ``lambda: LSTMCell(...)`` case) were elevated to the
+    # abstract trace's stack level. Restore their original values and drop the stack
+    # level so the finished trace does not leak. Mirrors vmap_new_states.
     new_states = caught_box.get('states', [])
     new_values = caught_box.get('values', [])
     for st, val in zip(new_states, new_values):
