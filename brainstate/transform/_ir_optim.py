@@ -13,7 +13,6 @@
 # limitations under the License.
 # ==============================================================================
 
-from collections.abc import MutableSet
 from typing import Union, Sequence
 
 import jax
@@ -23,6 +22,15 @@ from jax._src.core import JaxprEqnContext
 from jax.extend import source_info_util
 
 from brainstate._compatible_import import (Literal, Var, Jaxpr, ClosedJaxpr, JaxprEqn)
+# Shared, hardened IR internals. ``IdentitySet`` is re-exported here so that
+# existing ``from brainstate.transform._ir_optim import IdentitySet`` keeps working.
+from brainstate.transform._ir_utils import (
+    IdentitySet,
+    IRValidationError,
+    partial_eval_jaxpr,
+    literal_with_dtype,
+    CONSTANT_FOLD_BLACKLIST,
+)
 
 __all__ = [
     'constant_fold',
@@ -42,6 +50,18 @@ def _fallback_source_info(eqns: Sequence[JaxprEqn]) -> source_info_util.SourceIn
     return source_info_util.new_source_info()
 
 
+def _default_eqn_ctx() -> JaxprEqnContext:
+    """Build a default ``JaxprEqnContext`` robustly across JAX versions.
+
+    Newer JAX builds it from the current config with no positional arguments;
+    older versions accepted ``(compute_on, threefry_partitionable)``.
+    """
+    try:
+        return JaxprEqnContext()
+    except TypeError:  # pragma: no cover - older JAX positional form
+        return JaxprEqnContext(None, True)
+
+
 def _assign_literal(
     literal: Literal,
     outvar: Var,
@@ -54,7 +74,7 @@ def _assign_literal(
         {'new_dtype': outvar.aval.dtype, 'weak_type': False, 'sharding': None},
         set(),
         source_info,
-        JaxprEqnContext(None, True),
+        _default_eqn_ctx(),
     )
     return eqn
 
@@ -68,160 +88,29 @@ def _preserve_invars_outvars(result: Jaxpr, jaxpr: Jaxpr):
     return result.replace(eqns=eqns, invars=jaxpr.invars, outvars=jaxpr.outvars)
 
 
-class IdentitySet(MutableSet):
+def _canonical_param(value):
+    """Return a hashable, value-stable representation of an equation param.
+
+    Equation parameters may contain values that are unhashable (e.g. numpy
+    arrays) or that compare/sort poorly (e.g. jaxprs). This produces a stable
+    key so CSE can compare params without raising ``TypeError``.
     """
-    Set that compares objects by identity instead of equality.
-
-    This is a mutable set implementation that uses object identity (``id()``)
-    for comparison rather than equality (``==``). It is useful for storing
-    objects that are not hashable or that must be compared by identity.
-
-    Notes
-    -----
-    This class does not support the ``__hash__`` method and therefore cannot
-    be used as a dictionary key or as an element of another set.
-
-    Examples
-    --------
-    >>> s = IdentitySet()
-    >>> a = [1, 2, 3]
-    >>> b = [1, 2, 3]
-    >>> s.add(a)
-    >>> a in s
-    True
-    >>> b in s  # Different object, even though equal
-    False
-    """
-    __module__ = 'brainstate.transform'
-
-    def __init__(self, iterable=None):
-        self._data = {}
-        if iterable is not None:
-            self.update(iterable)
-
-    def __contains__(self, value):
-        return id(value) in self._data
-
-    def __iter__(self):
-        return iter(self._data.values())
-
-    def __len__(self):
-        return len(self._data)
-
-    def add(self, value):
-        self._data[id(value)] = value
-
-    def discard(self, value):
-        self._data.pop(id(value), None)
-
-    def update(self, iterable):
-        """
-        Add all elements from iterable to the set.
-
-        Parameters
-        ----------
-        iterable : iterable
-            An iterable of items to add to the set.
-        """
-        for item in iterable:
-            self.add(item)
-
-    def __repr__(self):
-        return f"IdentitySet({list(repr(x) for x in self._data.values())})"
-
-    def __str__(self):
-        return f"IdentitySet({list(str(x) for x in self._data.values())})"
-
-
-_constant_fold_blacklist = {'broadcast_in_dim', 'broadcast'}
-
-
-def _partial_eval_jaxpr(jaxpr, env):
-    env = env.copy()
-    new_eqns = []
-
-    def read(var):
-        if isinstance(var, Literal):
-            return var.val
-        else:
-            return env.get(var, None)
-
-    def read_or_self(var):
-        out = read(var)
-        if out is None:
-            return var
-        elif isinstance(out, Var):
-            return out
-        elif isinstance(out, Literal):
-            return Literal(out.val, var.aval)
-        else:
-            assert not isinstance(out, Jaxpr)
-            return Literal(out, var.aval)
-
-    for eqn in jaxpr.eqns:
-        vals = [read(var) for var in eqn.invars]
-        if eqn.primitive.name in _constant_fold_blacklist:
-            new_eqns.append(eqn)
-        elif all(val is not None for val in vals):
-            # go ahead and eval it
-            out = _eval_eqn(eqn, vals)
-
-            # two options: either it's a jaxpr result (partial eval) or it's a value or a list of values
-            if isinstance(out, Jaxpr):
-                # we need to inline this
-                new_eqns.extend(out.eqns)
-                out = out.outvars
-            elif not isinstance(out, tuple) and not isinstance(out, list):
-                out = (out,)
-
-            for var, val in zip(eqn.outvars, out):
-                assert not isinstance(val, Jaxpr)
-                if isinstance(val, Literal):
-                    env[var] = val.val
-                else:
-                    env[var] = val
-        else:
-            new_eqns.append(eqn)
-
-    # now that we've eval everything, inline all the constants
-    out_eqns = []
-    for eqn in new_eqns:
-        eqn = eqn.replace(invars=tuple(read_or_self(var) for var in eqn.invars))
-        out_eqns.append(eqn)
-
-    invars_still_used = IdentitySet()
-    for eqn in out_eqns:
-        for var in eqn.invars:
-            if not isinstance(var, Literal):
-                invars_still_used.add(var)
-
-    invars = tuple(var for var in jaxpr.invars if var in invars_still_used)
-
-    # sub in any constants for outvars
-    outvars = tuple(read_or_self(var) for var in jaxpr.outvars)
-
-    return jaxpr.replace(eqns=out_eqns, outvars=outvars, invars=invars)
-
-
-def _eval_eqn(eqn, vals) -> Union[Jaxpr, tuple, list, jax.Array]:
-    if eqn.primitive.name == "closed_call":
-        assert eqn.primitive.call_primitive
-        assert not eqn.primitive.map_primitive
-        out = _partial_eval_jaxpr(
-            eqn.params['call_jaxpr'].jaxpr,
-            {
-                var: val
-                for var, val in
-                zip(eqn.params['call_jaxpr'].jaxpr.invars, vals)
-            }
-        )
-
-    elif eqn.primitive.name == "scan":
-        out = eqn.primitive.bind(*vals, **eqn.params)
-
-    else:
-        out = eqn.primitive.bind(*vals, **eqn.params)
-    return out
+    if isinstance(value, (str, bytes, int, float, bool, type(None))):
+        return value
+    if isinstance(value, (tuple, list)):
+        return tuple(_canonical_param(v) for v in value)
+    if isinstance(value, dict):
+        return tuple(sorted((k, _canonical_param(v)) for k, v in value.items()))
+    if isinstance(value, np.ndarray):
+        return ('ndarray', value.shape, str(value.dtype), value.tobytes())
+    if hasattr(value, 'shape') and hasattr(value, 'dtype'):
+        try:
+            arr = np.asarray(value)
+            return ('array', arr.shape, str(arr.dtype), arr.tobytes())
+        except Exception:
+            return ('id', id(value))
+    # Jaxprs, ClosedJaxprs and any other complex param: conservative identity.
+    return ('id', id(value))
 
 
 def constant_fold(jaxpr: Jaxpr) -> Jaxpr:
@@ -255,7 +144,7 @@ def constant_fold(jaxpr: Jaxpr) -> Jaxpr:
     >>> # After constant folding: y = x + 5
     >>> optimized_jaxpr = constant_fold(original_jaxpr)
     """
-    result = _partial_eval_jaxpr(jaxpr, {})
+    result = partial_eval_jaxpr(jaxpr, {})
     return _preserve_invars_outvars(result, jaxpr)
 
 
@@ -372,12 +261,19 @@ def common_subexpression_elimination(jaxpr: Jaxpr) -> Jaxpr:
         return var_map.get(var, var)
 
     def make_key(eqn):
-        """Create a hashable key for an equation."""
-        # Use identity of variables for comparison
+        """Create a hashable key for an equation, or ``None`` if not possible.
+
+        Returning ``None`` opts the equation out of CSE (kept verbatim) rather
+        than crashing on params that cannot be canonicalized.
+        """
         invars_ids = tuple(id(get_var(v)) for v in eqn.invars)
-        # Create a hashable representation of params
-        param_items = tuple(sorted(eqn.params.items()))
-        return (eqn.primitive.name, invars_ids, param_items)
+        try:
+            param_sig = tuple(sorted(
+                (k, _canonical_param(v)) for k, v in eqn.params.items()
+            ))
+        except Exception:
+            return None
+        return (eqn.primitive.name, invars_ids, param_sig)
 
     new_eqns = []
 
@@ -389,7 +285,7 @@ def common_subexpression_elimination(jaxpr: Jaxpr) -> Jaxpr:
         # Check if we've seen this computation before
         key = make_key(eqn)
 
-        if key in expr_cache and len(eqn.outvars) == len(expr_cache[key]):
+        if key is not None and key in expr_cache and len(eqn.outvars) == len(expr_cache[key]):
             # Reuse previous result
             prev_outvars = expr_cache[key]
             for old_var, new_var in zip(eqn.outvars, prev_outvars):
@@ -397,7 +293,8 @@ def common_subexpression_elimination(jaxpr: Jaxpr) -> Jaxpr:
         else:
             # This is a new computation, keep it
             new_eqns.append(eqn)
-            expr_cache[key] = eqn.outvars
+            if key is not None:
+                expr_cache[key] = eqn.outvars
 
     # For outvars that have been replaced, add identity equations to preserve the interface
     final_eqns = new_eqns[:]
@@ -409,16 +306,14 @@ def common_subexpression_elimination(jaxpr: Jaxpr) -> Jaxpr:
 
     # Add identity equations if needed
     if outvars_need_identity:
-        # Import the identity primitive from jax
-        from jax._src.core import JaxprEqnContext
-        default_ctx = JaxprEqnContext(None, True)
+        default_ctx = _default_eqn_ctx()
         for outvar, canonical in outvars_need_identity:
             # Create an identity equation: outvar = identity(canonical)
             # Use convert_element_type as identity (same type)
             eqn = JaxprEqn([canonical],
                            [outvar],
                            lax.convert_element_type_p,
-                           {'new_dtype': outvar.aval.dtype, 'weak_type': False},
+                           {'new_dtype': outvar.aval.dtype, 'weak_type': False, 'sharding': None},
                            set(),
                            _fallback_source_info(new_eqns),
                            default_ctx)
@@ -608,8 +503,8 @@ def algebraic_simplification(jaxpr: Jaxpr) -> Jaxpr:
         return is_constant_value(var, 1)
 
     def make_literal(value, aval):
-        """Create a literal with the given value and abstract value."""
-        return Literal(value, aval)
+        """Create a literal whose value matches the aval's dtype."""
+        return literal_with_dtype(value, aval)
 
     new_eqns = []
 
@@ -642,7 +537,10 @@ def algebraic_simplification(jaxpr: Jaxpr) -> Jaxpr:
 
             # Multiplication simplifications
             elif eqn.primitive.name == 'mul':
-                if is_zero(lhs) or is_zero(rhs):  # 0 * x = 0 or x * 0 = 0
+                # ``0 * x = 0`` is only IEEE-safe for integer dtypes: for floats
+                # ``0 * inf`` and ``0 * nan`` are ``nan``, not ``0``.
+                out_is_integer = np.issubdtype(np.dtype(outvar.aval.dtype), np.integer)
+                if (is_zero(lhs) or is_zero(rhs)) and out_is_integer:
                     var_map[outvar] = make_literal(0, outvar.aval)
                     simplified = True
                 elif is_one(lhs):  # 1 * x = x
@@ -654,11 +552,10 @@ def algebraic_simplification(jaxpr: Jaxpr) -> Jaxpr:
 
             # Division simplifications
             elif eqn.primitive.name == 'div':
+                # ``0 / x = 0`` is unsafe (``0 / 0 = nan``) for every dtype, so
+                # only ``x / 1 = x`` is applied.
                 if is_one(rhs):  # x / 1 = x
                     var_map[outvar] = lhs
-                    simplified = True
-                elif is_zero(lhs):  # 0 / x = 0 (assuming x != 0)
-                    var_map[outvar] = make_literal(0, outvar.aval)
                     simplified = True
 
         if not simplified:
@@ -798,19 +695,24 @@ def optimize_jaxpr(
         >>> # Then apply CSE and more DCE
         >>> stage2 = optimize_jaxpr(stage1, optimizations=['cse', 'dce'])
     """
+    _DEFAULT_PIPELINE = [
+        'constant_fold',
+        'algebraic_simplification',
+        'copy_propagation',
+        'cse',
+        'dce',
+    ]
     if optimizations is None:
-        optimizations = []
+        optimizations = list(_DEFAULT_PIPELINE)
     elif isinstance(optimizations, str):
-        if optimizations == 'all':
-            optimizations = [
-                'constant_fold',
-                'algebraic_simplification',
-                'copy_propagation',
-                'cse',
-                'dce',
-            ]
-        else:
-            optimizations = [optimizations]
+        optimizations = list(_DEFAULT_PIPELINE) if optimizations == 'all' else [optimizations]
+    else:
+        optimizations = list(optimizations)
+
+    if not isinstance(max_iterations, int) or isinstance(max_iterations, bool) or max_iterations < 1:
+        raise IRValidationError(
+            f"max_iterations must be a positive integer, got {max_iterations!r}."
+        )
 
     # Parse input
     if isinstance(jaxpr, Jaxpr):
@@ -834,16 +736,6 @@ def optimize_jaxpr(
         'cse': common_subexpression_elimination,
         'dce': dead_code_elimination,
     }
-
-    # Default optimization sequence
-    if optimizations is None:
-        optimizations = [
-            'constant_fold',
-            'algebraic_simplification',
-            'copy_propagation',
-            'cse',
-            'dce',
-        ]
 
     # Validate optimization names
     invalid_opts = set(optimizations) - set(_OPTIMIZATION_MAP.keys())
