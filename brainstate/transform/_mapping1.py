@@ -14,16 +14,28 @@
 # ==============================================================================
 
 import functools
-from typing import TypeVar, Callable, Dict, Hashable, List, Any, Tuple, Sequence, Optional
+from typing import TypeVar, Callable, Dict, Hashable, List, Any, Sequence, Optional
 
 import jax
 
-from brainstate._compatible_import import BatchTracer
-from brainstate._error import BatchAxisError
 from brainstate._state import State, StateTraceStack, TRACE_CONTEXT, catch_new_states
 from brainstate.typing import Missing
 from brainstate.util.filter import Filter
-from ._make_jaxpr import StatefulFunction
+
+# Shared mapping helpers now live in ``_mapping_core`` so that the legacy
+# ``vmap`` / ``vmap_new_states`` and the modern ``vmap2`` / ``pmap2`` families
+# converge on a single implementation. They are re-exported here unchanged so
+# existing imports (and tests) of ``brainstate.transform._mapping1`` keep
+# working.
+from ._mapping_core import (  # noqa: E402
+    _import_rand_state,
+    _get_batch_size,
+    _format_state_axes,
+    _strip_args,
+    make_identity_predicate,
+    state_map_transform,
+    unwind_new_state_levels,
+)
 
 __all__ = [
     'vmap',
@@ -34,24 +46,6 @@ F = TypeVar("F", bound=Callable)
 AxisName = Hashable
 AxisToState = Dict[int, List[State]]
 StateToAxis = Dict[State, int]
-
-# Shared mapping helpers now live in ``_mapping_core`` so that the legacy
-# ``vmap`` / ``vmap_new_states`` and the modern ``vmap2`` / ``pmap2`` families
-# converge on a single implementation. They are re-exported here unchanged so
-# existing imports (and tests) of ``brainstate.transform._mapping1`` keep
-# working.
-from ._mapping_core import (  # noqa: E402
-    _import_rand_state,
-    _flatten_in_out_states,
-    _remove_axis,
-    _compile_stateful_function,
-    _get_batch_size,
-    _format_state_axes,
-    _strip_args,
-    make_identity_predicate,
-    state_map_transform,
-    unwind_new_state_levels,
-)
 
 
 def _states_to_predicate_axes(formatted_axis_to_states: AxisToState):

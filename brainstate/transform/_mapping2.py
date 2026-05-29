@@ -20,7 +20,6 @@ from collections.abc import Hashable, Iterable, Sequence
 from typing import Any, Callable, Dict, Optional, Tuple, Union, TypeVar
 
 import jax
-import jax.numpy as jnp
 
 from brainstate._compatible_import import Device
 from brainstate._state import State, NonBatchState, catch_new_states, StateTraceStack, TRACE_CONTEXT
