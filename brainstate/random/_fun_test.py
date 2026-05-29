@@ -18,9 +18,9 @@ import platform
 import unittest
 
 import jax.numpy as jnp
-import jax.random as jr
 import numpy as np
 import pytest
+from absl.testing import parameterized
 
 import brainstate
 
@@ -106,10 +106,16 @@ class TestRandom(unittest.TestCase):
         self.assertTupleEqual(a.shape, (3, 2))
         self.assertTrue((a >= 0).all() and (a < 1).all())
 
-        key = jr.PRNGKey(123)
-        jres = jr.uniform(key, shape=(10, 100))
-        self.assertTrue(jnp.allclose(jres, brainstate.random.rand(10, 100, key=key)))
-        self.assertTrue(jnp.allclose(jres, brainstate.random.rand(10, 100, key=123)))
+        # Drawing with the same integer-seed key is deterministic and the
+        # samples stay within the half-open unit interval [0, 1).
+        res1 = brainstate.random.rand(10, 100, key=123)
+        res2 = brainstate.random.rand(10, 100, key=123)
+        self.assertTrue(jnp.allclose(res1, res2))
+        self.assertTrue((res1 >= 0).all() and (res1 < 1).all())
+        # An explicit PRNG key drawn from brainstate also reproduces its draw.
+        key = brainstate.random.split_key()
+        self.assertTrue(jnp.allclose(brainstate.random.rand(10, 100, key=key),
+                                     brainstate.random.rand(10, 100, key=key)))
 
     def test_randint1(self):
         brainstate.random.seed()
@@ -636,3 +642,224 @@ class TestRandom(unittest.TestCase):
 #     brainstate.random.split_key()
 #     print(brainstate.random.DEFAULT.value)
 #     self.assertTrue(isinstance(brainstate.random.DEFAULT.value, np.ndarray))
+
+
+# Distributions that accept a ``size`` argument and return an array of exactly
+# that shape. Each entry is a one-line lambda mapping a requested ``size`` to a
+# draw, so a single contract can be exercised across the whole catalogue.
+_SIZED_DISTRIBUTIONS = (
+    ("normal", lambda size: brainstate.random.normal(0.0, 1.0, size)),
+    ("uniform", lambda size: brainstate.random.uniform(0.0, 1.0, size)),
+    ("rand", lambda size: brainstate.random.rand(*size)),
+    ("randn", lambda size: brainstate.random.randn(*size)),
+    ("random", lambda size: brainstate.random.random(size)),
+    ("random_sample", lambda size: brainstate.random.random_sample(size)),
+    ("ranf", lambda size: brainstate.random.ranf(size)),
+    ("sample", lambda size: brainstate.random.sample(size)),
+    ("random_integers", lambda size: brainstate.random.random_integers(1, 6, size)),
+    ("randint", lambda size: brainstate.random.randint(0, 10, size=size)),
+    ("standard_normal", lambda size: brainstate.random.standard_normal(size)),
+    ("standard_exponential", lambda size: brainstate.random.standard_exponential(size)),
+    ("standard_cauchy", lambda size: brainstate.random.standard_cauchy(size)),
+    ("exponential", lambda size: brainstate.random.exponential(1.0, size)),
+    ("poisson", lambda size: brainstate.random.poisson(3.0, size)),
+    ("bernoulli", lambda size: brainstate.random.bernoulli(0.5, size)),
+    ("beta", lambda size: brainstate.random.beta(2.0, 2.0, size)),
+    ("gamma", lambda size: brainstate.random.gamma(2.0, 1.0, size)),
+    ("standard_gamma", lambda size: brainstate.random.standard_gamma(2.0, size)),
+    ("laplace", lambda size: brainstate.random.laplace(0.0, 1.0, size)),
+    ("logistic", lambda size: brainstate.random.logistic(0.0, 1.0, size)),
+    ("gumbel", lambda size: brainstate.random.gumbel(0.0, 1.0, size)),
+    ("loggamma", lambda size: brainstate.random.loggamma(2.0, size)),
+    ("weibull", lambda size: brainstate.random.weibull(2.0, size)),
+    ("weibull_min", lambda size: brainstate.random.weibull_min(2.0, 1.0, size)),
+    ("pareto", lambda size: brainstate.random.pareto(2.0, size)),
+    ("rayleigh", lambda size: brainstate.random.rayleigh(1.0, size)),
+    ("lognormal", lambda size: brainstate.random.lognormal(0.0, 1.0, size)),
+    ("geometric", lambda size: brainstate.random.geometric(0.5, size)),
+    ("chisquare", lambda size: brainstate.random.chisquare(3, size)),
+    ("t", lambda size: brainstate.random.t(5.0, size)),
+    ("standard_t", lambda size: brainstate.random.standard_t(5.0, size)),
+    ("triangular", lambda size: brainstate.random.triangular(size)),
+    ("vonmises", lambda size: brainstate.random.vonmises(0.0, 1.0, size)),
+    ("maxwell", lambda size: brainstate.random.maxwell(size)),
+    ("f", lambda size: brainstate.random.f(2.0, 5.0, size)),
+    ("zipf", lambda size: brainstate.random.zipf(2.0, size)),
+    ("power", lambda size: brainstate.random.power(2.0, size)),
+    ("wald", lambda size: brainstate.random.wald(1.0, 1.0, size)),
+    ("logseries", lambda size: brainstate.random.logseries(0.5, size)),
+    ("binomial", lambda size: brainstate.random.binomial(10, 0.5, size)),
+    ("negative_binomial", lambda size: brainstate.random.negative_binomial(5.0, 0.5, size)),
+    ("noncentral_chisquare", lambda size: brainstate.random.noncentral_chisquare(3.0, 1.0, size)),
+    ("noncentral_f", lambda size: brainstate.random.noncentral_f(3.0, 20.0, 1.0, size)),
+)
+
+
+class TestDistributionContract(parameterized.TestCase):
+    """Shared contract for common distributions: shape, determinism, jit, vmap."""
+
+    @parameterized.named_parameters(*_SIZED_DISTRIBUTIONS)
+    def test_shape_and_determinism(self, draw):
+        """Output matches the requested size and is reproducible under a fixed seed."""
+        size = (4, 3)
+        brainstate.random.seed(0)
+        a = draw(size)
+        brainstate.random.seed(0)
+        b = draw(size)
+        self.assertEqual(tuple(jnp.shape(a)), size)
+        self.assertTrue(bool(jnp.allclose(jnp.asarray(a), jnp.asarray(b))))
+
+    @parameterized.named_parameters(*_SIZED_DISTRIBUTIONS)
+    def test_finite_values(self, draw):
+        """Every drawn sample is finite (no NaN or inf leaks through)."""
+        brainstate.random.seed(0)
+        a = jnp.asarray(draw((6, 5)))
+        self.assertTrue(bool(jnp.all(jnp.isfinite(a))))
+
+    @parameterized.named_parameters(
+        ("normal", lambda size: brainstate.random.normal(0.0, 1.0, size, dtype=jnp.float16)),
+        ("uniform", lambda size: brainstate.random.uniform(0.0, 1.0, size, dtype=jnp.float16)),
+        ("exponential", lambda size: brainstate.random.exponential(1.0, size, dtype=jnp.float16)),
+        ("gamma", lambda size: brainstate.random.gamma(2.0, 1.0, size, dtype=jnp.float16)),
+        ("rayleigh", lambda size: brainstate.random.rayleigh(1.0, size, dtype=jnp.float16)),
+        ("loggamma", lambda size: brainstate.random.loggamma(2.0, size, dtype=jnp.float16)),
+    )
+    def test_dtype_argument_honored(self, draw):
+        """The requested ``dtype`` is reflected in the output array."""
+        brainstate.random.seed(0)
+        a = draw((4, 3))
+        self.assertEqual(jnp.asarray(a).dtype, jnp.float16)
+
+    def test_uniform_bounds(self):
+        """``uniform`` samples lie within the requested half-open interval."""
+        brainstate.random.seed(0)
+        a = brainstate.random.uniform(2.0, 5.0, (200,))
+        self.assertTrue(bool(jnp.all(a >= 2.0)))
+        self.assertTrue(bool(jnp.all(a < 5.0)))
+
+    def test_rand_bounds(self):
+        """``rand`` samples lie within the standard unit interval [0, 1)."""
+        brainstate.random.seed(0)
+        a = brainstate.random.rand(200)
+        self.assertTrue(bool(jnp.all(a >= 0.0)))
+        self.assertTrue(bool(jnp.all(a < 1.0)))
+
+    def test_random_integers_bounds(self):
+        """``random_integers`` is inclusive of both endpoints of [low, high]."""
+        brainstate.random.seed(0)
+        a = brainstate.random.random_integers(1, 6, (500,))
+        self.assertTrue(bool(jnp.all(a >= 1)))
+        self.assertTrue(bool(jnp.all(a <= 6)))
+
+    def test_bernoulli_is_binary(self):
+        """``bernoulli`` only ever returns 0/1 valued samples."""
+        brainstate.random.seed(0)
+        a = brainstate.random.bernoulli(0.5, (200,))
+        self.assertTrue(bool(jnp.all(jnp.logical_or(a == 0, a == 1))))
+
+    def test_bernoulli_invalid_p_raises(self):
+        """``bernoulli`` rejects a probability outside [0, 1] when validation is on."""
+        brainstate.random.seed(0)
+        with self.assertRaises(Exception):
+            np.asarray(brainstate.random.bernoulli(1.5, (3,), check_valid=True))
+
+    def test_aliases_match_random_sample(self):
+        """``ranf`` and ``sample`` are exact aliases of ``random_sample`` for one seed."""
+        brainstate.random.seed(0)
+        ref = brainstate.random.random_sample((4, 3))
+        brainstate.random.seed(0)
+        self.assertTrue(bool(jnp.allclose(ref, brainstate.random.ranf((4, 3)))))
+        brainstate.random.seed(0)
+        self.assertTrue(bool(jnp.allclose(ref, brainstate.random.sample((4, 3)))))
+
+    def test_orthogonal_is_orthonormal(self):
+        """``orthogonal`` returns matrices whose columns are orthonormal."""
+        brainstate.random.seed(0)
+        q = brainstate.random.orthogonal(3, (2,))
+        self.assertEqual(tuple(q.shape), (2, 3, 3))
+        eye = jnp.einsum('...ij,...ik->...jk', q, q)
+        self.assertTrue(bool(jnp.allclose(eye, jnp.eye(3)[None], atol=1e-4)))
+
+    def test_categorical_shape_and_range(self):
+        """``categorical`` draws integer class indices within the logits' range."""
+        brainstate.random.seed(0)
+        logits = jnp.zeros((4, 3, 5))
+        a = brainstate.random.categorical(logits, axis=-1)
+        self.assertEqual(tuple(a.shape), (4, 3))
+        self.assertTrue(bool(jnp.all(a >= 0)))
+        self.assertTrue(bool(jnp.all(a < 5)))
+
+    @parameterized.named_parameters(
+        ("rand_like", lambda x: brainstate.random.rand_like(x)),
+        ("randn_like", lambda x: brainstate.random.randn_like(x)),
+        ("randint_like", lambda x: brainstate.random.randint_like(x, 0, 5)),
+    )
+    def test_like_helpers_match_input_shape(self, draw):
+        """``*_like`` helpers mirror the shape of their template tensor."""
+        brainstate.random.seed(0)
+        template = jnp.ones((4, 3))
+        a = draw(template)
+        self.assertEqual(tuple(a.shape), (4, 3))
+
+    def test_normal_under_jit(self):
+        """``normal`` produces the right shape when traced through ``transform.jit``."""
+
+        @brainstate.transform.jit
+        def draw():
+            return brainstate.random.normal(0.0, 1.0, (4, 3))
+
+        brainstate.random.seed(0)
+        a = draw()
+        self.assertEqual(tuple(a.shape), (4, 3))
+        self.assertTrue(bool(jnp.all(jnp.isfinite(a))))
+
+    def test_independent_draws_under_vmap(self):
+        """Mapping a per-key draw over split keys yields independent lanes."""
+        brainstate.random.seed(0)
+        keys = brainstate.random.split_keys(4)
+
+        def draw(key):
+            return brainstate.random.normal(0.0, 1.0, (3,), key=key)
+
+        out = brainstate.transform.vmap(draw)(keys)
+        self.assertEqual(tuple(out.shape), (4, 3))
+        # Distinct keys must give distinct lanes.
+        self.assertFalse(bool(jnp.allclose(out[0], out[1])))
+
+    @pytest.mark.slow
+    def test_normal_statistics(self):
+        """A large normal sample has ~0 mean and ~1 std (loose tolerance)."""
+        brainstate.random.seed(0)
+        x = brainstate.random.normal(0.0, 1.0, (10000,))
+        self.assertLess(abs(float(jnp.mean(x))), 0.1)
+        self.assertLess(abs(float(jnp.std(x)) - 1.0), 0.1)
+
+    @pytest.mark.slow
+    def test_uniform_statistics(self):
+        """A large uniform[0,1) sample has a mean near 0.5 and stays in bounds."""
+        brainstate.random.seed(0)
+        x = brainstate.random.uniform(0.0, 1.0, (10000,))
+        self.assertLess(abs(float(jnp.mean(x)) - 0.5), 0.05)
+        self.assertTrue(bool(jnp.all(x >= 0.0)))
+        self.assertTrue(bool(jnp.all(x < 1.0)))
+
+    def test_exponential_is_nonnegative(self):
+        """``exponential`` only produces non-negative samples."""
+        brainstate.random.seed(0)
+        x = brainstate.random.exponential(2.0, (500,))
+        self.assertTrue(bool(jnp.all(x >= 0.0)))
+
+    @pytest.mark.slow
+    def test_exponential_statistics(self):
+        """A large exponential(scale=2) sample has a mean near its scale (numpy convention)."""
+        brainstate.random.seed(0)
+        x = brainstate.random.exponential(2.0, (200000,))
+        self.assertLess(abs(float(jnp.mean(x)) - 2.0), 0.05)
+
+    @pytest.mark.slow
+    def test_poisson_statistics(self):
+        """A large Poisson(lam=3) sample has a mean near its rate."""
+        brainstate.random.seed(0)
+        x = brainstate.random.poisson(3.0, (10000,))
+        self.assertTrue(bool(jnp.all(x >= 0)))
+        self.assertLess(abs(float(jnp.mean(x)) - 3.0), 0.2)

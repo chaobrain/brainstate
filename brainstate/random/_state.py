@@ -440,7 +440,10 @@ class RandomState(State):
         r = jr.exponential(key, shape=_size2shape(size), dtype=dtype or environ.dftype())
         if scale is not None:
             scale = u.math.asarray(scale, dtype=dtype)
-            r = r / scale
+            # ``scale`` is the numpy-compatible scale parameter beta = 1 / lambda,
+            # i.e. the distribution mean. A standard exponential has mean 1, so the
+            # draw is multiplied (not divided) by ``scale`` to reach mean ``scale``.
+            r = r * scale
         return r
 
     @jit_named_scope('brainstate/random', static_argnums=(0, 3, 5), static_argnames=['dtype', 'size'])

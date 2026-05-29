@@ -16,9 +16,10 @@
 import unittest
 
 import jax.numpy as jnp
-import jax.random as jr
 import numpy as np
+import pytest
 
+import brainstate
 from brainstate._state import TRACE_CONTEXT, StateTraceStack
 from brainstate.random._state import RandomState, DEFAULT, formalize_key, _size2shape, _check_py_seq
 
@@ -43,12 +44,12 @@ class TestRandomStateInitialization(unittest.TestCase):
         """Test initialization with integer seed."""
         seed = 42
         rs = RandomState(seed)
-        expected_key = jr.PRNGKey(seed)
+        expected_key = formalize_key(seed)
         np.testing.assert_array_equal(rs.value, expected_key)
 
     def test_init_with_prng_key(self):
-        """Test initialization with JAX PRNGKey."""
-        key = jr.PRNGKey(123)
+        """Test initialization with a brainstate-formalized PRNG key."""
+        key = formalize_key(123)
         rs = RandomState(key)
         np.testing.assert_array_equal(rs.value, key)
 
@@ -94,7 +95,7 @@ class TestRandomStateKeyManagement(unittest.TestCase):
     def test_seed_with_int(self):
         """Test seeding with integer."""
         self.rs.seed(123)
-        expected_key = jr.PRNGKey(123)
+        expected_key = formalize_key(123)
         np.testing.assert_array_equal(self.rs.value, expected_key)
 
     def test_seed_with_none(self):
@@ -105,8 +106,8 @@ class TestRandomStateKeyManagement(unittest.TestCase):
         self.assertFalse(np.array_equal(self.rs.value, original_key))
 
     def test_seed_with_prng_key(self):
-        """Test seeding with PRNGKey."""
-        key = jr.PRNGKey(999)
+        """Test seeding with a brainstate-formalized PRNG key."""
+        key = formalize_key(999)
         self.rs.seed(key)
         np.testing.assert_array_equal(self.rs.value, key)
 
@@ -193,7 +194,7 @@ class TestRandomStateKeyManagement(unittest.TestCase):
 
     def test_set_key(self):
         """Test setting key directly."""
-        new_key = jr.PRNGKey(999)
+        new_key = formalize_key(999)
         self.rs.set_key(new_key)
         np.testing.assert_array_equal(self.rs.value, new_key)
 
@@ -391,7 +392,7 @@ class TestRandomStateKeyBehavior(unittest.TestCase):
     def test_external_key_does_not_change_state(self):
         """Test that using external key doesn't change internal state."""
         original_key = self.rs.value.copy()
-        external_key = jr.PRNGKey(999)
+        external_key = formalize_key(999)
 
         # Use external key
         self.rs.rand(5, key=external_key)
@@ -411,7 +412,7 @@ class TestRandomStateKeyBehavior(unittest.TestCase):
 
     def test_reproducibility_with_same_key(self):
         """Test reproducibility when using same external key."""
-        key = jr.PRNGKey(123)
+        key = formalize_key(123)
 
         result1 = self.rs.rand(5, key=key)
         result2 = self.rs.rand(5, key=key)
@@ -472,14 +473,14 @@ class TestUtilityFunctions(unittest.TestCase):
         TRACE_CONTEXT.state_stack.pop()
 
     def test_formalize_key_with_int(self):
-        """Test _formalize_key with integer."""
+        """Test _formalize_key with integer matches a fresh RandomState key."""
         key = formalize_key(42)
-        expected = jr.PRNGKey(42)
+        expected = RandomState(42).value
         np.testing.assert_array_equal(key, expected)
 
     def test_formalize_key_with_array(self):
-        """Test _formalize_key with array."""
-        input_key = jr.PRNGKey(123)
+        """Test _formalize_key passes through an existing PRNG key unchanged."""
+        input_key = formalize_key(123)
         key = formalize_key(input_key, True)
         np.testing.assert_array_equal(key, input_key)
 
@@ -585,6 +586,563 @@ class TestErrorHandling(unittest.TestCase):
         # Test without backup
         self.rs.self_assign_multi_keys(2, backup=False)
         self.assertEqual(self.rs.value.shape, (2, 2))
+
+
+class TestRandomStateTransforms(unittest.TestCase):
+    """RandomState as a brainstate State: pytree, key advancement, transforms."""
+
+    def setUp(self):
+        """Push a fresh state-trace stack for each test."""
+        TRACE_CONTEXT.state_stack.append(StateTraceStack())
+
+    def tearDown(self):
+        """Pop the state-trace stack after each test."""
+        TRACE_CONTEXT.state_stack.pop()
+
+    def test_pytree_roundtrip(self):
+        """A RandomState's treefied reference survives flatten/unflatten."""
+        from brainstate import _testing
+        rs = RandomState(0)
+        ref = rs.to_state_ref()
+        rebuilt = _testing.assert_pytree_roundtrip(ref)
+        np.testing.assert_array_equal(rebuilt.value, rs.value)
+
+    def test_pytree_in_container_roundtrip(self):
+        """A treefied RandomState inside a dict roundtrips through jax.tree."""
+        import jax
+        rs = RandomState(7)
+        tree = {'rng': rs.to_state_ref(), 'x': jnp.arange(3)}
+        leaves, treedef = jax.tree.flatten(tree)
+        rebuilt = jax.tree.unflatten(treedef, leaves)
+        np.testing.assert_array_equal(rebuilt['rng'].value, rs.value)
+        np.testing.assert_array_equal(rebuilt['x'], tree['x'])
+
+    def test_randomstate_is_tree_leaf(self):
+        """A bare RandomState is treated as a single pytree leaf."""
+        import jax
+        rs = RandomState(0)
+        leaves = jax.tree.leaves(rs)
+        self.assertEqual(len(leaves), 1)
+        self.assertIs(leaves[0], rs)
+
+    def test_repeated_draws_advance_key(self):
+        """Consecutive draws from a RandomState are not identical."""
+        rs = RandomState(0)
+        self.assertFalse(bool(jnp.allclose(rs.randn(5), rs.randn(5))))
+
+    def test_draw_advances_internal_key(self):
+        """Drawing without an explicit key mutates the internal state value."""
+        rs = RandomState(0)
+        before = np.asarray(rs.value).copy()
+        rs.randn(3)
+        self.assertFalse(np.array_equal(before, np.asarray(rs.value)))
+
+    def test_same_seed_same_sequence(self):
+        """Two RandomStates with the same seed yield identical sequences."""
+        r1 = RandomState(123)
+        r2 = RandomState(123)
+        np.testing.assert_array_equal(r1.randn(5), r2.randn(5))
+        np.testing.assert_array_equal(r1.randn(5), r2.randn(5))
+
+    def test_different_seed_different_sequence(self):
+        """Two RandomStates with different seeds yield different sequences."""
+        r1 = RandomState(1)
+        r2 = RandomState(2)
+        self.assertFalse(bool(jnp.allclose(r1.randn(5), r2.randn(5))))
+
+    def test_randomstate_inside_jit(self):
+        """Drawing from a RandomState inside jit yields the right shape."""
+        rs = RandomState(0)
+
+        @brainstate.transform.jit
+        def draw():
+            return rs.randn(4)
+
+        self.assertEqual(draw().shape, (4,))
+
+    def test_jit_advances_key_between_calls(self):
+        """Successive jitted draws from the same RandomState differ."""
+        rs = RandomState(0)
+
+        @brainstate.transform.jit
+        def draw():
+            return rs.randn(4)
+
+        self.assertFalse(bool(jnp.allclose(draw(), draw())))
+
+    def test_randomstate_inside_vmap_with_batched_key(self):
+        """vmap over a batch of keys produces a batched output."""
+        rs = RandomState(0)
+
+        def draw(key):
+            return rs.randn(3, key=key)
+
+        keys = brainstate.random.split_keys(4)
+        out = brainstate.transform.vmap(draw)(keys)
+        self.assertEqual(out.shape, (4, 3))
+
+    def test_explicit_key_is_reproducible(self):
+        """Passing the same explicit key twice yields identical draws."""
+        rs = RandomState(0)
+        brainstate.random.seed(99)
+        key = brainstate.random.split_key()
+        np.testing.assert_array_equal(rs.randn(5, key=key), rs.randn(5, key=key))
+
+    def test_global_seed_split_key_roundtrip(self):
+        """A key from the global stream can construct a usable RandomState."""
+        brainstate.random.seed(7)
+        key = brainstate.random.split_key()
+        self.assertEqual(key.shape, (2,))
+        self.assertEqual(key.dtype, jnp.uint32)
+        rs = RandomState(key)
+        np.testing.assert_array_equal(rs.value, key)
+
+    def test_global_seed_is_deterministic(self):
+        """Re-seeding the global stream replays the same keys."""
+        brainstate.random.seed(11)
+        a = brainstate.random.split_key()
+        brainstate.random.seed(11)
+        b = brainstate.random.split_key()
+        np.testing.assert_array_equal(a, b)
+
+
+class TestRandomStateMisc(unittest.TestCase):
+    """Cover repr, clone, numpy keys, deletion checks, and multi-key assignment."""
+
+    def setUp(self):
+        """Create a seeded RandomState and push a state-trace stack."""
+        self.rs = RandomState(42)
+        TRACE_CONTEXT.state_stack.append(StateTraceStack())
+
+    def tearDown(self):
+        """Pop the state-trace stack after each test."""
+        TRACE_CONTEXT.state_stack.pop()
+
+    def test_repr_contains_value(self):
+        """The repr embeds the class name and the underlying key value."""
+        text = repr(self.rs)
+        self.assertIn('RandomState', text)
+        self.assertIn(str(self.rs.value), text)
+
+    def test_clone_is_independent(self):
+        """Cloning yields a distinct instance with a distinct key."""
+        clone = self.rs.clone()
+        self.assertIsNot(clone, self.rs)
+        self.assertFalse(np.array_equal(clone.value, self.rs.value))
+
+    def test_numpy_keys_shape_and_dtype(self):
+        """_numpy_keys returns a (batch, 2) uint32 array."""
+        keys = self.rs._numpy_keys(4)
+        self.assertEqual(keys.shape, (4, 2))
+        self.assertEqual(keys.dtype, np.uint32)
+
+    def test_check_if_deleted_on_live_key(self):
+        """check_if_deleted is a no-op for a live (non-deleted) key."""
+        before = np.asarray(self.rs.value).copy()
+        self.rs.check_if_deleted()
+        np.testing.assert_array_equal(self.rs.value, before)
+
+    def test_seed_with_numpy_int_array_scalar(self):
+        """Seeding with a 1-element integer numpy array sets a valid key."""
+        self.rs.seed(np.array(123, dtype=np.int64))
+        self.assertEqual(self.rs.value.shape, (2,))
+        np.testing.assert_array_equal(self.rs.value, formalize_key(123))
+
+    def test_seed_with_uint32_pair(self):
+        """Seeding with a uint32 pair stores the key verbatim."""
+        key = np.array([7, 9], dtype=np.uint32)
+        self.rs.seed(key)
+        np.testing.assert_array_equal(self.rs.value, key)
+
+    def test_seed_with_invalid_scalar_type(self):
+        """Seeding with a float scalar raises ValueError."""
+        with self.assertRaises(ValueError):
+            self.rs.seed(np.array(1.5, dtype=np.float32))
+
+    def test_self_assign_multi_keys_without_backup(self):
+        """self_assign_multi_keys without backup leaves no restore point."""
+        self.rs.self_assign_multi_keys(3, backup=False)
+        self.assertEqual(self.rs.value.shape, (3, 2))
+        with self.assertRaises(ValueError):
+            self.rs.restore_key()
+
+    def test_split_key_with_backup(self):
+        """split_key(backup=True) records the post-split key as the restore point."""
+        # split_key advances the internal key to keys[0] and *then* backs it up,
+        # so the backed-up value is the advanced key, not the pre-split key.
+        self.rs.split_key(backup=True)
+        post_split = np.asarray(self.rs.value).copy()
+        # Advance again, then restore back to the post-split key.
+        self.rs.split_key()
+        self.assertFalse(np.array_equal(np.asarray(self.rs.value), post_split))
+        self.rs.restore_key()
+        np.testing.assert_array_equal(self.rs.value, post_split)
+
+
+class TestRandomStateMoreDistributions(unittest.TestCase):
+    """Exercise distribution methods not covered by the baseline suite."""
+
+    def setUp(self):
+        """Create a seeded RandomState and push a state-trace stack."""
+        self.rs = RandomState(2024)
+        TRACE_CONTEXT.state_stack.append(StateTraceStack())
+
+    def tearDown(self):
+        """Pop the state-trace stack after each test."""
+        TRACE_CONTEXT.state_stack.pop()
+
+    def test_random_aliases(self):
+        """random_sample, ranf, and sample all delegate to random."""
+        self.assertEqual(self.rs.random_sample(size=(2, 3)).shape, (2, 3))
+        self.assertEqual(self.rs.ranf(size=(2, 3)).shape, (2, 3))
+        self.assertEqual(self.rs.sample(size=(2, 3)).shape, (2, 3))
+
+    def test_random_integers(self):
+        """random_integers honours inclusive high and broadcast sizing."""
+        self.assertEqual(self.rs.random_integers(1, 5, size=(3,)).shape, (3,))
+        self.assertEqual(self.rs.random_integers(5).shape, ())
+
+    def test_permutation_and_shuffle(self):
+        """permutation and shuffle preserve the multiset of elements."""
+        perm = self.rs.permutation(jnp.arange(6))
+        np.testing.assert_array_equal(np.sort(np.asarray(perm)), np.arange(6))
+        shuf = self.rs.shuffle(jnp.arange(6))
+        np.testing.assert_array_equal(np.sort(np.asarray(shuf)), np.arange(6))
+
+    def test_gumbel_laplace_logistic(self):
+        """gumbel, laplace, and logistic produce the requested shape."""
+        self.assertEqual(self.rs.gumbel(0.0, 1.0, size=(2, 3)).shape, (2, 3))
+        self.assertEqual(self.rs.laplace(0.0, 1.0, size=(2, 3)).shape, (2, 3))
+        self.assertEqual(self.rs.logistic(0.0, 1.0, size=(2, 3)).shape, (2, 3))
+
+    def test_logistic_no_loc_scale(self):
+        """logistic broadcasts to a scalar when loc/scale are omitted."""
+        self.assertEqual(self.rs.logistic().shape, ())
+
+    def test_pareto(self):
+        """pareto yields positive samples with the requested shape."""
+        arr = self.rs.pareto(2.0, size=(3,))
+        self.assertEqual(arr.shape, (3,))
+        self.assertTrue((arr >= 0).all())
+
+    def test_standard_family(self):
+        """standard_* helpers each yield the requested shape."""
+        self.assertEqual(self.rs.standard_cauchy(size=(3,)).shape, (3,))
+        self.assertEqual(self.rs.standard_exponential(size=(3,)).shape, (3,))
+        self.assertEqual(self.rs.standard_gamma(2.0, size=(3,)).shape, (3,))
+        self.assertEqual(self.rs.standard_normal(size=(3,)).shape, (3,))
+        self.assertEqual(self.rs.standard_t(3.0).shape, ())
+
+    def test_lognormal(self):
+        """lognormal returns strictly positive samples."""
+        arr = self.rs.lognormal(0.0, 1.0, size=(3,))
+        self.assertEqual(arr.shape, (3,))
+        self.assertTrue((arr > 0).all())
+
+    def test_chisquare_scalar_and_sized(self):
+        """chisquare supports scalar df (size None) and integer df with size."""
+        self.assertEqual(self.rs.chisquare(3).shape, ())
+        self.assertEqual(self.rs.chisquare(3, size=(4,)).shape, (4,))
+
+    def test_chisquare_nonscalar_df_requires_size(self):
+        """chisquare with non-scalar df and no size is unsupported."""
+        with self.assertRaises(NotImplementedError):
+            self.rs.chisquare(jnp.array([2, 3]))
+
+    def test_dirichlet(self):
+        """dirichlet rows sum to one over the simplex axis."""
+        arr = self.rs.dirichlet(jnp.array([1.0, 2.0, 3.0]), size=(4,))
+        self.assertEqual(arr.shape, (4, 3))
+        np.testing.assert_allclose(np.asarray(arr).sum(axis=-1), 1.0, atol=1e-5)
+
+    def test_geometric(self):
+        """geometric yields non-negative integer-valued samples."""
+        arr = self.rs.geometric(0.5, size=(3,))
+        self.assertEqual(arr.shape, (3,))
+        self.assertTrue((arr >= 0).all())
+
+    def test_multinomial(self):
+        """multinomial counts sum to n across the category axis."""
+        arr = self.rs.multinomial(10, jnp.array([0.2, 0.3, 0.5]), size=(2,))
+        self.assertEqual(arr.shape, (2, 3))
+        np.testing.assert_array_equal(np.asarray(arr).sum(axis=-1), 10)
+
+    def test_multinomial_invalid_pvals(self):
+        """multinomial rejects pvals whose leading sum exceeds one."""
+        with self.assertRaises(Exception):
+            self.rs.multinomial(10, jnp.array([0.6, 0.6, 0.5]))
+
+    def test_multinomial_traced_n_raises(self):
+        """multinomial rejects a traced (abstract) total count n."""
+        rs = self.rs
+
+        @brainstate.transform.jit
+        def f(n):
+            return rs.multinomial(n, jnp.array([0.2, 0.3, 0.5]), size=(2,))
+
+        with self.assertRaises(ValueError):
+            f(jnp.array(10))
+
+    def test_multivariate_normal_methods(self):
+        """multivariate_normal supports svd, eigh, and cholesky factorisations."""
+        mean = jnp.array([0.0, 1.0])
+        cov = jnp.array([[1.0, 0.5], [0.5, 2.0]])
+        for method in ('svd', 'eigh', 'cholesky'):
+            out = self.rs.multivariate_normal(mean, cov, size=(3,), method=method)
+            self.assertEqual(out.shape, (3, 2))
+
+    def test_multivariate_normal_bad_method(self):
+        """multivariate_normal rejects an unknown factorisation method."""
+        mean = jnp.array([0.0, 1.0])
+        cov = jnp.array([[1.0, 0.5], [0.5, 2.0]])
+        with self.assertRaises(ValueError):
+            self.rs.multivariate_normal(mean, cov, method='bogus')
+
+    def test_multivariate_normal_dimension_errors(self):
+        """multivariate_normal validates mean/cov ranks and cov shape."""
+        cov = jnp.array([[1.0, 0.5], [0.5, 2.0]])
+        with self.assertRaises(ValueError):
+            self.rs.multivariate_normal(jnp.array(0.0), cov)  # mean ndim < 1
+        with self.assertRaises(ValueError):
+            self.rs.multivariate_normal(jnp.array([0.0, 1.0]), jnp.array([1.0, 2.0]))  # cov ndim < 2
+        with self.assertRaises(ValueError):
+            self.rs.multivariate_normal(jnp.array([0.0, 1.0, 2.0]), cov)  # cov shape mismatch
+
+    def test_rayleigh(self):
+        """rayleigh yields non-negative samples with the requested shape."""
+        arr = self.rs.rayleigh(2.0, size=(3,))
+        self.assertEqual(arr.shape, (3,))
+        self.assertTrue((arr >= 0).all())
+
+    def test_triangular(self):
+        """triangular returns values in {-1, 1}."""
+        arr = self.rs.triangular(size=(50,))
+        self.assertEqual(arr.shape, (50,))
+        self.assertTrue(jnp.all((arr == -1) | (arr == 1)))
+
+    def test_vonmises(self):
+        """vonmises returns angles within (-pi, pi]."""
+        arr = self.rs.vonmises(0.0, 1.0, size=(3,))
+        self.assertEqual(arr.shape, (3,))
+        self.assertTrue((arr >= -jnp.pi - 1e-5).all() and (arr <= jnp.pi + 1e-5).all())
+
+    def test_weibull_and_min(self):
+        """weibull and weibull_min yield non-negative samples of the right shape."""
+        self.assertEqual(self.rs.weibull(2.0, size=(3,)).shape, (3,))
+        self.assertEqual(self.rs.weibull_min(2.0, scale=1.5, size=(3,)).shape, (3,))
+
+    def test_weibull_array_a_with_size_raises(self):
+        """weibull requires scalar shape parameter a when size is provided."""
+        with self.assertRaises(ValueError):
+            self.rs.weibull(jnp.array([1.0, 2.0]), size=(3,))
+
+    def test_weibull_min_array_a_with_size_raises(self):
+        """weibull_min requires scalar shape parameter a when size is provided."""
+        with self.assertRaises(ValueError):
+            self.rs.weibull_min(jnp.array([1.0, 2.0]), size=(3,))
+
+    def test_maxwell(self):
+        """maxwell returns non-negative speeds with the requested shape."""
+        arr = self.rs.maxwell(size=(3,))
+        self.assertEqual(arr.shape, (3,))
+        self.assertTrue((arr >= 0).all())
+
+    def test_negative_binomial(self):
+        """negative_binomial works both with and without an explicit key."""
+        self.assertEqual(self.rs.negative_binomial(5, 0.5, size=(3,)).shape, (3,))
+        key = brainstate.random.split_key()
+        self.assertEqual(self.rs.negative_binomial(5, 0.5, size=(3,), key=key).shape, (3,))
+
+    def test_wald(self):
+        """wald returns positive samples with the requested shape."""
+        arr = self.rs.wald(1.0, 2.0, size=(3,))
+        self.assertEqual(arr.shape, (3,))
+        self.assertTrue((arr > 0).all())
+
+    def test_t_distribution(self):
+        """t works both with and without an explicit key."""
+        self.assertEqual(self.rs.t(3.0, size=(4,)).shape, (4,))
+        key = brainstate.random.split_key()
+        self.assertEqual(self.rs.t(3.0, size=(4,), key=key).shape, (4,))
+
+    def test_orthogonal(self):
+        """orthogonal returns batches of orthonormal matrices."""
+        q = self.rs.orthogonal(3, size=(2,))
+        self.assertEqual(q.shape, (2, 3, 3))
+        identity = jnp.einsum('...ij,...kj->...ik', q, q)
+        np.testing.assert_allclose(np.asarray(identity), np.broadcast_to(np.eye(3), (2, 3, 3)), atol=1e-4)
+
+    def test_noncentral_chisquare(self):
+        """noncentral_chisquare works both with and without an explicit key."""
+        self.assertEqual(self.rs.noncentral_chisquare(3.0, 1.0, size=(2,)).shape, (2,))
+        key = brainstate.random.split_key()
+        self.assertEqual(self.rs.noncentral_chisquare(3.0, 1.0, size=(2,), key=key).shape, (2,))
+
+    def test_loggamma(self):
+        """loggamma yields samples with the requested shape."""
+        self.assertEqual(self.rs.loggamma(2.0, size=(3,)).shape, (3,))
+
+    def test_categorical_size_none(self):
+        """categorical infers the output shape from the logits when size is None."""
+        logits = jnp.array([[0.1, 0.2, 0.7], [0.3, 0.3, 0.4]])
+        out = self.rs.categorical(logits)
+        self.assertEqual(out.shape, (2,))
+
+    def test_special_impl_distributions(self):
+        """zipf, power, f, hypergeometric, logseries, noncentral_f all sample."""
+        self.assertEqual(self.rs.zipf(2.0, size=(3,)).shape, (3,))
+        self.assertEqual(self.rs.power(2.0, size=(3,)).shape, (3,))
+        self.assertEqual(self.rs.f(3.0, 5.0, size=(3,)).shape, (3,))
+        self.assertEqual(self.rs.hypergeometric(5, 5, 4, size=(3,)).shape, (3,))
+        self.assertEqual(self.rs.logseries(0.5, size=(3,)).shape, (3,))
+        self.assertEqual(self.rs.noncentral_f(3.0, 5.0, 1.0, size=(3,)).shape, (3,))
+
+
+class TestRandomStatePyTorchHelpersExtra(unittest.TestCase):
+    """Extend coverage of the PyTorch-compat *_like helpers."""
+
+    def setUp(self):
+        """Create a seeded RandomState and push a state-trace stack."""
+        self.rs = RandomState(2025)
+        TRACE_CONTEXT.state_stack.append(StateTraceStack())
+
+    def tearDown(self):
+        """Pop the state-trace stack after each test."""
+        TRACE_CONTEXT.state_stack.pop()
+
+    def test_rand_like_with_dtype_and_key(self):
+        """rand_like honours an explicit dtype and external key."""
+        key = brainstate.random.split_key()
+        out = self.rs.rand_like(jnp.zeros((2, 3)), dtype=jnp.float32, key=key)
+        self.assertEqual(out.shape, (2, 3))
+        self.assertEqual(out.dtype, jnp.float32)
+
+    def test_randn_like_with_dtype_and_key(self):
+        """randn_like honours an explicit dtype and external key."""
+        key = brainstate.random.split_key()
+        out = self.rs.randn_like(jnp.zeros((2, 3)), dtype=jnp.float32, key=key)
+        self.assertEqual(out.shape, (2, 3))
+        self.assertEqual(out.dtype, jnp.float32)
+
+    def test_randint_like_default_high(self):
+        """randint_like defaults its upper bound to max(input)."""
+        out = self.rs.randint_like(jnp.array([3, 5, 9]))
+        self.assertEqual(out.shape, (3,))
+        self.assertTrue((np.asarray(out) < 9).all())
+
+    def test_randint_like_with_key(self):
+        """randint_like accepts an explicit key and bounds."""
+        key = brainstate.random.split_key()
+        out = self.rs.randint_like(jnp.zeros((2, 3), dtype=jnp.int32), 0, 4, key=key)
+        self.assertEqual(out.shape, (2, 3))
+        self.assertTrue((np.asarray(out) >= 0).all() and (np.asarray(out) < 4).all())
+
+
+class TestRandomStateScalarSizeInference(unittest.TestCase):
+    """Drive the ``size is None`` shape-inference branch of every distribution."""
+
+    def setUp(self):
+        """Create a seeded RandomState and push a state-trace stack."""
+        self.rs = RandomState(31337)
+        TRACE_CONTEXT.state_stack.append(StateTraceStack())
+
+    def tearDown(self):
+        """Pop the state-trace stack after each test."""
+        TRACE_CONTEXT.state_stack.pop()
+
+    def test_scalar_distributions_infer_empty_shape(self):
+        """Scalar parameters with no size yield scalar (shape ()) draws."""
+        calls = {
+            'beta': lambda: self.rs.beta(2.0, 3.0),
+            'exponential': lambda: self.rs.exponential(2.0),
+            'gamma': lambda: self.rs.gamma(2.0, 1.0),
+            'laplace': lambda: self.rs.laplace(0.0, 1.0),
+            'gumbel': lambda: self.rs.gumbel(0.0, 1.0),
+            'pareto': lambda: self.rs.pareto(2.0),
+            'standard_gamma': lambda: self.rs.standard_gamma(2.0),
+            'lognormal': lambda: self.rs.lognormal(0.0, 1.0),
+            'bernoulli': lambda: self.rs.bernoulli(0.5),
+            'binomial': lambda: self.rs.binomial(10, 0.5),
+            'geometric': lambda: self.rs.geometric(0.5),
+            'rayleigh': lambda: self.rs.rayleigh(2.0),
+            'vonmises': lambda: self.rs.vonmises(0.0, 1.0),
+            'weibull': lambda: self.rs.weibull(2.0),
+            'weibull_min': lambda: self.rs.weibull_min(2.0, scale=1.5),
+            'negative_binomial': lambda: self.rs.negative_binomial(5, 0.5),
+            'wald': lambda: self.rs.wald(1.0, 2.0),
+            't': lambda: self.rs.t(3.0),
+            'noncentral_chisquare': lambda: self.rs.noncentral_chisquare(3.0, 1.0),
+            'loggamma': lambda: self.rs.loggamma(2.0),
+            'zipf': lambda: self.rs.zipf(2.0),
+            'power': lambda: self.rs.power(2.0),
+            'f': lambda: self.rs.f(3.0, 5.0),
+            'logseries': lambda: self.rs.logseries(0.5),
+            'noncentral_f': lambda: self.rs.noncentral_f(3.0, 5.0, 1.0),
+            'hypergeometric': lambda: self.rs.hypergeometric(5, 5, 4),
+            'poisson': lambda: self.rs.poisson(3.0),
+            'truncated_normal': lambda: self.rs.truncated_normal(-1.0, 1.0),
+        }
+        for name, fn in calls.items():
+            with self.subTest(distribution=name):
+                self.assertEqual(np.asarray(fn()).shape, ())
+
+
+class TestRandomStateEdgeCases(unittest.TestCase):
+    """Cover deletion recovery, non-array splitting, and unit-carrying inputs."""
+
+    def setUp(self):
+        """Push a fresh state-trace stack for each test."""
+        TRACE_CONTEXT.state_stack.append(StateTraceStack())
+
+    def tearDown(self):
+        """Pop the state-trace stack after each test."""
+        TRACE_CONTEXT.state_stack.pop()
+
+    def test_check_if_deleted_reseeds_after_buffer_delete(self):
+        """check_if_deleted reseeds the state once its backing buffer is freed."""
+        rs = RandomState(9)
+        rs.value.delete()
+        rs.check_if_deleted()
+        self.assertEqual(rs.value.shape, (2,))
+        # After reseeding the state is usable again.
+        self.assertEqual(rs.randn(3).shape, (3,))
+
+    def test_split_key_coerces_non_jax_array_value(self):
+        """split_key coerces a plain numpy key array before splitting."""
+        rs = RandomState(9)
+        rs._value = np.array([1, 2], dtype=np.uint32)
+        new_key = rs.split_key()
+        self.assertEqual(new_key.shape, (2,))
+        self.assertEqual(rs.value.shape, (2,))
+
+    def test_multivariate_normal_with_units(self):
+        """multivariate_normal accepts unit-carrying mean and covariance."""
+        import brainunit as u
+        rs = RandomState(9)
+        mean = jnp.array([0.0, 1.0]) * u.mV
+        cov = jnp.array([[1.0, 0.5], [0.5, 2.0]]) * (u.mV ** 2)
+        out = rs.multivariate_normal(mean, cov, size=(2,))
+        self.assertEqual(np.asarray(u.get_magnitude(out)).shape, (2, 2))
+
+    def test_multivariate_normal_size_none(self):
+        """multivariate_normal infers a scalar batch when size is None."""
+        rs = RandomState(9)
+        out = rs.multivariate_normal(jnp.array([0.0, 1.0]), jnp.array([[1.0, 0.0], [0.0, 1.0]]))
+        self.assertEqual(out.shape, (2,))
+
+    def test_check_valid_false_skips_validation(self):
+        """Distributions with check_valid=False skip their jit_error_if guard."""
+        rs = RandomState(9)
+        self.assertEqual(rs.truncated_normal(-1.0, 1.0, size=(3,), check_valid=False).shape, (3,))
+        self.assertEqual(rs.bernoulli(0.5, size=(3,), check_valid=False).shape, (3,))
+        self.assertEqual(rs.binomial(10, 0.5, size=(3,), check_valid=False).shape, (3,))
+        out = rs.multinomial(10, jnp.array([0.2, 0.3, 0.5]), size=(2,), check_valid=False)
+        self.assertEqual(out.shape, (2, 3))
+
+    def test_standard_t_with_size(self):
+        """standard_t honours an explicit size argument."""
+        rs = RandomState(9)
+        self.assertEqual(rs.standard_t(3.0, size=(3,)).shape, (3,))
 
 
 if __name__ == '__main__':

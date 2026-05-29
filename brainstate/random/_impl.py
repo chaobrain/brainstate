@@ -134,8 +134,11 @@ def von_mises_centered(
         return i + 1, key, accept | done, u_, w
 
     init_done = jnp.zeros(shape, dtype=bool)
-    init_u = jnp.zeros(shape)
-    init_w = jnp.zeros(shape)
+    # The while_loop carry must keep a stable dtype: ``body_fn`` produces values in
+    # ``concentration.dtype``, so the initial u/w arrays must use the same dtype
+    # (otherwise float16 — and float32 under x64 — raise a carry-type mismatch).
+    init_u = jnp.zeros(shape, dtype=concentration.dtype)
+    init_w = jnp.zeros(shape, dtype=concentration.dtype)
 
     _, _, done, uu, w = lax.while_loop(
         cond_fun=cond_fn,
@@ -234,7 +237,10 @@ def formalize_key(key, use_prng_key=True):
         if jnp.issubdtype(key.dtype, jax.dtypes.prng_key):
             return key
         if key.size == 1 and jnp.issubdtype(key.dtype, jnp.integer):
-            return jr.PRNGKey(key) if use_prng_key else jr.key(key)
+            # ``PRNGKey``/``key`` require a scalar seed; reshape so that a size-1
+            # but non-0d integer array (e.g. ``np.array([42])``) is accepted too.
+            seed = jnp.reshape(key, ())
+            return jr.PRNGKey(seed) if use_prng_key else jr.key(seed)
 
         if key.dtype != jnp.uint32:
             raise TypeError('key must be a int or an array with two uint32.')
