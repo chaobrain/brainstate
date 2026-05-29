@@ -99,11 +99,12 @@ class TestPmapIntegration(unittest.TestCase):
     def test_pmap_stateful_execution(self):
         param = brainstate.ParamState(jnp.ones((4,)))
 
+        # ``param`` is replicated across devices (broadcast input) and each device
+        # updates its own copy, so it is scattered along axis 0 on output only.
         @pmap2(
             in_axes=0,
             out_axes=0,
             axis_name='devices',
-            state_in_axes={0: filter.OfType(brainstate.ParamState)},
             state_out_axes={0: filter.OfType(brainstate.ParamState)},
         )
         def update(delta):

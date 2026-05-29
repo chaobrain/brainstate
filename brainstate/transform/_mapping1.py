@@ -20,7 +20,7 @@ import jax
 
 from brainstate._compatible_import import BatchTracer
 from brainstate._error import BatchAxisError
-from brainstate._state import State, catch_new_states
+from brainstate._state import State, StateTraceStack, TRACE_CONTEXT, catch_new_states
 from brainstate.typing import Missing
 from brainstate.util.filter import Filter
 from ._make_jaxpr import StatefulFunction
@@ -35,151 +35,38 @@ AxisName = Hashable
 AxisToState = Dict[int, List[State]]
 StateToAxis = Dict[State, int]
 
-_rand = None
+# Shared mapping helpers now live in ``_mapping_core`` so that the legacy
+# ``vmap`` / ``vmap_new_states`` and the modern ``vmap2`` / ``pmap2`` families
+# converge on a single implementation. They are re-exported here unchanged so
+# existing imports (and tests) of ``brainstate.transform._mapping1`` keep
+# working.
+from ._mapping_core import (  # noqa: E402
+    _import_rand_state,
+    _flatten_in_out_states,
+    _remove_axis,
+    _compile_stateful_function,
+    _get_batch_size,
+    _format_state_axes,
+    _strip_args,
+    make_identity_predicate,
+    state_map_transform,
+    unwind_new_state_levels,
+)
 
 
-def _import_rand_state():
-    global _rand
-    if _rand is None:
-        from brainstate.random import RandomState
-        _rand = RandomState
-    return _rand
+def _states_to_predicate_axes(formatted_axis_to_states: AxisToState):
+    """Convert ``{axis: [State, ...]}`` into ``{axis: identity_predicate}``.
 
-
-def _flatten_in_out_states(
-    in_states: Dict[int, Dict] | Any = None,
-) -> Tuple[AxisToState, StateToAxis]:
-    if in_states is None:
-        return dict(), dict()
-    if isinstance(in_states, dict):
-        keys = tuple(in_states.keys())
-        values = tuple(in_states.values())
-        is_axis_in_states = (
-            all([isinstance(key, int) for key in keys]) and
-            all([isinstance(value, dict) for value in values])
-        )
-    else:
-        is_axis_in_states = False
-    if is_axis_in_states:
-        axis_to_states = {key: list(value.values()) for key, value in in_states.items()}
-        state_to_axis = {}
-        for key, value in in_states.items():
-            for state in value.values():
-                state_to_axis[state] = key
-        return axis_to_states, state_to_axis
-    else:
-        in_states = jax.tree.leaves(in_states)
-        axis_to_states = {0: list(in_states)}
-        state_to_axis = {state: 0 for state in in_states}
-        return axis_to_states, state_to_axis
-
-
-def _remove_axis(x, axis: int):
-    assert isinstance(axis, int), f"Expected axis to be an integer, but got {type(axis)}"
-    if axis < 0:
-        axis += x.ndim
-    if axis < 0 or axis >= x.ndim:
-        raise IndexError(f"Axis {axis} is out of bounds for array of shape {x.shape}")
-    return x[tuple(slice(None, None, None) if i != axis else 0 for i in range(x.ndim))]
-
-
-def _compile_stateful_function(
-    stateful_fn: StatefulFunction,
-    in_axes: int | Tuple[int, ...],
-    args: Tuple
-):
-    in_axes_st, in_axes = in_axes
-    state_vals, args = args
-
-    # check in_axes
-    if isinstance(in_axes, tuple) and len(in_axes) != len(args):
-        raise ValueError(
-            "vmap in_axes must be an int, None, or a tuple of entries corresponding "
-            "to the positional arguments passed to the function, "
-            f"but got {len(in_axes)=}, {len(args)=}"
-        )
-
-    # check state_vals
-    if len(state_vals) > 0:
-        state_vals = [jax.tree.map(lambda x: _remove_axis(x, axis), vals)
-                      for vals, axis in zip(state_vals, in_axes_st)]
-    else:
-        state_vals = []
-
-    if isinstance(in_axes, int):
-        args = jax.tree.map(lambda x: _remove_axis(x, in_axes), args)
-    elif isinstance(in_axes, tuple):
-        args = tuple([
-            # arg if in_axis is None else _remove_axis(arg, in_axis)
-            arg
-            if in_axis is None else
-            jax.tree.map(lambda x: _remove_axis(x, in_axis), arg)
-            for arg, in_axis in zip(args, in_axes)
-        ])
-    stateful_fn.make_jaxpr(state_vals, args)
-    return stateful_fn.get_arg_cache_key(state_vals, args)
-
-
-def _get_batch_size(
-    args: Tuple,
-    in_axes: int | Tuple[int, ...],
-    in_states: AxisToState,
-    axis_size: Optional[int] = None,
-) -> int:
-    batch_sizes = []
-
-    # Check batch size from args and in_axes
-    if isinstance(in_axes, int):
-        in_axes = (in_axes,) * len(args)
-    for arg, in_axis in zip(args, in_axes):
-        if in_axis is not None:
-            arg_leaves = jax.tree.leaves(arg)
-            if arg_leaves:
-                batch_sizes.append(arg_leaves[0].shape[in_axis])
-
-    # Check batch size from in_states
-    if in_states is not None:
-        for axis, states in in_states.items():
-            for state in states:
-                state_leaves = jax.tree.leaves(state.value)
-                if len(state_leaves):
-                    batch_sizes.append(state_leaves[0].shape[axis])
-
-    if len(batch_sizes) == 0:
-        assert axis_size is not None, (
-            "Unable to determine batch size. Please provide the 'axis_size' argument."
-        )
-        return axis_size
-    else:
-        # Ensure all batch sizes are consistent
-        if len(set(batch_sizes)) > 1:
-            raise ValueError(f"Inconsistent batch sizes found: {set(batch_sizes)}")
-
-        return batch_sizes[0]
-
-
-def _format_state_axes(
-    in_states, out_states,
-):
-    axis_to_in_states, in_state_to_axis = _flatten_in_out_states(in_states)
-    axis_to_out_states, out_state_to_axis = _flatten_in_out_states(out_states)
-    for _in_state, _axis in in_state_to_axis.items():
-        if _in_state in out_state_to_axis:
-            _out_axis = out_state_to_axis[_in_state]
-            if _out_axis != _axis:
-                _in_state.raise_error_with_source_info(
-                    BatchAxisError(
-                        f"State {_in_state} has been mapped to axis {_axis} in 'in_states', "
-                        f"However, it is mapped to axis {_out_axis} in 'out_states'."
-                    )
-                )
-        else:
-            out_state_to_axis[_in_state] = _axis
-            if _axis not in axis_to_out_states:
-                axis_to_out_states[_axis] = []
-            axis_to_out_states[_axis].append(_in_state)
-
-    return axis_to_in_states, in_state_to_axis, axis_to_out_states, out_state_to_axis
+    The legacy ``vmap`` selects states by *declaration* (explicit instances),
+    whereas the shared engine selects by predicate. Identity predicates bridge
+    the two: each declared axis maps to a predicate matching exactly the
+    declared instances.
+    """
+    return {
+        axis: make_identity_predicate(states)
+        for axis, states in formatted_axis_to_states.items()
+        if len(states) > 0
+    }
 
 
 def _vmap_transform(
@@ -193,152 +80,42 @@ def _vmap_transform(
     axis_name: AxisName | None = None,
     spmd_axis_name: AxisName | tuple[AxisName, ...] | None = None,
 ):
-    RandomState = _import_rand_state()
+    """Declaration-based ``vmap`` implemented as a shim over the shared engine.
 
-    # format state axes
+    The explicit ``in_states`` / ``out_states`` declarations are converted to
+    identity predicates and handed to :func:`state_map_transform`. The
+    ``'raise'`` policy is forced so that a state written with a batched value but
+    not declared in ``out_states`` raises a :class:`BatchAxisError`, preserving
+    the historical contract. Keyword arguments are rejected, also for
+    historical compatibility.
+    """
+    if isinstance(in_axes, list):
+        # canonicalize list -> tuple (see jax-ml/jax#2367)
+        in_axes = tuple(in_axes)
+
+    # format + validate state axes (raises on in/out axis mismatch)
     (
         axis_to_in_states,
         in_state_to_axis,
         axis_to_out_states,
-        out_state_to_axis
+        out_state_to_axis,
     ) = _format_state_axes(in_states, out_states)
 
-    # check in_axes
-    if isinstance(in_axes, list):
-        # To be a tree prefix of the positional args tuple, in_axes can never be a
-        # list: if in_axes is not a leaf, it must be a tuple of trees. However,
-        # in cases like these users expect tuples and lists to be treated
-        # essentially interchangeably, so we canonicalize lists to tuples here
-        # rather than raising an error. https://github.com/jax-ml/jax/issues/2367
-        in_axes = tuple(in_axes)
+    state_in_axes = _states_to_predicate_axes(axis_to_in_states)
+    state_out_axes = _states_to_predicate_axes(axis_to_out_states)
 
-    def _vmap_fn_for_compilation(in_vmap_state_vals, args):
-        """
-        Compile a function for vectorized mapping (vmap) with state restoration.
-
-        This internal function is used to prepare a function for vectorized mapping
-        by restoring state values before calling the original function.
-
-        Args:
-            in_vmap_state_vals (List[List]): A nested list containing the state values
-                to be restored. The outer list corresponds to different axes, while
-                the inner lists contain the state values for each axis.
-            args (Tuple): The arguments to be passed to the original function after
-                state restoration.
-
-        Returns:
-            Any: The result of calling the original function 'f' with the restored
-            state and provided arguments.
-        """
-        # restore state values
-        for i, states in enumerate(axis_to_in_states.values()):
-            for state, state_val in zip(states, in_vmap_state_vals[i]):
-                state.restore_value(state_val)
-
-        # call the function
-        return f(*args)
-
-    def _set_axis_env(batch_size):
-        axis_env = None if axis_name is None else [(axis_name, batch_size)]
-        stateful_fn.axis_env = axis_env
-
-    # stateful function
-    stateful_fn = StatefulFunction(_vmap_fn_for_compilation, name='vmap')
-
-    @functools.wraps(f)
-    def new_fn_for_vmap(
-        rng_keys,
-        in_state_vmap_vals,
-        in_state_oth_vals,
-        args,
-    ):
-        """
-        Wrapper function for vectorized mapping (vmap) that handles state restoration and function execution.
-
-        This function restores state values, random number generators (RNGs), and other state values
-        before calling the original function. It then processes the outputs and prepares them for
-        vectorized mapping.
-
-        Args:
-            rng_keys (Sequence): Random number generator keys for each mapped instance.
-            in_state_vmap_vals (Sequence[Sequence]): Input state values for vectorized mapping,
-                organized by axis.
-            in_state_oth_vals (Sequence): Other input state values not involved in vectorized mapping.
-            args (Tuple): Arguments to be passed to the original function.
-
-        Returns:
-            Tuple: A tuple containing four elements:
-                - out_rng_keys (List): Updated RNG keys after function execution.
-                - out_state_vmap_vals (List[List]): Output state values for vectorized mapping,
-                  organized by axis.
-                - out_state_oth_vals (List): Other output state values not involved in vectorized mapping.
-                - outs: The output of the original function call.
-
-        Raises:
-            AssertionError: If there's a mismatch in the number of states, state values, or RNG keys.
-            BatchAxisError: If a state value is batched but not included in out_states.
-        """
-        # restore vmapping state values
-        for i, states in enumerate(axis_to_in_states.values()):
-            assert len(states) == len(in_state_vmap_vals[i]), (
-                f"The number of states in axis {i} should be equal to the number "
-                f"of state values, but got {len(states)} and {len(in_state_vmap_vals[i])}."
-            )
-            for state, state_val in zip(states, in_state_vmap_vals[i]):
-                state.restore_value(state_val)
-
-        # restore rngs
-        cache_key = stateful_fn.get_arg_cache_key(in_state_vmap_vals, args)
-        state_trace = stateful_fn.get_state_trace_by_cache(cache_key)
-        rngs = state_trace.state_subset(RandomState)
-        rng_sets = set(rngs)
-        assert len(rngs) == len(rng_keys), (
-            f"The number of random states in the function should be equal to the number "
-            f"of random keys, but got {len(rngs)} and {len(rng_keys)}."
-        )
-        for rng, key in zip(rngs, rng_keys):
-            rng.restore_value(key)
-
-        # restore other state values
-        oth_in_state = [
-            st for st in state_trace.states
-            if st not in in_state_to_axis and st not in rng_sets
-        ]
-        assert len(oth_in_state) == len(in_state_oth_vals), (
-            f"The number of states in 'in_states' should be equal to the number "
-            f"of state values, but got {len(oth_in_state)} and {len(in_state_oth_vals)}."
-        )
-        for state, state_val in zip(oth_in_state, in_state_oth_vals):
-            state.restore_value(state_val)
-
-        # call the function
-        outs = stateful_fn.jaxpr_call_auto(in_state_vmap_vals, args)
-
-        # analyze vmapping axis error
-        for state in state_trace.get_write_states():
-            leaves = jax.tree.leaves(state.value)
-            if (
-                any([isinstance(leaf, BatchTracer) and (leaf.batch_dim is not None) for leaf in leaves])
-                and state not in out_state_to_axis
-            ):
-                if isinstance(state, RandomState) and state in rng_sets:
-                    continue
-                state.raise_error_with_source_info(
-                    BatchAxisError(f"The value of State {state} is batched, "
-                                   f"but it is not in the out_states.")
-                )
-
-        # out state values for vmapping
-        out_state_vmap_vals = [
-            [state.value for state in states]
-            for axis, states in axis_to_out_states.items()
-        ]
-        out_state_oth_vals = [
-            st.value for st in state_trace.states
-            if st not in out_state_to_axis and st not in rng_sets
-        ]
-        out_rng_keys = [rng.value for rng in rngs]
-        return out_rng_keys, out_state_vmap_vals, out_state_oth_vals, outs
+    engine_fn = state_map_transform(
+        f,
+        in_axes=in_axes,
+        out_axes=out_axes,
+        state_in_axes=state_in_axes,
+        state_out_axes=state_out_axes,
+        axis_size=axis_size,
+        axis_name=axis_name,
+        mapping_fn=functools.partial(jax.vmap, spmd_axis_name=spmd_axis_name),
+        unexpected_out_state_mapping='raise',
+        name='vmap',
+    )
 
     @functools.wraps(f)
     def vmapped_fn(*args, **kwargs):
@@ -346,91 +123,7 @@ def _vmap_transform(
             raise NotImplementedError(
                 "Keyword arguments `f(**kwargs)` are not supported in brainstate.transform.vmap"
             )
-
-        # in states values
-        in_state_map_vals = [
-            [st.value for st in states]
-            for axis, states in axis_to_in_states.items()
-        ]
-        st_in_axes = list(axis_to_in_states.keys())
-        if len(st_in_axes) == 0:
-            st_in_axes = 0
-
-        # compile stateful function
-        batch_size = None
-        if axis_name is not None:
-            batch_size = _get_batch_size(args, in_axes, axis_to_in_states, axis_size)
-            _set_axis_env(batch_size)
-        cache_key = _compile_stateful_function(
-            stateful_fn,
-            (st_in_axes, in_axes),
-            (in_state_map_vals, args)
-        )
-
-        # random keys
-        state_trace = stateful_fn.get_state_trace_by_cache(cache_key)
-        rngs = state_trace.state_subset(RandomState)
-        rng_sets = set(rngs)
-        if len(rngs):
-            # batch size
-            if batch_size is None:
-                batch_size = _get_batch_size(args, in_axes, axis_to_in_states, axis_size)
-            rng_keys = tuple(rng.split_key(batch_size) for rng in rngs)
-            rng_backup = tuple(rng.split_key() for rng in rngs)
-        else:
-            rng_keys = tuple()
-            rng_backup = tuple()
-
-        # in states other values
-        in_state_oth_vals = [
-            st.value
-            for st in state_trace.states
-            if st not in in_state_to_axis and st not in rng_sets
-        ]
-
-        # out state axis
-        st_out_axes = list(axis_to_out_states.keys())
-        if len(st_out_axes) == 0:
-            st_out_axes = 0
-
-        # --- vmapping --- #
-        fn = jax.vmap(
-            new_fn_for_vmap,
-            in_axes=(0, st_in_axes, None, in_axes),
-            out_axes=(0, st_out_axes, None, out_axes),
-            axis_size=axis_size,
-            axis_name=axis_name,
-            spmd_axis_name=spmd_axis_name,
-        )
-        _, out_state_map_vals, out_state_oth_vals, outs = fn(
-            rng_keys, in_state_map_vals, in_state_oth_vals, args
-        )
-
-        # restore mapped state values
-        for i, states in enumerate(axis_to_out_states.values()):
-            assert len(states) == len(out_state_map_vals[i]), (
-                f"The number of states in axis {i} should be equal to the number "
-                f"of state values, but got {len(states)} and {len(out_state_map_vals[i])}."
-            )
-            for state, st_val in zip(states, out_state_map_vals[i]):
-                state.restore_value(st_val)
-
-        # restore other state values
-        out_oth_states = [
-            st for st in state_trace.states
-            if st not in out_state_to_axis and st not in rng_sets
-        ]
-        assert len(out_oth_states) == len(out_state_oth_vals), (
-            f"The number of states in 'out_states' should be equal to the number "
-            f"of state values, but got {len(out_oth_states)} and {len(out_state_oth_vals)}."
-        )
-        for state, st_val in zip(out_oth_states, out_state_oth_vals):
-            state.restore_value(st_val)
-
-        # restore random keys
-        for rng, key in zip(rngs, rng_backup):
-            rng.restore_value(key)
-        return outs
+        return engine_fn(*args)
 
     return vmapped_fn
 
@@ -448,6 +141,88 @@ def vmap(
     in_states: Dict[int, Dict] | Any | None = None,
     out_states: Dict[int, Dict] | Any | None = None,
 ) -> F | Callable[[F], F]:
+    """
+    Vectorize a callable while preserving BrainState state semantics.
+
+    This is the declaration-based vectorization API: states that participate
+    in the mapped axis are declared explicitly through ``in_states`` and
+    ``out_states`` (by :class:`~brainstate.State` instance). It is implemented
+    as a thin shim over the shared mapping engine that also powers
+    :func:`~brainstate.transform.vmap2`; the declared states are converted to
+    identity selectors internally.
+
+    Compared with :func:`~brainstate.transform.vmap2`, this entry point keeps
+    the historical contract: a state written with a batched value but not
+    declared in ``out_states`` raises a
+    :class:`~brainstate._error.BatchAxisError` (rather than being inferred
+    automatically), and keyword arguments are not supported.
+
+    Parameters
+    ----------
+    fn : callable, optional
+        Function to vectorize. If omitted, the function acts as a decorator.
+    in_axes : int, None, or sequence, default 0
+        Mapped-axis alignment per positional argument, following
+        :func:`jax.vmap` semantics. ``None`` marks an argument as broadcast.
+    out_axes : Any, default 0
+        Placement of the mapped axis in the return value.
+    axis_name : hashable, optional
+        Name for the mapped axis so collective primitives can target it.
+    axis_size : int, optional
+        Explicit mapped-axis size. Inferred from arguments/states when omitted.
+    spmd_axis_name : hashable or tuple of hashable, optional
+        Axis labels for nested SPMD transforms.
+    in_states : dict, State, or iterable of State, optional
+        States batched on input, declared by instance. A dict maps axis
+        identifiers to states; a bare state (or iterable of states) is
+        shorthand for ``{0: ...}``.
+    out_states : dict, State, or iterable of State, optional
+        States whose writes are scattered back along the mapped axis, with the
+        same declaration semantics as ``in_states``.
+
+    Returns
+    -------
+    callable
+        The vectorized function if ``fn`` is supplied, otherwise a decorator.
+
+    Raises
+    ------
+    BatchAxisError
+        If a state is written with a batched value but not declared in
+        ``out_states``.
+    NotImplementedError
+        If keyword arguments are passed to the vectorized function.
+
+    See Also
+    --------
+    brainstate.transform.vmap2 : Filter/predicate-based vectorization with
+        automatic output-axis inference.
+    brainstate.transform.vmap_new_states : Vectorize states created inside the
+        function.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate
+        >>> import jax.numpy as jnp
+        >>>
+        >>> counter = brainstate.ShortTermState(jnp.zeros(3))
+        >>>
+        >>> @brainstate.transform.vmap(
+        ...     in_axes=0,
+        ...     in_states=counter,
+        ...     out_states=counter,
+        ... )
+        ... def accumulate(x):
+        ...     counter.value = counter.value + x
+        ...     return counter.value
+        >>>
+        >>> accumulate(jnp.asarray([1., 2., 3.]))
+        Array([1., 2., 3.], dtype=float32)
+        >>> counter.value
+        Array([1., 2., 3.], dtype=float32)
+    """
     if isinstance(fn, Missing):
         return functools.partial(
             _vmap_transform,
@@ -491,39 +266,78 @@ def _vmap_new_states_transform(
     if isinstance(axis_size, int) and axis_size <= 0:
         raise ValueError(f"axis_size must be greater than 0, got {axis_size}.")
 
-    @vmap(
-        in_axes=in_axes,
-        out_axes=out_axes,
-        axis_name=axis_name,
-        axis_size=axis_size,
-        spmd_axis_name=spmd_axis_name,
-        in_states=in_states,
-        out_states=out_states,
-    )
-    def new_fun(args):
-        # call the function
-        with catch_new_states(state_tag=state_tag, state_to_exclude=state_to_exclude) as catcher:
-            out = fun(*args)
+    RandomState = _import_rand_state()
 
-        # get vmap state values
-        vmap_state_vals = catcher.get_state_values()
-
-        return out, vmap_state_vals
+    if isinstance(in_axes, list):
+        in_axes = tuple(in_axes)
 
     @functools.wraps(fun)
-    def vmapped_fn(*args):
-        # vmapping
-        with catch_new_states(state_to_exclude=state_to_exclude) as catcher:
-            outs, vmap_state_vals = new_fun(args)
-            vmap_states = catcher.get_states()
+    def vmapped_fn(*args, **kwargs):
+        if len(kwargs):
+            raise NotImplementedError(
+                "Keyword arguments `f(**kwargs)` are not supported in "
+                "brainstate.transform.vmap_new_states"
+            )
 
-        # restore vmapped state values
-        for st_val, st in zip(vmap_state_vals, vmap_states):
+        base_level = TRACE_CONTEXT.get_trace_stack_level()
+        stripped = _strip_args(args, in_axes)
+
+        # --- eager probe: discover the random states ``fun`` touches -------- #
+        rng_states: List[Any] = []
+        probe_trace = StateTraceStack(name='vmap_new_states_probe')
+
+        def probe_hook(state):
+            if isinstance(state, RandomState):
+                rng_states.append(state)
+                return state.split_key()
+            return state._value
+
+        probe_trace.set_new_arg(probe_hook)
+        try:
+            with catch_new_states(state_to_exclude=state_to_exclude):
+                with probe_trace:
+                    fun(*stripped)
+        finally:
+            probe_trace.recovery_original_values()
+        _seen = set()
+        rng_states = [r for r in rng_states if not (id(r) in _seen or _seen.add(id(r)))]
+
+        # --- single mapped pass over ``fun`` ------------------------------- #
+        batch_size = _get_batch_size(args, in_axes, {}, axis_size)
+        rng_keys = [rng.split_key(batch_size) for rng in rng_states]
+        rng_backups = [rng.split_key() for rng in rng_states]
+
+        new_states_box: List[State] = []
+
+        def new_fun(args_, rng_keys_):
+            for rng, key in zip(rng_states, rng_keys_):
+                rng.restore_value(key)
+            with catch_new_states(state_tag=state_tag, state_to_exclude=state_to_exclude) as catcher:
+                out = fun(*args_)
+            vals = catcher.get_state_values()
+            new_states_box.clear()
+            new_states_box.extend(catcher.get_states())
+            return out, vals
+
+        with catch_new_states(state_to_exclude=state_to_exclude):
+            mapped = jax.vmap(
+                new_fun,
+                in_axes=(in_axes, 0 if len(rng_states) else None),
+                out_axes=(out_axes, 0),
+                axis_size=axis_size,
+                axis_name=axis_name,
+                spmd_axis_name=spmd_axis_name,
+            )
+            outs, vmap_state_vals = mapped(args, rng_keys)
+
+        # restore the global RNG once
+        for rng, key in zip(rng_states, rng_backups):
+            rng.restore_value(key)
+
+        # restore vmapped new-state values + unwind trace levels (avoids leakage)
+        for st, st_val in zip(new_states_box, vmap_state_vals):
             st.restore_value(st_val)
-            # ------------------------------------------------
-            # --- this is CRUCIAL to avoid jax tracing leakage
-            # ------------------------------------------------
-            st.decrease_stack_level()
+        unwind_new_state_levels(new_states_box, base_level)
         return outs
 
     return vmapped_fn
@@ -545,24 +359,72 @@ def vmap_new_states(
     out_states: Dict[int, Dict] | Any | None = None,
 ):
     """
-    Vectorize a function over new states created within it.
+    Vectorize a function over the new states it creates.
 
-    This function applies JAX's vmap transformation to newly created states
-    during the function's execution. It allows for more
-    flexible vectorization in the context of stateful computations.
+    Unlike :func:`~brainstate.transform.vmap`, which maps over states that
+    already exist, this transform maps over states *created during* the call
+    to ``fun`` (for example, parameters allocated inside a module's
+    initializer). Each mapped lane creates its own copy of every new state, and
+    random states are split per lane so randomly initialized values differ
+    across the mapped axis. It is implemented as a single mapping pass over the
+    shared engine helpers.
 
-    Args:
-        fun (Callable, optional): The function to be vectorized. Defaults to Missing().
-        in_axes (int | None | Sequence[Any], optional): Specification of input axes for vectorization. Defaults to 0.
-        out_axes (Any, optional): Specification of output axes after vectorization. Defaults to 0.
-        axis_name (AxisName, optional): Name of the axis being vectorized over. Defaults to None.
-        axis_size (int, optional): Size of the axis being vectorized over. Defaults to None.
-        spmd_axis_name (AxisName | tuple[AxisName, ...], optional): Name(s) of SPMD axis/axes. Defaults to None.
-        state_tag (str, optional): A tag to identify specific states. Defaults to None.
-        state_to_exclude (Sequence[int], optional): Indices of states to exclude from vectorization. Defaults to ().
+    Parameters
+    ----------
+    fun : callable, optional
+        Function to vectorize. If omitted, this acts as a decorator.
+    in_axes : int, None, or sequence, default 0
+        Mapped-axis alignment per positional argument, following
+        :func:`jax.vmap` semantics. ``None`` marks an argument as broadcast.
+    out_axes : Any, default 0
+        Placement of the mapped axis in the return value.
+    axis_name : hashable, optional
+        Name for the mapped axis so collective primitives can target it.
+    axis_size : int, optional
+        Explicit mapped-axis size. Inferred from the inputs when omitted.
+    spmd_axis_name : hashable or tuple of hashable, optional
+        Axis labels for nested SPMD transforms.
+    state_tag : str, optional
+        Tag applied to the newly created states so they can be retrieved later.
+    state_to_exclude : Filter, optional
+        Selector for new states that should be left untouched (not vectorized).
+    in_states, out_states : dict, State, or iterable of State, optional
+        Retained for signature compatibility with
+        :func:`~brainstate.transform.vmap`.
 
-    Returns:
-        Callable: A vectorized version of the input function that handles new state creation.
+    Returns
+    -------
+    callable
+        A vectorized version of ``fun`` that handles new-state creation, or a
+        decorator if ``fun`` is omitted.
+
+    Raises
+    ------
+    ValueError
+        If ``axis_size`` is provided but not a positive integer.
+    NotImplementedError
+        If keyword arguments are passed to the vectorized function.
+
+    See Also
+    --------
+    brainstate.transform.vmap : Vectorize over pre-existing states.
+    brainstate.transform.vmap2_new_states : Module-oriented new-state mapping.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate
+        >>> import jax.numpy as jnp
+        >>>
+        >>> @brainstate.transform.vmap_new_states(in_axes=0, axis_size=4)
+        ... def build(x):
+        ...     scratch = brainstate.ShortTermState(jnp.zeros(()))
+        ...     scratch.value = scratch.value + x
+        ...     return scratch.value
+        >>>
+        >>> build(jnp.arange(4.))
+        Array([0., 1., 2., 3.], dtype=float32)
     """
     if isinstance(fun, Missing):
         return functools.partial(
