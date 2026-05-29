@@ -16,7 +16,9 @@
 import functools
 from typing import Any, Callable, TypeVar
 
-from brainstate._state import catch_new_states
+from jax.extend.core import TraceState
+
+from brainstate._state import State, catch_new_states
 from brainstate.graph import graph_to_tree, tree_to_graph
 from ._make_jaxpr import StatefulFunction
 
@@ -127,6 +129,18 @@ def eval_shape(
     # Reconstruct a Node (if any) from the abstract output pytree. For plain-array
     # outputs tree_to_graph is a no-op passthrough.
     out = tree_to_graph(out_shapes)
+
+    # Detach every State on the reconstructed Node from the (now finalized) abstract
+    # trace. The reconstructed States may still carry a TraceState bound to the trace
+    # that built them; once that trace ends, any later graph traversal or transform
+    # would raise "created inside a transformation but is being used outside of it".
+    # Resetting to a fresh top-level TraceState makes the returned Node a first-class
+    # input to subsequent brainstate transformations. ``check_aliasing=False`` lets us
+    # enumerate the States without triggering that very validity check.
+    _, out_states = graph_to_tree(out, check_aliasing=False)
+    for st in out_states.values():
+        if isinstance(st, State):
+            st._setattr_no_check('_trace_state', TraceState())
 
     # Build the State -> ShapeDtypeStruct mapping for the optional return. The
     # state_shapes tuple is aligned with state_trace.states.
