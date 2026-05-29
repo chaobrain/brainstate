@@ -35,151 +35,19 @@ AxisName = Hashable
 AxisToState = Dict[int, List[State]]
 StateToAxis = Dict[State, int]
 
-_rand = None
-
-
-def _import_rand_state():
-    global _rand
-    if _rand is None:
-        from brainstate.random import RandomState
-        _rand = RandomState
-    return _rand
-
-
-def _flatten_in_out_states(
-    in_states: Dict[int, Dict] | Any = None,
-) -> Tuple[AxisToState, StateToAxis]:
-    if in_states is None:
-        return dict(), dict()
-    if isinstance(in_states, dict):
-        keys = tuple(in_states.keys())
-        values = tuple(in_states.values())
-        is_axis_in_states = (
-            all([isinstance(key, int) for key in keys]) and
-            all([isinstance(value, dict) for value in values])
-        )
-    else:
-        is_axis_in_states = False
-    if is_axis_in_states:
-        axis_to_states = {key: list(value.values()) for key, value in in_states.items()}
-        state_to_axis = {}
-        for key, value in in_states.items():
-            for state in value.values():
-                state_to_axis[state] = key
-        return axis_to_states, state_to_axis
-    else:
-        in_states = jax.tree.leaves(in_states)
-        axis_to_states = {0: list(in_states)}
-        state_to_axis = {state: 0 for state in in_states}
-        return axis_to_states, state_to_axis
-
-
-def _remove_axis(x, axis: int):
-    assert isinstance(axis, int), f"Expected axis to be an integer, but got {type(axis)}"
-    if axis < 0:
-        axis += x.ndim
-    if axis < 0 or axis >= x.ndim:
-        raise IndexError(f"Axis {axis} is out of bounds for array of shape {x.shape}")
-    return x[tuple(slice(None, None, None) if i != axis else 0 for i in range(x.ndim))]
-
-
-def _compile_stateful_function(
-    stateful_fn: StatefulFunction,
-    in_axes: int | Tuple[int, ...],
-    args: Tuple
-):
-    in_axes_st, in_axes = in_axes
-    state_vals, args = args
-
-    # check in_axes
-    if isinstance(in_axes, tuple) and len(in_axes) != len(args):
-        raise ValueError(
-            "vmap in_axes must be an int, None, or a tuple of entries corresponding "
-            "to the positional arguments passed to the function, "
-            f"but got {len(in_axes)=}, {len(args)=}"
-        )
-
-    # check state_vals
-    if len(state_vals) > 0:
-        state_vals = [jax.tree.map(lambda x: _remove_axis(x, axis), vals)
-                      for vals, axis in zip(state_vals, in_axes_st)]
-    else:
-        state_vals = []
-
-    if isinstance(in_axes, int):
-        args = jax.tree.map(lambda x: _remove_axis(x, in_axes), args)
-    elif isinstance(in_axes, tuple):
-        args = tuple([
-            # arg if in_axis is None else _remove_axis(arg, in_axis)
-            arg
-            if in_axis is None else
-            jax.tree.map(lambda x: _remove_axis(x, in_axis), arg)
-            for arg, in_axis in zip(args, in_axes)
-        ])
-    stateful_fn.make_jaxpr(state_vals, args)
-    return stateful_fn.get_arg_cache_key(state_vals, args)
-
-
-def _get_batch_size(
-    args: Tuple,
-    in_axes: int | Tuple[int, ...],
-    in_states: AxisToState,
-    axis_size: Optional[int] = None,
-) -> int:
-    batch_sizes = []
-
-    # Check batch size from args and in_axes
-    if isinstance(in_axes, int):
-        in_axes = (in_axes,) * len(args)
-    for arg, in_axis in zip(args, in_axes):
-        if in_axis is not None:
-            arg_leaves = jax.tree.leaves(arg)
-            if arg_leaves:
-                batch_sizes.append(arg_leaves[0].shape[in_axis])
-
-    # Check batch size from in_states
-    if in_states is not None:
-        for axis, states in in_states.items():
-            for state in states:
-                state_leaves = jax.tree.leaves(state.value)
-                if len(state_leaves):
-                    batch_sizes.append(state_leaves[0].shape[axis])
-
-    if len(batch_sizes) == 0:
-        assert axis_size is not None, (
-            "Unable to determine batch size. Please provide the 'axis_size' argument."
-        )
-        return axis_size
-    else:
-        # Ensure all batch sizes are consistent
-        if len(set(batch_sizes)) > 1:
-            raise ValueError(f"Inconsistent batch sizes found: {set(batch_sizes)}")
-
-        return batch_sizes[0]
-
-
-def _format_state_axes(
-    in_states, out_states,
-):
-    axis_to_in_states, in_state_to_axis = _flatten_in_out_states(in_states)
-    axis_to_out_states, out_state_to_axis = _flatten_in_out_states(out_states)
-    for _in_state, _axis in in_state_to_axis.items():
-        if _in_state in out_state_to_axis:
-            _out_axis = out_state_to_axis[_in_state]
-            if _out_axis != _axis:
-                _in_state.raise_error_with_source_info(
-                    BatchAxisError(
-                        f"State {_in_state} has been mapped to axis {_axis} in 'in_states', "
-                        f"However, it is mapped to axis {_out_axis} in 'out_states'."
-                    )
-                )
-        else:
-            out_state_to_axis[_in_state] = _axis
-            if _axis not in axis_to_out_states:
-                axis_to_out_states[_axis] = []
-            axis_to_out_states[_axis].append(_in_state)
-
-    return axis_to_in_states, in_state_to_axis, axis_to_out_states, out_state_to_axis
+# Shared mapping helpers now live in ``_mapping_core`` so that the legacy
+# ``vmap`` / ``vmap_new_states`` and the modern ``vmap2`` / ``pmap2`` families
+# converge on a single implementation. They are re-exported here unchanged so
+# existing imports (and tests) of ``brainstate.transform._mapping1`` keep
+# working.
+from ._mapping_core import (  # noqa: E402
+    _import_rand_state,
+    _flatten_in_out_states,
+    _remove_axis,
+    _compile_stateful_function,
+    _get_batch_size,
+    _format_state_axes,
+)
 
 
 def _vmap_transform(
