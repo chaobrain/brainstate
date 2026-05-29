@@ -46,6 +46,9 @@ from ._mapping1 import (
 from ._mapping2 import (
     StatefulMapping, vmap2, pmap2, map, vmap2_new_states, pmap2_new_states,
 )
+from ._shard_map import (
+    shard_map,
+)
 
 # Gradient transformations
 from ._grad_grad import (
@@ -136,6 +139,7 @@ __all__ = [
     'pmap2',
     'pmap2_new_states',
     'map',
+    'shard_map',
 
     # Gradient transformations
     'vector_grad',
