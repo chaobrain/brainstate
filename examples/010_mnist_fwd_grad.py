@@ -52,8 +52,6 @@ def train(epochs, batch_size, lr, num_layers, ad_type: str):
     # Initialize model
     mlp = MLP(28 * 28, [256] * num_layers, 10)
     trainable_weights = mlp.states(brainstate.ParamState)
-    opt = braintools.optim.Adam(lr=lr)
-    opt.register_trainable_weights(trainable_weights)
 
     def acc_fn(predicts, targets):
         predicted_class = jnp.argmax(predicts, axis=1)
@@ -63,6 +61,15 @@ def train(epochs, batch_size, lr, num_layers, ad_type: str):
         predicts = mlp(xs)
         loss = braintools.metric.softmax_cross_entropy_with_integer_labels(predicts, ys).mean()
         return loss, acc_fn(predicts, ys)
+
+    # ``sofo`` uses the SOFO optimizer, which owns the forward pass and update; the other modes
+    # (``jvp``/``vjp``) compute gradients separately and feed them to a standard Adam optimizer.
+    if ad_type == 'sofo':
+        sofo_loss_fn = lambda predicts, ys: braintools.metric.softmax_cross_entropy_with_integer_labels(predicts, ys).mean()
+        opt = braintools.optim.SOFO(mlp, sofo_loss_fn, lr=lr, loss='ce', tangent_size=128)
+    else:
+        opt = braintools.optim.Adam(lr=lr)
+    opt.register_trainable_weights(trainable_weights)
 
     def asarray(batch):
         xs, ys = batch
@@ -77,19 +84,18 @@ def train(epochs, batch_size, lr, num_layers, ad_type: str):
             grads, loss, acc = brainstate.transform.fwd_grad(
                 loss_fn, grad_states=trainable_weights, return_value=True, has_aux=True, tangent_size=128,
             )(xs, ys)
+            opt.update(grads)
         elif ad_type == 'vjp':
             grads, loss, acc = brainstate.transform.grad(
                 loss_fn, grad_states=trainable_weights, return_value=True, has_aux=True,
             )(xs, ys)
+            opt.update(grads)
         elif ad_type == 'sofo':
-            loss_f = lambda p: braintools.metric.softmax_cross_entropy_with_integer_labels(p, ys).mean()
-            grads, predicts = brainstate.transform.sofo_grad(
-                mlp, loss_f, grad_states=trainable_weights, return_value=True, loss='ce')(xs)
-            loss = loss_f(predicts)
-            acc = acc_fn(predicts, ys)
+            # SOFO computes its own direction and applies the update internally.
+            loss = opt.step(xs, ys)
+            acc = acc_fn(mlp(xs), ys)
         else:
             raise ValueError
-        opt.update(grads)
         return loss, acc
 
     @brainstate.transform.jit
