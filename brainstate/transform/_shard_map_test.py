@@ -212,7 +212,14 @@ class TestSingleInSpec(unittest.TestCase):
         n = self.n
         a = jnp.arange(n * 2, dtype=jnp.float32)
         b = jnp.ones(n * 2, dtype=jnp.float32)
-        out = f(a, b)
+        try:
+            out = f(a, b)
+        except ValueError as e:
+            # jax < 0.10 requires one in_spec per positional argument and does not
+            # broadcast a single PartitionSpec to all arguments.
+            if 'in_specs' in str(e):
+                self.skipTest(f'this JAX version does not broadcast a single in_spec: {e}')
+            raise
         self.assertTrue(jnp.allclose(out, a + b))
 
 

@@ -519,18 +519,24 @@ class TestBroadcastZerosOnes(unittest.TestCase):
         def f():
             return jnp.zeros((3,), dtype=jnp.float32)
         src = fn_to_python_code(f)
-        self.assertIn('zeros', src)
         gen = _exec_generated(src, 'f')
         self.assertTrue(np.allclose(np.asarray(gen()), np.zeros(3)))
+        # jax >= 0.10 folds the scalar broadcast into a recognisable jnp.zeros;
+        # older jax emits an equivalent broadcast_in_dim, which round-trips equally.
+        if 'broadcast_in_dim' not in src:
+            self.assertIn('zeros', src)
 
     def test_ones(self):
         """A one scalar broadcast emits ``jax.numpy.ones``."""
         def f():
             return jnp.ones((2, 2), dtype=jnp.float32)
         src = fn_to_python_code(f)
-        self.assertIn('ones', src)
         gen = _exec_generated(src, 'f')
         self.assertTrue(np.allclose(np.asarray(gen()), np.ones((2, 2))))
+        # jax >= 0.10 folds the scalar broadcast into a recognisable jnp.ones;
+        # older jax emits an equivalent broadcast_in_dim, which round-trips equally.
+        if 'broadcast_in_dim' not in src:
+            self.assertIn('ones', src)
 
 
 class TestDynamicSliceGeneration(unittest.TestCase):
@@ -578,10 +584,13 @@ class TestBroadcastFull(unittest.TestCase):
         def f():
             return jnp.full((2, 3), 7, dtype=jnp.int32)
         src = fn_to_python_code(f)
-        self.assertIn('full', src)
         gen = _exec_generated(src, 'f')
         self.assertTrue(np.allclose(np.asarray(gen()),
                                     np.full((2, 3), 7, dtype=np.int32)))
+        # jax >= 0.10 folds the scalar broadcast into a recognisable jnp.full;
+        # older jax emits an equivalent broadcast_in_dim, which round-trips equally.
+        if 'broadcast_in_dim' not in src:
+            self.assertIn('full', src)
 
 
 class TestControlFlowHandlers(unittest.TestCase):
@@ -814,7 +823,9 @@ class TestConstantFolding(unittest.TestCase):
         this synthesises the equation to drive the Jaxpr-inlining branch of
         ``partial_eval_jaxpr`` (where ``_eval_eqn`` returns a nested jaxpr).
         """
-        from jax.extend.core import new_jaxpr_eqn
+        # ``new_jaxpr_eqn`` lives in jax.core (<0.10) or jax.extend.core (>=0.10);
+        # use the project's version-aware shim rather than a fixed import path.
+        from brainstate._compatible_import import new_jaxpr_eqn
         from jax._src.core import closed_call_p
 
         def inner(x, y):
@@ -1307,9 +1318,15 @@ class TestBoxedScalarLiteralRegression(unittest.TestCase):
 
     def test_boxed_int_literal_coerced(self):
         """A boxed integer literal is coerced to a plain ``int`` constant."""
-        from jax._src import literals
+        # Boxed literals (jax._src.literals.TypedInt) were introduced in jax 0.10;
+        # earlier versions have no such object to coerce, so skip there.
+        try:
+            from jax._src import literals
+            typed_int = literals.TypedInt(5, dtype=jnp.int32.dtype)
+        except (ImportError, AttributeError):
+            self.skipTest('jax._src.literals.TypedInt requires jax>=0.10')
 
-        node = _ir_tocode._astify_value(literals.TypedInt(5, dtype=jnp.int32.dtype))
+        node = _ir_tocode._astify_value(typed_int)
         self.assertIsInstance(node, ast.Constant)
         self.assertEqual(node.value, 5)
         self.assertIs(type(node.value), int)
