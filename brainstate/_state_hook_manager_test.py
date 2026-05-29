@@ -349,6 +349,117 @@ class TestHookManager(TestCase):
         self.assertEqual(len(self.call_log), 0)
 
 
+class TestHookManagerCoverage(TestCase):
+    """Cover HookManager validation, transformation, dispatch, and error handling."""
+
+    def setUp(self):
+        """Provide a manager and a live state ref (kept alive via self._state)."""
+        self.manager = HookManager()
+        self._state = MockState()
+        self.ref = weakref.ref(self._state)
+
+    def test_register_invalid_type_raises(self):
+        """Registering an unknown hook type raises HookRegistrationError."""
+        from brainstate._state_hook_core import HookRegistrationError
+        with self.assertRaises(HookRegistrationError):
+            self.manager.register_hook('bogus', lambda ctx: None)
+
+    def test_get_hook_list_invalid_type_raises(self):
+        """The internal _get_hook_list rejects unknown types with ValueError."""
+        with self.assertRaises(ValueError):
+            self.manager._get_hook_list('bogus')
+
+    def test_unregister_unknown_handle_returns_false(self):
+        """Unregistering a hook twice returns False the second time."""
+        handle = self.manager.register_hook('read', lambda ctx: None)
+        self.assertTrue(self.manager.unregister_hook(handle))
+        self.assertFalse(self.manager.unregister_hook(handle))
+
+    def test_has_hooks_all_types_true(self):
+        """has_hooks() with no type returns True when any hook is registered."""
+        self.assertFalse(self.manager.has_hooks())
+        self.manager.register_hook('write_after', lambda ctx: None)
+        self.assertTrue(self.manager.has_hooks())
+
+    def test_execute_paths_with_no_hooks_are_noops(self):
+        """Every execute_* path returns cleanly when no hooks are registered."""
+        self.assertEqual(self.manager.execute_write_before_hooks(7, 0, self.ref), 7)
+        self.assertIsNone(self.manager.execute_write_after_hooks(7, 0, self.ref))
+        self.assertIsNone(self.manager.execute_restore_hooks(7, 0, self.ref))
+        self.assertIsNone(self.manager.execute_init_hooks(7, self.ref, {}))
+
+    def test_write_before_transforms_value(self):
+        """A write_before hook can transform the written value (sequential chaining)."""
+        def double(ctx):
+            ctx.transformed_value = ctx.value * 2
+
+        self.manager.register_hook('write_before', double)
+        self.assertEqual(self.manager.execute_write_before_hooks(5, 0, self.ref), 10)
+
+    def test_write_before_without_transform_keeps_value(self):
+        """A write_before hook that sets nothing leaves the value unchanged."""
+        self.manager.register_hook('write_before', lambda ctx: None)
+        self.assertEqual(self.manager.execute_write_before_hooks(5, 0, self.ref), 5)
+
+    def test_write_before_cancel_raises(self):
+        """A write_before hook can cancel the write, raising HookCancellationError."""
+        from brainstate._state_hook_core import HookCancellationError
+
+        def veto(ctx):
+            ctx.cancel = True
+            ctx.cancel_reason = "nope"
+
+        self.manager.register_hook('write_before', veto)
+        with self.assertRaises(HookCancellationError):
+            self.manager.execute_write_before_hooks(5, 0, self.ref)
+
+    def test_init_hooks_execute(self):
+        """Registered init hooks run with an InitHookContext carrying the value."""
+        seen = []
+        self.manager.register_hook('init', lambda ctx: seen.append(ctx.value))
+        self.manager.execute_init_hooks(99, self.ref, {'k': 1})
+        self.assertEqual(seen, [99])
+
+    def test_error_raise_mode_propagates(self):
+        """on_error='raise' surfaces hook failures as HookExecutionError."""
+        mgr = HookManager(HookConfig(on_error='raise'))
+
+        def boom(ctx):
+            raise ValueError("inner")
+
+        mgr.register_hook('read', boom)
+        with self.assertRaises(HookExecutionError):
+            mgr.execute_read_hooks(1, self.ref)
+
+    def test_error_custom_logger_invoked(self):
+        """on_error='log' with a custom error_logger routes the error to it."""
+        logged = []
+        cfg = HookConfig(on_error='log', error_logger=lambda *a: logged.append(a))
+        mgr = HookManager(cfg)
+        mgr.register_hook('write_after', lambda ctx: (_ for _ in ()).throw(RuntimeError("x")))
+        mgr.execute_write_after_hooks(1, 0, self.ref)
+        self.assertEqual(len(logged), 1)
+
+    def test_error_default_log_warns(self):
+        """on_error='log' without a logger emits a HookWarning."""
+        from brainstate._state_hook_core import HookWarning
+        mgr = HookManager(HookConfig(on_error='log'))
+        mgr.register_hook('restore', lambda ctx: (_ for _ in ()).throw(RuntimeError("x")))
+        with self.assertWarns(HookWarning):
+            mgr.execute_restore_hooks(1, 0, self.ref)
+
+    def test_disable_on_error_auto_disables(self):
+        """disable_on_error disables a hook once the error threshold is hit."""
+        cfg = HookConfig(on_error='log', disable_on_error=True, max_errors_per_hook=1)
+        mgr = HookManager(cfg)
+        mgr.register_hook('read', lambda ctx: (_ for _ in ()).throw(RuntimeError("x")))
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            mgr.execute_read_hooks(1, self.ref)
+        self.assertFalse(mgr.has_hooks('read'))
+
+
 if __name__ == '__main__':
     import unittest
 
