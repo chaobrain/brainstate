@@ -14,6 +14,7 @@
 # ==============================================================================
 
 import functools
+import inspect
 from collections import defaultdict
 from collections.abc import Hashable, Iterable, Sequence
 from typing import Any, Callable, Dict, Optional, Tuple, Union, TypeVar
@@ -451,6 +452,18 @@ def pmap2(
             unexpected_out_state_mapping=unexpected_out_state_mapping,
         )  # type: ignore[return-value]
 
+    # Only forward pmap keyword arguments that the installed jax.pmap accepts.
+    # ``global_arg_shapes`` was removed in recent JAX releases.
+    pmap_kwargs = dict(
+        static_broadcasted_argnums=static_broadcasted_argnums,
+        devices=devices,
+        backend=backend,
+        donate_argnums=donate_argnums,
+        global_arg_shapes=global_arg_shapes,
+    )
+    _supported = set(inspect.signature(jax.pmap).parameters)
+    pmap_kwargs = {k: v for k, v in pmap_kwargs.items() if k in _supported}
+
     return StatefulMapping(
         fn,
         in_axes=in_axes,
@@ -459,14 +472,7 @@ def pmap2(
         state_out_axes=state_out_axes,
         axis_name=axis_name,
         axis_size=axis_size,
-        mapping_fn=functools.partial(
-            jax.pmap,
-            static_broadcasted_argnums=static_broadcasted_argnums,
-            devices=devices,
-            backend=backend,
-            donate_argnums=donate_argnums,
-            global_arg_shapes=global_arg_shapes,
-        ),
+        mapping_fn=functools.partial(jax.pmap, **pmap_kwargs),
         unexpected_out_state_mapping=unexpected_out_state_mapping,
         name='pmap2'
     )
