@@ -57,6 +57,9 @@ from ._grad_jacobian import (
 from ._grad_hessian import (
     hessian,
 )
+from ._vjp_jvp import (
+    vjp, jvp,
+)
 
 # Control flow
 from ._conditions import (
@@ -139,6 +142,8 @@ __all__ = [
     'jacfwd',
     'jacobian',
     'hessian',
+    'vjp',
+    'jvp',
 
     # Control flow
     'cond',
