@@ -57,6 +57,9 @@ from ._grad_jacobian import (
 from ._grad_hessian import (
     hessian,
 )
+from ._vjp_jvp import (
+    vjp, jvp,
+)
 
 # Control flow
 from ._conditions import (
@@ -67,6 +70,9 @@ from ._loop_no_collection import (
 )
 from ._loop_collect_return import (
     scan, checkpointed_scan, for_loop, checkpointed_for_loop,
+)
+from ._associative_scan import (
+    associative_scan, linear_recurrence,
 )
 
 # Utilities
@@ -139,6 +145,8 @@ __all__ = [
     'jacfwd',
     'jacobian',
     'hessian',
+    'vjp',
+    'jvp',
 
     # Control flow
     'cond',
@@ -150,6 +158,8 @@ __all__ = [
     'checkpointed_scan',
     'for_loop',
     'checkpointed_for_loop',
+    'associative_scan',
+    'linear_recurrence',
 
     # Utilities
     'jit_error_if',
