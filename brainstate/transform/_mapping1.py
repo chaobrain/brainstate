@@ -141,6 +141,88 @@ def vmap(
     in_states: Dict[int, Dict] | Any | None = None,
     out_states: Dict[int, Dict] | Any | None = None,
 ) -> F | Callable[[F], F]:
+    """
+    Vectorize a callable while preserving BrainState state semantics.
+
+    This is the declaration-based vectorization API: states that participate
+    in the mapped axis are declared explicitly through ``in_states`` and
+    ``out_states`` (by :class:`~brainstate.State` instance). It is implemented
+    as a thin shim over the shared mapping engine that also powers
+    :func:`~brainstate.transform.vmap2`; the declared states are converted to
+    identity selectors internally.
+
+    Compared with :func:`~brainstate.transform.vmap2`, this entry point keeps
+    the historical contract: a state written with a batched value but not
+    declared in ``out_states`` raises a
+    :class:`~brainstate._error.BatchAxisError` (rather than being inferred
+    automatically), and keyword arguments are not supported.
+
+    Parameters
+    ----------
+    fn : callable, optional
+        Function to vectorize. If omitted, the function acts as a decorator.
+    in_axes : int, None, or sequence, default 0
+        Mapped-axis alignment per positional argument, following
+        :func:`jax.vmap` semantics. ``None`` marks an argument as broadcast.
+    out_axes : Any, default 0
+        Placement of the mapped axis in the return value.
+    axis_name : hashable, optional
+        Name for the mapped axis so collective primitives can target it.
+    axis_size : int, optional
+        Explicit mapped-axis size. Inferred from arguments/states when omitted.
+    spmd_axis_name : hashable or tuple of hashable, optional
+        Axis labels for nested SPMD transforms.
+    in_states : dict, State, or iterable of State, optional
+        States batched on input, declared by instance. A dict maps axis
+        identifiers to states; a bare state (or iterable of states) is
+        shorthand for ``{0: ...}``.
+    out_states : dict, State, or iterable of State, optional
+        States whose writes are scattered back along the mapped axis, with the
+        same declaration semantics as ``in_states``.
+
+    Returns
+    -------
+    callable
+        The vectorized function if ``fn`` is supplied, otherwise a decorator.
+
+    Raises
+    ------
+    BatchAxisError
+        If a state is written with a batched value but not declared in
+        ``out_states``.
+    NotImplementedError
+        If keyword arguments are passed to the vectorized function.
+
+    See Also
+    --------
+    brainstate.transform.vmap2 : Filter/predicate-based vectorization with
+        automatic output-axis inference.
+    brainstate.transform.vmap_new_states : Vectorize states created inside the
+        function.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate
+        >>> import jax.numpy as jnp
+        >>>
+        >>> counter = brainstate.ShortTermState(jnp.zeros(3))
+        >>>
+        >>> @brainstate.transform.vmap(
+        ...     in_axes=0,
+        ...     in_states=counter,
+        ...     out_states=counter,
+        ... )
+        ... def accumulate(x):
+        ...     counter.value = counter.value + x
+        ...     return counter.value
+        >>>
+        >>> accumulate(jnp.asarray([1., 2., 3.]))
+        Array([1., 2., 3.], dtype=float32)
+        >>> counter.value
+        Array([1., 2., 3.], dtype=float32)
+    """
     if isinstance(fn, Missing):
         return functools.partial(
             _vmap_transform,
@@ -277,24 +359,72 @@ def vmap_new_states(
     out_states: Dict[int, Dict] | Any | None = None,
 ):
     """
-    Vectorize a function over new states created within it.
+    Vectorize a function over the new states it creates.
 
-    This function applies JAX's vmap transformation to newly created states
-    during the function's execution. It allows for more
-    flexible vectorization in the context of stateful computations.
+    Unlike :func:`~brainstate.transform.vmap`, which maps over states that
+    already exist, this transform maps over states *created during* the call
+    to ``fun`` (for example, parameters allocated inside a module's
+    initializer). Each mapped lane creates its own copy of every new state, and
+    random states are split per lane so randomly initialized values differ
+    across the mapped axis. It is implemented as a single mapping pass over the
+    shared engine helpers.
 
-    Args:
-        fun (Callable, optional): The function to be vectorized. Defaults to Missing().
-        in_axes (int | None | Sequence[Any], optional): Specification of input axes for vectorization. Defaults to 0.
-        out_axes (Any, optional): Specification of output axes after vectorization. Defaults to 0.
-        axis_name (AxisName, optional): Name of the axis being vectorized over. Defaults to None.
-        axis_size (int, optional): Size of the axis being vectorized over. Defaults to None.
-        spmd_axis_name (AxisName | tuple[AxisName, ...], optional): Name(s) of SPMD axis/axes. Defaults to None.
-        state_tag (str, optional): A tag to identify specific states. Defaults to None.
-        state_to_exclude (Sequence[int], optional): Indices of states to exclude from vectorization. Defaults to ().
+    Parameters
+    ----------
+    fun : callable, optional
+        Function to vectorize. If omitted, this acts as a decorator.
+    in_axes : int, None, or sequence, default 0
+        Mapped-axis alignment per positional argument, following
+        :func:`jax.vmap` semantics. ``None`` marks an argument as broadcast.
+    out_axes : Any, default 0
+        Placement of the mapped axis in the return value.
+    axis_name : hashable, optional
+        Name for the mapped axis so collective primitives can target it.
+    axis_size : int, optional
+        Explicit mapped-axis size. Inferred from the inputs when omitted.
+    spmd_axis_name : hashable or tuple of hashable, optional
+        Axis labels for nested SPMD transforms.
+    state_tag : str, optional
+        Tag applied to the newly created states so they can be retrieved later.
+    state_to_exclude : Filter, optional
+        Selector for new states that should be left untouched (not vectorized).
+    in_states, out_states : dict, State, or iterable of State, optional
+        Retained for signature compatibility with
+        :func:`~brainstate.transform.vmap`.
 
-    Returns:
-        Callable: A vectorized version of the input function that handles new state creation.
+    Returns
+    -------
+    callable
+        A vectorized version of ``fun`` that handles new-state creation, or a
+        decorator if ``fun`` is omitted.
+
+    Raises
+    ------
+    ValueError
+        If ``axis_size`` is provided but not a positive integer.
+    NotImplementedError
+        If keyword arguments are passed to the vectorized function.
+
+    See Also
+    --------
+    brainstate.transform.vmap : Vectorize over pre-existing states.
+    brainstate.transform.vmap2_new_states : Module-oriented new-state mapping.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate
+        >>> import jax.numpy as jnp
+        >>>
+        >>> @brainstate.transform.vmap_new_states(in_axes=0, axis_size=4)
+        ... def build(x):
+        ...     scratch = brainstate.ShortTermState(jnp.zeros(()))
+        ...     scratch.value = scratch.value + x
+        ...     return scratch.value
+        >>>
+        >>> build(jnp.arange(4.))
+        Array([0., 1., 2., 3.], dtype=float32)
     """
     if isinstance(fun, Missing):
         return functools.partial(
