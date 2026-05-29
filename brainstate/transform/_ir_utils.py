@@ -153,21 +153,50 @@ class IdentityMap(MutableMapping):
 def make_var_factory():
     """Return a callable ``factory(aval) -> Var`` that builds fresh variables.
 
-    JAX's ``Var`` constructor signature has changed across versions; this
-    detects the right form once and returns a closure that always produces a
-    brand-new, unique ``Var`` with the given abstract value.
+    JAX's ``Var`` constructor signature has changed across versions:
+
+    * modern (>= ~0.7): ``Var(aval, initial_qdd=None, final_qdd=None)``
+    * ~0.6:             ``Var(suffix, aval)``
+    * older:            ``Var(count, suffix, aval)``
+
+    The most likely form is selected from the constructor signature, and the
+    actual call falls back across the alternatives on ``TypeError`` (caching
+    the first that succeeds) so a signature we did not anticipate still works.
     """
-    params = list(inspect.signature(Var.__init__).parameters)
-    # JAX >= ~0.4.x: Var(aval, initial_qdd=None, final_qdd=None)
-    if 'aval' in params and 'suffix' not in params and 'count' not in params:
-        def factory(aval):
-            return Var(aval)
-        return factory
-    # Older JAX: Var(count, suffix, aval)
+    params = [p for p in inspect.signature(Var.__init__).parameters if p != 'self']
     _counter = itertools.count()
 
-    def factory(aval):
+    def _modern(aval):
+        return Var(aval)
+
+    def _suffix_aval(aval):
+        return Var('', aval)
+
+    def _count_suffix_aval(aval):
         return Var(next(_counter), '', aval)
+
+    if params[:2] == ['suffix', 'aval']:
+        order = [_suffix_aval, _count_suffix_aval, _modern]
+    elif 'count' in params and 'suffix' in params:
+        order = [_count_suffix_aval, _suffix_aval, _modern]
+    else:
+        order = [_modern, _suffix_aval, _count_suffix_aval]
+
+    state = {'fn': None}
+
+    def factory(aval):
+        if state['fn'] is not None:
+            return state['fn'](aval)
+        last_exc = None
+        for fn in order:
+            try:
+                var = fn(aval)
+            except TypeError as exc:
+                last_exc = exc
+                continue
+            state['fn'] = fn
+            return var
+        raise last_exc
 
     return factory
 
