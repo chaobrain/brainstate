@@ -1,7 +1,4 @@
-# The file is adapted from the Flax library (https://github.com/google/flax).
-# The credit should go to the Flax authors.
-#
-# Copyright 2024 The Flax Authors
+# Copyright 2024 BrainX Ecosystem Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,6 +11,16 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+# ==============================================================================
+
+"""Convert between graph nodes and pure pytrees of :class:`NodeStates`.
+
+:func:`graph_to_tree` replaces graph nodes in a pytree with :class:`NodeStates`
+wrappers (a ``GraphDef`` + state mappings) so JAX transforms can operate on
+them as pure pytrees; :func:`tree_to_graph` rebuilds the graph nodes. Shared
+references are kept consistent across the conversion via the split/merge
+contexts.
+"""
 
 from __future__ import annotations
 
@@ -24,17 +31,13 @@ import jax
 
 from brainstate._state import State
 from brainstate.typing import Missing, PyTree, SeedOrKey, PathParts
-from brainstate.util import PyTreeNode, field
+from brainstate.util import PyTreeNode, field, NestedDict as GraphStateMapping
 from ._context import SplitContext, MergeContext, split_context, merge_context
+from ._graphdef import GraphDef
 from ._node import Node as GraphNode
-from ._operation import (
-    RefMap,
-    iter_leaf as iter_graph,
-    _is_graph_node,
-    GraphDef,
-    GraphStateMapping,
-    states,
-)
+from ._operations import states
+from ._reftrack import RefMap
+from ._walk import iter_leaf as iter_graph, _is_graph_node
 
 __all__ = [
     'graph_to_tree', 'tree_to_graph', 'NodeStates'
@@ -168,7 +171,44 @@ def graph_to_tree(
     map_non_graph_nodes: bool = False,
     check_aliasing: bool = True,
 ) -> tuple[PyTree, dict[KeyPath, SeedOrKey]]:
-    """Convert a pytree that may contain graph nodes into a pure pytree of NodeStates."""
+    """Convert a pytree that may contain graph nodes into a pure pytree.
+
+    Every graph node embedded in the input is replaced (by ``split_fn``, which
+    defaults to wrapping it in a :class:`NodeStates`) so the result is a plain
+    pytree safe to pass through JAX transformations. Aliasing across the split
+    nodes is collected so it can be restored later by :func:`tree_to_graph`.
+
+    Parameters
+    ----------
+    may_have_graph_nodes : Any
+        A pytree whose leaves may include graph nodes (``Node`` subclasses and
+        registered graph-node types). Passed positionally.
+    prefix : Any, optional
+        A prefix pytree broadcast over ``may_have_graph_nodes`` and handed to
+        ``split_fn`` per leaf. Defaults to ``Missing`` (no prefix).
+    split_fn : callable, optional
+        Called as ``split_fn(ctx, keypath, prefix, leaf)`` for each graph node
+        (and, when ``map_non_graph_nodes`` is true, for every other leaf). The
+        default wraps the node's split result in a :class:`NodeStates`.
+    map_non_graph_nodes : bool, optional
+        When ``True``, also run ``split_fn`` on non-graph-node leaves. Defaults
+        to ``False``.
+    check_aliasing : bool, optional
+        When ``True`` (default), verify that shared/aliased graph nodes are
+        consistent with ``prefix`` and raise if not.
+
+    Returns
+    -------
+    pytree_out : PyTree
+        The input pytree with graph nodes replaced by ``split_fn`` outputs.
+    find_states : dict
+        A mapping from key-path to the :class:`State` objects discovered while
+        splitting, used to relink shared state on the way back.
+
+    See Also
+    --------
+    tree_to_graph : The inverse conversion.
+    """
     leaf_prefixes = broadcast_prefix(prefix, may_have_graph_nodes, prefix_is_leaf=lambda x: x is None)
     leaf_keys, treedef = jax.tree_util.tree_flatten_with_path(may_have_graph_nodes)
 
@@ -215,7 +255,42 @@ def tree_to_graph(
     is_leaf: Callable[[Leaf], bool] = _is_tree_node,
     map_non_graph_nodes: bool = False,
 ) -> Any:
-    """Convert a pytree of NodeStates back into graph nodes."""
+    """Convert a pytree of :class:`NodeStates` back into graph nodes.
+
+    The inverse of :func:`graph_to_tree`: each leaf recognised as a packed node
+    (by ``is_node_leaf``) is merged back into a live graph node via ``merge_fn``,
+    restoring the original sharing within a single :func:`merge_context`.
+
+    Parameters
+    ----------
+    tree : Any
+        A pytree whose node leaves are :class:`NodeStates` (or whatever
+        ``is_node_leaf`` recognises). Passed positionally.
+    prefix : Any, optional
+        A prefix pytree broadcast over ``tree`` and handed to ``merge_fn`` per
+        leaf. Defaults to ``Missing`` (no prefix).
+    merge_fn : callable, optional
+        Called as ``merge_fn(ctx, keypath, prefix, leaf)`` for each node leaf.
+        The default merges ``leaf.graphdef`` with ``leaf.states``.
+    is_node_leaf : callable, optional
+        Predicate selecting which leaves are merged back into graph nodes.
+        Defaults to "is a :class:`NodeStates`".
+    is_leaf : callable, optional
+        Predicate marking where ``jax.tree`` flattening stops. Defaults to
+        "is a :class:`NodeStates`".
+    map_non_graph_nodes : bool, optional
+        When ``True``, also run ``merge_fn`` on non-node leaves. Defaults to
+        ``False``.
+
+    Returns
+    -------
+    Any
+        The reconstructed pytree with graph nodes restored in place.
+
+    See Also
+    --------
+    graph_to_tree : The inverse conversion.
+    """
     _prefix_is_leaf = lambda x: x is None or is_leaf(x)
     leaf_prefixes = broadcast_prefix(prefix, tree, prefix_is_leaf=_prefix_is_leaf, tree_is_leaf=is_leaf)
     leaf_keys, treedef = jax.tree_util.tree_flatten_with_path(tree, is_leaf=is_leaf)

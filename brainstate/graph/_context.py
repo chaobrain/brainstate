@@ -1,7 +1,4 @@
-# The file is adapted from the Flax library (https://github.com/google/flax).
-# The credit should go to the Flax authors.
-#
-# Copyright 2024 The Flax Authors
+# Copyright 2024 BrainX Ecosystem Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,32 +11,41 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+# ==============================================================================
+
+"""Split/merge contexts that share a reference index across multiple objects.
+
+A :func:`split_context` shares one growing ``ref_index`` across several
+:meth:`SplitContext.treefy_split` calls, so references shared *between* the
+split objects collapse to the same global index. The paired
+:func:`merge_context` shares the inverse ``index_ref`` table across
+:meth:`MergeContext.treefy_merge` calls so those references rebuild as one
+object. The context stacks are thread-local.
+"""
 
 from __future__ import annotations
 
 import contextlib
 import dataclasses
 import threading
-from typing import Any
+from typing import Any, TypeVar
 
 from typing_extensions import Unpack
 
 from brainstate.typing import Filter
 from brainstate.util import NestedDict
-from ._operation import (
-    flatten,
-    unflatten,
-    _split_state,
-    GraphDef,
-    RefMap,
-    Index,
-    A,
-)
+from ._flatten import flatten, unflatten
+from ._graphdef import GraphDef
+from ._operations import _split_state
+from ._reftrack import RefMap
 
 __all__ = [
     'split_context',
     'merge_context',
 ]
+
+Index = int
+A = TypeVar('A')
 
 
 @dataclasses.dataclass
