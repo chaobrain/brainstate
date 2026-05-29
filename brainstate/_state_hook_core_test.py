@@ -146,6 +146,61 @@ class TestHookHandle(unittest.TestCase):
         self.assertEqual(handle.name, "named")
         self.assertEqual(handle.priority, 5)
 
+    def test_disable_after_remove_raises(self):
+        """Disabling a removed hook raises HookError."""
+        state = brainstate.State(0.0)
+        handle = state.register_hook('read', lambda ctx: None)
+        handle.remove()
+        with self.assertRaises(HookError):
+            handle.disable()
+
+    def test_repr_reflects_lifecycle(self):
+        """HookHandle repr shows enabled, disabled, then removed status."""
+        state = brainstate.State(0.0)
+        handle = state.register_hook('read', lambda ctx: None, name="r")
+        self.assertIn("enabled", repr(handle))
+        handle.disable()
+        self.assertIn("disabled", repr(handle))
+        handle.remove()
+        self.assertIn("removed", repr(handle))
+
+
+class TestHookHandleManagerGarbageCollected(unittest.TestCase):
+    """Validate HookHandle behaviour once its owning HookManager is gone."""
+
+    def _orphan_handle(self):
+        """Return a handle whose manager weakref has been cleared via GC."""
+        import gc
+
+        state = brainstate.State(0.0)
+        handle = state.register_hook('read', lambda ctx: None)
+        del state
+        gc.collect()
+        return handle
+
+    def test_enable_raises_when_manager_collected(self):
+        """enable() raises HookError once the manager is garbage collected."""
+        handle = self._orphan_handle()
+        if handle._manager_ref() is not None:
+            self.skipTest("HookManager survived GC in this environment")
+        with self.assertRaises(HookError):
+            handle.enable()
+
+    def test_disable_raises_when_manager_collected(self):
+        """disable() raises HookError once the manager is garbage collected."""
+        handle = self._orphan_handle()
+        if handle._manager_ref() is not None:
+            self.skipTest("HookManager survived GC in this environment")
+        with self.assertRaises(HookError):
+            handle.disable()
+
+    def test_remove_returns_false_when_manager_collected(self):
+        """remove() returns False once the manager is garbage collected."""
+        handle = self._orphan_handle()
+        if handle._manager_ref() is not None:
+            self.skipTest("HookManager survived GC in this environment")
+        self.assertFalse(handle.remove())
+
 
 if __name__ == "__main__":
     unittest.main()
