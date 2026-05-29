@@ -23,12 +23,57 @@ import jax
 from brainstate._compatible_import import (
     Var, ClosedJaxpr, Jaxpr, JaxprEqn, Literal, DropVar
 )
+from brainstate.transform._ir_utils import UnsupportedPrimitiveError
 
 pydot_is_installed = importlib.util.find_spec("pydot") is not None
 
 __all__ = [
     'draw', 'view_pydot', 'draw_dot_graph'
 ]
+
+# Control-flow primitives that have dedicated handlers (``get_conditional``,
+# ``get_scan``, ``get_while``) and therefore must NOT be treated as generic
+# inlinable calls even though some of them carry sub-jaxpr parameters.
+_DEDICATED_CONTROL_FLOW = frozenset({"cond", "scan", "while"})
+
+
+def _is_dropped_var(var) -> bool:
+    """Return ``True`` for JAX dropped / unused variables.
+
+    JAX names outputs that are produced but never consumed with a trailing
+    underscore (e.g. ``d_``). Such variables carry no data flow, so the
+    visualisation skips them rather than drawing dangling edges. Centralising
+    the rule here keeps the four call sites consistent and documented.
+    """
+    return str(var).endswith("_")
+
+
+def _call_jaxpr_of(eqn) -> typing.Optional[Jaxpr]:
+    """Return the inner :class:`Jaxpr` for an inlinable call primitive.
+
+    Recognises ``jit``/``pjit`` (``jaxpr`` param holding a ``ClosedJaxpr``),
+    ``remat2`` (``jaxpr`` param holding a bare ``Jaxpr``), ``closed_call`` and
+    ``custom_*_call`` style primitives (``call_jaxpr`` param), and any other
+    primitive that carries a ``jaxpr``/``call_jaxpr`` sub-computation.
+
+    Dedicated control-flow primitives (``cond``/``scan``/``while``) are
+    explicitly excluded so they keep routing to their own handlers. Returns
+    ``None`` for ordinary leaf primitives.
+    """
+    if eqn.primitive.name in _DEDICATED_CONTROL_FLOW:
+        return None
+    for key in ("jaxpr", "call_jaxpr"):
+        sub = eqn.params.get(key)
+        if sub is None:
+            continue
+        return sub.jaxpr if isinstance(sub, ClosedJaxpr) else sub
+    return None
+
+
+def _eqn_name(eqn) -> str:
+    """Best-effort display name for a call/leaf equation."""
+    name = eqn.params.get("name")
+    return name if name else eqn.primitive.name
 
 if pydot_is_installed:
     import pydot
@@ -191,13 +236,49 @@ if pydot_is_installed:
 
         g = pydot.Dot(graph_type="digraph")
 
-        sub_graph, _, _, _, _ = get_sub_graph(
-            fn.eqns[0], "", 0, collapse_primitives, show_avals
-        )
-        if isinstance(sub_graph, pydot.Subgraph):
-            g.add_subgraph(sub_graph)
-        else:
-            g.add_node(sub_graph)
+        eqns = list(fn.eqns)
+
+        # An empty top-level jaxpr (e.g. the identity function, or one that only
+        # forwards/closes over constants) has no equations to expand. Render the
+        # inputs and outputs so the graph is still meaningful instead of raising
+        # ``IndexError`` on ``fn.eqns[0]``.
+        if len(eqns) == 0:
+            seen = set()
+            for var in list(fn.invars):
+                if _is_dropped_var(var):
+                    continue
+                node_id = f"_{var}"
+                if node_id not in seen:
+                    g.add_node(get_arg_node(node_id, var, show_avals,
+                                            isinstance(var, Literal)))
+                    seen.add(node_id)
+            for var in list(fn.outvars):
+                if isinstance(var, (Literal, DropVar)):
+                    continue
+                node_id = f"_{var}"
+                if node_id not in seen:
+                    g.add_node(get_out_node(node_id, var, show_avals))
+                    seen.add(node_id)
+            return g
+
+        # Expand *every* top-level equation, not just the first one. The
+        # original implementation indexed ``fn.eqns[0]`` and silently dropped
+        # the rest whenever the top-level jaxpr held more than one equation.
+        n = 0
+        for eqn in eqns:
+            sub_graph, in_edges, out_nodes, out_edges, n = get_sub_graph(
+                eqn, "", n, collapse_primitives, show_avals
+            )
+            if isinstance(sub_graph, pydot.Subgraph):
+                g.add_subgraph(sub_graph)
+            else:
+                g.add_node(sub_graph)
+            for edge in in_edges:
+                g.add_edge(edge)
+            for node in out_nodes:
+                g.add_node(node)
+            for edge in out_edges:
+                g.add_edge(edge)
 
         return g
 
@@ -295,8 +376,8 @@ if pydot_is_installed:
                     )
 
                     for (var, p_var) in zip(branch.jaxpr.invars, conditional.invars[1:]):
-                        # TODO: What does the underscore mean?
-                        if str(var)[-1] == "_":
+                        # Skip JAX dropped/unused vars (trailing-underscore names).
+                        if _is_dropped_var(var):
                             continue
                         cond_graph.add_edge(
                             pydot.Edge(f"{cond_graph_id}_{p_var}", branch_graph_id)
@@ -310,8 +391,8 @@ if pydot_is_installed:
                         f"cluster_{branch_graph_id}", label
                     )
                     for (var, p_var) in zip(branch.jaxpr.invars, conditional.invars[1:]):
-                        # TODO: What does the underscore mean?
-                        if str(var)[-1] == "_":
+                        # Skip JAX dropped/unused vars (trailing-underscore names).
+                        if _is_dropped_var(var):
                             continue
                         arg_id = f"{branch_graph_id}_{var}"
                         branch_graph.add_node(
@@ -413,12 +494,15 @@ if pydot_is_installed:
                         )
                     )
                     for (var, p_var) in zip(branch.jaxpr.invars, conditional.invars[1:]):
-                        # TODO: What does the underscore mean?
-
-                        if str(var)[-1] == "_":
+                        # Skip JAX dropped/unused vars (trailing-underscore names).
+                        if _is_dropped_var(var):
                             continue
 
-                        if not is_literal:
+                        # Compute literal-ness for *this* edge. The previous code
+                        # referenced a stray ``is_literal`` left over from an
+                        # unrelated earlier loop, which produced a stale value.
+                        edge_is_literal = isinstance(var, Literal) or isinstance(p_var, Literal)
+                        if not edge_is_literal:
                             cond_graph.add_edge(
                                 pydot.Edge(f"{cond_graph_id}_{p_var}", branch_graph_id)
                             )
@@ -489,7 +573,7 @@ if pydot_is_installed:
                 - Updated incremented integer used to get unique node ids
         """
 
-        name = str(eqn.primitive) if is_primitive else eqn.params["name"]
+        name = str(eqn.primitive) if is_primitive else _eqn_name(eqn)
         node_id = f"{name}_{n}"
         n = n + 1
 
@@ -560,7 +644,17 @@ if pydot_is_installed:
                   parent graph
                 - Updated incremented integer used to get unique node ids
         """
-        graph_name = eqn.params["name"] if "name" in eqn.params else eqn.primitive.name
+        # Extract the inner jaxpr in a form-agnostic way: ``jit``/``pjit`` carry
+        # a ``ClosedJaxpr`` under ``jaxpr``, ``remat2`` a bare ``Jaxpr``, and
+        # ``closed_call`` a ``ClosedJaxpr`` under ``call_jaxpr``.
+        inner_jaxpr = _call_jaxpr_of(eqn)
+        if inner_jaxpr is None:
+            raise UnsupportedPrimitiveError(
+                f"Cannot expand primitive '{eqn.primitive.name}': no inlinable "
+                f"jaxpr/call_jaxpr parameter found. Params: {sorted(eqn.params)}."
+            )
+
+        graph_name = _eqn_name(eqn)
         graph_id = f"{graph_name}_{n}"
         n = n + 1
 
@@ -574,14 +668,14 @@ if pydot_is_installed:
         argument_nodes, argument_edges = get_arguments(
             graph_id,
             parent_id,
-            eqn.params["jaxpr"].jaxpr.constvars,
-            eqn.params["jaxpr"].jaxpr.invars,
+            inner_jaxpr.constvars,
+            inner_jaxpr.invars,
             eqn.invars,
             show_avals,
         )
         graph.add_subgraph(argument_nodes)
 
-        for sub_eqn in eqn.params["jaxpr"].jaxpr.eqns:
+        for sub_eqn in inner_jaxpr.eqns:
             sub_graph, in_edges, out_nodes, out_edges, n = get_sub_graph(
                 sub_eqn, graph_id, n, collapse_primitives, show_avals
             )
@@ -599,8 +693,8 @@ if pydot_is_installed:
         output_nodes, out_edges, out_nodes, id_edges = get_outputs(
             graph_id,
             parent_id,
-            eqn.params["jaxpr"].jaxpr.invars,
-            eqn.params["jaxpr"].jaxpr.outvars,
+            inner_jaxpr.invars,
+            inner_jaxpr.outvars,
             eqn.outvars,
             show_avals,
         )
@@ -824,7 +918,18 @@ if pydot_is_installed:
         Union[pydot.Subgraph, pydot.Node],
         List[pydot.Edge],
         List[pydot.Edge],
+        int,
     ]:
+        """Build the ``cond``/``body`` branch of a ``while`` loop.
+
+        Unlike :func:`get_sub_graph` (which returns the 5-tuple
+        ``sub_graph_return``), this helper attaches its own output nodes to its
+        own subgraph and therefore returns a 4-tuple:
+        ``(node_or_subgraph, arg_edges, out_edges, n_counter)`` where the edge
+        lists are the wiring that the *caller* must add to the enclosing
+        ``while`` graph. The previous annotation declared only three elements,
+        which did not match the value actually returned.
+        """
         graph_id = f"cluster_{parent_id}_{label}"
 
         if collapse_primitives and not contains_non_primitives(jaxpr.eqns):
@@ -837,8 +942,8 @@ if pydot_is_installed:
             out_edges = list()
 
             for (var, p_var) in zip(jaxpr.invars, parent_args):
-                # TODO: What does the underscore mean?
-                if str(var)[-1] == "_":
+                # Skip JAX dropped/unused vars (trailing-underscore names).
+                if _is_dropped_var(var):
                     continue
                 is_literal = isinstance(var, Literal)
                 if not is_literal:
@@ -1022,8 +1127,9 @@ if pydot_is_installed:
         """
 
         if is_not_primitive(eqn):
+            inner_jaxpr = _call_jaxpr_of(eqn)
             if (
-                contains_non_primitives(eqn.params["jaxpr"].jaxpr.eqns)
+                contains_non_primitives(inner_jaxpr.eqns)
                 or not collapse_primitives
             ):
                 return expand_non_primitive(
@@ -1249,8 +1355,8 @@ if pydot_is_installed:
             argument_nodes.add_node(get_const_node(arg_id, var, show_avals))
 
         for var, p_var in zip(graph_invars, parent_invars):
-            # TODO: What does the underscore mean?
-            if str(var)[-1] == "_":
+            # Skip JAX dropped/unused vars (trailing-underscore names).
+            if _is_dropped_var(var):
                 continue
             arg_id = f"{graph_id}_{var}"
             is_literal = isinstance(var, Literal)
@@ -1313,8 +1419,8 @@ if pydot_is_installed:
         argument_edges = list()
 
         for i, (var, p_var) in enumerate(zip(graph_invars, parent_invars)):
-            # TODO: What does the underscore mean?
-            if str(var)[-1] == "_":
+            # Skip JAX dropped/unused vars (trailing-underscore names).
+            if _is_dropped_var(var):
                 continue
             arg_id = f"{graph_id}_{var}"
 
@@ -1527,7 +1633,14 @@ if pydot_is_installed:
 
     def is_not_primitive(x: JaxprEqn) -> bool:
         """
-        Test if a JaxprEqn is a primitive.
+        Test whether a JaxprEqn is an inlinable call (i.e. *not* a leaf
+        primitive) that should be expanded into a sub-graph.
+
+        Recognises ``jit``/``pjit``, ``remat2``, ``closed_call`` and any other
+        primitive carrying a ``jaxpr``/``call_jaxpr`` sub-computation. The
+        original implementation only matched the literal name ``"pjit"``, which
+        no longer matches modern JAX (the jit primitive is named ``"jit"``) and
+        missed ``remat2``/``closed_call`` entirely.
 
         Parameters
         ----------
@@ -1536,14 +1649,15 @@ if pydot_is_installed:
         Returns
         -------
         bool
-            'True' if not a primitive.
+            'True' if this equation wraps an inlinable sub-jaxpr.
         """
-        return x.primitive.name == "pjit"
+        return _call_jaxpr_of(x) is not None
 
 
     def contains_non_primitives(eqns: List[JaxprEqn]) -> bool:
         """
-        Check it the sub-functions of a JaxPR contains only JAX primitives
+        Check if the sub-functions of a JaxPR contain anything other than
+        leaf JAX primitives (i.e. nested calls or control flow).
 
         Parameters
         ----------
@@ -1557,7 +1671,11 @@ if pydot_is_installed:
         """
         return any(
             [
-                ("jaxpr" in e.params or e.primitive.name in {"cond", "scan", "while"})
+                (
+                    "jaxpr" in e.params
+                    or "call_jaxpr" in e.params
+                    or e.primitive.name in {"cond", "scan", "while"}
+                )
                 for e in eqns
             ]
         )

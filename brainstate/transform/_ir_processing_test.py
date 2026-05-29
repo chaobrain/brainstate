@@ -328,5 +328,41 @@ class TestEqnsToClosedJaxpr(unittest.TestCase):
         self.assertTrue(jnp.allclose(original_arr, reconstructed_arr))
 
 
+class TestInferenceDeterminism(unittest.TestCase):
+    """Inferred invars/constvars/outvars must be deterministic across runs."""
+
+    def test_inference_is_deterministic_across_runs(self):
+        def f(a, b, c):
+            return (a + b) * c - a
+
+        cj = jax.make_jaxpr(f)(jnp.float32(1.), jnp.float32(2.), jnp.float32(3.))
+        eqns = list(cj.jaxpr.eqns)
+        first = eqns_to_jaxpr(list(eqns))
+        for _ in range(5):
+            again = eqns_to_jaxpr(list(eqns))
+            self.assertEqual([str(v) for v in again.invars], [str(v) for v in first.invars])
+            self.assertEqual([str(v) for v in again.outvars], [str(v) for v in first.outvars])
+            self.assertEqual([str(v) for v in again.constvars], [str(v) for v in first.constvars])
+
+
+class TestProcessingValidation(unittest.TestCase):
+    """Input validation and precise error types."""
+
+    def test_consts_mismatch_raises_value_error(self):
+        from brainstate.transform._ir_utils import IRValidationError
+        cj = jax.make_jaxpr(lambda x: x + 1.0)(jnp.float32(1.0))
+        eqns = list(cj.jaxpr.eqns)
+        with self.assertRaises(ValueError):  # back-compat
+            eqns_to_closed_jaxpr(eqns, constvars=list(cj.jaxpr.invars), consts=[])
+        with self.assertRaises(IRValidationError):  # new precise type
+            eqns_to_closed_jaxpr(eqns, constvars=list(cj.jaxpr.invars), consts=[])
+
+    def test_non_var_invar_rejected(self):
+        from brainstate.transform._ir_utils import IRValidationError
+        cj = jax.make_jaxpr(lambda x: x + 1.0)(jnp.float32(1.0))
+        with self.assertRaises(IRValidationError):
+            eqns_to_jaxpr(list(cj.jaxpr.eqns), invars=[123])
+
+
 if __name__ == '__main__':
     unittest.main()

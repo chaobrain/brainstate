@@ -228,6 +228,7 @@ cython_debug/
 /.VSCodeCounter/
 /.claude/
 /dev/
+/docs/superpowers/
 /examples/figs/
 /examples/braincell-interoperation/
 /examples/brainmass-interoperation/

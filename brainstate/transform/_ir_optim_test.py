@@ -18,6 +18,7 @@ import unittest
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
 
 import brainstate
@@ -835,6 +836,116 @@ class TestOptimizationCorrectness(unittest.TestCase):
             optimized_result = optimized_result[0]
 
         self.assertTrue(jnp.allclose(original_result, optimized_result))
+
+
+class TestOptimizeJaxprDefaults(unittest.TestCase):
+    """Regression tests for the optimize_jaxpr default pipeline (O1) and validation."""
+
+    def test_default_optimizations_actually_run(self):
+        def f(x):
+            dead = x * 7.0          # unused
+            y = x + (jnp.float32(2.0) + jnp.float32(3.0))  # foldable constant
+            return y
+
+        cj = jax.make_jaxpr(f)(jnp.float32(1.0))
+        n_before = len(cj.jaxpr.eqns)
+        optimized = optimize_jaxpr(cj.jaxpr)  # no optimizations arg
+        self.assertLess(len(optimized.eqns), n_before)
+
+    def test_invalid_max_iterations(self):
+        from brainstate.transform._ir_utils import IRValidationError
+        cj = jax.make_jaxpr(lambda x: x + 1.0)(jnp.float32(1.0))
+        with self.assertRaises(IRValidationError):
+            optimize_jaxpr(cj.jaxpr, max_iterations=0)
+
+
+class TestAlgebraicSafety(unittest.TestCase):
+    """Float-unsafe identities must not be applied (O2)."""
+
+    def test_zero_times_inf_not_folded_to_zero(self):
+        def f(x):
+            return jnp.float32(0.0) * x
+
+        cj = jax.make_jaxpr(f)(jnp.float32(1.0))
+        opt = algebraic_simplification(cj.jaxpr)
+        out = jax.core.eval_jaxpr(opt, [], jnp.float32(np.inf))
+        self.assertTrue(np.isnan(np.asarray(out[0])))
+
+    def test_zero_div_x_not_folded(self):
+        def f(x):
+            return jnp.float32(0.0) / x
+
+        cj = jax.make_jaxpr(f)(jnp.float32(1.0))
+        opt = algebraic_simplification(cj.jaxpr)
+        out = jax.core.eval_jaxpr(opt, [], jnp.float32(0.0))
+        self.assertTrue(np.isnan(np.asarray(out[0])))  # 0/0 = nan, not 0
+
+    def test_integer_zero_times_x_still_folds(self):
+        def f(x):
+            return jnp.int32(0) * x
+
+        cj = jax.make_jaxpr(f)(jnp.int32(5))
+        opt = algebraic_simplification(cj.jaxpr)
+        self.assertFalse(any(e.primitive.name == 'mul' for e in opt.eqns))
+
+
+class TestCSERobustness(unittest.TestCase):
+    """CSE must not crash on unhashable params (O4)."""
+
+    def test_cse_does_not_crash_on_array_params(self):
+        def f(x):
+            a = jnp.broadcast_to(x, (3,))
+            b = jnp.broadcast_to(x, (3,))
+            return a + b
+
+        cj = jax.make_jaxpr(f)(jnp.float32(1.0))
+        result = common_subexpression_elimination(cj.jaxpr)
+        self.assertIsNotNone(result)
+
+    def test_cse_handles_jit_calls(self):
+        @jax.jit
+        def g(x):
+            return x * x
+
+        def f(x):
+            return g(x) + g(x)
+
+        cj = jax.make_jaxpr(f)(jnp.float32(2.0))
+        result = common_subexpression_elimination(cj.jaxpr)
+        # Must not crash and must remain numerically correct.
+        out = jax.core.eval_jaxpr(result, [], jnp.float32(2.0))
+        self.assertTrue(np.allclose(np.asarray(out[0]), np.asarray(f(jnp.float32(2.0)))))
+
+
+class TestControlFlowPassthrough(unittest.TestCase):
+    """Control-flow jaxprs survive the full optimization pipeline (O5)."""
+
+    def _roundtrip(self, f, *args):
+        cj = jax.make_jaxpr(f)(*args)
+        opt = optimize_jaxpr(cj)
+        out_opt = jax.core.eval_jaxpr(opt.jaxpr, opt.consts, *args)
+        ref = f(*args)
+        ref = ref if isinstance(ref, (tuple, list)) else (ref,)
+        for a, b in zip(out_opt, ref):
+            self.assertTrue(np.allclose(np.asarray(a), np.asarray(b)))
+
+    def test_cond(self):
+        def f(x):
+            return jax.lax.cond(x[0] > 0, lambda v: v * 2, lambda v: v - 1, x)
+        self._roundtrip(f, jnp.float32([1.0, 2.0]))
+
+    def test_scan(self):
+        def f(x):
+            def body(c, _):
+                return c + 1.0, c
+            final, ys = jax.lax.scan(body, x, None, length=3)
+            return final
+        self._roundtrip(f, jnp.float32(0.0))
+
+    def test_while(self):
+        def f(x):
+            return jax.lax.while_loop(lambda v: v < 5.0, lambda v: v + 1.0, x)
+        self._roundtrip(f, jnp.float32(0.0))
 
 
 if __name__ == '__main__':
