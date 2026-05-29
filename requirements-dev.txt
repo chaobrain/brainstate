@@ -10,3 +10,6 @@ brainpy-state
 # test requirements
 pytest
 absl-py
+
+# type checking
+mypy>=1.11
