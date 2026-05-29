@@ -15,11 +15,15 @@
 
 import unittest
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 
 import brainstate
+from brainstate import _testing
 from brainstate.nn import Module, Param, SoftplusT, L2Reg, L1Reg
+from brainstate.nn._module import Sequential, ElementWiseBlock
+from brainstate._error import BrainStateError
 
 
 class TestModule(unittest.TestCase):
@@ -741,3 +745,498 @@ class TestParamPrecompute(unittest.TestCase):
         # After outer context exits, all caches should be cleared
         self.assertFalse(mod.parent_param.cache_stats['valid'])
         self.assertFalse(mod.child.child_param.cache_stats['valid'])
+
+
+class TestModuleConstruction(unittest.TestCase):
+    """Cover ``Module`` construction, naming, and size normalization."""
+
+    def test_default_name_and_sizes_are_none(self):
+        """A freshly constructed module has no name and undefined sizes."""
+        mod = Module()
+        self.assertIsNone(mod.name)
+        self.assertIsNone(mod.in_size)
+        self.assertIsNone(mod.out_size)
+
+    def test_name_is_stored(self):
+        """A string ``name`` is stored and exposed by the property."""
+        mod = Module(name='layer')
+        self.assertEqual(mod.name, 'layer')
+
+    def test_non_string_name_raises(self):
+        """A non-string ``name`` raises ``AssertionError``."""
+        with self.assertRaises(AssertionError):
+            Module(name=123)
+
+    def test_name_is_read_only(self):
+        """Assigning to ``name`` raises ``AttributeError``."""
+        mod = Module(name='layer')
+        with self.assertRaises(AttributeError):
+            mod.name = 'other'
+
+    def test_in_size_int_normalized_to_tuple(self):
+        """An int ``in_size`` is normalized to a 1-tuple."""
+        mod = Module()
+        mod.in_size = 10
+        self.assertEqual(mod.in_size, (10,))
+
+    def test_in_size_sequence_preserved(self):
+        """A tuple ``in_size`` is preserved as a tuple."""
+        mod = Module()
+        mod.in_size = (2, 3)
+        self.assertEqual(mod.in_size, (2, 3))
+
+    def test_in_size_numpy_scalar(self):
+        """A numpy integer scalar is accepted as ``in_size``."""
+        mod = Module()
+        mod.in_size = np.int32(4)
+        self.assertEqual(mod.in_size, (4,))
+
+    def test_in_size_invalid_type_raises(self):
+        """A non-int, non-sequence ``in_size`` raises ``AssertionError``."""
+        mod = Module()
+        with self.assertRaises(AssertionError):
+            mod.in_size = 'bad'
+
+    def test_out_size_int_normalized_to_tuple(self):
+        """An int ``out_size`` is normalized to a 1-tuple."""
+        mod = Module()
+        mod.out_size = 5
+        self.assertEqual(mod.out_size, (5,))
+
+    def test_out_size_list_preserved(self):
+        """A list ``out_size`` is stored as a tuple."""
+        mod = Module()
+        mod.out_size = [4, 5]
+        self.assertEqual(mod.out_size, (4, 5))
+
+    def test_out_size_invalid_type_raises(self):
+        """A non-int, non-sequence ``out_size`` raises ``AssertionError``."""
+        mod = Module()
+        with self.assertRaises(AssertionError):
+            mod.out_size = 'bad'
+
+
+class TestModuleCall(unittest.TestCase):
+    """Cover ``Module.update``/``__call__`` dispatch and operator support."""
+
+    def test_bare_update_not_implemented(self):
+        """The base ``update`` raises ``NotImplementedError`` when un-overridden."""
+        mod = Module()
+        with self.assertRaises(NotImplementedError):
+            mod.update(1)
+
+    def test_call_forwards_to_update(self):
+        """``__call__`` forwards positional args to ``update``."""
+
+        class _Scale(Module):
+            """Module that scales its input by two."""
+
+            def update(self, x):
+                """Return ``x * 2``."""
+                return x * 2
+
+        mod = _Scale()
+        self.assertEqual(mod(3.0), 6.0)
+
+    def test_rrshift_operator(self):
+        """``x >> module`` invokes ``module(x)``."""
+
+        class _AddOne(Module):
+            """Module that adds one to its input."""
+
+            def update(self, x):
+                """Return ``x + 1``."""
+                return x + 1
+
+        mod = _AddOne()
+        self.assertEqual(5.0 >> mod, 6.0)
+
+    def test_pretty_repr_item_strips_underscore(self):
+        """``__pretty_repr_item__`` strips a leading underscore from names."""
+        mod = Module(name='abc')
+        self.assertEqual(mod.__pretty_repr_item__('_name', 'abc'), ('name', 'abc'))
+
+    def test_pretty_repr_item_hides_none_private(self):
+        """A private attribute with a ``None`` value is hidden from the repr."""
+        mod = Module()
+        self.assertIsNone(mod.__pretty_repr_item__('_in_size', None))
+
+    def test_pretty_repr_item_keeps_public(self):
+        """A public attribute is shown unchanged in the repr."""
+        mod = Module()
+        self.assertEqual(mod.__pretty_repr_item__('pub', 7), ('pub', 7))
+
+    def test_repr_contains_name(self):
+        """The default ``__repr__`` includes the module name."""
+        mod = Module(name='abc')
+        self.assertIn('abc', repr(mod))
+
+
+class TestModuleStateCollection(unittest.TestCase):
+    """Cover ``states``/``state_trees`` collection and filtering."""
+
+    def _make_model(self):
+        """Build a small two-state module for collection tests."""
+
+        class _M(Module):
+            """Module holding one generic state and one parameter state."""
+
+            def __init__(self):
+                super().__init__()
+                self.s = brainstate.State(jnp.ones(3))
+                self.p = Param(jnp.ones(2), fit=True)
+
+        return _M()
+
+    def test_states_collects_all(self):
+        """``states`` returns all states in the module."""
+        mod = self._make_model()
+        collected = mod.states()
+        self.assertEqual(len(collected), 2)
+
+    def test_states_filtered(self):
+        """``states`` with a filter returns only matching states."""
+        mod = self._make_model()
+        params = mod.states(brainstate.ParamState)
+        self.assertEqual(len(params), 1)
+
+    def test_state_trees_unfiltered(self):
+        """``state_trees`` returns a nested state tree."""
+        mod = self._make_model()
+        tree = mod.state_trees()
+        # The tree should contain both leaves.
+        leaves = jax.tree.leaves(tree, is_leaf=lambda x: isinstance(x, brainstate.State))
+        self.assertGreaterEqual(len(leaves), 1)
+
+    def test_state_trees_filtered(self):
+        """``state_trees`` with a filter narrows the returned tree."""
+        mod = self._make_model()
+        tree = mod.state_trees(brainstate.ParamState)
+        self.assertIsNotNone(tree)
+
+    def test_init_and_reset_state_are_noops(self):
+        """The base ``init_state``/``reset_state`` hooks do nothing and return None."""
+        mod = Module()
+        self.assertIsNone(mod.init_state())
+        self.assertIsNone(mod.reset_state())
+
+    def test_named_parameters_no_recurse(self):
+        """``named_parameters`` with ``recurse=False`` yields only direct params."""
+
+        class _Inner(Module):
+            """Inner module with one parameter."""
+
+            def __init__(self):
+                super().__init__()
+                self.w = Param(jnp.ones(2), fit=True)
+
+        class _Outer(Module):
+            """Outer module with a direct param and a child module."""
+
+            def __init__(self):
+                super().__init__()
+                self.direct = Param(jnp.ones(3), fit=True)
+                self.inner = _Inner()
+
+        mod = _Outer()
+        shallow = list(mod.named_parameters(recurse=False))
+        deep = list(mod.named_parameters(recurse=True))
+        self.assertEqual(len(shallow), 1)
+        self.assertEqual(len(deep), 2)
+
+
+class TestSequentialContainer(unittest.TestCase):
+    """Cover ``Sequential`` construction, indexing, and mutation methods."""
+
+    def test_basic_construction_sizes(self):
+        """A ``Sequential`` infers in/out sizes from its layers."""
+        seq = brainstate.nn.Sequential(
+            brainstate.nn.Linear(10, 20),
+            brainstate.nn.Linear(20, 5),
+        )
+        self.assertEqual(seq.in_size, (10,))
+        self.assertEqual(seq.out_size, (5,))
+
+    def test_forward(self):
+        """A ``Sequential`` chains its layers when called."""
+        seq = brainstate.nn.Sequential(
+            brainstate.nn.Linear(8, 4),
+            jax.nn.relu,
+            brainstate.nn.Linear(4, 2),
+        )
+        x = brainstate.random.randn(3, 8)
+        out = seq(x)
+        self.assertEqual(out.shape, (3, 2))
+
+    def test_getitem_int(self):
+        """Integer indexing returns the layer at that position."""
+        seq = brainstate.nn.Sequential(
+            brainstate.nn.Linear(8, 4),
+            brainstate.nn.Linear(4, 2),
+        )
+        self.assertIsInstance(seq[0], brainstate.nn.Linear)
+
+    def test_getitem_slice(self):
+        """Slice indexing returns a new ``Sequential``."""
+        seq = brainstate.nn.Sequential(
+            brainstate.nn.Linear(8, 4),
+            brainstate.nn.Linear(4, 2),
+        )
+        sub = seq[0:1]
+        self.assertIsInstance(sub, Sequential)
+        self.assertEqual(len(sub.layers), 1)
+
+    def test_getitem_tuple(self):
+        """Tuple indexing returns a ``Sequential`` of the selected layers."""
+        seq = brainstate.nn.Sequential(
+            brainstate.nn.Linear(8, 4),
+            jax.nn.relu,
+            brainstate.nn.Linear(4, 2),
+        )
+        sub = seq[(0, 2)]
+        self.assertIsInstance(sub, Sequential)
+        self.assertEqual(len(sub.layers), 2)
+
+    def test_getitem_bad_key_raises(self):
+        """An unsupported index type raises ``KeyError``."""
+        seq = brainstate.nn.Sequential(brainstate.nn.Linear(8, 4))
+        with self.assertRaises(KeyError):
+            seq['bad']
+
+    def test_append_callable(self):
+        """Appending a callable wraps it and preserves the output size."""
+        seq = brainstate.nn.Sequential(brainstate.nn.Linear(8, 4))
+        seq.append(jax.nn.relu)
+        self.assertEqual(len(seq.layers), 2)
+        self.assertEqual(seq.out_size, (4,))
+
+    def test_append_module_updates_out_size(self):
+        """Appending a sized module updates the output size."""
+        seq = brainstate.nn.Sequential(brainstate.nn.Linear(8, 4))
+        seq.append(brainstate.nn.Linear(4, 2))
+        self.assertEqual(seq.out_size, (2,))
+
+    def test_extend_modules(self):
+        """Extending appends multiple modules with size inference."""
+        seq = brainstate.nn.Sequential(brainstate.nn.Linear(8, 4))
+        seq.extend([jax.nn.relu, brainstate.nn.Linear(4, 2)])
+        self.assertEqual(len(seq.layers), 3)
+        self.assertEqual(seq.out_size, (2,))
+
+    def test_insert_middle(self):
+        """Inserting at a middle index recalculates downstream sizes."""
+        seq = brainstate.nn.Sequential(
+            brainstate.nn.Linear(8, 4),
+            brainstate.nn.Linear(4, 2),
+        )
+        seq.insert(1, jax.nn.relu)
+        self.assertEqual(len(seq.layers), 3)
+        self.assertTrue(callable(seq.layers[1]))
+
+    def test_insert_negative_index(self):
+        """A negative insert index follows Python list convention."""
+        seq = brainstate.nn.Sequential(
+            brainstate.nn.Linear(8, 4),
+            brainstate.nn.Linear(4, 2),
+        )
+        seq.insert(-1, jax.nn.tanh)
+        self.assertEqual(len(seq.layers), 3)
+
+    def test_insert_out_of_range_raises(self):
+        """An out-of-range insert index raises ``IndexError``."""
+        seq = brainstate.nn.Sequential(brainstate.nn.Linear(8, 4))
+        with self.assertRaises(IndexError):
+            seq.insert(5, brainstate.nn.Linear(4, 2))
+
+    def test_describer_layer_is_built(self):
+        """A ``ParamDescriber`` layer is instantiated with the inferred in_size."""
+        seq = brainstate.nn.Sequential(
+            brainstate.nn.Linear(10, 30),
+            brainstate.nn.Linear.desc(out_size=5),
+        )
+        self.assertEqual(seq.out_size, (5,))
+        self.assertIsInstance(seq.layers[1], brainstate.nn.Linear)
+
+    def test_update_failure_wrapped(self):
+        """A layer failure during ``update`` is wrapped in ``BrainStateError``."""
+        seq = brainstate.nn.Sequential(brainstate.nn.Linear(10, 20))
+        with self.assertRaises(BrainStateError):
+            seq(jnp.ones((2, 5)))  # mismatched input dimension
+
+    def test_unsupported_layer_type_raises(self):
+        """Appending an unsupported (non-callable) layer raises ``BrainStateError``."""
+        seq = brainstate.nn.Sequential(brainstate.nn.Linear(8, 4))
+        with self.assertRaises(BrainStateError):
+            seq.append(12345)
+
+
+class TestSequentialEmpty(unittest.TestCase):
+    """Cover ``Sequential`` mutation methods on an empty container."""
+
+    def _empty(self):
+        """Build a ``Sequential`` instance with an empty layer list."""
+        seq = Sequential.__new__(Sequential)
+        Module.__init__(seq)
+        seq.layers = []
+        return seq
+
+    def test_append_to_empty_raises(self):
+        """Appending the first layer to an empty Sequential raises ``ValueError``."""
+        seq = self._empty()
+        with self.assertRaises(ValueError):
+            seq.append(jax.nn.relu)
+
+    def test_extend_empty_raises(self):
+        """Extending an empty Sequential raises ``ValueError``."""
+        seq = self._empty()
+        with self.assertRaises(ValueError):
+            seq.extend([brainstate.nn.Linear(2, 2)])
+
+    def test_insert_nonzero_index_raises(self):
+        """Inserting at a non-zero index into an empty Sequential raises ``ValueError``."""
+        seq = self._empty()
+        with self.assertRaises(ValueError):
+            seq.insert(1, brainstate.nn.Linear(2, 2))
+
+    def test_insert_callable_first_raises(self):
+        """Inserting a callable as the first layer raises ``ValueError``."""
+        seq = self._empty()
+        with self.assertRaises(ValueError):
+            seq.insert(0, lambda x: x)
+
+    def test_insert_module_first_ok(self):
+        """Inserting a module at index 0 of an empty Sequential succeeds."""
+        seq = self._empty()
+        seq.insert(0, brainstate.nn.Linear(3, 4))
+        self.assertEqual(len(seq.layers), 1)
+        self.assertEqual(seq.in_size, (3,))
+        self.assertEqual(seq.out_size, (4,))
+
+
+class TestModuleSizeSetterEdges(unittest.TestCase):
+    """Cover numpy-typed and invalid inputs to the size setters."""
+
+    def test_out_size_zero_d_integer_ndarray_bug(self):
+        """A 0-d integer ``np.ndarray`` ``out_size`` hits a source bug (documents BUG).
+
+        The setter calls ``np.issubdtype(out_size, np.integer)`` passing the array
+        itself rather than its ``.dtype``; numpy raises ``TypeError`` ("Cannot
+        construct a dtype from an array"), so a 0-d integer array cannot be used.
+        """
+        mod = Module()
+        with self.assertRaises(TypeError):
+            mod.out_size = np.array(6)
+
+    def test_in_size_non_integer_generic_raises(self):
+        """A non-integer ``np.generic`` ``in_size`` fails the type assertion."""
+        mod = Module()
+        with self.assertRaises(AssertionError):
+            mod.in_size = np.float64(3.0)
+
+
+class _UnsizedModule(Module):
+    """Module without declared in/out sizes, used for Sequential size tests."""
+
+    def update(self, x):
+        """Return the input unchanged."""
+        return x
+
+
+class TestSequentialSizeInferenceEdges(unittest.TestCase):
+    """Cover Sequential construction/mutation when sizes are undefined."""
+
+    def test_first_without_in_size(self):
+        """A Sequential whose first layer has no in_size leaves in_size unset."""
+        seq = brainstate.nn.Sequential(_UnsizedModule(), _UnsizedModule())
+        self.assertIsNone(seq.in_size)
+
+    def test_insert_module_into_empty_sets_sizes(self):
+        """Inserting a sized module into an empty Sequential sets in/out sizes."""
+        seq = Sequential.__new__(Sequential)
+        Module.__init__(seq)
+        seq.layers = []
+        seq.insert(0, brainstate.nn.Linear(3, 7))
+        self.assertEqual(seq.in_size, (3,))
+        self.assertEqual(seq.out_size, (7,))
+
+    def test_insert_module_into_empty_without_sizes(self):
+        """Inserting an unsized module into an empty Sequential leaves sizes None."""
+        seq = Sequential.__new__(Sequential)
+        Module.__init__(seq)
+        seq.layers = []
+        seq.insert(0, _UnsizedModule())
+        self.assertIsNone(seq.in_size)
+        self.assertIsNone(seq.out_size)
+
+    def test_insert_at_beginning_updates_in_size(self):
+        """Inserting a sized module at index 0 updates the Sequential in_size."""
+        seq = brainstate.nn.Sequential(brainstate.nn.Linear(5, 3))
+        seq.insert(0, brainstate.nn.Linear(8, 5))
+        self.assertEqual(seq.in_size, (8,))
+
+    def test_insert_middle_unsized_keeps_none_out_size(self):
+        """Inserting into an unsized chain leaves the out_size as None."""
+        seq = brainstate.nn.Sequential(_UnsizedModule(), _UnsizedModule())
+        seq.insert(1, _UnsizedModule())
+        self.assertEqual(len(seq.layers), 3)
+        self.assertIsNone(seq.out_size)
+
+    def test_extend_with_unsized_modules(self):
+        """Extending with unsized modules leaves the out_size unchanged."""
+        seq = brainstate.nn.Sequential(_UnsizedModule())
+        seq.extend([_UnsizedModule()])
+        self.assertEqual(len(seq.layers), 2)
+        self.assertIsNone(seq.out_size)
+
+    def test_describer_without_in_size_raises(self):
+        """A describer first layer with no in_size raises ``BrainStateError``."""
+        seq = brainstate.nn.Sequential(_UnsizedModule())
+        with self.assertRaises(BrainStateError):
+            seq.append(brainstate.nn.Linear.desc(out_size=4))
+
+    def test_elementwise_block_passthrough(self):
+        """An ``ElementWiseBlock`` layer passes the size through unchanged."""
+
+        class _EW(ElementWiseBlock):
+            """Identity element-wise block."""
+
+            def update(self, x):
+                """Return the input unchanged."""
+                return x
+
+        seq = brainstate.nn.Sequential(brainstate.nn.Linear(6, 4), _EW())
+        self.assertEqual(seq.out_size, (4,))
+
+
+class TestModuleTrainEval(unittest.TestCase):
+    """Cover train/eval behavior toggled via ``environ.context(fit=...)``."""
+
+    def test_fit_flag_changes_behavior(self):
+        """A module can branch on the ``fit`` environment flag."""
+
+        class _FitAware(Module):
+            """Module that doubles its input only during fitting."""
+
+            def update(self, x):
+                """Return ``x * 2`` when fitting, else ``x``."""
+                if brainstate.environ.get('fit', desc='fit flag'):
+                    return x * 2
+                return x
+
+        mod = _FitAware()
+        with brainstate.environ.context(fit=True):
+            _testing.assert_allclose(mod(jnp.ones(3)), jnp.ones(3) * 2)
+        with brainstate.environ.context(fit=False):
+            _testing.assert_allclose(mod(jnp.ones(3)), jnp.ones(3))
+
+    def test_dropout_eval_is_identity(self):
+        """Dropout passes inputs through unchanged when not fitting."""
+        drop = brainstate.nn.Dropout(0.5)
+        x = brainstate.random.randn(64)
+        with brainstate.environ.context(fit=False):
+            out = drop(x)
+        _testing.assert_allclose(out, x)
+
+
+if __name__ == '__main__':
+    unittest.main()

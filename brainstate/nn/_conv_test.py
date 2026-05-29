@@ -17,11 +17,13 @@
 
 import unittest
 
-import jax
 import jax.numpy as jnp
+import numpy as np
+import pytest
 
 import brainstate
 import braintools
+from brainstate import _testing
 
 
 class TestConv1d(unittest.TestCase):
@@ -374,13 +376,11 @@ class TestReproducibility(unittest.TestCase):
 
     def test_deterministic_output(self):
         """Test that same seed produces same output."""
-        key = jax.random.PRNGKey(42)
-
         conv1 = brainstate.nn.Conv2d(in_size=(32, 32, 3), out_channels=16, kernel_size=3)
         conv2 = brainstate.nn.Conv2d(in_size=(32, 32, 3), out_channels=16, kernel_size=3)
 
-        # Use same random key for input
-        x = jax.random.normal(key, (4, 32, 32, 3))
+        # Use random input
+        x = brainstate.random.randn(4, 32, 32, 3)
 
         # Note: outputs will differ due to different weight initialization
         # This test just ensures no crashes with random inputs
@@ -848,3 +848,256 @@ class TestKernelShapeConvTranspose(unittest.TestCase):
         # For transpose conv: (kernel_h, kernel_w, out_channels, in_channels // groups)
         expected_shape = (4, 4, 16, 32 // 4)
         self.assertEqual(conv_t.kernel_shape, expected_shape)
+
+
+class TestReplicateHelper(unittest.TestCase):
+    """Tests for the kernel/stride replication helper via public constructors."""
+
+    def test_single_element_sequence(self):
+        """A length-1 sequence is replicated to match the spatial dimensions."""
+        conv = brainstate.nn.Conv2d(in_size=(16, 16, 3), out_channels=8, kernel_size=[3])
+        self.assertEqual(conv.kernel_size, (3, 3))
+
+    def test_full_length_sequence(self):
+        """A full-length sequence is kept unchanged."""
+        conv = brainstate.nn.Conv2d(in_size=(16, 16, 3), out_channels=8, kernel_size=(3, 5))
+        self.assertEqual(conv.kernel_size, (3, 5))
+
+    def test_wrong_length_sequence_raises(self):
+        """A sequence whose length is neither 1 nor num_spatial_dims raises TypeError."""
+        with self.assertRaises(TypeError):
+            brainstate.nn.Conv2d(in_size=(16, 16, 3), out_channels=8, kernel_size=[3, 3, 3])
+
+
+class TestConvPadding(unittest.TestCase):
+    """Tests for the various padding specifications accepted by convolution layers."""
+
+    def test_padding_int(self):
+        """An integer padding is expanded to symmetric padding per dimension."""
+        conv = brainstate.nn.Conv2d(in_size=(16, 16, 3), out_channels=8, kernel_size=3, padding=2)
+        self.assertEqual(conv.padding, ((2, 2), (2, 2)))
+
+    def test_padding_tuple_of_int(self):
+        """A tuple of ints is treated as a (low, high) pair applied to every dimension."""
+        conv = brainstate.nn.Conv2d(in_size=(16, 16, 3), out_channels=8, kernel_size=3, padding=(1, 2))
+        self.assertEqual(conv.padding, ((1, 2), (1, 2)))
+
+    def test_padding_sequence_of_tuples(self):
+        """A full sequence of (low, high) tuples is preserved per dimension."""
+        conv = brainstate.nn.Conv2d(in_size=(16, 16, 3), out_channels=8, kernel_size=3, padding=[(1, 1), (2, 2)])
+        self.assertEqual(conv.padding, ((1, 1), (2, 2)))
+
+    def test_padding_length_one_sequence(self):
+        """A length-1 sequence of tuples is broadcast across all dimensions."""
+        conv = brainstate.nn.Conv2d(in_size=(16, 16, 3), out_channels=8, kernel_size=3, padding=[(1, 1)])
+        self.assertEqual(conv.padding, ((1, 1), (1, 1)))
+
+    def test_padding_wrong_length_raises(self):
+        """A sequence of tuples with the wrong length raises ValueError."""
+        with self.assertRaises(ValueError):
+            brainstate.nn.Conv2d(in_size=(16, 16, 3), out_channels=8, kernel_size=3, padding=[(1, 1), (2, 2), (3, 3)])
+
+    def test_padding_invalid_type_raises(self):
+        """A padding of an unsupported type raises ValueError."""
+        with self.assertRaises(ValueError):
+            brainstate.nn.Conv2d(in_size=(16, 16, 3), out_channels=8, kernel_size=3, padding=1.5)
+
+
+class TestConvWeightMask(unittest.TestCase):
+    """Tests for weight masking in convolution layers."""
+
+    def test_conv2d_w_mask_zeros_output(self):
+        """A zero weight mask forces the convolution output to zero."""
+        mask = np.zeros((3, 3, 3, 8))
+        conv = brainstate.nn.Conv2d(in_size=(16, 16, 3), out_channels=8, kernel_size=3, w_mask=mask)
+        x = jnp.ones((1, 16, 16, 3))
+        y = conv(x)
+        _testing.assert_allclose(y, jnp.zeros_like(y))
+
+    def test_conv2d_w_mask_ones_identity(self):
+        """A unit weight mask leaves the convolution output unchanged."""
+        mask = np.ones((3, 3, 3, 8))
+        conv_masked = brainstate.nn.Conv2d(in_size=(16, 16, 3), out_channels=8, kernel_size=3, w_mask=mask)
+        x = jnp.ones((1, 16, 16, 3))
+        y = conv_masked(x)
+        self.assertEqual(y.shape, (1, 16, 16, 8))
+
+
+class TestBaseConvAbstract(unittest.TestCase):
+    """Tests for the abstract base convolution behavior."""
+
+    def test_conv_op_not_implemented(self):
+        """The base class ``_conv_op`` raises NotImplementedError."""
+        from brainstate.nn._conv import _BaseConv
+
+        class _Dummy(_BaseConv):
+            num_spatial_dims = 2
+
+        dummy = _Dummy(in_size=(8, 8, 3), out_channels=4, kernel_size=3)
+        with self.assertRaises(NotImplementedError):
+            dummy._conv_op(jnp.ones((1, 8, 8, 3)), {})
+
+
+class TestConvGradients(unittest.TestCase):
+    """Tests for finite gradients through convolution layers."""
+
+    def test_conv1d_grad_finite(self):
+        """Gradients of a scalar loss through Conv1d are finite."""
+        conv = brainstate.nn.Conv1d(in_size=(20, 4), out_channels=8, kernel_size=3)
+        x = brainstate.random.randn(2, 20, 4)
+
+        def loss(inp):
+            return jnp.sum(conv(inp) ** 2)
+
+        _testing.assert_grad_finite(loss, x)
+
+    def test_conv2d_grad_finite(self):
+        """Gradients of a scalar loss through Conv2d are finite."""
+        conv = brainstate.nn.Conv2d(in_size=(12, 12, 3), out_channels=8, kernel_size=3)
+        x = brainstate.random.randn(2, 12, 12, 3)
+
+        def loss(inp):
+            return jnp.sum(conv(inp) ** 2)
+
+        _testing.assert_grad_finite(loss, x)
+
+    @pytest.mark.slow
+    def test_conv3d_grad_finite(self):
+        """Gradients of a scalar loss through Conv3d are finite."""
+        conv = brainstate.nn.Conv3d(in_size=(6, 6, 6, 2), out_channels=4, kernel_size=3)
+        x = brainstate.random.randn(1, 6, 6, 6, 2)
+
+        def loss(inp):
+            return jnp.sum(conv(inp) ** 2)
+
+        _testing.assert_grad_finite(loss, x)
+
+
+class TestConvJit(unittest.TestCase):
+    """Tests that JIT-compiled convolutions match eager execution."""
+
+    def test_conv1d_jit_equal(self):
+        """JIT-compiled Conv1d matches eager output."""
+        conv = brainstate.nn.Conv1d(in_size=(20, 4), out_channels=8, kernel_size=3)
+        x = brainstate.random.randn(2, 20, 4)
+        _testing.assert_jit_equal(lambda inp: conv(inp), x)
+
+    def test_conv2d_jit_equal(self):
+        """JIT-compiled Conv2d matches eager output."""
+        conv = brainstate.nn.Conv2d(in_size=(12, 12, 3), out_channels=8, kernel_size=3)
+        x = brainstate.random.randn(2, 12, 12, 3)
+        _testing.assert_jit_equal(lambda inp: conv(inp), x)
+
+    def test_scaled_ws_conv2d_jit_equal(self):
+        """JIT-compiled ScaledWSConv2d matches eager output."""
+        conv = brainstate.nn.ScaledWSConv2d(in_size=(12, 12, 3), out_channels=8, kernel_size=3)
+        x = brainstate.random.randn(2, 12, 12, 3)
+        _testing.assert_jit_equal(lambda inp: conv(inp), x)
+
+
+class TestScaledWSConvExtra(unittest.TestCase):
+    """Extra tests for weight-standardized convolutions covering bias and masks."""
+
+    def test_scaled_ws_with_bias_and_mask(self):
+        """ScaledWSConv2d supports both a bias term and a weight mask."""
+        mask = np.ones((3, 3, 3, 8))
+        conv = brainstate.nn.ScaledWSConv2d(
+            in_size=(16, 16, 3),
+            out_channels=8,
+            kernel_size=3,
+            b_init=braintools.init.Constant(0.1),
+            w_mask=mask,
+        )
+        x = jnp.ones((1, 16, 16, 3))
+        y = conv(x)
+        self.assertEqual(y.shape, (1, 16, 16, 8))
+        self.assertIn('bias', conv.weight.value)
+
+    def test_scaled_ws_zero_mask_zeros_output(self):
+        """A zero mask forces a weight-standardized convolution output to zero (no bias)."""
+        mask = np.zeros((5, 3, 8))
+        conv = brainstate.nn.ScaledWSConv1d(in_size=(20, 3), out_channels=8, kernel_size=5, w_mask=mask)
+        x = jnp.ones((1, 20, 3))
+        y = conv(x)
+        _testing.assert_allclose(y, jnp.zeros_like(y))
+
+    def test_scaled_ws_grad_finite(self):
+        """Gradients through ScaledWSConv2d are finite."""
+        conv = brainstate.nn.ScaledWSConv2d(in_size=(12, 12, 3), out_channels=8, kernel_size=3)
+        x = brainstate.random.randn(2, 12, 12, 3)
+
+        def loss(inp):
+            return jnp.sum(conv(inp) ** 2)
+
+        _testing.assert_grad_finite(loss, x)
+
+
+class TestConvTransposePadding(unittest.TestCase):
+    """Tests for padding specifications on transposed convolution layers."""
+
+    def test_padding_int(self):
+        """An integer padding is expanded to symmetric explicit padding."""
+        conv = brainstate.nn.ConvTranspose2d(in_size=(8, 8, 16), out_channels=8, kernel_size=3, padding=1)
+        self.assertEqual(conv.padding, ((1, 1), (1, 1)))
+        self.assertEqual(conv.padding_mode, 'explicit')
+
+    def test_padding_tuple_of_int(self):
+        """A tuple of ints is applied per dimension."""
+        conv = brainstate.nn.ConvTranspose2d(in_size=(8, 8, 16), out_channels=8, kernel_size=3, padding=(1, 2))
+        self.assertEqual(conv.padding, ((1, 2), (1, 2)))
+
+    def test_padding_sequence_of_tuples(self):
+        """A full sequence of (low, high) tuples is preserved."""
+        conv = brainstate.nn.ConvTranspose2d(
+            in_size=(8, 8, 16), out_channels=8, kernel_size=3, padding=[(1, 1), (2, 2)]
+        )
+        self.assertEqual(conv.padding, ((1, 1), (2, 2)))
+
+    def test_padding_length_one_sequence(self):
+        """A length-1 sequence of tuples is broadcast across dimensions."""
+        conv = brainstate.nn.ConvTranspose2d(in_size=(8, 8, 16), out_channels=8, kernel_size=3, padding=[(1, 1)])
+        self.assertEqual(conv.padding, ((1, 1), (1, 1)))
+
+    def test_padding_wrong_length_raises(self):
+        """A sequence of tuples with the wrong length raises ValueError."""
+        with self.assertRaises(ValueError):
+            brainstate.nn.ConvTranspose2d(
+                in_size=(8, 8, 16), out_channels=8, kernel_size=3, padding=[(1, 1), (2, 2), (3, 3)]
+            )
+
+    def test_padding_invalid_type_raises(self):
+        """An unsupported padding type raises ValueError."""
+        with self.assertRaises(ValueError):
+            brainstate.nn.ConvTranspose2d(in_size=(8, 8, 16), out_channels=8, kernel_size=3, padding=1.5)
+
+
+class TestConvTransposeWeightMask(unittest.TestCase):
+    """Tests for weight masking in transposed convolution layers."""
+
+    def test_conv_transpose_zero_mask_zeros_output(self):
+        """A zero weight mask forces the transposed convolution output to zero."""
+        mask = np.zeros((3, 3, 8, 16))
+        conv = brainstate.nn.ConvTranspose2d(in_size=(8, 8, 16), out_channels=8, kernel_size=3, w_mask=mask)
+        x = jnp.ones((1, 8, 8, 16))
+        y = conv(x)
+        _testing.assert_allclose(y, jnp.zeros_like(y))
+
+
+class TestConvTransposeGradients(unittest.TestCase):
+    """Tests for finite gradients through transposed convolution layers."""
+
+    def test_conv_transpose1d_grad_finite(self):
+        """Gradients through ConvTranspose1d are finite."""
+        conv = brainstate.nn.ConvTranspose1d(in_size=(20, 4), out_channels=8, kernel_size=4, stride=2)
+        x = brainstate.random.randn(2, 20, 4)
+
+        def loss(inp):
+            return jnp.sum(conv(inp) ** 2)
+
+        _testing.assert_grad_finite(loss, x)
+
+    def test_conv_transpose2d_jit_equal(self):
+        """JIT-compiled ConvTranspose2d matches eager output."""
+        conv = brainstate.nn.ConvTranspose2d(in_size=(8, 8, 16), out_channels=8, kernel_size=3)
+        x = brainstate.random.randn(2, 8, 8, 16)
+        _testing.assert_jit_equal(lambda inp: conv(inp), x)

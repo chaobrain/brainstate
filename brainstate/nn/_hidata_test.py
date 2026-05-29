@@ -20,6 +20,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from brainstate.nn import HiData
+from brainstate.nn import _hidata
 
 
 class TestAutoDataclass(unittest.TestCase):
@@ -457,6 +458,88 @@ class TestDataHierarchicalRepr(unittest.TestCase):
         self.assertIn("layers=3", result)
         self.assertIn("epochs=100", result)
         self.assertIn("weights=Array(shape=(10, 5), dtype=float", result)
+
+
+class TestModuleIsDataclassHelper(unittest.TestCase):
+    """Cover the module-level ``is_dataclass`` marker helper."""
+
+    def test_true_for_hidata(self):
+        """``HiData`` carries the ``_brainstate_dataclass`` marker."""
+        self.assertTrue(_hidata.is_dataclass(HiData))
+
+    def test_false_for_plain_type(self):
+        """A plain class without the marker returns ``False``."""
+        self.assertFalse(_hidata.is_dataclass(int))
+
+
+class TestHiDataLen(unittest.TestCase):
+    """Cover ``HiData.__len__``."""
+
+    def test_len_counts_children(self):
+        """``len`` reflects the number of children."""
+        self.assertEqual(len(HiData()), 0)
+        self.assertEqual(len(HiData(a=1, b=2, c=3)), 3)
+
+
+class TestHiDataAdd(unittest.TestCase):
+    """Cover ``HiData.add`` merging of dicts, HiData args, and kwargs."""
+
+    def test_add_kwargs(self):
+        """Keyword updates are merged into a new HiData."""
+        base = HiData(a=1)
+        merged = base.add(b=2, c=3)
+        self.assertEqual(sorted(merged.keys()), ['a', 'b', 'c'])
+        # Original is untouched.
+        self.assertEqual(sorted(base.keys()), ['a'])
+
+    def test_add_dict_arg(self):
+        """A dict positional argument is merged in."""
+        merged = HiData(a=1).add({'b': 2})
+        self.assertEqual(merged['b'], 2)
+
+    def test_add_hidata_arg(self):
+        """A HiData positional argument contributes its children."""
+        merged = HiData(a=1).add(HiData(z=9))
+        self.assertEqual(merged['z'], 9)
+
+    def test_add_invalid_arg_raises(self):
+        """A non HiData/dict positional argument raises ``AssertionError``."""
+        with self.assertRaises(AssertionError):
+            HiData(a=1).add(123)
+
+
+class TestHiDataPop(unittest.TestCase):
+    """Cover ``HiData.pop``."""
+
+    def test_pop_removes_keys(self):
+        """Named keys are removed in the returned HiData."""
+        base = HiData(a=1, b=2, c=3)
+        popped = base.pop('b', 'c')
+        self.assertEqual(sorted(popped.keys()), ['a'])
+        # Original is untouched.
+        self.assertEqual(sorted(base.keys()), ['a', 'b', 'c'])
+
+    def test_pop_missing_key_raises(self):
+        """Popping an absent key raises ``KeyError``."""
+        with self.assertRaises(KeyError):
+            HiData(a=1).pop('missing')
+
+
+class TestHiDataDtypeNestedSkip(unittest.TestCase):
+    """Cover the nested-child ``dtype`` ValueError/continue branch."""
+
+    def test_dtype_skips_array_less_nested_child(self):
+        """A nested child with no arrays is skipped while resolving ``dtype``."""
+        array_less = HiData(meta='no-arrays-here')
+        # Confirm the nested child itself has no resolvable dtype.
+        with self.assertRaises(ValueError):
+            _ = array_less.dtype
+
+        outer = HiData(children={
+            'bad': array_less,
+            'good': HiData(x=jnp.array([1.0], dtype=jnp.float32)),
+        })
+        self.assertEqual(outer.dtype, jnp.float32)
 
 
 if __name__ == '__main__':

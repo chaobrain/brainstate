@@ -65,6 +65,7 @@ from brainstate.nn import (
     SimplexT,
 )
 from brainstate.nn import Param, IdentityT, SigmoidT, SoftplusT, Transform
+from brainstate.nn._param import _to_size, _expand_params_to_match_sizes
 
 
 class TestParamCachingBasic(unittest.TestCase):
@@ -1834,3 +1835,146 @@ class TestParamAllRegularizations(unittest.TestCase):
         param = Param(jnp.array([1.0]), reg=reg)
         loss = param.reg_loss()
         self.assertGreater(float(loss), 0.0)
+
+
+class TestParamCacheNonTrainable(unittest.TestCase):
+    """Cache and precompute behavior for non-trainable parameters."""
+
+    def test_cache_on_non_state_value(self):
+        """cache() reads directly from a plain array when fit=False."""
+        param = Param(jnp.array([1.0, 2.0]), t=SoftplusT(0.0), fit=False)
+        # val is a plain array (not a State) for fit=False.
+        self.assertNotIsInstance(param.val, brainstate.State)
+        cached = param.cache()
+        np.testing.assert_allclose(cached, jnp.array([1.0, 2.0]), rtol=1e-5)
+        self.assertTrue(param.cache_stats['valid'])
+
+    def test_cache_on_non_state_with_precompute(self):
+        """cache() applies precompute when fit=False and reads a plain array."""
+
+        def precompute_fn(x):
+            return x + 5.0
+
+        param = Param(jnp.array([1.0, 2.0]), fit=False, precompute=precompute_fn)
+        cached = param.cache()
+        np.testing.assert_allclose(cached, jnp.array([6.0, 7.0]), rtol=1e-5)
+
+
+class TestParamLoggingEvents(unittest.TestCase):
+    """Direct exercise of the cache logging event dispatcher."""
+
+    def test_log_event_miss_and_error(self):
+        """_log_cache_event handles 'miss' and 'error' event types when enabled."""
+        param = Param(jnp.array([1.0]), enable_cache_logging=True)
+        # These event names are dispatched but otherwise unused by Param itself.
+        param._log_cache_event('miss')
+        param._log_cache_event('error', error=ValueError('boom'))
+        self.assertIsNotNone(param._cache_logger)
+
+    def test_log_event_disabled_is_noop(self):
+        """_log_cache_event is a no-op when logging is disabled."""
+        param = Param(jnp.array([1.0]), enable_cache_logging=False)
+        # Should not initialize a logger nor raise.
+        param._log_cache_event('miss')
+        self.assertIsNone(param._cache_logger)
+
+    def test_log_event_hit_on_value(self):
+        """A cache hit during value() emits the 'hit' log event when enabled."""
+        param = Param(jnp.array([1.0, 2.0]), t=SoftplusT(0.0),
+                      enable_cache_logging=True)
+        param.cache()  # Populate cache so the next value() is a hit.
+        result = param.value()
+        np.testing.assert_allclose(result, jnp.array([1.0, 2.0]), rtol=1e-5)
+        self.assertIsNotNone(param._cache_logger)
+
+
+class TestParamPrettyRepr(unittest.TestCase):
+    """The __pretty_repr_item__ hook filters internal cache attributes."""
+
+    def test_internal_cache_fields_hidden(self):
+        """Internal cache and precompute attributes are filtered from repr."""
+        param = Param(jnp.array([1.0]))
+        for hidden in ('_enable_cache_logging', '_cache_lock', '_cached_value',
+                       '_cache_valid', '_cache_logger', 'precompute',
+                       '_cache_invalidation_hook_handle'):
+            self.assertIsNone(param.__pretty_repr_item__(hidden, getattr(param, hidden, None)))
+
+    def test_public_field_passthrough(self):
+        """Public attributes are returned unchanged."""
+        param = Param(jnp.array([1.0]))
+        self.assertEqual(param.__pretty_repr_item__('fit', True), ('fit', True))
+
+    def test_private_none_field_dropped(self):
+        """A leading-underscore field with a None value is dropped."""
+        param = Param(jnp.array([1.0]))
+        self.assertIsNone(param.__pretty_repr_item__('_secret', None))
+
+    def test_private_value_field_unprefixed(self):
+        """A leading-underscore field with a value is exposed without the prefix."""
+        param = Param(jnp.array([1.0]))
+        self.assertEqual(param.__pretty_repr_item__('_name', 'foo'), ('name', 'foo'))
+
+    def test_repr_does_not_raise(self):
+        """A full repr of a Param renders without raising."""
+        param = Param(jnp.array([1.0, 2.0]), t=SoftplusT(0.0))
+        self.assertIsInstance(repr(param), str)
+
+
+class TestParamPrivateHelpers(unittest.TestCase):
+    """Tests for module-private helper functions."""
+
+    def test_to_size_none(self):
+        """_to_size returns None unchanged."""
+        self.assertIsNone(_to_size(None))
+
+    def test_to_size_int(self):
+        """_to_size wraps an int into a 1-tuple."""
+        self.assertEqual(_to_size(5), (5,))
+
+    def test_to_size_sequence(self):
+        """_to_size passes through lists and tuples as tuples."""
+        self.assertEqual(_to_size([2, 3]), (2, 3))
+        self.assertEqual(_to_size((4, 5)), (4, 5))
+
+    def test_to_size_invalid_raises(self):
+        """_to_size raises ValueError for an unsupported type."""
+        with self.assertRaises(ValueError):
+            _to_size("invalid")
+
+    def test_expand_params_adds_leading_axes(self):
+        """_expand_params_to_match_sizes prepends axes to match the target rank."""
+        params = jnp.ones((3,))
+        expanded = _expand_params_to_match_sizes(params, (2, 3))
+        self.assertEqual(expanded.shape, (1, 3))
+
+    def test_expand_params_no_change_when_equal_rank(self):
+        """_expand_params_to_match_sizes is a no-op when ranks already match."""
+        params = jnp.ones((2, 3))
+        expanded = _expand_params_to_match_sizes(params, (2, 3))
+        self.assertEqual(expanded.shape, (2, 3))
+
+    def test_expand_params_multiple_axes(self):
+        """_expand_params_to_match_sizes prepends multiple axes when needed."""
+        params = jnp.ones((3,))
+        expanded = _expand_params_to_match_sizes(params, (4, 5, 3))
+        self.assertEqual(expanded.shape, (1, 1, 3))
+
+
+class TestParamInitNoSizes(unittest.TestCase):
+    """Param.init skips shape checking when sizes is None."""
+
+    def test_init_array_without_sizes(self):
+        """An array passed without sizes skips shape validation."""
+        param = Param.init(jnp.array([1.0, 2.0, 3.0]), sizes=None)
+        self.assertIsInstance(param, Const)
+        np.testing.assert_allclose(param.value(), jnp.array([1.0, 2.0, 3.0]))
+
+    def test_init_scalar_without_sizes(self):
+        """A scalar passed without sizes skips shape validation."""
+        param = Param.init(2.0, sizes=None)
+        self.assertIsInstance(param, Const)
+        np.testing.assert_allclose(float(param.value()), 2.0)
+
+
+if __name__ == '__main__':
+    unittest.main()

@@ -719,5 +719,113 @@ class TestEdgeCases(unittest.TestCase):
         self.assertEqual(output.shape, (0, 6, 6, 3))
 
 
+class TestPaddingInvalidNdim(unittest.TestCase):
+    """Each padding layer rejects inputs with an unsupported number of dimensions."""
+
+    def test_reflection_pad2d_invalid_ndim(self):
+        """ReflectionPad2d rejects non 3D/4D input."""
+        with self.assertRaises(ValueError):
+            brainstate.nn.ReflectionPad2d(1)(jnp.ones((4, 4)))
+
+    def test_reflection_pad3d_invalid_ndim(self):
+        """ReflectionPad3d rejects non 4D/5D input."""
+        with self.assertRaises(ValueError):
+            brainstate.nn.ReflectionPad3d(1)(jnp.ones((4, 4, 4)))
+
+    def test_replication_pad1d_invalid_ndim(self):
+        """ReplicationPad1d rejects non 2D/3D input."""
+        with self.assertRaises(ValueError):
+            brainstate.nn.ReplicationPad1d(1)(jnp.ones((4,)))
+
+    def test_replication_pad2d_invalid_ndim(self):
+        """ReplicationPad2d rejects non 3D/4D input."""
+        with self.assertRaises(ValueError):
+            brainstate.nn.ReplicationPad2d(1)(jnp.ones((4, 4)))
+
+    def test_replication_pad3d_invalid_ndim(self):
+        """ReplicationPad3d rejects non 4D/5D input."""
+        with self.assertRaises(ValueError):
+            brainstate.nn.ReplicationPad3d(1)(jnp.ones((4, 4, 4)))
+
+    def test_zero_pad1d_invalid_ndim(self):
+        """ZeroPad1d rejects non 2D/3D input."""
+        with self.assertRaises(ValueError):
+            brainstate.nn.ZeroPad1d(1)(jnp.ones((4,)))
+
+    def test_zero_pad2d_invalid_ndim(self):
+        """ZeroPad2d rejects non 3D/4D input."""
+        with self.assertRaises(ValueError):
+            brainstate.nn.ZeroPad2d(1)(jnp.ones((4, 4)))
+
+    def test_zero_pad3d_invalid_ndim(self):
+        """ZeroPad3d rejects non 4D/5D input."""
+        with self.assertRaises(ValueError):
+            brainstate.nn.ZeroPad3d(1)(jnp.ones((4, 4, 4)))
+
+    def test_constant_pad1d_invalid_ndim(self):
+        """ConstantPad1d rejects non 2D/3D input."""
+        with self.assertRaises(ValueError):
+            brainstate.nn.ConstantPad1d(1)(jnp.ones((4,)))
+
+    def test_constant_pad2d_invalid_ndim(self):
+        """ConstantPad2d rejects non 3D/4D input."""
+        with self.assertRaises(ValueError):
+            brainstate.nn.ConstantPad2d(1)(jnp.ones((4, 4)))
+
+    def test_constant_pad3d_invalid_ndim(self):
+        """ConstantPad3d rejects non 4D/5D input."""
+        with self.assertRaises(ValueError):
+            brainstate.nn.ConstantPad3d(1)(jnp.ones((4, 4, 4)))
+
+    def test_circular_pad1d_invalid_ndim(self):
+        """CircularPad1d rejects non 2D/3D input."""
+        with self.assertRaises(ValueError):
+            brainstate.nn.CircularPad1d(1)(jnp.ones((4,)))
+
+    def test_circular_pad2d_invalid_ndim(self):
+        """CircularPad2d rejects non 3D/4D input."""
+        with self.assertRaises(ValueError):
+            brainstate.nn.CircularPad2d(1)(jnp.ones((4, 4)))
+
+    def test_circular_pad3d_invalid_ndim(self):
+        """CircularPad3d rejects non 4D/5D input."""
+        with self.assertRaises(ValueError):
+            brainstate.nn.CircularPad3d(1)(jnp.ones((4, 4, 4)))
+
+
+class TestPaddingInSize(unittest.TestCase):
+    """The optional in_size argument computes a correct out_size for all layers."""
+
+    def test_replication_pad3d_in_size(self):
+        """ReplicationPad3d records out_size from in_size."""
+        pad = brainstate.nn.ReplicationPad3d(1, in_size=(1, 4, 4, 4, 2))
+        self.assertEqual(pad.out_size, (1, 6, 6, 6, 2))
+
+    def test_zero_pad2d_in_size(self):
+        """ZeroPad2d records out_size from in_size."""
+        pad = brainstate.nn.ZeroPad2d([1, 2], in_size=(8, 8, 3))
+        self.assertEqual(pad.out_size, (10, 12, 3))
+
+    def test_constant_pad2d_in_size(self):
+        """ConstantPad2d records out_size from in_size."""
+        pad = brainstate.nn.ConstantPad2d([1, 2], value=1.0, in_size=(8, 8, 3))
+        self.assertEqual(pad.out_size, (10, 12, 3))
+
+    def test_constant_pad3d_in_size(self):
+        """ConstantPad3d records out_size from in_size."""
+        pad = brainstate.nn.ConstantPad3d(1, value=2.0, in_size=(1, 4, 4, 4, 2))
+        self.assertEqual(pad.out_size, (1, 6, 6, 6, 2))
+
+    def test_circular_pad3d_in_size(self):
+        """CircularPad3d records out_size from in_size."""
+        pad = brainstate.nn.CircularPad3d([1, 2, 3], in_size=(1, 4, 4, 4, 2))
+        self.assertEqual(pad.out_size, (1, 6, 8, 10, 2))
+
+    def test_reflection_pad2d_unbatched_in_size(self):
+        """ReflectionPad2d computes out_size from an unbatched in_size."""
+        pad = brainstate.nn.ReflectionPad2d(1, in_size=(4, 4, 3))
+        self.assertEqual(pad.out_size, (6, 6, 3))
+
+
 if __name__ == '__main__':
     unittest.main()
