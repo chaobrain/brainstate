@@ -193,5 +193,34 @@ class TestComposition(unittest.TestCase):
         self.assertTrue(jnp.allclose(arg_ct, ref_arg_grad))
 
 
+class TestVjpErrors(unittest.TestCase):
+    """Cover error paths in vjp (lines 31, 119)."""
+
+    def test_non_state_grad_states_raises_type_error(self):
+        """_flatten_grad_states raises TypeError when given non-State values (line 31)."""
+        with self.assertRaises(TypeError):
+            brainstate.transform.vjp(lambda x: x, jnp.array(1.0), grad_states=[42])
+
+    def test_unused_grad_state_raises_value_error(self):
+        """vjp raises ValueError when a grad_state is not used inside the function (line 119)."""
+        w = brainstate.State(jnp.array(1.0))
+        unused = brainstate.State(jnp.array(2.0))
+
+        def f(x):
+            return w.value * x  # only reads w, not unused
+
+        with self.assertRaises(ValueError):
+            brainstate.transform.vjp(f, jnp.array(1.0), grad_states=unused)
+
+
+class TestJvpErrors(unittest.TestCase):
+    """Cover error paths in jvp (line 226)."""
+
+    def test_bad_tangents_type_raises(self):
+        """jvp raises TypeError when tangents is not a tuple or list (line 226)."""
+        with self.assertRaises(TypeError):
+            brainstate.transform.jvp(lambda x: x, (jnp.array(1.0),), 1.0)
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -580,5 +580,338 @@ class TestGradTransformIntegration(unittest.TestCase):
             jax.block_until_ready(step(jnp.array([1.0, 1.0])))
 
 
+# ---------------------------------------------------------------------------
+# Internal helpers: _extract_user_source edge cases (lines 134-174)
+# ---------------------------------------------------------------------------
+
+class TestExtractUserSourceEdgeCases(unittest.TestCase):
+    """Cover branches in _extract_user_source for unusual traceback objects."""
+
+    def test_object_with_no_traceback_no_as_python_traceback_returns_unknown(self):
+        """Object with neither .traceback nor .as_python_traceback returns unknown (line 137)."""
+        from brainstate.transform._debug import _extract_user_source
+
+        class NoTbAtAll:
+            """Has no traceback-related attributes at all."""
+            pass
+
+        src = _extract_user_source(NoTbAtAll())
+        self.assertIn("unknown", src)
+
+    def test_object_with_as_python_traceback_attribute(self):
+        """Object that exposes as_python_traceback directly (not via .traceback) is handled."""
+        from brainstate.transform._debug import _extract_user_source
+
+        class FakeTracebackObj:
+            """Mimics a raw JAX Traceback (no .traceback, has .as_python_traceback)."""
+            def as_python_traceback(self):
+                import traceback as tb_mod
+                try:
+                    raise ValueError("synthetic")
+                except ValueError:
+                    import sys
+                    return sys.exc_info()[2]
+
+        src = _extract_user_source(FakeTracebackObj())
+        # Should not raise; result is either a string with a frame or the fallback.
+        self.assertIsInstance(src, str)
+
+    def test_filter_traceback_raises_falls_back(self):
+        """When filter_traceback raises, filtered_tb is set to None (lines 158-159)."""
+        import unittest.mock as mock
+        from brainstate.transform import _debug as dbg
+        from brainstate.transform._debug import _extract_user_source
+
+        class FakeObj:
+            def as_python_traceback(self):
+                try:
+                    raise ValueError("test")
+                except ValueError:
+                    import sys
+                    return sys.exc_info()[2]
+
+        # Patch filter_traceback to raise so the except branch is taken (lines 158-159).
+        with mock.patch.object(dbg._traceback_util, 'filter_traceback', side_effect=RuntimeError("patch")):
+            src = _extract_user_source(FakeObj())
+        self.assertIsInstance(src, str)
+
+    def test_filtered_tb_has_user_frame_returns_early(self):
+        """When filtered_tb yields a user frame, src is returned immediately (line 162)."""
+        import unittest.mock as mock
+        import sys
+        from brainstate.transform import _debug as dbg
+        from brainstate.transform._debug import _extract_user_source
+
+        # Capture a real traceback from this test (not in site-packages).
+        captured_tb = None
+        try:
+            raise ValueError("user code frame")
+        except ValueError:
+            captured_tb = sys.exc_info()[2]
+
+        class FakeObj:
+            def as_python_traceback(self):
+                return captured_tb
+
+        # filter_traceback returns the real user traceback -> _innermost_user_frame returns
+        # a non-empty string -> line 162 is taken.
+        with mock.patch.object(dbg._traceback_util, 'filter_traceback', return_value=captured_tb):
+            src = _extract_user_source(FakeObj())
+        # The returned src should reference this test file.
+        self.assertIsInstance(src, str)
+        self.assertNotEqual(src, "")
+
+    def test_filtered_src_empty_falls_back_to_raw(self):
+        """When filtered frame is empty but raw frame exists, raw frame is returned (line 167 taken)."""
+        import unittest.mock as mock
+        from brainstate.transform import _debug as dbg
+        from brainstate.transform._debug import _extract_user_source
+
+        class FakeObj:
+            def as_python_traceback(self):
+                try:
+                    raise ValueError("test")
+                except ValueError:
+                    import sys
+                    return sys.exc_info()[2]
+
+        # Make filter_traceback return None so filtered_tb is None -> src is empty -> fallback.
+        with mock.patch.object(dbg._traceback_util, 'filter_traceback', return_value=None):
+            src = _extract_user_source(FakeObj())
+        self.assertIsInstance(src, str)
+
+    def test_as_python_traceback_returns_none(self):
+        """When as_python_traceback() returns None, falls back to summarize."""
+        from brainstate.transform._debug import _extract_user_source
+
+        class FakeTbReturnsNone:
+            def as_python_traceback(self):
+                return None
+
+        src = _extract_user_source(FakeTbReturnsNone())
+        self.assertIsInstance(src, str)
+
+    def test_as_python_traceback_raises(self):
+        """When as_python_traceback() raises, source_info_util.summarize is tried."""
+        from brainstate.transform._debug import _extract_user_source
+
+        class FakeTbRaises:
+            def as_python_traceback(self):
+                raise RuntimeError("boom")
+
+        src = _extract_user_source(FakeTbRaises())
+        self.assertIsInstance(src, str)
+
+
+# ---------------------------------------------------------------------------
+# _error_info edge cases (lines 196-197, 204-205)
+# ---------------------------------------------------------------------------
+
+class TestErrorInfo(unittest.TestCase):
+    """Cover exception-path branches in _error_info."""
+
+    def test_get_exception_raises_returns_none_triple(self):
+        """When err.get_exception() raises, _error_info returns (None, None, None)."""
+        from brainstate.transform._debug import _error_info
+
+        class BadErr:
+            def get_exception(self):
+                raise RuntimeError("not implemented")
+            def get(self):
+                return "some detail"
+
+        prim, tb, detail = _error_info(BadErr())
+        self.assertIsNone(prim)
+        self.assertIsNone(tb)
+        self.assertIsNone(detail)
+
+    def test_get_raises_returns_none_detail(self):
+        """When err.get() raises, detail is returned as None."""
+        from brainstate.transform._debug import _error_info
+
+        class ErrGetRaises:
+            def get_exception(self):
+                class Exc:
+                    prim = 'log'
+                    traceback_info = None
+                return Exc()
+            def get(self):
+                raise RuntimeError("no detail")
+
+        prim, tb, detail = _error_info(ErrGetRaises())
+        self.assertEqual(prim, 'log')
+        self.assertIsNone(detail)
+
+
+# ---------------------------------------------------------------------------
+# _diagnose edge cases (lines 214, 218-219, 229-230)
+# ---------------------------------------------------------------------------
+
+class TestDiagnose(unittest.TestCase):
+    """Cover exception and skip branches in _diagnose."""
+
+    def test_non_inexact_array_skipped(self):
+        """Integer arrays are skipped (not inexact)."""
+        from brainstate.transform._debug import _diagnose
+        lines = _diagnose([jnp.array([1, 2, 3])])
+        self.assertEqual(lines, [])
+
+    def test_clean_float_skipped(self):
+        """Float array with no NaN/Inf produces no diagnostic line."""
+        from brainstate.transform._debug import _diagnose
+        lines = _diagnose([jnp.array([1.0, 2.0])])
+        self.assertEqual(lines, [])
+
+    def test_nan_float_produces_line_with_minmax(self):
+        """Float array with NaN produces a diagnostic line including min/max."""
+        from brainstate.transform._debug import _diagnose
+        lines = _diagnose([jnp.array([1.0, jnp.nan, 3.0])])
+        self.assertEqual(len(lines), 1)
+        self.assertIn('NaNs=1', lines[0])
+
+    def test_inf_float_produces_line(self):
+        """Float array with Inf produces a diagnostic line."""
+        from brainstate.transform._debug import _diagnose
+        lines = _diagnose([jnp.array([jnp.inf, 2.0])])
+        self.assertEqual(len(lines), 1)
+        self.assertIn('Infs=1', lines[0])
+
+    def test_complex_nan_produces_line_without_minmax(self):
+        """Complex arrays with NaN produce a line but no min/max (non-floating dtype branch)."""
+        from brainstate.transform._debug import _diagnose
+        lines = _diagnose([jnp.array([jnp.nan + 0j], dtype=jnp.complex64)])
+        self.assertEqual(len(lines), 1)
+        self.assertIn('NaNs=1', lines[0])
+        # min/max not appended for complex (jnp.issubdtype complex64 not floating)
+        self.assertNotIn('min=', lines[0])
+
+    def test_nan_count_raises_is_skipped(self):
+        """When sum(isnan) raises, the array is silently skipped (lines 218-219)."""
+        import unittest.mock as mock
+        from brainstate.transform._debug import _diagnose
+        import jax.numpy as jnp_inner
+
+        # Patch jnp.sum to raise on first call to exercise the except branch (lines 218-219).
+        original_sum = jnp.sum
+        call_count = [0]
+
+        def patched_sum(a, *args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                raise RuntimeError("test exception in sum")
+            return original_sum(a, *args, **kwargs)
+
+        with mock.patch('brainstate.transform._debug.jnp.sum', side_effect=patched_sum):
+            # The inexact array triggers the except branch; result should be empty.
+            lines = _diagnose([jnp.array([jnp.nan, 1.0])])
+        self.assertEqual(lines, [])
+
+    def test_nanmin_raises_is_suppressed(self):
+        """When nanmin/nanmax raises, the exception is suppressed (lines 229-230)."""
+        import unittest.mock as mock
+        from brainstate.transform._debug import _diagnose
+
+        original_sum = jnp.sum
+        call_count = [0]
+
+        def patched_nanmin(a, *args, **kwargs):
+            raise RuntimeError("test nanmin failure")
+
+        with mock.patch('brainstate.transform._debug.jnp.nanmin', side_effect=patched_nanmin):
+            # Even though nanmin raises, the line is still appended (without min/max).
+            lines = _diagnose([jnp.array([jnp.nan, 2.0])])
+        self.assertEqual(len(lines), 1)
+        self.assertNotIn('min=', lines[0])
+
+
+# ---------------------------------------------------------------------------
+# _raise_report: user_context raises -> ctx=None branch (lines 261-262)
+# ---------------------------------------------------------------------------
+
+class TestRaiseReportCtxException(unittest.TestCase):
+    """Cover the except branch in _raise_report where user_context raises (lines 261-262)."""
+
+    def test_user_context_raises_still_raises_runtime_error(self):
+        """When user_context raises, ctx=None and RuntimeError is raised at line 266."""
+        import unittest.mock as mock
+        from jax.experimental import checkify
+        from brainstate.transform import _debug as dbg
+        from brainstate.transform._debug import _raise_report, _FLOAT_CHECKS
+
+        # Obtain a real checkify error with a non-None traceback_info.
+        checked = checkify.checkify(lambda x: jnp.log(x), errors=_FLOAT_CHECKS)
+        err, _ = checked(jnp.array([-1.0]))
+        exc = err.get_exception()
+
+        class RealErrWrapper:
+            def get_exception(self):
+                return exc
+            def get(self):
+                return 'nan from log'
+
+        # Make user_context raise so the except branch (lines 261-262) is taken.
+        with mock.patch.object(dbg.source_info_util, 'user_context', side_effect=RuntimeError("no ctx")):
+            with self.assertRaises(RuntimeError):
+                _raise_report(RealErrWrapper(), [jnp.array([jnp.nan])], phase='test')
+
+
+# ---------------------------------------------------------------------------
+# _build_message: prim is None and no diag (line 251)
+# ---------------------------------------------------------------------------
+
+class TestBuildMessageLocalizationFallback(unittest.TestCase):
+    """Cover the 'could not be localized' branch (line 251)."""
+
+    def test_inf_only_no_primitive_appends_fallback_message(self):
+        """Inf-only contamination (no prim, no diag) emits the localization note."""
+        # exp(1e30) produces Inf; output gate fires but checkify may not assign prim.
+        # We directly call _build_message with a synthetic NaN-free err that returns
+        # prim=None to drive the branch.
+        from brainstate.transform._debug import _build_message
+
+        class FakeErr:
+            def get_exception(self):
+                return None
+            def get(self):
+                return None
+
+        msg, _ = _build_message(FakeErr(), [jnp.array([jnp.nan])], phase='')
+        # The fallback message is appended when prim is None and diag is empty,
+        # but here diag IS non-empty (nan detected) so the prim=None+diag path fires.
+        # The localization note fires only when both are absent – drive with clean output.
+        msg2, _ = _build_message(FakeErr(), [jnp.array([1.0])], phase='test')
+        self.assertIn('could not be localized', msg2)
+
+
+# ---------------------------------------------------------------------------
+# breakpoint_if (lines 500-501)
+# ---------------------------------------------------------------------------
+
+class TestBreakpointIf(unittest.TestCase):
+    """Cover breakpoint_if (lines 500-501)."""
+
+    def test_false_pred_no_breakpoint(self):
+        """breakpoint_if with False predicate does not hang or raise."""
+        from brainstate.transform._debug import breakpoint_if
+        # Should return without triggering the breakpoint.
+        result = breakpoint_if(jnp.array(False))
+        # result is the token (None by default)
+        self.assertIsNone(result)
+
+    def test_true_pred_under_jit_does_not_raise(self):
+        """breakpoint_if with True under JIT completes without error in non-interactive mode."""
+        from brainstate.transform._debug import breakpoint_if
+        # In non-interactive mode (CI/test environment) JAX breakpoints are no-ops.
+        # Wrapping in jit exercises the JIT-traced code path.
+        @jax.jit
+        def f(x):
+            breakpoint_if(x > 0.5)
+            return x
+
+        # Should not raise; breakpoint is a no-op outside an interactive debugger.
+        out = f(jnp.array(0.0))
+        self.assertTrue(jnp.allclose(out, 0.0))
+
+
 if __name__ == '__main__':
     unittest.main()

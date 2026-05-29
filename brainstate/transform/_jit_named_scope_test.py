@@ -540,5 +540,74 @@ class TestStaticArgRecompilation(unittest.TestCase):
         self.assertTrue(jnp.allclose(result3, expected3))
 
 
+class TestIrCompilationPath(unittest.TestCase):
+    """Exercise the JIT-compiling branch taken when ``ir_compilation`` is on.
+
+    With ``ir_compilation=False`` (the default) the wrapper calls the original
+    function directly. Only when the env flag is enabled does it route through
+    ``_get_jit_fn`` -> ``_normalize_argnums``/``_normalize_argnames`` ->
+    ``_create_jit_fn``, so these tests flip the flag via ``environ.context``.
+    """
+
+    def test_plain_function_under_ir_compilation(self):
+        """No static args: the normalize helpers handle the ``None`` case."""
+
+        @jit_named_scope(name='plain')
+        def add(x, y):
+            return x + y
+
+        with bst.environ.context(ir_compilation=True):
+            out = add(jnp.array([1.0, 2.0]), jnp.array([3.0, 4.0]))
+        self.assertTrue(jnp.allclose(out, jnp.array([4.0, 6.0])))
+
+    def test_int_static_argnum_under_ir_compilation(self):
+        """An int ``static_argnums`` is normalized and compiled."""
+
+        @jit_named_scope(name='power', static_argnums=1)
+        def power(x, n):
+            return x ** n
+
+        with bst.environ.context(ir_compilation=True):
+            out = power(jnp.array([2.0, 3.0]), 2)
+        self.assertTrue(jnp.allclose(out, jnp.array([4.0, 9.0])))
+
+    def test_sequence_and_negative_argnums_under_ir_compilation(self):
+        """A tuple with a negative index is normalized to absolute positions."""
+
+        @jit_named_scope(name='scaled', static_argnums=(1, -1))
+        def scaled_power(x, n, scale):
+            return (x ** n) * scale
+
+        with bst.environ.context(ir_compilation=True):
+            out = scaled_power(jnp.array([2.0, 3.0]), 2, 10)
+        self.assertTrue(jnp.allclose(out, jnp.array([40.0, 90.0])))
+
+    def test_static_argnames_under_ir_compilation(self):
+        """A string ``static_argnames`` is normalized and compiled."""
+
+        @jit_named_scope(name='kw', static_argnames='n')
+        def power(x, n=2):
+            return x ** n
+
+        with bst.environ.context(ir_compilation=True):
+            out = power(jnp.array([2.0, 3.0]), n=3)
+        self.assertTrue(jnp.allclose(out, jnp.array([8.0, 27.0])))
+
+    def test_callable_static_args_under_ir_compilation(self):
+        """Callable ``static_argnums``/``static_argnames`` are resolved per call."""
+
+        @jit_named_scope(
+            name='dyn',
+            static_argnums=lambda *a, **k: (1,),
+            static_argnames=lambda *a, **k: ('scale',) if 'scale' in k else (),
+        )
+        def fn(x, n, scale=1):
+            return (x ** n) * scale
+
+        with bst.environ.context(ir_compilation=True):
+            out = fn(jnp.array([2.0, 3.0]), 2, scale=3)
+        self.assertTrue(jnp.allclose(out, jnp.array([12.0, 27.0])))
+
+
 if __name__ == '__main__':
     unittest.main()

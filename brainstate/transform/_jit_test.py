@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import unittest
 
+import jax
 import jax.numpy as jnp
 
 import brainstate as bst
@@ -141,3 +142,65 @@ class TestJIT(unittest.TestCase):
             return a + 1
 
         print(f(1.))
+
+
+class TestJitNameAndStaging(unittest.TestCase):
+    """Named scopes, the disable-jit fast path, and AOT staging methods."""
+
+    def test_named_jit_runs(self):
+        """A ``name`` is attached and the function still computes correctly."""
+        st = bst.State(jnp.zeros((2,)))
+
+        @bst.transform.jit(name='stepper')
+        def step(x):
+            st.value = st.value + x
+            return st.value
+
+        out = step(jnp.ones((2,)))
+        self.assertTrue(bool(jnp.allclose(out, 1.0)))
+        self.assertTrue(bool(jnp.allclose(st.value, 1.0)))
+
+    def test_static_argnums_recompile(self):
+        """Different static-arg values recompile; the result tracks the arg."""
+
+        def f(x, n):
+            return x * n
+
+        jf = bst.transform.jit(f, static_argnums=(1,))
+        self.assertTrue(bool(jnp.allclose(jf(jnp.ones((3,)), 2), 2.0)))
+        self.assertTrue(bool(jnp.allclose(jf(jnp.ones((3,)), 3), 3.0)))
+
+    def test_keyword_arguments(self):
+        """``jit`` forwards keyword arguments."""
+        jf = bst.transform.jit(lambda x, *, scale: x * scale)
+        self.assertTrue(bool(jnp.allclose(jf(jnp.ones((2,)), scale=4.0), 4.0)))
+
+    def test_disable_jit_calls_original(self):
+        """Under ``disable_jit`` the original function runs eagerly."""
+        st = bst.State(jnp.zeros((2,)))
+
+        @bst.transform.jit
+        def step(x):
+            st.value = st.value + x
+            return st.value
+
+        with jax.disable_jit():
+            out = step(jnp.ones((2,)))
+        self.assertTrue(bool(jnp.allclose(out, 1.0)))
+
+    def test_lower_trace_compile_eval_shape(self):
+        """The ahead-of-time staging helpers run without error."""
+        jf = bst.transform.jit(lambda x: x * 2)
+        x = jnp.ones((3,))
+        self.assertIsNotNone(jf.lower(x))
+        self.assertIsNotNone(jf.trace(x))
+        self.assertIsNotNone(jf.compile(x))
+        shape = jf.eval_shape(x)
+        self.assertEqual(jax.tree.leaves(shape)[0].shape, (3,))
+
+    def test_clear_cache_method(self):
+        """``clear_cache`` resets caches and the function recompiles cleanly."""
+        jf = bst.transform.jit(lambda x: x + 1)
+        jf(jnp.ones((2,)))
+        jf.clear_cache()
+        self.assertTrue(bool(jnp.allclose(jf(jnp.ones((2,))), 2.0)))

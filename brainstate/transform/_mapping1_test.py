@@ -678,5 +678,128 @@ class TestVmapIntegrationWithBrainState(unittest.TestCase):
         self.assertTrue(jnp.allclose(result, xs))
 
 
+class TestVmapDirectCall(unittest.TestCase):
+    """Test vmap called directly with fn (not as decorator), covering line 232."""
+
+    def test_vmap_direct_call_with_fn(self):
+        """vmap called as vmap(fn, ...) returns a vmapped function immediately."""
+        state = bst.ShortTermState(jnp.zeros(3))
+
+        def fn(x):
+            state.value = state.value + x
+            return state.value
+
+        vmapped = vmap(
+            fn,
+            in_axes=0,
+            out_axes=0,
+            in_states={0: {'state': state}},
+            out_states={0: {'state': state}},
+        )
+        xs = jnp.array([1.0, 2.0, 3.0])
+        result = vmapped(xs)
+        self.assertTrue(jnp.allclose(result, xs))
+
+    def test_vmap_direct_no_states(self):
+        """vmap called directly on a stateless function."""
+        state = bst.ShortTermState(jnp.zeros(4))
+
+        def fn(x):
+            state.value = x * 2
+            return state.value
+
+        vmapped = vmap(fn, in_axes=0, out_axes=0,
+                       in_states=state, out_states=state)
+        xs = jnp.arange(4.0)
+        result = vmapped(xs)
+        self.assertTrue(jnp.allclose(result, xs * 2))
+
+
+class TestVmapNewStatesListInAxes(unittest.TestCase):
+    """Test list in_axes conversion (line 266) and kwargs error (line 271)."""
+
+    def test_vmap_new_states_list_in_axes(self):
+        """vmap_new_states accepts list in_axes and converts it to tuple."""
+        @vmap_new_states(in_axes=[0], out_axes=0)
+        def fn(x):
+            temp = bst.ShortTermState(jnp.array(0.0))
+            temp.value = temp.value + x
+            return temp.value
+
+        xs = jnp.arange(4.0)
+        result = fn(xs)
+        self.assertTrue(jnp.allclose(result, xs))
+
+    def test_vmap_new_states_kwargs_raises(self):
+        """vmap_new_states rejects keyword arguments to vmapped fn."""
+        @vmap_new_states(in_axes=0)
+        def fn(x):
+            temp = bst.ShortTermState(x)
+            return temp.value
+
+        with self.assertRaises(NotImplementedError):
+            fn(jnp.arange(3.0), y=1.0)
+
+
+class TestVmapNewStatesWithRandomState(unittest.TestCase):
+    """Test probe hook for RandomState (lines 284-287, 308, 329)."""
+
+    def test_vmap_new_states_with_random_state(self):
+        """vmap_new_states probes and splits random state per lane."""
+        rng = bst.random.RandomState(42)
+
+        @vmap_new_states(in_axes=0, out_axes=0)
+        def fn(x):
+            noise = rng.uniform(size=())
+            temp = bst.ShortTermState(x + noise)
+            return temp.value
+
+        xs = jnp.arange(4.0)
+        result = fn(xs)
+        # Each lane gets different noise; shape must be (4,)
+        self.assertEqual(result.shape, (4,))
+
+
+class TestVmapNewStatesDirectCall(unittest.TestCase):
+    """Test vmap_new_states called with fn directly (line 437)."""
+
+    def test_vmap_new_states_direct_call(self):
+        """vmap_new_states(fun, ...) returns a vmapped function immediately."""
+        def fn(x):
+            temp = bst.ShortTermState(jnp.array(0.0))
+            temp.value = x * 3
+            return temp.value
+
+        vmapped = vmap_new_states(
+            fn,
+            in_axes=0,
+            out_axes=0,
+        )
+        xs = jnp.arange(5.0)
+        result = vmapped(xs)
+        self.assertTrue(jnp.allclose(result, xs * 3))
+
+
+class TestVmapNewStatesProbeHookNonRandom(unittest.TestCase):
+    """Test probe hook returns state._value for non-RandomState (line 287)."""
+
+    def test_probe_hook_non_random_state(self):
+        """vmap_new_states probes existing non-random states via state._value."""
+        # An existing state that's closed over (but not a RandomState) exercises
+        # the `return state._value` branch in the probe_hook.
+        existing = bst.ShortTermState(jnp.array(10.0))
+
+        @vmap_new_states(in_axes=0, out_axes=0)
+        def fn(x):
+            # Read existing (non-random) state -- exercises probe_hook else branch
+            temp = bst.ShortTermState(x + existing.value)
+            return temp.value
+
+        xs = jnp.arange(3.0)
+        result = fn(xs)
+        self.assertEqual(result.shape, (3,))
+        self.assertTrue(jnp.allclose(result, xs + 10.0))
+
+
 if __name__ == '__main__':
     unittest.main()

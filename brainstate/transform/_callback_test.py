@@ -125,5 +125,47 @@ class TestIoCallback(unittest.TestCase):
         self.assertEqual(log, [3.0])
 
 
+class TestStateNormalization(unittest.TestCase):
+    """Validate the ``read_states``/``write_states`` normalization helper."""
+
+    def test_read_states_as_list(self):
+        """A list of read_states is normalized and appended in order."""
+        a = brainstate.State(jnp.array([2.0, 3.0]))
+        b = brainstate.State(jnp.array([10.0, 20.0]))
+
+        def host(x, a_val, b_val):
+            return np.asarray(x) + np.asarray(a_val) + np.asarray(b_val)
+
+        x = jnp.array([1.0, 1.0])
+        spec = jax.ShapeDtypeStruct(x.shape, x.dtype)
+        out = brainstate.transform.pure_callback(host, spec, x, read_states=[a, b])
+        self.assertTrue(bool(jnp.allclose(out, jnp.array([13.0, 24.0]))))
+
+    def test_read_states_non_state_raises(self):
+        """A non-State entry in ``read_states`` raises ``TypeError``."""
+        a = brainstate.State(jnp.array([1.0]))
+        x = jnp.array([1.0])
+        spec = jax.ShapeDtypeStruct(x.shape, x.dtype)
+        with self.assertRaises(TypeError):
+            brainstate.transform.pure_callback(
+                lambda *xs: np.asarray(xs[0]), spec, x, read_states=[a, object()]
+            )
+
+    def test_write_states_non_state_raises(self):
+        """A non-State entry in ``write_states`` raises ``TypeError``."""
+        st = brainstate.State(jnp.array([0.0]))
+        x = jnp.array([1.0])
+        spec = (jax.ShapeDtypeStruct(x.shape, x.dtype),
+                jax.ShapeDtypeStruct(x.shape, x.dtype))
+
+        def host(v):
+            return np.asarray(v), np.asarray(v) + 1.0
+
+        with self.assertRaises(TypeError):
+            brainstate.transform.io_callback(
+                host, spec, x, write_states=[st, object()]
+            )
+
+
 if __name__ == '__main__':
     unittest.main()

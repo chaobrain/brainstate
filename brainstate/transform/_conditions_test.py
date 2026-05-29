@@ -227,3 +227,114 @@ class TestIfElse(unittest.TestCase):
 
         self.assertTrue(jax.grad(F3)(9.0) == 18.)
         self.assertTrue(jax.grad(F3)(11.0) == 1.)
+
+
+class TestCondValidation(unittest.TestCase):
+    """Argument validation and the disable-jit fast path for ``cond``."""
+
+    def test_non_callable_branches_raise(self):
+        """Non-callable branches raise ``TypeError``."""
+        with self.assertRaises(TypeError):
+            brainstate.transform.cond(True, 1, 2)
+
+    def test_none_predicate_raises(self):
+        """A ``None`` predicate raises ``TypeError``."""
+        with self.assertRaises(TypeError):
+            brainstate.transform.cond(None, lambda: 1, lambda: 2)
+
+    def test_non_scalar_predicate_raises(self):
+        """A non-scalar predicate raises ``TypeError``."""
+        with self.assertRaises(TypeError):
+            brainstate.transform.cond(jnp.array([True, False]), lambda: 1, lambda: 2)
+
+    def test_sequence_predicate_raises(self):
+        """A list predicate (a Sequence) raises ``TypeError``."""
+        with self.assertRaises(TypeError):
+            brainstate.transform.cond([True], lambda: 1, lambda: 2)
+
+    def test_non_numeric_predicate_raises(self):
+        """A predicate whose type is neither boolean nor number raises."""
+        with self.assertRaises(TypeError):
+            brainstate.transform.cond(object(), lambda: 1, lambda: 2)
+
+    def test_complex_predicate_raises(self):
+        """A complex predicate (kind 'c') raises ``TypeError``."""
+        with self.assertRaises(TypeError):
+            brainstate.transform.cond(1 + 2j, lambda: 1, lambda: 2)
+
+    def test_integer_predicate_is_truthy(self):
+        """A non-zero integer predicate selects the true branch."""
+        self.assertEqual(int(brainstate.transform.cond(1, lambda: 10, lambda: 20)), 10)
+        self.assertEqual(int(brainstate.transform.cond(0, lambda: 10, lambda: 20)), 20)
+
+    def test_disable_jit_fast_path(self):
+        """Under ``disable_jit`` a concrete predicate runs the branch directly."""
+        with jax.disable_jit():
+            self.assertEqual(brainstate.transform.cond(True, lambda: 1, lambda: 2), 1)
+            self.assertEqual(brainstate.transform.cond(False, lambda: 1, lambda: 2), 2)
+
+
+class TestSwitchValidation(unittest.TestCase):
+    """Argument validation and the disable-jit fast path for ``switch``."""
+
+    def test_non_callable_branch_raises(self):
+        """A non-callable branch raises ``TypeError``."""
+        with self.assertRaises(TypeError):
+            brainstate.transform.switch(0, [lambda x: x, 5], 1.0)
+
+    def test_non_scalar_index_raises(self):
+        """A non-scalar index raises ``TypeError``."""
+        with self.assertRaises(TypeError):
+            brainstate.transform.switch(jnp.array([0, 1]), [lambda x: x, lambda x: x], 1.0)
+
+    def test_non_integer_index_raises(self):
+        """A float index raises ``TypeError``."""
+        with self.assertRaises(TypeError):
+            brainstate.transform.switch(1.5, [lambda x: x, lambda x: x], 1.0)
+
+    def test_index_with_bad_type_raises(self):
+        """An index whose type cannot be resolved raises ``TypeError``."""
+        with self.assertRaises(TypeError):
+            brainstate.transform.switch(object(), [lambda x: x, lambda x: x], 1.0)
+
+    def test_empty_branches_raise(self):
+        """An empty branch sequence raises ``ValueError``."""
+        with self.assertRaises(ValueError):
+            brainstate.transform.switch(0, [], 1.0)
+
+    def test_disable_jit_fast_path(self):
+        """Under ``disable_jit`` a concrete index runs the branch directly."""
+        with jax.disable_jit():
+            out = brainstate.transform.switch(1, [lambda x: x, lambda x: x + 100], 1.0)
+            self.assertEqual(int(out), 101)
+
+
+class TestIfElseValidation(unittest.TestCase):
+    """Validation and degenerate cases for ``ifelse``."""
+
+    def test_non_callable_branch_raises(self):
+        """A non-callable branch raises ``TypeError``."""
+        with self.assertRaises(TypeError):
+            brainstate.transform.ifelse([True, False], [lambda: 1, 2])
+
+    def test_empty_branches_raise(self):
+        """An empty branch sequence raises ``ValueError``."""
+        with self.assertRaises(ValueError):
+            brainstate.transform.ifelse([], [])
+
+    def test_single_branch_short_circuits(self):
+        """A single branch is invoked directly without indexing."""
+        out = brainstate.transform.ifelse([True], [lambda x: x + 1], 5)
+        self.assertEqual(int(out), 6)
+
+    def test_mismatched_lengths_raise(self):
+        """Mismatched condition/branch counts raise ``ValueError``."""
+        with self.assertRaises(ValueError):
+            brainstate.transform.ifelse([True, False, False], [lambda: 1, lambda: 2])
+
+    def test_check_cond_false_skips_validation(self):
+        """``check_cond=False`` skips the one-hot validation."""
+        out = brainstate.transform.ifelse(
+            [True, True], [lambda: 1, lambda: 2], check_cond=False
+        )
+        self.assertEqual(int(out), 1)

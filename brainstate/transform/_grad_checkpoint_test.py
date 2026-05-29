@@ -13,14 +13,15 @@
 # limitations under the License.
 # ==============================================================================
 
+import unittest
+
 import jax
 import jax.numpy as jnp
-from absl.testing import absltest
 
 import brainstate
 
 
-class TestRemat(absltest.TestCase):
+class TestRemat(unittest.TestCase):
     def test_basic_remat(self):
         module = brainstate.transform.remat(brainstate.nn.Linear(2, 3))
         y = module(jnp.ones((1, 2)))
@@ -47,3 +48,34 @@ class TestRemat(absltest.TestCase):
 
         y = m(jnp.ones((10, 3)))
         assert y.shape == (10, 3)
+
+
+class TestCheckpointAliasAndDecorator(unittest.TestCase):
+    def test_remat_alias_matches_checkpoint(self):
+        """remat is an alias for checkpoint (line 151 import-time assignment)."""
+        from brainstate.transform._grad_checkpoint import remat, checkpoint
+        self.assertIs(remat, checkpoint)
+
+    def test_checkpoint_as_decorator_with_parentheses(self):
+        """checkpoint() called with parentheses (Missing() path, line 151) returns a decorator."""
+        @brainstate.transform.checkpoint(prevent_cse=False)
+        def f(x):
+            return x * 2.0
+
+        result = f(jnp.array([1.0, 2.0]))
+        self.assertTrue(jnp.allclose(result, jnp.array([2.0, 4.0])))
+
+    def test_checkpoint_with_policy(self):
+        """checkpoint with an explicit policy parameter exercises the policy path."""
+        policy = jax.checkpoint_policies.everything_saveable
+
+        @brainstate.transform.checkpoint(policy=policy)
+        def g(x):
+            return jnp.sin(x)
+
+        result = g(jnp.array([0.0, jnp.pi / 2]))
+        self.assertTrue(jnp.allclose(result, jnp.sin(jnp.array([0.0, jnp.pi / 2]))))
+
+
+if __name__ == '__main__':
+    unittest.main()

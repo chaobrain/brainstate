@@ -50,3 +50,26 @@ class TestJitError(unittest.TestCase):
         with self.assertRaises(Exception):
             jax.vmap(jax.vmap(f))(jnp.array([[False, False, False],
                                              [True, False, False]]))
+
+
+class TestErrorMsgDirect(unittest.TestCase):
+    def test_positional_format_args_covers_line_40(self):
+        """_error_msg with positional args exercises the %-format branch (line 40)."""
+        from brainstate.transform._error_if import _error_msg
+        with self.assertRaises(ValueError) as ctx:
+            _error_msg('value is %d', 42)
+        self.assertIn('42', str(ctx.exception))
+
+    def test_kwargs_format_covers_line_42(self):
+        """_error_msg with kwargs exercises the .format branch (line 42)."""
+        from brainstate.transform._error_if import _error_msg
+        with self.assertRaises(ValueError) as ctx:
+            _error_msg('value is {x}', x=99)
+        self.assertIn('99', str(ctx.exception))
+
+    def test_no_args_no_kwargs_raises_plain(self):
+        """_error_msg with no format args raises with the plain message (line 43)."""
+        from brainstate.transform._error_if import _error_msg
+        with self.assertRaises(ValueError) as ctx:
+            _error_msg('plain message')
+        self.assertIn('plain message', str(ctx.exception))

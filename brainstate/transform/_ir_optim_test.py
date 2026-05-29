@@ -179,6 +179,22 @@ class TestConstantFold(unittest.TestCase):
         # All constant computations should be folded
         self.assertLessEqual(optimized_len, original_len)
 
+    def test_constant_fold_literal_output_gets_assignment_eqn(self):
+        """When the whole output folds to a literal, a convert-element assignment is added."""
+
+        def f():
+            return jnp.float32(2.0) * jnp.float32(3.0)
+
+        jaxpr = jax.make_jaxpr(f)()
+        # Output is a Var, but folding reduces the body to a constant literal.
+        optimized = constant_fold(jaxpr.jaxpr)
+        # Interface preserved: the original Var outvar is kept.
+        self.assertEqual(tuple(optimized.outvars), tuple(jaxpr.jaxpr.outvars))
+        # An assignment equation re-materializes the literal into the outvar.
+        self.assertGreaterEqual(len(optimized.eqns), 1)
+        out = jax.core.eval_jaxpr(optimized, [])
+        self.assertTrue(np.allclose(np.asarray(out[0]), 6.0))
+
     def test_constant_fold_no_change_when_no_constants(self):
         """Test that jaxpr without constants is unchanged."""
 
@@ -836,6 +852,230 @@ class TestOptimizationCorrectness(unittest.TestCase):
             optimized_result = optimized_result[0]
 
         self.assertTrue(jnp.allclose(original_result, optimized_result))
+
+
+class TestCanonicalParam(unittest.TestCase):
+    """Cover _canonical_param's value-stable representation branches."""
+
+    def test_canonical_param_scalars_and_containers(self):
+        """Scalars pass through; tuples/lists/dicts recurse."""
+        from brainstate.transform._ir_optim import _canonical_param
+
+        self.assertEqual(_canonical_param(5), 5)
+        self.assertEqual(_canonical_param("s"), "s")
+        self.assertEqual(_canonical_param(None), None)
+        self.assertEqual(_canonical_param([1, 2]), (1, 2))
+        self.assertEqual(_canonical_param((1, [2, 3])), (1, (2, 3)))
+        # dict -> sorted tuple of (key, canonical(value))
+        self.assertEqual(_canonical_param({'b': 2, 'a': 1}), (('a', 1), ('b', 2)))
+
+    def test_canonical_param_ndarray(self):
+        """A numpy array is keyed by shape/dtype/bytes."""
+        from brainstate.transform._ir_optim import _canonical_param
+        arr = np.arange(4, dtype=np.int32)
+        key = _canonical_param(arr)
+        self.assertEqual(key[0], 'ndarray')
+        self.assertEqual(key[1], (4,))
+
+    def test_canonical_param_array_like(self):
+        """A jax array (shape+dtype, not np.ndarray) is converted via np.asarray."""
+        from brainstate.transform._ir_optim import _canonical_param
+        arr = jnp.arange(3, dtype=jnp.float32)
+        key = _canonical_param(arr)
+        self.assertEqual(key[0], 'array')
+        self.assertEqual(key[1], (3,))
+
+    def test_canonical_param_array_like_unconvertible(self):
+        """An object exposing shape/dtype that np.asarray cannot convert falls back to id."""
+        from brainstate.transform._ir_optim import _canonical_param
+
+        class Weird:
+            shape = (2,)
+            dtype = np.float32
+
+            def __array__(self, *a, **k):
+                raise ValueError("cannot convert")
+
+        key = _canonical_param(Weird())
+        self.assertEqual(key[0], 'id')
+
+    def test_canonical_param_opaque_object(self):
+        """A complex object with no shape/dtype gets a conservative identity key."""
+        from brainstate.transform._ir_optim import _canonical_param
+        obj = object()
+        key = _canonical_param(obj)
+        self.assertEqual(key, ('id', id(obj)))
+
+
+class TestCSEIdentityEquations(unittest.TestCase):
+    """CSE must add identity equations when an output variable is deduplicated."""
+
+    def test_cse_output_is_duplicate_adds_identity(self):
+        """When an outvar duplicates an earlier expression, an identity eqn is appended."""
+
+        def f(x, y):
+            a = x + y
+            b = x + y  # duplicate of a
+            return a, b  # b is an output that maps to a -> needs identity eqn
+
+        cj = jax.make_jaxpr(f)(jnp.float32(1.0), jnp.float32(2.0))
+        opt = common_subexpression_elimination(cj.jaxpr)
+        # Interface preserved.
+        self.assertEqual(tuple(opt.outvars), tuple(cj.jaxpr.outvars))
+        # Numerically identical.
+        out = jax.core.eval_jaxpr(opt, [], jnp.float32(3.0), jnp.float32(4.0))
+        self.assertTrue(np.allclose(np.asarray(out[0]), 7.0))
+        self.assertTrue(np.allclose(np.asarray(out[1]), 7.0))
+
+
+class TestCopyPropagationBranches(unittest.TestCase):
+    """Cover the identity/copy detection branches of copy_propagation."""
+
+    def test_copy_primitive_propagated(self):
+        """A jax.lax.copy that is not an output is eliminated."""
+
+        def f(x):
+            y = jax.lax.copy_p.bind(x)  # explicit copy
+            return y + 1.0
+
+        cj = jax.make_jaxpr(f)(jnp.float32(1.0))
+        opt = copy_propagation(cj.jaxpr)
+        out = jax.core.eval_jaxpr(opt, [], jnp.float32(5.0))
+        self.assertTrue(np.allclose(np.asarray(out[0]), 6.0))
+
+    def test_copy_as_output_is_kept(self):
+        """An identity op that *is* the output variable must be retained."""
+
+        def f(x):
+            return jax.lax.copy_p.bind(x)  # the copy itself is the output
+
+        cj = jax.make_jaxpr(f)(jnp.float32(1.0))
+        opt = copy_propagation(cj.jaxpr)
+        # Output preserved and correct.
+        self.assertEqual(tuple(opt.outvars), tuple(cj.jaxpr.outvars))
+        out = jax.core.eval_jaxpr(opt, [], jnp.float32(5.0))
+        self.assertTrue(np.allclose(np.asarray(out[0]), 5.0))
+
+    def test_convert_element_type_same_dtype_propagated(self):
+        """A no-op convert_element_type (same dtype) is treated as identity."""
+
+        def f(x):
+            y = jax.lax.convert_element_type(x, jnp.float32)  # x already float32 -> no-op
+            return y + 1.0
+
+        cj = jax.make_jaxpr(f)(jnp.float32(1.0))
+        opt = copy_propagation(cj.jaxpr)
+        out = jax.core.eval_jaxpr(opt, [], jnp.float32(2.0))
+        self.assertTrue(np.allclose(np.asarray(out[0]), 3.0))
+
+
+class TestAlgebraicSimplificationBranches(unittest.TestCase):
+    """Cover the remaining algebraic identity branches (lhs-side and x-x)."""
+
+    def test_zero_plus_x(self):
+        """0 + x = x (zero on the left-hand side)."""
+
+        def f(x, y):
+            a = 0.0 + x
+            return a + y
+
+        cj = jax.make_jaxpr(f)(jnp.float32(1.0), jnp.float32(2.0))
+        opt = algebraic_simplification(cj.jaxpr)
+        out = jax.core.eval_jaxpr(opt, [], jnp.float32(3.0), jnp.float32(4.0))
+        self.assertTrue(np.allclose(np.asarray(out[0]), 7.0))
+
+    def test_one_times_x(self):
+        """1 * x = x (one on the left-hand side)."""
+
+        def f(x, y):
+            a = 1.0 * x
+            return a + y
+
+        cj = jax.make_jaxpr(f)(jnp.float32(1.0), jnp.float32(2.0))
+        opt = algebraic_simplification(cj.jaxpr)
+        out = jax.core.eval_jaxpr(opt, [], jnp.float32(3.0), jnp.float32(4.0))
+        self.assertTrue(np.allclose(np.asarray(out[0]), 7.0))
+
+    def test_x_minus_x_is_zero(self):
+        """x - x = 0 maps the output to a zero literal."""
+
+        def f(x):
+            a = x - x
+            return a + 10.0
+
+        cj = jax.make_jaxpr(f)(jnp.float32(1.0))
+        opt = algebraic_simplification(cj.jaxpr)
+        out = jax.core.eval_jaxpr(opt, [], jnp.float32(7.0))
+        self.assertTrue(np.allclose(np.asarray(out[0]), 10.0))
+
+    def test_simplified_output_var_gets_identity_eqn(self):
+        """A simplified output variable triggers the identity-equation appendix."""
+
+        def f(x):
+            return x + 0.0  # the output itself simplifies to x
+
+        cj = jax.make_jaxpr(f)(jnp.float32(1.0))
+        opt = algebraic_simplification(cj.jaxpr)
+        self.assertEqual(tuple(opt.outvars), tuple(cj.jaxpr.outvars))
+        out = jax.core.eval_jaxpr(opt, [], jnp.float32(9.0))
+        self.assertTrue(np.allclose(np.asarray(out[0]), 9.0))
+
+
+class TestIsConstantValueSafety(unittest.TestCase):
+    """is_constant_value (via algebraic_simplification) must not crash on odd literals."""
+
+    def test_non_unity_scalar_literal_not_simplified(self):
+        """A scalar literal that is neither 0 nor 1 is not matched by any identity."""
+
+        def f(x, y):
+            # 5 is a scalar literal but matches no algebraic identity.
+            a = x + 5.0
+            return a + y
+
+        cj = jax.make_jaxpr(f)(jnp.float32(1.0), jnp.float32(2.0))
+        opt = algebraic_simplification(cj.jaxpr)
+        # The add against 5.0 must survive (no simplification applied).
+        self.assertTrue(any(e.primitive.name == 'add' for e in opt.eqns))
+        out = jax.core.eval_jaxpr(opt, [], jnp.float32(3.0), jnp.float32(4.0))
+        self.assertTrue(np.allclose(np.asarray(out[0]), 12.0))
+
+
+class TestOptimizeJaxprMore(unittest.TestCase):
+    """Additional optimize_jaxpr option/verbose coverage."""
+
+    def test_optimizations_all_string(self):
+        """optimizations='all' expands to the full default pipeline."""
+
+        def f(x):
+            dead = x * 7.0  # noqa: F841
+            return x + (jnp.float32(2.0) + jnp.float32(3.0))
+
+        cj = jax.make_jaxpr(f)(jnp.float32(1.0))
+        opt = optimize_jaxpr(cj.jaxpr, optimizations='all')
+        self.assertLess(len(opt.eqns), len(cj.jaxpr.eqns))
+
+    def test_optimizations_single_string(self):
+        """A single optimization name as a bare string runs just that pass."""
+
+        def f(x):
+            return x + (jnp.float32(2.0) + jnp.float32(3.0))
+
+        cj = jax.make_jaxpr(f)(jnp.float32(1.0))
+        opt = optimize_jaxpr(cj.jaxpr, optimizations='constant_fold')
+        self.assertIsNotNone(opt)
+
+    def test_verbose_reports_reductions_and_max_iterations(self):
+        """verbose=True with max_iterations=1 prints per-pass reductions and the cap notice."""
+
+        def f(x):
+            dead = x * 7.0  # noqa: F841
+            return x + (jnp.float32(2.0) + jnp.float32(3.0))
+
+        cj = jax.make_jaxpr(f)(jnp.float32(1.0))
+        # max_iterations=1 means the loop never converges early -> hits the
+        # ``else`` (reached-max-iterations) print branch.
+        opt = optimize_jaxpr(cj.jaxpr, max_iterations=1, verbose=True)
+        self.assertIsNotNone(opt)
 
 
 class TestOptimizeJaxprDefaults(unittest.TestCase):

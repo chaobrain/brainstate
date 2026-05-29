@@ -741,7 +741,13 @@ def _sourcify_dynamic_update_slice(state, eqn):
     # the remaining are start indices and should be packaged into a tuple
     target = _astify_atom(state, eqn.invars[0])
     update = _astify_atom(state, eqn.invars[1])
-    start_indices = maybe_tuple_vars([_astify_atom(state, var) for var in eqn.invars[2:]])
+    # ``jax.lax.dynamic_update_slice`` requires ``start_indices`` to be a
+    # sequence, so always emit a tuple (even for a single index) — matching
+    # ``_sourcify_dynamic_slice``.
+    start_indices = ast.Tuple(
+        elts=[_astify_atom(state, var) for var in eqn.invars[2:]],
+        ctx=ast.Load(),
+    )
     outvars = _astify_outvars(state, eqn.outvars)
 
     return ast.Assign(targets=outvars, value=ast.Call(
@@ -870,7 +876,17 @@ def _astify_value(value):
 
     if is_array(value):
         return _astify_array(value)
-    elif isinstance(value, (int, bool, float, str, type(None))):
+    elif isinstance(value, bool):
+        return ast.Constant(value=bool(value))
+    elif isinstance(value, int):
+        # Coerce subclasses (e.g. JAX-boxed ``TypedInt`` literals) to a plain
+        # ``int`` so ``ast.unparse`` emits a literal instead of the object repr.
+        return ast.Constant(value=int(value))
+    elif isinstance(value, float):
+        # Coerce subclasses (e.g. JAX-boxed ``TypedFloat`` literals) to a plain
+        # ``float`` for the same reason.
+        return ast.Constant(value=float(value))
+    elif isinstance(value, (str, type(None))):
         return ast.Constant(value=value)
     elif isinstance(value, (tuple, list)):
         return ast.Tuple(elts=[_astify_value(v) for v in value], ctx=ast.Load())
