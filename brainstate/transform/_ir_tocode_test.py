@@ -154,6 +154,57 @@ class TestToCodeUnsupported(unittest.TestCase):
             fn_to_python_code(f, jnp.float32([1., 2., 3.]))
 
 
+class TestBoxedLiteralArrays(unittest.TestCase):
+    """Some JAX versions box jaxpr literals in wrapper types (e.g.
+    ``jax._src.literals.TypedNdArray``) that are array-like but not
+    ``jax.Array`` subclasses. These must still emit valid code instead of
+    falling through to the 'unknown value' path (which produced syntactically
+    invalid output like ``b + ``)."""
+
+    class _FakeTypedNdArray:
+        # Mimics the public surface of jax's literal wrapper.
+        def __init__(self, val):
+            self.val = np.asarray(val)
+
+        @property
+        def dtype(self):
+            return self.val.dtype
+
+        @property
+        def shape(self):
+            return self.val.shape
+
+        def __array__(self, dtype=None, copy=None):
+            return np.asarray(self.val, dtype=dtype)
+
+    def test_is_array_recognizes_wrapper(self):
+        from brainstate.transform import _ir_tocode
+        w = self._FakeTypedNdArray(np.float32(2.0))
+        self.assertTrue(_ir_tocode.is_array(w))
+        # A dtype object must NOT be misclassified as an array.
+        self.assertFalse(_ir_tocode.is_array(np.dtype('float32')))
+
+    def test_scalar_wrapper_emits_valid_constant(self):
+        import ast
+        from brainstate.transform import _ir_tocode
+        w = self._FakeTypedNdArray(np.float32(2.5))
+        node = _ir_tocode._astify_value(w)
+        # Must unparse to a non-empty, parseable expression equal to 2.5.
+        src = ast.unparse(ast.fix_missing_locations(node))
+        self.assertTrue(src.strip())
+        self.assertEqual(eval(src), 2.5)
+
+    def test_array_wrapper_emits_valid_array(self):
+        import ast
+        from brainstate.transform import _ir_tocode
+        w = self._FakeTypedNdArray(np.float32([1.0, 2.0, 3.0]))
+        node = _ir_tocode._astify_value(w)
+        src = ast.unparse(ast.fix_missing_locations(node))
+        self.assertIn('array', src)
+        out = eval(src, {'jax': jax, 'jnp': jnp, 'np': np})
+        self.assertTrue(np.allclose(np.asarray(out), [1.0, 2.0, 3.0]))
+
+
 class TestRegisterPrimHandlerPublic(unittest.TestCase):
     def test_register_prim_handler_is_public(self):
         import brainstate.transform as T

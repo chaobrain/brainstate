@@ -774,11 +774,54 @@ def _astify_convert_element_type(state, eqn):
 
 
 def is_array(arr):
-    return isinstance(arr, (np.ndarray, np.generic, jax.Array))
+    if isinstance(arr, (np.ndarray, np.generic, jax.Array)):
+        return True
+    # Some JAX versions box jaxpr literals in wrapper types (e.g.
+    # ``jax._src.literals.TypedNdArray``) that are array-like - they carry a
+    # ``dtype`` and ``shape`` and convert via ``numpy`` - but are *not*
+    # subclasses of ``jax.Array``. Recognise them by duck-typing so their
+    # values are emitted as real arrays instead of falling through to the
+    # "unknown value" path (which produced syntactically invalid code).
+    return (
+        hasattr(arr, 'dtype')
+        and hasattr(arr, 'shape')
+        and not isinstance(arr, np.dtype)
+    )
+
+
+def _coerce_to_numpy(value):
+    """Realise an array-like literal to a concrete ``numpy`` array.
+
+    Native ``numpy`` scalars/arrays are returned unchanged so the existing
+    ``np.int64`` / 0-d special cases in :func:`_astify_array` keep working.
+    Everything else (``jax.Array`` and boxed literal wrappers) is converted
+    via ``numpy``, with attribute-based fallbacks for wrappers that do not
+    implement the array protocol directly.
+    """
+    if isinstance(value, (np.ndarray, np.generic)):
+        return value
+    # Boxed jaxpr literals (e.g. ``TypedNdArray``) expose the underlying
+    # ndarray via ``.val``; prefer it so the exact dtype is preserved (the
+    # wrapper's ``__array__`` is documented to misbehave on NumPy < 2.3).
+    inner = getattr(value, 'val', None)
+    if isinstance(inner, (np.ndarray, np.generic)):
+        return inner
+    try:
+        return np.asarray(value)
+    except Exception:
+        for attr in ('_value', 'array', 'value'):
+            inner = getattr(value, attr, None)
+            if inner is not None and inner is not value:
+                try:
+                    return np.asarray(inner)
+                except Exception:
+                    continue
+        raise
 
 
 def _astify_array(value):
     assert is_array(value)
+    value = _coerce_to_numpy(value)
     if isinstance(value, np.int64):
         return ast.Constant(value=int(value))
 
