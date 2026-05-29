@@ -67,9 +67,18 @@ def main():
             return x
 
     model = MLP(hiddens=layers, latent=output_size)
-    opt = braintools.optim.SGD(lr=learning_rate, momentum=momentum, nesterov=True, weight_decay=1e-5)
-    weight_params = model.states(brainstate.ParamState)
-    opt.register_trainable_weights(weight_params)
+
+    # SOFO ("Second-Order Forward-mode Optimization") owns the forward pass: it samples random
+    # tangents, takes forward-mode JVPs through ``model`` and ``loss_fn``, builds the Generalised
+    # Gauss-Newton matrix in that subspace, and applies the damped natural-gradient direction
+    # through an SGD-style update (momentum / weight decay handled internally).
+    loss_fn = lambda pred, targets: optax.softmax_cross_entropy_with_integer_labels(pred, targets).mean()
+    opt = braintools.optim.SOFO(
+        model, loss_fn, lr=learning_rate, loss='ce',
+        tangent_size=tangent_size, damping=damping,
+        momentum=momentum, nesterov=True, weight_decay=1e-5,
+    )
+    opt.register_trainable_weights(model.states(brainstate.ParamState))
 
     def accuracy(pred, targets):
         target_class = jnp.argmax(targets, axis=1) if targets.ndim == 2 else targets
@@ -78,16 +87,8 @@ def main():
 
     @brainstate.transform.jit
     def train_step(batch_x, batch_y):
-        loss_fn = lambda logits: optax.softmax_cross_entropy_with_integer_labels(logits, batch_y).mean()
-        grad_fn = brainstate.transform.sofo_grad(
-            model, loss_fn, loss='ce',
-            grad_states=weight_params, return_value=True,
-            tangent_size=tangent_size, damping=damping,
-        )
-        grads, pred = grad_fn(batch_x)
-        opt.update(grads)
+        loss = opt.step(batch_x, batch_y)
         acc = accuracy(model(batch_x), batch_y)
-        loss = loss_fn(pred)
         return loss, acc
 
     for i in range(iteration):

@@ -274,15 +274,6 @@ Jacobian and Hessian
    hessian
 
 
-Advanced Gradient Methods
-~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. autosummary::
-   :toctree: generated/
-
-   sofo_grad
-
-
 Base Classes
 ~~~~~~~~~~~~
 
