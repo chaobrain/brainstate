@@ -105,3 +105,48 @@ Open `docs/_build/html/index.html` in your browser to review the result.
 
 ## Need Help?
 If you have questions or want early feedback on substantial changes, open a draft pull request or start a discussion on the issue tracker. We are happy to help you land your contribution.
+
+## Testing conventions
+
+All tests live next to the source as `<module>_test.py` and run via `pytest brainstate/`.
+
+### Framework
+- Use `unittest.TestCase`, with `absl.testing.parameterized` for parametric cases.
+- Every test class/method has a one-line NumPy-doc summary describing the scenario.
+- Naming: `class Test<Thing>`, `def test_<behavior>`.
+
+### Shared helpers (`brainstate/_testing.py`)
+- `assert_allclose(actual, expected, *, rtol, atol, check_dtype)` — unit-aware (brainunit) value+shape check.
+- `assert_jit_equal(fn, *args)` — `jit(fn)` matches eager.
+- `assert_grad_finite(fn, *args, argnums=0)` — gradients of a scalar fn are finite.
+- `assert_vmap_equal(fn, *batched_args)` — `vmap(fn)` over axis 0 matches a Python loop.
+- `assert_transform_compatible(fn, *args, transforms=("jit","grad","vmap"))` — umbrella.
+- `assert_pytree_roundtrip(obj)` — flatten/unflatten roundtrip.
+- Size constants `SMALL_BATCH=4`, `SMALL_DIM=16`, `SMALL_SEQ=5`.
+- `seeded(seed)` — context manager (`with seeded(0): ...`) that seeds and restores RNG.
+
+### Random numbers
+- Always use `brainstate.random` (e.g. `brainstate.random.rand`, `.randn`, `.seed`).
+- **Never** import or call `jax.random` directly in tests.
+
+### Performance
+- Keep inputs tiny: batch ≤ 4, dims ≤ 16 (use the `SMALL_*` constants).
+- Reuse compiled functions / built modules across cases; do not re-`jit` per case.
+- Mark expensive tests `@pytest.mark.slow` (skipped by default; run with `pytest --run-slow`).
+
+### The per-API checklist
+Each public API should be tested for: (1) happy path; (2) shapes/dtypes/units;
+(3) argument variations; (4) edge cases (empty/zero/single/large, boundary, NaN/inf);
+(5) failure paths (assert exception type AND message); (6) JAX-transform compatibility
+(jit/grad/vmap/scan); (7) State semantics (read/write, no leaks, pytree roundtrip);
+(8) determinism under seeded RNG; (9) serialization (treefy/state_dict) where applicable.
+
+### Coverage bar
+Each subpackage targets **≥90% line coverage** (branch coverage measured/reported). Measure
+with the coverage CLI (the `pytest-cov` plugin aborts under JAX/XLA on some platforms; the CLI
+starts the tracer cleanly):
+```bash
+coverage run -m pytest brainstate/<subpackage>/
+coverage report -m
+```
+Coverage settings (source, branch, omit) live in `[tool.coverage.*]` in `pyproject.toml`.

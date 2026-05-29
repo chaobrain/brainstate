@@ -55,7 +55,16 @@ jobs:
           python -m pip install . || exit 1
       - name: Test with pytest
         run: |
-          pytest brainstate/
+          # Use the coverage CLI rather than the pytest-cov plugin: the plugin's
+          # tracer-start timing aborts (SIGABRT) under JAX/XLA, while `coverage
+          # run` starts cleanly. Config lives in [tool.coverage.*] in pyproject.
+          if [ "${{ github.event_name }}" == "schedule" ]; then
+            coverage run -m pytest brainstate/ --run-slow
+          else
+            coverage run -m pytest brainstate/
+          fi
+          coverage report -m
+          coverage xml
 
   type_check:
     runs-on: ubuntu-latest
