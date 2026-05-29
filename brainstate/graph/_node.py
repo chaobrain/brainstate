@@ -1,7 +1,4 @@
-# The file is adapted from the Flax library (https://github.com/google/flax).
-# The credit should go to the Flax authors.
-#
-# Copyright 2024 The Flax Authors.
+# Copyright 2024 BrainX Ecosystem Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,22 +11,24 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+# ==============================================================================
+
+"""The :class:`Node` base class for mutable graph nodes."""
 
 from __future__ import annotations
 
 from abc import ABCMeta
 from copy import deepcopy
-from typing import Any, TypeVar, TYPE_CHECKING, Callable
+from typing import Any, Callable, TypeVar, TYPE_CHECKING
 
 from brainstate._error import TraceContextError
 from brainstate._state import State, TreefyState
 from brainstate.typing import Key
 from brainstate.util import PrettyObject
-from ._operation import register_graph_node_type, treefy_split, treefy_merge
+from ._operations import treefy_split, treefy_merge
+from ._walk import register_graph_node_type
 
-__all__ = [
-    'Node',
-]
+__all__ = ['Node']
 
 G = TypeVar('G', bound='Node')
 
@@ -43,7 +42,28 @@ class GraphNodeMeta(ABCMeta):
 
 
 class Node(PrettyObject, metaclass=GraphNodeMeta):
-    """Base class for all graph nodes in the BrainState framework."""
+    """Base class for all mutable graph nodes in the BrainState framework.
+
+    Subclasses are automatically registered with the graph engine, so their
+    attributes participate in :func:`~brainstate.graph.treefy_split` /
+    :func:`~brainstate.graph.treefy_merge`, state/node introspection, and the
+    functional transforms built on top of them. Attributes are flattened in
+    alphabetical order; names listed in ``graph_invisible_attrs`` are excluded.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate
+        >>> class MyModel(brainstate.graph.Node):
+        ...     def __init__(self):
+        ...         self.w = brainstate.ParamState(brainstate.random.randn(3))
+        >>> model = MyModel()
+        >>> graphdef, params = brainstate.graph.treefy_split(model)
+        >>> rebuilt = brainstate.graph.treefy_merge(graphdef, params)
+        >>> isinstance(rebuilt, MyModel)
+        True
+    """
 
     __module__ = 'brainstate.graph'
 
@@ -67,7 +87,7 @@ class Node(PrettyObject, metaclass=GraphNodeMeta):
         return treefy_merge(graphdef, state)
 
     def check_valid_context(self, error_msg: Callable[[], str]) -> None:
-        """Check if the current context is valid for mutation."""
+        """Raise :class:`TraceContextError` if the current trace context is invalid."""
         if not self._trace_state.is_valid():
             raise TraceContextError(error_msg())
 

@@ -28,8 +28,14 @@ class TestGraphUtils(absltest.TestCase):
             pass
 
         self.assertFalse(hasattr(ctx, 'ref_index'))
-        self.assertIsInstance(graphdef1, brainstate.graph.NodeDef)
-        self.assertIsInstance(graphdef2, brainstate.graph.NodeRef)
+        # graphdef1 is a full definition; graphdef2 is a pure back-reference to
+        # the same node (shared across the split_context), so it carries no
+        # node specs of its own.
+        self.assertIsInstance(graphdef1.root, brainstate.graph.NodeEdge)
+        self.assertGreaterEqual(len(graphdef1.node_specs), 1)
+        self.assertEqual(graphdef1.type, brainstate.nn.Linear)
+        self.assertIsInstance(graphdef2.root, brainstate.graph.NodeEdge)
+        self.assertEqual(len(graphdef2.node_specs), 0)
         self.assertLen(state1.to_flat(), 1)
         self.assertLen(state2.to_flat(), 0)
 
@@ -47,8 +53,10 @@ class TestGraphUtils(absltest.TestCase):
             graphdef1, state1 = ctx.treefy_split(m1)
             graphdef2, state2 = ctx.treefy_split(m2)
 
-        self.assertIsInstance(graphdef1, brainstate.graph.NodeDef)
-        self.assertIsInstance(graphdef2, brainstate.graph.NodeRef)
+        self.assertIsInstance(graphdef1.root, brainstate.graph.NodeEdge)
+        self.assertGreaterEqual(len(graphdef1.node_specs), 1)
+        self.assertIsInstance(graphdef2.root, brainstate.graph.NodeEdge)
+        self.assertEqual(len(graphdef2.node_specs), 0)   # back-reference
         self.assertLen(state1.to_flat(), 1)
         self.assertLen(state2.to_flat(), 0)
 

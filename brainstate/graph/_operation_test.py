@@ -342,7 +342,11 @@ class TestGraphUtils(absltest.TestCase):
 
         assert 'tree' in state
         assert 'a' in state.tree
-        assert graphdef.subgraphs['tree'].type.__name__ == 'PytreeType'
+        # In the flat IR the embedded pytree shows up as a ``PytreeEdge`` field
+        # on the root node spec (pytrees are inlined, they consume no index).
+        root_spec = [s for s in graphdef.node_specs if s.index == graphdef.index][0]
+        tree_edge = dict(root_spec.fields)['tree']
+        assert isinstance(tree_edge, brainstate.graph.PytreeEdge)
 
         m2 = brainstate.graph.treefy_merge(graphdef, state)
 
@@ -558,7 +562,7 @@ class TestRefMap(unittest.TestCase):
 
 class TestHelperFunctions(unittest.TestCase):
     def test_is_state_leaf(self):
-        from brainstate.graph._operation import _is_state_leaf
+        from brainstate.graph._walk import _is_state_leaf
 
         state = brainstate.ParamState(1)
         treefy_state = state.to_state_ref()
@@ -569,7 +573,7 @@ class TestHelperFunctions(unittest.TestCase):
         self.assertFalse(_is_state_leaf(None))
 
     def test_is_node_leaf(self):
-        from brainstate.graph._operation import _is_node_leaf
+        from brainstate.graph._walk import _is_node_leaf
 
         state = brainstate.ParamState(1)
 
@@ -578,7 +582,7 @@ class TestHelperFunctions(unittest.TestCase):
         self.assertFalse(_is_node_leaf(None))
 
     def test_is_node(self):
-        from brainstate.graph._operation import _is_node
+        from brainstate.graph._walk import _is_node
 
         node = brainstate.nn.Module()
         self.assertTrue(_is_node(node))
@@ -588,7 +592,7 @@ class TestHelperFunctions(unittest.TestCase):
         self.assertFalse(_is_node("string"))
 
     def test_is_pytree_node(self):
-        from brainstate.graph._operation import _is_pytree_node
+        from brainstate.graph._walk import _is_pytree_node
 
         self.assertTrue(_is_pytree_node([1, 2, 3]))
         self.assertTrue(_is_pytree_node({'a': 1}))
@@ -598,7 +602,7 @@ class TestHelperFunctions(unittest.TestCase):
         self.assertFalse(_is_pytree_node(jnp.array([1, 2])))
 
     def test_is_graph_node(self):
-        from brainstate.graph._operation import _is_graph_node
+        from brainstate.graph._walk import _is_graph_node
 
         class CustomNode:
             pass
@@ -616,7 +620,7 @@ class TestHelperFunctions(unittest.TestCase):
 
 class TestRegisterGraphNodeType(unittest.TestCase):
     def test_register_custom_node_type(self):
-        from brainstate.graph._operation import _is_graph_node, _get_node_impl
+        from brainstate.graph._walk import _is_graph_node, _get_node_impl
 
         class CustomNode:
             def __init__(self):
@@ -655,92 +659,82 @@ class TestRegisterGraphNodeType(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# HashableMapping tests
+# GraphDef hashing tests (replaces the old HashableMapping container)
 # ---------------------------------------------------------------------------
 
-class TestHashableMapping(unittest.TestCase):
-    def test_hashable_mapping_basic(self):
-        from brainstate.graph._operation import HashableMapping
+class TestGraphDefHashing(unittest.TestCase):
+    def _gdef(self, val):
+        # A minimal single-node GraphDef carrying one static field.
+        spec = brainstate.graph.NodeSpec(
+            int, 0, (int,), (('x', brainstate.graph.StaticEdge(val)),)
+        )
+        return brainstate.graph.GraphDef(brainstate.graph.NodeEdge(0), (spec,))
 
-        hm = HashableMapping({'a': 1, 'b': 2})
+    def test_equal_structures_hash_equal(self):
+        g1 = self._gdef(1)
+        g2 = self._gdef(1)
 
-        self.assertEqual(len(hm), 2)
-        self.assertTrue('a' in hm)
-        self.assertFalse('c' in hm)
-        self.assertEqual(hm['a'], 1)
-        self.assertEqual(set(hm), {'a', 'b'})
+        self.assertEqual(g1, g2)
+        self.assertEqual(hash(g1), hash(g2))
 
-    def test_hashable_mapping_hash(self):
-        from brainstate.graph._operation import HashableMapping
+    def test_different_structures_differ(self):
+        g1 = self._gdef(1)
+        g3 = self._gdef(2)
 
-        hm1 = HashableMapping({'a': 1, 'b': 2})
-        hm2 = HashableMapping({'a': 1, 'b': 2})
-        hm3 = HashableMapping({'a': 1, 'b': 3})
+        self.assertNotEqual(g1, g3)
 
-        self.assertEqual(hash(hm1), hash(hm2))
-        self.assertEqual(hm1, hm2)
-        self.assertNotEqual(hm1, hm3)
-        self.assertEqual(len({hm1, hm2, hm3}), 2)
+    def test_usable_in_set(self):
+        g1 = self._gdef(1)
+        g2 = self._gdef(1)
+        g3 = self._gdef(2)
 
-    def test_hashable_mapping_from_iterable(self):
-        from brainstate.graph._operation import HashableMapping
-
-        hm = HashableMapping([('a', 1), ('b', 2)])
-
-        self.assertEqual(len(hm), 2)
-        self.assertEqual(hm['a'], 1)
-        self.assertEqual(hm['b'], 2)
+        self.assertEqual(len({g1, g2, g3}), 2)
 
 
 # ---------------------------------------------------------------------------
-# NodeDef / NodeRef tests
+# NodeSpec / Edge IR tests (replaces the old NodeDef / NodeRef pair)
 # ---------------------------------------------------------------------------
 
-class TestNodeDefAndNodeRef(unittest.TestCase):
-    def test_noderef_creation(self):
-        node_ref = brainstate.graph.NodeRef(type=brainstate.nn.Module, index=42)
+class TestNodeSpecAndEdges(unittest.TestCase):
+    def test_node_edge_backreference(self):
+        # A bare NodeEdge is the back-reference: it carries only an index into
+        # the shared node table, no spec of its own.
+        edge = brainstate.graph.NodeEdge(42)
 
-        self.assertEqual(node_ref.type, brainstate.nn.Module)
-        self.assertEqual(node_ref.index, 42)
+        self.assertEqual(edge.index, 42)
 
-    def test_nodedef_creation(self):
-        from brainstate.graph._operation import HashableMapping
-
-        nodedef = brainstate.graph.NodeDef.create(
+    def test_node_spec_creation(self):
+        spec = brainstate.graph.NodeSpec(
             type=brainstate.nn.Module,
             index=1,
-            attributes=('a', 'b'),
-            subgraphs=[],
-            static_fields=[('static', 'value')],
-            leaves=[],
             metadata=None,
-            index_mapping=None,
+            fields=(
+                ('static', brainstate.graph.StaticEdge('value')),
+                ('w', brainstate.graph.StateEdge(2, ('w',), brainstate.ParamState)),
+            ),
         )
 
-        self.assertEqual(nodedef.type, brainstate.nn.Module)
-        self.assertEqual(nodedef.index, 1)
-        self.assertEqual(nodedef.attributes, ('a', 'b'))
-        self.assertIsInstance(nodedef.subgraphs, HashableMapping)
-        self.assertIsInstance(nodedef.static_fields, HashableMapping)
-        self.assertEqual(nodedef.static_fields['static'], 'value')
-        self.assertIsNone(nodedef.metadata)
-        self.assertIsNone(nodedef.index_mapping)
+        self.assertEqual(spec.type, brainstate.nn.Module)
+        self.assertEqual(spec.index, 1)
+        self.assertIsNone(spec.metadata)
+        fields = dict(spec.fields)
+        self.assertIsInstance(fields['static'], brainstate.graph.StaticEdge)
+        self.assertEqual(fields['static'].value, 'value')
+        self.assertIsInstance(fields['w'], brainstate.graph.StateEdge)
+        self.assertEqual(fields['w'].index, 2)
 
-    def test_nodedef_with_index_mapping(self):
-        nodedef = brainstate.graph.NodeDef.create(
-            type=brainstate.nn.Module,
-            index=1,
-            attributes=(),
-            subgraphs=[],
-            static_fields=[],
-            leaves=[],
-            metadata=None,
-            index_mapping={1: 2, 3: 4},
+    def test_graphdef_root_and_specs(self):
+        # A GraphDef pairs a root edge with the table of node specs.
+        spec = brainstate.graph.NodeSpec(
+            brainstate.nn.Module, 0, None,
+            (('s', brainstate.graph.StaticEdge('v')),),
         )
+        gdef = brainstate.graph.GraphDef(brainstate.graph.NodeEdge(0), (spec,))
 
-        self.assertIsNotNone(nodedef.index_mapping)
-        self.assertEqual(nodedef.index_mapping[1], 2)
-        self.assertEqual(nodedef.index_mapping[3], 4)
+        self.assertIsInstance(gdef.root, brainstate.graph.NodeEdge)
+        self.assertEqual(gdef.type, brainstate.nn.Module)
+        self.assertEqual(gdef.index, 0)
+        self.assertEqual(len(gdef.node_specs), 1)
 
 
 # ---------------------------------------------------------------------------
@@ -752,7 +746,7 @@ class TestGraphDefAndClone(unittest.TestCase):
         model = brainstate.nn.Linear(2, 3)
         gdef = brainstate.graph.graphdef(model)
 
-        self.assertIsInstance(gdef, brainstate.graph.NodeDef)
+        self.assertIsInstance(gdef, brainstate.graph.GraphDef)
         self.assertEqual(gdef.type, brainstate.nn.Linear)
 
         gdef2, _ = brainstate.graph.flatten(model)
@@ -849,7 +843,7 @@ class TestNodesFunction(unittest.TestCase):
 
 class TestStatic(unittest.TestCase):
     def test_static_basic(self):
-        from brainstate.graph._operation import Static
+        from brainstate.graph._walk import Static
 
         value = {'key': 'value'}
         static = Static(value)
@@ -858,7 +852,7 @@ class TestStatic(unittest.TestCase):
         self.assertIs(static.value, value)
 
     def test_static_is_pytree_leaf(self):
-        from brainstate.graph._operation import Static
+        from brainstate.graph._walk import Static
 
         static = Static({'key': 'value'})
         leaves, _ = jax.tree_util.tree_flatten(static)
@@ -869,7 +863,7 @@ class TestStatic(unittest.TestCase):
         self.assertNotIn(static, leaves)
 
     def test_static_equality_and_hash(self):
-        from brainstate.graph._operation import Static
+        from brainstate.graph._walk import Static
 
         static1 = Static(42)
         static2 = Static(42)
@@ -913,7 +907,7 @@ class TestErrorHandling(unittest.TestCase):
             brainstate.graph.update_states(node, state)
 
     def test_get_node_impl_with_state(self):
-        from brainstate.graph._operation import _get_node_impl
+        from brainstate.graph._walk import _get_node_impl
 
         state = brainstate.ParamState(1)
 
@@ -922,7 +916,7 @@ class TestErrorHandling(unittest.TestCase):
         self.assertIn('State is not a node', str(context.exception))
 
     def test_split_with_non_exhaustive_filters(self):
-        from brainstate.graph._operation import _split_flatted
+        from brainstate.graph._operations import _split_flatted
 
         flatted = [(('a',), 1), (('b',), 2)]
         filters = (lambda path, value: value == 1,)
@@ -932,7 +926,7 @@ class TestErrorHandling(unittest.TestCase):
         self.assertIn('Non-exhaustive filters', str(context.exception))
 
     def test_invalid_filter_order(self):
-        from brainstate.graph._operation import _filters_to_predicates
+        from brainstate.graph._operations import _filters_to_predicates
 
         filters = (..., lambda p, v: True)
 
