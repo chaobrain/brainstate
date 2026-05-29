@@ -425,13 +425,15 @@ class TestMapPmapWrapper(unittest.TestCase):
         pmap mode (see ``test_pmap_update_is_broken``).
         """
         m = Map(_ParamModule(), init_map_size=1, behavior='pmap')
-        m.init_all_states(din=3, dout=2)
-        self.assertIn(0, m.dict_vmap_states)
         try:
+            # jax < 0.10 does not support ordered effects (carried by the RNG
+            # state) inside pmap, so the pmap path is unavailable there. The
+            # rejection happens as early as ``init_all_states``, so the whole
+            # pmap interaction is guarded.
+            m.init_all_states(din=3, dout=2)
+            self.assertIn(0, m.dict_vmap_states)
             out = m.map('update')(jnp.ones((1, 3)))
         except ValueError as e:
-            # jax < 0.10 does not support ordered effects (carried by the RNG
-            # state) inside pmap, so the pmap path is unavailable there.
             if 'Ordered effects' in str(e):
                 self.skipTest(f'pmap on this JAX version rejects ordered effects: {e}')
             raise
@@ -445,15 +447,16 @@ class TestMapPmapWrapper(unittest.TestCase):
         keeping the suite green; see report.
         """
         m = Map(_ParamModule(), init_map_size=1, behavior='pmap')
-        m.init_all_states(din=3, dout=2)
         try:
+            # ``init_all_states`` already drives the pmap path; jax < 0.10 rejects
+            # ordered effects there, before the TypeError this test documents.
+            m.init_all_states(din=3, dout=2)
             m.update(jnp.ones((1, 3)))
         except TypeError:
             return  # expected: pmap2 rejects the forwarded spmd_axis_name kwarg
         except ValueError as e:
-            # jax < 0.10 rejects ordered effects in pmap before the TypeError path.
             if 'Ordered effects' in str(e):
-                self.skipTest(f'pmap on this JAX version rejects ordered effects before the TypeError: {e}')
+                self.skipTest(f'pmap on this JAX version rejects ordered effects: {e}')
             raise
         self.fail('expected a TypeError from the invalid pmap2 kwarg, but no error was raised')
 
