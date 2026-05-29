@@ -85,6 +85,11 @@ from ._associative_scan import (
 from ._error_if import (
     jit_error_if,
 )
+from ._checkify import (
+    checkify, check, check_error,
+    all_checks, user_checks, nan_checks, div_checks,
+    index_checks, float_checks, automatic_checks,
+)
 from ._callback import (
     pure_callback, io_callback,
 )
@@ -175,6 +180,16 @@ __all__ = [
 
     # Utilities
     'jit_error_if',
+    'checkify',
+    'check',
+    'check_error',
+    'all_checks',
+    'user_checks',
+    'nan_checks',
+    'div_checks',
+    'index_checks',
+    'float_checks',
+    'automatic_checks',
     'pure_callback',
     'io_callback',
     'StateFinder',
