@@ -40,10 +40,13 @@ from brainstate.util._pretty_pytree import (
     NestedDict,
     FlattedDict,
     PrettyList,
+    NestedStateRepr,
     flat_mapping,
     nest_mapping,
     empty_node,
     _EmptyNode,
+    _default_compare,
+    _default_process,
 )
 
 
@@ -708,3 +711,386 @@ class TestGetattrProtocol(absltest.TestCase):
         """Accessing an existing key as an attribute still returns its value."""
         d = NestedDict({'a': 5})
         self.assertEqual(d.a, 5)
+
+
+class TestPrettyPytreeRoundtrips(unittest.TestCase):
+    """Verify flat/nest roundtrips and JAX pytree registration consistency."""
+
+    def test_flat_nest_roundtrip(self):
+        """Reproduce the nested structure via ``nest_mapping(flat_mapping(x))``."""
+        nested = {'a': 1, 'b': {'c': 2, 'd': {'e': 3}}}
+        self.assertEqual(nest_mapping(flat_mapping(nested)).to_dict(), nested)
+
+    def test_nesteddict_flatten_unflatten_consistent(self):
+        """Flatten and unflatten a NestedDict to an equal JAX structure."""
+        nd = NestedDict({'a': brainstate.ParamState(1), 'b': {'c': brainstate.ParamState(2)}})
+        leaves, treedef = jax.tree.flatten(nd)
+        rebuilt = jax.tree.unflatten(treedef, leaves)
+        self.assertEqual(jax.tree.structure(nd), jax.tree.structure(rebuilt))
+
+    def test_empty_nesteddict(self):
+        """Flatten an empty NestedDict to zero leaves."""
+        self.assertEqual(len(jax.tree.leaves(NestedDict({}))), 0)
+
+
+class TestFlatMappingEmptyWhole(unittest.TestCase):
+    """Exercise the whole-empty-input branch of ``flat_mapping``."""
+
+    def test_flat_mapping_whole_empty_keep_empty_nodes(self):
+        """Return an empty FlattedDict when the whole input is empty even with keep_empty_nodes."""
+        flat = flat_mapping({}, keep_empty_nodes=True)
+        self.assertIsInstance(flat, FlattedDict)
+        self.assertEqual(len(flat), 0)
+
+
+class TestDefaultIdentityHelpers(unittest.TestCase):
+    """Cover the module-level identity helper functions."""
+
+    def test_default_process_returns_id(self):
+        """Return the object identity from ``_default_process``."""
+        obj = object()
+        self.assertEqual(_default_process(obj), id(obj))
+
+    def test_default_compare_membership(self):
+        """Report membership of an object's id in a set via ``_default_compare``."""
+        obj = object()
+        self.assertTrue(_default_compare(obj, {id(obj)}))
+        self.assertFalse(_default_compare(obj, set()))
+
+
+class TestPrettyDictAbstractAndUtils(unittest.TestCase):
+    """Cover PrettyDict abstract methods, subset, and treefy_state."""
+
+    def test_split_not_implemented(self):
+        """Raise NotImplementedError from the abstract ``PrettyDict.split``."""
+        d = PrettyDict({'a': 1})
+        with self.assertRaises(NotImplementedError):
+            d.split(lambda p, v: True)
+
+    def test_filter_not_implemented(self):
+        """Raise NotImplementedError from the abstract ``PrettyDict.filter``."""
+        d = PrettyDict({'a': 1})
+        with self.assertRaises(NotImplementedError):
+            d.filter(lambda p, v: True)
+
+    def test_merge_not_implemented(self):
+        """Raise NotImplementedError from the abstract ``PrettyDict.merge``."""
+        d = PrettyDict({'a': 1})
+        with self.assertRaises(NotImplementedError):
+            d.merge(PrettyDict({'b': 2}))
+
+    def test_subset_delegates_to_filter(self):
+        """Subset a NestedDict by delegating to ``filter``."""
+        nd = NestedDict({'a': 1, 'b': 2, 'c': 3})
+        subset = nd.subset(lambda p, v: v > 1)
+        flat = subset.to_flat()
+        self.assertIn(('b',), flat)
+        self.assertIn(('c',), flat)
+        self.assertNotIn(('a',), flat)
+
+    def test_treefy_state_converts_state_objects(self):
+        """Map State objects through ``to_state_ref`` while preserving structure."""
+        d = PrettyDict({'a': brainstate.ParamState(1), 'b': 2})
+        ref_tree = d.treefy_state()
+        # The flatten/map/unflatten roundtrip preserves the dict structure and
+        # passes non-State leaves through unchanged.
+        self.assertEqual(set(ref_tree.keys()), {'a', 'b'})
+        self.assertEqual(ref_tree['b'], 2)
+        # State leaves remain State-like (their reference form).
+        self.assertEqual(ref_tree['a'].value, 1)
+
+
+class TestNestedStateReprTreescope(unittest.TestCase):
+    """Cover NestedStateRepr treescope and nested wrapping behaviour."""
+
+    def test_treescope_repr_wraps_nested_dicts(self):
+        """Render nested PrettyDict children through a subtree renderer."""
+        nsr = NestedStateRepr(NestedDict({'a': 1, 'b': NestedDict({'c': 2})}))
+        captured = {}
+
+        def renderer(children, path):
+            captured['children'] = children
+            captured['path'] = path
+            return 'rendered'
+
+        result = nsr.__treescope_repr__('PATH', renderer)
+        self.assertEqual(result, 'rendered')
+        self.assertEqual(captured['path'], 'PATH')
+        # Nested PrettyDict value should have been wrapped in NestedStateRepr.
+        self.assertIsInstance(captured['children']['b'], NestedStateRepr)
+        self.assertEqual(captured['children']['a'], 1)
+
+    def test_nested_state_repr_pretty_output(self):
+        """Produce a compact brace-delimited repr for a wrapped NestedDict."""
+        from brainstate.util._pretty_repr import pretty_repr_object
+        nsr = NestedStateRepr(NestedDict({'a': 1, 'b': NestedDict({'c': 2})}))
+        out = pretty_repr_object(nsr)
+        self.assertIn('a', out)
+        self.assertIn('c', out)
+
+
+class TestNestedDictMergeAndOps(unittest.TestCase):
+    """Cover NestedDict merge variants and empty-operand operators."""
+
+    def test_or_with_empty_other_returns_self(self):
+        """Return self unchanged when OR-ing with an empty NestedDict."""
+        d1 = NestedDict({'a': 1})
+        result = d1 | NestedDict({})
+        self.assertIs(result, d1)
+
+    def test_sub_with_empty_other_returns_self(self):
+        """Return self unchanged when subtracting an empty NestedDict."""
+        d1 = NestedDict({'a': 1})
+        result = d1 - NestedDict({})
+        self.assertIs(result, d1)
+
+    def test_merge_accepts_flatted_dict(self):
+        """Merge a FlattedDict argument into a NestedDict result."""
+        nd = NestedDict({'a': 1})
+        fd = FlattedDict({('b',): 2})
+        merged = NestedDict.merge(nd, fd)
+        self.assertEqual(merged['a'], 1)
+        self.assertEqual(merged['b'], 2)
+
+    def test_merge_rejects_invalid_type(self):
+        """Raise TypeError when merging a non-mapping into a NestedDict."""
+        with self.assertRaises(TypeError):
+            NestedDict.merge(NestedDict({'a': 1}), [('b', 2)])
+
+    def test_filter_single_filter_returns_single(self):
+        """Return a single NestedDict when ``filter`` is given one filter."""
+        nd = NestedDict({'a': 1, 'b': 2})
+        result = nd.filter(lambda p, v: v > 1)
+        self.assertIsInstance(result, NestedDict)
+        self.assertIn(('b',), result.to_flat())
+
+    def test_split_single_filter_returns_single(self):
+        """Return a single NestedDict when ``split`` resolves to one state."""
+        nd = NestedDict({'a': 1, 'b': 2})
+        result = nd.split(...)
+        self.assertIsInstance(result, NestedDict)
+        self.assertEqual(len(result.to_flat()), 2)
+
+    def test_filter_multiple_filters_returns_tuple(self):
+        """Return a tuple of NestedDicts when filtering with two filters."""
+        nd = NestedDict({'a': 1, 'b': 2, 'c': 3})
+        evens, odds = nd.filter(lambda p, v: v % 2 == 0, lambda p, v: v % 2 == 1)
+        self.assertIn(('b',), evens.to_flat())
+        self.assertIn(('a',), odds.to_flat())
+        self.assertIn(('c',), odds.to_flat())
+
+
+class TestNestedDictReplaceByPureDict(unittest.TestCase):
+    """Cover NestedDict.replace_by_pure_dict for State and plain values."""
+
+    def test_replace_state_values(self):
+        """Replace State values via their ``replace`` method by default."""
+        nd = NestedDict({'a': brainstate.ParamState(1), 'b': brainstate.ParamState(2)})
+        nd.replace_by_pure_dict({'a': 10, 'b': 20})
+        self.assertEqual(nd['a'].value, 10)
+        self.assertEqual(nd['b'].value, 20)
+
+    def test_replace_plain_values(self):
+        """Replace plain (non-State) values by direct assignment."""
+        nd = NestedDict({'a': 5, 'b': 6})
+        nd.replace_by_pure_dict({'a': 99, 'b': 100})
+        self.assertEqual(nd['a'], 99)
+        self.assertEqual(nd['b'], 100)
+
+    def test_replace_with_custom_replace_fn(self):
+        """Apply a custom replace function to combine old and new values."""
+        nd = NestedDict({'a': 5})
+        nd.replace_by_pure_dict({'a': 3}, replace_fn=lambda old, new: old + new)
+        self.assertEqual(nd['a'], 8)
+
+    def test_replace_missing_key_raises(self):
+        """Raise ValueError when a pure_dict key is absent from the state."""
+        nd = NestedDict({'a': 1})
+        with self.assertRaises(ValueError):
+            nd.replace_by_pure_dict({'z': 9})
+
+
+class TestFlattedDictMergeAndOps(unittest.TestCase):
+    """Cover FlattedDict merge variants, operators, and conversions."""
+
+    def test_or_with_empty_other_returns_self(self):
+        """Return self unchanged when OR-ing with an empty FlattedDict."""
+        d1 = FlattedDict({('a',): 1})
+        result = d1 | FlattedDict({})
+        self.assertIs(result, d1)
+
+    def test_sub_with_empty_other_returns_self(self):
+        """Return self unchanged when subtracting an empty FlattedDict."""
+        d1 = FlattedDict({('a',): 1})
+        result = d1 - FlattedDict({})
+        self.assertIs(result, d1)
+
+    def test_from_nest_classmethod(self):
+        """Build a FlattedDict from a nested mapping via ``from_nest``."""
+        fd = FlattedDict.from_nest({'a': 1, 'b': {'c': 2}})
+        self.assertIsInstance(fd, FlattedDict)
+        self.assertEqual(fd[('a',)], 1)
+        self.assertEqual(fd[('b', 'c')], 2)
+
+    def test_split_exhaustive(self):
+        """Split a FlattedDict exhaustively into two FlattedDicts."""
+        fd = FlattedDict({('a',): 1, ('b',): 2})
+        big, rest = fd.split(lambda p, v: v > 1, ...)
+        self.assertIn(('b',), big)
+        self.assertIn(('a',), rest)
+
+    def test_split_non_exhaustive_raises(self):
+        """Raise ValueError for non-exhaustive FlattedDict split filters."""
+        fd = FlattedDict({('a',): 1, ('b',): 2})
+        with self.assertRaises(ValueError):
+            fd.split(lambda p, v: v > 1)
+
+    def test_split_single_filter_returns_single(self):
+        """Return a single FlattedDict when split resolves to one state."""
+        fd = FlattedDict({('a',): 1, ('b',): 2})
+        result = fd.split(...)
+        self.assertIsInstance(result, FlattedDict)
+        self.assertEqual(len(result), 2)
+
+    def test_filter_single_filter_returns_single(self):
+        """Return a single FlattedDict when ``filter`` is given one filter."""
+        fd = FlattedDict({('a',): 1, ('b',): 2})
+        result = fd.filter(lambda p, v: v > 1)
+        self.assertIsInstance(result, FlattedDict)
+        self.assertIn(('b',), result)
+
+    def test_filter_multiple_filters_returns_tuple(self):
+        """Return a tuple of FlattedDicts when filtering with two filters."""
+        fd = FlattedDict({('a',): 1, ('b',): 2, ('c',): 3})
+        evens, odds = fd.filter(lambda p, v: v % 2 == 0, lambda p, v: v % 2 == 1)
+        self.assertIn(('b',), evens)
+        self.assertIn(('a',), odds)
+        self.assertIn(('c',), odds)
+
+    def test_merge_accepts_nested_dict(self):
+        """Merge a NestedDict argument into a FlattedDict result."""
+        fd = FlattedDict({('a',): 1})
+        nd = NestedDict({'b': 2})
+        merged = FlattedDict.merge(fd, nd)
+        self.assertEqual(merged[('a',)], 1)
+        self.assertEqual(merged[('b',)], 2)
+
+    def test_merge_rejects_invalid_type(self):
+        """Raise TypeError when merging a non-mapping into a FlattedDict."""
+        with self.assertRaises(TypeError):
+            FlattedDict.merge(FlattedDict({('a',): 1}), 123)
+
+
+class TestSplitErrorPaths(unittest.TestCase):
+    """Cover the ``...``/``True`` filter-position validation branches."""
+
+    def test_nested_ellipsis_then_ellipsis_no_error(self):
+        """Allow trailing ``...`` filters after an earlier ``...`` in NestedDict.split."""
+        nd = NestedDict({'a': 1, 'b': 2})
+        first, second = nd.split(..., ...)
+        self.assertIsInstance(first, NestedDict)
+        self.assertIsInstance(second, NestedDict)
+
+    def test_nested_ellipsis_before_real_filter_raises(self):
+        """Raise ValueError when ``...`` precedes a real filter in NestedDict.split."""
+        nd = NestedDict({'a': 1, 'b': 2})
+        with self.assertRaises(ValueError):
+            nd.split(..., lambda p, v: v > 1)
+
+    def test_flatted_ellipsis_then_ellipsis_no_error(self):
+        """Allow trailing ``...`` filters after an earlier ``...`` in FlattedDict.split."""
+        fd = FlattedDict({('a',): 1, ('b',): 2})
+        first, second = fd.split(..., ...)
+        self.assertIsInstance(first, FlattedDict)
+        self.assertIsInstance(second, FlattedDict)
+
+    def test_flatted_ellipsis_before_real_filter_raises(self):
+        """Raise ValueError when ``...`` precedes a real filter in FlattedDict.split."""
+        fd = FlattedDict({('a',): 1, ('b',): 2})
+        with self.assertRaises(ValueError):
+            fd.split(..., lambda p, v: v > 1)
+
+
+class TestReprAttributeBranches(unittest.TestCase):
+    """Cover list/dict conversion and key-filtering branches in repr helpers."""
+
+    def test_pretty_dict_with_list_value_repr(self):
+        """Render a PrettyDict that holds a list value (PrettyList conversion)."""
+        d = PrettyDict({'a': [1, 2, 3], 'b': 1})
+        out = repr(d)
+        self.assertIsInstance(out, str)
+        self.assertIn('1', out)
+
+    def test_pretty_list_of_lists_repr(self):
+        """Render a PrettyList that holds nested list items."""
+        pl = PrettyList([[1, 2], [3, 4]])
+        out = repr(pl)
+        self.assertIsInstance(out, str)
+        self.assertIn('3', out)
+
+    def test_pretty_object_with_list_and_dict_attrs(self):
+        """Render a PrettyObject whose attributes are a list and a dict."""
+        class Obj(PrettyObject):
+            def __init__(self):
+                self.mylist = [1, 2, 3]
+                self.mydict = {'x': 1}
+
+        out = repr(Obj())
+        self.assertIn('mylist', out)
+        self.assertIn('mydict', out)
+
+    def test_pretty_object_item_returns_none_key_is_skipped(self):
+        """Skip an attribute when ``__pretty_repr_item__`` returns a ``None`` key."""
+        class Obj(PrettyObject):
+            def __init__(self):
+                self.keep = 'visible'
+                self.drop = 'gone'
+
+            def __pretty_repr_item__(self, k, v):
+                if k == 'drop':
+                    return None, v
+                return k, v
+
+        out = repr(Obj())
+        self.assertIn('keep', out)
+        self.assertNotIn('gone', out)
+
+    def test_pretty_object_without_item_hook(self):
+        """Render a PrettyObject lacking ``__pretty_repr_item__`` (AttributeError path)."""
+        # A bare PrettyObject still defines the hook, so use a value attribute
+        # to exercise the general attribute path with the default hook.
+        class Obj(PrettyObject):
+            def __init__(self):
+                self.value = 7
+
+        out = repr(Obj())
+        self.assertIn('value', out)
+        self.assertIn('7', out)
+
+    def test_general_repr_object_missing_item_hook(self):
+        """Exercise the AttributeError fallback when a node lacks the item hook."""
+        from brainstate.util._pretty_repr import (
+            PrettyRepr,
+            yield_unique_pretty_repr_items,
+            pretty_repr_object,
+        )
+        from brainstate.util._pretty_pytree import (
+            _repr_object_general,
+            _repr_attribute_general,
+        )
+
+        class Bare(PrettyRepr):
+            # Deliberately does NOT define ``__pretty_repr_item__`` so the
+            # ``except AttributeError`` branch in ``_repr_attribute_general`` runs.
+            def __init__(self):
+                self.x = 5
+                self.items_list = [1, 2]
+
+            def __pretty_repr__(self):
+                yield from yield_unique_pretty_repr_items(
+                    self, _repr_object_general, _repr_attribute_general
+                )
+
+        out = pretty_repr_object(Bare())
+        self.assertIn('x', out)
+        self.assertIn('items_list', out)

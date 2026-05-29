@@ -3,6 +3,7 @@ Comprehensive tests for the struct module.
 """
 
 import pickle
+import unittest
 from typing import Any
 
 import jax
@@ -596,6 +597,174 @@ class TestIntegration:
         batch_x = jnp.ones((2, 3))
         result = batch_process(batch_params, batch_x)
         assert result.shape == (2, 3)
+
+
+class TestStructSemantics(unittest.TestCase):
+    """Frozen dataclass behavior and pytree_node field separation."""
+
+    def test_pytreenode_is_frozen(self):
+        """Assign to a PyTreeNode field after construction and expect a raise."""
+        class Layer(PyTreeNode):
+            weights: jax.Array
+
+        layer = Layer(weights=jnp.ones(3))
+        with self.assertRaises(Exception):
+            layer.weights = jnp.zeros(3)
+
+    def test_replace_does_not_mutate_original(self):
+        """Return a new instance from replace, leaving the original unchanged."""
+        class Layer(PyTreeNode):
+            weights: jax.Array
+
+        a = Layer(weights=jnp.ones(3))
+        b = a.replace(weights=jnp.ones(3) * 2)
+        self.assertTrue(bool(jnp.allclose(a.weights, 1.0)))
+        self.assertTrue(bool(jnp.allclose(b.weights, 2.0)))
+
+    def test_pytreenode_is_jax_pytree(self):
+        """Flatten and unflatten a PyTreeNode through jax.tree."""
+        class Layer(PyTreeNode):
+            weights: jax.Array
+
+        a = Layer(weights=jnp.arange(3.0))
+        leaves, treedef = jax.tree.flatten(a)
+        rebuilt = jax.tree.unflatten(treedef, leaves)
+        self.assertTrue(bool(jnp.allclose(rebuilt.weights, a.weights)))
+
+    def test_static_field_not_a_leaf(self):
+        """Exclude a pytree_node=False field from jax.tree leaves and survive flatten/unflatten."""
+        class Layer(PyTreeNode):
+            weights: jax.Array
+            name: str = field(pytree_node=False, default="layer")
+
+        a = Layer(weights=jnp.ones(3), name="static-name")
+        leaves = jax.tree_util.tree_leaves(a)
+        # Only the array weights should be a leaf; the static name must not appear.
+        self.assertEqual(len(leaves), 1)
+        self.assertNotIn("static-name", leaves)
+        # The static field survives a flatten/unflatten roundtrip unchanged.
+        flat, treedef = jax.tree_util.tree_flatten(a)
+        rebuilt = jax.tree_util.tree_unflatten(treedef, flat)
+        self.assertEqual(rebuilt.name, "static-name")
+        self.assertTrue(bool(jnp.allclose(rebuilt.weights, a.weights)))
+
+    def test_pytreenode_init_stub_raises(self):
+        """Raise NotImplementedError when instantiating PyTreeNode directly."""
+        with self.assertRaises(NotImplementedError):
+            PyTreeNode()
+
+    def test_pytreenode_replace_stub_raises(self):
+        """Raise NotImplementedError when calling the unbound PyTreeNode.replace stub."""
+        with self.assertRaises(NotImplementedError):
+            PyTreeNode.replace(object())
+
+    def test_register_pytree_fallback_path(self):
+        """Drive the register_pytree_with_keys fallback closures when register_dataclass is absent."""
+        import brainstate.util.struct as struct_mod
+
+        had_attr = hasattr(jax.tree_util, 'register_dataclass')
+        saved = jax.tree_util.register_dataclass if had_attr else None
+        if had_attr:
+            del jax.tree_util.register_dataclass
+        try:
+            @struct_mod.dataclass
+            class Fallback:
+                weights: jax.Array
+                name: str = field(pytree_node=False, default="fb")
+
+            obj = Fallback(weights=jnp.ones(2))
+
+            # tree_flatten / tree_unflatten exercise flatten_fn and unflatten_fn.
+            leaves, treedef = jax.tree_util.tree_flatten(obj)
+            self.assertEqual(len(leaves), 1)
+            rebuilt = jax.tree_util.tree_unflatten(treedef, leaves)
+            self.assertEqual(rebuilt.name, "fb")
+            self.assertTrue(bool(jnp.allclose(rebuilt.weights, obj.weights)))
+
+            # tree_flatten_with_path exercises flatten_with_keys_fn.
+            with_keys, _ = jax.tree_util.tree_flatten_with_path(obj)
+            self.assertEqual(len(with_keys), 1)
+        finally:
+            if had_attr:
+                jax.tree_util.register_dataclass = saved
+
+
+class TestFrozenDictCoverage(unittest.TestCase):
+    """Cover FrozenDict helpers, hashing, repr, and pretty-print edge cases."""
+
+    def test_frozendict_immutable_and_roundtrip(self):
+        """Reject mutation and support a freeze/unfreeze roundtrip."""
+        fd = freeze({'a': 1, 'b': 2})
+        self.assertIsInstance(fd, FrozenDict)
+        with self.assertRaises(Exception):
+            fd['a'] = 99
+        self.assertEqual(unfreeze(fd), {'a': 1, 'b': 2})
+
+    def test_deep_freeze_unwraps_nested_frozendict(self):
+        """Unwrap a nested FrozenDict value to its underlying data during construction."""
+        inner = FrozenDict({'x': 1})
+        # A FrozenDict held as a value drives _deep_freeze's FrozenDict branch.
+        outer = FrozenDict({'a': inner})
+        self.assertEqual(outer['a']['x'], 1)
+        # The nested value is re-frozen as plain data internally.
+        self.assertNotIsInstance(outer._data['a'], FrozenDict)
+        self.assertEqual(outer._data['a'], {'x': 1})
+
+    def test_repr_uses_pretty_repr(self):
+        """Produce a FrozenDict-prefixed string from __repr__."""
+        fd = FrozenDict({'a': 1})
+        r = repr(fd)
+        self.assertIn('FrozenDict', r)
+        self.assertIn("'a': 1", r)
+
+    def test_hash_with_nested_dict_value(self):
+        """Hash a FrozenDict whose value is a plain dict, wrapping it during hashing."""
+        # Construct with _data holding a raw dict so __hash__ hits the dict branch.
+        fd = FrozenDict({'a': {'b': 1}})
+        h1 = hash(fd)
+        # Cached hash returns the same value on a second call.
+        self.assertEqual(h1, hash(fd))
+        fd2 = FrozenDict({'a': {'b': 1}})
+        self.assertEqual(hash(fd), hash(fd2))
+
+    def test_pretty_repr_empty_frozendict(self):
+        """Render an empty FrozenDict as FrozenDict({})."""
+        fd = FrozenDict({})
+        self.assertEqual(fd.pretty_repr(), 'FrozenDict({})')
+
+    def test_pretty_repr_empty_nested_dict(self):
+        """Render a nested empty dict as {} inside FrozenDict.pretty_repr."""
+        fd = FrozenDict({'a': {}})
+        r = fd.pretty_repr()
+        self.assertIn('FrozenDict', r)
+        self.assertIn("'a': {}", r)
+
+    def test_module_pretty_repr_empty_nested_dict(self):
+        """Render a nested empty dict as {} via the module-level pretty_repr."""
+        r = pretty_repr({'a': {}})
+        self.assertIn("'a': {}", r)
+
+    def test_module_pretty_repr_empty_dict(self):
+        """Render an empty top-level dict as {} via the module-level pretty_repr."""
+        self.assertEqual(pretty_repr({}), '{}')
+
+    def test_copy_pop_items_equality(self):
+        """Cover copy, pop, items, and equality on FrozenDict."""
+        fd = FrozenDict({'a': 1, 'b': 2})
+        # copy with replacement
+        fd2 = fd.copy({'a': 10, 'c': 3})
+        self.assertEqual(fd2['a'], 10)
+        self.assertEqual(fd2['c'], 3)
+        self.assertEqual(fd['a'], 1)
+        # pop returns new dict and value
+        fd3, val = fd.pop('a')
+        self.assertEqual(val, 1)
+        self.assertNotIn('a', fd3)
+        # items view
+        self.assertEqual(dict(fd.items()), {'a': 1, 'b': 2})
+        # equality against dict and FrozenDict
+        self.assertEqual(fd, {'a': 1, 'b': 2})
+        self.assertEqual(fd, FrozenDict({'a': 1, 'b': 2}))
 
 
 if __name__ == "__main__":
