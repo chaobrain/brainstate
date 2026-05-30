@@ -17,16 +17,47 @@ Dict Operation
    NestedDict
    FlattedDict
 
+Functions for flattening, merging, and freezing nested dictionaries.
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+
+   flatten_dict
+   unflatten_dict
+   merge_dicts
+   freeze
+   unfreeze
+   copy
+   pop
+   is_dataclass
+
 
 Filter Operation
 ----------------
+
+``to_predicate`` converts a filter specification into a predicate; the remaining
+classes are composable filter primitives for selecting states and tree leaves.
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+
+   to_predicate
 
 .. autosummary::
    :toctree: generated/
    :nosignatures:
    :template: classtemplate.rst
 
-   to_predicate
+   All
+   Any
+   Not
+   Nothing
+   Everything
+   OfType
+   WithTag
+   PathContains
 
 
 Pretty Representation
@@ -42,6 +73,16 @@ Pretty Representation
    PrettyRepr
    PrettyMapping
    MappingReprMixin
+   PrettyDict
+   PrettyList
+   PrettyObject
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+
+   pretty_repr
+   yield_unique_pretty_repr_items
 
 
 Struct Operation
@@ -71,5 +112,14 @@ Other Operations
    is_instance_eval
    DictManager
    DotDict
+   StateJaxTracer
+   BoundedCache
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+
+   get_unique_name
+   split_total
 
 
