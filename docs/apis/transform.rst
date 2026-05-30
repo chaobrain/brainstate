@@ -72,7 +72,7 @@ eliminating Python interpreter overhead and enabling hardware-specific optimizat
    :toctree: generated/
 
    jit
-   jit_named_scope
+   named_scope
 
 
 
