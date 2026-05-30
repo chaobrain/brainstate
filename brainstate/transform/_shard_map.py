@@ -13,32 +13,18 @@
 # limitations under the License.
 # ==============================================================================
 
-import inspect
 from functools import wraps
 from typing import Callable, Dict, Optional, Union
 
 import jax
 from jax.sharding import NamedSharding, PartitionSpec
 
+from brainstate._compatible_import import jax_shard_map, SHARD_MAP_CHECK_KW
 from brainstate._state import State
 from brainstate._utils import set_module_as
 from ._make_jaxpr import StatefulFunction
 
 __all__ = ['shard_map']
-
-# Resolve jax.shard_map across versions: it was promoted to the top level in
-# JAX 0.8.0 (with the ``check_vma`` flag); older releases (0.6.x/0.7.x) expose
-# it as ``jax.experimental.shard_map.shard_map`` with a ``check_rep`` flag.
-_jax_shard_map = getattr(jax, 'shard_map', None)
-if _jax_shard_map is None:  # pragma: no cover - depends on installed jax
-    from jax.experimental.shard_map import shard_map as _jax_shard_map
-_shard_map_params = set(inspect.signature(_jax_shard_map).parameters)
-if 'check_vma' in _shard_map_params:
-    _CHECK_KW = 'check_vma'
-elif 'check_rep' in _shard_map_params:
-    _CHECK_KW = 'check_rep'
-else:  # pragma: no cover - unexpected jax signature
-    _CHECK_KW = None
 
 
 def _prep_spec_table(table):
@@ -252,9 +238,9 @@ def shard_map(
             in_specs=(in_state_specs, local_arg_specs),
             out_specs=(out_specs, out_state_specs),
         )
-        if _CHECK_KW is not None:
-            sm_kwargs[_CHECK_KW] = check_vma
-        sharded = _jax_shard_map(pure, **sm_kwargs)
+        if SHARD_MAP_CHECK_KW is not None:
+            sm_kwargs[SHARD_MAP_CHECK_KW] = check_vma
+        sharded = jax_shard_map(pure, **sm_kwargs)
         out, write_vals = sharded(in_state_vals, sharded_args)
 
         # 6. Restore ALL states: writes -> new values, reads -> originals

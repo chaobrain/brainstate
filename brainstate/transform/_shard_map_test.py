@@ -109,31 +109,31 @@ class TestShardMap(unittest.TestCase):
 
 
 class TestCheckKwNonePath(unittest.TestCase):
-    """Cover the _CHECK_KW is None branch (line 185->187) via mocking."""
+    """Cover the SHARD_MAP_CHECK_KW is None branch (line 185->187) via mocking."""
 
     def setUp(self):
         self.n = jax.device_count()
         self.mesh = jax.make_mesh((self.n,), ('x',))
 
     def test_check_kw_none_skips_flag(self):
-        """When _CHECK_KW is None, the check flag is not passed to jax.shard_map."""
+        """When SHARD_MAP_CHECK_KW is None, the check flag is not passed to jax.shard_map."""
         import unittest.mock as mock
         import brainstate.transform._shard_map as sm_mod
 
         def fun(data):
             return data * 2.0
 
-        # Temporarily set _CHECK_KW to None and wrap _jax_shard_map to verify no flag is added.
+        # Temporarily set SHARD_MAP_CHECK_KW to None and wrap jax_shard_map to verify no flag is added.
         calls = []
 
-        original_sm = sm_mod._jax_shard_map
+        original_sm = sm_mod.jax_shard_map
 
         def capturing_sm(fn, **kwargs):
             calls.append(set(kwargs.keys()))
             return original_sm(fn, **{k: v for k, v in kwargs.items() if k not in ('check_vma', 'check_rep')}, **({'check_vma': True} if 'check_vma' in inspect.signature(original_sm).parameters else {}))
 
-        with mock.patch.object(sm_mod, '_CHECK_KW', None):
-            with mock.patch.object(sm_mod, '_jax_shard_map', side_effect=capturing_sm):
+        with mock.patch.object(sm_mod, 'SHARD_MAP_CHECK_KW', None):
+            with mock.patch.object(sm_mod, 'jax_shard_map', side_effect=capturing_sm):
                 f = brainstate.transform.shard_map(
                     fun, self.mesh, in_specs=(P('x'),), out_specs=P('x'),
                 )
