@@ -632,5 +632,70 @@ class TestNodeDeepCopy(unittest.TestCase):
         self.assertIsInstance(m2, brainstate.nn.Linear)
 
 
+class TestNodeRepr(unittest.TestCase):
+    """Cover the ``__repr__`` of :class:`Node`."""
+
+    def test_repr_identifies_type(self):
+        """The representation starts with the concrete class name."""
+
+        class MyNode(Node):
+            def __init__(self):
+                self.value = 1
+
+        self.assertTrue(repr(MyNode()).startswith('MyNode('))
+
+    def test_repr_hides_none_values(self):
+        """Attributes whose value is ``None`` are omitted from the repr."""
+
+        class MyNode(Node):
+            def __init__(self):
+                self.kept = 1
+                self.empty = None
+
+        r = repr(MyNode())
+        self.assertIn('kept', r)
+        self.assertNotIn('empty', r)
+
+    def test_repr_hides_invisible_attrs(self):
+        """Attributes excluded from flattening are omitted from the repr."""
+
+        class MyNode(Node):
+            graph_invisible_attrs = ('hidden',)
+
+            def __init__(self):
+                self.shown = 1
+                self.hidden = 2
+
+        r = repr(MyNode())
+        self.assertIn('shown', r)
+        self.assertNotIn('hidden', r)
+
+    def test_repr_keeps_private_but_real_state(self):
+        """A private attribute that is still flattened stays visible."""
+
+        class MyNode(Node):
+            def __init__(self):
+                self._weight = 7
+
+        # ``_weight`` is part of the graph state (it is flattened), so the repr
+        # must mirror that and show it.
+        self.assertIn('_weight', [k for k, _ in _node_flatten(MyNode())[0]])
+        self.assertIn('_weight', repr(MyNode()))
+
+    def test_pretty_repr_item_contract(self):
+        """``__pretty_repr_item__`` returns the expected filtering decisions."""
+
+        class MyNode(Node):
+            graph_invisible_attrs = ('inv',)
+
+            def __init__(self):
+                self.a = 1
+
+        node = MyNode()
+        self.assertEqual(node.__pretty_repr_item__('a', 1), ('a', 1))
+        self.assertIsNone(node.__pretty_repr_item__('a', None))
+        self.assertIsNone(node.__pretty_repr_item__('inv', 5))
+
+
 if __name__ == '__main__':
     unittest.main()

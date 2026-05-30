@@ -871,6 +871,44 @@ class TestModuleCall(unittest.TestCase):
         mod = Module(name='abc')
         self.assertIn('abc', repr(mod))
 
+    def test_pretty_repr_item_hides_none_public(self):
+        """A public attribute with a ``None`` value is hidden from the repr."""
+        mod = Module()
+        self.assertIsNone(mod.__pretty_repr_item__('w_mask', None))
+
+    def test_pretty_repr_item_hides_invisible(self):
+        """Attributes listed in ``graph_invisible_attrs`` are hidden."""
+
+        class WithInvisible(Module):
+            graph_invisible_attrs = ('secret',)
+
+        mod = WithInvisible()
+        self.assertIsNone(mod.__pretty_repr_item__('secret', 123))
+
+    def test_repr_identifies_type_and_hides_none(self):
+        """The repr names the class and omits unset (``None``) attributes."""
+
+        class Tiny(Module):
+            def __init__(self):
+                super().__init__()
+                self.scale = 2.0
+                self.bias = None
+
+        r = repr(Tiny())
+        self.assertTrue(r.startswith('Tiny('))
+        self.assertIn('scale', r)
+        self.assertNotIn('bias', r)
+
+    def test_repr_empty_module(self):
+        """A module with only unset attributes renders compactly."""
+        self.assertEqual(repr(Module()), 'Module()')
+
+    def test_repr_linear_omits_none_mask(self):
+        """A ``Linear`` with no weight mask does not show ``w_mask=None``."""
+        r = repr(brainstate.nn.Linear(3, 4))
+        self.assertIn('Linear(', r)
+        self.assertNotIn('w_mask', r)
+
 
 class TestModuleStateCollection(unittest.TestCase):
     """Cover ``states``/``state_trees`` collection and filtering."""
