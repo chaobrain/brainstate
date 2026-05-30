@@ -87,9 +87,6 @@ from ._checkify import (
     all_checks, user_checks, nan_checks, div_checks,
     index_checks, float_checks, automatic_checks,
 )
-from ._callback import (
-    pure_callback, io_callback,
-)
 from ._find_state import (
     StateFinder,
 )
@@ -184,8 +181,6 @@ __all__ = [
     'index_checks',
     'float_checks',
     'automatic_checks',
-    'pure_callback',
-    'io_callback',
     'StateFinder',
     'ProgressBar',
     'unvmap',
