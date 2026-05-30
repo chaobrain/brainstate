@@ -804,5 +804,28 @@ class TestMatchedStateNotWrite(unittest.TestCase):
         self.assertEqual(float(shared.value), 55.0)
 
 
+class TestRemoveAxisErrors(unittest.TestCase):
+    """B8: _remove_axis must raise real exceptions (not assert) so they survive -O."""
+
+    def test_non_int_axis_raises_typeerror(self):
+        from brainstate.transform._mapping_core import _remove_axis
+        with self.assertRaises(TypeError):
+            _remove_axis(jnp.zeros((3, 2)), 1.5)  # float axis
+
+    def test_out_of_bounds_axis_raises_valueerror(self):
+        from brainstate.transform._mapping_core import _remove_axis
+        with self.assertRaises(ValueError):
+            _remove_axis(jnp.zeros((3,)), 5)
+
+
+class TestBatchSizeErrors(unittest.TestCase):
+    """B8: indeterminate batch size raises ValueError (not AssertionError)."""
+
+    def test_indeterminate_batch_size_raises_valueerror(self):
+        from brainstate.transform._mapping_core import _get_batch_size
+        with self.assertRaises(ValueError):
+            _get_batch_size((jnp.array(3.),), in_axes=None, in_states={}, axis_size=None)
+
+
 if __name__ == "__main__":
     unittest.main()

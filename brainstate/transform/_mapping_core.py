@@ -31,20 +31,33 @@ that the user did not explicitly declare.
 
 Cold calls perform up to three passes:
 
-1. **probe** -- an eager pass under a :class:`~brainstate.StateTraceStack`
-   whose ``new_arg`` hook strips the mapped axis from matched input states and
-   splits random states. This enumerates every touched state and classifies
-   the batched-input states by filter/instance predicate. It is safe for any
-   function ``jax.vmap`` can handle, because such functions cannot branch on
-   the mapped values (so the single concrete lane the probe executes follows
-   the same control-flow path every lane would).
+1. **probe** -- a pass under a :class:`~brainstate.StateTraceStack` whose
+   ``new_arg`` hook strips the mapped axis from matched input states and splits
+   random states. This enumerates every touched state and classifies the
+   batched-input states by filter/instance predicate. When ``axis_name`` is
+   ``None`` the probe runs *eagerly* (one concrete lane); functions ``jax.vmap``
+   can handle cannot branch on the mapped values, so that single lane follows
+   the same control-flow path every lane would. When ``axis_name`` is set the
+   probe is instead *traced* under ``jax.make_jaxpr(..., axis_env=[(axis_name,
+   size)])`` so that collectives (``jax.lax.psum``, ``jax.lax.axis_index``, ...)
+   have their axis name bound and stage correctly rather than raising
+   ``NameError: unbound axis name``.
 2. **discovery** -- a real ``jax.vmap`` pass that reads each written state's
-   ``BatchTracer.batch_dim`` to learn the output batch axis.
+   ``BatchTracer.batch_dim`` to learn the output batch axis. **Skipped** when
+   the function writes no states (read-only / stateless), avoiding an extra
+   trace.
 3. **execution** -- the actual ``jax.vmap`` / ``jax.pmap`` call that scatters
    batched state writes back along the discovered axes.
 
+Because cold calls may run ``f`` more than once, functions with host side
+effects (``jax.debug.print``, ``jax.experimental.io_callback``) can observe
+those effects multiple times on the first call with a given argument structure.
 Warm calls (same argument structure) reuse the cached plan and perform only
 the execution pass.
+
+Dynamic keyword arguments are mapped over axis 0 (matching ``jax.vmap``);
+keyword arguments named in ``static_argnames`` are closed over as compile-time
+constants and broadcast unchanged.
 """
 
 import functools
@@ -60,6 +73,11 @@ from brainstate._error import BatchAxisError
 from brainstate._state import State, StateTraceStack, TRACE_CONTEXT
 from brainstate.util import filter as filter_module
 from ._make_jaxpr import StatefulFunction, get_arg_cache_key
+
+try:
+    from jax.api_util import flatten_axes
+except ImportError:  # pragma: no cover - older/newer jax layout
+    from jax._src.api_util import flatten_axes
 
 __all__ = [
     # Phase 1 -- shared helpers (re-exported by _mapping1)
@@ -131,11 +149,12 @@ def _flatten_in_out_states(
 
 
 def _remove_axis(x, axis: int):
-    assert isinstance(axis, int), f"Expected axis to be an integer, but got {type(axis)}"
+    if not isinstance(axis, int):
+        raise TypeError(f"Expected the mapped axis to be an integer, but got {type(axis)}.")
     if axis < 0:
         axis += x.ndim
     if axis < 0 or axis >= x.ndim:
-        raise IndexError(f"Axis {axis} is out of bounds for array of shape {x.shape}")
+        raise ValueError(f"Mapped axis {axis} is out of bounds for array of shape {x.shape}.")
     return x[tuple(slice(None, None, None) if i != axis else 0 for i in range(x.ndim))]
 
 
@@ -177,23 +196,29 @@ def _compile_stateful_function(
 
 def _get_batch_size(
     args: Tuple,
-    in_axes: int | Tuple[int, ...],
+    in_axes,
     in_states: AxisToState,
     axis_size: Optional[int] = None,
+    kwargs: Optional[Dict] = None,
 ) -> int:
     batch_sizes = []
 
-    # Check batch size from args and in_axes
-    if isinstance(in_axes, int):
-        in_axes = (in_axes,) * len(args)
-    if in_axes is not None:
-        for arg, in_axis in zip(args, in_axes):
-            if in_axis is not None:
-                arg_leaves = jax.tree.leaves(arg)
-                if arg_leaves:
-                    batch_sizes.append(arg_leaves[0].shape[in_axis])
+    # Batch size from positional args (supports pytree-prefix in_axes).
+    if in_axes is not None and len(args):
+        in_axes_tuple = in_axes if isinstance(in_axes, tuple) else (in_axes,) * len(args)
+        args_flat, in_tree = jax.tree.flatten(tuple(args))
+        axes_flat = flatten_axes("vmap in_axes", in_tree, in_axes_tuple)
+        for leaf, ax in zip(args_flat, axes_flat):
+            if ax is not None:
+                batch_sizes.append(leaf.shape[ax])
 
-    # Check batch size from in_states
+    # Batch size from dynamic kwargs (always mapped over axis 0, like jax.vmap).
+    if kwargs:
+        for v in kwargs.values():
+            for leaf in jax.tree.leaves(v):
+                batch_sizes.append(leaf.shape[0])
+
+    # Batch size from in_states.
     if in_states is not None:
         for axis, states in in_states.items():
             if axis is None:
@@ -204,16 +229,18 @@ def _get_batch_size(
                     batch_sizes.append(state_leaves[0].shape[axis])
 
     if len(batch_sizes) == 0:
-        assert axis_size is not None, (
-            "Unable to determine batch size. Please provide the 'axis_size' argument."
-        )
+        if axis_size is None:
+            raise ValueError(
+                "Unable to determine the mapped axis size: 'in_axes' has no "
+                "non-None entry, no mapped keyword arguments were given, and no "
+                "batched states were found. Specify 'axis_size'."
+            )
         return axis_size
-    else:
-        # Ensure all batch sizes are consistent
-        if len(set(batch_sizes)) > 1:
-            raise ValueError(f"Inconsistent batch sizes found: {set(batch_sizes)}")
 
-        return batch_sizes[0]
+    # Ensure all batch sizes are consistent.
+    if len(set(batch_sizes)) > 1:
+        raise ValueError(f"Inconsistent batch sizes found: {set(batch_sizes)}")
+    return batch_sizes[0]
 
 
 def _format_state_axes(
@@ -372,16 +399,35 @@ def _remove_axis_tree(value, axis: int):
 
 
 def _strip_args(args: Tuple, in_axes) -> Tuple:
-    """Remove the mapped axis from positional arguments (per ``in_axes``)."""
+    """Remove the mapped axis from positional arguments.
+
+    Supports ``in_axes`` as an int, ``None``, a per-argument tuple, or an
+    arbitrary pytree prefix (per-leaf axes), matching :func:`jax.vmap`.
+    """
     if in_axes is None:
         return args
-    if isinstance(in_axes, int):
-        return tuple(jax.tree.map(lambda x: _remove_axis(x, in_axes), a) for a in args)
-    # tuple / list of per-argument axes
-    return tuple(
-        a if ax is None else jax.tree.map(lambda x: _remove_axis(x, ax), a)
-        for a, ax in zip(args, in_axes)
-    )
+    in_axes_tuple = in_axes if isinstance(in_axes, tuple) else (in_axes,) * len(args)
+    args_flat, in_tree = jax.tree.flatten(tuple(args))
+    axes_flat = flatten_axes("vmap in_axes", in_tree, in_axes_tuple)
+    stripped = [leaf if ax is None else _remove_axis(leaf, ax)
+                for leaf, ax in zip(args_flat, axes_flat)]
+    return tuple(jax.tree.unflatten(in_tree, stripped))
+
+
+def _split_kwargs(kwargs, static_argnames):
+    """Split kwargs into dynamic (mapped over axis 0) and static (broadcast)."""
+    dyn = {k: v for k, v in kwargs.items() if k not in static_argnames}
+    static = {k: v for k, v in kwargs.items() if k in static_argnames}
+    return dyn, static
+
+
+def _strip_kwargs(dyn_kwargs):
+    """Remove the leading mapped axis from each dynamic kwarg.
+
+    :func:`jax.vmap` maps keyword arguments over axis 0; this mirrors that for
+    the eager/traced probe pass.
+    """
+    return {k: _remove_axis_tree(v, 0) for k, v in dyn_kwargs.items()}
 
 
 def leaf_batch_dim(value) -> Optional[int]:
@@ -428,8 +474,29 @@ class StateMapPlan:
         self.oth_out_states = oth_out_states
 
 
-def _probe_states(f, args, kwargs, in_predicates, in_axes, name):
-    """Eagerly enumerate touched states and classify batched inputs.
+def _probe_axis_size(args, in_axes, axis_size, kwargs=None):
+    """A positive axis size for binding ``axis_env`` during the traced probe.
+
+    Only used to bind the named axis so collectives can be staged; its exact
+    value does not affect which states are discovered or how inputs are
+    classified.
+    """
+    if axis_size is not None:
+        return int(axis_size)
+    try:
+        return int(_get_batch_size(args, in_axes, {}, axis_size, kwargs))
+    except Exception:
+        return 2
+
+
+def _probe_states(f, args, kwargs, in_predicates, in_axes, name,
+                  axis_name=None, axis_size=None, static_argnames=()):
+    """Enumerate touched states and classify batched inputs.
+
+    When ``axis_name`` is set, the probe runs under :func:`jax.make_jaxpr` with
+    the named axis bound via ``axis_env`` so collectives (``psum``,
+    ``axis_index``, ...) can be traced during state discovery (mirrors the
+    ``shard_map`` approach). Otherwise it runs eagerly.
 
     Returns
     -------
@@ -444,7 +511,9 @@ def _probe_states(f, args, kwargs, in_predicates, in_axes, name):
         Object ids of states classified as batched inputs.
     """
     RandomState = _import_rand_state()
+    dyn_kwargs, static_kwargs = _split_kwargs(kwargs, static_argnames)
     stripped = _strip_args(args, in_axes)
+    stripped_kwargs = _strip_kwargs(dyn_kwargs)
     dim_to_in_states: Dict[int, List[State]] = defaultdict(list)
     rng_states: List[Any] = []
     seen_in_ids = set()
@@ -466,21 +535,35 @@ def _probe_states(f, args, kwargs, in_predicates, in_axes, name):
     state_trace = StateTraceStack(name=name)
     state_trace.set_new_arg(hook)
     try:
-        with state_trace:
-            f(*stripped, **kwargs)
+        if axis_name is None:
+            with state_trace:
+                f(*stripped, **stripped_kwargs, **static_kwargs)
+        else:
+            probe_size = _probe_axis_size(args, in_axes, axis_size, dyn_kwargs)
+
+            def _probe_body(*probe_args):
+                with state_trace:
+                    f(*probe_args, **stripped_kwargs, **static_kwargs)
+                return jnp.zeros(())
+
+            jax.make_jaxpr(_probe_body, axis_env=[(axis_name, probe_size)])(*stripped)
     finally:
         state_trace.recovery_original_values()
     return state_trace, dict(dim_to_in_states), rng_states, seen_in_ids
 
 
-def _detect_out_dims(f, args, kwargs, in_groups, rng_states, write_states, batch_size, in_axes, axis_size, axis_name):
+def _detect_out_dims(f, args, kwargs, in_groups, rng_states, write_states,
+                     batch_size, in_axes, axis_size, axis_name, static_argnames=()):
     """Detect the output batch dimension of every written state.
 
     Runs a real ``jax.vmap`` discovery pass (always ``vmap`` -- dimensions are
     identical under ``pmap``) and reads ``BatchTracer.batch_dim`` for each
     written state. All touched state values are snapshotted beforehand and
     restored afterwards so the discovery pass has no observable side effects.
+    Dynamic keyword arguments are threaded as a mapped input (axis 0) to match
+    :func:`jax.vmap`.
     """
+    dyn_kwargs, static_kwargs = _split_kwargs(kwargs, static_argnames)
     write_set_ids = {id(st) for st in write_states}
     in_group_axes = [axis for axis, _ in in_groups]
     if len(in_group_axes) == 0:
@@ -500,13 +583,13 @@ def _detect_out_dims(f, args, kwargs, in_groups, rng_states, write_states, batch
 
     detected: Dict[int, Optional[int]] = {}
 
-    def disc_fn(args_, rng_keys, group_vals):
+    def disc_fn(args_, kwargs_, rng_keys, group_vals):
         for st, key in zip(rng_states, rng_keys):
             st.restore_value(key)
         for (axis, states), vals in zip(in_groups, group_vals):
             for st, v in zip(states, vals):
                 st.restore_value(v)
-        f(*args_, **kwargs)
+        f(*args_, **kwargs_, **static_kwargs)
         for st in write_states:
             detected[id(st)] = leaf_batch_dim(st.value)
         return jnp.zeros(())
@@ -514,11 +597,11 @@ def _detect_out_dims(f, args, kwargs, in_groups, rng_states, write_states, batch
     try:
         jax.vmap(
             disc_fn,
-            in_axes=(in_axes, 0 if len(rng_states) else None, in_group_axes),
+            in_axes=(in_axes, 0, 0 if len(rng_states) else None, in_group_axes),
             out_axes=None,
             axis_size=axis_size,
             axis_name=axis_name,
-        )(args, rng_vals, in_group_vals)
+        )(args, dyn_kwargs, rng_vals, in_group_vals)
     finally:
         for st, val in snapshots:
             st.restore_value(val)
@@ -533,13 +616,14 @@ def _build_plan(
     f, args, kwargs,
     in_predicates, out_predicates,
     in_axes, axis_size, axis_name,
-    unexpected_out_state_mapping, name,
+    unexpected_out_state_mapping, name, static_argnames=(),
 ):
     """Probe + discover + assemble a :class:`StateMapPlan`."""
     RandomState = _import_rand_state()
 
     state_trace, dim_to_in_states, rng_states, seen_in_ids = _probe_states(
-        f, args, kwargs, in_predicates, in_axes, name
+        f, args, kwargs, in_predicates, in_axes, name,
+        axis_name=axis_name, axis_size=axis_size, static_argnames=static_argnames,
     )
     rng_set_ids = {id(st) for st in rng_states}
     write_states = [st for st in state_trace.get_write_states() if id(st) not in rng_set_ids]
@@ -547,12 +631,18 @@ def _build_plan(
     in_groups = sorted(dim_to_in_states.items(), key=lambda kv: kv[0])
     in_state_to_axis = {id(st): axis for axis, states in in_groups for st in states}
 
-    batch_size = _get_batch_size(args, in_axes, dict(in_groups), axis_size)
+    dyn_kwargs = _split_kwargs(kwargs, static_argnames)[0]
+    batch_size = _get_batch_size(args, in_axes, dict(in_groups), axis_size, dyn_kwargs)
 
-    detected, _ = _detect_out_dims(
-        f, args, kwargs, in_groups, rng_states, write_states,
-        batch_size, in_axes, axis_size, axis_name,
-    )
+    if len(write_states):
+        detected, _ = _detect_out_dims(
+            f, args, kwargs, in_groups, rng_states, write_states,
+            batch_size, in_axes, axis_size, axis_name, static_argnames=static_argnames,
+        )
+    else:
+        # No state writes -> nothing to scatter; the assembly loop below treats
+        # missing detections as None, so we can skip the discovery vmap entirely.
+        detected = {}
 
     # assemble output groups in deterministic trace order
     out_axis_groups: Dict[int, List[State]] = defaultdict(list)
@@ -629,8 +719,9 @@ def _build_plan(
 
 
 def _execute_plan(plan: StateMapPlan, f, args, kwargs, in_axes, out_axes,
-                  axis_size, axis_name, mapping_fn, mapping_kwargs):
+                  axis_size, axis_name, mapping_fn, mapping_kwargs, static_argnames=()):
     """Run the cached plan through the mapping primitive and restore states."""
+    dyn_kwargs, static_kwargs = _split_kwargs(kwargs, static_argnames)
     in_groups = plan.in_groups
     rng_states = plan.rng_states
     out_groups = plan.out_groups
@@ -643,31 +734,31 @@ def _execute_plan(plan: StateMapPlan, f, args, kwargs, in_axes, out_axes,
     if len(out_group_axes) == 0:
         out_group_axes = 0
 
-    batch_size = _get_batch_size(args, in_axes, dict(in_groups), axis_size)
+    batch_size = _get_batch_size(args, in_axes, dict(in_groups), axis_size, dyn_kwargs)
     rng_keys, rng_backups = split_rng_keys(rng_states, batch_size)
 
     in_group_vals = [[st.value for st in states] for _, states in in_groups]
 
-    def fn_to_map(args_, rng_keys_, group_vals):
+    def fn_to_map(args_, kwargs_, rng_keys_, group_vals):
         for st, key in zip(rng_states, rng_keys_):
             st.restore_value(key)
         for (axis, states), vals in zip(in_groups, group_vals):
             for st, v in zip(states, vals):
                 st.restore_value(v)
-        out = f(*args_, **kwargs)
+        out = f(*args_, **kwargs_, **static_kwargs)
         out_group_vals = [[st.value for st in states] for _, states in out_groups]
         oth_vals = [st.value for st in oth_out_states]
         return out, out_group_vals, oth_vals
 
     mapped_fn = mapping_fn(
         fn_to_map,
-        in_axes=(in_axes, 0 if len(rng_states) else None, in_group_axes),
+        in_axes=(in_axes, 0, 0 if len(rng_states) else None, in_group_axes),
         out_axes=(out_axes, out_group_axes, None),
         axis_size=axis_size,
         axis_name=axis_name,
         **mapping_kwargs,
     )
-    out, out_group_vals, oth_vals = mapped_fn(args, rng_keys, in_group_vals)
+    out, out_group_vals, oth_vals = mapped_fn(args, dyn_kwargs, rng_keys, in_group_vals)
 
     # scatter batched output state values
     for (axis, states), vals in zip(out_groups, out_group_vals):
@@ -761,11 +852,13 @@ def state_map_transform(
                 in_predicates, out_predicates,
                 in_axes, axis_size, axis_name,
                 unexpected_out_state_mapping, name,
+                static_argnames=static_argnames,
             )
             cache[cache_key] = plan
         return _execute_plan(
             plan, f, args, kwargs, in_axes, out_axes,
             axis_size, axis_name, mapping_fn, mapping_kwargs,
+            static_argnames=static_argnames,
         )
 
     wrapped.__brainstate_state_map__ = True
