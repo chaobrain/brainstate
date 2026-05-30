@@ -55,12 +55,14 @@ import numpy as np
 
 from brainstate._utils import set_module_as
 from brainstate.typing import SeedOrKey
-from ._state import RandomState, DEFAULT, use_prng_key
+from ._impl import _format_key, _is_typed_key
+from ._state import RandomState, DEFAULT
 
 __all__ = [
     'seed',
     'set_key',
     'get_key',
+    'get_key_data',
     'default_rng',
     'split_key',
     'split_keys',
@@ -126,13 +128,13 @@ def split_key(n: int = None, backup: bool = False):
         >>> brainstate.random.seed(42)
         >>> key = brainstate.random.split_key()
         >>> print(key.shape)
-        (2,)
+        ()
 
         Generate multiple keys for parallel computation:
 
         >>> keys = brainstate.random.split_key(4)
         >>> print(keys.shape)
-        (4, 2)
+        (4,)
 
         Use with backup for state restoration:
 
@@ -169,7 +171,7 @@ def split_keys(n: int, backup: bool = False):
             the original key can be restored using :func:`restore_key`.
 
     Returns:
-        An array of n independent JAX PRNG keys with shape (n, 2).
+        An array of n independent JAX typed PRNG keys with shape (n,).
 
     Raises:
         ValueError: If n is not a positive integer.
@@ -181,7 +183,7 @@ def split_keys(n: int, backup: bool = False):
         >>> brainstate.random.seed(42)
         >>> keys = brainstate.random.split_keys(4)
         >>> print(keys.shape)
-        (4, 2)
+        (4,)
 
         Use with vmap for parallel random number generation:
 
@@ -380,17 +382,18 @@ def set_key(seed_or_key: SeedOrKey) -> None:
     Set a new random key for the global random state.
 
     This function updates the global random state with a new key, which can be
-    either an integer seed or a JAX PRNG key. All subsequent calls to global
-    random functions will use this new key state.
+    an integer seed, a JAX typed PRNG key, or a legacy ``uint32[2]`` key array
+    (auto-wrapped into a typed key). All subsequent calls to global random
+    functions will use this new key state.
 
     Args:
         seed_or_key: The new random key to set. Can be:
-            - An integer seed (will be converted to a JAX PRNG key)
-            - A JAX PRNG key array
-            - A numpy array representing a PRNG key
+            - An integer seed (converted to a typed JAX key via ``jax.random.key``)
+            - A JAX typed PRNG key
+            - A legacy ``uint32[2]`` array (auto-wrapped into a typed key)
 
     Raises:
-        ValueError: If the provided key is not in a valid format.
+        TypeError: If the provided key is not in a valid format.
 
     Example:
         Set with integer seed:
@@ -417,28 +420,11 @@ def set_key(seed_or_key: SeedOrKey) -> None:
 
     See Also:
         - :func:`get_key`: Get the current random key
+        - :func:`get_key_data`: Get the current key as raw ``uint32[2]`` data
         - :func:`seed`: Set seed (also affects NumPy)
         - :func:`restore_key`: Restore a backed up key
     """
-    if isinstance(seed_or_key, int):
-        # Create key using appropriate JAX function based on version
-        key = jax.random.PRNGKey(seed_or_key) if use_prng_key else jax.random.key(seed_or_key)
-    elif isinstance(seed_or_key, (jax.numpy.ndarray, np.ndarray)):
-        if jax.numpy.issubdtype(seed_or_key.dtype, jax.dtypes.prng_key):
-            key = seed_or_key
-        elif seed_or_key.size == 2 and seed_or_key.dtype == jax.numpy.uint32:
-            key = seed_or_key
-        else:
-            raise ValueError(
-                f"seed_or_key should be an integer, a JAX PRNG key, or a uint32 array of size 2. "
-                f"Got array with dtype {seed_or_key.dtype} and size {seed_or_key.size}."
-            )
-    else:
-        raise ValueError(
-            f"seed_or_key must be an integer or a JAX-compatible array. "
-            f"Got {type(seed_or_key)}."
-        )
-    DEFAULT.set_key(key)
+    DEFAULT.set_key(_format_key(seed_or_key))
 
 
 @set_module_as('brainstate.random')
@@ -451,8 +437,8 @@ def get_key():
     to restore the random state later or to create independent random number generators.
 
     Returns:
-        The current JAX PRNG key as a numpy array. This is typically a 2-element
-        uint32 array representing the internal state of the random number generator.
+        The current JAX typed PRNG key (a scalar array of dtype ``key<...>``).
+        Use :func:`get_key_data` if you need the raw ``uint32[2]`` representation.
 
     Example:
         Get and store the current random state:
@@ -461,7 +447,7 @@ def get_key():
         >>> brainstate.random.seed(42)
         >>> current_key = brainstate.random.get_key()
         >>> print(current_key.shape)
-        (2,)
+        ()
 
         Use the key to restore state later:
 
@@ -493,6 +479,34 @@ def get_key():
 
     """
     return DEFAULT.value
+
+
+@set_module_as('brainstate.random')
+def get_key_data():
+    """
+    Get the current global random key as raw ``uint32[2]`` data.
+
+    This is the legacy-interop counterpart of :func:`get_key`. It returns the
+    underlying key data (a 2-element ``uint32`` array) extracted from the current
+    typed key via :func:`jax.random.key_data`. This is useful when interfacing with
+    code that still expects the old ``uint32[2]`` key representation.
+
+    Returns:
+        A ``uint32`` array of shape ``(2,)`` holding the current key's raw data.
+
+    Example:
+        >>> import brainstate
+        >>> import jax.random as jr
+        >>> brainstate.random.set_key(jr.key(11))
+        >>> data = brainstate.random.get_key_data()
+        >>> print(data.shape, data.dtype)
+        (2,) uint32
+
+    See Also:
+        - :func:`get_key`: Get the current typed key
+        - :func:`set_key`: Set a new random key (accepts raw ``uint32[2]`` too)
+    """
+    return jax.random.key_data(DEFAULT.value)
 
 
 @set_module_as('brainstate.random')
@@ -572,13 +586,19 @@ def seed(seed_or_key: SeedOrKey = None):
         # numpy random seed
         if _set_numpy_seed:
             try:
-                if np.size(seed_or_key) == 1:  # seed
+                if isinstance(seed_or_key, int):
                     np.random.seed(seed_or_key)
-                elif np.size(seed_or_key) == 2:  # jax random key
-                    np.random.seed(seed_or_key[0])
+                elif _is_typed_key(seed_or_key):  # typed JAX key (scalar): use its raw data
+                    np.random.seed(int(jax.random.key_data(seed_or_key)[0]))
+                elif np.size(seed_or_key) == 1:  # scalar seed array
+                    np.random.seed(int(np.asarray(seed_or_key)))
+                elif np.size(seed_or_key) == 2:  # legacy uint32[2] key
+                    np.random.seed(int(np.asarray(seed_or_key)[0]))
                 else:
                     raise ValueError(f"seed_or_key should be an integer or a tuple of two integers.")
-            except jax.errors.TracerArrayConversionError:
+            except (jax.errors.TracerArrayConversionError,
+                    jax.errors.ConcretizationTypeError):
+                # Inside a jit trace the key is abstract; skip NumPy seeding.
                 pass
 
     # jax random seed

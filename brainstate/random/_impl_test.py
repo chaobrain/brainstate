@@ -15,6 +15,7 @@
 
 import unittest
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -204,37 +205,47 @@ class TestDtypeHelpers(unittest.TestCase):
 
 
 class TestFormalizeKey(unittest.TestCase):
-    """Validate ``formalize_key`` key-normalisation across input kinds."""
+    """Validate ``formalize_key`` key-normalisation across input kinds.
+
+    Under the typed-key contract, ``formalize_key`` always returns a JAX
+    *typed* PRNG key (scalar shape ``()`` with a ``prng_key`` dtype), never a
+    raw ``uint32[2]`` array.
+    """
 
     def setUp(self):
-        """Seed the global generator and obtain a raw uint32 key."""
+        """Seed the global generator and obtain a (typed) key."""
         brainstate.random.seed(0)
-        self.raw_key = brainstate.random.split_key()
+        self.typed_key = brainstate.random.split_key()
+        self.raw_key = jax.random.key_data(self.typed_key)
 
-    def test_int_seed_becomes_prng_key(self):
-        """formalize_key turns an int seed into a raw PRNGKey."""
-        out = _impl.formalize_key(7)
-        self.assertEqual(out.shape, (2,))
-        self.assertEqual(out.dtype, jnp.uint32)
+    def _assert_typed(self, key):
+        """Assert ``key`` is a scalar typed PRNG key."""
+        self.assertEqual(key.shape, ())
+        self.assertTrue(jnp.issubdtype(key.dtype, jax.dtypes.prng_key))
 
-    def test_raw_uint32_key_passthrough(self):
-        """formalize_key passes a two-element uint32 key through as uint32."""
+    def test_int_seed_becomes_typed_key(self):
+        """formalize_key turns an int seed into a typed PRNG key."""
+        self._assert_typed(_impl.formalize_key(7))
+
+    def test_raw_uint32_key_wrapped(self):
+        """formalize_key wraps a two-element uint32 key into a typed key."""
         out = _impl.formalize_key(self.raw_key)
-        self.assertEqual(out.shape, (2,))
-        self.assertEqual(out.dtype, jnp.uint32)
+        self._assert_typed(out)
+        # Wrapping is the lossless inverse of key_data.
+        np.testing.assert_array_equal(
+            np.asarray(jax.random.key_data(out)), np.asarray(self.raw_key)
+        )
 
     def test_typed_prng_key_passthrough(self):
         """formalize_key returns a typed prng key unchanged."""
-        typed = _impl.formalize_key(0, use_prng_key=False)
+        typed = _impl.formalize_key(0)
         out = _impl.formalize_key(typed)
-        self.assertTrue(jnp.issubdtype(out.dtype, jnp.dtype('uint32').type) is False)
-        # the typed key keeps its custom prng dtype
+        self._assert_typed(out)
         self.assertEqual(out.dtype, typed.dtype)
 
-    def test_scalar_integer_array_becomes_prng_key(self):
-        """formalize_key turns a zero-dim integer array into a PRNGKey."""
-        out = _impl.formalize_key(np.array(42, dtype=np.int32))
-        self.assertEqual(out.shape, (2,))
+    def test_scalar_integer_array_becomes_typed_key(self):
+        """formalize_key turns a zero-dim integer array into a typed key."""
+        self._assert_typed(_impl.formalize_key(np.array(42, dtype=np.int32)))
 
     def test_wrong_dtype_array_raises(self):
         """formalize_key rejects a float array that is not a valid key."""
@@ -253,8 +264,7 @@ class TestFormalizeKey(unittest.TestCase):
 
     def test_length_one_integer_array(self):
         """formalize_key accepts a length-one integer array seed."""
-        out = _impl.formalize_key(np.array([42], dtype=np.int32))
-        self.assertEqual(out.shape, (2,))
+        self._assert_typed(_impl.formalize_key(np.array([42], dtype=np.int32)))
 
 
 class TestShapeAndScaleHelpers(unittest.TestCase):

@@ -121,7 +121,10 @@ class TestTreeRandomSplit(unittest.TestCase):
         target = {"a": jnp.ones((2,)), "b": jnp.ones((3,))}
         keys = tree_random_split(key, target=target)
         self.assertEqual(set(keys.keys()), {"a", "b"})
-        self.assertNotEqual(tuple(keys["a"].tolist()), tuple(keys["b"].tolist()))
+        # Typed PRNG keys compare via their raw key data.
+        a_data = tuple(jax.random.key_data(keys["a"]).tolist())
+        b_data = tuple(jax.random.key_data(keys["b"]).tolist())
+        self.assertNotEqual(a_data, b_data)
 
     def test_split_with_explicit_treedef(self):
         """An explicit ``treedef`` is honored over ``target``."""

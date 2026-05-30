@@ -7,6 +7,20 @@
 
 - **Renamed `jit_named_scope` to `named_scope`**: The `brainstate.transform.jit_named_scope` decorator is now exported as `brainstate.transform.named_scope`. Update any usage accordingly.
 
+#### Typed PRNG Keys in `brainstate.random`
+
+`brainstate.random` now uses JAX's modern **typed PRNG keys** (`jax.random.key`,
+dtype `key<fry>`, scalar shape `()`) everywhere a key is produced, replacing the
+legacy raw `uint32[2]` representation.
+
+- **`get_key()`, `split_key()`, `split_keys()`, `self_assign_multi_keys()`, and `RandomState.value` now return typed keys.** A single key has shape `()` (was `(2,)`); a batch of `n` keys has shape `(n,)` (was `(n, 2)`). Code that asserted `key.shape == (2,)` or `key.dtype == uint32`, or that indexed the raw words of a key, must be updated.
+- **Key inputs accept three forms**: an integer seed, a typed JAX key, or a legacy `uint32[2]` array (the last is auto-wrapped via `jax.random.wrap_key_data`). Passing an integer seed array of size 1 is also accepted. Invalid inputs now raise `TypeError` (previously `ValueError` in some paths).
+- **`RandomState` remains transform-compatible**: typed keys `vmap`/`jit`/`grad` cleanly over their leading axis, and state-aware transformations that special-case `RandomState` continue to work unchanged.
+- The module-level `DEFAULT` generator still constructs without triggering JAX backend initialization at import time: it holds a lazy `uint32[2]` placeholder that is materialized into a typed key (via `wrap_key_data`, preserving the exact seed) on first use.
+
+**Migration**: to recover the raw `uint32[2]` words from a typed key, use the new
+`brainstate.random.get_key_data()` or `jax.random.key_data(key)`.
+
 ### New Features
 
 #### Inline Type Information (PEP 561)
@@ -15,8 +29,25 @@
 - **Typing correctness gate**: a `mypy` configuration with a per-module "ratchet" enforces type correctness in CI, starting with `brainstate.typing`. Coverage expands module-by-module over time.
 - All annotations are evaluated lazily (`from __future__ import annotations`), so they impose no import-time or runtime cost.
 
+#### Physical Unit Support in `brainstate.random`
+
+Random distributions are now **comprehensively and strictly compatible with
+`brainunit` physical units**, with a consistent location–scale convention.
+
+- **Location/scale parameters carry the output unit**: `normal`, `laplace`, `logistic`, `gumbel`, `wald`, and `truncated_normal` propagate the unit of their `loc`/`scale` (or `mean`/bounds) into the samples. When only one of `loc`/`scale` carries a unit, the plain value is interpreted in that same unit; a compatible-but-different unit (e.g. `volt` against `mV`) is converted, while an incompatible one raises `UnitMismatchError`.
+- **Scale-only distributions carry the scale unit**: `exponential`, `gamma`, `rayleigh`, and `weibull_min` propagate the unit of their `scale` parameter.
+- **`multivariate_normal`** carries the unit of `mean` (with `cov` required to be `mean`-unit squared).
+- **Shape / rate / count / probability parameters are strictly dimensionless**: parameters such as `df`, `a`/`b`, `lam`, `n`, `p`, `alpha`, `logits`, `kappa`, `concentration`, and friends reject a dimensional `Quantity` with a clear `ValueError`. A genuinely dimensionless `Quantity` (e.g. `3.0 * u.UNITLESS`) is accepted.
+- **No units → plain arrays**: every distribution returns a plain array when given plain inputs, so existing unitless code is unaffected.
+
+#### Raw Key Interop Helper
+
+- **`brainstate.random.get_key_data()`** returns the current global key as a raw `uint32[2]` array (via `jax.random.key_data`), for interfacing with code that still expects the legacy representation.
+
 ### Bug Fixes
 
+- **`multivariate_normal` now propagates physical units**: previously the output unit was read after the mantissa had already been stripped from `mean`, so units were silently dropped. Samples now correctly carry the unit of `mean`.
+- **`truncated_normal` now accepts unit-carrying bounds with default `loc`/`scale`**: the shared output unit is inferred from whichever of `lower`/`upper`/`loc`/`scale` carries one, and plain values are interpreted in that unit (previously a unit on the bounds with the default plain `loc`/`scale` raised `UnitMismatchError`).
 - **`brainstate.transform.vjp` now supports state-only differentiation**: calling `vjp(fun, grad_states=...)` with no differentiable positional argument (e.g. a loss that closes over trainable parameters) previously raised `IndexError`. It now returns a pullback yielding just the state cotangents, matching `brainstate.transform.grad` semantics.
 - **`brainstate.transform.vjp` accepts `argnums=None`**: like `grad`, `argnums=None` disables positional-argument differentiation so the pullback returns only state cotangents.
 - **Clearer `vjp` errors**: out-of-range `argnums` now raises a descriptive `ValueError` instead of a bare `IndexError`, and supplying neither positional primals nor `grad_states` raises an explanatory `ValueError`.

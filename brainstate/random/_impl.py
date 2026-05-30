@@ -230,25 +230,56 @@ def const(example, val):
 # ---------------------------------------------------------------------------------------------------------------
 
 
-def formalize_key(key, use_prng_key=True):
+def _is_typed_key(x) -> bool:
+    """Return ``True`` if ``x`` is a JAX typed PRNG key (dtype ``key<...>``)."""
+    return hasattr(x, 'dtype') and jnp.issubdtype(x.dtype, jax.dtypes.prng_key)
+
+
+def _validate_raw_key_data(key) -> None:
+    """Validate a raw legacy key: a ``uint32`` array of size 2.
+
+    This is a pure-numpy check that performs no JAX call, so it can run at import
+    time on the lazy ``DEFAULT`` placeholder without initializing a backend.
+    """
+    if not isinstance(key, (jax.Array, np.ndarray)):
+        raise TypeError('Raw key must be a uint32 array of size 2.')
+    if key.dtype != jnp.uint32 or key.size != 2:
+        raise TypeError(
+            f'Raw key must be a uint32 array of size 2, '
+            f'but got dtype={key.dtype}, size={key.size}.'
+        )
+
+
+def formalize_key(key) -> jax.Array:
+    """Backward-compatible alias of :func:`_format_key`."""
+    return _format_key(key)
+
+
+def _format_key(key) -> jax.Array:
+    """Normalize any accepted key input into a typed JAX key (dtype ``key<...>``).
+
+    Accepts:
+
+    - ``int`` (or a 0-d / size-1 integer array): seeded via ``jax.random.key``.
+    - a typed key: returned unchanged.
+    - a raw legacy ``uint32[2]`` array: wrapped losslessly via
+      ``jax.random.wrap_key_data``.
+
+    Anything else raises ``TypeError``.
+    """
     if isinstance(key, int):
-        return jr.PRNGKey(key) if use_prng_key else jr.key(key)
-    elif isinstance(key, (jax.Array, np.ndarray)):
-        if jnp.issubdtype(key.dtype, jax.dtypes.prng_key):
+        return jr.key(key)
+    if isinstance(key, (jax.Array, np.ndarray)):
+        if _is_typed_key(key):
             return key
         if key.size == 1 and jnp.issubdtype(key.dtype, jnp.integer):
-            # ``PRNGKey``/``key`` require a scalar seed; reshape so that a size-1
-            # but non-0d integer array (e.g. ``np.array([42])``) is accepted too.
+            # ``key`` requires a scalar seed; reshape so that a size-1 but non-0d
+            # integer array (e.g. ``np.array([42])``) is accepted too.
             seed = jnp.reshape(key, ())
-            return jr.PRNGKey(seed) if use_prng_key else jr.key(seed)
-
-        if key.dtype != jnp.uint32:
-            raise TypeError('key must be a int or an array with two uint32.')
-        if key.size != 2:
-            raise TypeError('key must be a int or an array with two uint32.')
-        return u.math.asarray(key, dtype=jnp.uint32)
-    else:
-        raise TypeError('key must be a int or an array with two uint32.')
+            return jr.key(seed)
+        _validate_raw_key_data(key)
+        return jr.wrap_key_data(u.math.asarray(key, dtype=jnp.uint32))
+    raise TypeError('key must be an int, a typed JAX key, or a uint32 array of size 2.')
 
 
 def _size2shape(size):
@@ -285,6 +316,79 @@ def _loc_scale(
             return value + loc
         else:
             return value * scale + loc
+
+
+def _remove_unit_param(name, x, dtype=None):
+    """Return the mantissa of a parameter that MUST be dimensionless.
+
+    Parameters
+    ----------
+    name : str
+        Parameter name, used in the error message.
+    x : array_like, Quantity or None
+        The parameter value. A unitless :class:`~brainunit.Quantity` is accepted
+        (its mantissa is returned); a dimensional ``Quantity`` raises.
+    dtype : dtype, optional
+        If given, the returned mantissa is cast to this dtype.
+
+    Raises
+    ------
+    ValueError
+        If ``x`` is a dimensional ``Quantity``.
+    """
+    if x is None:
+        return None
+    if isinstance(x, u.Quantity):
+        if not x.is_unitless:
+            raise ValueError(
+                f"Parameter '{name}' must be dimensionless, but got unit {x.unit}."
+            )
+        x = x.mantissa
+    return x if dtype is None else u.math.asarray(x, dtype=dtype)
+
+
+def _scale_unit(scale):
+    """Split a scale-only parameter into ``(mantissa, unit)``.
+
+    ``None`` maps to ``(None, UNITLESS)``; a plain array maps to
+    ``(array, UNITLESS)``; a :class:`~brainunit.Quantity` maps to its mantissa and
+    unit.
+    """
+    if scale is None:
+        return None, u.UNITLESS
+    mantissa, unit = u.split_mantissa_unit(scale)
+    return mantissa, unit
+
+
+def _loc_scale_unit(loc, scale):
+    """Split a ``(loc, scale)`` pair into ``(loc_mantissa, scale_mantissa, unit)``.
+
+    The shared unit is inferred from whichever of ``loc`` / ``scale`` carries one.
+
+    - If both are :class:`~brainunit.Quantity`, ``scale`` is converted into
+      ``loc``'s unit (raising ``UnitMismatchError`` on incompatible dimensions).
+    - If exactly one carries a unit, the other (a plain number/array) is
+      interpreted as being expressed in that same unit.
+    - If neither carries a unit, the result is unitless.
+
+    Either argument may be ``None``.
+    """
+    loc_q = isinstance(loc, u.Quantity)
+    scale_q = isinstance(scale, u.Quantity)
+    if not loc_q and not scale_q:
+        return loc, scale, u.UNITLESS
+    if loc_q and scale_q:
+        unit = loc.unit
+        return loc.mantissa, scale.to(unit).mantissa, unit
+    if loc_q:
+        unit = loc.unit
+        loc_m = loc.mantissa
+        scale_m = scale  # plain value interpreted in `unit`
+    else:
+        unit = scale.unit
+        scale_m = scale.mantissa
+        loc_m = loc  # plain value interpreted in `unit`
+    return loc_m, scale_m, unit
 
 
 def _check_py_seq(seq):

@@ -79,11 +79,21 @@ class TestSeedUtilities(unittest.TestCase):
         self.assertEqual(drawn.shape, (3,))
 
     def test_seed_accepts_jax_key(self):
-        """Seed accepts a size-2 JAX PRNG key (interop path)."""
+        """Seed accepts a typed JAX PRNG key (interop path)."""
         brainstate.random.seed(7)
         key = brainstate.random.split_key()
-        # feeding a uint32 size-2 key exercises the ``np.size == 2`` branch
+        # feeding a typed key exercises the ``_is_typed_key`` branch
         brainstate.random.seed(key)
+        drawn = brainstate.random.randn(2)
+        self.assertEqual(drawn.shape, (2,))
+
+    def test_seed_accepts_legacy_uint32_key(self):
+        """Seed accepts a legacy ``uint32[2]`` key (auto-wrapped)."""
+        brainstate.random.seed(7)
+        raw = brainstate.random.get_key_data()
+        self.assertEqual(raw.shape, (2,))
+        self.assertEqual(raw.dtype, jnp.uint32)
+        brainstate.random.seed(raw)
         drawn = brainstate.random.randn(2)
         self.assertEqual(drawn.shape, (2,))
 
@@ -98,10 +108,21 @@ class TestSeedUtilities(unittest.TestCase):
     # ------------------------------------------------------------------ #
 
     def test_get_key_returns_current_value(self):
-        """get_key returns the current global key snapshot."""
+        """get_key returns the current global typed-key snapshot."""
         brainstate.random.seed(42)
         key = brainstate.random.get_key()
-        self.assertEqual(key.shape, (2,))
+        self.assertEqual(key.shape, ())
+        self.assertTrue(jnp.issubdtype(key.dtype, jax.dtypes.prng_key))
+
+    def test_get_key_data_returns_raw_uint32(self):
+        """get_key_data returns the raw ``uint32[2]`` representation."""
+        brainstate.random.seed(42)
+        data = brainstate.random.get_key_data()
+        self.assertEqual(data.shape, (2,))
+        self.assertEqual(data.dtype, jnp.uint32)
+        # get_key_data is the raw view of get_key.
+        self.assertTrue(bool(jnp.array_equal(
+            data, jax.random.key_data(brainstate.random.get_key()))))
 
     def test_set_get_key_roundtrip_with_integer(self):
         """set_key with an integer seed restores a reproducible sequence."""
@@ -112,20 +133,18 @@ class TestSeedUtilities(unittest.TestCase):
         self.assertTrue(bool(jnp.allclose(a, b)))
 
     def test_set_key_with_raw_uint32_key(self):
-        """set_key accepts a raw uint32 size-2 key array."""
+        """set_key accepts a legacy raw uint32 size-2 key array (auto-wrapped)."""
         brainstate.random.seed(5)
-        raw_key = brainstate.random.split_key()
+        raw_key = brainstate.random.get_key_data()
         self.assertEqual(raw_key.dtype, jnp.uint32)
         brainstate.random.set_key(raw_key)
-        self.assertTrue(bool(jnp.array_equal(brainstate.random.get_key(), raw_key)))
+        # The wrapped key reproduces the same raw data.
+        self.assertTrue(bool(jnp.array_equal(
+            brainstate.random.get_key_data(), raw_key)))
 
     def test_set_key_with_typed_prng_key(self):
         """set_key accepts a typed JAX PRNG key (interop path)."""
-        # A "typed" key (dtype key<...>) is produced by brainstate's own key
-        # constructor with use_prng_key=False; default brainstate keys are raw
-        # uint32 arrays. This exercises the prng_key branch of set_key.
-        from brainstate.random._impl import formalize_key
-        typed_key = formalize_key(7, use_prng_key=False)
+        typed_key = jax.random.key(7)
         self.assertTrue(jnp.issubdtype(typed_key.dtype, jax.dtypes.prng_key))
         brainstate.random.set_key(typed_key)
         self.assertTrue(jnp.issubdtype(brainstate.random.get_key().dtype, jax.dtypes.prng_key))
@@ -139,20 +158,20 @@ class TestSeedUtilities(unittest.TestCase):
         self.assertTrue(bool(jnp.array_equal(brainstate.random.get_key(), snapshot)))
 
     def test_set_key_rejects_wrong_shaped_array(self):
-        """set_key raises ValueError for a non-key uint32 array."""
+        """set_key raises TypeError for a non-key uint32 array."""
         bad = np.array([1, 2, 3, 4, 5], dtype=np.uint32)
-        with self.assertRaises(ValueError):
+        with self.assertRaises(TypeError):
             brainstate.random.set_key(bad)
 
     def test_set_key_rejects_float_array(self):
-        """set_key raises ValueError for a float array."""
+        """set_key raises TypeError for a float array."""
         bad = np.array([1.0, 2.0], dtype=np.float32)
-        with self.assertRaises(ValueError):
+        with self.assertRaises(TypeError):
             brainstate.random.set_key(bad)
 
     def test_set_key_rejects_non_array(self):
-        """set_key raises ValueError for a non-array, non-integer input."""
-        with self.assertRaises(ValueError):
+        """set_key raises TypeError for a non-array, non-integer input."""
+        with self.assertRaises(TypeError):
             brainstate.random.set_key("not-a-key")
 
     # ------------------------------------------------------------------ #
@@ -160,10 +179,11 @@ class TestSeedUtilities(unittest.TestCase):
     # ------------------------------------------------------------------ #
 
     def test_split_key_single(self):
-        """split_key with no argument returns one size-2 key."""
+        """split_key with no argument returns one scalar typed key."""
         brainstate.random.seed(0)
         key = brainstate.random.split_key()
-        self.assertEqual(key.shape, (2,))
+        self.assertEqual(key.shape, ())
+        self.assertTrue(jnp.issubdtype(key.dtype, jax.dtypes.prng_key))
 
     def test_split_key_advances_state(self):
         """split_key advances the global state, yielding distinct keys."""
@@ -173,10 +193,11 @@ class TestSeedUtilities(unittest.TestCase):
         self.assertFalse(bool(jnp.array_equal(k1, k2)))
 
     def test_split_key_multiple(self):
-        """split_key with n returns an array of n keys."""
+        """split_key with n returns a batch of n typed keys."""
         brainstate.random.seed(0)
         keys = brainstate.random.split_key(3)
-        self.assertEqual(keys.shape, (3, 2))
+        self.assertEqual(keys.shape, (3,))
+        self.assertTrue(jnp.issubdtype(keys.dtype, jax.dtypes.prng_key))
 
     def test_split_keys_count(self):
         """split_keys(n) returns exactly n keys."""
@@ -209,7 +230,7 @@ class TestSeedUtilities(unittest.TestCase):
         """split_key(backup=True) records a backup that restore_key can recover."""
         brainstate.random.seed(5)
         keys = brainstate.random.split_key(2, backup=True)
-        self.assertEqual(keys.shape, (2, 2))
+        self.assertEqual(keys.shape, (2,))
         backed_up = brainstate.random.get_key()
         _ = brainstate.random.rand(2)  # advance state
         brainstate.random.restore_key()
@@ -233,12 +254,12 @@ class TestSeedUtilities(unittest.TestCase):
         """self_assign_multi_keys(backup=True) stores n keys and backs up a single key."""
         brainstate.random.seed(9)
         brainstate.random.self_assign_multi_keys(3, backup=True)
-        # the working value now holds the n multi-keys
-        self.assertEqual(brainstate.random.get_key().shape, (3, 2))
+        # the working value now holds the n multi-keys (batch of typed keys)
+        self.assertEqual(brainstate.random.get_key().shape, (3,))
         # restore_key recovers a usable single key (the intermediate split key)
         brainstate.random.restore_key()
         restored = brainstate.random.get_key()
-        self.assertEqual(restored.shape, (2,))
+        self.assertEqual(restored.shape, ())
         # the restored single key supports normal draws again
         self.assertEqual(brainstate.random.randn(3).shape, (3,))
 
@@ -246,7 +267,7 @@ class TestSeedUtilities(unittest.TestCase):
         """self_assign_multi_keys(backup=False) stores n keys without a backup."""
         brainstate.random.seed(9)
         brainstate.random.self_assign_multi_keys(2, backup=False)
-        self.assertEqual(brainstate.random.get_key().shape, (2, 2))
+        self.assertEqual(brainstate.random.get_key().shape, (2,))
         with self.assertRaises(ValueError):
             brainstate.random.restore_key()
 
