@@ -18,6 +18,8 @@
 Shared neural network activations and other functions.
 """
 
+from __future__ import annotations
+
 from typing import Any, Union, Sequence
 
 import brainunit as u
@@ -87,7 +89,7 @@ def tanh(x: ArrayLike) -> Union[jax.Array, u.Quantity]:
     return u.math.tanh(x)
 
 
-def softmin(x, axis=-1):
+def softmin(x: ArrayLike, axis: int = -1) -> Union[jax.Array, u.Quantity]:
     r"""
     Softmin activation function.
 
@@ -114,7 +116,7 @@ def softmin(x, axis=-1):
     return unnormalized / unnormalized.sum(axis, keepdims=True)
 
 
-def tanh_shrink(x):
+def tanh_shrink(x: ArrayLike) -> Union[jax.Array, u.Quantity]:
     r"""
     Tanh shrink activation function.
 
@@ -136,7 +138,7 @@ def tanh_shrink(x):
     return x - u.math.tanh(x)
 
 
-def prelu(x, a=0.25):
+def prelu(x: ArrayLike, a: ArrayLike = 0.25) -> Union[jax.Array, u.Quantity]:
     r"""
     Parametric Rectified Linear Unit activation function.
 
@@ -175,7 +177,7 @@ def prelu(x, a=0.25):
     return u.math.where(x >= 0., x, a * x)
 
 
-def soft_shrink(x, lambd=0.5):
+def soft_shrink(x: ArrayLike, lambd: float = 0.5) -> Union[jax.Array, u.Quantity]:
     r"""
     Soft shrinkage activation function.
 
@@ -213,7 +215,7 @@ def soft_shrink(x, lambd=0.5):
     )
 
 
-def mish(x):
+def mish(x: ArrayLike) -> Union[jax.Array, u.Quantity]:
     r"""
     Mish activation function.
 
@@ -240,7 +242,7 @@ def mish(x):
     return x * u.math.tanh(softplus(x))
 
 
-def rrelu(x, lower=0.125, upper=0.3333333333333333):
+def rrelu(x: ArrayLike, lower: float = 0.125, upper: float = 0.3333333333333333) -> Union[jax.Array, u.Quantity]:
     r"""
     Randomized Leaky Rectified Linear Unit activation function.
 
@@ -281,7 +283,7 @@ def rrelu(x, lower=0.125, upper=0.3333333333333333):
     return u.math.where(u.get_mantissa(x) >= 0., x, a * x)
 
 
-def hard_shrink(x, lambd=0.5):
+def hard_shrink(x: ArrayLike, lambd: float = 0.5) -> Union[jax.Array, u.Quantity]:
     r"""
     Hard shrinkage activation function.
 

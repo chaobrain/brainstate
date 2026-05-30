@@ -50,6 +50,20 @@ TNode = TypeVar('TNode', bound='PyTreeNode')
 
 
 def is_dataclass(cls: Any) -> bool:
+    """
+    Check whether a class was created by the brainstate :func:`dataclass` decorator.
+
+    Parameters
+    ----------
+    cls : Any
+        The class (or any object) to inspect.
+
+    Returns
+    -------
+    bool
+        ``True`` if ``cls`` carries the ``_brainstate_dataclass`` marker set by
+        :func:`dataclass`, ``False`` otherwise.
+    """
     if hasattr(cls, '_brainstate_dataclass'):
         return True
     return False
@@ -722,7 +736,10 @@ def copy(x: dict[K, V], add_or_replace: Mapping[K, V] | None = None) -> dict[K, 
     ...
 
 
-def copy(x, add_or_replace=None):
+def copy(
+    x: FrozenDict[K, V] | dict[K, V],
+    add_or_replace: Mapping[K, V] | None = None,
+) -> FrozenDict[K, V] | dict[K, V]:
     """
     Copy a dictionary with optional updates.
 
@@ -794,7 +811,10 @@ def pop(x: dict[K, V], key: K) -> tuple[dict[K, V], V]:
     ...
 
 
-def pop(x, key):
+def pop(
+    x: FrozenDict[K, V] | dict[K, V],
+    key: K,
+) -> tuple[FrozenDict[K, V] | dict[K, V], V]:
     """
     Remove and return an item from a dictionary.
 

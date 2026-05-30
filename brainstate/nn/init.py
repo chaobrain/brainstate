@@ -13,9 +13,11 @@
 # limitations under the License.
 # ==============================================================================
 
+from __future__ import annotations
+
 import math
 from typing import Optional, Tuple
-from typing import Union, Callable, Sequence
+from typing import Union, Callable, Sequence, Any
 
 import brainunit as u
 import jax
@@ -136,7 +138,7 @@ def param(
     batch_size: Optional[int] = None,
     allow_none: bool = True,
     allow_scalar: bool = True,
-):
+) -> Any:
     """Initialize parameters.
 
     Parameters
@@ -215,7 +217,7 @@ def param(
     return type(parameter)(param_value) if isinstance(parameter, State) else param_value
 
 
-def calculate_init_gain(nonlinearity, param=None):
+def calculate_init_gain(nonlinearity: str, param: Optional[ArrayLike] = None) -> float:
     r"""Return the recommended gain value for the given nonlinearity function.
     The values are as follows:
 
@@ -469,6 +471,70 @@ class Uniform(Initializer):
 
 
 class VarianceScaling(Initializer):
+    r"""Initialize weights with a variance-scaling scheme.
+
+    This is the generic variance-scaling initializer underlying the Kaiming,
+    Xavier (Glorot) and LeCun schemes. The variance of the sampled weights is
+    set to ``scale / n``, where ``n`` is selected by ``mode`` from the layer's
+    fan-in and fan-out:
+
+    .. math::
+
+        n =
+        \begin{cases}
+        \text{fan\_in} & \text{if mode} = \mathrm{fan\_in} \\
+        \text{fan\_out} & \text{if mode} = \mathrm{fan\_out} \\
+        (\text{fan\_in} + \text{fan\_out}) / 2 & \text{if mode} = \mathrm{fan\_avg}
+        \end{cases}
+
+    The fans are computed from the requested weight ``shape`` using ``in_axis``
+    and ``out_axis`` (the remaining axes form the receptive field). The samples
+    are then drawn from the chosen ``distribution`` and rescaled to the target
+    variance:
+
+    - ``"truncated_normal"``: a normal distribution truncated to
+      :math:`[-2, 2]`, with the standard deviation corrected by the constant
+      ``0.87962566103423978`` so that the truncated samples have the requested
+      variance.
+    - ``"normal"``: a standard normal scaled by :math:`\sqrt{\text{variance}}`.
+    - ``"uniform"``: a uniform distribution on :math:`[-1, 1]` scaled by
+      :math:`\sqrt{3 \cdot \text{variance}}`.
+
+    Parameters
+    ----------
+    scale : ArrayLike
+        Scaling factor applied to the variance (the variance equals
+        ``scale / n``).
+    mode : str
+        One of ``"fan_in"``, ``"fan_out"`` or ``"fan_avg"``, selecting which
+        fan is used as the denominator ``n``.
+    distribution : str
+        One of ``"truncated_normal"``, ``"normal"`` or ``"uniform"``, selecting
+        the distribution the weights are drawn from.
+    in_axis : int, optional
+        Axis of the weight array corresponding to the input dimension, used to
+        compute ``fan_in``. Default is ``-2``.
+    out_axis : int, optional
+        Axis of the weight array corresponding to the output dimension, used to
+        compute ``fan_out``. Default is ``-1``.
+    seed : SeedOrKey, optional
+        Seed or PRNG key for the random number generator. Default is ``None``,
+        which uses the default random number generator.
+    unit : u.Unit, optional
+        Physical unit attached to the generated weights. Default is
+        ``u.UNITLESS``.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate
+        >>> init = brainstate.nn.init.VarianceScaling(scale=2.0, mode='fan_in',
+        ...                                      distribution='normal')
+        >>> weights = init((4, 3))
+        >>> weights.shape
+        (4, 3)
+    """
     __module__ = 'brainstate.nn'
 
     def __init__(
@@ -519,6 +585,43 @@ class VarianceScaling(Initializer):
 
 
 class KaimingUniform(VarianceScaling):
+    r"""Kaiming (He) uniform variance-scaling initializer.
+
+    A :class:`VarianceScaling` initializer specialized for the Kaiming/He
+    scheme with a uniform distribution. It uses ``mode="fan_in"`` and
+    ``scale=2.0`` by default, giving weights a variance of ``2 / fan_in`` and
+    drawing them from a uniform distribution. This is well suited for layers
+    followed by ReLU-style nonlinearities.
+
+    Parameters
+    ----------
+    scale : float, optional
+        Scaling factor applied to the variance (variance equals
+        ``scale / fan_in``). Default is ``2.0``.
+    mode : str, optional
+        Fan mode used as the variance denominator. Default is ``"fan_in"``.
+    distribution : str, optional
+        Distribution the weights are drawn from. Default is ``"uniform"``.
+    in_axis : int, optional
+        Axis used to compute ``fan_in``. Default is ``-2``.
+    out_axis : int, optional
+        Axis used to compute ``fan_out``. Default is ``-1``.
+    seed : SeedOrKey, optional
+        Seed or PRNG key for the random number generator. Default is ``None``.
+    unit : u.Unit, optional
+        Physical unit attached to the generated weights. Default is
+        ``u.UNITLESS``.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate
+        >>> init = brainstate.nn.init.KaimingUniform()
+        >>> weights = init((128, 64))
+        >>> weights.shape
+        (128, 64)
+    """
     __module__ = 'brainstate.nn'
 
     def __init__(
@@ -541,6 +644,44 @@ class KaimingUniform(VarianceScaling):
 
 
 class KaimingNormal(VarianceScaling):
+    r"""Kaiming (He) normal variance-scaling initializer.
+
+    A :class:`VarianceScaling` initializer specialized for the Kaiming/He
+    scheme with a (truncated) normal distribution. It uses ``mode="fan_in"``
+    and ``scale=2.0`` by default, giving weights a variance of ``2 / fan_in``
+    and drawing them from a truncated normal distribution. This is well suited
+    for layers followed by ReLU-style nonlinearities.
+
+    Parameters
+    ----------
+    scale : float, optional
+        Scaling factor applied to the variance (variance equals
+        ``scale / fan_in``). Default is ``2.0``.
+    mode : str, optional
+        Fan mode used as the variance denominator. Default is ``"fan_in"``.
+    distribution : str, optional
+        Distribution the weights are drawn from. Default is
+        ``"truncated_normal"``.
+    in_axis : int, optional
+        Axis used to compute ``fan_in``. Default is ``-2``.
+    out_axis : int, optional
+        Axis used to compute ``fan_out``. Default is ``-1``.
+    seed : SeedOrKey, optional
+        Seed or PRNG key for the random number generator. Default is ``None``.
+    unit : u.Unit, optional
+        Physical unit attached to the generated weights. Default is
+        ``u.UNITLESS``.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate
+        >>> init = brainstate.nn.init.KaimingNormal()
+        >>> weights = init((128, 64))
+        >>> weights.shape
+        (128, 64)
+    """
     __module__ = 'brainstate.nn'
 
     def __init__(
@@ -563,6 +704,43 @@ class KaimingNormal(VarianceScaling):
 
 
 class XavierUniform(VarianceScaling):
+    r"""Xavier (Glorot) uniform variance-scaling initializer.
+
+    A :class:`VarianceScaling` initializer specialized for the Xavier/Glorot
+    scheme with a uniform distribution. It uses ``mode="fan_avg"`` and
+    ``scale=1.0`` by default, giving weights a variance of
+    ``2 / (fan_in + fan_out)`` and drawing them from a uniform distribution.
+    This is well suited for layers with symmetric (e.g. tanh) nonlinearities.
+
+    Parameters
+    ----------
+    scale : float, optional
+        Scaling factor applied to the variance (variance equals
+        ``scale / fan_avg``). Default is ``1.0``.
+    mode : str, optional
+        Fan mode used as the variance denominator. Default is ``"fan_avg"``.
+    distribution : str, optional
+        Distribution the weights are drawn from. Default is ``"uniform"``.
+    in_axis : int, optional
+        Axis used to compute ``fan_in``. Default is ``-2``.
+    out_axis : int, optional
+        Axis used to compute ``fan_out``. Default is ``-1``.
+    seed : SeedOrKey, optional
+        Seed or PRNG key for the random number generator. Default is ``None``.
+    unit : u.Unit, optional
+        Physical unit attached to the generated weights. Default is
+        ``u.UNITLESS``.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate
+        >>> init = brainstate.nn.init.XavierUniform()
+        >>> weights = init((128, 64))
+        >>> weights.shape
+        (128, 64)
+    """
     __module__ = 'brainstate.nn'
 
     def __init__(
@@ -585,6 +763,45 @@ class XavierUniform(VarianceScaling):
 
 
 class XavierNormal(VarianceScaling):
+    r"""Xavier (Glorot) normal variance-scaling initializer.
+
+    A :class:`VarianceScaling` initializer specialized for the Xavier/Glorot
+    scheme with a (truncated) normal distribution. It uses ``mode="fan_avg"``
+    and ``scale=1.0`` by default, giving weights a variance of
+    ``2 / (fan_in + fan_out)`` and drawing them from a truncated normal
+    distribution. This is well suited for layers with symmetric (e.g. tanh)
+    nonlinearities.
+
+    Parameters
+    ----------
+    scale : float, optional
+        Scaling factor applied to the variance (variance equals
+        ``scale / fan_avg``). Default is ``1.0``.
+    mode : str, optional
+        Fan mode used as the variance denominator. Default is ``"fan_avg"``.
+    distribution : str, optional
+        Distribution the weights are drawn from. Default is
+        ``"truncated_normal"``.
+    in_axis : int, optional
+        Axis used to compute ``fan_in``. Default is ``-2``.
+    out_axis : int, optional
+        Axis used to compute ``fan_out``. Default is ``-1``.
+    seed : SeedOrKey, optional
+        Seed or PRNG key for the random number generator. Default is ``None``.
+    unit : u.Unit, optional
+        Physical unit attached to the generated weights. Default is
+        ``u.UNITLESS``.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate
+        >>> init = brainstate.nn.init.XavierNormal()
+        >>> weights = init((128, 64))
+        >>> weights.shape
+        (128, 64)
+    """
     __module__ = 'brainstate.nn'
 
     def __init__(
@@ -607,6 +824,43 @@ class XavierNormal(VarianceScaling):
 
 
 class LecunUniform(VarianceScaling):
+    r"""LeCun uniform variance-scaling initializer.
+
+    A :class:`VarianceScaling` initializer specialized for the LeCun scheme
+    with a uniform distribution. It uses ``mode="fan_in"`` and ``scale=1.0`` by
+    default, giving weights a variance of ``1 / fan_in`` and drawing them from a
+    uniform distribution. This is well suited for layers followed by SELU
+    nonlinearities.
+
+    Parameters
+    ----------
+    scale : float, optional
+        Scaling factor applied to the variance (variance equals
+        ``scale / fan_in``). Default is ``1.0``.
+    mode : str, optional
+        Fan mode used as the variance denominator. Default is ``"fan_in"``.
+    distribution : str, optional
+        Distribution the weights are drawn from. Default is ``"uniform"``.
+    in_axis : int, optional
+        Axis used to compute ``fan_in``. Default is ``-2``.
+    out_axis : int, optional
+        Axis used to compute ``fan_out``. Default is ``-1``.
+    seed : SeedOrKey, optional
+        Seed or PRNG key for the random number generator. Default is ``None``.
+    unit : u.Unit, optional
+        Physical unit attached to the generated weights. Default is
+        ``u.UNITLESS``.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate
+        >>> init = brainstate.nn.init.LecunUniform()
+        >>> weights = init((128, 64))
+        >>> weights.shape
+        (128, 64)
+    """
     __module__ = 'brainstate.nn'
 
     def __init__(
@@ -629,6 +883,44 @@ class LecunUniform(VarianceScaling):
 
 
 class LecunNormal(VarianceScaling):
+    r"""LeCun normal variance-scaling initializer.
+
+    A :class:`VarianceScaling` initializer specialized for the LeCun scheme
+    with a (truncated) normal distribution. It uses ``mode="fan_in"`` and
+    ``scale=1.0`` by default, giving weights a variance of ``1 / fan_in`` and
+    drawing them from a truncated normal distribution. This is well suited for
+    layers followed by SELU nonlinearities.
+
+    Parameters
+    ----------
+    scale : float, optional
+        Scaling factor applied to the variance (variance equals
+        ``scale / fan_in``). Default is ``1.0``.
+    mode : str, optional
+        Fan mode used as the variance denominator. Default is ``"fan_in"``.
+    distribution : str, optional
+        Distribution the weights are drawn from. Default is
+        ``"truncated_normal"``.
+    in_axis : int, optional
+        Axis used to compute ``fan_in``. Default is ``-2``.
+    out_axis : int, optional
+        Axis used to compute ``fan_out``. Default is ``-1``.
+    seed : SeedOrKey, optional
+        Seed or PRNG key for the random number generator. Default is ``None``.
+    unit : u.Unit, optional
+        Physical unit attached to the generated weights. Default is
+        ``u.UNITLESS``.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import brainstate
+        >>> init = brainstate.nn.init.LecunNormal()
+        >>> weights = init((128, 64))
+        >>> weights.shape
+        (128, 64)
+    """
     __module__ = 'brainstate.nn'
 
     def __init__(

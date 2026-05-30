@@ -13,7 +13,10 @@
 # limitations under the License.
 # ==============================================================================
 
+from __future__ import annotations
+
 from functools import partial
+from typing import Optional
 
 import brainunit as u
 import jax
@@ -25,6 +28,7 @@ from jax import lax, dtypes
 from jax.scipy import special as jsp
 
 from brainstate import environ
+from brainstate.typing import ArrayLike, Size, SeedOrKey, DTypeLike
 
 
 def _categorical(key, p, shape):
@@ -37,7 +41,44 @@ def _categorical(key, p, shape):
 
 
 @partial(jit, static_argnames=('n_max', 'shape'))
-def multinomial(key, p, n, *, n_max, shape=()):
+def multinomial(
+    key: SeedOrKey,
+    p: ArrayLike,
+    n: ArrayLike,
+    *,
+    n_max: int,
+    shape: Size = ()
+) -> jax.Array:
+    """Draw samples from a multinomial distribution.
+
+    Each sample draws ``n`` items from ``len(p)`` categories with the per-category
+    probabilities ``p`` and returns the resulting category counts. Samples are
+    produced by drawing ``n_max`` categorical outcomes and (when ``n`` varies across
+    the batch) masking out the surplus draws so each output row sums to its own ``n``.
+
+    Parameters
+    ----------
+    key : SeedOrKey
+        Random key used to draw the samples.
+    p : ArrayLike
+        Category probabilities. The last axis indexes the categories; leading axes
+        are treated as batch dimensions and must broadcast with ``n``.
+    n : ArrayLike
+        Number of trials per sample. Broadcasts against the batch shape of ``p``
+        (i.e. ``p.shape[:-1]``).
+    n_max : int
+        Static upper bound on ``n``; the maximum number of categorical draws taken
+        per sample. Must be at least ``max(n)``.
+    shape : Size, optional
+        Batch shape of the output (excluding the trailing category axis). Defaults
+        to ``p.shape[:-1]``.
+
+    Returns
+    -------
+    jax.Array
+        Integer counts of shape ``shape + p.shape[-1:]``, where each entry along the
+        last axis is the number of draws that fell in that category.
+    """
     if u.math.shape(n) != u.math.shape(p)[:-1]:
         broadcast_shape = lax.broadcast_shapes(u.math.shape(n), u.math.shape(p)[:-1])
         n = jnp.broadcast_to(n, broadcast_shape)
@@ -71,11 +112,11 @@ def multinomial(key, p, n, *, n_max, shape=()):
 
 @partial(jit, static_argnums=(2, 3), static_argnames=['shape', 'dtype'])
 def von_mises_centered(
-    key,
-    concentration,
-    shape,
-    dtype=None
-):
+    key: SeedOrKey,
+    concentration: ArrayLike,
+    shape: Size,
+    dtype: Optional[DTypeLike] = None
+) -> jax.Array:
     """Compute centered von Mises samples using rejection sampling from [1]_ with wrapped Cauchy proposal.
 
     Returns
@@ -217,7 +258,28 @@ def _is_python_scalar(x):
         return False
 
 
-def const(example, val):
+def const(example, val) -> ArrayLike:
+    """Materialize a constant with a dtype inferred from an example value.
+
+    Build the scalar/array constant ``val`` using a dtype derived from ``example``:
+    the canonicalized python-scalar dtype when ``example`` is a python scalar,
+    otherwise ``example.dtype``. This mirrors NumPy/JAX promotion so the returned
+    constant interoperates with ``example`` without triggering unwanted upcasts.
+
+    Parameters
+    ----------
+    example : ArrayLike
+        Value whose dtype (and scalar-ness) drives the dtype of the result.
+    val : ArrayLike
+        The constant value to materialize.
+
+    Returns
+    -------
+    ArrayLike
+        ``val`` cast to the inferred dtype. A python/NumPy scalar is returned when
+        ``example`` is itself a scalar and the dtype already matches; otherwise a
+        :class:`numpy.ndarray` of the inferred dtype.
+    """
     if _is_python_scalar(example):
         dtype = dtypes.canonicalize_dtype(type(example))
         val = dtypes.scalar_type_of(example)(val)
@@ -250,7 +312,7 @@ def _validate_raw_key_data(key) -> None:
         )
 
 
-def formalize_key(key) -> jax.Array:
+def formalize_key(key: SeedOrKey) -> jax.Array:
     """Backward-compatible alias of :func:`_format_key`."""
     return _format_key(key)
 
@@ -397,14 +459,20 @@ def _check_py_seq(seq):
 
 @partial(jit, static_argnames=['shape', 'dtype'])
 def f(
-    key,
-    dfnum,
-    dfden,
+    key: SeedOrKey,
+    dfnum: ArrayLike,
+    dfden: ArrayLike,
     *,
-    shape,
-    dtype=None
-):
-    """Draw samples from the central F distribution."""
+    shape: Optional[Size],
+    dtype: Optional[DTypeLike] = None
+) -> jax.Array:
+    """Draw samples from the central F distribution.
+
+    Returns
+    -------
+    jax.Array
+        Samples from the central F distribution.
+    """
     dtype = dtype or environ.dftype()
     dfnum = lax.convert_element_type(dfnum, dtype)
     dfden = lax.convert_element_type(dfden, dtype)
@@ -432,14 +500,14 @@ def f(
 
 @partial(jit, static_argnames=['shape', 'dtype'])
 def noncentral_f(
-    key,
-    dfnum,
-    dfden,
-    nonc,
+    key: SeedOrKey,
+    dfnum: ArrayLike,
+    dfden: ArrayLike,
+    nonc: ArrayLike,
     *,
-    shape,
-    dtype=None
-):
+    shape: Optional[Size],
+    dtype: Optional[DTypeLike] = None
+) -> jax.Array:
     """
     Draw samples from the noncentral F distribution.
 
@@ -502,13 +570,19 @@ def noncentral_f(
 
 @partial(jit, static_argnames=['shape', 'dtype'])
 def logseries(
-    key,
-    p,
+    key: SeedOrKey,
+    p: ArrayLike,
     *,
-    shape,
-    dtype=None
-):
-    """Draw samples from the logarithmic series distribution."""
+    shape: Optional[Size],
+    dtype: Optional[DTypeLike] = None
+) -> jax.Array:
+    """Draw samples from the logarithmic series distribution.
+
+    Returns
+    -------
+    jax.Array
+        Samples from the logarithmic series distribution.
+    """
     dtype = dtype or environ.ditype()
     float_dtype = dtypes.canonicalize_dtype(environ.dftype())
     calc_dtype = dtypes.canonicalize_dtype(jnp.promote_types(float_dtype, jnp.float64))
@@ -575,13 +649,19 @@ def logseries(
 
 @partial(jit, static_argnames=['shape', 'dtype'])
 def zipf(
-    key,
-    a,
+    key: SeedOrKey,
+    a: ArrayLike,
     *,
-    shape,
-    dtype=None
-):
-    """Draw samples from the Zipf (zeta) distribution."""
+    shape: Optional[Size],
+    dtype: Optional[DTypeLike] = None
+) -> jax.Array:
+    """Draw samples from the Zipf (zeta) distribution.
+
+    Returns
+    -------
+    jax.Array
+        Samples from the Zipf (zeta) distribution.
+    """
     dtype = dtype or environ.ditype()
     float_dtype = dtypes.canonicalize_dtype(environ.dftype())
     calc_dtype = dtypes.canonicalize_dtype(jnp.promote_types(float_dtype, jnp.float64))
@@ -667,13 +747,19 @@ def zipf(
 
 @partial(jit, static_argnames=['shape', 'dtype'])
 def power(
-    key,
-    a,
+    key: SeedOrKey,
+    a: ArrayLike,
     *,
-    shape,
-    dtype=None
-):
-    """Draw samples from the power distribution."""
+    shape: Optional[Size],
+    dtype: Optional[DTypeLike] = None
+) -> jax.Array:
+    """Draw samples from the power distribution.
+
+    Returns
+    -------
+    jax.Array
+        Samples from the power distribution.
+    """
     dtype = dtype or environ.dftype()
     float_dtype = dtypes.canonicalize_dtype(dtype)
 
@@ -703,15 +789,21 @@ def power(
 
 @partial(jit, static_argnames=['shape', 'dtype'])
 def hypergeometric(
-    key,
-    ngood,
-    nbad,
-    nsample,
+    key: SeedOrKey,
+    ngood: ArrayLike,
+    nbad: ArrayLike,
+    nsample: ArrayLike,
     *,
-    shape,
-    dtype=None
-):
-    """Draw samples from the hypergeometric distribution."""
+    shape: Optional[Size],
+    dtype: Optional[DTypeLike] = None
+) -> jax.Array:
+    """Draw samples from the hypergeometric distribution.
+
+    Returns
+    -------
+    jax.Array
+        Samples from the hypergeometric distribution.
+    """
     dtype = dtype or environ.ditype()
     out_dtype = dtypes.canonicalize_dtype(dtype)
     float_dtype = dtypes.canonicalize_dtype(environ.dftype())

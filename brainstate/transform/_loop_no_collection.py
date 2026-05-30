@@ -13,6 +13,8 @@
 # limitations under the License.
 # ==============================================================================
 
+from __future__ import annotations
+
 import math
 from typing import Any, Callable, TypeVar
 
@@ -172,7 +174,7 @@ def bounded_while_loop(
     *,
     max_steps: int,
     base: int = 16,
-):
+) -> T:
     """
     While loop with a bound on the maximum number of steps.
 

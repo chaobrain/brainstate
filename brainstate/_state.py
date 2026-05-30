@@ -34,6 +34,7 @@ from typing import (
     List,
     Sequence,
     Generator,
+    Iterator,
     Literal,
     Set,
 )
@@ -2443,7 +2444,7 @@ class NewStateCatcher(PrettyObject):
 def catch_new_states(
     state_tag: str = None,
     state_to_exclude: Filter = Nothing()
-):
+) -> Iterator[NewStateCatcher]:
     """
     A context manager that catches and tracks new states created within its scope.
 

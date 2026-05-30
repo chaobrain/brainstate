@@ -47,4 +47,17 @@ class BatchAxisError(BrainStateError):
 
 
 class TraceContextError(BrainStateError):
+    """
+    Exception raised for trace-context violations.
+
+    This custom exception is used to signal that a :class:`~brainstate.State`
+    (or a related object) has been accessed outside of, or across an incompatible,
+    JAX trace context. Such violations typically occur when a state created or
+    captured in one trace is read or written from a different trace, breaking the
+    referential transparency that JAX transformations (``jit``, ``grad``, ``vmap``,
+    etc.) rely on.
+
+    Inherits from:
+        BrainStateError: The base error class for BrainState-related exceptions.
+    """
     pass

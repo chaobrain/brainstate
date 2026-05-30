@@ -13,6 +13,8 @@
 # limitations under the License.
 # ==============================================================================
 
+from __future__ import annotations
+
 from functools import wraps
 from typing import Callable, Optional
 
@@ -24,7 +26,7 @@ __all__ = ['named_call']
 
 
 @set_module_as("brainstate.transform")
-def named_call(fun: Optional[Callable] = None, *, name: Optional[str] = None):
+def named_call(fun: Optional[Callable] = None, *, name: Optional[str] = None) -> Callable:
     """Annotate a function's computation with a name for traces and profiles.
 
     Wrap ``fun`` so that its body runs inside :func:`jax.named_scope`, attaching

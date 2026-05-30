@@ -13,12 +13,15 @@
 # limitations under the License.
 # ==============================================================================
 
+from __future__ import annotations
+
 from functools import wraps
 from typing import Any, Callable
 
 from jax.experimental import checkify as _cfy
 
 from brainstate._utils import set_module_as
+from brainstate.typing import ArrayLike
 from ._make_jaxpr import StatefulFunction
 
 __all__ = [
@@ -39,7 +42,7 @@ automatic_checks = _cfy.automatic_checks
 
 
 @set_module_as('brainstate.transform')
-def check(pred, msg: str, *fmt_args, debug: bool = False, **fmt_kwargs) -> None:
+def check(pred: ArrayLike, msg: str, *fmt_args, debug: bool = False, **fmt_kwargs) -> None:
     """Assert a runtime condition inside a :func:`checkify`-wrapped function.
 
     A state-transparent re-export of :func:`jax.experimental.checkify.check`.
@@ -69,7 +72,7 @@ def check(pred, msg: str, *fmt_args, debug: bool = False, **fmt_kwargs) -> None:
 
 
 @set_module_as('brainstate.transform')
-def check_error(error) -> None:
+def check_error(error: _cfy.Error) -> None:
     """Re-raise a previously captured :class:`Error` inside a checkified context.
 
     A re-export of :func:`jax.experimental.checkify.check_error`. Use it to

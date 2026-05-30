@@ -27,7 +27,10 @@ from __future__ import annotations
 import importlib
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from types import ModuleType
 from typing import Optional, Tuple
+
+import jax
 
 import brainstate.nn as bnn
 import brainstate.random as brandom
@@ -43,7 +46,7 @@ _INSTALL_HINTS = {
 }
 
 
-def lazy_import(module_name: str):
+def lazy_import(module_name: str) -> ModuleType:
     """Import an optional framework module, raising :class:`MissingDependencyError` if absent.
 
     Parameters
@@ -64,7 +67,7 @@ def lazy_import(module_name: str):
         raise MissingDependencyError(top, hint) from e
 
 
-def new_key():
+def new_key() -> jax.Array:
     """Return a throwaway PRNG key from :mod:`brainstate.random` for foreign construction.
 
     Weights are overwritten immediately after construction, so the key value is irrelevant;

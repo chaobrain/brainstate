@@ -48,7 +48,11 @@ Example:
     >>> # Use keys for parallel random number generation
 """
 
+from __future__ import annotations
+
+from collections.abc import Iterator
 from contextlib import contextmanager
+from typing import Optional
 
 import jax
 import numpy as np
@@ -103,7 +107,7 @@ def restore_key() -> None:
 
 
 @set_module_as('brainstate.random')
-def split_key(n: int = None, backup: bool = False):
+def split_key(n: Optional[int] = None, backup: bool = False) -> jax.Array:
     """
     Create new random key(s) from the current seed.
 
@@ -156,7 +160,7 @@ def split_key(n: int = None, backup: bool = False):
 
 
 @set_module_as('brainstate.random')
-def split_keys(n: int, backup: bool = False):
+def split_keys(n: int, backup: bool = False) -> jax.Array:
     """
     Create multiple independent random keys from the current seed.
 
@@ -428,7 +432,7 @@ def set_key(seed_or_key: SeedOrKey) -> None:
 
 
 @set_module_as('brainstate.random')
-def get_key():
+def get_key() -> jax.Array:
     """
     Get the current global random key.
 
@@ -482,7 +486,7 @@ def get_key():
 
 
 @set_module_as('brainstate.random')
-def get_key_data():
+def get_key_data() -> jax.Array:
     """
     Get the current global random key as raw ``uint32[2]`` data.
 
@@ -510,7 +514,7 @@ def get_key_data():
 
 
 @set_module_as('brainstate.random')
-def seed(seed_or_key: SeedOrKey = None):
+def seed(seed_or_key: Optional[SeedOrKey] = None) -> None:
     """
     Set the global random seed for both JAX and NumPy.
 
@@ -607,7 +611,7 @@ def seed(seed_or_key: SeedOrKey = None):
 
 @contextmanager
 @set_module_as('brainstate.random')
-def seed_context(seed_or_key: SeedOrKey):
+def seed_context(seed_or_key: SeedOrKey) -> Iterator[None]:
     """
     Context manager for temporary random seed changes with automatic restoration.
 

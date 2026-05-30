@@ -13,6 +13,8 @@
 # limitations under the License.
 # ==============================================================================
 
+from __future__ import annotations
+
 import functools
 from functools import partial
 from typing import Callable, Union
@@ -20,6 +22,7 @@ from typing import Callable, Union
 import jax
 
 from brainstate._utils import set_module_as
+from brainstate.typing import ArrayLike
 from ._unvmap import unvmap
 
 __all__ = [
@@ -45,11 +48,11 @@ def _error_msg(msg, *arg, **kwargs):
 
 @set_module_as('brainstate.transform')
 def jit_error_if(
-    pred,
+    pred: ArrayLike,
     error: Union[Callable, str],
     *err_args,
     **err_kwargs,
-):
+) -> None:
     """
     Check errors in a jit function.
 

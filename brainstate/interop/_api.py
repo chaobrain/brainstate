@@ -22,7 +22,7 @@ hard dependency on either framework.
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional, Tuple
 
 from ._common import Context
 from ._engine import to_bst, to_foreign
@@ -66,7 +66,7 @@ def _shape(sample_input):
 # flax.nnx
 # ---------------------------------------------------------------------------
 
-def from_nnx(model, *, sample_input=None):
+def from_nnx(model: Any, *, sample_input: Any = None) -> Any:
     """Convert a ``flax.nnx`` model into an equivalent ``brainstate.nn`` model.
 
     Parameters
@@ -104,7 +104,7 @@ def from_nnx(model, *, sample_input=None):
     return to_bst(model, adapter, Context(sample_input=s, cur_size=s))
 
 
-def to_nnx(model, *, rngs=None):
+def to_nnx(model: Any, *, rngs: Any = None) -> Any:
     """Convert a ``brainstate.nn`` model into an equivalent ``flax.nnx`` model.
 
     Parameters
@@ -128,7 +128,7 @@ def to_nnx(model, *, rngs=None):
 # flax.linen
 # ---------------------------------------------------------------------------
 
-def from_linen(module, params, *, sample_input=None):
+def from_linen(module: Any, params: Any, *, sample_input: Any = None) -> Any:
     """Convert a ``flax.linen`` module + params into an equivalent ``brainstate.nn`` model.
 
     Parameters
@@ -152,7 +152,7 @@ def from_linen(module, params, *, sample_input=None):
     return to_bst(node, adapter, Context(sample_input=s, cur_size=s))
 
 
-def to_linen(model):
+def to_linen(model: Any) -> Tuple[Any, Any]:
     """Convert a ``brainstate.nn`` model into a ``flax.linen`` ``(module, params)`` pair.
 
     Parameters
@@ -175,7 +175,7 @@ def to_linen(model):
 # equinox
 # ---------------------------------------------------------------------------
 
-def from_equinox(model, *, sample_input=None):
+def from_equinox(model: Any, *, sample_input: Any = None) -> Any:
     """Convert an ``equinox`` model into an equivalent ``brainstate.nn`` model.
 
     Parameters
@@ -195,7 +195,7 @@ def from_equinox(model, *, sample_input=None):
     return to_bst(model, adapter, Context(sample_input=s, cur_size=s))
 
 
-def to_equinox(model, *, key=None):
+def to_equinox(model: Any, *, key: Any = None) -> Any:
     """Convert a ``brainstate.nn`` model into an equivalent ``equinox`` model.
 
     Parameters

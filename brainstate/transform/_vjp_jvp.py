@@ -13,6 +13,8 @@
 # limitations under the License.
 # ==============================================================================
 
+from __future__ import annotations
+
 from typing import Any, Callable, Dict, Optional, Sequence, Union
 
 import jax
@@ -39,7 +41,7 @@ def vjp(
     grad_states: Optional[Union[State, Sequence[State], Dict[str, State]]] = None,
     argnums: Optional[Union[int, Sequence[int]]] = 0,
     has_aux: bool = False,
-):
+) -> tuple:
     """Compute a state-aware vector-Jacobian product (reverse-mode autodiff).
 
     Trace ``fun`` (which may read and write :class:`~brainstate.State` objects)
@@ -332,7 +334,7 @@ def jvp(
     tangents: Sequence,
     *,
     has_aux: bool = False,
-):
+) -> tuple:
     """Compute a state-aware Jacobian-vector product (forward-mode autodiff).
 
     Trace ``fun`` (which may read and write :class:`~brainstate.State` objects)
