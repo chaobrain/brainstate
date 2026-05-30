@@ -130,6 +130,73 @@ def shard_map(
         ...     return data * w.value
         >>> f = brainstate.transform.shard_map(fun, mesh, in_specs=(P('x'),), out_specs=P('x'))
         >>> f(jnp.arange(jax.device_count() * 2, dtype=jnp.float32))  # doctest: +SKIP
+
+    Keep a per-shard buffer by giving a state an explicit partition through
+    ``state_in_specs`` / ``state_out_specs``; the buffer is read and written
+    in place on each device:
+
+    .. code-block:: python
+
+        >>> import brainstate
+        >>> import jax, jax.numpy as jnp
+        >>> from jax.sharding import PartitionSpec as P
+        >>> mesh = jax.make_mesh((jax.device_count(),), ('x',))
+        >>> buffer = brainstate.State(jnp.zeros(jax.device_count() * 2))
+        >>> def accumulate(data):
+        ...     buffer.value = buffer.value + data
+        ...     return data
+        >>> f = brainstate.transform.shard_map(
+        ...     accumulate, mesh, in_specs=(P('x'),), out_specs=P('x'),
+        ...     state_in_specs={buffer: P('x')}, state_out_specs={buffer: P('x')})
+        >>> _ = f(jnp.ones(jax.device_count() * 2))  # doctest: +SKIP
+        >>> buffer.value  # doctest: +SKIP
+
+    Communicate across shards with collectives such as :func:`jax.lax.psum`,
+    referring to the mesh axis by name. Here each device contributes a partial
+    sum and ``psum`` reduces them to the global total (replicated back):
+
+    .. code-block:: python
+
+        >>> import brainstate
+        >>> import jax, jax.numpy as jnp
+        >>> from jax.sharding import PartitionSpec as P
+        >>> mesh = jax.make_mesh((jax.device_count(),), ('x',))
+        >>> def global_sum(data):
+        ...     return jax.lax.psum(jnp.sum(data, keepdims=True), axis_name='x')
+        >>> f = brainstate.transform.shard_map(
+        ...     global_sum, mesh, in_specs=(P('x'),), out_specs=P())
+        >>> f(jnp.arange(jax.device_count() * 2, dtype=jnp.float32))  # doctest: +SKIP
+
+    ``shard_map`` re-traces ``fun`` on each call to discover its state usage;
+    wrap it in :func:`jax.jit` to amortise that on the hot path:
+
+    .. code-block:: python
+
+        >>> import brainstate
+        >>> import jax, jax.numpy as jnp
+        >>> from jax.sharding import PartitionSpec as P
+        >>> mesh = jax.make_mesh((jax.device_count(),), ('x',))
+        >>> bias = brainstate.State(jnp.array(5.0))
+        >>> f = brainstate.transform.shard_map(
+        ...     lambda data: data + bias.value, mesh,
+        ...     in_specs=(P('x'),), out_specs=P('x'))
+        >>> jit_f = jax.jit(f)
+        >>> jit_f(jnp.arange(jax.device_count() * 2, dtype=jnp.float32))  # doctest: +SKIP
+
+    Multi-axis meshes express combined data- and model-parallel shardings by
+    naming each axis in the :class:`~jax.sharding.PartitionSpec`:
+
+    .. code-block:: python
+
+        >>> import jax, jax.numpy as jnp
+        >>> import brainstate
+        >>> from jax.sharding import PartitionSpec as P
+        >>> n = jax.device_count()
+        >>> mesh2d = jax.make_mesh((n // 2, 2), ('data', 'model'))  # needs n >= 2
+        >>> f = brainstate.transform.shard_map(
+        ...     lambda data: data + 1.0, mesh2d,
+        ...     in_specs=(P('data', 'model'),), out_specs=P('data', 'model'))
+        >>> f(jnp.ones((n // 2, 2)))  # doctest: +SKIP
     """
     arg_specs = tuple(in_specs) if isinstance(in_specs, (tuple, list)) else None
     sin = _prep_spec_table(state_in_specs)
@@ -138,7 +205,10 @@ def shard_map(
     @wraps(fun)
     def wrapped(*args, **kwargs):
         # 1. Discover the states the function touches (shape-independent).
-        sf = StatefulFunction(fun, name='shard_map')
+        #    Pass the mesh axis environment so collectives such as
+        #    ``jax.lax.psum`` inside ``fun`` can be traced during state
+        #    discovery without raising an "unbound axis name" error.
+        sf = StatefulFunction(fun, name='shard_map', axis_env=tuple(mesh.shape.items()))
         sf.make_jaxpr(*args, **kwargs)
         cache = sf.get_arg_cache_key(*args, **kwargs)
         trace = sf.get_state_trace_by_cache(cache)
