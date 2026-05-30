@@ -15,6 +15,7 @@
 
 import unittest
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -22,6 +23,21 @@ import pytest
 import brainstate
 from brainstate._state import TRACE_CONTEXT, StateTraceStack
 from brainstate.random._state import RandomState, DEFAULT, formalize_key, _size2shape, _check_py_seq
+
+
+def _key_data(key):
+    """Return the raw ``uint32[2]`` data backing a typed PRNG key."""
+    return np.asarray(jax.random.key_data(key))
+
+
+def assert_keys_equal(a, b):
+    """Assert two typed PRNG keys carry identical raw key data."""
+    np.testing.assert_array_equal(_key_data(a), _key_data(b))
+
+
+def is_typed_key(key):
+    """Whether ``key`` is a JAX typed PRNG key."""
+    return jnp.issubdtype(key.dtype, jax.dtypes.prng_key)
 
 
 class TestRandomStateInitialization(unittest.TestCase):
@@ -34,45 +50,44 @@ class TestRandomStateInitialization(unittest.TestCase):
         TRACE_CONTEXT.state_stack.pop()
 
     def test_init_with_none(self):
-        """Test initialization with None seed."""
+        """Test initialization with None seed yields a scalar typed key."""
         rs = RandomState(None)
         self.assertIsNotNone(rs.value)
-        self.assertEqual(rs.value.shape, (2,))
-        self.assertEqual(rs.value.dtype, jnp.uint32)
+        self.assertEqual(rs.value.shape, ())
+        self.assertTrue(is_typed_key(rs.value))
 
     def test_init_with_int_seed(self):
         """Test initialization with integer seed."""
         seed = 42
         rs = RandomState(seed)
         expected_key = formalize_key(seed)
-        np.testing.assert_array_equal(rs.value, expected_key)
+        assert_keys_equal(rs.value, expected_key)
 
     def test_init_with_prng_key(self):
-        """Test initialization with a brainstate-formalized PRNG key."""
+        """Test initialization with a typed PRNG key."""
         key = formalize_key(123)
         rs = RandomState(key)
-        np.testing.assert_array_equal(rs.value, key)
+        assert_keys_equal(rs.value, key)
 
     def test_init_with_uint32_array(self):
-        """Test initialization with uint32 array."""
+        """Test initialization with a legacy uint32 array (auto-wrapped)."""
         key_array = np.array([123, 456], dtype=np.uint32)
         rs = RandomState(key_array)
-        np.testing.assert_array_equal(rs.value, key_array)
+        self.assertTrue(is_typed_key(rs.value))
+        # Wrapping a raw key is the lossless inverse of key_data.
+        np.testing.assert_array_equal(_key_data(rs.value), key_array)
 
     def test_init_with_invalid_key(self):
-        """Test initialization with invalid key raises error."""
-        # Test case that should raise error: wrong length AND wrong dtype
-        with self.assertRaises(ValueError):
-            RandomState(np.array([1, 2, 3], dtype=np.int32))  # len != 2 AND dtype != uint32
-
-        # Test valid cases that should NOT raise errors
-        # Wrong length but correct dtype is OK
-        rs1 = RandomState(np.array([1, 2, 3], dtype=np.uint32))
-        self.assertIsNotNone(rs1.value)
-
-        # Correct length but wrong dtype is OK
-        rs2 = RandomState(np.array([1, 2], dtype=np.int32))
-        self.assertIsNotNone(rs2.value)
+        """Test initialization with invalid key raises TypeError."""
+        # Wrong length AND wrong dtype.
+        with self.assertRaises(TypeError):
+            RandomState(np.array([1, 2, 3], dtype=np.int32))
+        # A uint32 array that is not length-2 is not a legacy key.
+        with self.assertRaises(TypeError):
+            RandomState(np.array([1, 2, 3], dtype=np.uint32))
+        # A length-2 array that is not uint32 is not a legacy key.
+        with self.assertRaises(TypeError):
+            RandomState(np.array([1, 2], dtype=np.int32))
 
     def test_repr(self):
         """Test string representation."""
@@ -96,7 +111,7 @@ class TestRandomStateKeyManagement(unittest.TestCase):
         """Test seeding with integer."""
         self.rs.seed(123)
         expected_key = formalize_key(123)
-        np.testing.assert_array_equal(self.rs.value, expected_key)
+        assert_keys_equal(self.rs.value, expected_key)
 
     def test_seed_with_none(self):
         """Test seeding with None generates new random seed."""
@@ -106,15 +121,15 @@ class TestRandomStateKeyManagement(unittest.TestCase):
         self.assertFalse(np.array_equal(self.rs.value, original_key))
 
     def test_seed_with_prng_key(self):
-        """Test seeding with a brainstate-formalized PRNG key."""
+        """Test seeding with a typed PRNG key."""
         key = formalize_key(999)
         self.rs.seed(key)
-        np.testing.assert_array_equal(self.rs.value, key)
+        assert_keys_equal(self.rs.value, key)
 
     def test_seed_with_invalid_input(self):
         """Test seeding with invalid input raises error."""
-        with self.assertRaises(ValueError):
-            self.rs.seed([1, 2, 3])  # Wrong length list
+        with self.assertRaises(TypeError):
+            self.rs.seed([1, 2, 3])  # a python list is not a valid key
 
     def test_split_key_single(self):
         """Test splitting key to get single new key."""
@@ -151,19 +166,19 @@ class TestRandomStateKeyManagement(unittest.TestCase):
 
     def test_backup_restore_key(self):
         """Test backup and restore functionality."""
-        original_key = self.rs.value.copy()
+        original_data = _key_data(self.rs.value)
 
         # Backup the key
         self.rs.backup_key()
 
         # Change the key
         self.rs.split_key()
-        changed_key = self.rs.value.copy()
-        self.assertFalse(np.array_equal(changed_key, original_key))
+        changed_data = _key_data(self.rs.value)
+        self.assertFalse(np.array_equal(changed_data, original_data))
 
         # Restore the key
         self.rs.restore_key()
-        np.testing.assert_array_equal(self.rs.value, original_key)
+        np.testing.assert_array_equal(_key_data(self.rs.value), original_data)
 
     def test_backup_already_backed_up(self):
         """Test backup when already backed up raises error."""
@@ -196,7 +211,7 @@ class TestRandomStateKeyManagement(unittest.TestCase):
         """Test setting key directly."""
         new_key = formalize_key(999)
         self.rs.set_key(new_key)
-        np.testing.assert_array_equal(self.rs.value, new_key)
+        assert_keys_equal(self.rs.value, new_key)
 
 
 class TestRandomStateDistributions(unittest.TestCase):
@@ -391,24 +406,24 @@ class TestRandomStateKeyBehavior(unittest.TestCase):
 
     def test_external_key_does_not_change_state(self):
         """Test that using external key doesn't change internal state."""
-        original_key = self.rs.value.copy()
+        original_data = _key_data(self.rs.value)
         external_key = formalize_key(999)
 
         # Use external key
         self.rs.rand(5, key=external_key)
 
         # Internal state should be unchanged
-        np.testing.assert_array_equal(self.rs.value, original_key)
+        np.testing.assert_array_equal(_key_data(self.rs.value), original_data)
 
     def test_no_key_changes_state(self):
         """Test that not providing key changes internal state."""
-        original_key = self.rs.value.copy()
+        original_data = _key_data(self.rs.value)
 
         # Use internal key
         self.rs.rand(5)
 
         # Internal state should have changed
-        self.assertFalse(np.array_equal(self.rs.value, original_key))
+        self.assertFalse(np.array_equal(_key_data(self.rs.value), original_data))
 
     def test_reproducibility_with_same_key(self):
         """Test reproducibility when using same external key."""
@@ -444,10 +459,10 @@ class TestGlobalDefaultInstance(unittest.TestCase):
         self.assertIsInstance(DEFAULT, RandomState)
 
     def test_default_has_valid_key(self):
-        """Test that DEFAULT has valid key."""
+        """Test that DEFAULT has a valid typed key."""
         self.assertIsNotNone(DEFAULT.value)
-        self.assertEqual(DEFAULT.value.shape, (2,))
-        self.assertEqual(DEFAULT.value.dtype, jnp.uint32)
+        self.assertEqual(DEFAULT.value.shape, ())
+        self.assertTrue(is_typed_key(DEFAULT.value))
 
     def test_default_seeding(self):
         """Test seeding DEFAULT instance."""
@@ -473,22 +488,23 @@ class TestUtilityFunctions(unittest.TestCase):
         TRACE_CONTEXT.state_stack.pop()
 
     def test_formalize_key_with_int(self):
-        """Test _formalize_key with integer matches a fresh RandomState key."""
+        """Test formalize_key with integer matches a fresh RandomState key."""
         key = formalize_key(42)
         expected = RandomState(42).value
-        np.testing.assert_array_equal(key, expected)
+        assert_keys_equal(key, expected)
 
     def test_formalize_key_with_array(self):
-        """Test _formalize_key passes through an existing PRNG key unchanged."""
+        """Test formalize_key passes through an existing typed key unchanged."""
         input_key = formalize_key(123)
-        key = formalize_key(input_key, True)
-        np.testing.assert_array_equal(key, input_key)
+        key = formalize_key(input_key)
+        assert_keys_equal(key, input_key)
 
     def test_formalize_key_with_uint32_array(self):
-        """Test _formalize_key with uint32 array."""
+        """Test formalize_key wraps a legacy uint32 array into a typed key."""
         input_array = np.array([123, 456], dtype=np.uint32)
         key = formalize_key(input_array)
-        np.testing.assert_array_equal(key, input_array)
+        self.assertTrue(is_typed_key(key))
+        np.testing.assert_array_equal(_key_data(key), input_array)
 
     def test_formalize_key_invalid_input(self):
         """Test _formalize_key with invalid input."""
@@ -573,11 +589,11 @@ class TestErrorHandling(unittest.TestCase):
 
     def test_self_assign_multi_keys(self):
         """Test self_assign_multi_keys method."""
-        original_shape = self.rs.value.shape
+        original_shape = self.rs.value.shape  # () for a scalar typed key
 
         # Test with backup
         self.rs.self_assign_multi_keys(3, backup=True)
-        self.assertEqual(self.rs.value.shape, (3, 2))
+        self.assertEqual(self.rs.value.shape, (3,))
 
         # Restore should work
         self.rs.restore_key()
@@ -585,7 +601,7 @@ class TestErrorHandling(unittest.TestCase):
 
         # Test without backup
         self.rs.self_assign_multi_keys(2, backup=False)
-        self.assertEqual(self.rs.value.shape, (2, 2))
+        self.assertEqual(self.rs.value.shape, (2,))
 
 
 class TestRandomStateTransforms(unittest.TestCase):
@@ -605,7 +621,7 @@ class TestRandomStateTransforms(unittest.TestCase):
         rs = RandomState(0)
         ref = rs.to_state_ref()
         rebuilt = _testing.assert_pytree_roundtrip(ref)
-        np.testing.assert_array_equal(rebuilt.value, rs.value)
+        assert_keys_equal(rebuilt.value, rs.value)
 
     def test_pytree_in_container_roundtrip(self):
         """A treefied RandomState inside a dict roundtrips through jax.tree."""
@@ -614,7 +630,7 @@ class TestRandomStateTransforms(unittest.TestCase):
         tree = {'rng': rs.to_state_ref(), 'x': jnp.arange(3)}
         leaves, treedef = jax.tree.flatten(tree)
         rebuilt = jax.tree.unflatten(treedef, leaves)
-        np.testing.assert_array_equal(rebuilt['rng'].value, rs.value)
+        assert_keys_equal(rebuilt['rng'].value, rs.value)
         np.testing.assert_array_equal(rebuilt['x'], tree['x'])
 
     def test_randomstate_is_tree_leaf(self):
@@ -633,9 +649,9 @@ class TestRandomStateTransforms(unittest.TestCase):
     def test_draw_advances_internal_key(self):
         """Drawing without an explicit key mutates the internal state value."""
         rs = RandomState(0)
-        before = np.asarray(rs.value).copy()
+        before = _key_data(rs.value)
         rs.randn(3)
-        self.assertFalse(np.array_equal(before, np.asarray(rs.value)))
+        self.assertFalse(np.array_equal(before, _key_data(rs.value)))
 
     def test_same_seed_same_sequence(self):
         """Two RandomStates with the same seed yield identical sequences."""
@@ -692,10 +708,10 @@ class TestRandomStateTransforms(unittest.TestCase):
         """A key from the global stream can construct a usable RandomState."""
         brainstate.random.seed(7)
         key = brainstate.random.split_key()
-        self.assertEqual(key.shape, (2,))
-        self.assertEqual(key.dtype, jnp.uint32)
+        self.assertEqual(key.shape, ())
+        self.assertTrue(is_typed_key(key))
         rs = RandomState(key)
-        np.testing.assert_array_equal(rs.value, key)
+        assert_keys_equal(rs.value, key)
 
     def test_global_seed_is_deterministic(self):
         """Re-seeding the global stream replays the same keys."""
@@ -703,7 +719,7 @@ class TestRandomStateTransforms(unittest.TestCase):
         a = brainstate.random.split_key()
         brainstate.random.seed(11)
         b = brainstate.random.split_key()
-        np.testing.assert_array_equal(a, b)
+        assert_keys_equal(a, b)
 
 
 class TestRandomStateMisc(unittest.TestCase):
@@ -738,31 +754,32 @@ class TestRandomStateMisc(unittest.TestCase):
 
     def test_check_if_deleted_on_live_key(self):
         """check_if_deleted is a no-op for a live (non-deleted) key."""
-        before = np.asarray(self.rs.value).copy()
+        before = _key_data(self.rs.value)
         self.rs.check_if_deleted()
-        np.testing.assert_array_equal(self.rs.value, before)
+        np.testing.assert_array_equal(_key_data(self.rs.value), before)
 
     def test_seed_with_numpy_int_array_scalar(self):
-        """Seeding with a 1-element integer numpy array sets a valid key."""
+        """Seeding with a 1-element integer numpy array sets a valid typed key."""
         self.rs.seed(np.array(123, dtype=np.int64))
-        self.assertEqual(self.rs.value.shape, (2,))
-        np.testing.assert_array_equal(self.rs.value, formalize_key(123))
+        self.assertEqual(self.rs.value.shape, ())
+        assert_keys_equal(self.rs.value, formalize_key(123))
 
     def test_seed_with_uint32_pair(self):
-        """Seeding with a uint32 pair stores the key verbatim."""
+        """Seeding with a legacy uint32 pair wraps it losslessly."""
         key = np.array([7, 9], dtype=np.uint32)
         self.rs.seed(key)
-        np.testing.assert_array_equal(self.rs.value, key)
+        self.assertTrue(is_typed_key(self.rs.value))
+        np.testing.assert_array_equal(_key_data(self.rs.value), key)
 
     def test_seed_with_invalid_scalar_type(self):
-        """Seeding with a float scalar raises ValueError."""
-        with self.assertRaises(ValueError):
+        """Seeding with a float scalar raises TypeError."""
+        with self.assertRaises(TypeError):
             self.rs.seed(np.array(1.5, dtype=np.float32))
 
     def test_self_assign_multi_keys_without_backup(self):
         """self_assign_multi_keys without backup leaves no restore point."""
         self.rs.self_assign_multi_keys(3, backup=False)
-        self.assertEqual(self.rs.value.shape, (3, 2))
+        self.assertEqual(self.rs.value.shape, (3,))
         with self.assertRaises(ValueError):
             self.rs.restore_key()
 
@@ -771,12 +788,12 @@ class TestRandomStateMisc(unittest.TestCase):
         # split_key advances the internal key to keys[0] and *then* backs it up,
         # so the backed-up value is the advanced key, not the pre-split key.
         self.rs.split_key(backup=True)
-        post_split = np.asarray(self.rs.value).copy()
+        post_split = _key_data(self.rs.value)
         # Advance again, then restore back to the post-split key.
         self.rs.split_key()
-        self.assertFalse(np.array_equal(np.asarray(self.rs.value), post_split))
+        self.assertFalse(np.array_equal(_key_data(self.rs.value), post_split))
         self.rs.restore_key()
-        np.testing.assert_array_equal(self.rs.value, post_split)
+        np.testing.assert_array_equal(_key_data(self.rs.value), post_split)
 
 
 class TestRandomStateMoreDistributions(unittest.TestCase):
@@ -1103,17 +1120,19 @@ class TestRandomStateEdgeCases(unittest.TestCase):
         rs = RandomState(9)
         rs.value.delete()
         rs.check_if_deleted()
-        self.assertEqual(rs.value.shape, (2,))
+        self.assertEqual(rs.value.shape, ())
+        self.assertTrue(is_typed_key(rs.value))
         # After reseeding the state is usable again.
         self.assertEqual(rs.randn(3).shape, (3,))
 
     def test_split_key_coerces_non_jax_array_value(self):
-        """split_key coerces a plain numpy key array before splitting."""
+        """split_key materializes a lazy numpy key placeholder before splitting."""
         rs = RandomState(9)
         rs._value = np.array([1, 2], dtype=np.uint32)
         new_key = rs.split_key()
-        self.assertEqual(new_key.shape, (2,))
-        self.assertEqual(rs.value.shape, (2,))
+        self.assertEqual(new_key.shape, ())
+        self.assertTrue(is_typed_key(new_key))
+        self.assertEqual(rs.value.shape, ())
 
     def test_multivariate_normal_with_units(self):
         """multivariate_normal accepts unit-carrying mean and covariance."""
