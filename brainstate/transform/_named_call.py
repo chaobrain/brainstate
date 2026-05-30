@@ -29,7 +29,7 @@ def named_call(fun: Optional[Callable] = None, *, name: Optional[str] = None):
 
     Wrap ``fun`` so that its body runs inside :func:`jax.named_scope`, attaching
     ``name`` to the resulting equations' name stack. Unlike
-    :func:`jit_named_scope`, this does **not** apply ``jit`` — it adds naming
+    :func:`named_scope`, this does **not** apply ``jit`` — it adds naming
     only, so it composes inside ``grad``/``scan``/``vmap``/``jit`` and leaves
     state read/write behavior unchanged.
 
@@ -51,7 +51,7 @@ def named_call(fun: Optional[Callable] = None, *, name: Optional[str] = None):
 
     See Also
     --------
-    jit_named_scope, jit
+    named_scope, jit
 
     Notes
     -----

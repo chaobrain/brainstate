@@ -20,7 +20,7 @@ from brainstate import environ
 from ._jit import jit, JittedFunction
 
 __all__ = [
-    'jit_named_scope',
+    'named_scope',
 ]
 
 
@@ -116,7 +116,7 @@ def fn_to_call(
     return wrapper
 
 
-def jit_named_scope(
+def named_scope(
     name: str,
     static_argnums: Optional[Union[int, Sequence[int], Callable]] = None,
     static_argnames: Optional[Union[str, Sequence[str], Callable]] = None,
@@ -149,19 +149,19 @@ def jit_named_scope(
     --------
     Basic usage with just a name:
 
-    >>> @jit_named_scope(name='my_layer')
+    >>> @named_scope(name='my_layer')
     ... def layer(x, w):
     ...     return x @ w
 
     With static arguments:
 
-    >>> @jit_named_scope(name='power_fn', static_argnums=1)
+    >>> @named_scope(name='power_fn', static_argnums=1)
     ... def power(x, n):
     ...     return x ** n
 
     Using non_static_argnums (only first arg is traced, rest are static):
 
-    >>> @jit_named_scope(name='scaled_power', non_static_argnums=0)
+    >>> @named_scope(name='scaled_power', non_static_argnums=0)
     ... def scaled_power(x, n, scale):
     ...     return (x ** n) * scale  # n and scale are automatically static
 
@@ -171,7 +171,7 @@ def jit_named_scope(
     ...     def __init__(self, scale):
     ...         self.scale = scale
     ...
-    ...     @jit_named_scope(name='compute')
+    ...     @named_scope(name='compute')
     ...     def compute(self, x):
     ...         return x * self.scale
     """

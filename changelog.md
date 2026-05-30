@@ -5,6 +5,8 @@
 
 ### Breaking Changes
 
+- **Renamed `jit_named_scope` to `named_scope`**: The `brainstate.transform.jit_named_scope` decorator is now exported as `brainstate.transform.named_scope`. Update any usage accordingly.
+
 #### Typed PRNG Keys in `brainstate.random`
 
 `brainstate.random` now uses JAX's modern **typed PRNG keys** (`jax.random.key`,

@@ -32,8 +32,8 @@ from ._debug import (
 from ._jit import (
     jit,
 )
-from ._jit_named_scope import (
-    jit_named_scope,
+from ._named_scope import (
+    named_scope,
 )
 from ._named_call import (
     named_call,
@@ -137,7 +137,7 @@ __all__ = [
 
     # JIT compilation
     'jit',
-    'jit_named_scope',
+    'named_scope',
     'named_call',
     'checkpoint',
     'remat',
