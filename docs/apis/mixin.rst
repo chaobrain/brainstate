@@ -118,3 +118,19 @@ Helper functions and decorators for enhanced functionality.
 
    hashable
    not_implemented
+
+Computation Modes
+-----------------
+
+Mode types describing the computational context of a model (training, batching, or
+combinations thereof), used to switch behaviour such as dropout and normalization.
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+   :template: classtemplate.rst
+
+   Mode
+   Batching
+   Training
+   JointMode

@@ -84,8 +84,13 @@ These classes provide the foundation for graph operations and state management.
    :template: classtemplate.rst
 
    GraphDef
-   NodeDef
-   NodeRef
+   NodeSpec
+   NodeEdge
+   StateEdge
+   StateLeafEdge
+   PytreeEdge
+   StaticEdge
+   Static
    RefMap
    register_graph_node_type
 

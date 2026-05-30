@@ -26,7 +26,6 @@ Basic state types provide semantic distinctions for different data lifecycles in
    LongTermState
    ParamState
    BatchState
-   ArrayParam
    DelayState
 
 
@@ -147,5 +146,96 @@ Exception Classes
 
    BrainStateError
    BatchAxisError
+   TraceContextError
+
+
+State Hooks
+-----------
+
+The hook system observes and intercepts state operations — reads, writes,
+initialization, and restoration. Hooks can be registered globally and are managed
+per-process, enabling logging, validation, and instrumentation of stateful
+computations without modifying the states themselves.
+
+
+Hook Contexts
+~~~~~~~~~~~~~
+
+Context objects passed to hooks describing the operation being performed.
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+   :template: classtemplate.rst
+
+   HookContext
+   ReadHookContext
+   WriteHookContext
+   MutableWriteHookContext
+   RestoreHookContext
+   InitHookContext
+
+
+Hook Core
+~~~~~~~~~
+
+Core hook abstractions: the ``Hook`` base class and the ``HookHandle`` returned on
+registration.
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+   :template: classtemplate.rst
+
+   Hook
+   HookHandle
+
+
+Hook Manager and Registry
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Manage hook lifecycles and global registration.
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+   :template: classtemplate.rst
+
+   HookManager
+   HookConfig
+   GlobalHookRegistry
+
+
+Global Hook Functions
+~~~~~~~~~~~~~~~~~~~~~~
+
+Convenience functions for registering and querying globally-installed hooks.
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+
+   register_state_hook
+   unregister_state_hook
+   clear_state_hooks
+   has_state_hooks
+   list_state_hooks
+
+
+Hook Exceptions
+~~~~~~~~~~~~~~~
+
+Exceptions and warnings raised by the hook system.
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+   :template: classtemplate.rst
+
+   HookError
+   HookExecutionError
+   HookRegistrationError
+   HookCancellationError
+   HookWarning
 
 

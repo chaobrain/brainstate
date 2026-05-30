@@ -17,6 +17,13 @@ Core components for managing random number generator state and ensuring reproduc
 
     RandomState
 
+The module exposes a process-global default generator instance:
+
+.. autosummary::
+   :toctree: generated/
+
+   DEFAULT
+
 Seed and Key Management
 ~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -33,6 +40,7 @@ Functions for controlling the global random state and creating independent rando
    clone_rng
    set_key
    get_key
+   get_key_data
    restore_key
 
 Key Splitting and Parallel Generation
