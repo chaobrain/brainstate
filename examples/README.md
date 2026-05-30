@@ -23,6 +23,10 @@ Self-contained, runnable walkthroughs of the state-aware
   gradients, full Jacobians, Hessian-vector products, a training loop).
 - ``014_jvp_forward_mode.py`` — forward-mode autodiff with ``jvp`` (directional
   derivatives, column-by-column Jacobians, forward-over-reverse HVPs).
+- ``015_vmap2_stateful_vectorization.py`` — state-aware vectorization with
+  ``vmap2`` (``in_axes``/``out_axes``, pytree args, batched/read-only states,
+  per-lane RNG, Monte Carlo, model ensembles, ``axis_name`` collectives, nested
+  mapping, ``jit`` composition, and per-lane ``grad``).
 
 
 
