@@ -30,6 +30,7 @@ These tests pin down the unit contract of the random distributions:
 
 import unittest
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 
@@ -220,6 +221,20 @@ class TestMultivariateNormalUnits(unittest.TestCase):
         out = _rng().multivariate_normal(mean, cov, size=(5,))
         self.assertNotIsInstance(out, u.Quantity)
 
+    def test_plain_cov_with_unit_mean_raises(self):
+        """A dimensional mean with a plain ``cov`` is rejected."""
+        mean = jnp.array([0.0, 1.0]) * u.mV
+        cov = jnp.array([[1.0, 0.0], [0.0, 1.0]])
+        with self.assertRaises(AssertionError):
+            _rng().multivariate_normal(mean, cov, size=(5,))
+
+    def test_cov_wrong_unit_power_raises(self):
+        """``cov`` must be the *square* of the mean's unit (mV, not mV**2 → error)."""
+        mean = jnp.array([0.0, 1.0]) * u.mV
+        cov = jnp.array([[1.0, 0.0], [0.0, 1.0]]) * u.mV
+        with self.assertRaises(AssertionError):
+            _rng().multivariate_normal(mean, cov, size=(5,))
+
 
 class TestStrictDimensionlessParameters(unittest.TestCase):
     """Shape / rate / count / probability parameters reject physical units.
@@ -323,6 +338,62 @@ class TestModuleLevelFunctionsCarryUnits(unittest.TestCase):
         with self.assertRaises(ValueError):
             brainstate.random.poisson(3.0 * UNIT, size=SIZE)
 
+    def test_uniform_carries_unit(self):
+        out = brainstate.random.uniform(0.0 * UNIT, 1.0 * UNIT, size=SIZE)
+        self.assertIsInstance(out, u.Quantity)
+        self.assertEqual(out.unit, UNIT)
+
+    def test_loc_scale_family_carry_unit(self):
+        """``laplace``/``logistic``/``gumbel`` honour the loc/scale unit."""
+        for name in ('laplace', 'logistic', 'gumbel'):
+            with self.subTest(distribution=name):
+                out = getattr(brainstate.random, name)(0.0 * UNIT, 1.0 * UNIT, size=SIZE)
+                self.assertIsInstance(out, u.Quantity)
+                self.assertEqual(out.unit, UNIT)
+
+    def test_gamma_scale_unit(self):
+        out = brainstate.random.gamma(2.0, 3.0 * UNIT, size=SIZE)
+        self.assertIsInstance(out, u.Quantity)
+        self.assertEqual(out.unit, UNIT)
+
+    def test_rayleigh_scale_unit(self):
+        out = brainstate.random.rayleigh(2.0 * UNIT, size=SIZE)
+        self.assertIsInstance(out, u.Quantity)
+        self.assertEqual(out.unit, UNIT)
+
+    def test_weibull_min_scale_unit(self):
+        out = brainstate.random.weibull_min(1.5, scale=2.0 * UNIT, size=SIZE)
+        self.assertIsInstance(out, u.Quantity)
+        self.assertEqual(out.unit, UNIT)
+
+    def test_wald_carries_unit(self):
+        out = brainstate.random.wald(1.0 * UNIT, 2.0 * UNIT, size=SIZE)
+        self.assertIsInstance(out, u.Quantity)
+        self.assertEqual(out.unit, UNIT)
+
+    def test_truncated_normal_carries_unit(self):
+        out = brainstate.random.truncated_normal(-1.0 * UNIT, 1.0 * UNIT, size=SIZE)
+        self.assertIsInstance(out, u.Quantity)
+        self.assertEqual(out.unit, UNIT)
+
+    def test_multivariate_normal_carries_unit(self):
+        mean = jnp.array([0.0, 1.0]) * UNIT
+        cov = jnp.array([[1.0, 0.5], [0.5, 2.0]]) * (UNIT ** 2)
+        out = brainstate.random.multivariate_normal(mean, cov, size=(5,))
+        self.assertIsInstance(out, u.Quantity)
+        self.assertEqual(out.unit, UNIT)
+
+    def test_choice_preserves_unit(self):
+        arr = jnp.array([1.0, 2.0, 3.0, 4.0, 5.0]) * UNIT
+        out = brainstate.random.choice(arr, size=3, replace=False)
+        self.assertIsInstance(out, u.Quantity)
+        self.assertEqual(out.unit, UNIT)
+
+    def test_dimensionless_parameter_raises(self):
+        """A dimensional count is rejected at the module level too."""
+        with self.assertRaises(ValueError):
+            brainstate.random.binomial(10 * UNIT, 0.5, size=SIZE)
+
 
 class TestUnitHelpers(unittest.TestCase):
     """Directly exercise the low-level unit helpers in ``_impl``."""
@@ -416,6 +487,186 @@ class TestUnitHelpers(unittest.TestCase):
     def test_validate_raw_key_data_rejects_wrong_size(self):
         with self.assertRaises(TypeError):
             _validate_raw_key_data(np.array([1, 2, 3], dtype=np.uint32))
+
+
+class TestUniformUnits(unittest.TestCase):
+    """``uniform`` carries the shared unit of its ``low``/``high`` bounds.
+
+    The contract matches the loc/scale family: the unit is inferred from whichever
+    bound carries one, a plain bound is interpreted in that shared unit, a
+    compatible-but-different unit is converted, and incompatible dimensions raise.
+    """
+
+    def test_both_bounds_carry_unit(self):
+        out = _rng().uniform(0.0 * UNIT, 1.0 * UNIT, size=SIZE)
+        self.assertIsInstance(out, u.Quantity)
+        self.assertEqual(out.unit, UNIT)
+        self.assertEqual(out.mantissa.shape, SIZE)
+
+    def test_low_plain_high_unit(self):
+        """A plain ``low`` is interpreted in ``high``'s unit (reproduces the bug)."""
+        out = _rng().uniform(0.0, 1.0 * u.volt, size=SIZE)
+        self.assertIsInstance(out, u.Quantity)
+        self.assertEqual(out.unit, u.volt)
+
+    def test_low_unit_high_plain(self):
+        """A plain ``high`` is interpreted in ``low``'s unit (reproduces the bug)."""
+        out = _rng().uniform(1.0 * UNIT, 2.0, size=SIZE)
+        self.assertIsInstance(out, u.Quantity)
+        self.assertEqual(out.unit, UNIT)
+
+    def test_compatible_units_are_converted(self):
+        """``high`` given in a compatible unit (volt) is converted into ``low``'s (mV)."""
+        out = _rng().uniform(0.0 * u.mV, 1.0 * u.volt, size=SIZE)
+        self.assertIsInstance(out, u.Quantity)
+        self.assertEqual(out.unit, u.mV)
+
+    def test_mismatched_units_raise(self):
+        with self.assertRaises(u.UnitMismatchError):
+            _rng().uniform(0.0 * u.mV, 1.0 * u.mA, size=SIZE)
+
+    def test_no_units_returns_plain(self):
+        out = _rng().uniform(0.0, 1.0, size=SIZE)
+        self.assertNotIsInstance(out, u.Quantity)
+
+    def test_output_within_bounds(self):
+        low, high = 1.0 * UNIT, 3.0 * UNIT
+        out = _rng().uniform(low, high, size=SIZE)
+        mag = out.mantissa
+        self.assertTrue(bool((mag >= 1.0).all() and (mag < 3.0).all()))
+
+    def test_array_valued_bounds_broadcast(self):
+        low = jnp.array([0.0, 1.0]) * UNIT
+        high = jnp.array([2.0, 3.0]) * UNIT
+        out = _rng().uniform(low, high)  # size=None -> broadcast to (2,)
+        self.assertIsInstance(out, u.Quantity)
+        self.assertEqual(out.unit, UNIT)
+        self.assertEqual(out.mantissa.shape, (2,))
+
+
+class TestArraySamplingUnits(unittest.TestCase):
+    """``choice``/``permutation``/``shuffle`` preserve the input array's unit."""
+
+    ARR = jnp.array([1.0, 2.0, 3.0, 4.0, 5.0])
+
+    def test_choice_preserves_unit_and_subsets(self):
+        arr = self.ARR * UNIT
+        out = _rng().choice(arr, size=3, replace=False)
+        self.assertIsInstance(out, u.Quantity)
+        self.assertEqual(out.unit, UNIT)
+        # Without replacement, every sampled value is one of the inputs.
+        self.assertTrue(bool(jnp.isin(out.mantissa, self.ARR).all()))
+
+    def test_permutation_preserves_unit_and_is_permutation(self):
+        arr = self.ARR * UNIT
+        out = _rng().permutation(arr)
+        self.assertIsInstance(out, u.Quantity)
+        self.assertEqual(out.unit, UNIT)
+        self.assertTrue(bool((jnp.sort(out.mantissa) == self.ARR).all()))
+
+    def test_shuffle_preserves_unit(self):
+        arr = self.ARR * UNIT
+        out = _rng().shuffle(arr)
+        self.assertIsInstance(out, u.Quantity)
+        self.assertEqual(out.unit, UNIT)
+
+    def test_plain_inputs_stay_plain(self):
+        rng = _rng()
+        self.assertNotIsInstance(rng.choice(self.ARR, size=3), u.Quantity)
+        self.assertNotIsInstance(rng.permutation(self.ARR), u.Quantity)
+        self.assertNotIsInstance(rng.shuffle(self.ARR), u.Quantity)
+
+
+class TestUnitConversionCorrectness(unittest.TestCase):
+    """Unit conversion is applied to the *values*, not just the label.
+
+    A draw whose scale is expressed in a compatible-but-different unit must yield
+    the same mantissa as the equivalent draw already expressed in the target unit,
+    because two ``RandomState(0)`` instances share an identical PRNG key.
+    """
+
+    def test_normal_conversion_scales_mantissa(self):
+        a = _rng().normal(0.0 * u.mV, 1.0 * u.volt, size=SIZE).mantissa
+        b = _rng().normal(0.0 * u.mV, 1000.0 * u.mV, size=SIZE).mantissa
+        self.assertTrue(bool(np.allclose(np.asarray(a), np.asarray(b))))
+
+    def test_laplace_conversion_scales_mantissa(self):
+        a = _rng().laplace(0.0 * u.mV, 1.0 * u.volt, size=SIZE).mantissa
+        b = _rng().laplace(0.0 * u.mV, 1000.0 * u.mV, size=SIZE).mantissa
+        self.assertTrue(bool(np.allclose(np.asarray(a), np.asarray(b))))
+
+    def test_uniform_conversion_scales_mantissa(self):
+        a = _rng().uniform(0.0 * u.mV, 1.0 * u.volt, size=SIZE).mantissa
+        b = _rng().uniform(0.0 * u.mV, 1000.0 * u.mV, size=SIZE).mantissa
+        self.assertTrue(bool(np.allclose(np.asarray(a), np.asarray(b))))
+
+
+class TestLikeFunctionsUnits(unittest.TestCase):
+    """``rand_like``/``randn_like``/``randint_like`` and physical units.
+
+    ``rand_like`` and ``randn_like`` draw intrinsically dimensionless values
+    (uniform ``[0, 1)`` and standard normal), so they return plain arrays even
+    when handed a :class:`~brainunit.Quantity` — only the input's *shape* is used.
+    ``randint_like`` derives its default ``high`` from ``max(input)``; a dimensional
+    input therefore yields a dimensional ``high`` which the integer sampler rejects.
+    """
+
+    Q = jnp.arange(1, 6) * u.mV
+
+    def test_rand_like_drops_unit(self):
+        out = _rng().rand_like(self.Q)
+        self.assertNotIsInstance(out, u.Quantity)
+        self.assertEqual(jnp.shape(out), (5,))
+
+    def test_randn_like_drops_unit(self):
+        out = _rng().randn_like(self.Q)
+        self.assertNotIsInstance(out, u.Quantity)
+        self.assertEqual(jnp.shape(out), (5,))
+
+    def test_randint_like_quantity_default_high_raises(self):
+        with self.assertRaises(ValueError):
+            _rng().randint_like(self.Q)
+
+    def test_randint_like_explicit_high_is_plain(self):
+        out = _rng().randint_like(self.Q, low=0, high=10)
+        self.assertNotIsInstance(out, u.Quantity)
+        self.assertEqual(jnp.shape(out), (5,))
+
+
+class TestUnitsUnderTransforms(unittest.TestCase):
+    """Units survive ``jax.jit`` and ``jax.vmap`` over ``Quantity`` parameters."""
+
+    def test_jit_normal_carries_unit(self):
+        out = jax.jit(
+            lambda s: RandomState(0).normal(0.0 * u.mV, s, size=SIZE)
+        )(1.0 * u.mV)
+        self.assertIsInstance(out, u.Quantity)
+        self.assertEqual(out.unit, u.mV)
+        self.assertEqual(out.mantissa.shape, SIZE)
+
+    def test_jit_uniform_carries_unit(self):
+        out = jax.jit(
+            lambda hi: RandomState(0).uniform(0.0 * u.mV, hi, size=SIZE)
+        )(1.0 * u.mV)
+        self.assertIsInstance(out, u.Quantity)
+        self.assertEqual(out.unit, u.mV)
+        self.assertEqual(out.mantissa.shape, SIZE)
+
+    def test_jit_exponential_carries_unit(self):
+        out = jax.jit(
+            lambda s: RandomState(0).exponential(s, size=SIZE)
+        )(2.0 * u.mV)
+        self.assertIsInstance(out, u.Quantity)
+        self.assertEqual(out.unit, u.mV)
+
+    def test_vmap_normal_carries_unit(self):
+        scales = u.math.asarray([1.0, 2.0, 3.0]) * u.mV
+        out = jax.vmap(
+            lambda s: RandomState(0).normal(0.0 * u.mV, s, size=())
+        )(scales)
+        self.assertIsInstance(out, u.Quantity)
+        self.assertEqual(out.unit, u.mV)
+        self.assertEqual(out.mantissa.shape, (3,))
 
 
 if __name__ == '__main__':
