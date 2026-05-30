@@ -660,9 +660,9 @@ class State(Generic[A], PrettyObject):
 
     def to_state_ref(self: State[A]) -> TreefyState[A]:
         metadata = vars(self).copy()
-        del metadata['_value']
-        del metadata['_trace_state']
-        del metadata['_level']
+        metadata.pop('_value', None)
+        metadata.pop('_trace_state', None)
+        metadata.pop('_level', None)
         return TreefyState(type(self), self._value, **metadata)
 
     def __pretty_repr_item__(self, k, v):
@@ -2418,7 +2418,16 @@ class TreefyState(Generic[A], PrettyObject):
         state = object.__new__(self.type)
         metadata.pop('_value', None)
         metadata.pop('_level', None)
-        vars(state).update(**metadata, _value=self.value, _level=TRACE_CONTEXT.get_trace_stack_level())
+        # ``to_state_ref`` strips the trace state when building a reference, so a
+        # reconstructed state must be given a fresh one (mirroring ``State.copy``);
+        # otherwise splitting a merged state again raises ``KeyError('_trace_state')``.
+        metadata.pop('_trace_state', None)
+        vars(state).update(
+            **metadata,
+            _value=self.value,
+            _level=TRACE_CONTEXT.get_trace_stack_level(),
+            _trace_state=StateJaxTracer(),
+        )
         return state
 
     def copy(self: TreefyState[A]) -> TreefyState[A]:
