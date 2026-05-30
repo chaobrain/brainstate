@@ -598,12 +598,17 @@ class Any:
         """
         Apply the composite filter to the given path and object.
 
-        Args:
-            path (PathParts): The path to the current object.
-            x (typing.Any): The object to be filtered.
+        Parameters
+        ----------
+        path : PathParts
+            The path to the current object.
+        x : typing.Any
+            The object to be filtered.
 
-        Returns:
-            bool: True if any of the constituent predicates return True, False otherwise.
+        Returns
+        -------
+        bool
+            True if any of the constituent predicates return True, False otherwise.
         """
         return any(predicate(path, x) for predicate in self.predicates)
 
@@ -611,8 +616,10 @@ class Any:
         """
         Return a string representation of the Any filter.
 
-        Returns:
-            str: A string representation of the Any filter, including its predicates.
+        Returns
+        -------
+        str
+            A string representation of the Any filter, including its predicates.
         """
         return f'Any({", ".join(map(repr, self.predicates))})'
 
@@ -620,11 +627,15 @@ class Any:
         """
         Check if this Any filter is equal to another object.
 
-        Args:
-            other: The object to compare with.
+        Parameters
+        ----------
+        other
+            The object to compare with.
 
-        Returns:
-            bool: True if the other object is an Any filter with the same predicates, False otherwise.
+        Returns
+        -------
+        bool
+            True if the other object is an Any filter with the same predicates, False otherwise.
         """
         return isinstance(other, Any) and self.predicates == other.predicates
 
@@ -632,8 +643,10 @@ class Any:
         """
         Compute the hash value for this Any filter.
 
-        Returns:
-            int: The hash value of the predicates tuple.
+        Returns
+        -------
+        int
+            The hash value of the predicates tuple.
         """
         return hash(self.predicates)
 
@@ -645,16 +658,20 @@ class All:
     This class creates a composite filter that returns True only if all of its
     constituent filters return True.
 
-    Attributes:
-        predicates (tuple): A tuple of predicate functions converted from the input filters.
+    Attributes
+    ----------
+    predicates : tuple
+        A tuple of predicate functions converted from the input filters.
     """
 
     def __init__(self, *filters: Filter):
         """
         Initialize the All filter with a variable number of filters.
 
-        Args:
-            *filters (Filter): Variable number of filters to be combined.
+        Parameters
+        ----------
+        *filters : Filter
+            Variable number of filters to be combined.
         """
         self.predicates = tuple(
             to_predicate(collection_filter) for collection_filter in filters
@@ -664,12 +681,17 @@ class All:
         """
         Apply the composite filter to the given path and object.
 
-        Args:
-            path (PathParts): The path to the current object.
-            x (typing.Any): The object to be filtered.
+        Parameters
+        ----------
+        path : PathParts
+            The path to the current object.
+        x : typing.Any
+            The object to be filtered.
 
-        Returns:
-            bool: True if all of the constituent predicates return True, False otherwise.
+        Returns
+        -------
+        bool
+            True if all of the constituent predicates return True, False otherwise.
         """
         return all(predicate(path, x) for predicate in self.predicates)
 
@@ -677,8 +699,10 @@ class All:
         """
         Return a string representation of the All filter.
 
-        Returns:
-            str: A string representation of the All filter, including its predicates.
+        Returns
+        -------
+        str
+            A string representation of the All filter, including its predicates.
         """
         return f'All({", ".join(map(repr, self.predicates))})'
 
@@ -686,11 +710,15 @@ class All:
         """
         Check if this All filter is equal to another object.
 
-        Args:
-            other: The object to compare with.
+        Parameters
+        ----------
+        other
+            The object to compare with.
 
-        Returns:
-            bool: True if the other object is an All filter with the same predicates, False otherwise.
+        Returns
+        -------
+        bool
+            True if the other object is an All filter with the same predicates, False otherwise.
         """
         return isinstance(other, All) and self.predicates == other.predicates
 
@@ -698,8 +726,10 @@ class All:
         """
         Compute the hash value for this All filter.
 
-        Returns:
-            int: The hash value of the predicates tuple.
+        Returns
+        -------
+        int
+            The hash value of the predicates tuple.
         """
         return hash(self.predicates)
 
@@ -711,16 +741,20 @@ class Not:
     This class creates a new filter that returns the opposite boolean value
     of the filter it wraps.
 
-    Attributes:
-        predicate (Predicate): The predicate function converted from the input filter.
+    Attributes
+    ----------
+    predicate : Predicate
+        The predicate function converted from the input filter.
     """
 
     def __init__(self, collection_filter: Filter, /):
         """
         Initialize the Not filter with another filter.
 
-        Args:
-            collection_filter (Filter): The filter to be negated.
+        Parameters
+        ----------
+        collection_filter : Filter
+            The filter to be negated.
         """
         self.predicate = to_predicate(collection_filter)
 
@@ -728,12 +762,17 @@ class Not:
         """
         Apply the negated filter to the given path and object.
 
-        Args:
-            path (PathParts): The path to the current object.
-            x (typing.Any): The object to be filtered.
+        Parameters
+        ----------
+        path : PathParts
+            The path to the current object.
+        x : typing.Any
+            The object to be filtered.
 
-        Returns:
-            bool: The negation of the result from the wrapped predicate.
+        Returns
+        -------
+        bool
+            The negation of the result from the wrapped predicate.
         """
         return not self.predicate(path, x)
 
@@ -741,8 +780,10 @@ class Not:
         """
         Return a string representation of the Not filter.
 
-        Returns:
-            str: A string representation of the Not filter, including its predicate.
+        Returns
+        -------
+        str
+            A string representation of the Not filter, including its predicate.
         """
         return f'Not({self.predicate!r})'
 
@@ -750,11 +791,15 @@ class Not:
         """
         Check if this Not filter is equal to another object.
 
-        Args:
-            other: The object to compare with.
+        Parameters
+        ----------
+        other
+            The object to compare with.
 
-        Returns:
-            bool: True if the other object is a Not filter with the same predicate, False otherwise.
+        Returns
+        -------
+        bool
+            True if the other object is a Not filter with the same predicate, False otherwise.
         """
         return isinstance(other, Not) and self.predicate == other.predicate
 
@@ -762,8 +807,10 @@ class Not:
         """
         Compute the hash value for this Not filter.
 
-        Returns:
-            int: The hash value of the predicate.
+        Returns
+        -------
+        int
+            The hash value of the predicate.
         """
         return hash(self.predicate)
 
@@ -832,8 +879,10 @@ class Everything:
         """
         Return a string representation of the Everything filter.
 
-        Returns:
-            str: The string 'Everything()'.
+        Returns
+        -------
+        str
+            The string 'Everything()'.
         """
         return 'Everything()'
 
@@ -841,11 +890,15 @@ class Everything:
         """
         Check if this Everything filter is equal to another object.
 
-        Args:
-            other: The object to compare with.
+        Parameters
+        ----------
+        other
+            The object to compare with.
 
-        Returns:
-            bool: True if the other object is an instance of Everything, False otherwise.
+        Returns
+        -------
+        bool
+            True if the other object is an instance of Everything, False otherwise.
         """
         return isinstance(other, Everything)
 
@@ -853,8 +906,10 @@ class Everything:
         """
         Compute the hash value for this Everything filter.
 
-        Returns:
-            int: The hash value of the Everything class.
+        Returns
+        -------
+        int
+            The hash value of the Everything class.
         """
         return hash(Everything)
 
@@ -924,8 +979,10 @@ class Nothing:
         """
         Return a string representation of the Nothing filter.
 
-        Returns:
-            str: The string 'Nothing()'.
+        Returns
+        -------
+        str
+            The string 'Nothing()'.
         """
         return 'Nothing()'
 
@@ -933,11 +990,15 @@ class Nothing:
         """
         Check if this Nothing filter is equal to another object.
 
-        Args:
-            other: The object to compare with.
+        Parameters
+        ----------
+        other
+            The object to compare with.
 
-        Returns:
-            bool: True if the other object is an instance of Nothing, False otherwise.
+        Returns
+        -------
+        bool
+            True if the other object is an instance of Nothing, False otherwise.
         """
         return isinstance(other, Nothing)
 
@@ -945,7 +1006,9 @@ class Nothing:
         """
         Compute the hash value for this Nothing filter.
 
-        Returns:
-            int: The hash value of the Nothing class.
+        Returns
+        -------
+        int
+            The hash value of the Nothing class.
         """
         return hash(Nothing)

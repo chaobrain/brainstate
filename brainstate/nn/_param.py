@@ -509,12 +509,17 @@ def _are_broadcastable_shapes(shape1, shape2):
     """
     Check if two shapes are broadcastable.
 
-    Parameters:
-    - shape1: Tuple[int], the shape of the first array.
-    - shape2: Tuple[int], the shape of the second array.
+    Parameters
+    ----------
+    shape1 : Tuple[int]
+        The shape of the first array.
+    shape2 : Tuple[int]
+        The shape of the second array.
 
-    Returns:
-    - bool: True if shapes are broadcastable, False otherwise.
+    Returns
+    -------
+    bool
+        True if shapes are broadcastable, False otherwise.
     """
     # Reverse the shapes to compare from the last dimension
     shape1_reversed = shape1[::-1]
@@ -534,12 +539,16 @@ def _expand_params_to_match_sizes(params, sizes):
     """
     Expand the dimensions of params to match the dimensions of sizes.
 
-    Parameters:
-    - params: jax.Array or np.ndarray, the parameter array to be expanded.
-    - sizes: tuple[int] or list[int], the target shape dimensions.
+    Parameters
+    ----------
+    params : jax.Array or np.ndarray
+        The parameter array to be expanded.
+    sizes : tuple[int] or list[int]
+        The target shape dimensions.
 
-    Returns:
-    - Expanded params with dimensions matching sizes.
+    Returns
+    -------
+    Expanded params with dimensions matching sizes.
     """
     params_dim = params.ndim
     sizes_dim = len(sizes)

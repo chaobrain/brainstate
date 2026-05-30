@@ -847,7 +847,8 @@ class MaxUnpool1d(_MaxUnpool):
     of the maximal values and computes a partial inverse in which all
     non-maximal values are set to zero.
 
-    Note:
+    Notes
+    -----
         This function may produce nondeterministic gradients when given tensors
         on a CUDA device. See notes on reproducibility for more information.
 
@@ -1690,13 +1691,18 @@ class LPPool3d(_LPPool):
 def _adaptive_pool1d(x, target_size: int, operation: Callable):
     """Adaptive pool 1D.
 
-    Args:
-      x: The input. Should be a JAX array of shape `(dim,)`.
-      target_size: The shape of the output after the pooling operation `(target_size,)`.
-      operation: The pooling operation to be performed on the input array.
+    Parameters
+    ----------
+    x
+        The input. Should be a JAX array of shape `(dim,)`.
+    target_size
+        The shape of the output after the pooling operation `(target_size,)`.
+    operation
+        The pooling operation to be performed on the input array.
 
-    Returns:
-      A JAX array of shape `(target_size, )`.
+    Returns
+    -------
+    A JAX array of shape `(target_size, )`.
     """
     size = jnp.size(x)
     num_head_arrays = size % target_size

@@ -732,10 +732,14 @@ class Sequential(Module):
     >>>                   nn.Linear(10, 2))
     >>> l(brainstate.random.random((256, 100)))
 
-    Args:
-      modules_as_tuple: The children modules.
-      modules_as_dict: The children modules.
-      name: The object name.
+    Parameters
+    ----------
+    modules_as_tuple
+        The children modules.
+    modules_as_dict
+        The children modules.
+    name
+        The object name.
     """
     __module__ = 'brainstate.nn'
 
@@ -789,19 +793,19 @@ class Sequential(Module):
         either a Module instance, an ElementWiseBlock instance, or a callable function. If the
         layer is a callable function, it will be wrapped in an ElementWiseBlock instance.
 
-        Parameters:
+        Parameters
         ----------
         layer : Callable
             The layer to be appended to the sequential model. It can be a Module instance,
             an ElementWiseBlock instance, or a callable function.
 
-        Raises:
-        -------
+        Raises
+        ------
         ValueError
             If the sequential model is empty and the first layer is a callable function.
 
-        Returns:
-        --------
+        Returns
+        -------
         None
             The method does not return any value. It modifies the sequential model by adding
             the new layer to the end.
@@ -819,24 +823,24 @@ class Sequential(Module):
         This method adds multiple modules to the end of the sequential model. Each module
         is processed and validated, with automatic size inference between layers.
 
-        Parameters:
+        Parameters
         ----------
         modules : iterable
             An iterable of modules to append (e.g., list, tuple). Each element can be
             a Module instance, an ElementWiseBlock instance, or a callable function.
 
-        Raises:
-        -------
+        Raises
+        ------
         ValueError
             If the sequential model is empty and the first module is not a Module instance.
 
-        Returns:
-        --------
+        Returns
+        -------
         None
             The method does not return any value. It modifies the sequential model by adding
             the new modules to the end.
 
-        Examples:
+        Examples
         --------
         >>> import brainstate
         >>> seq = brainstate.nn.Sequential(brainstate.nn.Linear(10, 20))
@@ -861,7 +865,7 @@ class Sequential(Module):
         all output sizes for modules from the insertion point onwards are recalculated
         to maintain the size inference chain.
 
-        Parameters:
+        Parameters
         ----------
         index : int
             Position to insert the module. Supports negative indices following Python
@@ -870,20 +874,20 @@ class Sequential(Module):
             The module to insert. Can be a Module instance, an ElementWiseBlock instance,
             or a callable function.
 
-        Raises:
-        -------
+        Raises
+        ------
         ValueError
             If the sequential model is empty and index is not 0.
         IndexError
             If the index is out of range.
 
-        Returns:
-        --------
+        Returns
+        -------
         None
             The method does not return any value. It modifies the sequential model by inserting
             the module at the specified position.
 
-        Examples:
+        Examples
         --------
         >>> import brainstate
         >>> seq = brainstate.nn.Sequential(brainstate.nn.Linear(10, 20), brainstate.nn.Linear(20, 5))

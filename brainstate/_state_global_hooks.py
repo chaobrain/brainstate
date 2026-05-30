@@ -45,7 +45,8 @@ class GlobalHookRegistry(HookManager):
         The global registry is thread-safe, using the same locking mechanism
         as HookManager.
 
-    Example:
+    Examples
+    --------
         >>> # Register a global hook that logs all state reads
         >>> def log_all_reads(ctx):
         ...     print(f"Global: Reading {ctx.state_name}")
@@ -73,8 +74,10 @@ class GlobalHookRegistry(HookManager):
 
         Note: This is only called once due to the singleton pattern.
 
-        Args:
-            config: Optional HookConfig for customizing error handling
+        Parameters
+        ----------
+        config
+            Optional HookConfig for customizing error handling
         """
         # Only initialize once
         if not GlobalHookRegistry._initialized:
@@ -85,8 +88,9 @@ class GlobalHookRegistry(HookManager):
     def instance(cls) -> 'GlobalHookRegistry':
         """Get the singleton instance of the global hook registry.
 
-        Returns:
-            The GlobalHookRegistry singleton instance
+        Returns
+        -------
+        The GlobalHookRegistry singleton instance
         """
         if cls._instance is None:
             cls._instance = cls()
@@ -117,17 +121,25 @@ def register_state_hook(
 
     Global hooks execute before instance-specific hooks.
 
-    Args:
-        hook_type: Type of hook ('read', 'write_before', 'write_after', 'restore', 'init')
-        callback: Callable that receives a HookContext
-        priority: Execution priority (higher = earlier, default 0)
-        name: Optional name for the hook
-        enabled: Whether the hook is enabled initially (default True)
+    Parameters
+    ----------
+    hook_type
+        Type of hook ('read', 'write_before', 'write_after', 'restore', 'init')
+    callback
+        Callable that receives a HookContext
+    priority
+        Execution priority (higher = earlier, default 0)
+    name
+        Optional name for the hook
+    enabled
+        Whether the hook is enabled initially (default True)
 
-    Returns:
-        HookHandle for managing the hook
+    Returns
+    -------
+    HookHandle for managing the hook
 
-    Example:
+    Examples
+    --------
         >>> import brainstate
         >>> def validate_all_writes(ctx):
         ...     if hasattr(ctx.value, 'shape'):
@@ -142,11 +154,14 @@ def register_state_hook(
 def unregister_state_hook(handle: HookHandle) -> bool:
     """Unregister a global hook using its handle.
 
-    Args:
-        handle: The HookHandle returned by register_global_hook
+    Parameters
+    ----------
+    handle
+        The HookHandle returned by register_global_hook
 
-    Returns:
-        True if successfully unregistered, False otherwise
+    Returns
+    -------
+    True if successfully unregistered, False otherwise
     """
     return GlobalHookRegistry.instance().unregister_hook(handle)
 
@@ -154,8 +169,10 @@ def unregister_state_hook(handle: HookHandle) -> bool:
 def clear_state_hooks(hook_type: Optional[str] = None) -> None:
     """Clear all global hooks, optionally filtered by type.
 
-    Args:
-        hook_type: Optional hook type to clear (if None, clears all)
+    Parameters
+    ----------
+    hook_type
+        Optional hook type to clear (if None, clears all)
     """
     GlobalHookRegistry.instance().clear_hooks(hook_type)
 
@@ -163,11 +180,14 @@ def clear_state_hooks(hook_type: Optional[str] = None) -> None:
 def has_state_hooks(hook_type: Optional[str] = None) -> bool:
     """Check if any global hooks are registered.
 
-    Args:
-        hook_type: Optional hook type to check (if None, checks all)
+    Parameters
+    ----------
+    hook_type
+        Optional hook type to check (if None, checks all)
 
-    Returns:
-        True if global hooks are registered, False otherwise
+    Returns
+    -------
+    True if global hooks are registered, False otherwise
     """
     return GlobalHookRegistry.instance().has_hooks(hook_type)
 
@@ -175,10 +195,13 @@ def has_state_hooks(hook_type: Optional[str] = None) -> bool:
 def list_state_hooks(hook_type: Optional[str] = None) -> List[Hook]:
     """List all registered global hooks, optionally filtered by type.
 
-    Args:
-        hook_type: Optional hook type to filter by
+    Parameters
+    ----------
+    hook_type
+        Optional hook type to filter by
 
-    Returns:
-        List of Hook objects
+    Returns
+    -------
+    List of Hook objects
     """
     return GlobalHookRegistry.instance().get_hooks(hook_type)

@@ -52,15 +52,19 @@ def _format_padding(padding: Union[int, Sequence[int]], ndim: int) -> Sequence[t
     """
     Convert padding specification to format required by jax.numpy.pad.
 
-    Args:
-        padding: Padding size(s). Can be:
+    Parameters
+    ----------
+    padding
+        Padding size(s). Can be:
             - int: same padding for all sides
             - Sequence of length 2*ndim: (left, right) for each dimension
             - Sequence of length ndim: same padding for left and right of each dimension
-        ndim: Number of spatial dimensions (1, 2, or 3)
+    ndim
+        Number of spatial dimensions (1, 2, or 3)
 
-    Returns:
-        List of padding tuples for each dimension
+    Returns
+    -------
+    List of padding tuples for each dimension
     """
     if isinstance(padding, int):
         # Same padding for all sides of all dimensions

@@ -69,12 +69,18 @@ class Hook:
     A hook encapsulates a callback function along with metadata about its
     execution priority, name, and enabled state.
 
-    Attributes:
-        callback: The callable to invoke when the hook executes
-        priority: Execution priority (higher = executes earlier)
-        name: Optional name for the hook (for debugging/logging)
-        enabled: Whether the hook is currently enabled
-        hook_id: Unique identifier for the hook
+    Attributes
+    ----------
+    callback
+        The callable to invoke when the hook executes
+    priority
+        Execution priority (higher = executes earlier)
+    name
+        Optional name for the hook (for debugging/logging)
+    enabled
+        Whether the hook is currently enabled
+    hook_id
+        Unique identifier for the hook
     """
 
     _id_counter = 0
@@ -88,11 +94,16 @@ class Hook:
     ):
         """Initialize a hook.
 
-        Args:
-            callback: Callable that receives a HookContext and optionally returns a value
-            priority: Priority for execution order (higher = earlier, default 0)
-            name: Optional name for the hook
-            enabled: Whether the hook is enabled initially (default True)
+        Parameters
+        ----------
+        callback
+            Callable that receives a HookContext and optionally returns a value
+        priority
+            Priority for execution order (higher = earlier, default 0)
+        name
+            Optional name for the hook
+        enabled
+            Whether the hook is enabled initially (default True)
         """
         if not callable(callback):
             raise HookRegistrationError(f"Hook callback must be callable, got {type(callback)}")
@@ -108,14 +119,19 @@ class Hook:
     def execute(self, context: HookContext) -> Optional[Any]:
         """Execute the hook callback with the given context.
 
-        Args:
-            context: The hook context to pass to the callback
+        Parameters
+        ----------
+        context
+            The hook context to pass to the callback
 
-        Returns:
-            The return value from the callback, if any
+        Returns
+        -------
+        The return value from the callback, if any
 
-        Raises:
-            HookExecutionError: If the callback raises an exception
+        Raises
+        ------
+        HookExecutionError
+            If the callback raises an exception
         """
         if not self.enabled:
             return None
@@ -148,7 +164,8 @@ class HookHandle:
     This handle provides methods to enable, disable, and remove hooks
     without directly accessing the HookManager.
 
-    Example:
+    Examples
+    --------
         >>> state = bst.State(0, enable_hooks=True)
         >>> handle = state.register_hook('read', lambda ctx: print(ctx.value))
         >>> handle.disable()
@@ -161,10 +178,14 @@ class HookHandle:
     def __init__(self, manager_ref: weakref.ref[HookManager], hook: Hook, hook_type: str):
         """Initialize a hook handle.
 
-        Args:
-            manager_ref: Weak reference to the HookManager that owns this hook
-            hook: The Hook instance being managed
-            hook_type: Type of hook ('read', 'write_before', 'write_after', 'restore')
+        Parameters
+        ----------
+        manager_ref
+            Weak reference to the HookManager that owns this hook
+        hook
+            The Hook instance being managed
+        hook_type
+            Type of hook ('read', 'write_before', 'write_after', 'restore')
         """
         self._manager_ref = manager_ref
         self._hook = hook
@@ -174,8 +195,10 @@ class HookHandle:
     def enable(self) -> None:
         """Enable the hook.
 
-        Raises:
-            HookError: If the hook has been removed or the manager is gone
+        Raises
+        ------
+        HookError
+            If the hook has been removed or the manager is gone
         """
         if self._removed:
             raise HookError("Cannot enable a removed hook")
@@ -190,8 +213,10 @@ class HookHandle:
     def disable(self) -> None:
         """Disable the hook.
 
-        Raises:
-            HookError: If the hook has been removed or the manager is gone
+        Raises
+        ------
+        HookError
+            If the hook has been removed or the manager is gone
         """
         if self._removed:
             raise HookError("Cannot disable a removed hook")
@@ -206,8 +231,9 @@ class HookHandle:
     def remove(self) -> bool:
         """Remove the hook permanently.
 
-        Returns:
-            True if the hook was successfully removed, False otherwise
+        Returns
+        -------
+        True if the hook was successfully removed, False otherwise
         """
         if self._removed:
             return False
@@ -224,8 +250,9 @@ class HookHandle:
     def is_enabled(self) -> bool:
         """Check if the hook is currently enabled.
 
-        Returns:
-            True if enabled, False otherwise (including if removed)
+        Returns
+        -------
+        True if enabled, False otherwise (including if removed)
         """
         if self._removed:
             return False
@@ -234,8 +261,9 @@ class HookHandle:
     def is_removed(self) -> bool:
         """Check if the hook has been removed.
 
-        Returns:
-            True if removed, False otherwise
+        Returns
+        -------
+        True if removed, False otherwise
         """
         return self._removed
 

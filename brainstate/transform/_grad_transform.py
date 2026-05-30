@@ -257,11 +257,15 @@ class GradientTransform(PrettyRepr):
         """
         Split state values into gradient and non-gradient states.
 
-        Args:
-            state_trace: The state trace containing all states.
+        Parameters
+        ----------
+        state_trace
+            The state trace containing all states.
 
-        Returns:
-            Tuple[Dict, Dict]: A tuple of dictionaries containing gradient and non-gradient state values.
+        Returns
+        -------
+        Tuple[Dict, Dict]
+            A tuple of dictionaries containing gradient and non-gradient state values.
         """
         grad_vals = dict()
         other_vals = dict()
@@ -294,13 +298,19 @@ class GradientTransform(PrettyRepr):
         """
         Merge gradient and non-gradient state values back into a single list.
 
-        Args:
-            grad_vals (Dict): Dictionary of gradient state values.
-            other_vals (Dict): Dictionary of non-gradient state values.
-            state_trace: The state trace containing all states.
+        Parameters
+        ----------
+        grad_vals : Dict
+            Dictionary of gradient state values.
+        other_vals : Dict
+            Dictionary of non-gradient state values.
+        state_trace
+            The state trace containing all states.
 
-        Returns:
-            List: A list of merged state values.
+        Returns
+        -------
+        List
+            A list of merged state values.
         """
         res = []
         for st in state_trace.states:
@@ -315,14 +325,21 @@ class GradientTransform(PrettyRepr):
         """
         Call the target function with the given state values and arguments.
 
-        Args:
-            grad_vals (Dict): Dictionary of gradient state values.
-            other_vals (Dict): Dictionary of non-gradient state values.
-            *args: Positional arguments to pass to the target function.
-            **kwargs: Keyword arguments to pass to the target function.
+        Parameters
+        ----------
+        grad_vals : Dict
+            Dictionary of gradient state values.
+        other_vals : Dict
+            Dictionary of non-gradient state values.
+        *args
+            Positional arguments to pass to the target function.
+        **kwargs
+            Keyword arguments to pass to the target function.
 
-        Returns:
-            Tuple: A tuple containing updated state values and the function output.
+        Returns
+        -------
+        Tuple
+            A tuple containing updated state values and the function output.
         """
         state_trace = self.stateful_target.get_state_trace(*args, **kwargs, compile_if_miss=True)
         state_vals = self._merge_state_vals(grad_vals, other_vals, state_trace)
@@ -333,14 +350,21 @@ class GradientTransform(PrettyRepr):
         """
         Wrapper function for target functions that return auxiliary data.
 
-        Args:
-            grad_vals (Dict): Dictionary of gradient state values.
-            other_vals (Dict): Dictionary of non-gradient state values.
-            *args: Positional arguments to pass to the target function.
-            **kwargs: Keyword arguments to pass to the target function.
+        Parameters
+        ----------
+        grad_vals : Dict
+            Dictionary of gradient state values.
+        other_vals : Dict
+            Dictionary of non-gradient state values.
+        *args
+            Positional arguments to pass to the target function.
+        **kwargs
+            Keyword arguments to pass to the target function.
 
-        Returns:
-            Tuple: A tuple containing the primary output and a tuple of (all outputs, updated state values).
+        Returns
+        -------
+        Tuple
+            A tuple containing the primary output and a tuple of (all outputs, updated state values).
         """
         # Users should return the auxiliary data like::
         # >>> # 1. example of return one data
@@ -355,14 +379,21 @@ class GradientTransform(PrettyRepr):
         """
         Wrapper function for target functions that do not return auxiliary data.
 
-        Args:
-            grad_vals (Dict): Dictionary of gradient state values.
-            other_vals (Dict): Dictionary of non-gradient state values.
-            *args: Positional arguments to pass to the target function.
-            **kwargs: Keyword arguments to pass to the target function.
+        Parameters
+        ----------
+        grad_vals : Dict
+            Dictionary of gradient state values.
+        other_vals : Dict
+            Dictionary of non-gradient state values.
+        *args
+            Positional arguments to pass to the target function.
+        **kwargs
+            Keyword arguments to pass to the target function.
 
-        Returns:
-            Tuple: A tuple containing the output and a tuple of (output, updated state values).
+        Returns
+        -------
+        Tuple
+            A tuple containing the output and a tuple of (output, updated state values).
         """
         write_state_vals, out = self._call_target(grad_vals, other_vals, *args, **kwargs)
         return out, (out, write_state_vals)
@@ -371,12 +402,17 @@ class GradientTransform(PrettyRepr):
         """
         Process and format the return values from the gradient computation.
 
-        Args:
-            rets: The raw results from the gradient computation.
-            state_trace: The state trace containing all states.
+        Parameters
+        ----------
+        rets
+            The raw results from the gradient computation.
+        state_trace
+            The state trace containing all states.
 
-        Returns:
-            Union[Gradient, Tuple]: The processed gradient results, potentially including function value and/or auxiliary data.
+        Returns
+        -------
+        Union[Gradient, Tuple]
+            The processed gradient results, potentially including function value and/or auxiliary data.
         """
         # unpack the return values
         grads, (outputs, write_state_vals) = rets

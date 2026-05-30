@@ -29,7 +29,8 @@ Key Features:
     - Fallback implementations for deprecated functions
     - Type-safe utility functions
 
-Examples:
+Examples
+--------
     Basic usage:
 
     >>> from brainstate._compatible_import import safe_map, safe_zip
@@ -206,17 +207,25 @@ else:
         Applies a function to corresponding elements from multiple sequences,
         ensuring all sequences have the same length.
 
-        Args:
-            f: Function to apply to elements from each sequence.
-            *args: Variable number of sequences to map over.
+        Parameters
+        ----------
+        f
+            Function to apply to elements from each sequence.
+        *args
+            Variable number of sequences to map over.
 
-        Returns:
-            list: Results of applying f to corresponding elements.
+        Returns
+        -------
+        list
+            Results of applying f to corresponding elements.
 
-        Raises:
-            AssertionError: If input sequences have different lengths.
+        Raises
+        ------
+        AssertionError
+            If input sequences have different lengths.
 
-        Examples:
+        Examples
+        --------
             >>> safe_map(lambda x, y: x + y, [1, 2, 3], [4, 5, 6])
             [5, 7, 9]
 
@@ -237,16 +246,23 @@ else:
         Combines corresponding elements from multiple sequences into tuples,
         ensuring all sequences have the same length.
 
-        Args:
-            *args: Variable number of sequences to zip together.
+        Parameters
+        ----------
+        *args
+            Variable number of sequences to zip together.
 
-        Returns:
-            list: List of tuples containing corresponding elements.
+        Returns
+        -------
+        list
+            List of tuples containing corresponding elements.
 
-        Raises:
-            AssertionError: If input sequences have different lengths.
+        Raises
+        ------
+        AssertionError
+            If input sequences have different lengths.
 
-        Examples:
+        Examples
+        --------
             >>> safe_zip([1, 2, 3], ['a', 'b', 'c'])
             [(1, 'a'), (2, 'b'), (3, 'c')]
 
@@ -267,15 +283,20 @@ else:
         Takes an iterable of 2-tuples and separates them into two tuples
         containing the first and second elements respectively.
 
-        Args:
-            xys: Iterable of 2-tuples to unzip.
+        Parameters
+        ----------
+        xys
+            Iterable of 2-tuples to unzip.
 
-        Returns:
-            tuple: A 2-tuple containing:
+        Returns
+        -------
+        tuple
+            A 2-tuple containing:
                 - Tuple of all first elements
                 - Tuple of all second elements
 
-        Examples:
+        Examples
+        --------
             >>> pairs = [(1, 'a'), (2, 'b'), (3, 'c')]
             >>> nums, letters = unzip2(pairs)
             >>> nums
@@ -283,7 +304,8 @@ else:
             >>> letters
             ('a', 'b', 'c')
 
-        Notes:
+        Notes
+        -----
             We deliberately don't use zip(*xys) because it is lazily evaluated,
             is too permissive about inputs, and does not guarantee a length-2 output.
         """
@@ -319,18 +341,26 @@ else:
         Like functools.wraps, but provides more control over the name and docstring
         of the resulting function. Useful for creating custom decorators.
 
-        Args:
-            wrapped: The function being wrapped.
-            namestr: Optional format string for the wrapper function name.
-                    Can use {fun} placeholder for the original function name.
-            docstr: Optional format string for the wrapper function docstring.
-                   Can use {fun}, {doc}, and other kwargs as placeholders.
-            **kwargs: Additional keyword arguments for format string substitution.
+        Parameters
+        ----------
+        wrapped
+            The function being wrapped.
+        namestr
+            Optional format string for the wrapper function name.
+            Can use {fun} placeholder for the original function name.
+        docstr
+            Optional format string for the wrapper function docstring.
+            Can use {fun}, {doc}, and other kwargs as placeholders.
+        **kwargs
+            Additional keyword arguments for format string substitution.
 
-        Returns:
-            Callable: A decorator function that applies the wrapping.
+        Returns
+        -------
+        Callable
+            A decorator function that applies the wrapping.
 
-        Examples:
+        Examples
+        --------
             >>> def my_decorator(func):
             ...     @wraps(func, namestr="decorated_{fun}")
             ...     def wrapper(*args, **kwargs):
@@ -370,13 +400,17 @@ def to_concrete_aval(aval):
     Takes an abstract value and attempts to convert it to a concrete value,
     handling JAX Tracer objects appropriately.
 
-    Args:
-        aval: The abstract value to convert.
+    Parameters
+    ----------
+    aval
+        The abstract value to convert.
 
-    Returns:
-        The concrete value representation, or the original aval if already concrete.
+    Returns
+    -------
+    The concrete value representation, or the original aval if already concrete.
 
-    Examples:
+    Examples
+    --------
         >>> import jax.numpy as jnp
         >>> arr = jnp.array([1, 2, 3])
         >>> concrete = to_concrete_aval(arr)

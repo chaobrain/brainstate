@@ -37,14 +37,21 @@ def eqns_to_jaxpr(
     """
     Convert a sequence of JaxprEqn into a Jaxpr.
 
-    Args:
-        eqns: Sequence of Jaxpr equations to convert
-        invars: Input variables. If None, will be inferred from equations
-        outvars: Output variables. If None, will be inferred from equations
-        constvars: Constant variables. If None, will be automatically extracted from equations
+    Parameters
+    ----------
+    eqns
+        Sequence of Jaxpr equations to convert
+    invars
+        Input variables. If None, will be inferred from equations
+    outvars
+        Output variables. If None, will be inferred from equations
+    constvars
+        Constant variables. If None, will be automatically extracted from equations
 
-    Returns:
-        Jaxpr: A Jaxpr object constructed from the equations
+    Returns
+    -------
+    Jaxpr
+        A Jaxpr object constructed from the equations
     """
     eqns = list(eqns)
 
@@ -115,21 +122,30 @@ def eqns_to_closed_jaxpr(
     """
     Convert a sequence of JaxprEqn into a ClosedJaxpr.
 
-    Args:
-        eqns: Sequence of Jaxpr equations to convert
-        invars: Input variables. If None, will be inferred from equations
-        outvars: Output variables. If None, will be inferred from equations
-        constvars: Constant variables. If None, will be automatically extracted from equations
-        consts: Constant values corresponding to constvars. If None, defaults to empty list
+    Parameters
+    ----------
+    eqns
+        Sequence of Jaxpr equations to convert
+    invars
+        Input variables. If None, will be inferred from equations
+    outvars
+        Output variables. If None, will be inferred from equations
+    constvars
+        Constant variables. If None, will be automatically extracted from equations
+    consts
+        Constant values corresponding to constvars. If None, defaults to empty list
 
-    Returns:
-        ClosedJaxpr: A ClosedJaxpr object constructed from the equations
+    Returns
+    -------
+    ClosedJaxpr
+        A ClosedJaxpr object constructed from the equations
 
-    Note:
-        If constvars are automatically extracted from equations but no consts are provided,
-        the resulting ClosedJaxpr will have empty consts list. This may cause runtime errors
-        if the equations actually depend on these constants. In such cases, you should
-        explicitly provide both constvars and consts from the original jaxpr.
+    Notes
+    -----
+    If constvars are automatically extracted from equations but no consts are provided,
+    the resulting ClosedJaxpr will have empty consts list. This may cause runtime errors
+    if the equations actually depend on these constants. In such cases, you should
+    explicitly provide both constvars and consts from the original jaxpr.
     """
     # Create jaxpr (will automatically extract constvars if not provided)
     jaxpr = eqns_to_jaxpr(eqns, invars, outvars, constvars)
