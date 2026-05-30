@@ -48,6 +48,9 @@ Random distributions are now **comprehensively and strictly compatible with
 
 - **`multivariate_normal` now propagates physical units**: previously the output unit was read after the mantissa had already been stripped from `mean`, so units were silently dropped. Samples now correctly carry the unit of `mean`.
 - **`truncated_normal` now accepts unit-carrying bounds with default `loc`/`scale`**: the shared output unit is inferred from whichever of `lower`/`upper`/`loc`/`scale` carries one, and plain values are interpreted in that unit (previously a unit on the bounds with the default plain `loc`/`scale` raised `UnitMismatchError`).
+- **`brainstate.transform.vjp` now supports state-only differentiation**: calling `vjp(fun, grad_states=...)` with no differentiable positional argument (e.g. a loss that closes over trainable parameters) previously raised `IndexError`. It now returns a pullback yielding just the state cotangents, matching `brainstate.transform.grad` semantics.
+- **`brainstate.transform.vjp` accepts `argnums=None`**: like `grad`, `argnums=None` disables positional-argument differentiation so the pullback returns only state cotangents.
+- **Clearer `vjp` errors**: out-of-range `argnums` now raises a descriptive `ValueError` instead of a bare `IndexError`, and supplying neither positional primals nor `grad_states` raises an explanatory `ValueError`.
 
 
 ## Version 0.3.0
