@@ -223,5 +223,108 @@ class TestSingleInSpec(unittest.TestCase):
         self.assertTrue(jnp.allclose(out, a + b))
 
 
+class TestShardMapUseCases(unittest.TestCase):
+    """Comprehensive use-case coverage mirroring the ``shard_map`` docstring."""
+
+    def setUp(self):
+        self.n = jax.device_count()
+        self.mesh = jax.make_mesh((self.n,), ('x',))
+
+    def test_basic_data_parallel_no_state(self):
+        f = brainstate.transform.shard_map(
+            lambda x: x * 2.0, self.mesh, in_specs=(P('x'),), out_specs=P('x'))
+        x = jnp.arange(self.n * 2, dtype=jnp.float32)
+        out = f(x)
+        self.assertEqual(out.shape, (self.n * 2,))
+        self.assertTrue(jnp.allclose(out, x * 2.0))
+
+    def test_readonly_replicated_param_preserved(self):
+        # A scalar state read but never written is replicated and must keep its
+        # value after the call (write/read restore must not clobber read states).
+        w = brainstate.ParamState(jnp.array(3.0))
+        before = w.value
+        def scale(x):
+            return x * w.value
+        f = brainstate.transform.shard_map(
+            scale, self.mesh, in_specs=(P('x'),), out_specs=P('x'))
+        x = jnp.arange(self.n * 2, dtype=jnp.float32)
+        out = f(x)
+        self.assertTrue(jnp.allclose(out, x * 3.0))
+        self.assertIsNotNone(w.value)
+        self.assertTrue(jnp.allclose(w.value, before))
+
+    def test_readonly_state_repeated_calls(self):
+        w = brainstate.ParamState(jnp.array(2.0))
+        def scale(x):
+            return x * w.value
+        f = brainstate.transform.shard_map(
+            scale, self.mesh, in_specs=(P('x'),), out_specs=P('x'))
+        x = jnp.ones(self.n * 2, dtype=jnp.float32)
+        for _ in range(3):
+            out = f(x)
+            self.assertTrue(jnp.allclose(out, x * 2.0))
+            self.assertTrue(jnp.allclose(w.value, 2.0))
+
+    def test_sharded_state_read_and_update(self):
+        buf = brainstate.State(jnp.arange(self.n * 2, dtype=jnp.float32))
+        def accumulate(x):
+            buf.value = buf.value + x
+            return x
+        f = brainstate.transform.shard_map(
+            accumulate, self.mesh, in_specs=(P('x'),), out_specs=P('x'),
+            state_in_specs={buf: P('x')}, state_out_specs={buf: P('x')})
+        x = jnp.ones(self.n * 2, dtype=jnp.float32)
+        f(x)
+        self.assertTrue(jnp.allclose(buf.value, jnp.arange(self.n * 2) + 1.0))
+
+    def test_collective_psum(self):
+        def global_sum(x):
+            return jax.lax.psum(jnp.sum(x, keepdims=True), axis_name='x')
+        f = brainstate.transform.shard_map(
+            global_sum, self.mesh, in_specs=(P('x'),), out_specs=P())
+        x = jnp.arange(self.n * 4, dtype=jnp.float32)
+        out = f(x)
+        self.assertTrue(jnp.allclose(out, jnp.sum(x)))
+
+    def test_mixed_readonly_param_and_sharded_state(self):
+        w = brainstate.ParamState(jnp.array(2.0))
+        buf = brainstate.State(jnp.zeros(self.n * 2))
+        wbefore = w.value
+        def step(x):
+            y = x * w.value
+            buf.value = buf.value + y
+            return y
+        f = brainstate.transform.shard_map(
+            step, self.mesh, in_specs=(P('x'),), out_specs=P('x'),
+            state_in_specs={buf: P('x')}, state_out_specs={buf: P('x')})
+        x = jnp.arange(self.n * 2, dtype=jnp.float32)
+        out = f(x)
+        self.assertTrue(jnp.allclose(out, x * 2.0))
+        self.assertTrue(jnp.allclose(buf.value, x * 2.0))
+        self.assertTrue(jnp.allclose(w.value, wbefore))
+
+    def test_compose_under_jit(self):
+        bias = brainstate.ParamState(jnp.array(5.0))
+        f = brainstate.transform.shard_map(
+            lambda x: x + bias.value, self.mesh, in_specs=(P('x'),), out_specs=P('x'))
+        run = jax.jit(f)
+        x = jnp.arange(self.n * 2, dtype=jnp.float32)
+        out = run(x)
+        self.assertTrue(jnp.allclose(out, x + 5.0))
+
+    def test_2d_mesh_data_and_model(self):
+        if self.n < 2 or self.n % 2 != 0:
+            self.skipTest('needs an even device count >= 2')
+        d = self.n // 2
+        mesh = jax.make_mesh((d, 2), ('data', 'model'))
+        f = brainstate.transform.shard_map(
+            lambda x: x + 1.0, mesh,
+            in_specs=(P('data', 'model'),), out_specs=P('data', 'model'))
+        x = jnp.arange(d * 2, dtype=jnp.float32).reshape(d, 2)
+        out = f(x)
+        self.assertEqual(out.shape, (d, 2))
+        self.assertTrue(jnp.allclose(out, x + 1.0))
+
+
 if __name__ == '__main__':
     unittest.main()
