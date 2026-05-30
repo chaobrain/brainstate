@@ -21,16 +21,16 @@ import jax.numpy as jnp
 
 import brainstate as bst
 from brainstate._state import TRACE_CONTEXT, StateTraceStack
-from brainstate.transform._jit_named_scope import jit_named_scope, fn_to_call
+from brainstate.transform._named_scope import named_scope, fn_to_call
 
 
 class TestJitNamedScopeBasic(unittest.TestCase):
-    """Tests for basic jit_named_scope functionality."""
+    """Tests for basic named_scope functionality."""
 
     def test_basic_decoration(self):
         """Test basic decoration with just a name."""
 
-        @jit_named_scope(name='test_fn')
+        @named_scope(name='test_fn')
         def add(x, y):
             return x + y
 
@@ -46,14 +46,14 @@ class TestJitNamedScopeBasic(unittest.TestCase):
         def original_fn(x):
             return x * 2
 
-        wrapped = jit_named_scope(name='test')(original_fn)
+        wrapped = named_scope(name='test')(original_fn)
         self.assertTrue(hasattr(wrapped, 'fn'))
         self.assertIs(wrapped.fn, original_fn)
 
     def test_functools_wraps_preserved(self):
         """Test that functools.wraps preserves function metadata."""
 
-        @jit_named_scope(name='documented_fn')
+        @named_scope(name='documented_fn')
         def documented(x):
             """This is a documented function."""
             return x
@@ -68,7 +68,7 @@ class TestStaticArgnums(unittest.TestCase):
     def test_single_static_argnum(self):
         """Test with a single static positional argument."""
 
-        @jit_named_scope(name='power', static_argnums=1)
+        @named_scope(name='power', static_argnums=1)
         def power(x, n):
             return x ** n
 
@@ -80,7 +80,7 @@ class TestStaticArgnums(unittest.TestCase):
     def test_multiple_static_argnums_as_tuple(self):
         """Test with multiple static positional arguments as a tuple."""
 
-        @jit_named_scope(name='scaled_power', static_argnums=(1, 2))
+        @named_scope(name='scaled_power', static_argnums=(1, 2))
         def scaled_power(x, n, scale):
             return (x ** n) * scale
 
@@ -92,7 +92,7 @@ class TestStaticArgnums(unittest.TestCase):
     def test_multiple_static_argnums_as_list(self):
         """Test with multiple static positional arguments as a list."""
 
-        @jit_named_scope(name='scaled_power', static_argnums=[1, 2])
+        @named_scope(name='scaled_power', static_argnums=[1, 2])
         def scaled_power(x, n, scale):
             return (x ** n) * scale
 
@@ -104,7 +104,7 @@ class TestStaticArgnums(unittest.TestCase):
     def test_negative_static_argnum(self):
         """Test with negative index for static argument."""
 
-        @jit_named_scope(name='neg_index', static_argnums=-1)
+        @named_scope(name='neg_index', static_argnums=-1)
         def neg_index_fn(x, y, mode):
             if mode == 'add':
                 return x + y
@@ -120,7 +120,7 @@ class TestStaticArgnums(unittest.TestCase):
     def test_multiple_negative_static_argnums(self):
         """Test with multiple negative indices for static arguments."""
 
-        @jit_named_scope(name='neg_indices', static_argnums=(-1, -2))
+        @named_scope(name='neg_indices', static_argnums=(-1, -2))
         def fn_with_neg_indices(x, n, scale):
             return (x ** n) * scale
 
@@ -136,7 +136,7 @@ class TestStaticArgnames(unittest.TestCase):
     def test_single_static_argname(self):
         """Test with a single static keyword argument name."""
 
-        @jit_named_scope(name='power_kw', static_argnames='n')
+        @named_scope(name='power_kw', static_argnames='n')
         def power(x, n=2):
             return x ** n
 
@@ -148,7 +148,7 @@ class TestStaticArgnames(unittest.TestCase):
     def test_multiple_static_argnames_as_tuple(self):
         """Test with multiple static keyword argument names as tuple."""
 
-        @jit_named_scope(name='multi_kw', static_argnames=('n', 'scale'))
+        @named_scope(name='multi_kw', static_argnames=('n', 'scale'))
         def scaled_power(x, n=2, scale=1):
             return (x ** n) * scale
 
@@ -160,7 +160,7 @@ class TestStaticArgnames(unittest.TestCase):
     def test_multiple_static_argnames_as_list(self):
         """Test with multiple static keyword argument names as list."""
 
-        @jit_named_scope(name='multi_kw', static_argnames=['n', 'scale'])
+        @named_scope(name='multi_kw', static_argnames=['n', 'scale'])
         def scaled_power(x, n=2, scale=1):
             return (x ** n) * scale
 
@@ -172,7 +172,7 @@ class TestStaticArgnames(unittest.TestCase):
     def test_single_static_argname_as_string(self):
         """Test with static_argnames as a single string."""
 
-        @jit_named_scope(name='str_argname', static_argnames='mode')
+        @named_scope(name='str_argname', static_argnames='mode')
         def fn_with_mode(x, mode='default'):
             if mode == 'double':
                 return x * 2
@@ -194,7 +194,7 @@ class TestCallableStaticArgs(unittest.TestCase):
             # Make all args except the first one static
             return tuple(range(1, len(args)))
 
-        @jit_named_scope(name='dynamic_static', static_argnums=determine_static)
+        @named_scope(name='dynamic_static', static_argnums=determine_static)
         def dynamic_fn(x, n, scale):
             return (x ** n) * scale
 
@@ -210,7 +210,7 @@ class TestCallableStaticArgs(unittest.TestCase):
             # Make 'mode' static if it's present
             return ('mode',) if 'mode' in kwargs else ()
 
-        @jit_named_scope(name='dynamic_names', static_argnames=determine_static_names)
+        @named_scope(name='dynamic_names', static_argnames=determine_static_names)
         def fn_with_dynamic_names(x, mode='add'):
             if mode == 'add':
                 return x + 1
@@ -227,7 +227,7 @@ class TestCallableStaticArgs(unittest.TestCase):
         def no_static(*args, **kwargs):
             return ()
 
-        @jit_named_scope(name='no_static', static_argnums=no_static)
+        @named_scope(name='no_static', static_argnums=no_static)
         def simple_fn(x, y):
             return x + y
 
@@ -244,7 +244,7 @@ class TestCombinedStaticArgs(unittest.TestCase):
     def test_combined_static_args(self):
         """Test using both static_argnums and static_argnames."""
 
-        @jit_named_scope(name='combined', static_argnums=1, static_argnames='scale')
+        @named_scope(name='combined', static_argnums=1, static_argnames='scale')
         def combined_fn(x, n, scale=1):
             return (x ** n) * scale
 
@@ -261,7 +261,7 @@ class TestTraceContext(unittest.TestCase):
         """Test that function is called directly when outside trace context."""
         call_log = []
 
-        @jit_named_scope(name='test_trace')
+        @named_scope(name='test_trace')
         def logged_fn(x):
             call_log.append('called')
             return x * 2
@@ -277,7 +277,7 @@ class TestTraceContext(unittest.TestCase):
     def test_jit_inside_trace_context(self):
         """Test that function is JIT compiled when inside trace context."""
 
-        @jit_named_scope(name='inner_fn')
+        @named_scope(name='inner_fn')
         def inner(x):
             return x * 2
 
@@ -296,13 +296,13 @@ class TestMethodBinding(unittest.TestCase):
     """Tests for method binding support."""
 
     def test_as_instance_method(self):
-        """Test jit_named_scope as a class instance method."""
+        """Test named_scope as a class instance method."""
 
         class MyModule:
             def __init__(self, scale):
                 self.scale = scale
 
-            @jit_named_scope(name='compute')
+            @named_scope(name='compute')
             def compute(self, x):
                 return x * self.scale
 
@@ -316,7 +316,7 @@ class TestMethodBinding(unittest.TestCase):
         """Test method with static positional arguments."""
 
         class PowerModule:
-            @jit_named_scope(name='power', static_argnums=1)
+            @named_scope(name='power', static_argnums=1)
             def power(self, x, n):
                 return x ** n
 
@@ -330,7 +330,7 @@ class TestMethodBinding(unittest.TestCase):
         """Test method with static keyword arguments."""
 
         class ModeModule:
-            @jit_named_scope(name='process', static_argnames='mode')
+            @named_scope(name='process', static_argnames='mode')
             def process(self, x, mode='add'):
                 if mode == 'add':
                     return x + 1
@@ -384,7 +384,7 @@ class TestNormalizeHelpers(unittest.TestCase):
     def test_none_static_argnums(self):
         """Test with None static_argnums."""
 
-        @jit_named_scope(name='none_argnums', static_argnums=None)
+        @named_scope(name='none_argnums', static_argnums=None)
         def fn(x, y):
             return x + y
 
@@ -397,7 +397,7 @@ class TestNormalizeHelpers(unittest.TestCase):
     def test_none_static_argnames(self):
         """Test with None static_argnames."""
 
-        @jit_named_scope(name='none_argnames', static_argnames=None)
+        @named_scope(name='none_argnames', static_argnames=None)
         def fn(x, y):
             return x + y
 
@@ -412,10 +412,10 @@ class TestWithBrainstateState(unittest.TestCase):
     """Tests using brainstate State objects."""
 
     def test_with_state_inside_jit(self):
-        """Test jit_named_scope with brainstate State inside JIT context."""
+        """Test named_scope with brainstate State inside JIT context."""
         state = bst.State(jnp.array([1.0, 2.0]))
 
-        @jit_named_scope(name='state_fn')
+        @named_scope(name='state_fn')
         def update_state(x):
             state.value = state.value + x
             return state.value
@@ -429,10 +429,10 @@ class TestWithBrainstateState(unittest.TestCase):
         self.assertTrue(jnp.allclose(result, expected))
 
     def test_with_state_direct_call(self):
-        """Test jit_named_scope with brainstate State in direct call (no outer JIT)."""
+        """Test named_scope with brainstate State in direct call (no outer JIT)."""
         state = bst.State(jnp.array([1.0, 2.0]))
 
-        @jit_named_scope(name='state_direct')
+        @named_scope(name='state_direct')
         def update_state(x):
             state.value = state.value + x
             return state.value
@@ -449,7 +449,7 @@ class TestEdgeCases(unittest.TestCase):
     def test_no_args_function(self):
         """Test function with no arguments."""
 
-        @jit_named_scope(name='no_args')
+        @named_scope(name='no_args')
         def constant():
             return jnp.array([1.0, 2.0])
 
@@ -460,7 +460,7 @@ class TestEdgeCases(unittest.TestCase):
     def test_kwargs_only(self):
         """Test function called with kwargs only."""
 
-        @jit_named_scope(name='kwargs_only')
+        @named_scope(name='kwargs_only')
         def add(x, y):
             return x + y
 
@@ -473,7 +473,7 @@ class TestEdgeCases(unittest.TestCase):
     def test_mixed_args_kwargs(self):
         """Test function with mixed positional and keyword arguments."""
 
-        @jit_named_scope(name='mixed', static_argnums=1, static_argnames='scale')
+        @named_scope(name='mixed', static_argnums=1, static_argnames='scale')
         def mixed_fn(x, n, scale=1):
             return (x ** n) * scale
 
@@ -482,14 +482,14 @@ class TestEdgeCases(unittest.TestCase):
         expected = jnp.array([12.0, 27.0])
         self.assertTrue(jnp.allclose(result, expected))
 
-    def test_nested_jit_named_scope(self):
-        """Test nested jit_named_scope calls."""
+    def test_nested_named_scope(self):
+        """Test nested named_scope calls."""
 
-        @jit_named_scope(name='outer_scope')
+        @named_scope(name='outer_scope')
         def outer(x):
             return inner(x) + 1
 
-        @jit_named_scope(name='inner_scope')
+        @named_scope(name='inner_scope')
         def inner(x):
             return x * 2
 
@@ -510,7 +510,7 @@ class TestStaticArgRecompilation(unittest.TestCase):
         """Test that different static argument values trigger recompilation."""
         compile_count = [0]
 
-        @jit_named_scope(name='recompile_test', static_argnums=1)
+        @named_scope(name='recompile_test', static_argnums=1)
         def fn_with_static(x, mode):
             compile_count[0] += 1
             if mode == 'double':
@@ -552,7 +552,7 @@ class TestIrCompilationPath(unittest.TestCase):
     def test_plain_function_under_ir_compilation(self):
         """No static args: the normalize helpers handle the ``None`` case."""
 
-        @jit_named_scope(name='plain')
+        @named_scope(name='plain')
         def add(x, y):
             return x + y
 
@@ -563,7 +563,7 @@ class TestIrCompilationPath(unittest.TestCase):
     def test_int_static_argnum_under_ir_compilation(self):
         """An int ``static_argnums`` is normalized and compiled."""
 
-        @jit_named_scope(name='power', static_argnums=1)
+        @named_scope(name='power', static_argnums=1)
         def power(x, n):
             return x ** n
 
@@ -574,7 +574,7 @@ class TestIrCompilationPath(unittest.TestCase):
     def test_sequence_and_negative_argnums_under_ir_compilation(self):
         """A tuple with a negative index is normalized to absolute positions."""
 
-        @jit_named_scope(name='scaled', static_argnums=(1, -1))
+        @named_scope(name='scaled', static_argnums=(1, -1))
         def scaled_power(x, n, scale):
             return (x ** n) * scale
 
@@ -585,7 +585,7 @@ class TestIrCompilationPath(unittest.TestCase):
     def test_static_argnames_under_ir_compilation(self):
         """A string ``static_argnames`` is normalized and compiled."""
 
-        @jit_named_scope(name='kw', static_argnames='n')
+        @named_scope(name='kw', static_argnames='n')
         def power(x, n=2):
             return x ** n
 
@@ -596,7 +596,7 @@ class TestIrCompilationPath(unittest.TestCase):
     def test_callable_static_args_under_ir_compilation(self):
         """Callable ``static_argnums``/``static_argnames`` are resolved per call."""
 
-        @jit_named_scope(
+        @named_scope(
             name='dyn',
             static_argnums=lambda *a, **k: (1,),
             static_argnames=lambda *a, **k: ('scale',) if 'scale' in k else (),
