@@ -42,6 +42,7 @@ Examples:
     >>> # These imports work across different JAX versions
 """
 
+import inspect
 from functools import partial
 from typing import Iterable, TypeVar, Callable
 
@@ -99,6 +100,10 @@ __all__ = [
     'new_jaxpr_eqn',
     'no_effects',
     'valid_jaxtype',
+
+    # shard_map
+    'jax_shard_map',
+    'SHARD_MAP_CHECK_KW',
 ]
 
 
@@ -389,3 +394,18 @@ def is_jit_primitive(eqn: JaxprEqn) -> bool:
         return eqn.primitive.name in ['pjit', 'xla_call']
     else:
         return eqn.primitive.name in ['jit', 'xla_call']
+
+
+# Resolve jax.shard_map across versions: it was promoted to the top level in
+# JAX 0.8.0 (with the ``check_vma`` flag); older releases (0.6.x/0.7.x) expose
+# it as ``jax.experimental.shard_map.shard_map`` with a ``check_rep`` flag.
+jax_shard_map = getattr(jax, 'shard_map', None)
+if jax_shard_map is None:  # pragma: no cover - depends on installed jax
+    from jax.experimental.shard_map import shard_map as jax_shard_map
+_shard_map_params = set(inspect.signature(jax_shard_map).parameters)
+if 'check_vma' in _shard_map_params:
+    SHARD_MAP_CHECK_KW = 'check_vma'
+elif 'check_rep' in _shard_map_params:
+    SHARD_MAP_CHECK_KW = 'check_rep'
+else:  # pragma: no cover - unexpected jax signature
+    SHARD_MAP_CHECK_KW = None
