@@ -11,6 +11,12 @@
 - **Typing correctness gate**: a `mypy` configuration with a per-module "ratchet" enforces type correctness in CI, starting with `brainstate.typing`. Coverage expands module-by-module over time.
 - All annotations are evaluated lazily (`from __future__ import annotations`), so they impose no import-time or runtime cost.
 
+### Bug Fixes
+
+- **`brainstate.transform.vjp` now supports state-only differentiation**: calling `vjp(fun, grad_states=...)` with no differentiable positional argument (e.g. a loss that closes over trainable parameters) previously raised `IndexError`. It now returns a pullback yielding just the state cotangents, matching `brainstate.transform.grad` semantics.
+- **`brainstate.transform.vjp` accepts `argnums=None`**: like `grad`, `argnums=None` disables positional-argument differentiation so the pullback returns only state cotangents.
+- **Clearer `vjp` errors**: out-of-range `argnums` now raises a descriptive `ValueError` instead of a bare `IndexError`, and supplying neither positional primals nor `grad_states` raises an explanatory `ValueError`.
+
 
 ## Version 0.3.0
 

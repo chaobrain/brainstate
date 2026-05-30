@@ -222,5 +222,259 @@ class TestJvpErrors(unittest.TestCase):
             brainstate.transform.jvp(lambda x: x, (jnp.array(1.0),), 1.0)
 
 
+class TestVjpStateOnly(unittest.TestCase):
+    """State-only differentiation (no differentiable positional argument).
+
+    Regression tests for the bug where ``vjp(loss, grad_states=...)`` with no
+    positional primals crashed with ``IndexError`` because ``argnums`` defaulted
+    to ``0`` and unconditionally indexed ``primals[0]``.
+    """
+
+    def test_no_primals_single_state(self):
+        # The canonical neural-network pattern: loss closes over a parameter.
+        w = brainstate.State(jnp.array([2.0, 3.0]))
+
+        def loss():
+            return jnp.sum(w.value ** 2)
+
+        out, vjp_fn = brainstate.transform.vjp(loss, grad_states=w)
+        state_ct = vjp_fn(1.0)
+        # Pullback returns ONLY the state cotangent (no arg cotangent).
+        self.assertTrue(jnp.allclose(out, jnp.sum(w.value ** 2)))
+        self.assertTrue(jnp.allclose(state_ct, 2.0 * w.value))
+
+    def test_no_primals_matches_grad(self):
+        # State-only vjp pullback at 1.0 must equal brainstate.transform.grad.
+        weight = brainstate.State(jnp.array([[1.0, 2.0], [3.0, 4.0]]))
+        bias = brainstate.State(jnp.array([0.5, -0.5]))
+        x = jnp.array([1.0, 1.0])
+
+        def loss():
+            return jnp.sum((x @ weight.value + bias.value) ** 2)
+
+        out, vjp_fn = brainstate.transform.vjp(loss, grad_states=[weight, bias])
+        gw, gb = vjp_fn(1.0)
+
+        ref = brainstate.transform.grad(loss, grad_states=[weight, bias])
+        ref_gw, ref_gb = ref()
+        self.assertTrue(jnp.allclose(gw, ref_gw))
+        self.assertTrue(jnp.allclose(gb, ref_gb))
+
+    def test_argnums_none_with_primals_present(self):
+        # argnums=None disables arg differentiation even if primals are given.
+        w = brainstate.State(jnp.array([2.0, 3.0]))
+
+        def f(x):
+            return jnp.sum(w.value * x)
+
+        x = jnp.array([5.0, 7.0])
+        out, vjp_fn = brainstate.transform.vjp(f, x, grad_states=w, argnums=None)
+        state_ct = vjp_fn(1.0)
+        # Only state cotangent, returned unwrapped (single State).
+        self.assertTrue(jnp.allclose(state_ct, x))
+        self.assertNotIsInstance(state_ct, tuple)
+
+    def test_no_primals_dict_states(self):
+        w = brainstate.State(jnp.array([2.0, 3.0]))
+
+        def loss():
+            return jnp.sum(w.value ** 2)
+
+        out, vjp_fn = brainstate.transform.vjp(loss, grad_states={'w': w})
+        state_ct = vjp_fn(1.0)
+        self.assertIn('w', state_ct)
+        self.assertTrue(jnp.allclose(state_ct['w'], 2.0 * w.value))
+
+
+class TestVjpArgnumsSemantics(unittest.TestCase):
+    """argnums validation and the three return-structure regimes."""
+
+    def test_out_of_range_argnums_raises_value_error(self):
+        with self.assertRaises(ValueError) as cm:
+            brainstate.transform.vjp(lambda x: jnp.sum(x), jnp.array([1.0]), argnums=5)
+        self.assertIn('out of range', str(cm.exception))
+
+    def test_negative_out_of_range_argnums_raises(self):
+        with self.assertRaises(ValueError):
+            brainstate.transform.vjp(lambda x: jnp.sum(x), jnp.array([1.0]), argnums=-3)
+
+    def test_nothing_to_differentiate_raises(self):
+        # No positional primals and no grad_states -> nothing to differentiate.
+        with self.assertRaises(ValueError) as cm:
+            brainstate.transform.vjp(lambda: jnp.array(5.0))
+        self.assertIn('nothing to differentiate', str(cm.exception))
+
+    def test_negative_argnums(self):
+        def f(x, y):
+            return jnp.sum(x * y ** 2)
+
+        x, y = jnp.array([1.0, 2.0]), jnp.array([3.0, 4.0])
+        out, vjp_fn = brainstate.transform.vjp(f, x, y, argnums=-1)
+        g = vjp_fn(1.0)
+        self.assertTrue(jnp.allclose(g, 2.0 * x * y))   # d/dy sum(x*y**2)
+
+
+class TestVjpComprehensive(unittest.TestCase):
+    """Cover the documented use cases end to end."""
+
+    def test_vector_output_matches_jax(self):
+        def f(x):
+            return x ** 2
+
+        x = jnp.array([1.0, 2.0, 3.0])
+        out, vjp_fn = brainstate.transform.vjp(f, x)
+        jout, jvjp = jax.vjp(f, x)
+        ct = jnp.array([1.0, 1.0, 1.0])
+        self.assertTrue(jnp.allclose(out, jout))
+        self.assertTrue(jnp.allclose(vjp_fn(ct), jvjp(ct)[0]))
+
+    def test_pytree_output_matches_jax(self):
+        def f(x):
+            return {'a': jnp.sum(x), 'b': jnp.sum(x ** 2)}
+
+        x = jnp.array([1.0, 2.0, 3.0])
+        out, vjp_fn = brainstate.transform.vjp(f, x)
+        jout, jvjp = jax.vjp(f, x)
+        ct = {'a': 1.0, 'b': 1.0}
+        self.assertTrue(jnp.allclose(vjp_fn(ct), jvjp(ct)[0]))
+
+    def test_pytree_input(self):
+        def f(d):
+            return jnp.sum(d['a'] ** 2) + jnp.sum(d['b'])
+
+        d = {'a': jnp.array([1.0, 2.0]), 'b': jnp.array([3.0, 4.0])}
+        out, vjp_fn = brainstate.transform.vjp(f, d)
+        r = vjp_fn(1.0)
+        self.assertTrue(jnp.allclose(r['a'], 2.0 * d['a']))
+        self.assertTrue(jnp.allclose(r['b'], jnp.ones_like(d['b'])))
+
+    def test_full_jacobian_via_vmap_pullback(self):
+        def f(x):
+            return jnp.array([jnp.sum(x), jnp.sum(x ** 2), jnp.prod(x)])
+
+        x = jnp.array([1.0, 2.0, 3.0])
+        out, vjp_fn = brainstate.transform.vjp(f, x)
+        jac = jax.vmap(vjp_fn)(jnp.eye(3))
+        self.assertTrue(jnp.allclose(jac, jax.jacrev(f)(x)))
+
+    def test_pullback_reusable_and_linear(self):
+        def f(x):
+            return x ** 2
+
+        x = jnp.array([1.0, 2.0, 3.0])
+        out, vjp_fn = brainstate.transform.vjp(f, x)
+        r1 = vjp_fn(jnp.ones(3))
+        r2 = vjp_fn(2.0 * jnp.ones(3))
+        self.assertTrue(jnp.allclose(r2, 2.0 * r1))   # pullback is linear
+
+    def test_hessian_vector_product_via_nested_vjp(self):
+        def f(x):
+            return jnp.sum(x ** 3)
+
+        x = jnp.array([1.0, 2.0, 3.0])
+        v = jnp.array([1.0, 1.0, 1.0])
+
+        def grad_f(x):
+            _, vjp_fn = brainstate.transform.vjp(f, x)
+            return vjp_fn(1.0)
+
+        _, hvp_fn = brainstate.transform.vjp(grad_f, x)
+        hvp = hvp_fn(v)
+        # Hessian of sum(x**3) is diag(6x); H @ v = 6x.
+        self.assertTrue(jnp.allclose(hvp, 6.0 * x))
+
+    def test_multiple_states_and_args(self):
+        w1 = brainstate.State(jnp.array([2.0, 3.0]))
+        w2 = brainstate.State(jnp.array([0.5, 1.5]))
+
+        def f(x, y):
+            return jnp.sum(w1.value * x ** 2 + w2.value * y)
+
+        x, y = jnp.array([1.0, 2.0]), jnp.array([3.0, 4.0])
+        out, vjp_fn = brainstate.transform.vjp(
+            f, x, y, grad_states=[w1, w2], argnums=(0, 1)
+        )
+        state_ct, arg_ct = vjp_fn(1.0)
+        self.assertTrue(jnp.allclose(state_ct[0], x ** 2))           # d/dw1
+        self.assertTrue(jnp.allclose(state_ct[1], y))                # d/dw2
+        self.assertTrue(jnp.allclose(arg_ct[0], 2.0 * w1.value * x)) # d/dx
+        self.assertTrue(jnp.allclose(arg_ct[1], w2.value))           # d/dy
+
+    def test_nested_dict_grad_states_structure(self):
+        w = brainstate.State(jnp.array([2.0, 3.0]))
+        b = brainstate.State(jnp.array([1.0]))
+
+        def f(x):
+            return jnp.sum(w.value * x) + jnp.sum(b.value)
+
+        x = jnp.array([5.0, 7.0])
+        out, vjp_fn = brainstate.transform.vjp(
+            f, x, grad_states={'layer': {'w': w, 'b': b}}
+        )
+        state_ct, arg_ct = vjp_fn(1.0)
+        self.assertTrue(jnp.allclose(state_ct['layer']['w'], x))
+        self.assertTrue(jnp.allclose(state_ct['layer']['b'], jnp.array([1.0])))
+
+    def test_readonly_nongrad_state_is_constant(self):
+        const = brainstate.State(jnp.array([10.0, 20.0]))
+        w = brainstate.State(jnp.array([2.0, 3.0]))
+
+        def f(x):
+            return jnp.sum(const.value * w.value * x)
+
+        x = jnp.array([1.0, 1.0])
+        out, vjp_fn = brainstate.transform.vjp(f, x, grad_states=w)
+        state_ct, arg_ct = vjp_fn(1.0)
+        self.assertTrue(jnp.allclose(state_ct, const.value * x))
+        self.assertTrue(jnp.allclose(arg_ct, const.value * w.value))
+        # The non-grad read-only state is unchanged.
+        self.assertTrue(jnp.allclose(const.value, jnp.array([10.0, 20.0])))
+
+    def test_grad_state_read_then_written(self):
+        # A grad_state that is read (for the output) and also written.
+        w = brainstate.State(jnp.array([2.0, 3.0]))
+
+        def f(x):
+            old = w.value
+            w.value = w.value + 1.0          # written
+            return jnp.sum(old * x)          # output depends on the OLD value
+
+        x = jnp.array([5.0, 7.0])
+        out, vjp_fn = brainstate.transform.vjp(f, x, grad_states=w)
+        state_ct, arg_ct = vjp_fn(1.0)
+        self.assertTrue(jnp.allclose(state_ct, x))                 # d/dw_in
+        self.assertTrue(jnp.allclose(arg_ct, jnp.array([2.0, 3.0])))  # d/dx = w_in
+        self.assertTrue(jnp.allclose(w.value, jnp.array([3.0, 4.0])))  # write-back
+
+    def test_has_aux_with_grad_states(self):
+        w = brainstate.State(jnp.array([2.0, 3.0]))
+
+        def f(x):
+            return jnp.sum(w.value * x), {'norm': jnp.sum(x ** 2)}
+
+        x = jnp.array([5.0, 7.0])
+        out, vjp_fn, aux = brainstate.transform.vjp(
+            f, x, grad_states=w, has_aux=True
+        )
+        state_ct, arg_ct = vjp_fn(1.0)
+        self.assertTrue(jnp.allclose(out, jnp.sum(w.value * x)))
+        self.assertTrue(jnp.allclose(aux['norm'], jnp.sum(x ** 2)))
+        self.assertTrue(jnp.allclose(state_ct, x))
+        self.assertTrue(jnp.allclose(arg_ct, w.value))
+
+    def test_state_only_vjp_under_jit(self):
+        w = brainstate.State(jnp.array([2.0, 3.0]))
+
+        @jax.jit
+        def run():
+            out, vjp_fn = brainstate.transform.vjp(
+                lambda: jnp.sum(w.value ** 2), grad_states=w
+            )
+            return out, vjp_fn(1.0)
+
+        out, state_ct = run()
+        self.assertTrue(jnp.allclose(state_ct, 2.0 * w.value))
+
+
 if __name__ == '__main__':
     unittest.main()
