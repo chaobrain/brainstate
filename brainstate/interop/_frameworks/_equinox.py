@@ -43,6 +43,17 @@ def _set(module, **fields):
                        [fields[n] for n in names])
 
 
+def _ctx_key(ctx):
+    """Return the user-supplied PRNG key, or a throwaway one if none was given.
+
+    A PRNG key is a JAX array, so ``ctx.key or new_key()`` would evaluate the
+    truthiness of an array and raise; test against ``None`` explicitly instead.
+    The key only seeds the foreign layer's construction — its weights are
+    overwritten immediately — so reusing one key across layers is harmless.
+    """
+    return new_key() if ctx.key is None else ctx.key
+
+
 def _split4(arr, axis=-1):
     return list(u.math.split(arr, 4, axis=axis))
 
@@ -61,7 +72,7 @@ def _linear_to_bst(m, ctx):
 
 def _linear_to_foreign(layer, ctx):
     w, b = C.bst_get_linear(layer)
-    m = eqx.nn.Linear(w.shape[0], w.shape[1], use_bias=b is not None, key=ctx.key or new_key())
+    m = eqx.nn.Linear(w.shape[0], w.shape[1], use_bias=b is not None, key=_ctx_key(ctx))
     m = _set(m, weight=u.math.transpose(w, (1, 0)))
     if b is not None:
         m = _set(m, bias=b)
@@ -81,7 +92,7 @@ def _embed_to_bst(m, ctx):
 
 def _embed_to_foreign(layer, ctx):
     table = C.bst_get_embedding(layer)
-    m = eqx.nn.Embedding(table.shape[0], table.shape[1], key=ctx.key or new_key())
+    m = eqx.nn.Embedding(table.shape[0], table.shape[1], key=_ctx_key(ctx))
     return _set(m, weight=table)
 
 
@@ -200,7 +211,7 @@ def _conv_to_foreign(layer, ctx):
     m = cls(layer.in_channels, layer.out_channels, tuple(layer.kernel_size),
             stride=tuple(layer.stride), padding=layer.padding,
             dilation=tuple(layer.rhs_dilation), groups=layer.groups,
-            use_bias=b is not None, key=ctx.key or new_key())
+            use_bias=b is not None, key=_ctx_key(ctx))
     w_eqx = u.math.transpose(w, _kernel_perm_to_eqx(nd))   # (out, in//g, *k)
     m = _set(m, weight=w_eqx)
     if b is not None:
@@ -225,7 +236,7 @@ def _lstm_to_foreign(layer, ctx):
     weight_ih = u.math.transpose(u.math.concatenate([ii, if_, ig, io], axis=-1), (1, 0))
     weight_hh = u.math.transpose(u.math.concatenate([hi, hf, hg, ho], axis=-1), (1, 0))
     bias_std = u.math.concatenate([bi, bf + 1.0, bg, bo], axis=-1)   # forget +1 fold
-    m = eqx.nn.LSTMCell(num_in, h, use_bias=True, key=ctx.key or new_key())
+    m = eqx.nn.LSTMCell(num_in, h, use_bias=True, key=_ctx_key(ctx))
     return _set(m, weight_ih=weight_ih, weight_hh=weight_hh, bias=bias_std)
 
 

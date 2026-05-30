@@ -499,6 +499,20 @@ class EquinoxConversionTest(absltest.TestCase):
         back = interop.to_equinox(dst)
         assert_close(jax.vmap(src)(x), jax.vmap(back)(x), 'sequential export')
 
+    def test_to_equinox_with_explicit_key(self):
+        # Regression: ``to_equinox(model, key=<PRNGKey>)`` must not evaluate the
+        # truthiness of the key array. ``ctx.key or new_key()`` raised
+        # "truth value of an array ... is ambiguous" for any weight-bearing layer.
+        eqx = self.eqx
+        x = brainstate.random.randn(4, 3)
+        model = bnn.Sequential(bnn.Linear(3, 6), bnn.LayerNorm(6), bnn.Linear(6, 2))
+        y = model(x)
+        # Single layer and a Sequential, both with an explicit user key.
+        single = interop.to_equinox(bnn.Linear(3, 2), key=jax.random.PRNGKey(0))
+        self.assertIsInstance(single, eqx.nn.Linear)
+        exported = interop.to_equinox(model, key=jax.random.PRNGKey(0))
+        assert_close(y, jax.vmap(exported)(x), 'export with explicit key')
+
     def test_batchnorm_unsupported_both_directions(self):
         eqx = self.eqx
         # export bst BatchNorm -> equinox

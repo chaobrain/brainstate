@@ -475,6 +475,32 @@ class TestGraphOperation(unittest.TestCase):
         assert params is not None
         assert others is not None
 
+    def test_split_merge_split_round_trip(self):
+        # Regression: a state reconstructed by ``treefy_merge`` must be
+        # splittable again. ``State.to_state_ref`` strips ``_trace_state`` when
+        # building a reference, so ``TreefyState.to_state`` has to re-establish a
+        # fresh one; otherwise the second split raised ``KeyError('_trace_state')``.
+        class MLP(brainstate.graph.Node):
+            def __init__(self, din, dmid, dout):
+                self.input = brainstate.nn.Linear(din, dmid)
+                self.output = brainstate.nn.Linear(dmid, dout)
+
+            def __call__(self, x):
+                return self.output(jax.nn.relu(self.input(x)))
+
+        model = MLP(2, 4, 1)
+        graphdef, states = brainstate.graph.treefy_split(model)
+        rebuilt = brainstate.graph.treefy_merge(graphdef, states)
+
+        # The previously failing operation: split the reconstructed model again.
+        graphdef2, states2 = brainstate.graph.treefy_split(rebuilt)
+        self.assertEqual(set(states.to_flat()), set(states2.to_flat()))
+
+        # And it should still round-trip a second time without error.
+        rebuilt2 = brainstate.graph.treefy_merge(graphdef2, states2)
+        x = brainstate.random.randn(3, 2)
+        self.assertTrue(jnp.allclose(model(x), rebuilt2(x)))
+
 
 # ---------------------------------------------------------------------------
 # RefMap tests
