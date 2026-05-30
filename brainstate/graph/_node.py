@@ -82,6 +82,39 @@ class Node(PrettyObject, metaclass=GraphNodeMeta):
             clear=_node_clear,
         )
 
+    def __pretty_repr_item__(self, name: str, value: Any) -> tuple[str, Any] | None:
+        """Filter an attribute for the pretty representation.
+
+        Keeps the ``repr`` faithful to the node's *graph state* while removing
+        noise. An attribute is omitted (``None`` is returned) when:
+
+        - its value is ``None`` (carries no information), or
+        - it is listed in :attr:`graph_invisible_attrs`, i.e. it is explicitly
+          excluded from graph flattening and therefore is not part of the node's
+          state.
+
+        Every other attribute is shown unchanged, so private-but-real state
+        (an attribute such as ``_weight`` that is still flattened) remains
+        visible.
+
+        Parameters
+        ----------
+        name : str
+            The attribute name.
+        value : Any
+            The attribute value.
+
+        Returns
+        -------
+        tuple of (str, Any) or None
+            The ``(name, value)`` pair to display, or ``None`` to hide it.
+        """
+        if value is None:
+            return None
+        if name in getattr(self, 'graph_invisible_attrs', ()):
+            return None
+        return name, value
+
     def __deepcopy__(self: G, memo=None) -> G:
         graphdef, state = treefy_split(self)
         # ``state`` is a pytree of ``TreefyState`` whose only leaves are the

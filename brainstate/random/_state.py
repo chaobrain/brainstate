@@ -666,8 +666,10 @@ class RandomState(State):
         key: Optional[SeedOrKey] = None,
         dtype: DTypeLike = None
     ):
-        low, unit = u.split_mantissa_unit(_check_py_seq(low))
-        high = u.Quantity(_check_py_seq(high)).to(unit).mantissa
+        # ``low``/``high`` share one physical unit, inferred from whichever bound
+        # carries one (a plain bound is then interpreted in that shared unit). A
+        # compatible-but-different unit is converted; an incompatible one raises.
+        low, high, unit = _loc_scale_unit(_check_py_seq(low), _check_py_seq(high))
         if size is None:
             size = lax.broadcast_shapes(u.math.shape(low), u.math.shape(high))
         key = self.__get_key(key)

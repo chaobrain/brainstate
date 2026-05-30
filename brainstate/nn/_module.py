@@ -191,8 +191,32 @@ class Module(Node, ParamDesc):
             return out
 
     def __pretty_repr_item__(self, name, value):
+        """Filter an attribute for the pretty representation.
+
+        Builds on :meth:`brainstate.graph.Node.__pretty_repr_item__` (which drops
+        ``None`` values and attributes listed in ``graph_invisible_attrs``) and
+        additionally exposes property-backed private fields under their public
+        name by stripping a single leading underscore (e.g. ``_name`` -> ``name``,
+        ``_in_size`` -> ``in_size``).
+
+        Parameters
+        ----------
+        name : str
+            The attribute name.
+        value : Any
+            The attribute value.
+
+        Returns
+        -------
+        tuple of (str, Any) or None
+            The ``(name, value)`` pair to display, or ``None`` to hide it.
+        """
+        item = super().__pretty_repr_item__(name, value)
+        if item is None:
+            return None
+        name, value = item
         if name.startswith('_'):
-            return None if value is None else (name[1:], value)  # skip the first `_`
+            name = name[1:]  # expose ``_name`` as ``name``, etc.
         return name, value
 
     def __call__(self, *args, **kwargs):
