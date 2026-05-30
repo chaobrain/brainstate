@@ -11,6 +11,8 @@ brainpy-state
 pytest
 coverage
 absl-py
+flax
+equinox
 
 # type checking
 mypy>=1.11
