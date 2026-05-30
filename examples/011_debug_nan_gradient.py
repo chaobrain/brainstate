@@ -63,11 +63,13 @@ def example_log_of_zero():
     def fn(x):
         return grad_fn(x)
 
-    x = jnp.array([1.0, 1.0, 1.0])
-    grads = fn(x)
-    print(f"Gradients: {grads}")
+    try:
+        x = jnp.array([1.0, 1.0, 1.0])
+        grads = fn(x)
+        print(f"Gradients: {grads}")
+    except Exception as e:
+        print(e)
     print()
-
 
 # =============================================================================
 # Example 2: NaN from division by zero in backward pass
@@ -96,10 +98,12 @@ def example_division_by_zero():
         debug_nan=True
     )
 
-    x = jnp.array([1.0, 1.0, 1.0])
-    grads = grad_fn(x)
-    print(f"Gradients: {grads}")
-
+    try:
+        x = jnp.array([1.0, 1.0, 1.0])
+        grads = grad_fn(x)
+        print(f"Gradients: {grads}")
+    except Exception as e:
+        print(e)
     print()
 
 
@@ -127,9 +131,12 @@ def example_sqrt_negative():
         debug_nan=True
     )
 
-    x = jnp.array([1.0, 1.0, 1.0])
-    grads = grad_fn(x)
-    print(f"Gradients: {grads}")
+    try:
+        x = jnp.array([1.0, 1.0, 1.0])
+        grads = grad_fn(x)
+        print(f"Gradients: {grads}")
+    except Exception as e:
+        print(e)
 
     print()
 
@@ -267,9 +274,9 @@ def example_decorator():
 # =============================================================================
 
 if __name__ == "__main__":
-    # example_log_of_zero()
-    # example_division_by_zero()
-    # example_sqrt_negative()
+    example_log_of_zero()
+    example_division_by_zero()
+    example_sqrt_negative()
     example_comparison()
     example_neural_network()
     example_decorator()
