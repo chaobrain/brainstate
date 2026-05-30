@@ -56,7 +56,6 @@ keywords = [
 
 dependencies = [
     'numpy>=1.15',
-    'tqdm',
     'brainunit',
     'brainevent',
 ]
@@ -74,6 +73,9 @@ repository = 'https://github.com/chaobrain/brainstate'
 "Bug Tracker" = "https://github.com/chaobrain/brainstate/issues"
 
 [project.optional-dependencies]
+progressbar = [
+    'tqdm',
+]
 cpu = [
     'jax[cpu]>=0.6.0',
     'brainunit',
@@ -99,6 +101,7 @@ testing = [
     'pytest',
     'coverage',
     'jax>=0.6.0',
+    'tqdm',
     'brainunit',
     'brainevent',
 ]

@@ -16,6 +16,9 @@
 
 import copy
 import importlib.util
+import shutil
+import sys
+import time
 from typing import Optional, Callable, Any, Tuple, Dict
 
 import jax
@@ -29,6 +32,234 @@ __all__ = [
 Index = int
 Carray = Any
 Output = Any
+
+
+class _FallbackProgressBar:
+    """
+    A minimal, dependency-free progress bar used when :mod:`tqdm` is unavailable.
+
+    This class reproduces the small slice of the :mod:`tqdm` API that
+    :class:`ProgressBarRunner` relies on (construction from an iterable,
+    :meth:`set_description`, :meth:`update`, and :meth:`close`), so it can be
+    used as a drop-in replacement. It renders a single-line, tqdm-like progress
+    display containing a description, percentage, a Unicode bar, the
+    iteration count, elapsed time, an ETA, and an iteration rate.
+
+    The renderer is terminal aware. When the output stream is an interactive
+    terminal, the line is redrawn in place using a carriage return. When the
+    output is redirected (a file, a CI log, or a notebook), each update is
+    written on its own line so no carriage-return control characters leak into
+    the captured text.
+
+    Parameters
+    ----------
+    iterable : iterable, optional
+        Iterable whose length provides ``total`` when ``total`` is not given.
+        Only its length is used; it is not consumed.
+    total : int, optional
+        Total number of iterations. Falls back to ``len(iterable)`` and finally
+        to ``None`` (an unknown-total display) when neither is available.
+    desc : str, optional
+        Description shown as a prefix (``"desc: "``).
+    file : file-like, optional
+        Output stream. Defaults to :data:`sys.stderr` (matching :mod:`tqdm`).
+    disable : bool, default False
+        When ``True`` every method becomes a no-op and nothing is written.
+    ncols : int, optional
+        Fixed total width in columns. When omitted the terminal width is queried
+        via :func:`shutil.get_terminal_size`.
+    _time : callable, optional
+        Zero-argument clock returning seconds, used for elapsed/rate/ETA. Defaults
+        to :func:`time.monotonic`. Exposed mainly to make tests deterministic.
+    **ignored
+        Any further :mod:`tqdm`-specific keyword arguments (for example
+        ``colour``, ``leave``, ``unit``, ``position``). They are accepted and
+        ignored so code written for :mod:`tqdm` does not break.
+
+    See Also
+    --------
+    ProgressBar : The public progress-bar configuration object.
+
+    Notes
+    -----
+    Only a single bar is supported; nested/positioned bars are not. The
+    iteration rate is an exponential moving average (smoothing ``0.3``) of the
+    instantaneous rate, matching the feel of :mod:`tqdm`, and falls back to the
+    overall average until enough data is available.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import io
+        >>> from brainstate.transform._progress_bar import _FallbackProgressBar
+        >>> buf = io.StringIO()
+        >>> bar = _FallbackProgressBar(total=4, desc="Train", file=buf)
+        >>> for _ in range(4):
+        ...     bar.update(1)
+        >>> bar.close()
+        >>> "4/4" in buf.getvalue()
+        True
+    """
+    __module__ = "brainstate.transform"
+
+    def __init__(
+        self,
+        iterable=None,
+        *,
+        total: Optional[int] = None,
+        desc: Optional[str] = None,
+        file=None,
+        disable: bool = False,
+        ncols: Optional[int] = None,
+        _time: Optional[Callable[[], float]] = None,
+        **ignored,
+    ):
+        if total is None and iterable is not None:
+            try:
+                total = len(iterable)
+            except TypeError:
+                total = None
+        self.total = total
+        self.n = 0
+        self.desc = desc or ''
+        self.file = file if file is not None else sys.stderr
+        self.disable = bool(disable)
+        self.ncols = ncols
+        self._time = _time if _time is not None else time.monotonic
+
+        self._start = self._time()
+        self._last_time = self._start
+        self._last_n = 0
+        self._ema_rate: Optional[float] = None
+        self._last_line_len = 0
+        self._closed = False
+
+        self._is_tty = bool(getattr(self.file, 'isatty', lambda: False)())
+        enc = getattr(self.file, 'encoding', None)
+        self._ascii = bool(enc) and 'utf' not in enc.lower()
+
+    # -- public tqdm-compatible API --
+
+    def set_description(self, desc=None, refresh: bool = True):
+        """Set the description prefix, optionally redrawing immediately."""
+        self.desc = desc or ''
+        if refresh and not self.disable and not self._closed:
+            self._render()
+
+    def update(self, n: int = 1):
+        """Advance the counter by ``n`` iterations and redraw."""
+        if self.disable or self._closed:
+            return
+        self.n += n
+        self._render()
+
+    def close(self):
+        """Render the final state and terminate the line."""
+        if self.disable or self._closed:
+            return
+        self._closed = True
+        self._render(final=True)
+
+    # -- internals --
+
+    def _update_rate(self):
+        if self.n <= self._last_n:
+            return
+        now = self._time()
+        dt = now - self._last_time
+        if dt <= 0:
+            return
+        inst = (self.n - self._last_n) / dt
+        if self._ema_rate is None:
+            self._ema_rate = inst
+        else:
+            self._ema_rate = 0.3 * inst + 0.7 * self._ema_rate
+        self._last_time = now
+        self._last_n = self.n
+
+    def _current_rate(self) -> Optional[float]:
+        if self._ema_rate is not None:
+            return self._ema_rate
+        elapsed = self._time() - self._start
+        if elapsed > 0 and self.n > 0:
+            return self.n / elapsed
+        return None
+
+    @staticmethod
+    def _format_interval(seconds: float) -> str:
+        # Guard against NaN / +-inf, then clamp negatives to zero.
+        if seconds != seconds or seconds in (float('inf'), float('-inf')):
+            return '?'
+        total = max(int(seconds), 0)
+        h, rem = divmod(total, 3600)
+        m, s = divmod(rem, 60)
+        if h:
+            return f'{h:d}:{m:02d}:{s:02d}'
+        return f'{m:02d}:{s:02d}'
+
+    def _make_bar(self, frac: float, reserved: int) -> str:
+        if self.ncols is not None:
+            cols = self.ncols
+        else:
+            cols = shutil.get_terminal_size(fallback=(80, 20)).columns
+        width = cols - reserved
+        if width <= 0:
+            return ''
+        charset = ' 123456789#' if self._ascii else ' ▏▎▍▌▋▊▉█'
+        full_char = charset[-1]
+        n_parts = len(charset) - 1
+        filled = frac * width
+        full = int(filled)
+        if full >= width:
+            return full_char * width
+        bar = full_char * full
+        idx = int((filled - full) * n_parts)
+        bar += charset[idx]
+        bar += ' ' * (width - full - 1)
+        return bar
+
+    def _format_line(self) -> str:
+        prefix = f'{self.desc}: ' if self.desc else ''
+        elapsed = self._format_interval(self._time() - self._start)
+        rate = self._current_rate()
+        rate_str = f'{rate:.2f}it/s' if rate else '?it/s'
+        if self.total:
+            frac = min(max(self.n / self.total, 0.0), 1.0)
+            pct = int(frac * 100)
+            if rate and rate > 0:
+                eta = self._format_interval((self.total - self.n) / rate)
+            else:
+                eta = '?'
+            right = f'{self.n}/{self.total} [{elapsed}<{eta}, {rate_str}]'
+            left = f'{prefix}{pct:3d}%|'
+            bar = self._make_bar(frac, len(left) + len(right) + 2)
+            return f'{left}{bar}| {right}'
+        return f'{prefix}{self.n}it [{elapsed}, {rate_str}]'
+
+    def _write(self, text: str):
+        try:
+            self.file.write(text)
+        except UnicodeEncodeError:
+            enc = getattr(self.file, 'encoding', None) or 'ascii'
+            self.file.write(text.encode(enc, errors='replace').decode(enc))
+        flush = getattr(self.file, 'flush', None)
+        if flush is not None:
+            flush()
+
+    def _render(self, final: bool = False):
+        if self.disable:
+            return
+        self._update_rate()
+        line = self._format_line()
+        if self._is_tty:
+            pad = max(self._last_line_len - len(line), 0)
+            self._write('\r' + line + ' ' * pad)
+            self._last_line_len = len(line)
+            if final:
+                self._write('\n')
+        else:
+            self._write(line + '\n')
 
 
 class ProgressBar(object):
@@ -62,6 +293,13 @@ class ProgressBar(object):
         displayed. Can be either a string or a tuple of (format_string, format_function).
     **kwargs
         Additional keyword arguments to pass to the progress bar.
+
+    Notes
+    -----
+    ``tqdm`` is an optional dependency. When it is installed, the bar is rendered
+    with :mod:`tqdm`. When it is not installed, a built-in pure-Python fallback
+    (:class:`_FallbackProgressBar`) renders an equivalent terminal progress bar,
+    so :class:`ProgressBar` works in either environment with no code changes.
 
     Examples
     --------
@@ -163,10 +401,6 @@ class ProgressBar(object):
                 assert callable(desc[1]), 'Description should be a callable.'
         self.desc = desc
 
-        # check if tqdm is installed
-        if not tqdm_installed:
-            raise ImportError("tqdm is not installed.")
-
     def init(self, n: int):
         kwargs = copy.copy(self.kwargs)
         freq = self.print_freq
@@ -212,8 +446,12 @@ class ProgressBarRunner(object):
         self.message = message
 
     def _define_tqdm(self, x: dict):
-        from tqdm.auto import tqdm
-        self.tqdm_bars[0] = tqdm(range(self.n), **self.kwargs)
+        # Read the module flag at call time so it can be monkeypatched in tests.
+        if tqdm_installed:
+            from tqdm.auto import tqdm as bar_cls
+        else:
+            bar_cls = _FallbackProgressBar
+        self.tqdm_bars[0] = bar_cls(range(self.n), **self.kwargs)
         if isinstance(self.message, str):
             self.tqdm_bars[0].set_description(self.message, refresh=False)
         else:

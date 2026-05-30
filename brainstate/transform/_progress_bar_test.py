@@ -22,12 +22,62 @@ stay fast; the assertions check the numerical loop result, which also forces the
 ``tqdm`` callbacks (define/update/close) to actually execute.
 """
 
+import contextlib
+import io
 import unittest
+from unittest import mock
 
 import jax.numpy as jnp
 
 import brainstate
 from brainstate.transform import ProgressBar
+from brainstate.transform import _progress_bar as _pbmod
+from brainstate.transform._progress_bar import _FallbackProgressBar
+
+
+class _TTYStringIO(io.StringIO):
+    """A ``StringIO`` that reports itself as an interactive terminal."""
+
+    def isatty(self):
+        return True
+
+
+class _AsciiFile:
+    """A minimal non-UTF output stream used to drive the ASCII bar charset."""
+
+    encoding = "ascii"
+
+    def __init__(self):
+        self.parts = []
+
+    def write(self, s):
+        self.parts.append(s)
+
+    def flush(self):
+        pass
+
+    def isatty(self):
+        return False
+
+    def getvalue(self):
+        return "".join(self.parts)
+
+
+def _make_clock(step=0.1, start=0.0):
+    """Return a deterministic monotonic-like clock that advances by ``step``.
+
+    The first call returns ``start``; each subsequent call advances by ``step``.
+    """
+    state = {"t": start, "first": True}
+
+    def clock():
+        if state["first"]:
+            state["first"] = False
+            return state["t"]
+        state["t"] += step
+        return state["t"]
+
+    return clock
 
 
 class TestProgressBarConstruction(unittest.TestCase):
@@ -126,6 +176,223 @@ class TestProgressBarRunnerMessages(unittest.TestCase):
         ys = brainstate.transform.for_loop(lambda x: x * 2, jnp.arange(5.0), pbar=pbar)
         ys.block_until_ready()
         self.assertEqual(ys.shape, (5,))
+
+
+class TestFallbackProgressBar(unittest.TestCase):
+    """Unit tests for the dependency-free fallback bar (``_FallbackProgressBar``)."""
+
+    def test_basic_progression_to_100(self):
+        """Driving the bar to ``total`` shows a full count and 100%."""
+        buf = io.StringIO()
+        bar = _FallbackProgressBar(total=4, file=buf, ncols=80)
+        for _ in range(4):
+            bar.update(1)
+        bar.close()
+        out = buf.getvalue()
+        self.assertIn("4/4", out)
+        self.assertIn("100%", out)
+
+    def test_midpoint_percentage(self):
+        """Half-way progress renders ``50%``."""
+        buf = io.StringIO()
+        bar = _FallbackProgressBar(total=10, file=buf, ncols=80)
+        bar.update(5)
+        self.assertIn(" 50%", buf.getvalue())
+
+    def test_tty_uses_carriage_return_and_single_trailing_newline(self):
+        """On a TTY: ``\\r`` redraws, no newline until ``close`` adds exactly one."""
+        buf = _TTYStringIO()
+        bar = _FallbackProgressBar(total=4, file=buf, ncols=60)
+        bar.update(1)
+        mid = buf.getvalue()
+        self.assertIn("\r", mid)
+        self.assertNotIn("\n", mid)
+        bar.update(3)
+        bar.close()
+        out = buf.getvalue()
+        self.assertTrue(out.endswith("\n"))
+        self.assertEqual(out.count("\n"), 1)
+
+    def test_non_tty_writes_newline_per_update_no_cr(self):
+        """Off a TTY: one line per update, never a carriage return."""
+        buf = io.StringIO()
+        bar = _FallbackProgressBar(total=3, file=buf, ncols=60)
+        bar.update(1)
+        bar.update(1)
+        out = buf.getvalue()
+        self.assertNotIn("\r", out)
+        self.assertEqual(out.count("\n"), 2)
+
+    def test_rate_eta_elapsed_present_with_advancing_clock(self):
+        """An advancing clock yields a concrete rate and an elapsed<ETA field."""
+        buf = io.StringIO()
+        bar = _FallbackProgressBar(total=10, file=buf, ncols=80, _time=_make_clock(step=0.1))
+        for _ in range(5):
+            bar.update(1)
+        last = buf.getvalue().splitlines()[-1]
+        self.assertIn("it/s", last)
+        self.assertNotIn("?it/s", last)
+        self.assertIn("<", last)
+
+    def test_rate_unknown_when_no_time_elapses(self):
+        """With a frozen clock the rate is unknown (``?it/s``)."""
+        buf = io.StringIO()
+        bar = _FallbackProgressBar(total=10, file=buf, ncols=80, _time=lambda: 5.0)
+        bar.update(1)
+        self.assertIn("?it/s", buf.getvalue())
+
+    def test_unknown_total_branch(self):
+        """No total -> count/elapsed form with no percentage or bar."""
+        buf = io.StringIO()
+        bar = _FallbackProgressBar(file=buf)
+        bar.update(3)
+        bar.close()
+        out = buf.getvalue()
+        self.assertIn("3it", out)
+        self.assertNotIn("%", out)
+
+    def test_total_inferred_from_iterable_length(self):
+        """``total`` defaults to ``len(iterable)`` when not given."""
+        buf = io.StringIO()
+        bar = _FallbackProgressBar(range(7), file=buf, ncols=80)
+        bar.update(7)
+        self.assertIn("7/7", buf.getvalue())
+
+    def test_disable_produces_no_output(self):
+        """``disable=True`` makes every method a no-op."""
+        buf = io.StringIO()
+        bar = _FallbackProgressBar(total=5, file=buf, disable=True)
+        bar.update(5)
+        bar.close()
+        self.assertEqual(buf.getvalue(), "")
+
+    def test_description_prefix_and_set_description(self):
+        """The description is shown as a prefix and can be changed."""
+        buf = io.StringIO()
+        bar = _FallbackProgressBar(total=4, desc="Train", file=buf, ncols=80)
+        bar.update(1)
+        self.assertIn("Train:", buf.getvalue())
+        bar.set_description("Eval")
+        self.assertIn("Eval:", buf.getvalue())
+
+    def test_unknown_tqdm_kwargs_ignored(self):
+        """tqdm-only kwargs are accepted and ignored without error."""
+        buf = io.StringIO()
+        bar = _FallbackProgressBar(
+            range(3), file=buf, ncols=80,
+            colour="green", leave=False, unit="it", position=0,
+        )
+        bar.update(3)
+        bar.close()
+        self.assertIn("3/3", buf.getvalue())
+
+    def test_narrow_terminal_drops_bar_but_keeps_counts(self):
+        """A tiny ``ncols`` drops the bar yet still shows the counts."""
+        buf = io.StringIO()
+        bar = _FallbackProgressBar(total=10, file=buf, ncols=5)
+        bar.update(5)
+        out = buf.getvalue()
+        self.assertIn("5/10", out)
+        self.assertNotIn("█", out)
+
+    def test_ascii_charset_for_non_utf_stream(self):
+        """A non-UTF stream uses the ASCII bar charset."""
+        af = _AsciiFile()
+        bar = _FallbackProgressBar(total=4, file=af, ncols=50)
+        bar.update(2)
+        bar.close()
+        out = af.getvalue()
+        self.assertIn("#", out)
+        self.assertNotIn("█", out)
+
+    def test_close_is_idempotent(self):
+        """Calling ``close`` twice does not write a second time."""
+        buf = _TTYStringIO()
+        bar = _FallbackProgressBar(total=2, file=buf, ncols=60)
+        bar.update(2)
+        bar.close()
+        first = buf.getvalue()
+        bar.close()
+        self.assertEqual(buf.getvalue(), first)
+
+    def test_update_after_close_is_noop(self):
+        """Updating after ``close`` writes nothing further."""
+        buf = io.StringIO()
+        bar = _FallbackProgressBar(total=4, file=buf, ncols=60)
+        bar.update(4)
+        bar.close()
+        snapshot = buf.getvalue()
+        bar.update(1)
+        self.assertEqual(buf.getvalue(), snapshot)
+
+    def test_format_interval(self):
+        """``_format_interval`` formats seconds, hours, and guards bad input."""
+        self.assertEqual(_FallbackProgressBar._format_interval(5), "00:05")
+        self.assertEqual(_FallbackProgressBar._format_interval(3725), "1:02:05")
+        self.assertEqual(_FallbackProgressBar._format_interval(-3), "00:00")
+        self.assertEqual(_FallbackProgressBar._format_interval(float("inf")), "?")
+        self.assertEqual(_FallbackProgressBar._format_interval(float("nan")), "?")
+
+    def test_unicode_encode_error_falls_back(self):
+        """A unicode description on an ASCII stream is replaced, not raised."""
+
+        class _StrictAsciiFile(io.StringIO):
+            encoding = "ascii"
+
+            def isatty(self):
+                return False
+
+            def write(self, s):
+                s.encode("ascii")  # raises UnicodeEncodeError on non-ascii
+                return super().write(s)
+
+        buf = _StrictAsciiFile()
+        bar = _FallbackProgressBar(total=4, desc="Δelta", file=buf, ncols=60)
+        bar.update(2)  # line carries the unicode desc -> exercises the except path
+        bar.close()
+        self.assertIn("2/4", buf.getvalue())
+
+
+class TestProgressBarFallbackIntegration(unittest.TestCase):
+    """Force the fallback path (``tqdm`` reported absent) through real loops."""
+
+    def test_construction_does_not_raise_without_tqdm(self):
+        """``ProgressBar`` constructs even when ``tqdm`` is unavailable."""
+        with mock.patch.object(_pbmod, "tqdm_installed", False):
+            ProgressBar(freq=2)
+
+    def test_for_loop_uses_fallback(self):
+        """``for_loop`` runs correctly and emits to the fallback bar."""
+        with mock.patch.object(_pbmod, "tqdm_installed", False):
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                ys = brainstate.transform.for_loop(
+                    lambda x: x * 2, jnp.arange(10.0), pbar=ProgressBar(freq=2)
+                )
+                ys.block_until_ready()
+            self.assertTrue(bool(jnp.allclose(ys, jnp.arange(10.0) * 2)))
+            self.assertNotEqual(err.getvalue(), "")
+
+    def test_scan_with_dynamic_desc_uses_fallback(self):
+        """``scan`` with a ``(fmt, fn)`` desc renders through the fallback."""
+        with mock.patch.object(_pbmod, "tqdm_installed", False):
+
+            def step(c, x):
+                return c + x, c + x
+
+            def fmt(d):
+                return {"i": d["i"]}
+
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                _, ys = brainstate.transform.scan(
+                    step, 0.0, jnp.arange(6.0),
+                    pbar=ProgressBar(freq=2, desc=("iter {i}", fmt)),
+                )
+                ys.block_until_ready()
+            out = err.getvalue()
+            self.assertNotEqual(out, "")
+            self.assertIn("iter", out)
 
 
 if __name__ == "__main__":
