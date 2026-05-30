@@ -24,7 +24,7 @@ Features
          .. div:: sd-font-normal
 
             ``BrainState`` provides an intuitive interface to write `State-based <./apis/brainstate.html>`__
-            programs with powerful `transformation <./apis/transform.html>`__ capabilities.
+            programs with powerful `transformation <./apis/transform/index.html>`__ capabilities.
 
 
    .. grid-item::
@@ -37,7 +37,7 @@ Features
 
          .. div:: sd-font-normal
 
-            ``BrainState`` implements a neural network module system for building and training `ANNs/SNNs <./apis/nn.html>`__.
+            ``BrainState`` implements a neural network module system for building and training `ANNs/SNNs <./apis/nn/index.html>`__.
 
 
 ----
@@ -267,8 +267,9 @@ in JAX transformations. Here's a complete example demonstrating the key concepts
    changelog.md
    apis/brainstate.rst
    apis/graph.rst
-   apis/transform.rst
-   apis/nn.rst
+   apis/nn/index.rst
+   apis/transform/index.rst
+   apis/interop.rst
    apis/random.rst
    apis/util.rst
    apis/typing.rst
