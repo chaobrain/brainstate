@@ -368,10 +368,14 @@ class DelayAccess(Node):
     registered on that Delay. It is used by graphs to query delayed
     values by delegating to the underlying Delay instance.
 
-    Args:
-        delay: The delay instance.
-        *time: The delay time.
-        entry: The delay entry.
+    Parameters
+    ----------
+    delay
+        The delay instance.
+    *time
+        The delay time.
+    entry
+        The delay entry.
     """
 
     __module__ = 'brainstate.nn'
@@ -406,9 +410,12 @@ class Delay(Module):
          delay = length-1        data
          delay = length          data ]
 
-    Args:
-      time: int, float, or Quantity. The delay time.
-      init: Any. The delay data. It can be a Python number, like float, int, boolean values.
+    Parameters
+    ----------
+    time
+        int, float, or Quantity. The delay time.
+    init
+        Any. The delay data. It can be a Python number, like float, int, boolean values.
         It can also be arrays. Or a callable function or instance of ``Connector``.
         Note that ``initial_delay_data`` should be arranged as the following way::
 
@@ -418,32 +425,41 @@ class Delay(Module):
            ...                     ....
            delay = length-1        data
            delay = length          data ]
-      entries: optional, dict. The delay access entries.
-      interpolation: str or Callable. The interpolation method for continuous-time retrieval.
+    entries
+        optional, dict. The delay access entries.
+    interpolation
+        str or Callable. The interpolation method for continuous-time retrieval.
         Built-in methods: 'nearest', 'linear', 'cubic', 'hermite', 'polynomial2', 'polynomial3'.
         Can also be a custom callable following the InterpolationMethod protocol.
-      take_aware_unit: bool. Whether to track and preserve units from brainunit.
-      update_every: optional, float or Quantity. Time interval between buffer updates.
+    take_aware_unit
+        bool. Whether to track and preserve units from brainunit.
+    update_every
+        optional, float or Quantity. Time interval between buffer updates.
         If None (default), the buffer is updated every time update() is called.
         If specified, the buffer is only updated when the accumulated time since the
         last update exceeds this threshold. Supports brainunit quantities (e.g., 5.0*u.ms).
         Example: update_every=5.0 means update every 5 time units.
-      update_strategy: str. Strategy for handling updates between threshold crossings.
+    update_strategy
+        str. Strategy for handling updates between threshold crossings.
         Options:
         - 'hold' (default): Skip writes between thresholds, keep last written value.
         - 'latest': Always cache the newest value, write it when threshold is crossed.
         - 'aggregate': Accumulate all values between thresholds and write aggregated result.
-      aggregate_fn: optional, str or Callable. Aggregation function for 'aggregate' strategy.
+    aggregate_fn
+        optional, str or Callable. Aggregation function for 'aggregate' strategy.
         Built-in options (strings): 'mean', 'sum', 'max', 'min', 'last'.
         Custom: Any callable that takes an array and axis parameter and returns aggregated value.
         Default: 'mean' when update_strategy='aggregate'.
         Ignored for other strategies.
-      delay_method: str. Deprecated parameter kept for backward compatibility.
+    delay_method
+        str. Deprecated parameter kept for backward compatibility.
         The unified ring buffer implementation now uses rotation for all delays.
-      interp_method: str. Deprecated parameter kept for backward compatibility.
+    interp_method
+        str. Deprecated parameter kept for backward compatibility.
         Use 'interpolation' parameter instead.
 
-    Examples:
+    Examples
+    --------
       Basic delay with default behavior (update every call)::
 
         >>> import brainstate
@@ -606,31 +622,40 @@ class Delay(Module):
         and updates the delay buffer size if necessary. It handles both scalar and vector
         delay times, ensuring all vector delays have the same size.
 
-        Args:
-            *time_and_idx: Variable number of delay time arguments. The first argument should be
-                the primary delay time (float, int, or array-like). Additional arguments are
-                treated as indices or secondary delay parameters. All delay times should be
-                non-negative numbers or arrays of the same size.
+        Parameters
+        ----------
+        *time_and_idx
+            Variable number of delay time arguments. The first argument should be
+            the primary delay time (float, int, or array-like). Additional arguments are
+            treated as indices or secondary delay parameters. All delay times should be
+            non-negative numbers or arrays of the same size.
 
-        Returns:
-            tuple or None: If time_and_index[0] is None, returns None. Otherwise, returns a tuple
-                containing (delay_step, *time_and_index[1:]) where delay_step is the computed
-                delay step in integer time units, and the remaining elements are the
-                additional delay parameters passed in.
+        Returns
+        -------
+        tuple or None
+            If time_and_index[0] is None, returns None. Otherwise, returns a tuple
+            containing (delay_step, *time_and_index[1:]) where delay_step is the computed
+            delay step in integer time units, and the remaining elements are the
+            additional delay parameters passed in.
 
-        Raises:
-            AssertionError: If no delay time is provided (empty time_and_index).
-            ValueError: If delay times have inconsistent sizes when using vector delays,
-                or if delay times are not scalar or 1D arrays.
+        Raises
+        ------
+        AssertionError
+            If no delay time is provided (empty time_and_index).
+        ValueError
+            If delay times have inconsistent sizes when using vector delays,
+            or if delay times are not scalar or 1D arrays.
 
-        Note:
+        Notes
+        -----
             - The method updates self.max_time and self.max_length if the new delay
               requires a larger buffer size.
             - Delay steps are computed using the current environment time step (dt).
             - All delay indices (time_and_index[1:]) must be integers.
             - Vector delays must all have the same size as the first delay time.
 
-        Example:
+        Examples
+        --------
             >>> delay_obj.register_delay(5.0)  # Register 5ms delay
             >>> delay_obj.register_delay(jnp.array([2.0, 3.0]), 0, 1)  # Vector delay with indices
         """
@@ -656,10 +681,13 @@ class Delay(Module):
         """
         Register an entry to access the delay data.
 
-        Args:
-            entry: str. The entry to access the delay data.
-            time_and_idx: The delay time of the entry, the first element is the delay time,
-                the second and later element is the index.
+        Parameters
+        ----------
+        entry
+            str. The entry to access the delay data.
+        time_and_idx
+            The delay time of the entry, the first element is the delay time,
+            the second and later element is the index.
         """
         if entry in self._registered_entries:
             raise KeyError(
@@ -676,12 +704,17 @@ class Delay(Module):
         """
         Create a DelayAccess object for a specific delay entry and delay time.
 
-        Args:
-            entry (str): The name of the delay entry to access.
-            time_and_idx (Sequence): The delay time or parameters associated with the entry.
+        Parameters
+        ----------
+        entry : str
+            The name of the delay entry to access.
+        time_and_idx : Sequence
+            The delay time or parameters associated with the entry.
 
-        Returns:
-            DelayAccess: An object that provides access to the delay data for the specified entry and time.
+        Returns
+        -------
+        DelayAccess
+            An object that provides access to the delay data for the specified entry and time.
         """
         return DelayAccess(self, *time_and_idx, entry=entry)
 
@@ -689,11 +722,14 @@ class Delay(Module):
         """
         Get the data at the given entry.
 
-        Args:
-          entry: str. The entry to access the data.
+        Parameters
+        ----------
+        entry
+            str. The entry to access the data.
 
-        Returns:
-          The data.
+        Returns
+        -------
+        The data.
         """
         assert isinstance(entry, str), (
             f'entry should be a string for describing the '

@@ -140,8 +140,9 @@ def _get_jitted_fun(
         compiler's input language, possibly in a backend-dependent
         manner. It is ready for compilation but not yet compiled.
 
-        Returns:
-          A ``Lowered`` instance representing the lowering.
+        Returns
+        -------
+        A ``Lowered`` instance representing the lowering.
         """
         # compile the function and get the state trace
         state_trace = fun.get_state_trace(*args, **params, compile_if_miss=True)
@@ -162,8 +163,9 @@ def _get_jitted_fun(
         A traced function is staged out of Python and translated to a jaxpr. It is
         ready for lowering but not yet lowered.
 
-        Returns:
-          A ``Traced`` instance representing the tracing.
+        Returns
+        -------
+        A ``Traced`` instance representing the tracing.
         """
         # compile the function and get the state trace
         state_trace = fun.get_state_trace(*args, **params, compile_if_miss=True)
@@ -184,8 +186,9 @@ def _get_jitted_fun(
         compiler's input language, possibly in a backend-dependent
         manner. It is ready for compilation but not yet compiled.
 
-        Returns:
-          A ``Lowered`` instance representing the lowering.
+        Returns
+        -------
+        A ``Lowered`` instance representing the lowering.
         """
         # compile the function and get the state trace
         state_trace = fun.get_state_trace(*args, **params, compile_if_miss=True)

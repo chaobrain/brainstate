@@ -330,14 +330,20 @@ def tree_random_split(rng_key, target=None, treedef=None):
     """
     Split key for a key for every leaf.
 
-    Args:
-        rng_key (jax.Array): A JAX PRNG key.
-        target (PyTree, optional): A pytree to infer the tree structure from.
-                                   Required if `treedef` is not provided.
-        treedef (TreeDef, optional): An explicit tree structure. If provided, `target` is ignored.
+    Parameters
+    ----------
+    rng_key : jax.Array
+        A JAX PRNG key.
+    target : PyTree, optional
+        A pytree to infer the tree structure from.
+        Required if `treedef` is not provided.
+    treedef : TreeDef, optional
+        An explicit tree structure. If provided, `target` is ignored.
 
-    Returns:
-        PyTree: A pytree of PRNG keys with the same structure as `target` or `treedef`.
+    Returns
+    -------
+    PyTree
+        A pytree of PRNG keys with the same structure as `target` or `treedef`.
     """
     if treedef is None:
         treedef = jax.tree.structure(target)

@@ -234,16 +234,23 @@ class Dynamics(Module):
         within the module. It first creates a prefetch reference to the specified state,
         then specifies the delay time for accessing this state.
 
-        Args:
-            state (str): The name of the state or variable to reference.
-            time_and_index: The amount of time to delay the variable access,
-                typically in time units (e.g., milliseconds).
-            init (Callable, optional): An optional initialization function to provide
-                a default value if the delayed state is not yet available.
-            interpolation (str, optional): The interpolation method to use.
+        Parameters
+        ----------
+        state : str
+            The name of the state or variable to reference.
+        time_and_index
+            The amount of time to delay the variable access,
+            typically in time units (e.g., milliseconds).
+        init : Callable, optional
+            An optional initialization function to provide
+            a default value if the delayed state is not yet available.
+        interpolation : str, optional
+            The interpolation method to use.
 
-        Returns:
-            PrefetchDelayAt: An object that provides access to the variable at the specified delay time.
+        Returns
+        -------
+        PrefetchDelayAt
+            An object that provides access to the variable at the specified delay time.
         """
         return PrefetchDelayAt(
             self,
@@ -268,15 +275,21 @@ class Dynamics(Module):
         It instantiates an `OutputDelayAt` object, which can be used to retrieve the output value
         at the specified delay time.
 
-        Args:
-            time_and_index: The amount of time to delay the output access,
-                typically in time units (e.g., milliseconds). Defaults to None.
-            init: Delay initialization function or value. If the delayed output is not yet
-                available, this function or value will be used to provide a default.
-            interpolation (str, optional): The interpolation method to use.
+        Parameters
+        ----------
+        time_and_index
+            The amount of time to delay the output access,
+            typically in time units (e.g., milliseconds). Defaults to None.
+        init
+            Delay initialization function or value. If the delayed output is not yet
+            available, this function or value will be used to provide a default.
+        interpolation : str, optional
+            The interpolation method to use.
 
-        Returns:
-            OutputDelayAt: An object that provides access to the module's output at the specified delay time.
+        Returns
+        -------
+        OutputDelayAt
+            An object that provides access to the module's output at the specified delay time.
         """
         return OutputDelayAt(
             self,

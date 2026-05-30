@@ -51,14 +51,19 @@ allowed_hook_types = ('read', 'write_before', 'write_after', 'restore', 'init')
 class HookConfig:
     """Configuration for hook error handling and behavior.
 
-    Attributes:
-        on_error: How to handle hook execution errors:
-            - 'raise': Propagate the exception to the caller
-            - 'log': Log the error and continue (default)
-            - 'ignore': Silently ignore errors
-        error_logger: Optional custom error logging function
-        max_errors_per_hook: Maximum errors before auto-disabling (default 10)
-        disable_on_error: Whether to auto-disable hooks after max errors (default False)
+    Attributes
+    ----------
+    on_error
+        How to handle hook execution errors:
+        - 'raise': Propagate the exception to the caller
+        - 'log': Log the error and continue (default)
+        - 'ignore': Silently ignore errors
+    error_logger
+        Optional custom error logging function
+    max_errors_per_hook
+        Maximum errors before auto-disabling (default 10)
+    disable_on_error
+        Whether to auto-disable hooks after max errors (default False)
     """
     on_error: Literal['raise', 'log', 'ignore'] = 'log'
     error_logger: Optional[Callable[[str, Exception, Hook, HookContext], None]] = None
@@ -83,7 +88,8 @@ class HookManager:
         All operations are protected by a reentrant lock (RLock), allowing
         hooks to safely trigger other state operations.
 
-    Example:
+    Examples
+    --------
         >>> from brainstate import HookManager
         >>> manager = HookManager()
         >>> handle = manager.register_hook('read', lambda ctx: print(ctx.value), priority=10)
@@ -96,8 +102,10 @@ class HookManager:
     def __init__(self, config: Optional[HookConfig] = None):
         """Initialize the hook manager.
 
-        Args:
-            config: Optional HookConfig for customizing error handling
+        Parameters
+        ----------
+        config
+            Optional HookConfig for customizing error handling
         """
         self._lock = threading.RLock()
 
@@ -126,20 +134,30 @@ class HookManager:
     ) -> HookHandle:
         """Register a new hook.
 
-        Args:
-            hook_type: Type of hook to register
-            callback: Callable that receives a HookContext
-            priority: Execution priority (higher = earlier, default 0)
-            name: Optional name for the hook
-            enabled: Whether the hook is enabled initially (default True)
+        Parameters
+        ----------
+        hook_type
+            Type of hook to register
+        callback
+            Callable that receives a HookContext
+        priority
+            Execution priority (higher = earlier, default 0)
+        name
+            Optional name for the hook
+        enabled
+            Whether the hook is enabled initially (default True)
 
-        Returns:
-            HookHandle for managing the hook
+        Returns
+        -------
+        HookHandle for managing the hook
 
-        Raises:
-            HookRegistrationError: If hook_type is invalid
+        Raises
+        ------
+        HookRegistrationError
+            If hook_type is invalid
 
-        Example:
+        Examples
+        --------
             >>> def my_hook(ctx):
             ...     print(f"Hook called: {ctx.operation}")
             >>> handle = manager.register_hook('read', my_hook, priority=10, name='my_reader')
@@ -166,11 +184,14 @@ class HookManager:
     def unregister_hook(self, handle: HookHandle) -> bool:
         """Unregister a hook using its handle.
 
-        Args:
-            handle: The HookHandle to unregister
+        Parameters
+        ----------
+        handle
+            The HookHandle to unregister
 
-        Returns:
-            True if the hook was successfully removed, False otherwise
+        Returns
+        -------
+        True if the hook was successfully removed, False otherwise
         """
         with self._lock:
             hook_list = self._get_hook_list(handle._hook_type)
@@ -185,11 +206,14 @@ class HookManager:
     def get_hooks(self, hook_type: Optional[str] = None) -> List[Hook]:
         """Get all registered hooks, optionally filtered by type.
 
-        Args:
-            hook_type: Optional hook type to filter by
+        Parameters
+        ----------
+        hook_type
+            Optional hook type to filter by
 
-        Returns:
-            List of hooks (copies to prevent external modification)
+        Returns
+        -------
+        List of hooks (copies to prevent external modification)
         """
         with self._lock:
             if hook_type is None:
@@ -208,8 +232,10 @@ class HookManager:
     def clear_hooks(self, hook_type: Optional[str] = None) -> None:
         """Clear all hooks, optionally filtered by type.
 
-        Args:
-            hook_type: Optional hook type to clear (if None, clears all)
+        Parameters
+        ----------
+        hook_type
+            Optional hook type to clear (if None, clears all)
         """
         with self._lock:
             if hook_type is None:
@@ -228,11 +254,14 @@ class HookManager:
     def has_hooks(self, hook_type: Optional[str] = None) -> bool:
         """Check if any hooks are registered.
 
-        Args:
-            hook_type: Optional hook type to check (if None, checks all)
+        Parameters
+        ----------
+        hook_type
+            Optional hook type to check (if None, checks all)
 
-        Returns:
-            True if hooks are registered, False otherwise
+        Returns
+        -------
+        True if hooks are registered, False otherwise
         """
         # Fast path without lock for common case
         if not self._has_hooks:
@@ -249,9 +278,12 @@ class HookManager:
     def execute_read_hooks(self, value: Any, state_ref: weakref.ref) -> None:
         """Execute all read hooks.
 
-        Args:
-            value: The value being read
-            state_ref: Weak reference to the State instance
+        Parameters
+        ----------
+        value
+            The value being read
+        state_ref
+            Weak reference to the State instance
         """
         hooks = self._get_cached_hooks('read')
         if not hooks:
@@ -284,16 +316,23 @@ class HookManager:
         Each hook can transform the value, and the next hook receives
         the transformed output.
 
-        Args:
-            new_value: The new value being written
-            old_value: The previous value
-            state_ref: Weak reference to the State instance
+        Parameters
+        ----------
+        new_value
+            The new value being written
+        old_value
+            The previous value
+        state_ref
+            Weak reference to the State instance
 
-        Returns:
-            The potentially transformed value
+        Returns
+        -------
+        The potentially transformed value
 
-        Raises:
-            HookCancellationError: If a hook cancels the operation
+        Raises
+        ------
+        HookCancellationError
+            If a hook cancels the operation
         """
         hooks = self._get_cached_hooks('write_before')
         if not hooks:
@@ -344,10 +383,14 @@ class HookManager:
     ) -> None:
         """Execute all write_after hooks.
 
-        Args:
-            new_value: The new value that was written
-            old_value: The previous value
-            state_ref: Weak reference to the State instance
+        Parameters
+        ----------
+        new_value
+            The new value that was written
+        old_value
+            The previous value
+        state_ref
+            Weak reference to the State instance
         """
         hooks = self._get_cached_hooks('write_after')
         if not hooks:
@@ -378,10 +421,14 @@ class HookManager:
     ) -> None:
         """Execute all restore hooks.
 
-        Args:
-            new_value: The restored value
-            old_value: The previous value before restoration
-            state_ref: Weak reference to the State instance
+        Parameters
+        ----------
+        new_value
+            The restored value
+        old_value
+            The previous value before restoration
+        state_ref
+            Weak reference to the State instance
         """
         hooks = self._get_cached_hooks('restore')
         if not hooks:
@@ -412,10 +459,14 @@ class HookManager:
     ) -> None:
         """Execute all init hooks.
 
-        Args:
-            value: The initial value of the state
-            state_ref: Weak reference to the State instance
-            init_metadata: Optional dictionary of initialization metadata
+        Parameters
+        ----------
+        value
+            The initial value of the state
+        state_ref
+            Weak reference to the State instance
+        init_metadata
+            Optional dictionary of initialization metadata
         """
         hooks = self._get_cached_hooks('init')
         if not hooks:
@@ -494,13 +545,19 @@ class HookManager:
     def _handle_hook_error(self, hook: Hook, error: Exception, context: HookContext) -> None:
         """Handle an error that occurred during hook execution.
 
-        Args:
-            hook: The hook that raised the error
-            error: The exception that was raised
-            context: The context in which the error occurred
+        Parameters
+        ----------
+        hook
+            The hook that raised the error
+        error
+            The exception that was raised
+        context
+            The context in which the error occurred
 
-        Raises:
-            HookExecutionError: If on_error='raise'
+        Raises
+        ------
+        HookExecutionError
+            If on_error='raise'
         """
         # Track errors
         hook._error_count += 1

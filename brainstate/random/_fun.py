@@ -3684,15 +3684,22 @@ def weibull_min(
 
     The scipy counterpart is `scipy.stats.weibull_min`.
 
-    Args:
-      scale: The scale parameter of the distribution.
-      concentration: The concentration parameter of the distribution.
-      shape: The shape added to the parameters loc and scale broadcastable shape.
-      dtype: The type used for samples.
-      key: a PRNG key or a seed.
+    Parameters
+    ----------
+    scale
+        The scale parameter of the distribution.
+    concentration
+        The concentration parameter of the distribution.
+    shape
+        The shape added to the parameters loc and scale broadcastable shape.
+    dtype
+        The type used for samples.
+    key
+        a PRNG key or a seed.
 
-    Returns:
-      A jnp.array of samples.
+    Returns
+    -------
+    A jnp.array of samples.
 
     """
     return DEFAULT.weibull_min(a, scale, size=size, key=key, dtype=dtype)
@@ -3801,14 +3808,20 @@ def maxwell(
 
     The scipy counterpart is `scipy.stats.maxwell`.
 
-    Args:
-      key: a PRNG key.
-      size: The shape of the returned samples.
-      dtype: The type used for samples.
-      key: a PRNG key or a seed.
+    Parameters
+    ----------
+    key
+        a PRNG key.
+    size
+        The shape of the returned samples.
+    dtype
+        The type used for samples.
+    key
+        a PRNG key or a seed.
 
-    Returns:
-      A jnp.array of samples, of shape `shape`.
+    Returns
+    -------
+    A jnp.array of samples, of shape `shape`.
 
     """
     return DEFAULT.maxwell(size=size, key=key, dtype=dtype)
@@ -3909,18 +3922,24 @@ def categorical(
 ) -> jax.Array:
     """Sample random values from categorical distributions.
 
-    Args:
-      logits: Unnormalized log probabilities of the categorical distribution(s) to sample from,
+    Parameters
+    ----------
+    logits
+        Unnormalized log probabilities of the categorical distribution(s) to sample from,
         so that `softmax(logits, axis)` gives the corresponding probabilities.
-      axis: Axis along which logits belong to the same categorical distribution.
-      shape: Optional, a tuple of nonnegative integers representing the result shape.
+    axis
+        Axis along which logits belong to the same categorical distribution.
+    shape
+        Optional, a tuple of nonnegative integers representing the result shape.
         Must be broadcast-compatible with ``np.delete(logits.shape, axis)``.
         The default (None) produces a result shape equal to ``np.delete(logits.shape, axis)``.
-      key: a PRNG key used as the random key.
+    key
+        a PRNG key used as the random key.
 
-    Returns:
-      A random array with int dtype and shape given by ``shape`` if ``shape``
-      is not None, or else ``np.delete(logits.shape, axis)``.
+    Returns
+    -------
+    A random array with int dtype and shape given by ``shape`` if ``shape``
+    is not None, or else ``np.delete(logits.shape, axis)``.
     """
     return DEFAULT.categorical(logits, axis, size=size, key=key)
 
@@ -3937,13 +3956,18 @@ def rand_like(
     Returns a tensor with the same size as input that is filled with random
     numbers from a uniform distribution on the interval ``[0, 1)``.
 
-    Args:
-      input:  the ``size`` of input will determine size of the output tensor.
-      dtype:  the desired data type of returned Tensor. Default: if ``None``, defaults to the dtype of input.
-      key: the seed or key for the random.
+    Parameters
+    ----------
+    input
+        the ``size`` of input will determine size of the output tensor.
+    dtype
+        the desired data type of returned Tensor. Default: if ``None``, defaults to the dtype of input.
+    key
+        the seed or key for the random.
 
-    Returns:
-      The random data.
+    Returns
+    -------
+    The random data.
     """
     return DEFAULT.rand_like(input, dtype=dtype, key=key)
 
@@ -3960,13 +3984,18 @@ def randn_like(
     Returns a tensor with the same size as ``input`` that is filled with
     random numbers from a normal distribution with mean 0 and variance 1.
 
-    Args:
-      input:  the ``size`` of input will determine size of the output tensor.
-      dtype:  the desired data type of returned Tensor. Default: if ``None``, defaults to the dtype of input.
-      key: the seed or key for the random.
+    Parameters
+    ----------
+    input
+        the ``size`` of input will determine size of the output tensor.
+    dtype
+        the desired data type of returned Tensor. Default: if ``None``, defaults to the dtype of input.
+    key
+        the seed or key for the random.
 
-    Returns:
-      The random data.
+    Returns
+    -------
+    The random data.
     """
     return DEFAULT.randn_like(input, dtype=dtype, key=key)
 
@@ -3985,15 +4014,22 @@ def randint_like(
     Returns a tensor with the same shape as Tensor ``input`` filled with
     random integers generated uniformly between ``low`` (inclusive) and ``high`` (exclusive).
 
-    Args:
-      input:  the ``size`` of input will determine size of the output tensor.
-      low: Lowest integer to be drawn from the distribution. Default: 0.
-      high: One above the highest integer to be drawn from the distribution.
-      dtype: the desired data type of returned Tensor. Default: if ``None``, defaults to the dtype of input.
-      key: the seed or key for the random.
+    Parameters
+    ----------
+    input
+        the ``size`` of input will determine size of the output tensor.
+    low
+        Lowest integer to be drawn from the distribution. Default: 0.
+    high
+        One above the highest integer to be drawn from the distribution.
+    dtype
+        the desired data type of returned Tensor. Default: if ``None``, defaults to the dtype of input.
+    key
+        the seed or key for the random.
 
-    Returns:
-      The random data.
+    Returns
+    -------
+    The random data.
     """
     return DEFAULT.randint_like(input=input, low=low, high=high, dtype=dtype, key=key)
 

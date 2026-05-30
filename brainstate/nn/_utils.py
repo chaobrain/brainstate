@@ -68,19 +68,19 @@ def count_parameters(
     counts the number of parameters for each module, and displays them in a table.
     It also calculates and returns the total number of trainable parameters.
 
-    Parameters:
-    -----------
+    Parameters
+    ----------
     model : brainstate.nn.Module
         The neural network model for which to count parameters.
 
-    Returns:
-    --------
+    Returns
+    -------
     int
         The total number of trainable parameters in the model.
 
-    Prints:
-    -------
-    A pretty-formatted table showing the number of parameters for each module,
+    Notes
+    -----
+    Prints a pretty-formatted table showing the number of parameters for each module,
     followed by the total number of trainable parameters.
     """
     assert isinstance(module, Module), "Input must be a neural network module"  # noqa: E501

@@ -1251,8 +1251,10 @@ class ReluT(Transform):
     Constrains parameter values to be >= lower_bound.
     Note: inverse is not differentiable at x = lower_bound.
 
-    Args:
-        lower_bound: Minimum value for the output (default: 0.0).
+    Parameters
+    ----------
+    lower_bound
+        Minimum value for the output (default: 0.0).
     """
 
     def __init__(self, lower_bound: float = 0.0):

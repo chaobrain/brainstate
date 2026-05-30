@@ -28,7 +28,8 @@ Key Features:
     - Automatic seed backup and restoration
     - Thread-safe random state management
 
-Example:
+Examples
+--------
     Basic usage for reproducible random number generation:
 
     >>> import brainstate
@@ -86,11 +87,13 @@ def restore_key() -> None:
     It's useful for undoing changes to the random state or implementing checkpoint
     functionality in computational workflows.
 
-    Note:
+    Notes
+    -----
         This operation requires that a backup was previously created. If no backup
         exists, this function may not have any effect or may restore to an initial state.
 
-    Example:
+    Examples
+    --------
         >>> import brainstate
         >>> brainstate.random.seed(42)
         >>> original_key = brainstate.random.get_key()
@@ -98,10 +101,11 @@ def restore_key() -> None:
         >>> brainstate.random.restore_key()  # Restore to previous state
         >>> assert np.array_equal(brainstate.random.get_key(), original_key)
 
-    See Also:
-        - :func:`set_key`: Set a new random key
-        - :func:`get_key`: Get the current random key
-        - :func:`seed_context`: Temporary seed changes with automatic restoration
+    See Also
+    --------
+    set_key : Set a new random key
+    get_key : Get the current random key
+    seed_context : Temporary seed changes with automatic restoration
     """
     DEFAULT.restore_key()
 
@@ -115,17 +119,22 @@ def split_key(n: Optional[int] = None, backup: bool = False) -> jax.Array:
     current global random state. It follows JAX's random paradigm, ensuring that
     each split key produces statistically independent random sequences.
 
-    Args:
-        n: The number of keys to generate. If None, returns a single key.
-            If an integer, returns an array of n keys.
-        backup: Whether to backup the current key before splitting. This allows
-            restoration of the original state using :func:`restore_key`.
+    Parameters
+    ----------
+    n
+        The number of keys to generate. If None, returns a single key.
+        If an integer, returns an array of n keys.
+    backup
+        Whether to backup the current key before splitting. This allows
+        restoration of the original state using :func:`restore_key`.
 
-    Returns:
-        If n is None: A single JAX PRNG key.
-        If n is an integer: An array of n independent JAX PRNG keys.
+    Returns
+    -------
+    If n is None: A single JAX PRNG key.
+    If n is an integer: An array of n independent JAX PRNG keys.
 
-    Example:
+    Examples
+    --------
         Generate a single key:
 
         >>> import brainstate
@@ -147,14 +156,16 @@ def split_key(n: Optional[int] = None, backup: bool = False) -> jax.Array:
         >>> brainstate.random.restore_key()
         >>> assert np.array_equal(brainstate.random.get_key(), original_key)
 
-    Note:
+    Notes
+    -----
         This function advances the global random state. Each call produces
         different keys unless the state is reset.
 
-    See Also:
-        - :func:`split_keys`: Convenience function for multiple keys
-        - :func:`seed`: Set the random seed
-        - :func:`restore_key`: Restore backed up key
+    See Also
+    --------
+    split_keys : Convenience function for multiple keys
+    seed : Set the random seed
+    restore_key : Restore backed up key
     """
     return DEFAULT.split_key(n=n, backup=backup)
 
@@ -169,18 +180,25 @@ def split_keys(n: int, backup: bool = False) -> jax.Array:
     parallel computation functions like `pmap` and `vmap` to ensure that each
     parallel thread gets a unique random key.
 
-    Args:
-        n: The number of independent keys to generate. Must be a positive integer.
-        backup: Whether to backup the current key before splitting. If True,
-            the original key can be restored using :func:`restore_key`.
+    Parameters
+    ----------
+    n
+        The number of independent keys to generate. Must be a positive integer.
+    backup
+        Whether to backup the current key before splitting. If True,
+        the original key can be restored using :func:`restore_key`.
 
-    Returns:
-        An array of n independent JAX typed PRNG keys with shape (n,).
+    Returns
+    -------
+    An array of n independent JAX typed PRNG keys with shape (n,).
 
-    Raises:
-        ValueError: If n is not a positive integer.
+    Raises
+    ------
+    ValueError
+        If n is not a positive integer.
 
-    Example:
+    Examples
+    --------
         Generate keys for parallel computation:
 
         >>> import brainstate
@@ -207,14 +225,16 @@ def split_keys(n: int, backup: bool = False) -> jax.Array:
         >>> # ... use keys for computation ...
         >>> brainstate.random.restore_key()  # Restore original state
 
-    Note:
+    Notes
+    -----
         This function is equivalent to calling :func:`split_key` with n as an argument.
         It's provided as a convenience function with a more explicit name for clarity.
 
-    See Also:
-        - :func:`split_key`: More general key splitting function
-        - :func:`self_assign_multi_keys`: Assign multiple keys to global state
-        - :func:`seed_context`: Temporary seed changes
+    See Also
+    --------
+    split_key : More general key splitting function
+    self_assign_multi_keys : Assign multiple keys to global state
+    seed_context : Temporary seed changes
     """
     if not isinstance(n, int) or n <= 0:
         raise ValueError(f"n must be a positive integer, got {n}")
@@ -231,16 +251,22 @@ def self_assign_multi_keys(n: int, backup: bool = True) -> None:
     to ensure that parallel computations have access to independent random
     sequences without the overhead of key splitting during computation.
 
-    Args:
-        n: The number of independent keys to pre-generate and assign.
-            Must be a positive integer.
-        backup: Whether to backup the current random state before assignment.
-            If True, the original state can be restored using :func:`restore_key`.
+    Parameters
+    ----------
+    n
+        The number of independent keys to pre-generate and assign.
+        Must be a positive integer.
+    backup
+        Whether to backup the current random state before assignment.
+        If True, the original state can be restored using :func:`restore_key`.
 
-    Raises:
-        ValueError: If n is not a positive integer.
+    Raises
+    ------
+    ValueError
+        If n is not a positive integer.
 
-    Example:
+    Examples
+    --------
         Prepare for parallel computation:
 
         >>> import brainstate
@@ -253,15 +279,17 @@ def self_assign_multi_keys(n: int, backup: bool = True) -> None:
         >>> # The random state now has 4 independent keys ready for use
         >>> # Each parallel thread can access a different key
 
-    Note:
+    Notes
+    -----
         This is an advanced function primarily used internally for optimizing
         parallel random number generation. In most cases, :func:`split_keys`
         provides a more straightforward interface for parallel computation.
 
-    See Also:
-        - :func:`split_keys`: Generate multiple independent keys
-        - :func:`restore_key`: Restore backed up state
-        - :func:`seed_context`: Temporary state changes
+    See Also
+    --------
+    split_keys : Generate multiple independent keys
+    restore_key : Restore backed up state
+    seed_context : Temporary state changes
     """
     if not isinstance(n, int) or n <= 0:
         raise ValueError(f"n must be a positive integer, got {n}")
@@ -278,18 +306,23 @@ def clone_rng(seed_or_key: SeedOrKey = None, clone: bool = True) -> RandomState:
     a specific seed or key. Cloned states are independent and don't affect each
     other when used for random number generation.
 
-    Args:
-        seed_or_key: Optional seed (integer) or JAX random key to initialize
-            the new random state. If None, uses the current global state.
-        clone: Whether to clone the default random state. If False and
-            seed_or_key is None, returns the global state directly (not recommended
-            for most use cases as it shares state).
+    Parameters
+    ----------
+    seed_or_key
+        Optional seed (integer) or JAX random key to initialize
+        the new random state. If None, uses the current global state.
+    clone
+        Whether to clone the default random state. If False and
+        seed_or_key is None, returns the global state directly (not recommended
+        for most use cases as it shares state).
 
-    Returns:
-        A RandomState instance that can be used independently for random
-        number generation.
+    Returns
+    -------
+    A RandomState instance that can be used independently for random
+    number generation.
 
-    Example:
+    Examples
+    --------
         Clone the current global state:
 
         >>> import brainstate
@@ -310,14 +343,16 @@ def clone_rng(seed_or_key: SeedOrKey = None, clone: bool = True) -> RandomState:
         >>> values2 = rng.normal(size=5)
         >>> # values1 and values2 are different but reproducible
 
-    Note:
+    Notes
+    -----
         Cloned random states are completely independent. Changes to one state
         (like advancing through random number generation) don't affect others.
 
-    See Also:
-        - :func:`default_rng`: Get or create a random state
-        - :func:`seed`: Set the global random seed
-        - :class:`RandomState`: The random state class
+    See Also
+    --------
+    default_rng : Get or create a random state
+    seed : Set the global random seed
+    RandomState : The random state class
     """
     if seed_or_key is None:
         return DEFAULT.clone() if clone else DEFAULT
@@ -334,16 +369,20 @@ def default_rng(seed_or_key: SeedOrKey = None) -> RandomState:
     BrainState, or creates a new independent random state if a seed is provided.
     It's the primary interface for obtaining random state objects in BrainState.
 
-    Args:
-        seed_or_key: Optional seed (integer) or JAX random key. If None,
-            returns the global default random state. If provided, creates
-            a new independent RandomState with the specified seed.
+    Parameters
+    ----------
+    seed_or_key
+        Optional seed (integer) or JAX random key. If None,
+        returns the global default random state. If provided, creates
+        a new independent RandomState with the specified seed.
 
-    Returns:
-        The default RandomState if seed_or_key is None, otherwise a new
-        RandomState initialized with the provided seed or key.
+    Returns
+    -------
+    The default RandomState if seed_or_key is None, otherwise a new
+    RandomState initialized with the provided seed or key.
 
-    Example:
+    Examples
+    --------
         Get the global random state:
 
         >>> import brainstate
@@ -364,15 +403,17 @@ def default_rng(seed_or_key: SeedOrKey = None) -> RandomState:
         >>> result2 = reproducible_computation()
         >>> assert np.allclose(result1, result2)  # Always the same
 
-    Note:
+    Notes
+    -----
         When seed_or_key is None, this returns the actual global state object.
         Modifications to this state (through random number generation) will
         affect all subsequent calls to global random functions.
 
-    See Also:
-        - :func:`clone_rng`: Create independent clones of random states
-        - :func:`seed`: Set the global random seed
-        - :class:`RandomState`: The underlying random state implementation
+    See Also
+    --------
+    clone_rng : Create independent clones of random states
+    seed : Set the global random seed
+    RandomState : The underlying random state implementation
     """
     if seed_or_key is None:
         return DEFAULT
@@ -390,16 +431,21 @@ def set_key(seed_or_key: SeedOrKey) -> None:
     (auto-wrapped into a typed key). All subsequent calls to global random
     functions will use this new key state.
 
-    Args:
-        seed_or_key: The new random key to set. Can be:
-            - An integer seed (converted to a typed JAX key via ``jax.random.key``)
-            - A JAX typed PRNG key
-            - A legacy ``uint32[2]`` array (auto-wrapped into a typed key)
+    Parameters
+    ----------
+    seed_or_key
+        The new random key to set. Can be:
+        - An integer seed (converted to a typed JAX key via ``jax.random.key``)
+        - A JAX typed PRNG key
+        - A legacy ``uint32[2]`` array (auto-wrapped into a typed key)
 
-    Raises:
-        TypeError: If the provided key is not in a valid format.
+    Raises
+    ------
+    TypeError
+        If the provided key is not in a valid format.
 
-    Example:
+    Examples
+    --------
         Set with integer seed:
 
         >>> import brainstate
@@ -418,15 +464,17 @@ def set_key(seed_or_key: SeedOrKey) -> None:
         >>> brainstate.random.set_key(42)
         >>> # Now random functions will produce the same sequences as first example
 
-    Note:
+    Notes
+    -----
         This function immediately changes the global random state. All threads
         and computations using the global random functions will be affected.
 
-    See Also:
-        - :func:`get_key`: Get the current random key
-        - :func:`get_key_data`: Get the current key as raw ``uint32[2]`` data
-        - :func:`seed`: Set seed (also affects NumPy)
-        - :func:`restore_key`: Restore a backed up key
+    See Also
+    --------
+    get_key : Get the current random key
+    get_key_data : Get the current key as raw ``uint32[2]`` data
+    seed : Set seed (also affects NumPy)
+    restore_key : Restore a backed up key
     """
     DEFAULT.set_key(_format_key(seed_or_key))
 
@@ -440,11 +488,13 @@ def get_key() -> jax.Array:
     The returned key represents the internal state of the JAX PRNG and can be used
     to restore the random state later or to create independent random number generators.
 
-    Returns:
-        The current JAX typed PRNG key (a scalar array of dtype ``key<...>``).
-        Use :func:`get_key_data` if you need the raw ``uint32[2]`` representation.
+    Returns
+    -------
+    The current JAX typed PRNG key (a scalar array of dtype ``key<...>``).
+    Use :func:`get_key_data` if you need the raw ``uint32[2]`` representation.
 
-    Example:
+    Examples
+    --------
         Get and store the current random state:
 
         >>> import brainstate
@@ -470,16 +520,18 @@ def get_key() -> jax.Array:
         >>> key2 = brainstate.random.get_key()
         >>> assert jax.numpy.array_equal(key1, key2)  # Same seed gives same key
 
-    Note:
+    Notes
+    -----
         The returned key is a snapshot of the current state. Subsequent calls to
         random functions will advance the internal state, so calling get_key()
         again will return a different key unless the state is reset.
 
-    See Also:
-        - :func:`set_key`: Set a new random key
-        - :func:`seed`: Set the random seed (also affects NumPy)
-        - :func:`split_key`: Create new keys from current state
-        - :func:`seed_context`: Temporary seed changes with automatic restoration
+    See Also
+    --------
+    set_key : Set a new random key
+    seed : Set the random seed (also affects NumPy)
+    split_key : Create new keys from current state
+    seed_context : Temporary seed changes with automatic restoration
 
     """
     return DEFAULT.value
@@ -495,10 +547,12 @@ def get_key_data() -> jax.Array:
     typed key via :func:`jax.random.key_data`. This is useful when interfacing with
     code that still expects the old ``uint32[2]`` key representation.
 
-    Returns:
-        A ``uint32`` array of shape ``(2,)`` holding the current key's raw data.
+    Returns
+    -------
+    A ``uint32`` array of shape ``(2,)`` holding the current key's raw data.
 
-    Example:
+    Examples
+    --------
         >>> import brainstate
         >>> import jax.random as jr
         >>> brainstate.random.set_key(jr.key(11))
@@ -506,9 +560,10 @@ def get_key_data() -> jax.Array:
         >>> print(data.shape, data.dtype)
         (2,) uint32
 
-    See Also:
-        - :func:`get_key`: Get the current typed key
-        - :func:`set_key`: Set a new random key (accepts raw ``uint32[2]`` too)
+    See Also
+    --------
+    get_key : Get the current typed key
+    set_key : Set a new random key (accepts raw ``uint32[2]`` too)
     """
     return jax.random.key_data(DEFAULT.value)
 
@@ -522,18 +577,23 @@ def seed(seed_or_key: Optional[SeedOrKey] = None) -> None:
     both JAX and NumPy random number generators. It ensures reproducible random
     number generation across the entire BrainState ecosystem.
 
-    Args:
-        seed_or_key: The seed or key to set. Can be:
-            - None: Generates a random seed automatically
-            - int: An integer seed (0 to 2^32-1)
-            - JAX PRNG key: A JAX random key array
-            If None, a random seed is generated using NumPy's random generator.
+    Parameters
+    ----------
+    seed_or_key
+        The seed or key to set. Can be:
+        - None: Generates a random seed automatically
+        - int: An integer seed (0 to 2^32-1)
+        - JAX PRNG key: A JAX random key array
+        If None, a random seed is generated using NumPy's random generator.
 
-    Raises:
-        ValueError: If seed_or_key is not a valid seed format (not an integer,
-            valid JAX key, or None).
+    Raises
+    ------
+    ValueError
+        If seed_or_key is not a valid seed format (not an integer,
+        valid JAX key, or None).
 
-    Example:
+    Examples
+    --------
         Set a specific seed for reproducible results:
 
         >>> import brainstate
@@ -565,7 +625,8 @@ def seed(seed_or_key: Optional[SeedOrKey] = None) -> None:
         >>> result2 = experiment()
         >>> assert result1 == result2  # Always same result
 
-    Note:
+    Notes
+    -----
         - This function affects the global random state used by all BrainState
           random functions and NumPy's global random state.
         - When using automatic seeding (seed_or_key=None), NumPy's seed is not
@@ -574,11 +635,12 @@ def seed(seed_or_key: Optional[SeedOrKey] = None) -> None:
         - For JAX keys, only the first element is used to seed NumPy to maintain
           compatibility between the two random systems.
 
-    See Also:
-        - :func:`set_key`: Set only the JAX random key
-        - :func:`get_key`: Get the current random key
-        - :func:`seed_context`: Temporary seed changes
-        - :func:`split_key`: Create independent random keys
+    See Also
+    --------
+    set_key : Set only the JAX random key
+    get_key : Get the current random key
+    seed_context : Temporary seed changes
+    split_key : Create independent random keys
 
     """
     with jax.ensure_compile_time_eval():
@@ -620,17 +682,22 @@ def seed_context(seed_or_key: SeedOrKey) -> Iterator[None]:
     It's ideal for ensuring reproducible computations in specific code sections without
     permanently affecting the global random state.
 
-    Args:
-        seed_or_key: The temporary seed or key to use within the context. Can be:
-            - int: An integer seed for reproducible sequences
-            - JAX PRNG key: A JAX random key array
-            The seed affects both JAX and NumPy random states during the context.
+    Parameters
+    ----------
+    seed_or_key
+        The temporary seed or key to use within the context. Can be:
+        - int: An integer seed for reproducible sequences
+        - JAX PRNG key: A JAX random key array
+        The seed affects both JAX and NumPy random states during the context.
 
-    Yields:
-        None: The context manager doesn't yield any value, but provides a
+    Yields
+    ------
+    None
+        The context manager doesn't yield any value, but provides a
         controlled random environment for the enclosed code block.
 
-    Example:
+    Examples
+    --------
         Reproducible computations without affecting global state:
 
         >>> import brainstate
@@ -683,7 +750,8 @@ def seed_context(seed_or_key: SeedOrKey) -> Iterator[None]:
         >>> result2 = test_algorithm()
         >>> assert result1 == result2  # Always same result
 
-    Note:
+    Notes
+    -----
         - The context manager saves and restores the complete JAX random state
         - NumPy's random state is also temporarily modified during the context
         - Nested contexts work correctly - each level restores its own state
@@ -692,11 +760,12 @@ def seed_context(seed_or_key: SeedOrKey) -> Iterator[None]:
         - This is more convenient than manually saving/restoring state with
           get_key() and set_key()
 
-    See Also:
-        - :func:`seed`: Permanently set the global random seed
-        - :func:`get_key`: Get the current random key for manual state management
-        - :func:`set_key`: Set the random key for manual state management
-        - :func:`clone_rng`: Create independent random states
+    See Also
+    --------
+    seed : Permanently set the global random seed
+    get_key : Get the current random key for manual state management
+    set_key : Set the random key for manual state management
+    clone_rng : Create independent random states
 
     """
     # get the old random key

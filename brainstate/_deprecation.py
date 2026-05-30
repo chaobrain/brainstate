@@ -40,13 +40,20 @@ class DeprecatedModule:
         """
         Initialize a deprecated module proxy.
 
-        Args:
-            deprecated_name: Name of the deprecated module (e.g., 'brainstate.augment')
-            replacement_module: The module to forward calls to
-            replacement_name: Name of the replacement module (e.g., 'brainstate.transform')
-            version: Version when deprecation started
-            removal_version: Version when module will be removed (optional)
-            scoped_apis: Dict mapping API names to their locations, or list of API names
+        Parameters
+        ----------
+        deprecated_name
+            Name of the deprecated module (e.g., 'brainstate.augment')
+        replacement_module
+            The module to forward calls to
+        replacement_name
+            Name of the replacement module (e.g., 'brainstate.transform')
+        version
+            Version when deprecation started
+        removal_version
+            Version when module will be removed (optional)
+        scoped_apis
+            Dict mapping API names to their locations, or list of API names
         """
         self._deprecated_name = deprecated_name
         self._replacement_module = replacement_module
@@ -193,14 +200,20 @@ def create_deprecated_module_proxy(
     """
     Create a deprecated module proxy.
 
-    Args:
-        deprecated_name: Name of the deprecated module
-        replacement_module: The module to forward calls to
-        replacement_name: Name of the replacement module
-        **kwargs: Additional arguments for DeprecatedModule
+    Parameters
+    ----------
+    deprecated_name
+        Name of the deprecated module
+    replacement_module
+        The module to forward calls to
+    replacement_name
+        Name of the replacement module
+    **kwargs
+        Additional arguments for DeprecatedModule
 
-    Returns:
-        DeprecatedModule proxy instance
+    Returns
+    -------
+    DeprecatedModule proxy instance
     """
     return DeprecatedModule(
         deprecated_name=deprecated_name,

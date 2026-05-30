@@ -38,10 +38,13 @@ class HiData:
     And two access styles:
         - cd['key1'] or cd.key1
 
-    Attributes:
-        children: Dict mapping child names to their states.
+    Attributes
+    ----------
+    children
+        Dict mapping child names to their states.
 
-    Examples:
+    Examples
+    --------
         Create a simple Data object:
 
         >>> data = HiData(name='config', learning_rate=0.01, batch_size=32)
@@ -144,11 +147,14 @@ class HiData:
               child3=value3
             )
 
-        Args:
-            indent: Current indentation level.
+        Parameters
+        ----------
+        indent
+            Current indentation level.
 
-        Returns:
-            String representation of this HiData and its children.
+        Returns
+        -------
+        String representation of this HiData and its children.
         """
         indent_str = "  " * indent
         name_str = f"'{self.name}'" if self.name else "None"
@@ -192,11 +198,14 @@ class HiData:
         """
         Format a non-HiData value for display.
 
-        Args:
-            value: The value to format.
+        Parameters
+        ----------
+        value
+            The value to format.
 
-        Returns:
-            Formatted string representation.
+        Returns
+        -------
+        Formatted string representation.
         """
         if value is None:
             return "None"
@@ -215,8 +224,9 @@ class HiData:
         """
         Create a deep copy of the state, recursively cloning children.
 
-        Returns:
-            New state instance with cloned tensors.
+        Returns
+        -------
+        New state instance with cloned tensors.
         """
         cloned_children = {}
         for k, v in self.children.items():
@@ -274,11 +284,14 @@ class HiData:
         """
         Apply partial updates to child states.
 
-        Args:
-            updates: Dictionary of child states to update.
+        Parameters
+        ----------
+        updates
+            Dictionary of child states to update.
 
-        Returns:
-            New state instance with updated children.
+        Returns
+        -------
+        New state instance with updated children.
         """
         children = {k: v for k, v in self.children.items()}
         for k in updates:
@@ -289,8 +302,9 @@ class HiData:
         """
         Convert to dictionary representation.
 
-        Returns:
-            Dictionary mapping state variable names to tensors.
+        Returns
+        -------
+        Dictionary mapping state variable names to tensors.
         """
         return {k: d.to_dict() if isinstance(d, HiData) else d for k, d in self.children.items()}
 
@@ -299,10 +313,13 @@ class HiData:
         """
         Create state from dictionary.
 
-        Args:
-            d: Dictionary mapping state variable names to tensors.
+        Parameters
+        ----------
+        d
+            Dictionary mapping state variable names to tensors.
 
-        Returns:
-            State instance.
+        Returns
+        -------
+        State instance.
         """
         return cls(children={k: cls.from_dict(v) if isinstance(v, dict) else v for k, v in d.items()})

@@ -1477,13 +1477,18 @@ class RandomState(State):
         """Returns a tensor with the same size as input that is filled with random
         numbers from a uniform distribution on the interval ``[0, 1)``.
 
-        Args:
-          input:  the ``size`` of input will determine size of the output tensor.
-          dtype:  the desired data type of returned Tensor. Default: if ``None``, defaults to the dtype of input.
-          key: the seed or key for the random.
+        Parameters
+        ----------
+        input
+            the ``size`` of input will determine size of the output tensor.
+        dtype
+            the desired data type of returned Tensor. Default: if ``None``, defaults to the dtype of input.
+        key
+            the seed or key for the random.
 
-        Returns:
-          The random data.
+        Returns
+        -------
+        The random data.
         """
         return self.random(u.math.shape(input), key=key).astype(dtype)
 
@@ -1497,13 +1502,18 @@ class RandomState(State):
         """Returns a tensor with the same size as ``input`` that is filled with
         random numbers from a normal distribution with mean 0 and variance 1.
 
-        Args:
-          input:  the ``size`` of input will determine size of the output tensor.
-          dtype:  the desired data type of returned Tensor. Default: if ``None``, defaults to the dtype of input.
-          key: the seed or key for the random.
+        Parameters
+        ----------
+        input
+            the ``size`` of input will determine size of the output tensor.
+        dtype
+            the desired data type of returned Tensor. Default: if ``None``, defaults to the dtype of input.
+        key
+            the seed or key for the random.
 
-        Returns:
-          The random data.
+        Returns
+        -------
+        The random data.
         """
         return self.randn(*u.math.shape(input), key=key).astype(dtype)
 

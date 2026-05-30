@@ -43,11 +43,16 @@ class HookContext:
     including the operation type, the state being operated on, timing information,
     and user-defined metadata.
 
-    Attributes:
-        operation: Type of operation ('read', 'write_before', 'write_after', 'restore', 'init')
-        state_ref: Weak reference to the State instance (avoids circular references)
-        timestamp: Unix timestamp when the operation occurred
-        metadata: Dictionary for user-defined metadata
+    Attributes
+    ----------
+    operation
+        Type of operation ('read', 'write_before', 'write_after', 'restore', 'init')
+    state_ref
+        Weak reference to the State instance (avoids circular references)
+    timestamp
+        Unix timestamp when the operation occurred
+    metadata
+        Dictionary for user-defined metadata
     """
     operation: Literal['read', 'write_before', 'write_after', 'restore', 'init']
     state_ref: weakref.ref[State]
@@ -58,8 +63,9 @@ class HookContext:
     def state(self) -> Optional[State]:
         """Get the State instance if it's still alive.
 
-        Returns:
-            The State instance, or None if it has been garbage collected.
+        Returns
+        -------
+        The State instance, or None if it has been garbage collected.
         """
         return self.state_ref()
 
@@ -67,9 +73,10 @@ class HookContext:
     def state_name(self) -> Optional[str]:
         """Get the name of the State instance.
 
-        Returns:
-            The state's name, or None if the state has been garbage collected
-            or doesn't have a name.
+        Returns
+        -------
+        The state's name, or None if the state has been garbage collected
+        or doesn't have a name.
         """
         s = self.state
         return s.name if s is not None else None
@@ -82,8 +89,10 @@ class ReadHookContext(HookContext):
     This context is passed to hooks registered for 'read' operations.
     Read hooks can inspect the value but should not modify it.
 
-    Attributes:
-        value: The current value being read from the state
+    Attributes
+    ----------
+    value
+        The current value being read from the state
     """
     value: Any = None
 
@@ -95,9 +104,12 @@ class WriteHookContext(HookContext):
     This context provides information about both the new value being written
     and the previous value that will be replaced.
 
-    Attributes:
-        value: The new value being written to the state
-        old_value: The previous value before the write operation
+    Attributes
+    ----------
+    value
+        The new value being written to the state
+    old_value
+        The previous value before the write operation
     """
     value: Any = None
     old_value: Any = None
@@ -111,14 +123,21 @@ class MutableWriteHookContext(WriteHookContext):
     the write operation entirely. Hooks execute in priority order, and each
     hook receives the transformed output from the previous hook (sequential chaining).
 
-    Attributes:
-        value: The original new value being written
-        old_value: The previous value before the write
-        transformed_value: The transformed value (set by hooks to modify the value)
-        cancel: Set to True to cancel the write operation
-        cancel_reason: Optional explanation for why the operation was cancelled
+    Attributes
+    ----------
+    value
+        The original new value being written
+    old_value
+        The previous value before the write
+    transformed_value
+        The transformed value (set by hooks to modify the value)
+    cancel
+        Set to True to cancel the write operation
+    cancel_reason
+        Optional explanation for why the operation was cancelled
 
-    Example:
+    Examples
+    --------
         >>> def clip_values(ctx: MutableWriteHookContext):
         ...     # Transform the value by clipping to [-1, 1]
         ...     import jax.numpy as jnp
@@ -149,9 +168,12 @@ class RestoreHookContext(WriteHookContext):
     Restore hooks can inspect and log the restoration but cannot modify
     the value or cancel the operation (restoration is considered atomic).
 
-    Attributes:
-        value: The new value being restored
-        old_value: The previous value before restoration
+    Attributes
+    ----------
+    value
+        The new value being restored
+    old_value
+        The previous value before restoration
     """
     pass
 
@@ -168,11 +190,15 @@ class InitHookContext(HookContext):
     logging, validation, or registration, but cannot modify the initial
     value or cancel the initialization (use factory functions for that).
 
-    Attributes:
-        value: The initial value of the state
-        metadata: Dictionary of initialization metadata (name, tag, etc.)
+    Attributes
+    ----------
+    value
+        The initial value of the state
+    metadata
+        Dictionary of initialization metadata (name, tag, etc.)
 
-    Example:
+    Examples
+    --------
         >>> def log_state_creation(ctx: InitHookContext):
         ...     print(f"Created state '{ctx.state_name}' with value: {ctx.value}")
 
