@@ -27,6 +27,7 @@ from brainstate._utils import set_module_as
 from brainstate.typing import Missing, Filter
 from brainstate.util import NestedDict, filter
 from ._loop_collect_return import scan
+from ._make_jaxpr import StatefulFunction
 from ._mapping_core import (
     normalize_state_axes,
     state_map_transform,
@@ -240,7 +241,9 @@ class StatefulMapping:
         *args
             Positional arguments to map over (per ``in_axes``).
         **kwargs
-            Keyword arguments. Broadcast to every mapped lane (not mapped).
+            Keyword arguments. Mapped over axis 0 (matching :func:`jax.vmap`),
+            except those named in ``static_argnames``, which are broadcast to
+            every lane as compile-time constants.
 
         Returns
         -------
@@ -314,6 +317,13 @@ def vmap2(
     brainstate.transform.StatefulMapping : Underlying state-aware mapping helper.
     brainstate.transform.pmap2 : Multi-device parallel variant.
     brainstate.transform.vmap : Declaration-based vectorisation (now a shim).
+
+    Notes
+    -----
+    Keyword arguments passed when calling the wrapped function are mapped over
+    axis 0, matching :func:`jax.vmap` (they are **not** broadcast). To keep a
+    keyword argument broadcast as a compile-time constant, construct a
+    :class:`StatefulMapping` directly and list it in ``static_argnames``.
 
     Examples
     --------
@@ -529,6 +539,34 @@ def _validate_leading_lengths(xs) -> int:
     return length
 
 
+def _ensure_stateless_for_batched_map(f, xs):
+    """Reject batched ``map`` over a function that writes :class:`State`.
+
+    The batched path drives :func:`vmap2` inside :func:`scan`, treating ``f`` as
+    a pure memory/throughput optimization (like :func:`jax.lax.map`). A function
+    that *writes* state cannot be batched this way -- its written value would
+    have to thread through the scan carry, which produces a cryptic carry-type
+    error. We detect writes up front by tracing ``f`` once on a single leading
+    slice and raise a clear, actionable error instead.
+
+    Reading state is fine (broadcast per lane); only writes are rejected.
+    """
+    sample = jax.tree.map(lambda x: x[0], xs)
+    sf = StatefulFunction(f, name='map_state_probe')
+    sf.make_jaxpr(*sample)
+    write_states = tuple(sf.get_write_states(*sample))
+    if len(write_states):
+        raise ValueError(
+            "brainstate.transform.map(..., batch_size=...) cannot be used with a "
+            "function that writes State: the batched path runs vmap2 inside scan "
+            "and a written State value cannot thread through the scan carry "
+            f"(found {len(write_states)} written State(s)). "
+            "Use sequential map (drop batch_size) to accumulate state step by "
+            "step, or use brainstate.transform.vmap2 directly to vectorize the "
+            "whole batch at once."
+        )
+
+
 @set_module_as('brainstate.transform')
 def map(
     f,
@@ -552,7 +590,10 @@ def map(
         Positional pytrees sharing the same leading length.
     batch_size : int, optional
         Size of vectorised blocks. When given, ``map`` processes full batches
-        with :func:`vmap2` and then handles any remainder.
+        with :func:`vmap2` and then handles any remainder. The batched path
+        treats ``f`` as stateless (a pure throughput optimization); a function
+        that *writes* :class:`State` is rejected (see Raises). The sequential
+        path (no ``batch_size``) handles state writes normally.
 
     Returns
     -------
@@ -563,7 +604,9 @@ def map(
     Raises
     ------
     ValueError
-        If the inputs do not share the same leading length.
+        If the inputs do not share the same leading length, if ``batch_size`` is
+        not a positive integer, or if ``batch_size`` is given and ``f`` writes
+        :class:`State` (use sequential ``map`` or :func:`vmap2` instead).
 
     See Also
     --------
@@ -590,6 +633,7 @@ def map(
     if batch_size is not None:
         if not (isinstance(batch_size, int) and batch_size > 0):
             raise ValueError(f"batch_size must be a positive integer, got {batch_size!r}.")
+        _ensure_stateless_for_batched_map(f, xs)
         vmapped = vmap2(f)
         scan_xs, remainder_xs = _batch_and_remainder(xs, batch_size)
         g = lambda _, x: ((), vmapped(*x))

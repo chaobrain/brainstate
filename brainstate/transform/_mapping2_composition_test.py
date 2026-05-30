@@ -214,12 +214,29 @@ class TestPmapComposition(unittest.TestCase):
 class TestIntegration(unittest.TestCase):
     """General integration scenarios."""
 
-    def test_kwargs_broadcast(self):
-        @vmap2(in_axes=0)
+    def test_kwargs_mapped_over_axis0(self):
+        # B1 fix: dynamic kwargs are mapped over axis 0, matching jax.vmap
+        # (previously they were silently broadcast, diverging from jax).
         def f(x, *, scale):
             return x * scale
 
-        out = f(jnp.arange(3.), scale=2.0)
+        x = jnp.arange(3.)
+        scale = jnp.full(3, 2.0)
+        out = vmap2(f, in_axes=0)(x, scale=scale)
+        expected = jax.vmap(f, in_axes=0)(x, scale=scale)
+        self.assertTrue(jnp.allclose(out, expected))
+        self.assertTrue(jnp.allclose(out, jnp.arange(3.) * 2.0))
+
+    def test_kwargs_static_broadcast(self):
+        # A scalar kwarg can still be broadcast by declaring it static via
+        # StatefulMapping(static_argnames=...) -- the documented escape hatch.
+        from brainstate.transform import StatefulMapping
+
+        def f(x, *, scale):
+            return x * scale
+
+        mapped = StatefulMapping(f, in_axes=0, static_argnames=('scale',))
+        out = mapped(jnp.arange(3.), scale=2.0)
         self.assertTrue(jnp.allclose(out, jnp.arange(3.) * 2.0))
 
     def test_rng_distinct_per_lane(self):

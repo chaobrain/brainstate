@@ -260,6 +260,14 @@ def _vmap_new_states_transform(
     if isinstance(axis_size, int) and axis_size <= 0:
         raise ValueError(f"axis_size must be greater than 0, got {axis_size}.")
 
+    if in_states is not None or out_states is not None:
+        raise ValueError(
+            "vmap_new_states does not use 'in_states'/'out_states': it maps over "
+            "states *created inside* the function, not pre-existing ones. Use "
+            "brainstate.transform.vmap (which declares in_states/out_states) to "
+            "vectorize over pre-existing states."
+        )
+
     RandomState = _import_rand_state()
 
     if isinstance(in_axes, list):
@@ -383,8 +391,10 @@ def vmap_new_states(
     state_to_exclude : Filter, optional
         Selector for new states that should be left untouched (not vectorized).
     in_states, out_states : dict, State, or iterable of State, optional
-        Retained for signature compatibility with
-        :func:`~brainstate.transform.vmap`.
+        Not supported by this transform. ``vmap_new_states`` maps over states
+        *created inside* ``fun``, so there are no pre-existing states to declare.
+        Passing either raises :class:`ValueError`; use
+        :func:`~brainstate.transform.vmap` to vectorize over pre-existing states.
 
     Returns
     -------
@@ -395,7 +405,9 @@ def vmap_new_states(
     Raises
     ------
     ValueError
-        If ``axis_size`` is provided but not a positive integer.
+        If ``axis_size`` is provided but not a positive integer, or if
+        ``in_states`` / ``out_states`` is provided (use
+        :func:`~brainstate.transform.vmap` for pre-existing states).
     NotImplementedError
         If keyword arguments are passed to the vectorized function.
 

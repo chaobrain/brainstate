@@ -423,5 +423,174 @@ class TestPmap2NewStates(unittest.TestCase):
         self.assertEqual(m.w.value.shape[0], jax.local_device_count())
 
 
+class TestVmap2PytreeInAxes(unittest.TestCase):
+    """B3: per-leaf (pytree-prefix) in_axes within a single positional arg."""
+
+    def test_dict_arg_pytree_prefix_in_axes(self):
+        def f(d):
+            return d['a'] + d['b']
+
+        arg = {'a': jnp.arange(3.), 'b': jnp.arange(3.) * 10}
+        in_axes = ({'a': 0, 'b': None},)
+        got = vmap2(f, in_axes=in_axes)(arg)
+        expected = jax.vmap(f, in_axes=in_axes)(arg)
+        self.assertTrue(jnp.allclose(got, expected))
+
+
+class TestVmap2Collectives(unittest.TestCase):
+    """B2: axis_name collectives (psum, axis_index) match jax.vmap."""
+
+    def test_psum_matches_jax(self):
+        def f(x):
+            return x / jax.lax.psum(x, 'i')
+
+        xs = jnp.arange(1., 5.)
+        got = vmap2(f, in_axes=0, axis_name='i')(xs)
+        expected = jax.vmap(f, in_axes=0, axis_name='i')(xs)
+        self.assertTrue(jnp.allclose(got, expected))
+
+    def test_axis_index_matches_jax(self):
+        def f(x):
+            return x + jax.lax.axis_index('i')
+
+        xs = jnp.zeros(4)
+        got = vmap2(f, in_axes=0, axis_name='i')(xs)
+        expected = jax.vmap(f, in_axes=0, axis_name='i')(xs)
+        self.assertTrue(jnp.allclose(got, expected))
+
+    def test_psum_with_batched_state_write(self):
+        s = brainstate.ShortTermState(jnp.zeros(4))
+
+        def f(x):
+            s.value = x / jax.lax.psum(x, 'i')
+            return s.value
+
+        out = vmap2(f, in_axes=0, axis_name='i', state_out_axes=s)(jnp.arange(1., 5.))
+        self.assertTrue(jnp.allclose(out, jnp.array([0.1, 0.2, 0.3, 0.4])))
+        self.assertTrue(jnp.allclose(s.value, jnp.array([0.1, 0.2, 0.3, 0.4])))
+
+
+class TestVmap2DiscoverySkip(unittest.TestCase):
+    """B5: a stateless cold call skips the discovery vmap (probe + execution only)."""
+
+    def test_stateless_cold_call_skips_discovery(self):
+        # Stateless function: probe (eager) + execution = 2 body executions on a
+        # cold call. Before the fix it was 3 (probe + discovery + execution).
+        count = {'n': 0}
+
+        def f(x):
+            count['n'] += 1
+            return x * 2
+
+        out = vmap2(f, in_axes=0)(jnp.arange(4.))
+        self.assertTrue(jnp.allclose(out, jnp.arange(4.) * 2))
+        self.assertEqual(count['n'], 2)
+
+
+class TestVmap2Kwargs(unittest.TestCase):
+    """B1: dynamic kwargs are mapped over axis 0 (jax.vmap parity)."""
+
+    def test_kwarg_mapped_over_axis0_matches_jax(self):
+        def f(x, y):
+            return x + y
+
+        x = jnp.arange(3.)
+        y = jnp.arange(3.) * 10
+        got = vmap2(f, in_axes=0)(x, y=y)
+        expected = jax.vmap(f, in_axes=0)(x, y=y)
+        self.assertEqual(got.shape, (3,))
+        self.assertTrue(jnp.allclose(got, expected))
+        self.assertTrue(jnp.allclose(got, jnp.array([0., 11., 22.])))
+
+    def test_kwargs_only_no_positional(self):
+        f = lambda *, y: y * 2
+        got = vmap2(f, in_axes=0)(y=jnp.arange(3.))
+        self.assertTrue(jnp.allclose(got, jnp.arange(3.) * 2))
+
+    def test_state_write_with_mapped_kwarg(self):
+        s = brainstate.ShortTermState(jnp.zeros(3))
+
+        def f(x, scale):
+            s.value = x * scale
+            return s.value
+
+        out = vmap2(f, in_axes=0, state_out_axes=s)(jnp.arange(3.), scale=jnp.ones(3) * 5)
+        self.assertTrue(jnp.allclose(out, jnp.arange(3.) * 5))
+        self.assertTrue(jnp.allclose(s.value, jnp.arange(3.) * 5))
+
+
+class TestMapState(unittest.TestCase):
+    """B4: sequential map handles state; batched map rejects stateful f clearly."""
+
+    def test_sequential_map_accumulates_state(self):
+        acc = brainstate.ShortTermState(jnp.zeros(()))
+
+        def f(x):
+            acc.value = acc.value + x
+            return x * 2
+
+        out = map(f, jnp.arange(6.))
+        self.assertTrue(jnp.allclose(out, jnp.arange(6.) * 2))
+        self.assertTrue(jnp.allclose(acc.value, 15.0))
+
+    def test_stateless_batched_map_works(self):
+        out = map(lambda x: x * x, jnp.arange(6.), batch_size=4)
+        self.assertTrue(jnp.allclose(out, jnp.arange(6.) ** 2))
+
+    def test_stateful_batched_map_raises_clear_error(self):
+        acc = brainstate.ShortTermState(jnp.zeros(()))
+
+        def f(x):
+            acc.value = acc.value + x
+            return x * 2
+
+        with self.assertRaises(ValueError) as ctx:
+            map(f, jnp.arange(6.), batch_size=3)
+        self.assertIn("batch_size", str(ctx.exception))
+        self.assertIn("State", str(ctx.exception))
+
+
+class TestVmap2JaxParitySweep(unittest.TestCase):
+    """vmap2 must match jax.vmap on stateless functions across feature axes."""
+
+    def _assert_parity(self, f, *args, **kw):
+        got = vmap2(f, **kw)(*args)
+        expected = jax.vmap(f, **kw)(*args)
+        self.assertTrue(jnp.allclose(got, expected), f"mismatch: {got} vs {expected}")
+
+    def test_basic(self):
+        self._assert_parity(lambda x: x * 2, jnp.arange(4.), in_axes=0)
+
+    def test_in_axes_nonleading(self):
+        self._assert_parity(lambda v: v.sum(), jnp.arange(6.).reshape(2, 3), in_axes=1)
+
+    def test_out_axes(self):
+        self._assert_parity(lambda v: v * 2, jnp.arange(6.).reshape(3, 2), in_axes=0, out_axes=1)
+
+    def test_tuple_in_axes_with_none(self):
+        self._assert_parity(lambda a, b: a + b, jnp.arange(3.), jnp.array(10.), in_axes=(0, None))
+
+    def test_pytree_prefix_in_axes(self):
+        f = lambda d: d['a'] + d['b']
+        self._assert_parity(f, {'a': jnp.arange(3.), 'b': jnp.arange(3.) * 10},
+                            in_axes=({'a': 0, 'b': None},))
+
+    def test_kwargs_axis0(self):
+        x, y = jnp.arange(3.), jnp.arange(3.) * 10
+        got = vmap2(lambda a, y: a + y, in_axes=0)(x, y=y)
+        expected = jax.vmap(lambda a, y: a + y, in_axes=0)(x, y=y)
+        self.assertTrue(jnp.allclose(got, expected))
+
+    def test_collective_psum(self):
+        self._assert_parity(lambda x: x / jax.lax.psum(x, 'i'), jnp.arange(1., 5.),
+                            in_axes=0, axis_name='i')
+
+    def test_nested_vmap(self):
+        x = jnp.arange(6.).reshape(2, 3)
+        got = vmap2(vmap2(lambda v: v.sum(), in_axes=0), in_axes=0)(x)
+        expected = jax.vmap(jax.vmap(lambda v: v.sum(), in_axes=0), in_axes=0)(x)
+        self.assertTrue(jnp.allclose(got, expected))
+
+
 if __name__ == "__main__":
     unittest.main()
