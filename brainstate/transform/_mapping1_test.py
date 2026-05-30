@@ -153,15 +153,15 @@ class TestRemoveAxis(unittest.TestCase):
         self.assertEqual(result.shape, (2, 3))
 
     def test_remove_axis_out_of_bounds(self):
-        """Test error when axis is out of bounds."""
+        """Out-of-bounds axis raises ValueError (jax.vmap-consistent; B8)."""
         x = jnp.arange(12).reshape(3, 4)
-        with self.assertRaises(IndexError):
+        with self.assertRaises(ValueError):
             _remove_axis(x, 5)
 
     def test_remove_axis_negative_out_of_bounds(self):
-        """Test error when negative axis is out of bounds."""
+        """Out-of-bounds negative axis raises ValueError (jax.vmap-consistent; B8)."""
         x = jnp.arange(12).reshape(3, 4)
-        with self.assertRaises(IndexError):
+        with self.assertRaises(ValueError):
             _remove_axis(x, -5)
 
 
@@ -210,11 +210,11 @@ class TestGetBatchSize(unittest.TestCase):
             _get_batch_size(args, in_axes, in_states)
 
     def test_batch_size_no_source_no_axis_size(self):
-        """Test error when no batch size can be determined."""
+        """Indeterminate batch size raises ValueError (not AssertionError; B8)."""
         args = ()
         in_axes = ()
         in_states = {}
-        with self.assertRaises(AssertionError):
+        with self.assertRaises(ValueError):
             _get_batch_size(args, in_axes, in_states)
 
 
@@ -799,6 +799,45 @@ class TestVmapNewStatesProbeHookNonRandom(unittest.TestCase):
         result = fn(xs)
         self.assertEqual(result.shape, (3,))
         self.assertTrue(jnp.allclose(result, xs + 10.0))
+
+
+class TestVmapCollectives(unittest.TestCase):
+    """B2: collectives under axis_name work in the legacy ``vmap`` API too.
+
+    ``vmap`` and ``vmap2`` share the engine, so binding the axis name during the
+    state-discovery probe fixes both. The pre-existing ``test_vmap_with_axis_name``
+    passed ``axis_name`` but never called a collective, so this gap was untested.
+    """
+
+    def test_vmap_psum_matches_jax(self):
+        import jax
+        from brainstate.transform import vmap
+
+        s = bst.ShortTermState(jnp.zeros(4))
+
+        @vmap(in_axes=0, axis_name='i', in_states={0: {'s': s}}, out_states={0: {'s': s}})
+        def fn(x):
+            s.value = x / jax.lax.psum(x, 'i')
+            return s.value
+
+        out = fn(jnp.arange(1., 5.))
+        self.assertTrue(jnp.allclose(out, jnp.array([0.1, 0.2, 0.3, 0.4])))
+
+
+class TestVmapNewStatesRejectsStateArgs(unittest.TestCase):
+    """B6: vmap_new_states must reject (not silently ignore) in_states/out_states."""
+
+    def test_in_states_raises(self):
+        from brainstate.transform import vmap_new_states
+        s = bst.ShortTermState(jnp.zeros(3))
+        with self.assertRaises(ValueError):
+            vmap_new_states(lambda x: x, in_axes=0, axis_size=3, in_states=s)
+
+    def test_out_states_raises(self):
+        from brainstate.transform import vmap_new_states
+        s = bst.ShortTermState(jnp.zeros(3))
+        with self.assertRaises(ValueError):
+            vmap_new_states(lambda x: x, in_axes=0, axis_size=3, out_states=s)
 
 
 if __name__ == '__main__':
