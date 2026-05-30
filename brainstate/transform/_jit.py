@@ -13,9 +13,11 @@
 # limitations under the License.
 # ==============================================================================
 
+from __future__ import annotations
+
 import functools
 from collections.abc import Iterable, Sequence
-from typing import Callable, Union
+from typing import Any, Callable, Union
 
 import jax
 from jax._src import sharding_impls
@@ -223,8 +225,8 @@ def _get_jitted_fun(
 @set_module_as('brainstate.transform')
 def jit(
     fun: Callable | Missing = Missing(),
-    in_shardings=sharding_impls.UNSPECIFIED,
-    out_shardings=sharding_impls.UNSPECIFIED,
+    in_shardings: Any = sharding_impls.UNSPECIFIED,
+    out_shardings: Any = sharding_impls.UNSPECIFIED,
     static_argnums: int | Sequence[int] | None = None,
     donate_argnums: int | Sequence[int] | None = None,
     static_argnames: str | Sequence[str] | None = None,

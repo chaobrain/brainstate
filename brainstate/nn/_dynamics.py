@@ -33,6 +33,8 @@ For handling the delays:
 
 """
 
+from __future__ import annotations
+
 from typing import Any, Dict, Callable, Hashable, Optional, Union, TypeVar, Tuple
 
 import brainunit as u
@@ -812,7 +814,7 @@ def _get_prefetch_item_delay(target: Union[Prefetch, PrefetchDelay, PrefetchDela
     return delay
 
 
-def init_maybe_prefetch(target, *args, **kwargs):
+def init_maybe_prefetch(target: Any, *args, **kwargs) -> None:
     """
     Initialize a prefetch target if needed, based on its type.
 
@@ -852,7 +854,7 @@ def init_maybe_prefetch(target, *args, **kwargs):
         pass
 
 
-def receive_update_output(cls: object):
+def receive_update_output(cls: object) -> object:
     """
     The decorator to mark the object (as the after updates) to receive the output of the update function.
 
@@ -885,7 +887,7 @@ def not_receive_update_output(cls: T) -> T:
     return cls
 
 
-def receive_update_input(cls: object):
+def receive_update_input(cls: object) -> object:
     """
     The decorator to mark the object (as the before updates) to receive the input of the update function.
 
@@ -902,7 +904,7 @@ def receive_update_input(cls: object):
     return cls
 
 
-def not_receive_update_input(cls: object):
+def not_receive_update_input(cls: object) -> object:
     """
     The decorator to mark the object (as the before updates) to not receive the input of the update function.
 

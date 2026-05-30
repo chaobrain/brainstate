@@ -13,6 +13,8 @@
 # limitations under the License.
 # ==============================================================================
 
+from __future__ import annotations
+
 import functools
 from typing import TypeVar, Callable, Dict, Hashable, List, Any, Sequence, Optional
 
@@ -359,7 +361,7 @@ def vmap_new_states(
     state_to_exclude: Filter = None,
     in_states: Dict[int, Dict] | Any | None = None,
     out_states: Dict[int, Dict] | Any | None = None,
-):
+) -> Callable:
     """
     Vectorize a function over the new states it creates.
 

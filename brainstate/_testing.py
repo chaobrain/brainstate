@@ -24,11 +24,14 @@ See ``CONTRIBUTING.md`` (Testing conventions) for usage guidance.
 
 from __future__ import annotations
 
+from typing import Any, Callable, Sequence, Union
+
 import brainunit as u
 import jax
 import jax.numpy as jnp
 
 import brainstate
+from brainstate.typing import ArrayLike
 
 __all__ = [
     "SMALL_BATCH",
@@ -58,7 +61,14 @@ DEFAULT_ATOL = 1e-6
 seeded = brainstate.random.seed_context
 
 
-def assert_allclose(actual, expected, *, rtol=DEFAULT_RTOL, atol=DEFAULT_ATOL, check_dtype=False):
+def assert_allclose(
+    actual: ArrayLike,
+    expected: ArrayLike,
+    *,
+    rtol: float = DEFAULT_RTOL,
+    atol: float = DEFAULT_ATOL,
+    check_dtype: bool = False,
+) -> None:
     """Assert two (possibly unit-carrying) arrays match in shape and value.
 
     Parameters
@@ -105,7 +115,13 @@ def _assert_tree_allclose(tree_a, tree_b, *, rtol, atol):
     )
 
 
-def assert_jit_equal(fn, *args, rtol=DEFAULT_RTOL, atol=DEFAULT_ATOL, **kwargs):
+def assert_jit_equal(
+    fn: Callable,
+    *args,
+    rtol: float = DEFAULT_RTOL,
+    atol: float = DEFAULT_ATOL,
+    **kwargs,
+) -> Any:
     """Assert ``brainstate.transform.jit(fn)`` matches eager ``fn`` leaf-wise."""
     eager = fn(*args, **kwargs)
     jitted = brainstate.transform.jit(fn)(*args, **kwargs)
@@ -113,7 +129,12 @@ def assert_jit_equal(fn, *args, rtol=DEFAULT_RTOL, atol=DEFAULT_ATOL, **kwargs):
     return jitted
 
 
-def assert_grad_finite(fn, *args, argnums=0, **kwargs):
+def assert_grad_finite(
+    fn: Callable,
+    *args,
+    argnums: Union[int, Sequence[int]] = 0,
+    **kwargs,
+) -> Any:
     """Assert ``brainstate.transform.grad(fn)`` yields all-finite gradients.
 
     ``fn`` must return a scalar.
@@ -126,7 +147,12 @@ def assert_grad_finite(fn, *args, argnums=0, **kwargs):
     return grads
 
 
-def assert_vmap_equal(fn, *batched_args, rtol=DEFAULT_RTOL, atol=DEFAULT_ATOL):
+def assert_vmap_equal(
+    fn: Callable,
+    *batched_args,
+    rtol: float = DEFAULT_RTOL,
+    atol: float = DEFAULT_ATOL,
+) -> Any:
     """Assert ``vmap(fn)`` over axis 0 matches an explicit Python loop.
 
     Every positional argument is mapped over its leading axis (``in_axes=0``).
@@ -140,14 +166,14 @@ def assert_vmap_equal(fn, *batched_args, rtol=DEFAULT_RTOL, atol=DEFAULT_ATOL):
 
 
 def assert_transform_compatible(
-    fn,
+    fn: Callable,
     *args,
-    transforms=("jit",),
-    grad_argnums=0,
-    rtol=DEFAULT_RTOL,
-    atol=DEFAULT_ATOL,
+    transforms: Sequence[str] = ("jit",),
+    grad_argnums: Union[int, Sequence[int]] = 0,
+    rtol: float = DEFAULT_RTOL,
+    atol: float = DEFAULT_ATOL,
     **kwargs,
-):
+) -> bool:
     """Run ``fn`` under each requested JAX transform and assert agreement.
 
     Parameters
@@ -165,7 +191,12 @@ def assert_transform_compatible(
     return True
 
 
-def assert_pytree_roundtrip(obj, *, rtol=DEFAULT_RTOL, atol=DEFAULT_ATOL):
+def assert_pytree_roundtrip(
+    obj: Any,
+    *,
+    rtol: float = DEFAULT_RTOL,
+    atol: float = DEFAULT_ATOL,
+) -> Any:
     """Assert ``obj`` survives a flatten/unflatten roundtrip structurally and by value."""
     leaves, treedef = jax.tree.flatten(obj)
     rebuilt = jax.tree.unflatten(treedef, leaves)

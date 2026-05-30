@@ -26,7 +26,7 @@ update (:func:`update_states`), removal (:func:`pop_states`), deep copy
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Tuple, Union
 
 from brainstate._state import State, TreefyState
 from brainstate._utils import set_module_as
@@ -34,6 +34,7 @@ from brainstate.typing import Filter, Predicate
 from brainstate.util import NestedDict, FlattedDict
 from brainstate.util.filter import to_predicate
 from ._flatten import flatten, unflatten
+from ._graphdef import GraphDef
 from ._walk import (
     iter_leaf, iter_node, _is_node, _is_graph_node, _is_state_leaf,
     _is_node_leaf, _get_node_impl, MAX_INT,
@@ -91,7 +92,7 @@ def _split_state(state: NestedDict, filters: tuple[Filter, ...]):
 # ---------------------------------------------------------------------------
 
 @set_module_as('brainstate.graph')
-def treefy_split(node, *filters):
+def treefy_split(node: Any, *filters: Filter) -> Tuple[GraphDef, Any]:
     """Split a graph node into a ``GraphDef`` and one or more state mappings.
 
     Parameters
@@ -126,7 +127,7 @@ def treefy_split(node, *filters):
 
 
 @set_module_as('brainstate.graph')
-def treefy_merge(graphdef, *state_mappings):
+def treefy_merge(graphdef: GraphDef, *state_mappings: NestedDict) -> Any:
     """Reconstruct a node from a ``GraphDef`` and one or more state mappings.
 
     Parameters
@@ -151,7 +152,7 @@ def treefy_merge(graphdef, *state_mappings):
 # ---------------------------------------------------------------------------
 
 @set_module_as('brainstate.graph')
-def treefy_states(node, *filters):
+def treefy_states(node: Any, *filters: Filter) -> Union[NestedDict, Tuple[NestedDict, ...]]:
     """Return the treefy state mapping of ``node``, optionally filtered.
 
     Parameters
@@ -179,7 +180,11 @@ def _states_generator(node, allowed_hierarchy):
 
 
 @set_module_as('brainstate.graph')
-def states(node, *filters, allowed_hierarchy: tuple[int, int] = (0, MAX_INT)):
+def states(
+    node: Any,
+    *filters: Filter,
+    allowed_hierarchy: tuple[int, int] = (0, MAX_INT),
+) -> Union[FlattedDict, Tuple[FlattedDict, ...]]:
     """Collect ``State`` objects from a graph node as ``FlattedDict``(s).
 
     Parameters
@@ -208,7 +213,11 @@ def states(node, *filters, allowed_hierarchy: tuple[int, int] = (0, MAX_INT)):
 
 
 @set_module_as('brainstate.graph')
-def nodes(node, *filters, allowed_hierarchy: tuple[int, int] = (0, MAX_INT)):
+def nodes(
+    node: Any,
+    *filters: Filter,
+    allowed_hierarchy: tuple[int, int] = (0, MAX_INT),
+) -> Union[FlattedDict, Tuple[FlattedDict, ...]]:
     """Collect graph nodes as ``FlattedDict``(s), optionally filtered.
 
     Parameters
@@ -237,7 +246,7 @@ def nodes(node, *filters, allowed_hierarchy: tuple[int, int] = (0, MAX_INT)):
 
 
 @set_module_as('brainstate.graph')
-def graphdef(node) -> Any:
+def graphdef(node: Any) -> GraphDef:
     """Return the ``GraphDef`` of ``node``.
 
     Parameters
@@ -254,7 +263,7 @@ def graphdef(node) -> Any:
 
 
 @set_module_as('brainstate.graph')
-def clone(node):
+def clone(node: Any) -> Any:
     """Deep-copy ``node`` via split/merge (shared references preserved).
 
     Parameters
@@ -302,7 +311,7 @@ def _graph_pop(node, id_to_index, path_parts, flatted_state_dicts, predicates) -
 
 
 @set_module_as('brainstate.graph')
-def pop_states(node, *filters):
+def pop_states(node: Any, *filters: Filter) -> Union[NestedDict, Tuple[NestedDict, ...]]:
     """Remove and return ``State``s matching the filters (deduped by identity).
 
     Parameters

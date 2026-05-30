@@ -13,6 +13,10 @@
 # limitations under the License.
 # ==============================================================================
 
+from __future__ import annotations
+
+from typing import Any
+
 import jax
 import jax.core
 import jax.interpreters.batching as batching
@@ -21,6 +25,7 @@ import jax.numpy as jnp
 
 from brainstate._compatible_import import Primitive
 from brainstate._utils import set_module_as
+from brainstate.typing import ArrayLike
 
 __all__ = [
     "unvmap",
@@ -28,7 +33,7 @@ __all__ = [
 
 
 @set_module_as('brainstate.transform')
-def unvmap(x, op: str = 'any'):
+def unvmap(x: ArrayLike, op: str = 'any') -> Any:
     """
     Remove a leading vmap dimension by aggregating batched values.
 

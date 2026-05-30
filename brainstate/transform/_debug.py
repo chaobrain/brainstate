@@ -54,6 +54,8 @@ by the output gate and reported with per-output diagnostics, but without a
 primitive-level source.
 """
 
+from __future__ import annotations
+
 import functools
 import traceback as tb_module
 from typing import Any, Callable, List, Tuple
@@ -65,6 +67,7 @@ from jax.experimental import checkify
 from jax.extend import source_info_util
 
 from brainstate._compatible_import import Tracer
+from brainstate.typing import ArrayLike
 from ._conditions import cond
 from ._make_jaxpr import StatefulFunction
 from ._unvmap import unvmap
@@ -409,7 +412,7 @@ class DebugNan:
 # Convenience functions
 # ---------------------------------------------------------------------------
 
-def debug_nan(fn: Callable, *args, phase: str = ''):
+def debug_nan(fn: Callable, *args, phase: str = '') -> None:
     """
     Run *fn* with NaN / Inf detection (JIT-compatible).
 
@@ -452,7 +455,7 @@ def debug_nan(fn: Callable, *args, phase: str = ''):
     DebugNan(fn, *args, phase=phase).check()
 
 
-def debug_nan_if(has_nan, fn: Callable, *args, phase: str = ''):
+def debug_nan_if(has_nan: ArrayLike, fn: Callable, *args, phase: str = '') -> None:
     """
     Conditionally run *fn* with NaN / Inf detection.
 
@@ -486,7 +489,7 @@ def debug_nan_if(has_nan, fn: Callable, *args, phase: str = ''):
     DebugNan(fn, *args, phase=phase).check_if(has_nan)
 
 
-def breakpoint_if(pred, **breakpoint_kwargs):
+def breakpoint_if(pred: ArrayLike, **breakpoint_kwargs) -> Any:
     """
     As ``jax.debug.breakpoint``, but only triggers if *pred* is True.
 

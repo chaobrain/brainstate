@@ -13,8 +13,10 @@
 # limitations under the License.
 # ==============================================================================
 
+from __future__ import annotations
+
 from functools import wraps
-from typing import Callable, Dict, Optional, Union
+from typing import Any, Callable, Dict, Optional, Union
 
 import jax
 from jax.sharding import NamedSharding, PartitionSpec
@@ -46,14 +48,14 @@ def _resolve_state_spec(state: State, table) -> PartitionSpec:
 @set_module_as("brainstate.transform")
 def shard_map(
     fun: Callable,
-    mesh,
-    in_specs,
-    out_specs,
+    mesh: jax.sharding.Mesh,
+    in_specs: Any,
+    out_specs: Any,
     *,
     state_in_specs: Optional[Union[PartitionSpec, Dict[State, PartitionSpec]]] = None,
     state_out_specs: Optional[Union[PartitionSpec, Dict[State, PartitionSpec]]] = None,
     check_vma: bool = True,
-):
+) -> Callable:
     """Map a stateful function over shards of data across a device mesh (SPMD).
 
     A state-aware wrapper over :func:`jax.shard_map`. The function's

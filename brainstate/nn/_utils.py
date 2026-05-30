@@ -15,9 +15,12 @@
 
 # -*- coding: utf-8 -*-
 
+from __future__ import annotations
+
 from brainstate._state import ParamState
 from ._module import Module
 from functools import partial
+from typing import Any, Tuple, Union
 
 import jax
 import jax.numpy as jnp
@@ -57,7 +60,7 @@ def count_parameters(
     module: Module,
     precision: int = 2,
     return_table: bool = False,
-):
+) -> Union[int, Tuple[Any, int]]:
     """
     Count and display the number of trainable parameters in a neural network model.
 

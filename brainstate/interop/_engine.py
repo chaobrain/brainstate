@@ -24,6 +24,8 @@ informative ``UnsupportedStructureError``.
 
 from __future__ import annotations
 
+from typing import Any
+
 import brainstate.nn as bnn
 
 from ._common import Context, FrameworkAdapter
@@ -35,7 +37,7 @@ from ._registry import (lookup_export, lookup_import, unsupported_bst_reason,
 __all__ = ['to_bst', 'to_foreign']
 
 
-def to_bst(node, adapter: FrameworkAdapter, ctx: Context):
+def to_bst(node: Any, adapter: FrameworkAdapter, ctx: Context) -> Any:
     """Convert a foreign ``node`` (leaf or ``Sequential``) into a brainstate module."""
     ftype = adapter.layer_type(node)
     mapping = lookup_import(adapter.name, ftype)
@@ -65,7 +67,7 @@ def to_bst(node, adapter: FrameworkAdapter, ctx: Context):
     raise UnmappedLayerError(ftype, adapter.name)
 
 
-def to_foreign(node, adapter: FrameworkAdapter, ctx: Context):
+def to_foreign(node: Any, adapter: FrameworkAdapter, ctx: Context) -> Any:
     """Convert a brainstate ``node`` (leaf or ``Sequential``) into a foreign module."""
     btype = type(node)
     mapping = lookup_export(btype, adapter.name)

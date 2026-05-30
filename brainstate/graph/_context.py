@@ -28,7 +28,7 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 import threading
-from typing import Any, TypeVar
+from typing import Any, Iterator, Tuple, TypeVar
 
 from typing_extensions import Unpack
 
@@ -76,7 +76,7 @@ class SplitContext:
 
 
 @contextlib.contextmanager
-def split_context():
+def split_context() -> Iterator[Tuple[SplitContext, RefMap[Any, Index]]]:
     """Context manager for splitting multiple graph nodes sharing a reference index."""
     index_ref: RefMap[Any, Index] = RefMap()
     flatten_ctx = SplitContext(index_ref)
@@ -106,7 +106,7 @@ class MergeContext:
 
 
 @contextlib.contextmanager
-def merge_context():
+def merge_context() -> Iterator[Tuple[MergeContext, dict]]:
     """Context manager for merging multiple graph nodes sharing a reference index."""
     index_ref: dict[Index, Any] = {}
     unflatten_ctx = MergeContext(index_ref)

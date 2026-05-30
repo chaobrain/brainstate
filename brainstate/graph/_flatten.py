@@ -25,7 +25,7 @@ nodes never recurses and cycles/sharing resolve regardless of fill order.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional, Tuple
 
 from brainstate._state import State, TreefyState
 from brainstate._utils import set_module_as
@@ -101,7 +101,12 @@ class _Encoder:
 
 
 @set_module_as('brainstate.graph')
-def flatten(node: Any, /, ref_index: RefMap | None = None, treefy_state: bool = True):
+def flatten(
+    node: Any,
+    /,
+    ref_index: Optional[RefMap] = None,
+    treefy_state: bool = True,
+) -> Tuple[GraphDef, NestedDict]:
     """Flatten a graph ``node`` into a ``(GraphDef, NestedDict)`` pair.
 
     Graph nodes and ``State`` objects are hoisted into a single global index
@@ -199,7 +204,14 @@ def _iter_edges(graphdef: GraphDef):
 
 
 @set_module_as('brainstate.graph')
-def unflatten(graphdef, state_mapping, /, *, index_ref=None, index_ref_cache=None):
+def unflatten(
+    graphdef: GraphDef,
+    state_mapping: NestedDict,
+    /,
+    *,
+    index_ref: Optional[dict] = None,
+    index_ref_cache: Optional[dict] = None,
+) -> Any:
     """Reconstruct a graph node from a ``GraphDef`` and a state mapping.
 
     Parameters

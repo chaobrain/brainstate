@@ -13,6 +13,8 @@
 # limitations under the License.
 # ==============================================================================
 
+from __future__ import annotations
+
 import functools
 import inspect
 from collections import defaultdict
@@ -569,10 +571,10 @@ def _ensure_stateless_for_batched_map(f, xs):
 
 @set_module_as('brainstate.transform')
 def map(
-    f,
+    f: Callable,
     *xs,
     batch_size: int | None = None,
-):
+) -> Any:
     """
     Apply a function over the leading axis of one or more pytrees.
 
@@ -853,7 +855,7 @@ def vmap2_new_states(
     axis_size: int = None,
     state_out_axes: Dict[int, Filter] = None,
     spmd_axis_name: AxisName | Tuple[AxisName, ...] | None = None,
-):
+) -> Dict:
     """
     Initialize and vectorize newly created states within a module.
 
@@ -933,7 +935,7 @@ def pmap2_new_states(
     axis_size: int = None,
     state_out_axes: Dict[int, Filter] = None,
     axis_name: AxisName | None = None,
-):
+) -> Dict:
     """
     Initialize and parallelize newly created states across devices.
 

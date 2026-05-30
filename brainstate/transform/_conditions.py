@@ -13,7 +13,10 @@
 # limitations under the License.
 # ==============================================================================
 
+from __future__ import annotations
+
 from collections.abc import Callable, Sequence
+from typing import Any
 
 import jax
 import jax.numpy as jnp
@@ -21,6 +24,7 @@ import numpy as np
 
 from brainstate._compatible_import import to_concrete_aval, Tracer
 from brainstate._utils import set_module_as
+from brainstate.typing import ArrayLike
 from ._error_if import jit_error_if
 from ._make_jaxpr import StatefulFunction
 from ._util import wrap_single_fun_in_multi_branches
@@ -31,7 +35,7 @@ __all__ = [
 
 
 @set_module_as('brainstate.transform')
-def cond(pred, true_fun: Callable, false_fun: Callable, *operands):
+def cond(pred: ArrayLike, true_fun: Callable, false_fun: Callable, *operands) -> Any:
     """
     Conditionally apply ``true_fun`` or ``false_fun``.
 
@@ -140,7 +144,7 @@ def cond(pred, true_fun: Callable, false_fun: Callable, *operands):
 
 
 @set_module_as('brainstate.transform')
-def switch(index, branches: Sequence[Callable], *operands):
+def switch(index: ArrayLike, branches: Sequence[Callable], *operands) -> Any:
     """
     Apply exactly one branch from ``branches`` based on ``index``.
 
@@ -247,7 +251,12 @@ def switch(index, branches: Sequence[Callable], *operands):
 
 
 @set_module_as('brainstate.transform')
-def ifelse(conditions, branches, *operands, check_cond: bool = True):
+def ifelse(
+    conditions: Sequence,
+    branches: Sequence[Callable],
+    *operands,
+    check_cond: bool = True,
+) -> Any:
     """
     Represent multi-way ``if``/``elif``/``else`` control flow.
 

@@ -684,6 +684,15 @@ class Module(Node, ParamDesc):
 
 
 class ElementWiseBlock(Module):
+    """
+    Marker base class for element-wise neural network modules.
+
+    ``ElementWiseBlock`` is a thin :class:`Module` subclass used to tag modules
+    that apply an element-wise transformation to their input (for example
+    activation functions or dropout). It adds no behavior of its own; it exists
+    so that such modules can be recognized by ``isinstance`` checks and treated
+    specially by containers such as :class:`Sequential`.
+    """
     __module__ = 'brainstate.nn'
 
 

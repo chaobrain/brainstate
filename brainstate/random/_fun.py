@@ -16,12 +16,16 @@
 
 # -*- coding: utf-8 -*-
 
-from typing import Optional
+from __future__ import annotations
 
+from typing import Optional, Union
+
+import jax
+import brainunit as u
 import numpy as np
 
 from brainstate._utils import set_module_as
-from brainstate.typing import DTypeLike, Size, SeedOrKey
+from brainstate.typing import ArrayLike, DTypeLike, Size, SeedOrKey
 from ._state import RandomState, DEFAULT
 
 __all__ = [
@@ -90,10 +94,10 @@ __all__ = [
 
 @set_module_as('brainstate.random')
 def rand(
-    *dn,
+    *dn: int,
     key: Optional[SeedOrKey] = None,
-    dtype: DTypeLike = None
-):
+    dtype: Optional[DTypeLike] = None
+) -> jax.Array:
     r"""
     Random values in a given shape.
 
@@ -138,12 +142,12 @@ def rand(
 
 @set_module_as('brainstate.random')
 def randint(
-    low,
-    high=None,
+    low: ArrayLike,
+    high: Optional[ArrayLike] = None,
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
-    dtype: DTypeLike = None
-):
+    dtype: Optional[DTypeLike] = None
+) -> jax.Array:
     r"""Return random integers from `low` (inclusive) to `high` (exclusive).
 
     Return random integers from the "discrete uniform" distribution of
@@ -224,12 +228,12 @@ def randint(
 
 @set_module_as('brainstate.random')
 def random_integers(
-    low,
-    high=None,
+    low: ArrayLike,
+    high: Optional[ArrayLike] = None,
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
-    dtype: DTypeLike = None
-):
+    dtype: Optional[DTypeLike] = None
+) -> jax.Array:
     r"""
     Random integers of type `np.int_` between `low` and `high`, inclusive.
 
@@ -319,10 +323,10 @@ def random_integers(
 
 @set_module_as('brainstate.random')
 def randn(
-    *dn,
+    *dn: int,
     key: Optional[SeedOrKey] = None,
-    dtype: DTypeLike = None
-):
+    dtype: Optional[DTypeLike] = None
+) -> jax.Array:
     r"""
     Return a sample (or samples) from the "standard normal" distribution.
 
@@ -391,8 +395,8 @@ def randn(
 def random(
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
-    dtype: DTypeLike = None
-):
+    dtype: Optional[DTypeLike] = None
+) -> jax.Array:
     r"""
     Return random floats in the half-open interval [0.0, 1.0). Alias for
     `random_sample` to ease forward-porting to the new random API.
@@ -404,8 +408,8 @@ def random(
 def random_sample(
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
-    dtype: DTypeLike = None
-):
+    dtype: Optional[DTypeLike] = None
+) -> jax.Array:
     r"""
     Return random floats in the half-open interval [0.0, 1.0).
 
@@ -469,8 +473,8 @@ def random_sample(
 def ranf(
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
-    dtype: DTypeLike = None
-):
+    dtype: Optional[DTypeLike] = None
+) -> jax.Array:
     r"""
     This is an alias of `random_sample`. See `random_sample`  for the complete
     documentation.
@@ -482,8 +486,8 @@ def ranf(
 def sample(
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
-    dtype: DTypeLike = None
-):
+    dtype: Optional[DTypeLike] = None
+) -> jax.Array:
     """
     This is an alias of `random_sample`. See `random_sample`  for the complete
     documentation.
@@ -493,12 +497,12 @@ def sample(
 
 @set_module_as('brainstate.random')
 def choice(
-    a,
+    a: ArrayLike,
     size: Optional[Size] = None,
-    replace=True,
-    p=None,
+    replace: bool = True,
+    p: Optional[ArrayLike] = None,
     key: Optional[SeedOrKey] = None
-):
+) -> Union[jax.Array, u.Quantity]:
     r"""
     Generates a random sample from a given 1-D array
 
@@ -600,11 +604,11 @@ def choice(
 
 @set_module_as('brainstate.random')
 def permutation(
-    x,
+    x: ArrayLike,
     axis: int = 0,
     independent: bool = False,
     key: Optional[SeedOrKey] = None
-):
+) -> Union[jax.Array, u.Quantity]:
     r"""
     Randomly permute a sequence, or return a permuted range.
 
@@ -668,63 +672,71 @@ def permutation(
 
 @set_module_as('brainstate.random')
 def shuffle(
-    x,
+    x: ArrayLike,
     axis: int = 0,
     key: Optional[SeedOrKey] = None
-):
+) -> Union[jax.Array, u.Quantity]:
     r"""
-    Modify a sequence in-place by shuffling its contents.
+    Return a randomly shuffled copy of an array along an axis.
 
-    This function only shuffles the array along the first axis of a
-    multi-dimensional array. The order of sub-arrays is changed but
-    their contents remains the same.
+    The contents of ``x`` are permuted along the given ``axis`` (only the order
+    of slices along that axis changes; the values within each slice are kept).
+
+    .. note::
+
+        Unlike :func:`numpy.random.shuffle`, this function does **not** modify
+        ``x`` in place. JAX arrays are immutable, so a new array is returned and
+        the input is left unchanged. Bind the result to use it.
 
     Parameters
     ----------
-    x : ndarray or MutableSequence
-        The array, list or mutable sequence to be shuffled.
-    key : PRNGKey, optional
-        The key for the random number generator. If not given, the
+    x : ArrayLike
+        The array (or array-like) to shuffle. May carry physical units.
+    axis : int, default 0
+        The axis along which ``x`` is shuffled.
+    key : SeedOrKey, optional
+        Seed or PRNG key for the random number generator. If not given, the
         default random number generator is used.
 
     Returns
     -------
-    None
+    out : jax.Array or brainunit.Quantity
+        A new array with the same shape and dtype as ``x``, shuffled along
+        ``axis``. A :class:`~brainunit.Quantity` is returned when ``x`` carries
+        physical units.
 
     Examples
     --------
-    Shuffle a 1D array in-place:
+    Shuffle a 1D array (the input is not modified):
 
     .. code-block:: python
 
         >>> import brainstate
         >>> import numpy as np
         >>> arr = np.arange(10)
-        >>> original_elements = set(arr)
-        >>> brainstate.random.shuffle(arr)
-        >>> print(set(arr) == original_elements)  # True (same elements)
+        >>> shuffled = brainstate.random.shuffle(arr)
+        >>> print(set(np.asarray(shuffled)) == set(arr))  # True (same elements)
 
-    Multi-dimensional arrays are only shuffled along the first axis:
+    Multi-dimensional arrays are shuffled along ``axis`` (default first axis):
 
     .. code-block:: python
 
         >>> arr = np.arange(9).reshape((3, 3))
-        >>> original_shape = arr.shape
-        >>> brainstate.random.shuffle(arr)
-        >>> print(arr.shape == original_shape)  # True (shape preserved)
-        >>> print(sorted(arr.flatten()) == list(range(9)))  # True (same elements)
+        >>> shuffled = brainstate.random.shuffle(arr)
+        >>> print(shuffled.shape == arr.shape)  # True (shape preserved)
+        >>> print(sorted(np.asarray(shuffled).flatten()) == list(range(9)))  # True
     """
     return DEFAULT.shuffle(x, axis=axis, key=key)
 
 
 @set_module_as('brainstate.random')
 def beta(
-    a,
-    b,
+    a: ArrayLike,
+    b: ArrayLike,
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
-    dtype: DTypeLike = None
-):
+    dtype: Optional[DTypeLike] = None
+) -> jax.Array:
     r"""
     Draw samples from a Beta distribution.
 
@@ -767,11 +779,11 @@ def beta(
 
 @set_module_as('brainstate.random')
 def exponential(
-    scale=None,
+    scale: Optional[ArrayLike] = None,
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
-    dtype: DTypeLike = None
-):
+    dtype: Optional[DTypeLike] = None
+) -> Union[jax.Array, u.Quantity]:
     r"""
     Draw samples from an exponential distribution.
 
@@ -822,12 +834,12 @@ def exponential(
 
 @set_module_as('brainstate.random')
 def gamma(
-    shape,
-    scale=None,
+    shape: ArrayLike,
+    scale: Optional[ArrayLike] = None,
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
-    dtype: DTypeLike = None
-):
+    dtype: Optional[DTypeLike] = None
+) -> Union[jax.Array, u.Quantity]:
     r"""
     Draw samples from a Gamma distribution.
 
@@ -884,12 +896,12 @@ def gamma(
 
 @set_module_as('brainstate.random')
 def gumbel(
-    loc=None,
-    scale=None,
+    loc: Optional[ArrayLike] = None,
+    scale: Optional[ArrayLike] = None,
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
-    dtype: DTypeLike = None
-):
+    dtype: Optional[DTypeLike] = None
+) -> Union[jax.Array, u.Quantity]:
     r"""
     Draw samples from a Gumbel distribution.
 
@@ -963,12 +975,12 @@ def gumbel(
 
 @set_module_as('brainstate.random')
 def laplace(
-    loc=None,
-    scale=None,
+    loc: Optional[ArrayLike] = None,
+    scale: Optional[ArrayLike] = None,
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
-    dtype: DTypeLike = None
-):
+    dtype: Optional[DTypeLike] = None
+) -> Union[jax.Array, u.Quantity]:
     r"""
     Draw samples from the Laplace or double exponential distribution with
     specified location (or mean) and scale (decay).
@@ -1053,12 +1065,12 @@ def laplace(
 
 @set_module_as('brainstate.random')
 def logistic(
-    loc=None,
-    scale=None,
+    loc: Optional[ArrayLike] = None,
+    scale: Optional[ArrayLike] = None,
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
-    dtype: DTypeLike = None
-):
+    dtype: Optional[DTypeLike] = None
+) -> Union[jax.Array, u.Quantity]:
     r"""
     Draw samples from a logistic distribution.
 
@@ -1133,12 +1145,12 @@ def logistic(
 
 @set_module_as('brainstate.random')
 def normal(
-    loc=None,
-    scale=None,
+    loc: Optional[ArrayLike] = None,
+    scale: Optional[ArrayLike] = None,
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
-    dtype: DTypeLike = None
-):
+    dtype: Optional[DTypeLike] = None
+) -> Union[jax.Array, u.Quantity]:
     r"""
     Draw random samples from a normal (Gaussian) distribution.
 
@@ -1225,11 +1237,11 @@ def normal(
 
 @set_module_as('brainstate.random')
 def pareto(
-    a,
+    a: ArrayLike,
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
-    dtype: DTypeLike = None
-):
+    dtype: Optional[DTypeLike] = None
+) -> jax.Array:
     r"""
     Draw samples from a Pareto II or Lomax distribution with
     specified shape.
@@ -1326,11 +1338,11 @@ def pareto(
 
 @set_module_as('brainstate.random')
 def poisson(
-    lam=1.0,
+    lam: ArrayLike = 1.0,
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
-    dtype: DTypeLike = None
-):
+    dtype: Optional[DTypeLike] = None
+) -> jax.Array:
     r"""
     Draw samples from a Poisson distribution.
 
@@ -1404,8 +1416,8 @@ def poisson(
 def standard_cauchy(
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
-    dtype: DTypeLike = None
-):
+    dtype: Optional[DTypeLike] = None
+) -> jax.Array:
     r"""
     Draw samples from a standard Cauchy distribution with mode = 0.
 
@@ -1474,8 +1486,8 @@ def standard_cauchy(
 def standard_exponential(
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
-    dtype: DTypeLike = None
-):
+    dtype: Optional[DTypeLike] = None
+) -> jax.Array:
     r"""
     Draw samples from the standard exponential distribution.
 
@@ -1508,11 +1520,11 @@ def standard_exponential(
 
 @set_module_as('brainstate.random')
 def standard_gamma(
-    shape,
+    shape: ArrayLike,
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
-    dtype: DTypeLike = None
-):
+    dtype: Optional[DTypeLike] = None
+) -> jax.Array:
     r"""
     Draw samples from a standard Gamma distribution.
 
@@ -1588,8 +1600,8 @@ def standard_gamma(
 def standard_normal(
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
-    dtype: DTypeLike = None
-):
+    dtype: Optional[DTypeLike] = None
+) -> jax.Array:
     r"""
     Draw samples from a standard Normal distribution (mean=0, stdev=1).
 
@@ -1660,11 +1672,11 @@ def standard_normal(
 
 @set_module_as('brainstate.random')
 def standard_t(
-    df,
+    df: ArrayLike,
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
-    dtype: DTypeLike = None
-):
+    dtype: Optional[DTypeLike] = None
+) -> jax.Array:
     r"""
     Draw samples from a standard Student's t distribution with `df` degrees
     of freedom.
@@ -1769,12 +1781,12 @@ def standard_t(
 
 @set_module_as('brainstate.random')
 def uniform(
-    low=0.0,
-    high=1.0,
+    low: ArrayLike = 0.0,
+    high: ArrayLike = 1.0,
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
-    dtype: DTypeLike = None
-):
+    dtype: Optional[DTypeLike] = None
+) -> Union[jax.Array, u.Quantity]:
     r"""
     Draw samples from a uniform distribution.
 
@@ -1866,15 +1878,15 @@ def uniform(
 
 @set_module_as('brainstate.random')
 def truncated_normal(
-    lower,
-    upper,
+    lower: ArrayLike,
+    upper: ArrayLike,
     size: Optional[Size] = None,
-    loc=0.0,
-    scale=1.0,
+    loc: ArrayLike = 0.0,
+    scale: ArrayLike = 1.0,
     key: Optional[SeedOrKey] = None,
-    dtype: DTypeLike = None,
+    dtype: Optional[DTypeLike] = None,
     check_valid: bool = True
-):
+) -> Union[jax.Array, u.Quantity]:
     r"""Sample truncated standard normal random values with given shape and dtype.
 
     Method based on https://people.sc.fsu.edu/~jburkardt/presentations/truncated_normal.pdf
@@ -1948,11 +1960,11 @@ RandomState.truncated_normal.__doc__ = truncated_normal.__doc__
 
 @set_module_as('brainstate.random')
 def bernoulli(
-    p=0.5,
+    p: ArrayLike = 0.5,
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
     check_valid: bool = True,
-):
+) -> jax.Array:
     r"""Sample Bernoulli random values with given shape and mean.
 
     Parameters
@@ -1980,12 +1992,12 @@ def bernoulli(
 
 @set_module_as('brainstate.random')
 def lognormal(
-    mean=None,
-    sigma=None,
+    mean: Optional[ArrayLike] = None,
+    sigma: Optional[ArrayLike] = None,
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
-    dtype: DTypeLike = None
-):
+    dtype: Optional[DTypeLike] = None
+) -> jax.Array:
     r"""
     Draw samples from a log-normal distribution.
 
@@ -2095,13 +2107,13 @@ def lognormal(
 
 @set_module_as('brainstate.random')
 def binomial(
-    n,
-    p,
+    n: ArrayLike,
+    p: ArrayLike,
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
-    dtype: DTypeLike = None,
+    dtype: Optional[DTypeLike] = None,
     check_valid: bool = True
-):
+) -> jax.Array:
     r"""
     Draw samples from a binomial distribution.
 
@@ -2191,11 +2203,11 @@ def binomial(
 
 @set_module_as('brainstate.random')
 def chisquare(
-    df,
+    df: ArrayLike,
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
-    dtype: DTypeLike = None
-):
+    dtype: Optional[DTypeLike] = None
+) -> jax.Array:
     r"""
     Draw samples from a chi-square distribution.
 
@@ -2269,11 +2281,11 @@ def chisquare(
 
 @set_module_as('brainstate.random')
 def dirichlet(
-    alpha,
+    alpha: ArrayLike,
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
-    dtype: DTypeLike = None
-):
+    dtype: Optional[DTypeLike] = None
+) -> jax.Array:
     r"""
     Draw samples from the Dirichlet distribution.
 
@@ -2356,11 +2368,11 @@ def dirichlet(
 
 @set_module_as('brainstate.random')
 def geometric(
-    p,
+    p: ArrayLike,
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
-    dtype: DTypeLike = None
-):
+    dtype: Optional[DTypeLike] = None
+) -> jax.Array:
     r"""
     Draw samples from the geometric distribution.
 
@@ -2412,12 +2424,12 @@ def geometric(
 
 @set_module_as('brainstate.random')
 def f(
-    dfnum,
-    dfden,
+    dfnum: ArrayLike,
+    dfden: ArrayLike,
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
-    dtype: DTypeLike = None
-):
+    dtype: Optional[DTypeLike] = None
+) -> jax.Array:
     r"""
     Draw samples from an F distribution.
 
@@ -2506,13 +2518,13 @@ def f(
 
 @set_module_as('brainstate.random')
 def hypergeometric(
-    ngood,
-    nbad,
-    nsample,
+    ngood: ArrayLike,
+    nbad: ArrayLike,
+    nsample: ArrayLike,
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
-    dtype: DTypeLike = None
-):
+    dtype: Optional[DTypeLike] = None
+) -> jax.Array:
     r"""
     Draw samples from a Hypergeometric distribution.
 
@@ -2609,11 +2621,11 @@ def hypergeometric(
 
 @set_module_as('brainstate.random')
 def logseries(
-    p,
+    p: ArrayLike,
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
-    dtype: DTypeLike = None
-):
+    dtype: Optional[DTypeLike] = None
+) -> jax.Array:
     r"""
     Draw samples from a logarithmic series distribution.
 
@@ -2694,13 +2706,13 @@ def logseries(
 
 @set_module_as('brainstate.random')
 def multinomial(
-    n,
-    pvals,
+    n: ArrayLike,
+    pvals: ArrayLike,
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
-    dtype: DTypeLike = None,
+    dtype: Optional[DTypeLike] = None,
     check_valid: bool = True,
-):
+) -> jax.Array:
     r"""
     Draw samples from a multinomial distribution.
 
@@ -2779,13 +2791,13 @@ def multinomial(
 
 @set_module_as('brainstate.random')
 def multivariate_normal(
-    mean,
-    cov,
+    mean: ArrayLike,
+    cov: ArrayLike,
     size: Optional[Size] = None,
     method: str = 'cholesky',
     key: Optional[SeedOrKey] = None,
-    dtype: DTypeLike = None
-):
+    dtype: Optional[DTypeLike] = None
+) -> Union[jax.Array, u.Quantity]:
     r"""
     Draw random samples from a multivariate normal distribution.
 
@@ -2915,12 +2927,12 @@ def multivariate_normal(
 
 @set_module_as('brainstate.random')
 def negative_binomial(
-    n,
-    p,
+    n: ArrayLike,
+    p: ArrayLike,
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
-    dtype: DTypeLike = None
-):
+    dtype: Optional[DTypeLike] = None
+) -> jax.Array:
     r"""
     Draw samples from a negative binomial distribution.
 
@@ -2997,12 +3009,12 @@ def negative_binomial(
 
 @set_module_as('brainstate.random')
 def noncentral_chisquare(
-    df,
-    nonc,
+    df: ArrayLike,
+    nonc: ArrayLike,
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
-    dtype: DTypeLike = None
-):
+    dtype: Optional[DTypeLike] = None
+) -> jax.Array:
     r"""
     Draw samples from a noncentral chi-square distribution.
 
@@ -3079,13 +3091,13 @@ def noncentral_chisquare(
 
 @set_module_as('brainstate.random')
 def noncentral_f(
-    dfnum,
-    dfden,
-    nonc,
+    dfnum: ArrayLike,
+    dfden: ArrayLike,
+    nonc: ArrayLike,
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
-    dtype: DTypeLike = None
-):
+    dtype: Optional[DTypeLike] = None
+) -> jax.Array:
     r"""
     Draw samples from the noncentral F distribution.
 
@@ -3160,11 +3172,11 @@ def noncentral_f(
 
 @set_module_as('brainstate.random')
 def power(
-    a,
+    a: ArrayLike,
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
-    dtype: DTypeLike = None
-):
+    dtype: Optional[DTypeLike] = None
+) -> jax.Array:
     r"""
     Draws samples in [0, 1] from a power distribution with positive
     exponent a - 1.
@@ -3265,11 +3277,11 @@ def power(
 
 @set_module_as('brainstate.random')
 def rayleigh(
-    scale=1.0,
+    scale: ArrayLike = 1.0,
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
-    dtype: DTypeLike = None
-):
+    dtype: Optional[DTypeLike] = None
+) -> Union[jax.Array, u.Quantity]:
     r"""
     Draw samples from a Rayleigh distribution.
 
@@ -3340,7 +3352,7 @@ def rayleigh(
 def triangular(
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None
-):
+) -> jax.Array:
     r"""
     Draw samples from the triangular distribution over the
     interval ``[left, right]``.
@@ -3402,12 +3414,12 @@ def triangular(
 
 @set_module_as('brainstate.random')
 def vonmises(
-    mu,
-    kappa,
+    mu: ArrayLike,
+    kappa: ArrayLike,
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
-    dtype: DTypeLike = None
-):
+    dtype: Optional[DTypeLike] = None
+) -> Union[jax.Array, u.Quantity]:
     r"""
     Draw samples from a von Mises distribution.
 
@@ -3491,12 +3503,12 @@ def vonmises(
 
 @set_module_as('brainstate.random')
 def wald(
-    mean,
-    scale,
+    mean: ArrayLike,
+    scale: ArrayLike,
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
-    dtype: DTypeLike = None
-):
+    dtype: Optional[DTypeLike] = None
+) -> Union[jax.Array, u.Quantity]:
     r"""
     Draw samples from a Wald, or inverse Gaussian, distribution.
 
@@ -3565,11 +3577,11 @@ def wald(
 
 @set_module_as('brainstate.random')
 def weibull(
-    a,
+    a: ArrayLike,
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
-    dtype: DTypeLike = None
-):
+    dtype: Optional[DTypeLike] = None
+) -> jax.Array:
     r"""
     Draw samples from a Weibull distribution.
 
@@ -3662,12 +3674,12 @@ def weibull(
 
 @set_module_as('brainstate.random')
 def weibull_min(
-    a,
-    scale=None,
+    a: ArrayLike,
+    scale: Optional[ArrayLike] = None,
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
-    dtype: DTypeLike = None
-):
+    dtype: Optional[DTypeLike] = None
+) -> Union[jax.Array, u.Quantity]:
     """Sample from a Weibull distribution.
 
     The scipy counterpart is `scipy.stats.weibull_min`.
@@ -3688,11 +3700,11 @@ def weibull_min(
 
 @set_module_as('brainstate.random')
 def zipf(
-    a,
+    a: ArrayLike,
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
-    dtype: DTypeLike = None
-):
+    dtype: Optional[DTypeLike] = None
+) -> jax.Array:
     r"""
     Draw samples from a Zipf distribution.
 
@@ -3783,8 +3795,8 @@ def zipf(
 def maxwell(
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
-    dtype: DTypeLike = None
-):
+    dtype: Optional[DTypeLike] = None
+) -> jax.Array:
     """Sample from a one sided Maxwell distribution.
 
     The scipy counterpart is `scipy.stats.maxwell`.
@@ -3804,11 +3816,11 @@ def maxwell(
 
 @set_module_as('brainstate.random')
 def t(
-    df,
+    df: ArrayLike,
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
-    dtype: DTypeLike = None
-):
+    dtype: Optional[DTypeLike] = None
+) -> jax.Array:
     """Sample Student’s t random values.
 
     Parameters
@@ -3835,8 +3847,8 @@ def orthogonal(
     n: int,
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
-    dtype: DTypeLike = None
-):
+    dtype: Optional[DTypeLike] = None
+) -> jax.Array:
     """Sample uniformly from the orthogonal group `O(n)`.
 
     Parameters
@@ -3859,11 +3871,11 @@ def orthogonal(
 
 @set_module_as('brainstate.random')
 def loggamma(
-    a,
+    a: ArrayLike,
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
-    dtype: DTypeLike = None
-):
+    dtype: Optional[DTypeLike] = None
+) -> jax.Array:
     """Sample log-gamma random values.
 
     Parameters
@@ -3890,11 +3902,11 @@ def loggamma(
 
 @set_module_as('brainstate.random')
 def categorical(
-    logits,
+    logits: ArrayLike,
     axis: int = -1,
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None
-):
+) -> jax.Array:
     """Sample random values from categorical distributions.
 
     Args:
@@ -3915,11 +3927,11 @@ def categorical(
 
 @set_module_as('brainstate.random')
 def rand_like(
-    input,
+    input: ArrayLike,
     *,
-    dtype=None,
+    dtype: Optional[DTypeLike] = None,
     key: Optional[SeedOrKey] = None
-):
+) -> jax.Array:
     """Similar to ``rand_like`` in torch.
 
     Returns a tensor with the same size as input that is filled with random
@@ -3938,11 +3950,11 @@ def rand_like(
 
 @set_module_as('brainstate.random')
 def randn_like(
-    input,
+    input: ArrayLike,
     *,
-    dtype=None,
+    dtype: Optional[DTypeLike] = None,
     key: Optional[SeedOrKey] = None
-):
+) -> jax.Array:
     """Similar to ``randn_like`` in torch.
 
     Returns a tensor with the same size as ``input`` that is filled with
@@ -3961,13 +3973,13 @@ def randn_like(
 
 @set_module_as('brainstate.random')
 def randint_like(
-    input,
-    low=0,
-    high=None,
+    input: ArrayLike,
+    low: ArrayLike = 0,
+    high: Optional[ArrayLike] = None,
     *,
-    dtype=None,
+    dtype: Optional[DTypeLike] = None,
     key: Optional[SeedOrKey] = None
-):
+) -> jax.Array:
     """Similar to ``randint_like`` in torch.
 
     Returns a tensor with the same shape as Tensor ``input`` filled with

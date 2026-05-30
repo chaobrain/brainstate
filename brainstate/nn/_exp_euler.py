@@ -14,9 +14,12 @@
 # ==============================================================================
 
 
-from typing import Callable
+from __future__ import annotations
+
+from typing import Callable, Union
 
 import brainunit as u
+import jax
 import jax.numpy as jnp
 
 from brainstate import environ, random
@@ -29,7 +32,7 @@ __all__ = [
 
 def exp_euler_step(
     fn: Callable, *args, **kwargs
-):
+) -> Union[jax.Array, u.Quantity]:
     r"""
     One-step Exponential Euler method for solving ODEs and SDEs.
 

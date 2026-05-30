@@ -17,10 +17,10 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, Literal, Optional
+from typing import Any, Callable, List, Literal, Optional
 
 from ._state_hook_manager import HookManager, HookConfig
-from ._state_hook_core import HookHandle
+from ._state_hook_core import Hook, HookHandle
 from ._state_hook_context import HookContext
 
 __all__ = [
@@ -172,7 +172,7 @@ def has_state_hooks(hook_type: Optional[str] = None) -> bool:
     return GlobalHookRegistry.instance().has_hooks(hook_type)
 
 
-def list_state_hooks(hook_type: Optional[str] = None):
+def list_state_hooks(hook_type: Optional[str] = None) -> List[Hook]:
     """List all registered global hooks, optionally filtered by type.
 
     Args:
