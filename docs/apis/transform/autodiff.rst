@@ -39,7 +39,7 @@ Jacobian and Hessian
    hessian
 
 Base Classes
------------
+------------
 
 .. autosummary::
    :toctree: ../generated/

@@ -132,7 +132,9 @@ through automatically, with no manual bookkeeping. For a guided walkthrough, sta
    :maxdepth: 1
    :caption: Getting Started
 
-   getting_started/index
+   getting_started/installation
+   getting_started/quickstart
+   getting_started/thinking_in_brainstate
 
 .. toctree::
    :hidden:
@@ -148,21 +150,36 @@ through automatically, with no manual bookkeeping. For a guided walkthrough, sta
    :maxdepth: 1
    :caption: How-to Guides
 
-   how_to/index
+   how_to/checkpoint_and_restore
+   how_to/inspect_and_edit_state_graph
+   how_to/filter_and_organize_states
+   how_to/collective_operations
+   how_to/custom_states_and_mixins
+   how_to/state_hooks
+   how_to/constrain_and_regularize_parameters
+   how_to/interoperate_with_flax_equinox
+   how_to/migrate_from_pytorch
 
 .. toctree::
    :hidden:
    :maxdepth: 1
    :caption: Concepts
 
-   concepts/index
+   concepts/why_state_based
+   concepts/the_state_model
+   concepts/the_parameter_model
+   concepts/the_graph_model
+   concepts/transformation_semantics
+   concepts/time_and_environment
+   concepts/the_typing_system
 
 .. toctree::
    :hidden:
    :maxdepth: 2
    :caption: Examples
 
-   examples/index
+   examples/deep_learning/index
+   examples/brain_dynamics/index
 
 
 

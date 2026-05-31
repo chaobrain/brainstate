@@ -40,7 +40,7 @@ equation-to-Jaxpr conversion and JIT inlining operations.
    inline_jit
 
 Code Generation
---------------
+---------------
 
 Convert JAX functions and Jaxpr representations into readable Python code for
 inspection, debugging, and understanding the underlying computation structure.
@@ -54,7 +54,7 @@ inspection, debugging, and understanding the underlying computation structure.
    register_prim_handler
 
 Visualization
-------------
+-------------
 
 Visualize computation graphs and Jaxpr structures using various graph drawing
 libraries and formats, enabling visual inspection of complex transformations.
