@@ -36,7 +36,9 @@ jobs:
           TAG="${{ github.event.release.tag_name }}"
           PKG_VERSION=$(python - <<'PY'
           import re, pathlib
-          init = pathlib.Path('brainstate/__init__.py').read_text(encoding='utf-8')
+          # Version lives in brainstate/_version.py (the canonical source that
+          # pyproject.toml reads); __init__.py only re-imports it.
+          init = pathlib.Path('brainstate/_version.py').read_text(encoding='utf-8')
           m = re.search(r"__version__\s*=\s*['\"]([^'\"]+)['\"]", init)
           print(m.group(1))
           PY

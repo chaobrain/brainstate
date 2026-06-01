@@ -56,8 +56,8 @@ keywords = [
 
 dependencies = [
     'numpy>=1.15',
-    'brainunit',
-    'brainevent',
+    'brainunit>=0.3.0',
+    'brainevent>=0.0.7',
 ]
 
 dynamic = ['version']
@@ -78,23 +78,23 @@ progressbar = [
 ]
 cpu = [
     'jax[cpu]>=0.6.0',
-    'brainunit',
-    'brainevent',
+    'brainunit>=0.3.0',
+    'brainevent>=0.0.7',
 ]
 cuda12 = [
     'jax[cuda12]>=0.6.0',
-    'brainunit',
-    'brainevent',
+    'brainunit>=0.3.0',
+    'brainevent>=0.0.7',
 ]
 cuda13 = [
     'jax[cuda13]>=0.6.0',
-    'brainunit',
-    'brainevent',
+    'brainunit>=0.3.0',
+    'brainevent>=0.0.7',
 ]
 tpu = [
     'jax[tpu]>=0.6.0',
-    'brainunit',
-    'brainevent',
+    'brainunit>=0.3.0',
+    'brainevent>=0.0.7',
 ]
 testing = [
     'absl-py',
@@ -102,8 +102,8 @@ testing = [
     'coverage',
     'jax>=0.6.0',
     'tqdm',
-    'brainunit',
-    'brainevent',
+    'brainunit>=0.3.0',
+    'brainevent>=0.0.7',
 ]
 
 
