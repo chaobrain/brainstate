@@ -26,6 +26,7 @@ functionality, including:
 """
 
 import unittest
+import warnings
 from functools import partial
 from unittest.mock import Mock
 
@@ -632,6 +633,45 @@ class TestModuleStructure(unittest.TestCase):
         """Test module has proper docstring."""
         self.assertIsNotNone(compat.__doc__)
         self.assertIn('Compatibility layer', compat.__doc__)
+
+    def test_all_has_no_duplicates(self):
+        """``__all__`` must not contain duplicate names.
+
+        ``DropVar`` was previously listed twice; this guards against the
+        duplicate (or any other) reappearing.
+        """
+        seen = [name for name in compat.__all__]
+        duplicates = {name for name in seen if seen.count(name) > 1}
+        self.assertEqual(duplicates, set(),
+                         f"Duplicate names in __all__: {sorted(duplicates)}")
+
+
+class TestDeprecationFreeImports(unittest.TestCase):
+    """Guard against re-introducing deprecated JAX import paths."""
+
+    def test_dropvar_available(self):
+        """``DropVar`` is exported and importable across JAX versions."""
+        self.assertTrue(hasattr(compat, 'DropVar'))
+        self.assertEqual(compat.DropVar.__name__, 'DropVar')
+
+    def test_dropvar_import_emits_no_deprecation_warning(self):
+        """Importing the compat layer must not emit a ``DropVar`` DeprecationWarning.
+
+        On jax>=0.10 ``jax.core.DropVar`` is deprecated; ``DropVar`` must be
+        sourced from ``jax.extend.core`` instead (handled by the JAX-0.10
+        version-conditional block). Reloading re-executes the module's
+        top-level imports, so any deprecated path would surface here.
+        """
+        import importlib
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            importlib.reload(compat)
+        dropvar_warnings = [
+            str(w.message) for w in caught
+            if issubclass(w.category, DeprecationWarning) and 'DropVar' in str(w.message)
+        ]
+        self.assertEqual(dropvar_warnings, [],
+                         f"Unexpected DropVar deprecation warning(s): {dropvar_warnings}")
 
 
 if __name__ == '__main__':
