@@ -15,7 +15,6 @@ training utilities. Browse the reference by category below.
    module
    parameters
    regularization
-   init
    linear
    conv
    normalization
