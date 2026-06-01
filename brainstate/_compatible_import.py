@@ -87,7 +87,6 @@ __all__ = [
 
     'trace_ctx',
     'DebugInfo',
-    'DropVar',
     'CallPrimitive',
     'Effect',
     'Effects',
@@ -140,7 +139,10 @@ if jax.__version_info__ < (0, 7, 1):
 else:
     from jax._src.interpreters.batching import make_iota, to_elt, BatchTracer, BatchTrace
 
-from jax.core import DropVar
+# NOTE: ``DropVar`` is imported (version-conditionally) in the JAX-0.10 block
+# below -- from ``jax.extend.core`` on jax>=0.10 and ``jax.core`` on older
+# releases. Do not add an unconditional ``from jax.core import DropVar`` here:
+# on jax>=0.10 that path is deprecated and emits a DeprecationWarning at import.
 
 if jax.__version_info__ < (0, 4, 38):
     from jax.core import (
