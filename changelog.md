@@ -1,11 +1,13 @@
 # Release Notes
 
 
-## Unreleased
+## Version 0.4.0 (2026-06-01)
 
 ### Breaking Changes
 
 - **Renamed `jit_named_scope` to `named_scope`**: The `brainstate.transform.jit_named_scope` decorator is now exported as `brainstate.transform.named_scope`. Update any usage accordingly.
+- **Removed `brainstate.transform.sofo_grad`**: the second-order forward-mode (SOFO) gradient helper has moved to `braintools`. Replace `brainstate.transform.sofo_grad(fn, ...)` with the `braintools.optim.SOFO` optimizer (see `examples/009_sofo_mnist.py` for the updated usage).
+- **Removed `brainstate.graph.NodeDef` and `brainstate.graph.NodeRef`**: the graph representation was reworked. A flattened graph is now described by `brainstate.graph.NodeSpec` together with the new edge types (`NodeEdge`, `StateEdge`, `StateLeafEdge`, `PytreeEdge`, `StaticEdge`, `Static`). Code that referenced `NodeDef`/`NodeRef` directly must migrate to these types; users of the high-level `graph.flatten` / `graph.treefy_split` / `graph.treefy_merge` API are unaffected.
 
 #### Typed PRNG Keys in `brainstate.random`
 
@@ -44,6 +46,27 @@ Random distributions are now **comprehensively and strictly compatible with
 
 - **`brainstate.random.get_key_data()`** returns the current global key as a raw `uint32[2]` array (via `jax.random.key_data`), for interfacing with code that still expects the legacy representation.
 
+#### Framework Interoperability (`brainstate.interop`)
+
+A new `brainstate.interop` module converts modules to and from other JAX
+frameworks, with an extensible layer registry:
+
+- **Flax NNX**: `to_nnx` / `from_nnx`.
+- **Flax Linen**: `to_linen` / `from_linen`.
+- **Equinox**: `to_equinox` / `from_equinox`.
+- **Registry**: `register_layer_mapping`, `supported_layers`, `LayerMapping`.
+- **Typed errors**: `InteropError` and its subclasses (`MissingDependencyError`, `UnmappedLayerError`, `UnsupportedLayerError`, `UnsupportedStructureError`, `MissingShapeError`, `ConversionError`).
+
+#### New Transformations
+
+`brainstate.transform` gains several state-aware transformations:
+
+- **`vjp` / `jvp`**: state-aware reverse- and forward-mode differentiation products (companions to `grad`).
+- **`shard_map`**: a state-aware wrapper over `jax.shard_map` for SPMD sharding.
+- **`named_call`**: attach a name to a sub-computation for clearer jaxprs and profiles.
+- **Runtime checks (`checkify` family)**: `checkify`, `check`, `check_error`, and the error-class selectors `nan_checks`, `div_checks`, `index_checks`, `float_checks`, `user_checks`, `automatic_checks`, `all_checks`.
+- **`register_prim_handler`**: register custom primitive handlers for the IR/codegen pipeline.
+
 ### Bug Fixes
 
 - **`multivariate_normal` now propagates physical units**: previously the output unit was read after the mantissa had already been stripped from `mean`, so units were silently dropped. Samples now correctly carry the unit of `mean`.
@@ -51,6 +74,20 @@ Random distributions are now **comprehensively and strictly compatible with
 - **`brainstate.transform.vjp` now supports state-only differentiation**: calling `vjp(fun, grad_states=...)` with no differentiable positional argument (e.g. a loss that closes over trainable parameters) previously raised `IndexError`. It now returns a pullback yielding just the state cotangents, matching `brainstate.transform.grad` semantics.
 - **`brainstate.transform.vjp` accepts `argnums=None`**: like `grad`, `argnums=None` disables positional-argument differentiation so the pullback returns only state cotangents.
 - **Clearer `vjp` errors**: out-of-range `argnums` now raises a descriptive `ValueError` instead of a bare `IndexError`, and supplying neither positional primals nor `grad_states` raises an explanatory `ValueError`.
+- **No `jax.core.DropVar` deprecation warning on import**: the JAX compatibility layer now sources `DropVar` from `jax.extend.core` on JAX >= 0.10, removing a redundant deprecated import.
+
+### Known Issues
+
+Known defects deferred to a future patch release (each has a skipped regression
+test capturing the repro):
+
+- `nn.AdaptiveAvgPool2d/3d` (and Max variants) raise `TypeError` when a target dimension is `None`, despite documenting `None` as "do not pool this dimension".
+- `random.truncated_normal` / `nn.init.TruncatedNormal()` crash when `lower`/`upper` are left at their `None` defaults.
+- `nn.weight_standardization` raises when given a unit-carrying `Quantity` input.
+- The `nn` collective-op `vmap`-call helpers can leak a JAX `BatchTracer` into newly created state values.
+- `nn` delay unit retrieval can fail with a pytree-node mismatch (`Quantity` history vs `Unit`).
+- `nn` event fixed-probability connectivity with `efferent_target='pre'` can crash (and, with `afferent_ratio < 1`, abort) inside the `brainevent` CSC path.
+- State filtering with the documented `{filter: axis}` mapping form raises `TypeError`.
 
 
 ## Version 0.3.0
