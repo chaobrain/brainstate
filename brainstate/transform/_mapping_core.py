@@ -49,28 +49,55 @@ Cold calls perform up to three passes:
 3. **execution** -- the actual ``jax.vmap`` / ``jax.pmap`` call that scatters
    batched state writes back along the discovered axes.
 
-Because cold calls may run ``f`` more than once, functions with host side
-effects (``jax.debug.print``, ``jax.experimental.io_callback``) can observe
-those effects multiple times on the first call with a given argument structure.
-Warm calls (same argument structure) reuse the cached plan and perform only
-the execution pass.
-
 Dynamic keyword arguments are mapped over axis 0 (matching ``jax.vmap``);
 keyword arguments named in ``static_argnames`` are closed over as compile-time
 constants and broadcast unchanged.
+
+Caveats
+-------
+* **Repeated execution of** ``f`` **on cold calls (B9).** A cold call runs ``f``
+  up to three times (eager probe + discovery + execution). This re-runs not only
+  JAX-staged host callbacks (``jax.debug.print``, ``jax.experimental.io_callback``)
+  but also *ordinary Python-level* side effects in ``f`` -- ``print``, list
+  appends, counters, logging, RNG drawn via the host ``random`` module, etc. Such
+  effects are observed multiple times on the first call with a given argument
+  structure. Warm calls (same argument structure) reuse the cached plan and run
+  only the execution pass. Keep ``f`` free of observable Python side effects, or
+  expect them once per pass on cold calls.
+
+* **Zero-placeholder probe / value-dependent control flow (B4).** During the
+  eager probe, matched batched-input states are fed trace-free ``numpy`` zero
+  placeholders (see :func:`_deaxed_like`), not their real per-lane values. This
+  keeps the probe leak-free, but means ``f`` must not change *which states it
+  touches* based on the numeric contents of a batched state -- e.g.
+  ``if some_state.value.sum() > 0: other_state.value = ...``. The probe walks a
+  single control-flow path determined by zeros, so a different path taken at real
+  values would mis-enumerate the touched states. This mirrors ``jax.vmap``'s own
+  rule that you cannot branch Python control flow on mapped values; branching on
+  unmapped/broadcast state values is fine.
+
+* **Global-state mutation / thread-safety (B10).** The engine temporarily mutates
+  the closed-over :class:`~brainstate.State` objects in place (restoring lane
+  values during the probe/discovery passes and snapshotting/restoring around
+  them). It is therefore **not safe** to invoke two mapped functions that share
+  the same ``State`` objects concurrently from multiple threads; the passes will
+  race on those states. Concurrency across *disjoint* state sets is fine.
 """
 
 import functools
 import warnings
+import weakref
 from collections import defaultdict
 from typing import Any, Callable, Dict, Hashable, List, Optional, Tuple, TypeVar
 
+import brainunit as u
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 from brainstate._compatible_import import BatchTracer
 from brainstate._error import BatchAxisError
-from brainstate._state import State, StateTraceStack, TRACE_CONTEXT
+from brainstate._state import State, StateTraceStack, TRACE_CONTEXT, NonBatchState
 from brainstate.util import filter as filter_module
 from ._make_jaxpr import StatefulFunction, get_arg_cache_key
 
@@ -93,9 +120,14 @@ __all__ = [
     # Phase 3 -- rng + stack level
     'split_rng_keys',
     'unwind_new_state_levels',
+    # Phase 3b -- new-state output-axis resolver
+    'INIT_NO_BATCHING',
+    '_build_new_state_resolver',
+    '_resolve_new_state_axis',
     # Phase 4 -- engine
     'leaf_batch_dim',
     'StateMapPlan',
+    'LiveStateMapPlan',
     'state_map_transform',
 ]
 
@@ -158,11 +190,42 @@ def _remove_axis(x, axis: int):
     return x[tuple(slice(None, None, None) if i != axis else 0 for i in range(x.ndim))]
 
 
+def _deaxed_like(x, axis: int):
+    """Trace-free, de-batched placeholder used during state probing.
+
+    Returns a value with the same per-lane shape/dtype/unit as
+    ``_remove_axis(x, axis)``, but built from ``numpy`` so it can never be
+    bound to a (possibly nested) trace. The probe only needs each state's
+    structure to discover what is touched; the concrete values are recovered
+    afterwards via ``StateTraceStack.recovery_original_values``. Slicing the
+    live value instead (the former behaviour) produced a tracer whenever the
+    state was first read inside a nested control-flow primitive, and that
+    tracer escaped its trace.
+    """
+    if axis < 0:
+        axis += jnp.ndim(x)
+    shape = tuple(s for i, s in enumerate(jnp.shape(x)) if i != axis)
+    mantissa = np.zeros(shape, dtype=x.dtype)
+    unit = u.get_unit(x)
+    return mantissa if unit.is_unitless else u.Quantity(mantissa, unit=unit)
+
+
 def _compile_stateful_function(
     stateful_fn: StatefulFunction,
     in_axes: int | Tuple[int, ...],
     args: Tuple
 ):
+    """Strip mapped axes and build a per-signature cache key for a stateful fn.
+
+    .. note::
+
+        Compatibility shim (B7). The current :func:`state_map_transform` engine
+        does **not** use this helper -- it derives its plan cache key via
+        :func:`~brainstate.transform._make_jaxpr.get_arg_cache_key` directly.
+        This function is retained because it is part of the module's public
+        surface (listed in ``__all__``) and exercised by existing tests; do not
+        delete it without a deprecation cycle.
+    """
     in_axes_st, in_axes = in_axes
     state_vals, args = args
 
@@ -389,6 +452,75 @@ def unwind_new_state_levels(states, base_level: int) -> None:
 
 
 # ============================================================================ #
+# Phase 3b -- new-state output-axis resolver (shared by the new-states paths)
+# ============================================================================ #
+
+# Tag marking states that must be replicated (not batched) when created inside a
+# new-states mapping transform. Shared so both ``_mapping1`` and ``_mapping2``
+# resolve it identically; re-exported by ``_mapping2`` for backward-compatible
+# imports (e.g. ``brainstate.nn._delay``).
+INIT_NO_BATCHING = 'INIT_NO_BATCHING'
+
+
+def _build_new_state_resolver(state_out_axes):
+    """Build an ordered ``[(axis, predicate), ...]`` resolver for new states.
+
+    Resolution priority (first match wins):
+
+    1. axis ``None`` -- :class:`~brainstate.NonBatchState` (plus any user-supplied
+       ``None`` selector). These states are replicated, not batched.
+    2. user-specified axes (other than ``0``), in declaration order.
+    3. axis ``0`` -- everything else (default batched axis).
+
+    Returns
+    -------
+    ordered : list of (axis, predicate)
+        Resolver entries in priority order.
+    axes_order : list
+        Unique axis identifiers in priority order, used to build the mapped
+        ``out_axes``.
+    """
+    if state_out_axes is None:
+        state_out_axes = dict()
+    if not isinstance(state_out_axes, dict):
+        state_out_axes = {0: state_out_axes}
+    user = {k: filter_module.to_predicate(v) for k, v in state_out_axes.items()}
+
+    nonbatch = filter_module.to_predicate(NonBatchState)
+    no_batch_tag = filter_module.to_predicate(INIT_NO_BATCHING)
+    ordered = []
+
+    if None in user:
+        user_none = user[None]
+        ordered.append(
+            (None, lambda p, s, a=user_none, b=nonbatch, c=no_batch_tag: a(p, s) or b(p, s) or c(p, s))
+        )
+    else:
+        ordered.append((None, lambda p, s, b=nonbatch, c=no_batch_tag: b(p, s) or c(p, s)))
+
+    for axis, pred in user.items():
+        if axis is None or axis == 0:
+            continue
+        ordered.append((axis, pred))
+
+    if 0 in user:
+        ordered.append((0, user[0]))
+    else:
+        ordered.append((0, filter_module.to_predicate(...)))  # Everything (catch-all)
+
+    axes_order = list(dict.fromkeys(axis for axis, _ in ordered))
+    return ordered, axes_order
+
+
+def _resolve_new_state_axis(st, ordered):
+    """Return the output axis for ``st`` per a resolver from :func:`_build_new_state_resolver`."""
+    for axis, pred in ordered:
+        if pred(tuple(), st):
+            return axis
+    return 0
+
+
+# ============================================================================ #
 # Phase 4 -- unified discovery + execution engine
 # ============================================================================ #
 
@@ -448,8 +580,34 @@ def leaf_batch_dim(value) -> Optional[int]:
     return dims.pop()
 
 
-class StateMapPlan:
-    """Cached plan describing how states are batched for a mapped call.
+def _leaf_axis_size(value, axis: int) -> Optional[int]:
+    """Size of ``value``'s first leaf along ``axis`` (``None`` if out of range).
+
+    Used by the ``'auto'`` policy to decide whether an undeclared batched write is
+    really a per-lane read-modify-write input: if the state's prior value is
+    already sized like the batch along the detected axis, it is treated as a
+    batched input rather than scattered (see :func:`_build_plan`).
+    """
+    leaves = jax.tree.leaves(value, is_leaf=u.math.is_quantity)
+    if not leaves:
+        return None
+    shape = getattr(leaves[0], 'shape', None)
+    if shape is None:
+        return None
+    if axis < 0:
+        axis += len(shape)
+    if 0 <= axis < len(shape):
+        return shape[axis]
+    return None
+
+
+class LiveStateMapPlan:
+    """A plan with its states resolved to strong references.
+
+    Valid for the duration of a single mapped call. Holding an instance keeps
+    the plan's states alive while the mapping primitive runs. Produced by
+    :meth:`StateMapPlan.materialize` (warm path) or :func:`_build_plan`
+    (cold path), and consumed by :func:`_execute_plan`.
 
     Attributes
     ----------
@@ -472,6 +630,99 @@ class StateMapPlan:
         self.rng_states = rng_states
         self.out_groups = out_groups
         self.oth_out_states = oth_out_states
+
+
+class StateMapPlan:
+    """Cached plan describing how states are batched for a mapped call.
+
+    The plan holds only :class:`weakref.ref` references to its states, never
+    strong ones. This is deliberate (audit finding **B3**): the warm-path cache
+    is keyed purely on the *argument* signature
+    (:func:`~brainstate.transform._make_jaxpr.get_arg_cache_key`), which carries
+    no State identity. If the caller recreates its states -- e.g. a second
+    ``init_all_states()`` builds a fresh module -- a warm cache hit would
+    otherwise route writes onto the orphaned originals. By holding weakrefs, the
+    engine can notice when the original states have been garbage-collected
+    (:meth:`materialize` returns ``None``) and rebuild the plan against the new
+    states.
+
+    A plan therefore never keeps its states alive on its own; callers
+    materialize a live, strong-ref :class:`LiveStateMapPlan` for the duration of
+    a single mapped call.
+
+    .. note::
+
+        Detection relies on the originals actually being collected. If the
+        caller keeps a strong reference to a stale state elsewhere, its weakref
+        stays alive and the plan is *not* invalidated; writes still land on the
+        stale object. Recreating states under a cached mapped function is best
+        avoided -- rebuild the mapped wrapper alongside the states.
+
+    Attributes
+    ----------
+    in_groups : list of (axis, list[weakref.ref[State]])
+        Batched input states grouped by their input axis (random states
+        excluded).
+    rng_states : list of weakref.ref[RandomState]
+        Random states split along the mapped axis.
+    out_groups : list of (axis, list[weakref.ref[State]])
+        States whose writes are scattered back along the mapped axis.
+    oth_out_states : list of weakref.ref[State]
+        Written states that are broadcast (not batched) on output and therefore
+        restored from a single representative lane.
+    """
+
+    __slots__ = ('in_groups', 'rng_states', 'out_groups', 'oth_out_states')
+
+    def __init__(self, in_groups, rng_states, out_groups, oth_out_states):
+        self.in_groups = [(axis, [weakref.ref(st) for st in states]) for axis, states in in_groups]
+        self.rng_states = [weakref.ref(st) for st in rng_states]
+        self.out_groups = [(axis, [weakref.ref(st) for st in states]) for axis, states in out_groups]
+        self.oth_out_states = [weakref.ref(st) for st in oth_out_states]
+
+    @classmethod
+    def from_live(cls, live: 'LiveStateMapPlan') -> 'StateMapPlan':
+        """Snapshot a :class:`LiveStateMapPlan` as a weakref-backed plan for caching."""
+        return cls(live.in_groups, live.rng_states, live.out_groups, live.oth_out_states)
+
+    def materialize(self) -> Optional['LiveStateMapPlan']:
+        """Resolve all weakrefs into a strong-ref :class:`LiveStateMapPlan`.
+
+        Returns
+        -------
+        LiveStateMapPlan or None
+            The live plan if every referenced state is still alive, otherwise
+            ``None`` -- signalling the plan is stale and must be rebuilt.
+        """
+
+        def deref(refs):
+            out = []
+            for r in refs:
+                st = r()
+                if st is None:
+                    return None
+                out.append(st)
+            return out
+
+        in_groups = []
+        for axis, refs in self.in_groups:
+            states = deref(refs)
+            if states is None:
+                return None
+            in_groups.append((axis, states))
+        rng_states = deref(self.rng_states)
+        if rng_states is None:
+            return None
+        out_groups = []
+        for axis, refs in self.out_groups:
+            states = deref(refs)
+            if states is None:
+                return None
+            out_groups.append((axis, states))
+        oth_out_states = deref(self.oth_out_states)
+        if oth_out_states is None:
+            return None
+        return LiveStateMapPlan(in_groups, rng_states, out_groups, oth_out_states)
 
 
 def _probe_axis_size(args, in_axes, axis_size, kwargs=None):
@@ -509,6 +760,15 @@ def _probe_states(f, args, kwargs, in_predicates, in_axes, name,
         Random states encountered during the call.
     seen_in_ids : set[int]
         Object ids of states classified as batched inputs.
+
+    Notes
+    -----
+    Matched batched-input states are fed trace-free ``numpy`` zero placeholders
+    (:func:`_deaxed_like`) rather than their real per-lane values, so the probe
+    only observes each state's *structure*, never its contents (B4). A function
+    whose set of touched states depends on the numeric value of a batched state
+    (value-dependent Python control flow) is therefore unsupported -- the probe
+    follows the single path implied by zeros. See the module-level *Caveats*.
     """
     RandomState = _import_rand_state()
     dyn_kwargs, static_kwargs = _split_kwargs(kwargs, static_argnames)
@@ -529,7 +789,7 @@ def _probe_states(f, args, kwargs, in_predicates, in_axes, name,
                     return state._value
                 dim_to_in_states[axis].append(state)
                 seen_in_ids.add(id(state))
-                return _remove_axis_tree(state._value, axis)
+                return jax.tree.map(lambda x: _deaxed_like(x, axis), state._value, is_leaf=u.math.is_quantity)
         return state._value
 
     state_trace = StateTraceStack(name=name)
@@ -647,6 +907,9 @@ def _build_plan(
     # assemble output groups in deterministic trace order
     out_axis_groups: Dict[int, List[State]] = defaultdict(list)
     oth_out_states: List[State] = []
+    # B1: undeclared read-modify-write states that are already per-lane along the
+    # detected axis are promoted to batched inputs (see the 'auto' branch below).
+    promoted_in_states: Dict[int, List[State]] = defaultdict(list)
 
     def _match_out_axis(st):
         for axis, pred in out_predicates.items():
@@ -703,7 +966,16 @@ def _build_plan(
                     UserWarning,
                 )
                 out_axis_groups[det].append(st)
-            elif unexpected_out_state_mapping in ('ignore', 'auto'):
+            elif unexpected_out_state_mapping == 'auto':
+                # B1: if the state's prior value is already sized like the batch
+                # along the detected axis, this is a read-modify-write input the
+                # user did not declare. Treat it as a batched input+output so its
+                # value stays stable across calls, instead of gaining an extra
+                # axis every call. Otherwise scatter it (a genuine batched output).
+                if _leaf_axis_size(st.value, det) == batch_size:
+                    promoted_in_states[det].append(st)
+                out_axis_groups[det].append(st)
+            elif unexpected_out_state_mapping == 'ignore':
                 out_axis_groups[det].append(st)
             else:
                 raise ValueError(
@@ -714,13 +986,30 @@ def _build_plan(
             # broadcast write -- restore from a single lane
             oth_out_states.append(st)
 
+    # B1: fold promoted read-modify-write states into the input groups so the
+    # engine feeds them per-lane on input and scatters them on output (exactly as
+    # if the user had declared them in state_in_axes/state_out_axes at this axis).
+    if promoted_in_states:
+        merged_in: Dict[int, List[State]] = defaultdict(list)
+        for axis, states in in_groups:
+            merged_in[axis].extend(states)
+        for axis, states in promoted_in_states.items():
+            merged_in[axis].extend(states)
+        in_groups = sorted(merged_in.items(), key=lambda kv: kv[0])
+
     out_groups = sorted(out_axis_groups.items(), key=lambda kv: kv[0])
-    return StateMapPlan(in_groups, rng_states, out_groups, oth_out_states)
+    # Return a live (strong-ref) plan for immediate execution; the caller
+    # snapshots it as a weakref-backed StateMapPlan for the warm cache (B3).
+    return LiveStateMapPlan(in_groups, rng_states, out_groups, oth_out_states)
 
 
-def _execute_plan(plan: StateMapPlan, f, args, kwargs, in_axes, out_axes,
+def _execute_plan(plan: LiveStateMapPlan, f, args, kwargs, in_axes, out_axes,
                   axis_size, axis_name, mapping_fn, mapping_kwargs, static_argnames=()):
-    """Run the cached plan through the mapping primitive and restore states."""
+    """Run the cached plan through the mapping primitive and restore states.
+
+    ``plan`` must be a :class:`LiveStateMapPlan` (strong references); it keeps
+    the plan's states alive for the duration of the call.
+    """
     dyn_kwargs, static_kwargs = _split_kwargs(kwargs, static_argnames)
     in_groups = plan.in_groups
     rng_states = plan.rng_states
@@ -846,17 +1135,22 @@ def state_map_transform(
             )
         cache_key = get_arg_cache_key(static_argnums, static_argnames, args, kwargs)
         plan = cache.get(cache_key, None)
-        if plan is None:
-            plan = _build_plan(
+        # B3: a cached plan holds only weakrefs; materialize() returns None if
+        # any of its states was garbage-collected (e.g. the caller rebuilt its
+        # module / re-ran init_all_states), in which case we re-plan against the
+        # live states instead of writing onto the orphaned originals.
+        live = plan.materialize() if plan is not None else None
+        if live is None:
+            live = _build_plan(
                 f, args, kwargs,
                 in_predicates, out_predicates,
                 in_axes, axis_size, axis_name,
                 unexpected_out_state_mapping, name,
                 static_argnames=static_argnames,
             )
-            cache[cache_key] = plan
+            cache[cache_key] = StateMapPlan.from_live(live)
         return _execute_plan(
-            plan, f, args, kwargs, in_axes, out_axes,
+            live, f, args, kwargs, in_axes, out_axes,
             axis_size, axis_name, mapping_fn, mapping_kwargs,
             static_argnames=static_argnames,
         )
