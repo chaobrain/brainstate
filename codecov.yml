@@ -1,0 +1,43 @@
+# Codecov configuration.
+#
+# The coverage gate is an explicit 90% target for both the overall project and
+# for each pull request's patch (diff). Without this file Codecov defaults the
+# patch target to "auto" (the base/project coverage, ~93%), which is stricter
+# than the intended 90% policy and fails PRs whose diff coverage lands between
+# 90% and the project coverage.
+#
+# A small threshold tolerates the non-deterministic line hits that JAX/XLA
+# tracing can introduce between runs, so the build does not flap right at the
+# boundary.
+
+codecov:
+  require_ci_to_pass: true
+
+coverage:
+  precision: 2
+  round: down
+  range: "90...100"
+  status:
+    project:
+      default:
+        target: 90%
+        threshold: 1%
+    patch:
+      default:
+        target: 90%
+        threshold: 1%
+
+comment:
+  layout: "reach, diff, flags, files"
+  behavior: default
+  require_changes: false
+
+# Keep Codecov's file view in sync with [tool.coverage.run] omit in pyproject.toml
+# so reported coverage matches the locally generated coverage.xml.
+ignore:
+  - "**/*_test.py"
+  - "**/test_*.py"
+  - "brainstate/_version.py"
+  - "brainstate/conftest.py"
+  - "brainstate/_testing.py"
+  - "brainstate/experimental/**"
