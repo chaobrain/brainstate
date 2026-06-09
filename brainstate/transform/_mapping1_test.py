@@ -56,6 +56,7 @@ from brainstate.transform._mapping_core import (
     _get_batch_size,
     _format_state_axes,
 )
+from brainstate._state import NonBatchState
 from brainstate._error import BatchAxisError
 
 
@@ -572,6 +573,50 @@ class TestVmapNewStates(unittest.TestCase):
             @vmap_new_states(in_axes=0, axis_size=-1)
             def fn(x):
                 return x
+
+    def test_vmap_new_states_replicates_nonbatch_state(self):
+        """B6: a NonBatchState created inside vmap_new_states is replicated, not batched.
+
+        The legacy path previously scattered *every* new state at axis 0,
+        wrongly giving a NonBatchState a leading batch dimension. It must now
+        match vmap2_new_states: NonBatchState stays replicated (axis None) while
+        ordinary new states are batched at axis 0.
+        """
+        captured = {}
+
+        @vmap_new_states(in_axes=0, axis_size=4)
+        def fn(x):
+            nb = NonBatchState(jnp.zeros(3))   # value independent of the mapped axis
+            reg = bst.ShortTermState(x)        # value depends on mapped x -> batched
+            captured['nb'] = nb
+            captured['reg'] = reg
+            return x
+
+        fn(jnp.arange(4.0))
+        # NonBatchState stays un-batched (replicated); the regular state gains the
+        # batch axis at 0.
+        self.assertEqual(captured['nb'].value.shape, (3,))
+        self.assertEqual(captured['reg'].value.shape, (4,))
+
+    def test_vmap_new_states_mixed_states_values(self):
+        """B6: replicated and batched new states carry correct values."""
+        captured = {}
+
+        @vmap_new_states(in_axes=0, axis_size=3)
+        def fn(x):
+            shared = NonBatchState(jnp.array([1.0, 2.0]))  # same for every lane
+            perlane = bst.ShortTermState(x * 10.0)         # distinct per lane
+            captured['shared'] = shared
+            captured['perlane'] = perlane
+            return x
+
+        fn(jnp.arange(3.0))
+        # replicated state keeps its single (un-batched) value
+        self.assertEqual(captured['shared'].value.shape, (2,))
+        self.assertTrue(jnp.allclose(captured['shared'].value, jnp.array([1.0, 2.0])))
+        # batched state holds one entry per lane
+        self.assertEqual(captured['perlane'].value.shape, (3,))
+        self.assertTrue(jnp.allclose(captured['perlane'].value, jnp.arange(3.0) * 10.0))
 
 
 class TestVmapNestedAndComplex(unittest.TestCase):

@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import functools
+from collections import defaultdict
 from typing import TypeVar, Callable, Dict, Hashable, List, Any, Sequence, Optional
 
 import jax
@@ -37,6 +38,8 @@ from ._mapping_core import (  # noqa: E402
     make_identity_predicate,
     state_map_transform,
     unwind_new_state_levels,
+    _build_new_state_resolver,
+    _resolve_new_state_axis,
 )
 
 __all__ = [
@@ -303,6 +306,9 @@ def _vmap_new_states_transform(
                     fun(*stripped)
         finally:
             probe_trace.recovery_original_values()
+        # B7: defensive de-dup. The ``new_arg`` hook fires at most once per
+        # distinct State (StateTraceStack guards on state id in ``read_its_value``),
+        # so duplicates should not occur; kept to stay robust if that ever changes.
         _seen = set()
         rng_states = [r for r in rng_states if not (id(r) in _seen or _seen.add(id(r)))]
 
@@ -311,37 +317,50 @@ def _vmap_new_states_transform(
         rng_keys = [rng.split_key(batch_size) for rng in rng_states]
         rng_backups = [rng.split_key() for rng in rng_states]
 
-        new_states_box: List[State] = []
+        # B6: group new states by output axis exactly like vmap2_new_states so a
+        # NonBatchState (or INIT_NO_BATCHING-tagged state) created inside ``fun``
+        # is replicated (axis None) rather than scattered at axis 0. There is no
+        # ``state_out_axes`` here, so the resolver yields just [None, 0].
+        ordered, axes_order = _build_new_state_resolver(None)
+        new_states_box: Dict[Any, List[State]] = {}
 
         def new_fun(args_, rng_keys_):
             for rng, key in zip(rng_states, rng_keys_):
                 rng.restore_value(key)
             with catch_new_states(state_tag=state_tag, state_to_exclude=state_to_exclude) as catcher:
                 out = fun(*args_)
-            vals = catcher.get_state_values()
+            grouped_vals: Dict[Any, List] = defaultdict(list)
+            grouped_states: Dict[Any, List] = defaultdict(list)
+            for st in catcher.get_states():
+                axis = _resolve_new_state_axis(st, ordered)
+                grouped_vals[axis].append(st.value)
+                grouped_states[axis].append(st)
             new_states_box.clear()
-            new_states_box.extend(catcher.get_states())
-            return out, vals
+            new_states_box.update(grouped_states)
+            return out, tuple(grouped_vals.get(k, []) for k in axes_order)
 
         with catch_new_states(state_to_exclude=state_to_exclude):
             mapped = jax.vmap(
                 new_fun,
                 in_axes=(in_axes, 0 if len(rng_states) else None),
-                out_axes=(out_axes, 0),
+                out_axes=(out_axes, tuple(axes_order)),
                 axis_size=axis_size,
                 axis_name=axis_name,
                 spmd_axis_name=spmd_axis_name,
             )
-            outs, vmap_state_vals = mapped(args, rng_keys)
+            outs, grouped_out_vals = mapped(args, rng_keys)
 
         # restore the global RNG once
         for rng, key in zip(rng_states, rng_backups):
             rng.restore_value(key)
 
         # restore vmapped new-state values + unwind trace levels (avoids leakage)
-        for st, st_val in zip(new_states_box, vmap_state_vals):
-            st.restore_value(st_val)
-        unwind_new_state_levels(new_states_box, base_level)
+        all_new_states: List[State] = []
+        for axis, vals in zip(axes_order, grouped_out_vals):
+            for st, st_val in zip(new_states_box.get(axis, []), vals):
+                st.restore_value(st_val)
+                all_new_states.append(st)
+        unwind_new_state_levels(all_new_states, base_level)
         return outs
 
     return vmapped_fn
@@ -372,6 +391,14 @@ def vmap_new_states(
     random states are split per lane so randomly initialized values differ
     across the mapped axis. It is implemented as a single mapping pass over the
     shared engine helpers.
+
+    .. note::
+
+        ``fun`` is executed **twice** -- an eager probe (to discover the random
+        states it touches) plus the mapped pass -- so it must be idempotent and
+        free of un-rolled-back side effects. :class:`~brainstate.NonBatchState`
+        (and ``INIT_NO_BATCHING``-tagged) states created inside ``fun`` are
+        replicated rather than batched.
 
     Parameters
     ----------

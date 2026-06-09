@@ -24,10 +24,10 @@ from typing import Any, Callable, Dict, Optional, Tuple, Union, TypeVar
 import jax
 
 from brainstate._compatible_import import Device
-from brainstate._state import State, NonBatchState, catch_new_states, StateTraceStack, TRACE_CONTEXT
+from brainstate._state import State, catch_new_states, StateTraceStack, TRACE_CONTEXT
 from brainstate._utils import set_module_as
 from brainstate.typing import Missing, Filter
-from brainstate.util import NestedDict, filter
+from brainstate.util import NestedDict
 from ._loop_collect_return import scan
 from ._make_jaxpr import StatefulFunction
 from ._mapping_core import (
@@ -35,6 +35,12 @@ from ._mapping_core import (
     state_map_transform,
     unwind_new_state_levels,
     _import_rand_state,
+    # New-state output-axis resolver (shared home is _mapping_core). Re-exported
+    # from this module so existing imports keep working, e.g.
+    # ``from brainstate.transform._mapping2 import INIT_NO_BATCHING`` in nn._delay.
+    INIT_NO_BATCHING,
+    _build_new_state_resolver,
+    _resolve_new_state_axis,
 )
 
 __all__ = [
@@ -49,9 +55,10 @@ __all__ = [
 F = TypeVar("F", bound=Callable)
 AxisName = Hashable
 
-#: Tag marking a state that must stay replicated (un-batched, axis ``None``)
-#: when initialized through :func:`vmap2_new_states` / :func:`pmap2_new_states`.
-INIT_NO_BATCHING = 'INIT_NO_BATCHING'
+# ``INIT_NO_BATCHING`` and the new-state resolver helpers
+# (``_build_new_state_resolver`` / ``_resolve_new_state_axis``) now live in
+# ``_mapping_core`` and are imported above so both the legacy and modern
+# new-states paths resolve replication identically (audit finding B6).
 
 
 def _ensure_tuple(x) -> Tuple:
@@ -215,6 +222,11 @@ class StatefulMapping:
 
         self.static_argnums = _ensure_tuple(static_argnums)
         self.static_argnames = _ensure_tuple(static_argnames)
+        # B7: ``axis_env`` and ``return_only_write`` are accepted and stored for
+        # backward compatibility only. The current engine derives the axis
+        # environment from ``axis_name``/``axis_size`` (see ``_probe_states``) and
+        # always restores written states, so neither attribute is read here.
+        # Retained to avoid breaking callers that pass or inspect them.
         self.axis_env = axis_env
         self.return_only_write = return_only_write
 
@@ -417,7 +429,10 @@ def pmap2(
     out_axes : any, default 0
         Placement of the mapped axis in the outputs.
     static_broadcasted_argnums : int or iterable of int, default ()
-        Indices of positional arguments treated as compile-time constants.
+        **Not supported.** Positional-index static broadcasting cannot be honored
+        because the state-aware wrapper bundles your arguments before calling
+        :func:`jax.pmap`. A non-empty value raises :class:`NotImplementedError`;
+        use ``static_argnames`` or :func:`jax.pmap` directly instead.
     devices : sequence of Device, optional
         Explicit device list to map over.
     backend : str, optional
@@ -425,7 +440,10 @@ def pmap2(
     axis_size : int, optional
         Size of the mapped axis. Defaults to the local device count.
     donate_argnums : int or iterable of int, default ()
-        Positional arguments whose buffers may be donated.
+        **Not supported.** Buffer donation by positional index cannot be honored
+        for the same reason as ``static_broadcasted_argnums``; a non-empty value
+        raises :class:`NotImplementedError`. Call :func:`jax.pmap` directly if you
+        need donation.
     global_arg_shapes : tuple of tuple of int, optional
         Shapes for globally distributed arguments.
     state_in_axes : dict, Filter, State, or iterable of State, optional
@@ -462,6 +480,36 @@ def pmap2(
             state_out_axes=state_out_axes,
             unexpected_out_state_mapping=unexpected_out_state_mapping,
         )  # type: ignore[return-value]
+
+    # B2: the state-aware engine bundles the user's arguments into a single
+    # tuple and appends RNG keys + grouped state values before handing them to
+    # jax.pmap, so any positional index the caller gives addresses the wrapper's
+    # parameters rather than their own. Mis-applying them silently broadcasts or
+    # donates the wrong buffers, so reject both instead.
+    def _argnums_specified(x):
+        # ``int`` (incl. 0) means a real index; an iterable is "specified" only
+        # when non-empty. ``()`` (the default) is therefore allowed.
+        if isinstance(x, int):
+            return True
+        try:
+            return len(tuple(x)) > 0
+        except TypeError:
+            return x is not None
+    if _argnums_specified(static_broadcasted_argnums):
+        raise NotImplementedError(
+            "pmap2 does not support `static_broadcasted_argnums`: the state-aware "
+            "wrapper bundles your arguments before calling jax.pmap, so positional "
+            "indices no longer address your function's parameters. Use "
+            "`static_argnames` instead, or call jax.pmap directly for fully static "
+            "broadcasting."
+        )
+    if _argnums_specified(donate_argnums):
+        raise NotImplementedError(
+            "pmap2 does not support `donate_argnums`: the state-aware wrapper "
+            "bundles your arguments before calling jax.pmap, so positional indices "
+            "no longer address your function's parameters and donation would target "
+            "the wrong buffers. Call jax.pmap directly if you need buffer donation."
+        )
 
     # Only forward pmap keyword arguments that the installed jax.pmap accepts.
     # ``global_arg_shapes`` was removed in recent JAX releases.
@@ -552,11 +600,20 @@ def _ensure_stateless_for_batched_map(f, xs):
     slice and raise a clear, actionable error instead.
 
     Reading state is fine (broadcast per lane); only writes are rejected.
+
+    Random states are exempt (B5): a :class:`~brainstate.random.RandomState`
+    key-split registers as a write, but RNG threads correctly through the
+    batched path -- :func:`vmap2` splits a distinct key per lane and the
+    surrounding state-aware :func:`scan` advances the global key across batches.
     """
+    RandomState = _import_rand_state()
     sample = jax.tree.map(lambda x: x[0], xs)
     sf = StatefulFunction(f, name='map_state_probe')
     sf.make_jaxpr(*sample)
-    write_states = tuple(sf.get_write_states(*sample))
+    write_states = tuple(
+        st for st in sf.get_write_states(*sample)
+        if not isinstance(st, RandomState)
+    )
     if len(write_states):
         raise ValueError(
             "brainstate.transform.map(..., batch_size=...) cannot be used with a "
@@ -594,8 +651,10 @@ def map(
         Size of vectorised blocks. When given, ``map`` processes full batches
         with :func:`vmap2` and then handles any remainder. The batched path
         treats ``f`` as stateless (a pure throughput optimization); a function
-        that *writes* :class:`State` is rejected (see Raises). The sequential
-        path (no ``batch_size``) handles state writes normally.
+        that *writes* a non-random :class:`State` is rejected (see Raises).
+        Drawing randomness is allowed -- random states thread correctly through
+        the batched path. The sequential path (no ``batch_size``) handles state
+        writes normally.
 
     Returns
     -------
@@ -607,8 +666,9 @@ def map(
     ------
     ValueError
         If the inputs do not share the same leading length, if ``batch_size`` is
-        not a positive integer, or if ``batch_size`` is given and ``f`` writes
-        :class:`State` (use sequential ``map`` or :func:`vmap2` instead).
+        not a positive integer, or if ``batch_size`` is given and ``f`` writes a
+        non-random :class:`State` (use sequential ``map`` or :func:`vmap2`
+        instead). Random-number draws are permitted.
 
     See Also
     --------
@@ -658,63 +718,8 @@ def map(
 # ============================================================================ #
 # New-state initialization mapping (vmap2_new_states / pmap2_new_states)
 # ============================================================================ #
-
-
-def _build_new_state_resolver(state_out_axes):
-    """Build an ordered ``[(axis, predicate), ...]`` resolver for new states.
-
-    Resolution priority (first match wins):
-
-    1. axis ``None`` -- :class:`~brainstate.NonBatchState` (plus any user-supplied
-       ``None`` selector). These states are replicated, not batched.
-    2. user-specified axes (other than ``0``), in declaration order.
-    3. axis ``0`` -- everything else (default batched axis).
-
-    Returns
-    -------
-    ordered : list of (axis, predicate)
-        Resolver entries in priority order.
-    axes_order : list
-        Unique axis identifiers in priority order, used to build the mapped
-        ``out_axes``.
-    """
-    if state_out_axes is None:
-        state_out_axes = dict()
-    if not isinstance(state_out_axes, dict):
-        state_out_axes = {0: state_out_axes}
-    user = {k: filter.to_predicate(v) for k, v in state_out_axes.items()}
-
-    nonbatch = filter.to_predicate(NonBatchState)
-    no_batch_tag = filter.to_predicate(INIT_NO_BATCHING)
-    ordered = []
-
-    if None in user:
-        user_none = user[None]
-        ordered.append(
-            (None, lambda p, s, a=user_none, b=nonbatch, c=no_batch_tag: a(p, s) or b(p, s) or c(p, s))
-        )
-    else:
-        ordered.append((None, lambda p, s, b=nonbatch, c=no_batch_tag: b(p, s) or c(p, s)))
-
-    for axis, pred in user.items():
-        if axis is None or axis == 0:
-            continue
-        ordered.append((axis, pred))
-
-    if 0 in user:
-        ordered.append((0, user[0]))
-    else:
-        ordered.append((0, filter.to_predicate(...)))  # Everything (catch-all)
-
-    axes_order = list(dict.fromkeys(axis for axis, _ in ordered))
-    return ordered, axes_order
-
-
-def _resolve_new_state_axis(st, ordered):
-    for axis, pred in ordered:
-        if pred(tuple(), st):
-            return axis
-    return 0
+# ``_build_new_state_resolver`` and ``_resolve_new_state_axis`` are imported from
+# ``_mapping_core`` (their shared home; see the import block at the top).
 
 
 def _map_new_states(
@@ -735,6 +740,17 @@ def _map_new_states(
     pass: an eager probe discovers the random states ``init_all_states`` touches,
     those are split per lane, and a single ``jax.vmap`` / ``jax.pmap`` pass
     creates the batched states and returns their values for scatter-back.
+
+    .. note::
+
+        ``module.init_all_states(**init_kwargs)`` is invoked **twice** (B8): once
+        in the eager probe (to discover random states) and once in the mapped
+        pass (to build the batched states). It must therefore be *idempotent* --
+        repeated calls must re-create the same states without accumulating other
+        observable side effects. The probe's effects are rolled back via
+        ``StateTraceStack.recovery_original_values``, but Python-level side
+        effects inside ``init_all_states`` (printing, external counters) still run
+        on both passes.
 
     Parameters
     ----------
@@ -786,7 +802,9 @@ def _map_new_states(
             module.init_all_states(**init_kwargs)
     finally:
         probe_trace.recovery_original_values()
-    # de-duplicate random states, preserving order
+    # B7: defensive de-dup, preserving order. The ``probe_hook`` fires at most
+    # once per distinct State (StateTraceStack guards on state id in
+    # ``read_its_value``), so duplicates should not occur in practice.
     _seen = set()
     rng_states = [r for r in rng_states if not (id(r) in _seen or _seen.add(id(r)))]
 
@@ -864,6 +882,11 @@ def vmap2_new_states(
     vectorized values back onto the freshly created state objects. Random states
     are split per lane, so random initializers produce a distinct draw for every
     batch member.
+
+    .. note::
+
+        ``init_all_states`` runs **twice** (a probe pass plus the mapped pass) and
+        must be idempotent; see :func:`_map_new_states` for details.
 
     Parameters
     ----------
@@ -943,6 +966,11 @@ def pmap2_new_states(
     transform, executes it across ``axis_size`` devices, and restores the
     device-distributed values back onto the freshly created state objects.
     Random states are split per device.
+
+    .. note::
+
+        ``init_all_states`` runs **twice** (a probe pass plus the mapped pass) and
+        must be idempotent; see :func:`_map_new_states` for details.
 
     Parameters
     ----------

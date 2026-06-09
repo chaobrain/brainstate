@@ -19,6 +19,8 @@ import unittest
 
 import jax
 import jax.numpy as jnp
+import numpy as np
+import brainunit as u
 
 import brainstate
 import brainstate.random
@@ -149,6 +151,9 @@ class TestStateMapEngine(unittest.TestCase):
         self.assertTrue(jnp.allclose(counter.value, xs))
 
     def test_auto_dim_undeclared_write(self):
+        # B1: an undeclared read-modify-write state whose prior size along the
+        # detected axis equals the batch size is auto-promoted to a per-lane
+        # input+output, so it stays (3,) rather than scattering to (3, 3).
         w = brainstate.ShortTermState(jnp.zeros(3))
 
         def f(x):
@@ -157,8 +162,9 @@ class TestStateMapEngine(unittest.TestCase):
 
         mapped = state_map_transform(f, in_axes=0, out_axes=0)
         out = mapped(jnp.asarray([10., 20., 30.]))
-        self.assertEqual(out.shape, (3, 3))
-        self.assertEqual(w.value.shape, (3, 3))
+        self.assertEqual(out.shape, (3,))
+        self.assertEqual(w.value.shape, (3,))
+        self.assertTrue(jnp.allclose(w.value, jnp.asarray([10., 20., 30.])))
 
     def test_raise_policy(self):
         w = brainstate.ShortTermState(jnp.zeros(3))
@@ -272,6 +278,178 @@ class TestStateMapEngine(unittest.TestCase):
         out = mapped(xs)
         self.assertEqual(out.shape, (4, 5))      # return: batch at axis 0
         self.assertEqual(s.value.shape, (5, 4))  # state: batch moved to axis 1
+
+
+class TestAutoPromoteRMW(unittest.TestCase):
+    """B1: undeclared read-modify-write states auto-promote to per-lane (shape-matched).
+
+    Before the fix, an undeclared batched read-modify-write under the ``'auto'``
+    policy was broadcast-then-scattered, so the state's value grew an extra axis
+    on every call ((3,) -> (3, 3) -> (3, 3, 3)). When the state's prior size along
+    the detected axis equals the batch size, it is now treated as a per-lane
+    batched input+output and stays stable.
+    """
+
+    def test_rmw_stable_across_calls(self):
+        w = brainstate.ShortTermState(jnp.zeros(3))
+
+        def f(x):
+            w.value = w.value + x
+            return w.value
+
+        mapped = state_map_transform(f, in_axes=0, out_axes=0)
+        o1 = mapped(jnp.asarray([1., 2., 3.]))
+        self.assertEqual(o1.shape, (3,))
+        self.assertEqual(w.value.shape, (3,))
+        self.assertTrue(jnp.allclose(w.value, jnp.asarray([1., 2., 3.])))
+        # second call must NOT grow the shape
+        o2 = mapped(jnp.asarray([1., 2., 3.]))
+        self.assertEqual(o2.shape, (3,))
+        self.assertEqual(w.value.shape, (3,))
+        self.assertTrue(jnp.allclose(w.value, jnp.asarray([2., 4., 6.])))
+
+    def test_rmw_stable_via_vmap2(self):
+        # Same guarantee through the public vmap2 entry point.
+        w = brainstate.ShortTermState(jnp.zeros(4))
+
+        def f(x):
+            w.value = w.value + x
+            return w.value
+
+        mapped = brainstate.transform.vmap2(f)
+        mapped(jnp.ones(4))
+        mapped(jnp.ones(4))
+        mapped(jnp.ones(4))
+        self.assertEqual(w.value.shape, (4,))
+        self.assertTrue(jnp.allclose(w.value, jnp.full((4,), 3.0)))
+
+    def test_pure_output_undeclared_still_scatters(self):
+        # A scalar state written without reading itself does not shape-match the
+        # batch axis, so it keeps scattering: () -> (4,).
+        w = brainstate.ShortTermState(jnp.zeros(()))
+
+        def f(x):
+            w.value = x * 2.0
+            return x
+
+        mapped = state_map_transform(f, in_axes=0, out_axes=0)
+        out = mapped(jnp.arange(4.))
+        self.assertEqual(out.shape, (4,))
+        self.assertEqual(w.value.shape, (4,))
+        self.assertTrue(jnp.allclose(w.value, jnp.arange(4.) * 2.0))
+
+    def test_pure_output_scatter_stable_across_calls(self):
+        # Pure-output scatter must also be stable (it ignores the prior value).
+        w = brainstate.ShortTermState(jnp.zeros(()))
+
+        def f(x):
+            w.value = x * 2.0
+            return x
+
+        mapped = state_map_transform(f, in_axes=0, out_axes=0)
+        mapped(jnp.arange(4.))
+        mapped(jnp.arange(4.))
+        self.assertEqual(w.value.shape, (4,))
+
+    def test_promoted_merges_with_declared_input(self):
+        # A declared batched input and an auto-promoted read-modify-write state
+        # coexist: the promoted state is folded into the declared input group so
+        # both are fed per-lane and scattered. (Covers the declared+promoted
+        # merge path in _build_plan.)
+        B, N = 3, 4
+        a = brainstate.HiddenState(jnp.ones((B, N)))       # declared batched input (read-only)
+        b = brainstate.ShortTermState(jnp.zeros((B, N)))   # undeclared RMW, already batch-sized
+
+        def f(x):
+            b.value = b.value + a.value + x
+            return b.value
+
+        mapped = state_map_transform(
+            f, in_axes=0, out_axes=0,
+            state_in_axes={0: a},  # only ``a`` declared; ``b`` is auto-promoted per-lane
+        )
+        xs = jnp.ones((B, N))
+        o1 = mapped(xs)
+        self.assertEqual(o1.shape, (B, N))
+        self.assertEqual(b.value.shape, (B, N))            # promoted -> stays per-lane
+        self.assertTrue(jnp.allclose(b.value, jnp.full((B, N), 2.0)))  # 0 + a(1) + x(1)
+        # stable across calls -- no extra axis appears
+        o2 = mapped(xs)
+        self.assertEqual(o2.shape, (B, N))
+        self.assertEqual(b.value.shape, (B, N))
+        self.assertTrue(jnp.allclose(b.value, jnp.full((B, N), 4.0)))
+
+
+class TestStalePlanInvalidation(unittest.TestCase):
+    """B3: a cached plan is invalidated when its States are recreated (GC'd).
+
+    The plan cache keys only on the argument signature, and the plan references
+    State objects discovered on the cold call. If those states are replaced (for
+    example by re-initializing a module) the stale plan would otherwise scatter
+    writes into orphaned State objects. Weakref-based invalidation rebuilds the
+    plan when any referenced State has been garbage-collected.
+    """
+
+    def test_recreated_state_invalidates_plan(self):
+        import gc
+
+        class M(brainstate.nn.Module):
+            def init_state(self):
+                self.h = brainstate.ShortTermState(jnp.zeros(3))
+
+            def __call__(self, x):
+                self.h.value = self.h.value + x
+                return self.h.value
+
+        m = M()
+        m.init_all_states()
+        mapped = state_map_transform(
+            m.__call__, in_axes=0, out_axes=0,
+            state_in_axes={0: filter.OfType(brainstate.ShortTermState)},
+            state_out_axes={0: filter.OfType(brainstate.ShortTermState)},
+        )
+        mapped(jnp.asarray([1., 2., 3.]))
+        self.assertTrue(jnp.allclose(m.h.value, jnp.asarray([1., 2., 3.])))
+
+        # Recreate the state (same type -> same filter), drop the old object so it
+        # is garbage-collected; only the cached plan referenced it.
+        m.h = brainstate.ShortTermState(jnp.zeros(3))
+        gc.collect()
+
+        # Same arg signature -> would hit the cached (now stale) plan. With
+        # weakref invalidation the plan is rebuilt against the new State.
+        out = mapped(jnp.asarray([10., 20., 30.]))
+        self.assertEqual(out.shape, (3,))
+        self.assertTrue(jnp.allclose(m.h.value, jnp.asarray([10., 20., 30.])))
+
+    def test_recreated_scatter_output_invalidates_plan(self):
+        # As above, but for a state that lives only in the plan's *output*
+        # (scatter) group -- a pure-output write, not a declared input. Exercises
+        # the out-group branch of the staleness check.
+        import gc
+
+        class M(brainstate.nn.Module):
+            def init_state(self):
+                self.w = brainstate.ShortTermState(jnp.zeros(()))  # scalar -> pure output
+
+            def __call__(self, x):
+                self.w.value = x * 2.0   # pure output (no self-read) -> scatters () -> (B,)
+                return x
+
+        m = M()
+        m.init_all_states()
+        mapped = state_map_transform(m.__call__, in_axes=0, out_axes=0)
+        mapped(jnp.arange(3.0))
+        self.assertEqual(m.w.value.shape, (3,))
+
+        # Recreate the scatter-output state; drop the old one so it is GC'd.
+        m.w = brainstate.ShortTermState(jnp.zeros(()))
+        gc.collect()
+
+        out = mapped(jnp.asarray([10., 20., 30.]))
+        self.assertEqual(out.shape, (3,))
+        self.assertEqual(m.w.value.shape, (3,))
+        self.assertTrue(jnp.allclose(m.w.value, jnp.asarray([20., 40., 60.])))
 
 
 class TestGetBatchSizeNoneAxis(unittest.TestCase):
@@ -825,6 +1003,320 @@ class TestBatchSizeErrors(unittest.TestCase):
         from brainstate.transform._mapping_core import _get_batch_size
         with self.assertRaises(ValueError):
             _get_batch_size((jnp.array(3.),), in_axes=None, in_states={}, axis_size=None)
+
+
+# =========================================================================== #
+# Regression tests for a tracer leak in the shared mapping engine
+# --------------------------------------------------------------------------- #
+# Background
+# ----------
+# When a ``brainstate.State`` is declared as a batched input via
+# ``state_in_axes`` (this is what ``brainstate.nn.Map`` always does) *and* that
+# state is written inside a nested control-flow primitive (``for_loop``,
+# ``cond``, ``while_loop``, or a raw ``jax.lax.scan``), the cold
+# ``state_map_transform`` probe used to leak a tracer.
+#
+# Root cause: the probe's ``new_arg`` hook de-batched matched input states with
+# a *traced* slice (``state._value[..., 0, ...]``). The hook fires lazily on the
+# first read of the state; when that first read happens inside a nested
+# control-flow body, the slice executes inside the nested trace and produces a
+# tracer bound to that (soon-dead) trace. ``StateTraceStack`` captured it as the
+# nested trace's "original value" and restored it into ``state._value``, so the
+# tracer escaped -> ``jax.errors.UnexpectedTracerError``.
+#
+# The fix replaces the traced slice with a trace-free, de-batched placeholder
+# (the probe only needs the per-lane *shape*/dtype/unit; its values are
+# discarded afterwards), so nothing can be bound to a nested trace.
+# =========================================================================== #
+
+
+def _accumulate(state, inp):
+    """Read-modify-write a state (the operation that used to leak)."""
+    new = state.value + inp
+    state.value = new
+    return new
+
+
+# --------------------------------------------------------------------------- #
+# Direct ``vmap2`` / ``state_map_transform`` reproductions
+# --------------------------------------------------------------------------- #
+
+
+class TestNestedControlFlowStateInAxes(unittest.TestCase):
+    """A ``state_in_axes`` input written inside nested control flow must not leak."""
+
+    N = 3
+    T = 4
+    B = 5
+
+    def _xs(self):
+        return jnp.ones((self.B, self.T, self.N))
+
+    def test_for_loop(self):
+        h = brainstate.HiddenState(jnp.zeros((self.B, self.N)))
+
+        def net(x):  # x: (T, N) per lane
+            return brainstate.transform.for_loop(
+                lambda inp: _accumulate(h, inp), x
+            )
+
+        out = brainstate.transform.vmap2(net, in_axes=0, state_in_axes={0: h})(self._xs())
+        # T accumulations of all-ones -> final state == T, full output (B, T, N)
+        self.assertEqual(out.shape, (self.B, self.T, self.N))
+        self.assertEqual(h.value.shape, (self.B, self.N))
+        self.assertTrue(jnp.allclose(h.value, self.T))
+
+    def test_scan(self):
+        h = brainstate.HiddenState(jnp.zeros((self.B, self.N)))
+
+        def net(x):
+            def body(carry, inp):
+                return carry, _accumulate(h, inp)
+            _, ys = brainstate.transform.scan(body, 0.0, x)
+            return ys
+
+        out = brainstate.transform.vmap2(net, in_axes=0, state_in_axes={0: h})(self._xs())
+        self.assertEqual(out.shape, (self.B, self.T, self.N))
+        self.assertTrue(jnp.allclose(h.value, self.T))
+
+    def test_cond(self):
+        h = brainstate.HiddenState(jnp.zeros((self.B, self.N)))
+
+        def net(x):
+            return brainstate.transform.cond(
+                x[0, 0] > 0,
+                lambda: _accumulate(h, x[0]),
+                lambda: _accumulate(h, -x[0]),
+            )
+
+        out = brainstate.transform.vmap2(net, in_axes=0, state_in_axes={0: h})(self._xs())
+        self.assertEqual(out.shape, (self.B, self.N))
+        self.assertTrue(jnp.allclose(h.value, 1.0))
+
+    def test_while_loop(self):
+        h = brainstate.HiddenState(jnp.zeros((self.B, self.N)))
+
+        def net(x):
+            def cond_fun(i):
+                return i < self.T
+
+            def body_fun(i):
+                _accumulate(h, x[0])
+                return i + 1
+
+            brainstate.transform.while_loop(cond_fun, body_fun, 0)
+            return h.value
+
+        out = brainstate.transform.vmap2(net, in_axes=0, state_in_axes={0: h})(self._xs())
+        self.assertEqual(out.shape, (self.B, self.N))
+        self.assertTrue(jnp.allclose(h.value, self.T))
+
+    def test_under_jit(self):
+        h = brainstate.HiddenState(jnp.zeros((self.B, self.N)))
+
+        @brainstate.transform.jit
+        def run(x):
+            def net(xi):
+                return brainstate.transform.for_loop(lambda inp: _accumulate(h, inp), xi)
+            return brainstate.transform.vmap2(net, in_axes=0, state_in_axes={0: h})(x)
+
+        out = run(self._xs())
+        self.assertEqual(out.shape, (self.B, self.T, self.N))
+
+    def test_state_map_transform_directly(self):
+        # The lowest-level entry point (used by vmap2/pmap2) must be leak-free too.
+        h = brainstate.HiddenState(jnp.zeros((self.B, self.N)))
+
+        def net(x):
+            return brainstate.transform.for_loop(lambda inp: _accumulate(h, inp), x)
+
+        mapped = state_map_transform(
+            net, in_axes=0, out_axes=0,
+            state_in_axes={0: h}, state_out_axes={0: h},
+        )
+        out = mapped(self._xs())
+        self.assertEqual(out.shape, (self.B, self.T, self.N))
+
+
+# --------------------------------------------------------------------------- #
+# ``nn.Map`` reproductions (the exact pattern that surfaced the bug)
+# --------------------------------------------------------------------------- #
+
+
+class _Recurrent(brainstate.nn.Module):
+    """Minimal per-region recurrent cell: a trainable param + a hidden state,
+    advanced through a ``for_loop`` (nested control flow)."""
+
+    def __init__(self, n):
+        super().__init__()
+        self.n = n
+        self.tau = brainstate.nn.Param(jnp.full(n, 3.0), t=brainstate.nn.ClipT(2.0, 50.0))
+
+    def init_state(self, batch_size=None):
+        shape = (self.n,) if batch_size is None else (batch_size, self.n)
+        self.h = brainstate.HiddenState(jnp.zeros(shape))
+
+    def update(self, xs):  # xs: (T, N)
+        def step(inp):
+            new = self.h.value + (1.0 / self.tau.value()) * (-self.h.value + jnp.tanh(inp))
+            self.h.value = new
+            return new
+
+        return brainstate.transform.for_loop(step, xs)
+
+
+class TestNnMapNestedControlFlow(unittest.TestCase):
+    N = 4
+    T = 5
+    B = 6
+
+    def test_map_for_loop(self):
+        net = _Recurrent(self.N)
+
+        def f(xs):
+            m = brainstate.nn.Map(net, init_map_size=self.B, behavior='vmap')
+            m.init_all_states()
+            return m(xs)
+
+        out = f(jnp.ones((self.B, self.T, self.N)))
+        self.assertEqual(out.shape, (self.B, self.T, self.N))
+
+    def test_map_param_precompute_grad_jit(self):
+        # The full training stack: jit(grad(Map(...) under param_precompute)).
+        net = _Recurrent(self.N)
+        weights = net.states(brainstate.ParamState)
+
+        def loss(xs):
+            m = brainstate.nn.Map(net, init_map_size=self.B, behavior='vmap')
+            m.init_all_states()
+            with m.param_precompute():
+                out = m(xs)
+            return jnp.mean(out ** 2)
+
+        grad_fn = brainstate.transform.grad(loss, grad_states=weights, return_value=True)
+
+        @brainstate.transform.jit
+        def train_step(xs):
+            grads, loss_val = grad_fn(xs)
+            return grads, loss_val
+
+        grads, loss_val = train_step(jnp.ones((self.B, self.T, self.N)))
+        self.assertTrue(np.isfinite(float(loss_val)))
+        for g in jax.tree.leaves(grads):
+            self.assertTrue(np.all(np.isfinite(np.asarray(g))))
+
+
+# --------------------------------------------------------------------------- #
+# Numerical / gradient correctness (not just "no error")
+# --------------------------------------------------------------------------- #
+
+
+class TestNumericalCorrectness(unittest.TestCase):
+    N = 4
+    T = 5
+    B = 6
+
+    def test_grad_matches_pure_jax_reference(self):
+        tau0 = jnp.linspace(2.5, 6.0, self.N)
+        xs = jax.random.normal(jax.random.PRNGKey(0), (self.B, self.T, self.N))
+
+        # --- Map path ---
+        net = _Recurrent(self.N)
+        net.tau = brainstate.nn.Param(tau0, t=brainstate.nn.ClipT(2.0, 50.0))
+        weights = net.states(brainstate.ParamState)
+
+        def loss(x):
+            m = brainstate.nn.Map(net, init_map_size=self.B, behavior='vmap')
+            m.init_all_states()
+            return jnp.mean(m(x) ** 2)
+
+        grad_fn = brainstate.transform.grad(loss, grad_states=weights, return_value=True)
+        grads, loss_val = brainstate.transform.jit(grad_fn)(xs)
+        grad_map = np.asarray(jax.tree.leaves(grads)[0])
+
+        # --- pure-jax reference with identical math ---
+        tau_unc = net.tau.val.value  # unconstrained storage
+
+        def ref_loss(tau_unc_, x):
+            def one(xi):
+                tau = jnp.clip(tau_unc_, 2.0, 50.0)
+
+                def body(e, inp):
+                    e = e + (1.0 / tau) * (-e + jnp.tanh(inp))
+                    return e, e
+
+                _, ys = jax.lax.scan(body, jnp.zeros(self.N), xi)
+                return ys
+
+            return jnp.mean(jax.vmap(one)(x) ** 2)
+
+        ref_g = np.asarray(jax.grad(ref_loss)(tau_unc, xs))
+        ref_l = float(ref_loss(tau_unc, xs))
+
+        self.assertTrue(np.allclose(float(loss_val), ref_l, atol=1e-5))
+        self.assertTrue(np.allclose(grad_map, ref_g, atol=1e-5))
+
+
+# --------------------------------------------------------------------------- #
+# Edge cases: units, multiple batched states, and no-regression
+# --------------------------------------------------------------------------- #
+
+
+class TestEdgeCases(unittest.TestCase):
+    N = 3
+    T = 4
+    B = 5
+
+    def test_unit_carrying_state(self):
+        # The de-batched probe placeholder must preserve units.
+        h = brainstate.HiddenState(jnp.zeros((self.B, self.N)) * u.mV)
+
+        def net(x):
+            def body(inp):
+                self_val = h.value + inp * u.mV
+                h.value = self_val
+                return u.get_mantissa(self_val)
+            return brainstate.transform.for_loop(body, x)
+
+        out = brainstate.transform.vmap2(net, in_axes=0, state_in_axes={0: h})(
+            jnp.ones((self.B, self.T, self.N))
+        )
+        self.assertEqual(out.shape, (self.B, self.T, self.N))
+        self.assertTrue(u.math.allclose(h.value, self.T * u.mV))
+
+    def test_multiple_batched_states(self):
+        a = brainstate.HiddenState(jnp.zeros((self.B, self.N)))
+        b = brainstate.HiddenState(jnp.ones((self.B, self.N)))
+
+        def net(x):
+            def body(inp):
+                a.value = a.value + inp
+                b.value = b.value * 1.0 + a.value
+                return b.value
+            return brainstate.transform.for_loop(body, x)
+
+        out = brainstate.transform.vmap2(
+            net, in_axes=0,
+            state_in_axes={0: brainstate.util.filter.OfType(brainstate.HiddenState)},
+        )(jnp.ones((self.B, self.T, self.N)))
+        self.assertEqual(out.shape, (self.B, self.T, self.N))
+        self.assertEqual(a.value.shape, (self.B, self.N))
+        self.assertEqual(b.value.shape, (self.B, self.N))
+
+    def test_no_regression_without_nested_control_flow(self):
+        # A ``state_in_axes`` input written directly (no nested primitive) must
+        # keep working and stay correct.
+        h = brainstate.HiddenState(jnp.zeros((self.B, self.N)))
+
+        def net(x):  # x: (N,) per lane
+            h.value = h.value + x
+            return h.value
+
+        out = brainstate.transform.vmap2(net, in_axes=0, state_in_axes={0: h})(
+            jnp.arange(self.B * self.N, dtype=jnp.float32).reshape(self.B, self.N)
+        )
+        self.assertEqual(out.shape, (self.B, self.N))
+        self.assertTrue(jnp.allclose(out, h.value))
 
 
 if __name__ == "__main__":
