@@ -1,6 +1,31 @@
 # Release Notes
 
 
+## Version 0.4.1 (2026-06-09)
+
+A focused patch release that hardens the shared state-aware mapping engine behind `vmap` / `pmap` / `map` (and their module-level `*2` variants) against a set of correctness edge cases surfaced by a JAX-expert audit, alongside a routine CI and developer-dependency refresh. No public APIs change.
+
+### Bug Fixes
+
+- **Read–modify–write states no longer accumulate a spurious axis under mapping**: an undeclared state that a mapped function reads and writes in place, and whose shape already matches the mapped axes, is now auto-promoted to a per-lane input *and* output. Previously each call grew an extra leading axis on the state's value (#203).
+- **`pmap2` now rejects positional argument indices it cannot honor**: `static_broadcasted_argnums` and `donate_argnums` are no longer silently accepted, because those indices addressed the wrapper's internally bundled arguments rather than the user's. Passing them now raises an explicit error (#203).
+- **Stale plan cache after state garbage collection**: the mapping engine's plan cache is now weakref-backed. When any state captured by a cached plan has been garbage-collected — for example after a module is re-initialized — the plan is rebuilt instead of scattering writes onto orphaned `State` objects (#203).
+- **Random sampling inside batched `map`**: drawing random numbers within `map(..., batch_size=...)` is now supported (#203).
+- **Consistent replication of non-batched states in the legacy `vmap_new_states`**: `NonBatchState` / `INIT_NO_BATCHING` states created inside `vmap_new_states` are now replicated rather than batched along axis 0, matching the behavior of `vmap2_new_states` (#203).
+
+### Internal Changes
+
+- Consolidated the new-state resolver and the `INIT_NO_BATCHING` sentinel into the shared `_mapping_core` module, re-exported from `_mapping2` to preserve backward compatibility (#203).
+- Documented and hardened the zero-placeholder shape probe and value-dependent control flow, multi-pass (Python-level) side effects, the double `init_all_states` pass, and the engine's thread-safety guarantees (audit items B4, B7–B10) (#203).
+- Merged the standalone composition and nested-leak test suites into the primary `_mapping1` / `_mapping2` / `_mapping_core` test modules; the full suite reports 4645 passed, 24 skipped (#203).
+
+### CI/CD
+
+- Bumped `codecov/codecov-action` from v5 to v7 (#199, #202).
+- Bumped `actions/cache` from v4 to v5 (#200).
+- Refreshed development dependencies (`braintools`, `mypy`) in `requirements-dev.txt` (#201).
+
+
 ## Version 0.4.0 (2026-06-01)
 
 ### Breaking Changes
