@@ -328,7 +328,13 @@ def _vmap_new_states_transform(
             for rng, key in zip(rng_states, rng_keys_):
                 rng.restore_value(key)
             with catch_new_states(state_tag=state_tag, state_to_exclude=state_to_exclude) as catcher:
-                out = fun(*args_)
+                # plain watcher (no new_arg): ``fun`` runs under a raw
+                # jax.vmap here, and state writes of vmap tracers are
+                # legitimate — an active StateTraceStack keeps the
+                # tracer-write guard quiet (the extra stack level is undone
+                # by unwind_new_state_levels, which is delta-based)
+                with StateTraceStack(name='vmap_new_states:run'):
+                    out = fun(*args_)
             grouped_vals: Dict[Any, List] = defaultdict(list)
             grouped_states: Dict[Any, List] = defaultdict(list)
             for st in catcher.get_states():

@@ -27,11 +27,16 @@ class TestRandom(unittest.TestCase):
     """Smoke tests for seeding the global random state."""
 
     def test_seed2(self):
-        """seed accepts a key array, an int, and None — including inside jit."""
+        """seed accepts a key array, an int, and None at top level. Inside a
+        raw jax.jit trace, re-seeding the global RNG with a traced key is
+        rejected (the key tracer would outlive the trace and corrupt the
+        global random state); brainstate.transform.jit tracks it properly."""
         test_seed = 299
         brainstate.random.seed(test_seed)
         key = brainstate.random.get_key()
         brainstate.random.seed(key)
+        brainstate.random.seed(1)
+        brainstate.random.seed(None)
 
         @jax.jit
         def jit_seed(key):
@@ -39,9 +44,15 @@ class TestRandom(unittest.TestCase):
             with brainstate.random.seed_context(key):
                 return brainstate.random.DEFAULT.value
 
-        jit_seed(key)
-        jit_seed(1)
-        jit_seed(None)
+        with self.assertRaises(brainstate.TraceContextError):
+            jit_seed(key)
+
+        @brainstate.transform.jit
+        def bst_jit_seed(key):
+            brainstate.random.seed(key)
+            return brainstate.random.DEFAULT.value
+
+        bst_jit_seed(key)
         brainstate.random.seed(1)
 
     def test_seed(self):

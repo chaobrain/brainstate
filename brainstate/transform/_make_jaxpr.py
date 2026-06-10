@@ -64,7 +64,7 @@ from jax.api_util import shaped_abstractify
 
 from brainstate._compatible_import import ClosedJaxpr, concrete_or_error, safe_map, wraps
 from brainstate._compatible_import import trace_ctx
-from brainstate._state import State, StateTraceStack
+from brainstate._state import State, StateTraceStack, catch_new_states
 from brainstate._utils import set_module_as
 from brainstate.typing import PyTree
 from brainstate.util import PrettyObject
@@ -416,8 +416,15 @@ class StatefulFunction(PrettyObject):
             args,
             kwargs,
         )
-        if cache_key not in self._compilation_cache and compile_if_miss:
-            self.make_jaxpr(*args, **kwargs)
+        if compile_if_miss:
+            compilation = self._compilation_cache.get(cache_key)
+            if compilation is None or self._compilation_is_stale(compilation):
+                # A state-aval mismatch is treated as a cache miss: the cached
+                # jaxpr has trace-time constants (shapes/dtypes) baked in, so
+                # reusing it after an out-of-band state change would silently
+                # compute wrong results. make_jaxpr() recompiles and replaces
+                # the stale entry.
+                self.make_jaxpr(*args, **kwargs)
         return cache_key
 
     # ---- Cache accessors (by cache key) ----------------------------------
@@ -427,6 +434,44 @@ class StatefulFunction(PrettyObject):
         return self._compilation_cache.get(
             cache_key, raise_on_miss=True, error_context="JAX expression"
         )
+
+    def _compilation_is_stale(self, compilation: '_CachedCompilation') -> bool:
+        """
+        Check whether the tracked states' avals changed since compilation.
+
+        The cached jaxpr bakes in trace-time shapes/dtypes of every state it
+        reads, so a compilation is stale as soon as any tracked state's
+        current value has a different pytree structure or leaf aval than at
+        compile time. State values are accessed via ``_read_value`` so the
+        check neither records reads nor fires read hooks.
+
+        Parameters
+        ----------
+        compilation : _CachedCompilation
+            The cached compilation to validate.
+
+        Returns
+        -------
+        bool
+            True if any tracked state's aval no longer matches.
+        """
+        states = compilation.state_trace.states
+        if not states:
+            return False
+        if len(compilation.state_avals) != len(states):
+            return True
+        for state, compiled_aval in zip(states, compilation.state_avals):
+            compiled_leaves, compiled_def = jax.tree.flatten(compiled_aval)
+            try:
+                current_leaves, current_def = jax.tree.flatten(state._read_value())
+            except Exception:
+                return True
+            if current_def != compiled_def or len(current_leaves) != len(compiled_leaves):
+                return True
+            for cur, ref in zip(current_leaves, compiled_leaves):
+                if shaped_abstractify(cur) != ref:
+                    return True
+        return False
 
     def get_jaxpr_by_cache(self, cache_key: Hashable) -> ClosedJaxpr:
         """
@@ -795,18 +840,31 @@ class StatefulFunction(PrettyObject):
         # Store in the caller-provided container (NOT in the cache)
         _result_holder['state_trace'] = state_trace
 
-        try:
-            with state_trace:
-                out = self.fun(*args, **dyn_kwargs, **static_kwargs)
-                state_values = (
-                    state_trace.get_write_state_values(True)
-                    if self.return_only_write else
-                    state_trace.get_state_values()
-                )
-        finally:
-            # Restore on failure too: a user error mid-trace must not leave
-            # tracers in the traced states.
-            state_trace.recovery_original_values()
+        # Catch states created during tracing: they are invisible to this
+        # trace (their stack level is too deep), so their values are tracers
+        # that die with the trace and must be poisoned afterwards.
+        with catch_new_states() as caught_new_states:
+            try:
+                with state_trace:
+                    out = self.fun(*args, **dyn_kwargs, **static_kwargs)
+                    state_values = (
+                        state_trace.get_write_state_values(True)
+                        if self.return_only_write else
+                        state_trace.get_state_values()
+                    )
+            finally:
+                # Restore on failure too: a user error mid-trace must not leave
+                # tracers in the traced states.
+                state_trace.recovery_original_values()
+                # Poison new states still holding tracers of this (now dead)
+                # trace: reading them later raises TraceContextError instead
+                # of silently returning a leaked tracer. States created with
+                # concrete values (or already poisoned by a nested trace) are
+                # left untouched.
+                for st in caught_new_states.states:
+                    if any(isinstance(leaf, jax.core.Tracer)
+                           for leaf in jax.tree.leaves(st._value)):
+                        st._invalidate_trace_value()
 
         # State instance as functional returns is not allowed.
         # Checking whether the states are returned.
@@ -853,14 +911,20 @@ class StatefulFunction(PrettyObject):
                     f'{len(args)} positional arguments were provided.'
                 )
 
-        # Fast path: already compiled
-        if cache_key in self._compilation_cache:
+        # Fast path: already compiled and still consistent with the current
+        # state avals (a stale entry is recompiled and replaced below)
+        compilation = self._compilation_cache.get(cache_key)
+        if compilation is not None and not self._compilation_is_stale(compilation):
             return self
 
         with self._cache_lock:
             # Double-check under lock to avoid concurrent duplicate compilation
-            if cache_key in self._compilation_cache:
+            compilation = self._compilation_cache.get(cache_key)
+            if compilation is not None and not self._compilation_is_stale(compilation):
                 return self
+            # Drop the stale entry (if any) up front: even if recompilation
+            # fails below, a known-stale jaxpr must not be reused.
+            self._compilation_cache.pop(cache_key)
 
             try:
                 # kwargs separation
@@ -901,6 +965,12 @@ class StatefulFunction(PrettyObject):
                     jax.tree.map(shaped_abstractify, orig_val)
                     for orig_val in state_trace.original_state_values
                 )
+
+                # The trace is about to be cached: drop the original value
+                # snapshots (and the new_arg closure over the now-defunct
+                # trace object) so an enclosing trace's tracers are not kept
+                # alive by the cache (would fail jax.checking_leaks()).
+                state_trace.release_original_values()
 
                 out_treedef = jax.tree.structure((out_shapes, state_shapes))
 
@@ -1104,10 +1174,9 @@ class StatefulFunction(PrettyObject):
         automatically.
 
         .. note::
-           This method does **not** validate state shapes, because internal
-           transforms (e.g. ``vmap``) may intentionally alter state shapes.
-           Use :meth:`__call__` (i.e. ``sf(x)``) for user-facing calls with
-           automatic shape validation.
+           If any tracked state's shape/dtype changed since compilation, the
+           function is recompiled for the new state avals before execution
+           (a state-aval mismatch is treated as a cache miss).
 
         Parameters
         ----------
@@ -1156,18 +1225,13 @@ class StatefulFunction(PrettyObject):
 
     def __call__(self, *args, **kwargs):
         """
-        Call the stateful function with automatic state management and shape validation.
+        Call the stateful function with automatic state management.
 
-        This is the user-facing entry point. It validates that state shapes/dtypes
-        have not changed since compilation, then delegates to :meth:`jaxpr_call_auto`.
-
-        Raises
-        ------
-        ValueError
-            If state shapes/dtypes have changed since compilation.
+        This is the user-facing entry point. If any tracked state's
+        shape/dtype changed since compilation, the function is transparently
+        recompiled for the new state avals (a state-aval mismatch is treated
+        as a cache miss), then delegates to :meth:`jaxpr_call_auto`.
         """
-        cache_key = self.get_arg_cache_key(*args, **kwargs, compile_if_miss=True)
-        self._validate_state_shapes(cache_key)
         return self.jaxpr_call_auto(*args, **kwargs)
 
 
@@ -1354,8 +1418,22 @@ def _make_hashable(obj):
         # Fallback: use JAX's tree_util for pytree structures
         try:
             leaves, treedef = jax.tree.flatten(obj)
-            return treedef, tuple(leaves)
         except (TypeError, ValueError):
             raise TypeError(
                 f"Cannot make {type(obj).__name__} object hashable for cache key: {obj!r}"
             )
+        # The leaves must themselves be hashable, or the cache-dict lookup
+        # would fail later with an opaque error far from the user's call.
+        for leaf in leaves:
+            try:
+                hash(leaf)
+            except TypeError:
+                raise TypeError(
+                    f"Static arguments must be hashable, but got a "
+                    f"{type(obj).__name__} containing a non-hashable "
+                    f"{type(leaf).__name__} leaf: {leaf!r}.\n"
+                    f"Arrays and other unhashable values cannot be static: "
+                    f"pass them as dynamic arguments instead, or convert them "
+                    f"to a hashable form (e.g. a tuple) before calling."
+                ) from None
+        return treedef, tuple(leaves)

@@ -139,7 +139,9 @@ class TestVanillaRNNCell(TestRNNCellBase):
             output = cell.update(x)
             return jnp.mean(output ** 2)
 
-        grad_fn = jax.grad(loss_fn)
+        # cell.update writes hidden states: raw jax.grad cannot track that,
+        # so the brainstate equivalent is required
+        grad_fn = brainstate.transform.grad(loss_fn, argnums=0)
         grad = grad_fn(self.x)
 
         self.assertEqual(grad.shape, self.x.shape)
@@ -338,7 +340,9 @@ class TestLSTMCell(TestRNNCellBase):
                 _ = cell.update(x)
             return jnp.mean(cell.c.value ** 2)
 
-        grad_fn = jax.grad(loss_fn)
+        # cell.update writes hidden states: raw jax.grad cannot track that,
+        # so the brainstate equivalent is required
+        grad_fn = brainstate.transform.grad(loss_fn, argnums=0)
         grad = grad_fn(self.x)
 
         self.assertFalse(jnp.any(jnp.isnan(grad)))
@@ -484,7 +488,9 @@ class TestRNNCellIntegration(TestRNNCellBase):
                 output = cell.update(x * (t + 1))  # Amplify input
             return jnp.mean(output ** 2)
 
-        grad_fn = jax.grad(loss_fn)
+        # cell.update writes hidden states: raw jax.grad cannot track that,
+        # so the brainstate equivalent is required
+        grad_fn = brainstate.transform.grad(loss_fn, argnums=0)
         grad = grad_fn(self.x)
 
         # Gradients should not explode

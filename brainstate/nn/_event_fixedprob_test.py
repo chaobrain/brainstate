@@ -100,7 +100,10 @@ class TestFixedProbCSR:
         w = fn.weight.value
 
         def f(x, w):
-            fn.weight.value = w
+            # restore_value: untracked functional injection — this runs under
+            # raw jax.jvp (no brainstate equivalent) to verify the custom JVP
+            # rule numerically
+            fn.weight.restore_value(w)
             return fn(x)
 
         o1, r1 = jax.jvp(f, (x, w), (jnp.ones_like(x), jnp.ones_like(w)))

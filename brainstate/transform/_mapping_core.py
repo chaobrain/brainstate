@@ -849,7 +849,11 @@ def _detect_out_dims(f, args, kwargs, in_groups, rng_states, write_states,
         for (axis, states), vals in zip(in_groups, group_vals):
             for st, v in zip(states, vals):
                 st.restore_value(v)
-        f(*args_, **kwargs_, **static_kwargs)
+        # plain watcher (no new_arg): the user function runs under a raw
+        # jax.vmap here, and state writes of vmap tracers are legitimate —
+        # an active StateTraceStack keeps the tracer-write guard quiet
+        with StateTraceStack(name='state_map:detect'):
+            f(*args_, **kwargs_, **static_kwargs)
         for st in write_states:
             detected[id(st)] = leaf_batch_dim(st.value)
         return jnp.zeros(())

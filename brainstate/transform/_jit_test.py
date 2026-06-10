@@ -256,3 +256,104 @@ class TestJitShardings(unittest.TestCase):
     def test_negative_static_argnums_rejected(self):
         with self.assertRaises(ValueError):
             bst.transform.jit(lambda x, n: x * n, static_argnums=-1)
+
+
+class TestStateAvalStaleness(unittest.TestCase):
+    """Out-of-band state shape/dtype changes must trigger recompilation,
+    never silent reuse of a stale jaxpr (audit BUG 1)."""
+
+    def test_state_shape_change_recompiles(self):
+        st = bst.State(jnp.ones(3))
+
+        @bst.transform.jit
+        def mean_fn(x):
+            v = st.value
+            # v.shape[0] is baked into the jaxpr at trace time: a stale
+            # jaxpr reused after reshaping the state gives a wrong mean
+            return v.sum() / v.shape[0] + x * 0.0
+
+        self.assertEqual(float(mean_fn(0.0)), 1.0)
+        st.value = jnp.ones(6)
+        self.assertEqual(float(mean_fn(0.0)), 1.0)
+
+    def test_state_dtype_change_recompiles(self):
+        st = bst.State(jnp.ones(4, dtype=jnp.float32))
+
+        @bst.transform.jit
+        def f():
+            v = st.value
+            if jnp.issubdtype(v.dtype, jnp.floating):
+                return v / 2
+            return v * 2
+
+        self.assertTrue(bool(jnp.allclose(f(), jnp.full(4, 0.5))))
+        st.value = jnp.ones(4, dtype=jnp.int32)
+        out = f()
+        self.assertEqual(out.dtype, jnp.int32)
+        self.assertTrue(bool(jnp.all(out == 2)))
+
+    def test_no_spurious_recompile_when_unchanged(self):
+        st = bst.State(jnp.ones(3))
+
+        @bst.transform.jit
+        def f(x):
+            st.value = st.value + x
+            return st.value
+
+        f(jnp.ones(3))
+        key = f.stateful_fun.get_arg_cache_key(jnp.ones(3))
+        j1 = f.stateful_fun.get_jaxpr_by_cache(key)
+        f(jnp.ones(3))
+        j2 = f.stateful_fun.get_jaxpr_by_cache(key)
+        self.assertIs(j1, j2)
+
+    def test_random_state_no_spurious_recompile(self):
+        rng = bst.random.RandomState(42)
+
+        @bst.transform.jit
+        def f():
+            return rng.rand(3)
+
+        a = f()
+        key = f.stateful_fun.get_arg_cache_key()
+        j1 = f.stateful_fun.get_jaxpr_by_cache(key)
+        b = f()
+        j2 = f.stateful_fun.get_jaxpr_by_cache(key)
+        self.assertIs(j1, j2)
+        self.assertFalse(bool(jnp.allclose(a, b)))
+
+
+class TestAotPathsDoNotWriteStates(unittest.TestCase):
+    """AOT inspection (eval_shape/lower) must not mark states as written
+    in an enclosing trace (audit M3)."""
+
+    def _written_in_outer(self, aot_call):
+        st = bst.State(jnp.zeros(3))
+
+        @bst.transform.jit
+        def inner(x):
+            st.value = st.value + x
+            return st.value
+
+        # pre-compile at top level: when the AOT path later runs inside the
+        # outer trace it hits the compilation cache, so the only thing that
+        # could mark the state written there is a (spurious) writeback
+        aot_call(inner, jnp.zeros(3))
+
+        def outer(x):
+            aot_call(inner, x)
+            return x * 1.0
+
+        sf = bst.transform.StatefulFunction(outer)
+        sf.make_jaxpr(jnp.zeros(3))
+        trace = sf.get_state_trace(jnp.zeros(3))
+        for s, written in zip(trace.states, trace.been_writen):
+            if s is st:
+                return written
+        return None
+
+    def test_eval_shape_does_not_mark_states_written(self):
+        self.assertFalse(self._written_in_outer(lambda jf, x: jf.eval_shape(x)))
+
+    def test_lower_does_not_mark_states_written(self):
+        self.assertFalse(self._written_in_outer(lambda jf, x: jf.lower(x)))
