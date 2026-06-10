@@ -204,3 +204,55 @@ class TestJitNameAndStaging(unittest.TestCase):
         jf(jnp.ones((2,)))
         jf.clear_cache()
         self.assertTrue(bool(jnp.allclose(jf(jnp.ones((2,))), 2.0)))
+
+
+class TestJitShardings(unittest.TestCase):
+    """``in_shardings``/``out_shardings`` must account for the hidden
+    state-values argument that ``jit`` prepends (audit M4), and negative
+    static/donate argnums must be rejected instead of silently shifting
+    onto the state tuple."""
+
+    def _sharding(self, spec):
+        import numpy as np
+        from jax.sharding import Mesh, NamedSharding
+        mesh = Mesh(np.array(jax.devices()[:1]), ('x',))
+        return NamedSharding(mesh, spec)
+
+    def test_tuple_in_shardings_aligned(self):
+        from jax.sharding import PartitionSpec as P
+        st = bst.State(jnp.zeros(4))
+
+        @bst.transform.jit(in_shardings=(self._sharding(P('x')),))
+        def f(x):
+            st.value = st.value + x
+            return x * 2.0
+
+        out = f(jnp.arange(4.0))
+        self.assertTrue(bool(jnp.allclose(out, jnp.arange(4.0) * 2.0)))
+        self.assertTrue(bool(jnp.allclose(st.value, jnp.arange(4.0))))
+
+    def test_out_shardings_aligned(self):
+        from jax.sharding import PartitionSpec as P
+        st = bst.State(jnp.asarray(0.0))
+
+        @bst.transform.jit(out_shardings=self._sharding(P('x')))
+        def g(x):
+            st.value = st.value + 1.0  # scalar state write: P('x') cannot apply
+            return x * 2.0
+
+        out = g(jnp.arange(4.0))
+        self.assertTrue(bool(jnp.allclose(out, jnp.arange(4.0) * 2.0)))
+        self.assertEqual(float(st.value), 1.0)
+
+    def test_single_in_sharding_rejected(self):
+        from jax.sharding import PartitionSpec as P
+        with self.assertRaises(NotImplementedError):
+            bst.transform.jit(lambda x: x, in_shardings=self._sharding(P()))
+
+    def test_negative_donate_argnums_rejected(self):
+        with self.assertRaises(ValueError):
+            bst.transform.jit(lambda x: x, donate_argnums=-1)
+
+    def test_negative_static_argnums_rejected(self):
+        with self.assertRaises(ValueError):
+            bst.transform.jit(lambda x, n: x * n, static_argnums=-1)

@@ -67,6 +67,32 @@ def _get_jitted_fun(
 ) -> JittedFunction:
     static_argnums = tuple() if static_argnums is None else _ensure_index_tuple(static_argnums)
     donate_argnums = tuple() if donate_argnums is None else _ensure_index_tuple(donate_argnums)
+    # the internal calling convention prepends a state-values argument and
+    # shifts user argnums by +1, so a negative index would silently select
+    # the state tuple (e.g. donate_argnums=-1 donates every state buffer)
+    for label, nums in (('static_argnums', static_argnums), ('donate_argnums', donate_argnums)):
+        for i in nums:
+            if i < 0:
+                raise ValueError(
+                    f"{label} {i} is negative. brainstate.transform.jit does not "
+                    f"support negative argnums; use the non-negative index of the "
+                    f"positional argument instead."
+                )
+    # align user shardings with the (state_values, *args) / (state_values, outs)
+    # calling convention of the wrapped function
+    if in_shardings is not sharding_impls.UNSPECIFIED and in_shardings is not None:
+        if isinstance(in_shardings, (tuple, list)):
+            in_shardings = (None, *in_shardings)
+        else:
+            raise NotImplementedError(
+                "brainstate.transform.jit only supports in_shardings given as a "
+                "tuple/list with one entry per positional argument (a hidden "
+                "state-values argument is threaded internally, so a single "
+                "broadcast sharding cannot be aligned). Got "
+                f"{in_shardings!r}."
+            )
+    if out_shardings is not sharding_impls.UNSPECIFIED and out_shardings is not None:
+        out_shardings = (None, out_shardings)
     fun = StatefulFunction(
         fun,
         static_argnums=static_argnums,

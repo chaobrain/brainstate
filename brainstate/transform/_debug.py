@@ -356,10 +356,25 @@ class DebugNan:
         ------
         RuntimeError
             If NaN or Inf contaminates the function's outputs or updated state.
+            Under an enclosing trace (e.g. ``jit``) the error is raised from an
+            ordered ``jax.debug.callback`` at run time instead.
         """
         err, out_tree = self._checked(self._state_vals(), *self._args)
         out_leaves = jax.tree.leaves(out_tree)
-        if bool(_has_nan_flag(out_leaves)):
+        flag = unvmap(_has_nan_flag(out_leaves), op='any')
+        if isinstance(flag, Tracer):
+            # inside an enclosing trace (e.g. jit) the flag cannot be
+            # concretized -- raise from an ordered callback at run time instead
+            jax.lax.cond(
+                flag,
+                lambda: jax.debug.callback(
+                    functools.partial(_raise_report_cb, phase=self.phase),
+                    err, out_tree, ordered=True,
+                ),
+                lambda: None,
+            )
+            return None
+        if bool(flag):
             _raise_report(err, out_leaves, self.phase)
         return None
 

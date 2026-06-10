@@ -887,3 +887,23 @@ class TestVmapNewStatesRejectsStateArgs(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestFailedVmapNewStatesRestoresRng(unittest.TestCase):
+    """A failure inside the mapped pass must not leave key tracers in the
+    global random state (audit M5)."""
+
+    def test_vmap_new_states_failure_restores_rng(self):
+        bst.random.seed(0)
+        calls = {'n': 0}
+
+        def f():
+            st = bst.ShortTermState(bst.random.randn(3))
+            calls['n'] += 1
+            if calls['n'] >= 2:  # first call: probe; second: mapped pass
+                raise RuntimeError('boom')
+            return 1.0
+
+        with self.assertRaises(RuntimeError):
+            bst.transform.vmap_new_states(f, axis_size=4)()
+        self.assertFalse(isinstance(bst.random.DEFAULT.value, jax.core.Tracer))

@@ -121,3 +121,25 @@ class TestCheckify(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestFailedCheckifyRestoresStates(unittest.TestCase):
+    """A failure inside the checkify pass must not leave tracers in states
+    (audit M5: restoration only ran on success)."""
+
+    def test_failure_inside_checkify_restores_states(self):
+        s = brainstate.State(jnp.asarray(0.0))
+        calls = {'n': 0}
+
+        def f(x):
+            s.value = s.value + x
+            calls['n'] += 1
+            if calls['n'] >= 2:  # first call: discovery trace; second: checkify pass
+                raise RuntimeError('boom')
+            return x * 2.0
+
+        checked = brainstate.transform.checkify(f)
+        with self.assertRaises(RuntimeError):
+            checked(jnp.asarray(3.0))
+        self.assertFalse(isinstance(s.value, jax.core.Tracer))
+        self.assertEqual(float(s.value), 0.0)

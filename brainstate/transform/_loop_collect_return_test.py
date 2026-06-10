@@ -59,6 +59,24 @@ class TestForLoop(unittest.TestCase):
         self.assertTrue(jnp.allclose(r, ops + 1))
 
 
+class TestCheckpointedScanSkipPath(unittest.TestCase):
+    """A length that is not a power of ``base`` exercises the counter-bump
+    skip path of ``_bounded_while_loop`` (regression guard for the H2 fix)."""
+
+    def test_carry_collect_and_state_values(self):
+        st = brainstate.ShortTermState(jnp.asarray(0.0))
+
+        def f(carry, x):
+            st.value = st.value + 1.0
+            return carry + x, carry * 2.0
+
+        xs = jnp.arange(5.0)
+        carry, ys = brainstate.transform.checkpointed_scan(f, init=0.0, xs=xs, base=2)
+        self.assertEqual(float(carry), 10.0)
+        self.assertTrue(bool(jnp.allclose(ys, jnp.asarray([0., 0., 2., 6., 12.]))))
+        self.assertEqual(float(st.value), 5.0)
+
+
 class TestScanValidation(unittest.TestCase):
     """Tests for scan() input-validation branches."""
 
@@ -437,3 +455,22 @@ class TestCheckpointedForLoop(unittest.TestCase):
         xs = jnp.arange(4.0)
         ys = brainstate.transform.checkpointed_for_loop(f, xs, pbar=2)
         self.assertTrue(jnp.allclose(ys, xs + 1.0))
+
+
+class TestCheckpointedScanLengthValidation(unittest.TestCase):
+    """checkpointed_scan with zero iterations must raise a clear ValueError
+    instead of crashing later in ``math.log(0, base)`` (audit Tier C)."""
+
+    def test_zero_length_xs_raises_value_error(self):
+        def step(carry, x):
+            return carry + x, carry
+
+        with self.assertRaisesRegex(ValueError, 'length'):
+            brainstate.transform.checkpointed_scan(step, 0.0, jnp.zeros((0, 2)))
+
+    def test_zero_length_explicit_raises_value_error(self):
+        def step(carry, x):
+            return carry + x, carry
+
+        with self.assertRaisesRegex(ValueError, 'length'):
+            brainstate.transform.checkpointed_scan(step, 0.0, jnp.zeros((0,)), length=0)

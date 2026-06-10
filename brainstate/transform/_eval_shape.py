@@ -111,9 +111,13 @@ def eval_shape(
         # Rebuild graph nodes from the pure-pytree inputs before calling f.
         inner_args, inner_kwargs = tree_to_graph((inner_args, inner_kwargs))
         with catch_new_states() as catcher:
-            out = f(*inner_args, **inner_kwargs)
-        caught_box['states'] = catcher.get_states()
-        caught_box['values'] = catcher.get_state_values()
+            try:
+                out = f(*inner_args, **inner_kwargs)
+            finally:
+                # record the created states even when f fails, so the cleanup
+                # below can unwind them
+                caught_box['states'] = catcher.get_states()
+                caught_box['values'] = catcher.get_state_values()
         # Represent a returned Node as a pure pytree so StatefulFunction can derive
         # its output shapes.
         out_tree, _ = graph_to_tree(out)
@@ -121,29 +125,31 @@ def eval_shape(
 
     # One abstract trace via the canonical stateful wrapper.
     stateful_fn = StatefulFunction(_wrapped, name='eval_shape')
-    stateful_fn.make_jaxpr(*g_args, **g_kwargs)
-    out_shapes, state_shapes = stateful_fn.get_out_shapes(*g_args, **g_kwargs)
+    try:
+        stateful_fn.make_jaxpr(*g_args, **g_kwargs)
+        out_shapes, state_shapes = stateful_fn.get_out_shapes(*g_args, **g_kwargs)
 
-    # Reconstruct a Node (if any) from the abstract output pytree. ``tree_to_graph``
-    # builds fresh States bound to the current (top-level) trace, so the reconstructed
-    # Node is already a first-class input to subsequent brainstate transformations
-    # (nested eval_shape, jit/grad/vmap, init_all_states). For plain-array outputs
-    # ``tree_to_graph`` is a no-op passthrough.
-    out = tree_to_graph(out_shapes)
+        # Reconstruct a Node (if any) from the abstract output pytree. ``tree_to_graph``
+        # builds fresh States bound to the current (top-level) trace, so the reconstructed
+        # Node is already a first-class input to subsequent brainstate transformations
+        # (nested eval_shape, jit/grad/vmap, init_all_states). For plain-array outputs
+        # ``tree_to_graph`` is a no-op passthrough.
+        out = tree_to_graph(out_shapes)
 
-    # Build the State -> ShapeDtypeStruct mapping for the optional return. The
-    # state_shapes tuple is aligned with state_trace.states.
-    state_trace = stateful_fn.get_state_trace(*g_args, **g_kwargs)
-    state_shape_map = {st: sh for st, sh in zip(state_trace.states, state_shapes)}
-
-    # States created INSIDE f (the ``lambda: LSTMCell(...)`` case) were elevated to the
-    # abstract trace's stack level. Restore their original values and drop the stack
-    # level so the finished trace does not leak. Mirrors vmap_new_states.
-    new_states = caught_box.get('states', [])
-    new_values = caught_box.get('values', [])
-    for st, val in zip(new_states, new_values):
-        st.restore_value(val)
-        st.decrease_stack_level()
+        # Build the State -> ShapeDtypeStruct mapping for the optional return. The
+        # state_shapes tuple is aligned with state_trace.states.
+        state_trace = stateful_fn.get_state_trace(*g_args, **g_kwargs)
+        state_shape_map = {st: sh for st, sh in zip(state_trace.states, state_shapes)}
+    finally:
+        # States created INSIDE f (the ``lambda: LSTMCell(...)`` case) were elevated
+        # to the abstract trace's stack level. Restore their original values and drop
+        # the stack level so the trace does not leak -- on failure too. Mirrors
+        # vmap_new_states.
+        new_states = caught_box.get('states', [])
+        new_values = caught_box.get('values', [])
+        for st, val in zip(new_states, new_values):
+            st.restore_value(val)
+            st.decrease_stack_level()
 
     if return_state_shapes:
         return state_shape_map, out

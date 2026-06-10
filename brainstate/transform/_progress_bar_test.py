@@ -84,8 +84,8 @@ class TestProgressBarConstruction(unittest.TestCase):
     """Validation performed in ``ProgressBar.__init__``."""
 
     def test_freq_must_be_positive(self):
-        """A non-positive ``freq`` raises ``AssertionError``."""
-        with self.assertRaises(AssertionError):
+        """A non-positive ``freq`` raises ``ValueError``."""
+        with self.assertRaises(ValueError):
             ProgressBar(freq=0)
 
     def test_cannot_specify_both_freq_and_count(self):
@@ -393,6 +393,19 @@ class TestProgressBarFallbackIntegration(unittest.TestCase):
             out = err.getvalue()
             self.assertNotEqual(out, "")
             self.assertIn("iter", out)
+
+
+class TestProgressBarFreqValidation(unittest.TestCase):
+    """Invalid ``freq`` must raise ValueError (not AssertionError, which
+    disappears under ``python -O``) (audit Tier C)."""
+
+    def test_negative_freq_raises_value_error(self):
+        with self.assertRaises(ValueError):
+            ProgressBar(freq=-3)
+
+    def test_positive_freq_accepted(self):
+        pbar = ProgressBar(freq=2)
+        self.assertEqual(pbar.print_freq, 2)
 
 
 if __name__ == "__main__":

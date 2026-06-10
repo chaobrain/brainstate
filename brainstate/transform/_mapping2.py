@@ -836,19 +836,21 @@ def _map_new_states(
     else:
         raise ValueError(f"Invalid behavior {behavior!r}; must be 'vmap' or 'pmap'.")
 
-    with catch_new_states(state_tag):
-        mapped = primitive(
-            init_fn,
-            in_axes=(0 if len(rng_states) else None,),
-            out_axes=tuple(axes_order),
-            axis_size=axis_size,
-            axis_name=axis_name,
-        )
-        tuple_vals = mapped(rng_keys)
-
-    # restore the global RNG once
-    for rng, key in zip(rng_states, rng_backups):
-        rng.restore_value(key)
+    try:
+        with catch_new_states(state_tag):
+            mapped = primitive(
+                init_fn,
+                in_axes=(0 if len(rng_states) else None,),
+                out_axes=tuple(axes_order),
+                axis_size=axis_size,
+                axis_name=axis_name,
+            )
+            tuple_vals = mapped(rng_keys)
+    finally:
+        # restore the global RNG once -- also on failure, so a crashed mapped
+        # pass cannot leave key tracers in the random states
+        for rng, key in zip(rng_states, rng_backups):
+            rng.restore_value(key)
 
     # scatter batched values into the freshly created state objects
     dict_vmap_states: Dict[Any, list] = defaultdict(list)

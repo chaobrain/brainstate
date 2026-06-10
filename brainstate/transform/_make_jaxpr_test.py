@@ -1845,3 +1845,78 @@ class TestStaticArgnumsEdgeCases(unittest.TestCase):
         new_state_vals, out = sf.debug_call(state_vals, x)
         # return_only_write=False means we get ALL states back
         self.assertEqual(len(new_state_vals), len(states))
+
+
+class TestFailedTraceRestoresStates(unittest.TestCase):
+    """A function that raises mid-trace must not leave tracers in states
+    (audit H4: ``recovery_original_values`` only ran on success)."""
+
+    def test_direct_make_jaxpr_failure_restores_state(self):
+        st = brainstate.State(jnp.asarray(1.0))
+
+        def f(x):
+            st.value = st.value + x  # write happens before the failure
+            raise RuntimeError('user error mid-trace')
+
+        sf = brainstate.transform.StatefulFunction(f)
+        with self.assertRaises(RuntimeError):
+            sf.make_jaxpr(2.0)
+        self.assertFalse(isinstance(st.value, jax.core.Tracer))
+        self.assertEqual(float(st.value), 1.0)
+
+    def test_jit_trace_failure_restores_state_and_recovers(self):
+        st = brainstate.State(jnp.asarray(1.0))
+        fail = [True]
+
+        @brainstate.transform.jit
+        def f(x):
+            st.value = st.value + x
+            if fail[0]:
+                raise RuntimeError('user error mid-trace')
+            return st.value
+
+        with self.assertRaises(RuntimeError):
+            f(2.0)
+        self.assertFalse(isinstance(st.value, jax.core.Tracer))
+        self.assertEqual(float(st.value), 1.0)
+
+        # a later, fixed call must retrace and succeed
+        fail[0] = False
+        out = f(2.0)
+        self.assertEqual(float(out), 3.0)
+        self.assertEqual(float(st.value), 3.0)
+
+
+class TestStateInKwargsRejected(unittest.TestCase):
+    """A State passed as a dynamic keyword argument must raise the friendly
+    ValueError, exactly like positional arguments, instead of being silently
+    abstractified into its value leaves (audit M7)."""
+
+    def test_state_positional_arg_raises(self):
+        st = brainstate.State(jnp.zeros(3))
+        sf = brainstate.transform.StatefulFunction(lambda s: s.value * 2.0)
+        with self.assertRaisesRegex(ValueError, 'cannot be an instance of State'):
+            sf.make_jaxpr(st)
+
+    def test_state_kwarg_raises(self):
+        st = brainstate.State(jnp.zeros(3))
+        sf = brainstate.transform.StatefulFunction(lambda *, s: s.value * 2.0)
+        with self.assertRaisesRegex(ValueError, 'cannot be an instance of State'):
+            sf.make_jaxpr(s=st)
+
+    def test_state_kwarg_nested_in_pytree_raises(self):
+        st = brainstate.State(jnp.zeros(3))
+        sf = brainstate.transform.StatefulFunction(lambda *, d: d['s'].value * 2.0)
+        with self.assertRaisesRegex(ValueError, 'cannot be an instance of State'):
+            sf.make_jaxpr(d={'s': st})
+
+    def test_static_kwarg_state_is_allowed_to_pass_through(self):
+        # a State in a *static* kwarg is not a traced input; the check must not
+        # fire for it (it is the closure-capture pattern, keyed by identity)
+        st = brainstate.State(jnp.ones(3))
+
+        def f(x, *, which):
+            return x * which.value
+
+        sf = brainstate.transform.StatefulFunction(f, static_argnames=('which',))
+        sf.make_jaxpr(jnp.ones(3), which=st)  # must not raise

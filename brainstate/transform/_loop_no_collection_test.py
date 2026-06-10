@@ -149,3 +149,99 @@ class TestBoundedWhileLoop(TestCase):
 
         with self.assertRaises(ValueError):
             brainstate.transform.bounded_while_loop(cond, body, 0.0, max_steps=10)
+
+
+class TestBoundedWhileLoopSemantics(TestCase):
+    """``bounded_while_loop`` must match ``while_loop`` whenever the loop
+    exits before ``max_steps`` (audit H2: the skip path corrupted the carry,
+    ``max_steps=1`` ignored the condition, and vmapped lanes over-stepped).
+    """
+
+    def _python_loop(self, cond, body, val, max_steps):
+        steps = 0
+        while steps < max_steps and cond(val):
+            val = body(val)
+            steps += 1
+        return val
+
+    def test_early_exit_value(self):
+        cond = lambda x: x < 3.0
+        body = lambda x: x + 1.0
+        out = brainstate.transform.bounded_while_loop(cond, body, 0.0, max_steps=8, base=2)
+        self.assertEqual(float(out), 3.0)
+
+    def test_early_exit_value_default_base(self):
+        cond = lambda x: x < 3.0
+        body = lambda x: x + 1.0
+        out = brainstate.transform.bounded_while_loop(cond, body, 0.0, max_steps=4)
+        self.assertEqual(float(out), 3.0)
+
+    def test_max_steps_one_respects_condition(self):
+        cond = lambda x: x < 3.0
+        body = lambda x: x + 5.0
+        out = brainstate.transform.bounded_while_loop(cond, body, 100.0, max_steps=1)
+        self.assertEqual(float(out), 100.0)
+
+        out = brainstate.transform.bounded_while_loop(cond, body, 0.0, max_steps=1)
+        self.assertEqual(float(out), 5.0)
+
+    def test_vmap_per_lane_exit(self):
+        cond = lambda x: x < 3.0
+        body = lambda x: x + 1.0
+
+        def run(x0):
+            return brainstate.transform.bounded_while_loop(cond, body, x0, max_steps=8, base=2)
+
+        out = jax.vmap(run)(jnp.asarray([0.0, 0.9]))
+        self.assertTrue(bool(jnp.allclose(out, jnp.asarray([3.0, 3.9]))))
+
+    def test_matches_python_semantics(self):
+        cond = lambda x: x < 100.0
+        body = lambda x: x * 2.0 + 1.0
+        for init in (0.0, 50.0, 200.0):
+            for max_steps, base in ((1, 16), (3, 2), (8, 2), (10, 16), (100, 4)):
+                out = brainstate.transform.bounded_while_loop(
+                    cond, body, init, max_steps=max_steps, base=base
+                )
+                expected = self._python_loop(cond, body, init, max_steps)
+                self.assertEqual(
+                    float(out), float(expected),
+                    msg=f'init={init} max_steps={max_steps} base={base}'
+                )
+
+    def test_stateful_early_exit(self):
+        counter = brainstate.State(jnp.asarray(0.0))
+
+        def cond(x):
+            return counter.value < 3.0
+
+        def body(x):
+            counter.value = counter.value + 1.0
+            return x + 10.0
+
+        out = brainstate.transform.bounded_while_loop(cond, body, 0.0, max_steps=8, base=2)
+        self.assertEqual(float(counter.value), 3.0)
+        self.assertEqual(float(out), 30.0)
+
+    def test_stateful_capped(self):
+        counter = brainstate.State(jnp.asarray(0.0))
+
+        def cond(x):
+            return counter.value < 1000.0
+
+        def body(x):
+            counter.value = counter.value + 1.0
+            return x + 10.0
+
+        out = brainstate.transform.bounded_while_loop(cond, body, 0.0, max_steps=2, base=2)
+        self.assertEqual(float(counter.value), 2.0)
+        self.assertEqual(float(out), 20.0)
+
+    def test_grad_through_early_exit(self):
+        def f(x):
+            return brainstate.transform.bounded_while_loop(
+                lambda v: v < 5.0, lambda v: v * 2.0, x, max_steps=8, base=2
+            )
+
+        self.assertEqual(float(f(1.0)), 8.0)
+        self.assertEqual(float(jax.grad(f)(1.0)), 8.0)

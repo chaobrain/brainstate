@@ -17,6 +17,7 @@ from typing import Union, Callable, Dict, Sequence, Optional, Any, Tuple, TypeVa
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 from brainstate._state import State
 from brainstate.typing import PyTree
@@ -210,6 +211,21 @@ class GradientTransform(PrettyRepr):
         # parameters
         if argnums is None and len(self._grad_states) == 0:
             argnums = 0
+        if argnums is not None:
+            # User argnums are shifted by +2 internally (two leading state-value
+            # slots), so negative indices would silently select internal slots.
+            for a in (argnums if isinstance(argnums, (tuple, list)) else (argnums,)):
+                if isinstance(a, bool) or not isinstance(a, (int, np.integer)):
+                    raise ValueError(
+                        f"argnums must be an int or a sequence of ints, "
+                        f"got {a!r} of type {type(a).__name__}."
+                    )
+                if a < 0:
+                    raise ValueError(
+                        f"argnums {a} is negative. Gradient transforms do not support "
+                        f"negative argnums; use the non-negative index of the "
+                        f"positional argument instead."
+                    )
         if argnums is None:
             assert len(self._grad_states) > 0
             _argnums = 0
@@ -398,6 +414,15 @@ class GradientTransform(PrettyRepr):
         write_state_vals, out = self._call_target(grad_vals, other_vals, *args, **kwargs)
         return out, (out, write_state_vals)
 
+    def _format_state_grads(self, grads_of_states: Dict):
+        """Restructure the internal ``id()``-keyed gradient dict to mirror the
+        user's ``grad_states`` structure. First-order transforms return one
+        dict level; higher-order subclasses override this.
+        """
+        return self._grad_tree.unflatten(
+            [grads_of_states[st_id] for st_id in self._grad_state_ids]
+        )
+
     def _return(self, rets, read_state_vals, state_trace):
         """
         Process and format the return values from the gradient computation.
@@ -423,11 +448,10 @@ class GradientTransform(PrettyRepr):
         # check returned grads
         if len(self._grad_states) > 0:
             grads_of_states = grads if self.raw_argnums is None else grads[0]
-            grads_of_states = [grads_of_states[st_id] for st_id in self._grad_state_ids]
             if self.raw_argnums is None:
-                grads = self._grad_tree.unflatten(grads_of_states)
+                grads = self._format_state_grads(grads_of_states)
             else:
-                var_grads = self._grad_tree.unflatten(grads_of_states)
+                var_grads = self._format_state_grads(grads_of_states)
                 arg_grads = grads[1] if isinstance(self.raw_argnums, int) else grads[1:]
                 grads = (var_grads, arg_grads)
 
@@ -486,8 +510,12 @@ class GradientTransform(PrettyRepr):
             grads = rets[0]
             has_nan = _check_nan_jit_compatible(grads)
 
-            # debug nan
-            debug_nan_if(has_nan, fn.jaxpr_call_auto, phase=str(self.transform.__name__))
+            # debug nan -- the transform may be a functools.partial (e.g.
+            # vector_grad) without a ``__name__`` of its own
+            phase = getattr(self.transform, '__name__', None)
+            if phase is None:
+                phase = getattr(getattr(self.transform, 'func', None), '__name__', None)
+            debug_nan_if(has_nan, fn.jaxpr_call_auto, phase=str(phase or repr(self.transform)))
 
         else:
             # Compute gradients (JIT-compatible)

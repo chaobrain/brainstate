@@ -372,6 +372,11 @@ def checkpointed_scan(
             raise ValueError("scan got no values to scan over and `length` not provided.")
         else:
             length, = unique_lengths
+    if length < 1:
+        raise ValueError(
+            f"checkpointed_scan requires at least one iteration (length >= 1), but got length={length}. "
+            f"Use brainstate.transform.scan for zero-length scans."
+        )
 
     # function with progress bar
     if isinstance(pbar, ProgressBar):
@@ -652,19 +657,34 @@ def _bounded_while_loop(
     val: Any,
     max_steps: int,
     base: int,
-    pbar_runner: Optional[Callable] = None
+    pbar_runner: Optional[Callable] = None,
+    counter_bump: bool = True,
 ):
+    # ``counter_bump=True`` encodes the ``checkpointed_scan`` carry convention:
+    # the last carry element is the iteration counter and the skip path
+    # advances it past the whole sub-block. The public ``bounded_while_loop``
+    # carry has no counter, so its skip path must leave the carry untouched.
+    def skip_call(val_, steps_):
+        if not counter_bump:
+            return val_
+        if pbar_runner is not None:
+            pbar_runner(unvmap(val_[-1] + steps_, op='none'))
+        return val_[:-1] + (val_[-1] + steps_,)
+
     if max_steps == 1:
-        return body_fun(val)
+        return jax.lax.cond(
+            unvmap(cond_fun(val), op='any'),
+            body_fun,
+            lambda val_: skip_call(val_, 1),
+            val,
+        )
     else:
 
         def true_call(val_):
-            return _bounded_while_loop(cond_fun, body_fun, val_, max_steps // base, base, pbar_runner)
+            return _bounded_while_loop(cond_fun, body_fun, val_, max_steps // base, base, pbar_runner, counter_bump)
 
         def false_call(val_):
-            if pbar_runner is not None:
-                pbar_runner(unvmap(val_[-1] + max_steps, op='none'))
-            return val_[:-1] + (val_[-1] + max_steps,)
+            return skip_call(val_, max_steps)
 
         def scan_fn(val_, _):
             return jax.lax.cond(unvmap(cond_fun(val_), op='any'), true_call, false_call, val_), None

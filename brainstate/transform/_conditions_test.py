@@ -338,3 +338,133 @@ class TestIfElseValidation(unittest.TestCase):
             [True, True], [lambda: 1, lambda: 2], check_cond=False
         )
         self.assertEqual(int(out), 1)
+
+
+class TestCrossBranchStateAccess(unittest.TestCase):
+    """States written in one branch but only read (or untouched) in another.
+
+    Regression tests for the ``return_only_write=True`` interaction where a
+    branch that does not write a state in the merged write set produced a
+    ``None`` output slot, crashing ``lax.cond``/``lax.switch`` with a
+    type-structure mismatch between branches.
+    """
+
+    def test_cond_write_in_true_read_in_false(self):
+        a = brainstate.State(jnp.asarray(1.0))
+        b = brainstate.State(jnp.asarray(2.0))
+        r = brainstate.State(jnp.asarray(0.0))
+
+        def true_fn(x):
+            a.value = b.value + x
+
+        def false_fn(x):
+            r.value = a.value + 1.0
+
+        brainstate.transform.cond(True, true_fn, false_fn, 3.0)
+        self.assertEqual(float(a.value), 5.0)
+        self.assertEqual(float(r.value), 0.0)
+        self.assertFalse(isinstance(a.value, Tracer))
+        self.assertFalse(isinstance(r.value, Tracer))
+
+        brainstate.transform.cond(False, true_fn, false_fn, 3.0)
+        self.assertEqual(float(a.value), 5.0)  # untouched by false branch
+        self.assertEqual(float(r.value), 6.0)
+
+    def test_cond_write_in_one_branch_untouched_in_other(self):
+        a = brainstate.State(jnp.asarray(1.0))
+
+        def true_fn():
+            a.value = a.value * 10.0
+
+        def false_fn():
+            pass  # does not touch ``a`` at all
+
+        brainstate.transform.cond(False, true_fn, false_fn)
+        self.assertEqual(float(a.value), 1.0)
+
+        brainstate.transform.cond(True, true_fn, false_fn)
+        self.assertEqual(float(a.value), 10.0)
+
+    def test_cond_cross_writes_under_jit(self):
+        a = brainstate.State(jnp.asarray(1.0))
+        b = brainstate.State(jnp.asarray(2.0))
+
+        @brainstate.transform.jit
+        def step(pred, x):
+            def true_fn():
+                a.value = b.value + x
+
+            def false_fn():
+                b.value = a.value * 10.0
+
+            brainstate.transform.cond(pred, true_fn, false_fn)
+            return a.value + b.value
+
+        out = step(jnp.asarray(True), 3.0)
+        self.assertEqual(float(out), 7.0)
+        self.assertEqual(float(a.value), 5.0)
+        self.assertEqual(float(b.value), 2.0)
+
+        out = step(jnp.asarray(False), 3.0)
+        self.assertEqual(float(out), 55.0)
+        self.assertEqual(float(a.value), 5.0)
+        self.assertEqual(float(b.value), 50.0)
+
+    def test_switch_mixed_read_write_branches(self):
+        a = brainstate.State(jnp.asarray(1.0))
+        c = brainstate.State(jnp.asarray(10.0))
+
+        def write_a(x):
+            a.value = x * 2.0
+
+        def write_c(x):
+            c.value = a.value + x
+
+        def read_only(x):
+            _ = a.value + c.value
+
+        branches = [write_a, write_c, read_only]
+
+        brainstate.transform.switch(jnp.asarray(0), branches, 3.0)
+        self.assertEqual(float(a.value), 6.0)
+        self.assertEqual(float(c.value), 10.0)
+
+        brainstate.transform.switch(jnp.asarray(1), branches, 3.0)
+        self.assertEqual(float(a.value), 6.0)
+        self.assertEqual(float(c.value), 9.0)
+
+        brainstate.transform.switch(jnp.asarray(2), branches, 3.0)
+        self.assertEqual(float(a.value), 6.0)
+        self.assertEqual(float(c.value), 9.0)
+
+    def test_ifelse_mixed_read_write_branches(self):
+        a = brainstate.State(jnp.asarray(0.0))
+
+        def write_branch():
+            a.value = a.value + 1.0
+
+        def read_branch():
+            _ = a.value
+
+        def f(x):
+            return brainstate.transform.ifelse(
+                [x >= 0, x < 0],
+                [write_branch, read_branch],
+            )
+
+        f(jnp.asarray(1.0))
+        self.assertEqual(float(a.value), 1.0)
+
+        f(jnp.asarray(-1.0))
+        self.assertEqual(float(a.value), 1.0)
+
+    def test_cond_read_only_state_in_all_branches(self):
+        """A state read everywhere and written nowhere stays untouched."""
+        a = brainstate.State(jnp.asarray(4.0))
+
+        out = brainstate.transform.cond(
+            True, lambda: a.value + 1.0, lambda: a.value - 1.0
+        )
+        self.assertEqual(float(out), 5.0)
+        self.assertEqual(float(a.value), 4.0)
+        self.assertFalse(isinstance(a.value, Tracer))

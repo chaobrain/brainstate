@@ -33,13 +33,10 @@ def fn_to_call(
     """
     A wrapper for JIT-compiled functions with named scopes.
 
-    This function provides a consistent interface for JIT-compiled functions,
-    supporting both standard ``static_*`` arguments and the inverse ``non_static_*``
-    arguments for convenience.
-
-    When using ``non_static_*`` parameters, this function automatically computes
-    which arguments should be static based on the actual arguments provided
-    at call time, and caches the JIT-compiled functions for efficiency.
+    This function provides a consistent interface for JIT-compiled functions.
+    ``static_argnums``/``static_argnames`` may be given either directly or as
+    callables computed from the actual call arguments; in both cases the
+    JIT-compiled functions are cached per static configuration.
 
     Unlike a class-based implementation, the returned wrapper function properly
     supports being used as a bound method through Python's descriptor protocol.
@@ -79,6 +76,10 @@ def fn_to_call(
             return (argnames,)
         return tuple(argnames)
 
+    # JIT functions cached per normalized static configuration, so repeated calls
+    # reuse compilations instead of rebuilding a fresh jit() wrapper every time.
+    _jit_cache: dict = {}
+
     def _create_jit_fn(
         s_argnums: Union[int, Sequence[int], None],
         s_argnames: Union[str, Sequence[str], None],
@@ -99,7 +100,10 @@ def fn_to_call(
         s_argnums = _normalize_argnums(s_argnums, len(args))
         s_argnames = _normalize_argnames(s_argnames)
 
-        return _create_jit_fn(s_argnums, s_argnames)
+        key = (s_argnums, s_argnames)
+        if key not in _jit_cache:
+            _jit_cache[key] = _create_jit_fn(s_argnums, s_argnames)
+        return _jit_cache[key]
 
     @functools.wraps(fn)
     def wrapper(*args, **kwargs):
@@ -113,6 +117,7 @@ def fn_to_call(
             return fn(*args, **kwargs)
 
     wrapper.fn = fn
+    wrapper._jit_cache = _jit_cache
     return wrapper
 
 
@@ -125,8 +130,8 @@ def named_scope(
     Decorator that wraps a function with JAX's JIT compilation and sets its name.
 
     This is a convenience decorator that combines ``jit()`` with named scope support.
-    It also provides an inverse API via ``non_static_argnums``/``non_static_argnames``
-    for specifying which arguments should NOT be static (the complement of ``static_*``).
+    ``static_argnums``/``static_argnames`` may also be callables that compute the
+    static configuration from the actual call arguments.
 
     The decorated function supports being used as a class bound method.
 
@@ -159,11 +164,11 @@ def named_scope(
     ... def power(x, n):
     ...     return x ** n
 
-    Using non_static_argnums (only first arg is traced, rest are static):
+    With a callable computing the static configuration from the call arguments:
 
-    >>> @named_scope(name='scaled_power', non_static_argnums=0)
+    >>> @named_scope(name='scaled_power', static_argnums=lambda *args, **kwargs: (1, 2))
     ... def scaled_power(x, n, scale):
-    ...     return (x ** n) * scale  # n and scale are automatically static
+    ...     return (x ** n) * scale  # n and scale are static
 
     As a class method:
 

@@ -328,3 +328,29 @@ class TestShardMapUseCases(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestFailedShardMapRestoresStates(unittest.TestCase):
+    """A failure inside the shard_map pass must not leave shard tracers in
+    states (audit M5: restoration only ran on success)."""
+
+    def test_failure_inside_shard_map_restores_states(self):
+        import numpy as np
+        from jax.sharding import Mesh, PartitionSpec as P
+
+        mesh = Mesh(np.array(jax.devices()[:1]), ('x',))
+        s = brainstate.State(jnp.zeros(4))
+        calls = {'n': 0}
+
+        def f(x):
+            s.value = s.value + x
+            calls['n'] += 1
+            if calls['n'] >= 2:  # first call: discovery trace; second: shard_map pass
+                raise RuntimeError('boom')
+            return x * 2.0
+
+        sm = brainstate.transform.shard_map(f, mesh, in_specs=P('x'), out_specs=P('x'))
+        with self.assertRaises(RuntimeError):
+            sm(jnp.arange(4.0))
+        self.assertFalse(isinstance(s.value, jax.core.Tracer))
+        self.assertTrue(bool(jnp.allclose(s.value, jnp.zeros(4))))

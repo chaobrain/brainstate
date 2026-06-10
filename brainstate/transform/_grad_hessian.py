@@ -41,6 +41,24 @@ __all__ = [
 ]
 
 
+class _HessianTransform(GradientTransform):
+    """``GradientTransform`` whose state gradients are second order.
+
+    ``jax.hessian`` over the internal ``id()``-keyed state-value dict returns
+    a dict-of-dicts ``{id_j: {id_i: block}}``; unflatten BOTH levels with the
+    user's ``grad_states`` tree so no raw ids leak into the result.
+    """
+
+    def _format_state_grads(self, grads_of_states: Dict):
+        rows = []
+        for j_id in self._grad_state_ids:
+            inner = grads_of_states[j_id]
+            rows.append(self._grad_tree.unflatten(
+                [inner[i_id] for i_id in self._grad_state_ids]
+            ))
+        return self._grad_tree.unflatten(rows)
+
+
 @set_module_as("brainstate.transform")
 def hessian(
     func: Callable,
@@ -106,7 +124,13 @@ def hessian(
     obj: ObjectTransform
       The transformed object.
     """
-    return GradientTransform(
+    if grad_states is not None and argnums is not None:
+        raise NotImplementedError(
+            "hessian does not support grad_states and argnums at the same time. "
+            "Compute the state Hessian and the argument Hessian in two calls, "
+            "or fold the arguments into states."
+        )
+    return _HessianTransform(
         target=func,
         transform=u.autograd.hessian if unit_aware else jax.hessian,
         grad_states=grad_states,

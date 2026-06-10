@@ -1319,5 +1319,129 @@ class TestEdgeCases(unittest.TestCase):
         self.assertTrue(jnp.allclose(out, h.value))
 
 
+class TestFailedExecutionRestoresStates(unittest.TestCase):
+    """A failed execution pass must not leave tracers in plan states
+    (audit M1: ``_execute_plan`` restored values only on success)."""
+
+    def test_bad_out_axes_restores_state_and_rng(self):
+        brainstate.random.seed(0)
+        s = brainstate.State(jnp.asarray(0.0))
+
+        def g(x):
+            s.value = x + brainstate.random.uniform()
+            return x * 1.0
+
+        f = brainstate.transform.vmap2(g, out_axes=1)  # scalar output: axis 1 invalid
+        with self.assertRaises(ValueError):
+            f(jnp.arange(4.0))
+
+        self.assertFalse(isinstance(s.value, jax.core.Tracer))
+        self.assertEqual(float(s.value), 0.0)
+        self.assertFalse(isinstance(brainstate.random.DEFAULT.value, jax.core.Tracer))
+
+    def test_failure_then_success(self):
+        s = brainstate.State(jnp.asarray(0.0))
+
+        def g(x):
+            s.value = jnp.asarray(1.0)  # broadcast write (constant per lane)
+            return x * 2.0
+
+        bad = brainstate.transform.vmap2(g, out_axes=1)
+        with self.assertRaises(ValueError):
+            bad(jnp.arange(4.0))
+        self.assertEqual(float(s.value), 0.0)
+
+        good = brainstate.transform.vmap2(g)
+        out = good(jnp.arange(4.0))
+        self.assertTrue(bool(jnp.allclose(out, jnp.arange(4.0) * 2.0)))
+        self.assertEqual(float(s.value), 1.0)
+
+
+class TestStalePlanWriteSetDivergence(unittest.TestCase):
+    """Python control flow on an unmapped state may change the write set
+    between calls; the cached plan must be rebuilt instead of leaking
+    tracers into newly-written states (audit M2)."""
+
+    def test_flag_flip_write_appears(self):
+        flag = brainstate.State(True)
+        b = brainstate.State(jnp.asarray(0.0))
+
+        @brainstate.transform.vmap2
+        def f(x):
+            if flag.value:
+                return x * 2.0
+            b.value = jnp.asarray(1.0)
+            return x + 1.0
+
+        xs = jnp.arange(4.0)
+        out = f(xs)
+        self.assertTrue(bool(jnp.allclose(out, xs * 2.0)))
+        self.assertEqual(float(b.value), 0.0)
+
+        flag.value = False
+        out = f(xs)
+        self.assertTrue(bool(jnp.allclose(out, xs + 1.0)))
+        self.assertFalse(isinstance(b.value, jax.core.Tracer))
+        self.assertEqual(float(b.value), 1.0)
+
+    def test_flag_flip_batched_write_appears(self):
+        flag = brainstate.State(True)
+        b = brainstate.State(jnp.zeros(4))
+
+        @brainstate.transform.vmap2
+        def f(x):
+            if flag.value:
+                return x * 2.0
+            b.value = b.value + x  # undeclared read-modify-write per lane
+            return x + 1.0
+
+        xs = jnp.arange(4.0)
+        f(xs)
+        flag.value = False
+        out = f(xs)
+        self.assertTrue(bool(jnp.allclose(out, xs + 1.0)))
+        self.assertFalse(isinstance(b.value, jax.core.Tracer))
+        self.assertTrue(bool(jnp.allclose(b.value, xs)))
+
+    def test_flag_flip_write_disappears(self):
+        flag = brainstate.State(False)
+        b = brainstate.State(jnp.asarray(0.0))
+
+        @brainstate.transform.vmap2
+        def f(x):
+            if flag.value:
+                return x * 2.0
+            b.value = jnp.asarray(1.0)
+            return x + 1.0
+
+        xs = jnp.arange(4.0)
+        out = f(xs)
+        self.assertEqual(float(b.value), 1.0)
+
+        flag.value = True
+        out = f(xs)
+        self.assertTrue(bool(jnp.allclose(out, xs * 2.0)))
+        self.assertFalse(isinstance(b.value, jax.core.Tracer))
+        self.assertEqual(float(b.value), 1.0)  # untouched on this path
+
+    def test_plan_cache_still_effective_when_stable(self):
+        s = brainstate.State(jnp.asarray(0.0))
+        calls = [0]
+
+        def g(x):
+            calls[0] += 1
+            s.value = jnp.sum(x) * 0.0 + 1.0
+            return x * 2.0
+
+        f = brainstate.transform.vmap2(g)
+        xs = jnp.arange(4.0)
+        f(xs)
+        first = calls[0]
+        f(xs)
+        second = calls[0] - first
+        # warm path: no probe/discovery re-runs, only the single execution trace
+        self.assertLess(second, first)
+
+
 if __name__ == "__main__":
     unittest.main()

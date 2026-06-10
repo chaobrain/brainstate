@@ -378,8 +378,8 @@ class ProgressBar(object):
     ):
         # print rate
         self.print_freq = freq
-        if isinstance(freq, int):
-            assert freq > 0, "Print rate should be > 0."
+        if isinstance(freq, int) and freq <= 0:
+            raise ValueError(f"Print rate (freq) should be > 0, but got {freq}.")
 
         # print count
         self.print_count = count

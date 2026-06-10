@@ -83,14 +83,17 @@ def wrap_single_fun_in_multi_branches(
         # "write_state_vals" should have the same length as "merged_state_trace.states"
         assert len(merged_state_trace.states) == len(write_state_vals) == len(read_state_vals)
 
-        # get all state values needed for this function, which is a subset of "write_state_vals"
-        st_vals_for_this_fun = []
-        for write, st, val_w, val_r in zip(merged_state_trace.been_writen,
-                                           merged_state_trace.states,
-                                           write_state_vals,
-                                           read_state_vals):
-            if id(st) in state_ids_belong_to_this_fun:
-                st_vals_for_this_fun.append(val_w if write else val_r)
+        # the current value of every state in the merged trace
+        val_by_id = {
+            id(st): (val_w if write else val_r)
+            for write, st, val_w, val_r in zip(merged_state_trace.been_writen,
+                                               merged_state_trace.states,
+                                               write_state_vals,
+                                               read_state_vals)
+        }
+        # "jaxpr_call" consumes state values positionally in THIS function's own
+        # trace order, which may differ from the merged trace order.
+        st_vals_for_this_fun = [val_by_id[st_id] for st_id in state_ids_belong_to_this_fun]
 
         # call this function
         new_state_vals, out = stateful_fun.jaxpr_call(st_vals_for_this_fun, *operands)
@@ -100,8 +103,14 @@ def wrap_single_fun_in_multi_branches(
             # get all written state values
             new_state_vals = {id(st): val for st, val in
                               zip(stateful_fun.get_states_by_cache(cache_key), new_state_vals)}
+            # A slot may be in the merged write set because ANOTHER branch writes it.
+            # Under ``return_only_write=True``, ``jaxpr_call`` returns ``None`` for
+            # states this branch only reads — pass the incoming value through so
+            # every branch emits the same pytree structure.
             write_state_vals = tuple([
-                (new_state_vals[id(st)] if id(st) in state_ids_belong_to_this_fun else w_val)
+                (new_state_vals[id(st)]
+                 if id(st) in state_ids_belong_to_this_fun and new_state_vals[id(st)] is not None
+                 else w_val)
                 if write else None
                 for write, st, w_val in zip(merged_state_trace.been_writen,
                                             merged_state_trace.states,
@@ -180,14 +189,17 @@ def wrap_single_fun_in_multi_branches_while_loop(
         # "write_state_vals" should have the same length as "merged_state_trace.states"
         assert len(merged_state_trace.states) == len(write_state_vals) == len(read_state_vals)
 
-        # get all state values needed for this function, which is a subset of "write_state_vals"
-        st_vals_for_this_fun = []
-        for write, st, val_w, val_r in zip(merged_state_trace.been_writen,
-                                           merged_state_trace.states,
-                                           write_state_vals,
-                                           read_state_vals):
-            if id(st) in state_ids_belong_to_this_fun:
-                st_vals_for_this_fun.append(val_w if write else val_r)
+        # the current value of every state in the merged trace
+        val_by_id = {
+            id(st): (val_w if write else val_r)
+            for write, st, val_w, val_r in zip(merged_state_trace.been_writen,
+                                               merged_state_trace.states,
+                                               write_state_vals,
+                                               read_state_vals)
+        }
+        # "jaxpr_call" consumes state values positionally in THIS function's own
+        # trace order, which may differ from the merged trace order.
+        st_vals_for_this_fun = [val_by_id[st_id] for st_id in state_ids_belong_to_this_fun]
 
         # call this function
         new_state_vals, out = stateful_fun.jaxpr_call(st_vals_for_this_fun, init_val)
@@ -197,8 +209,12 @@ def wrap_single_fun_in_multi_branches_while_loop(
             # get all written state values
             new_state_vals = {id(st): val for st, val in
                               zip(stateful_fun.get_states_by_cache(cache_key), new_state_vals)}
+            # See ``wrap_single_fun_in_multi_branches``: a ``None`` from
+            # ``jaxpr_call`` means this fn only read the state — pass through.
             write_state_vals = tuple([
-                (new_state_vals[id(st)] if id(st) in state_ids_belong_to_this_fun else w_val)
+                (new_state_vals[id(st)]
+                 if id(st) in state_ids_belong_to_this_fun and new_state_vals[id(st)] is not None
+                 else w_val)
                 if write else None
                 for write, st, w_val in zip(merged_state_trace.been_writen,
                                             merged_state_trace.states,
