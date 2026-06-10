@@ -339,20 +339,22 @@ def _vmap_new_states_transform(
             new_states_box.update(grouped_states)
             return out, tuple(grouped_vals.get(k, []) for k in axes_order)
 
-        with catch_new_states(state_to_exclude=state_to_exclude):
-            mapped = jax.vmap(
-                new_fun,
-                in_axes=(in_axes, 0 if len(rng_states) else None),
-                out_axes=(out_axes, tuple(axes_order)),
-                axis_size=axis_size,
-                axis_name=axis_name,
-                spmd_axis_name=spmd_axis_name,
-            )
-            outs, grouped_out_vals = mapped(args, rng_keys)
-
-        # restore the global RNG once
-        for rng, key in zip(rng_states, rng_backups):
-            rng.restore_value(key)
+        try:
+            with catch_new_states(state_to_exclude=state_to_exclude):
+                mapped = jax.vmap(
+                    new_fun,
+                    in_axes=(in_axes, 0 if len(rng_states) else None),
+                    out_axes=(out_axes, tuple(axes_order)),
+                    axis_size=axis_size,
+                    axis_name=axis_name,
+                    spmd_axis_name=spmd_axis_name,
+                )
+                outs, grouped_out_vals = mapped(args, rng_keys)
+        finally:
+            # restore the global RNG once -- also on failure, so a crashed
+            # mapped pass cannot leave key tracers in the random states
+            for rng, key in zip(rng_states, rng_backups):
+                rng.restore_value(key)
 
         # restore vmapped new-state values + unwind trace levels (avoids leakage)
         all_new_states: List[State] = []

@@ -273,12 +273,33 @@ def bounded_while_loop(
     new_cond_fn = wrap_fn(stateful_cond, state_trace, read_state_vals, False, cond_cache_key)
     new_body_fn = wrap_fn(stateful_body, state_trace, read_state_vals, True, body_cache_key)
 
+    # The carry threads a step counter because ``rounded_max_steps`` below may
+    # exceed ``max_steps``; the counter enforces the user's exact bound.
+    def counted_cond_fn(val):
+        inner, step = val
+        return jax.numpy.logical_and(step < max_steps, new_cond_fn(inner))
+
+    def counted_body_fn(val):
+        inner, step = val
+        # Per-lane masking: once a lane's own condition is False, keep its
+        # carry (and state values) unchanged. The block-level dispatch in
+        # ``_bounded_while_loop`` reduces the condition with
+        # ``unvmap(.., 'any')``, so under ``vmap`` the body keeps running
+        # while ANY lane is still active.
+        keep = new_cond_fn(inner)
+        new_inner = new_body_fn(inner)
+        new_inner = jax.tree.map(lambda new, old: jax.numpy.where(keep, new, old), new_inner, inner)
+        return new_inner, step + 1
+
     # initial value
-    init_val = (write_state_vals, init_val)
+    init_val = ((write_state_vals, init_val), jax.numpy.asarray(0))
 
     # while_loop
     rounded_max_steps = base ** int(math.ceil(math.log(max_steps, base)))
-    state_vals, val = _bounded_while_loop(new_cond_fn, new_body_fn, init_val, rounded_max_steps, base, None)
+    (state_vals, val), _ = _bounded_while_loop(
+        counted_cond_fn, counted_body_fn, init_val, rounded_max_steps, base, None,
+        counter_bump=False,
+    )
 
     # write back state values or restore them
     state_trace.assign_state_vals_v2(read_state_vals, state_vals)

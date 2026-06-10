@@ -243,7 +243,13 @@ def shard_map(
         if SHARD_MAP_CHECK_KW is not None:
             sm_kwargs[SHARD_MAP_CHECK_KW] = check_vma
         sharded = jax_shard_map(pure, **sm_kwargs)
-        out, write_vals = sharded(in_state_vals, sharded_args)
+        try:
+            out, write_vals = sharded(in_state_vals, sharded_args)
+        except Exception:
+            # a failure mid-trace must not leave shard tracers in the states
+            for st, ov in zip(all_states, orig_vals):
+                st.restore_value(ov)
+            raise
 
         # 6. Restore ALL states: writes -> new values, reads -> originals
         #    (prevents shard tracers from leaking into global State objects).

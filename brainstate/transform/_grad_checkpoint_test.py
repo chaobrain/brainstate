@@ -77,5 +77,24 @@ class TestCheckpointAliasAndDecorator(unittest.TestCase):
         self.assertTrue(jnp.allclose(result, jnp.sin(jnp.array([0.0, jnp.pi / 2]))))
 
 
+class TestCheckpointNegativeStaticArgnums(unittest.TestCase):
+    """checkpoint/remat prepends a hidden state-value argument before calling
+    ``jax.checkpoint``, so negative ``static_argnums`` would silently point at
+    the wrong argument. They must be rejected up front (audit Tier C)."""
+
+    def test_negative_static_argnums_rejected(self):
+        with self.assertRaisesRegex(ValueError, 'negative'):
+            brainstate.transform.checkpoint(lambda x, n: x * n, static_argnums=-1)
+
+    def test_negative_in_sequence_rejected(self):
+        with self.assertRaisesRegex(ValueError, 'negative'):
+            brainstate.transform.checkpoint(lambda x, n, m: x * n, static_argnums=(1, -1))
+
+    def test_positive_static_argnums_still_work(self):
+        f = brainstate.transform.checkpoint(lambda x, n: x * n, static_argnums=1)
+        out = f(jnp.asarray(3.0), 2.0)
+        self.assertEqual(float(out), 6.0)
+
+
 if __name__ == '__main__':
     unittest.main()

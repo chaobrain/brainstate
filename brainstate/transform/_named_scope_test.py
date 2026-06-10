@@ -609,5 +609,35 @@ class TestIrCompilationPath(unittest.TestCase):
         self.assertTrue(jnp.allclose(out, jnp.array([12.0, 27.0])))
 
 
+class TestNamedScopeJitCache(unittest.TestCase):
+    """``fn_to_call`` must reuse the jit-compiled function across calls with
+    the same static configuration instead of rebuilding a fresh ``jit()``
+    wrapper (and recompiling) on every call (audit M10)."""
+
+    def test_jit_fn_reused_across_calls(self):
+        f = fn_to_call(lambda x: x * 2.0, name='cache_check')
+        with bst.environ.context(ir_compilation=True):
+            r1 = f(jnp.asarray(1.0))
+            r2 = f(jnp.asarray(2.0))
+        self.assertEqual(float(r1), 2.0)
+        self.assertEqual(float(r2), 4.0)
+        self.assertEqual(len(f._jit_cache), 1)
+
+    def test_distinct_static_configs_get_distinct_entries(self):
+        f = fn_to_call(
+            lambda x, n: x * n,
+            name='cache_check2',
+            static_argnums=lambda *args, **kw: (1,) if isinstance(args[1], float) else (),
+        )
+        with bst.environ.context(ir_compilation=True):
+            r1 = f(jnp.asarray(2.0), 3.0)               # n static
+            r2 = f(jnp.asarray(2.0), jnp.asarray(3.0))  # n traced
+            r3 = f(jnp.asarray(4.0), 3.0)               # n static again -> cached
+        self.assertEqual(float(r1), 6.0)
+        self.assertEqual(float(r2), 6.0)
+        self.assertEqual(float(r3), 12.0)
+        self.assertEqual(len(f._jit_cache), 2)
+
+
 if __name__ == '__main__':
     unittest.main()

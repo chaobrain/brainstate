@@ -1073,3 +1073,26 @@ class TestVmap2JaxParitySweep(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestFailedNewStatesMappingRestoresRng(unittest.TestCase):
+    """A failure inside the mapped init pass must not leave key tracers in
+    the global random state (audit M5)."""
+
+    def test_vmap2_new_states_failure_restores_rng(self):
+        brainstate.random.seed(0)
+
+        class _Stub:
+            def __init__(self):
+                self.calls = 0
+
+            def init_all_states(self):
+                self.calls += 1
+                if self.calls >= 2:  # first call: probe; second: mapped pass
+                    raise RuntimeError('boom')
+                self.s = brainstate.ShortTermState(brainstate.random.randn(3))
+
+        stub = _Stub()
+        with self.assertRaises(RuntimeError):
+            brainstate.transform.vmap2_new_states(stub, {}, axis_size=4)
+        self.assertFalse(isinstance(brainstate.random.DEFAULT.value, jax.core.Tracer))

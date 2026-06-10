@@ -1003,6 +1003,16 @@ def _build_plan(
     return LiveStateMapPlan(in_groups, rng_states, out_groups, oth_out_states)
 
 
+class _PlanStaleError(Exception):
+    """Internal: the function's write set diverged from the cached plan.
+
+    Raised inside the execution pass when ``f`` writes a state the plan does
+    not cover (e.g. Python control flow on an unmapped state changed branch
+    between calls). Caught by ``state_map_transform`` to rebuild the plan and
+    retry exactly once.
+    """
+
+
 def _execute_plan(plan: LiveStateMapPlan, f, args, kwargs, in_axes, out_axes,
                   axis_size, axis_name, mapping_fn, mapping_kwargs, static_argnames=()):
     """Run the cached plan through the mapping primitive and restore states.
@@ -1028,13 +1038,41 @@ def _execute_plan(plan: LiveStateMapPlan, f, args, kwargs, in_axes, out_axes,
 
     in_group_vals = [[st.value for st in states] for _, states in in_groups]
 
+    # every state the plan accounts for; a write outside this set means the
+    # plan no longer matches the function (M2)
+    expected_write_ids = (
+        {id(st) for st in rng_states}
+        | {id(st) for _, states in in_groups for st in states}
+        | {id(st) for _, states in out_groups for st in states}
+        | {id(st) for st in oth_out_states}
+    )
+
     def fn_to_map(args_, kwargs_, rng_keys_, group_vals):
         for st, key in zip(rng_states, rng_keys_):
             st.restore_value(key)
         for (axis, states), vals in zip(in_groups, group_vals):
             for st, v in zip(states, vals):
                 st.restore_value(v)
-        out = f(*args_, **kwargs_, **static_kwargs)
+        # Observe writes without altering values (no ``new_arg`` hook): states
+        # created inside ``f`` register above this stack and stay invisible.
+        watcher = StateTraceStack(name='state_map:watch')
+        with watcher:
+            out = f(*args_, **kwargs_, **static_kwargs)
+        stale = [
+            (st, org) for st, written, org in
+            zip(watcher.states, watcher.been_writen, watcher.original_state_values)
+            if written and id(st) not in expected_write_ids
+        ]
+        if stale:
+            # roll the unplanned states back to their first-seen values so the
+            # aborted trace cannot leak tracers into them
+            for st, org in stale:
+                st.restore_value(org)
+            raise _PlanStaleError(
+                f"The cached mapping plan no longer matches the write set of "
+                f"'{getattr(f, '__name__', f)}': {len(stale)} written state(s) "
+                f"are not covered by the plan."
+            )
         out_group_vals = [[st.value for st in states] for _, states in out_groups]
         oth_vals = [st.value for st in oth_out_states]
         return out, out_group_vals, oth_vals
@@ -1047,7 +1085,24 @@ def _execute_plan(plan: LiveStateMapPlan, f, args, kwargs, in_axes, out_axes,
         axis_name=axis_name,
         **mapping_kwargs,
     )
-    out, out_group_vals, oth_vals = mapped_fn(args, dyn_kwargs, rng_keys, in_group_vals)
+
+    # snapshot every plan state so a failed execution pass cannot leave
+    # tracers behind (M1; the probe/discovery passes already restore)
+    touched = list(rng_states) + list(oth_out_states)
+    for _, states in in_groups:
+        touched.extend(states)
+    for _, states in out_groups:
+        touched.extend(states)
+    snapshots = [(st, st.value) for st in {id(st): st for st in touched}.values()]
+
+    try:
+        out, out_group_vals, oth_vals = mapped_fn(args, dyn_kwargs, rng_keys, in_group_vals)
+    except Exception:
+        for st, val in snapshots:
+            st.restore_value(val)
+        for rng, key in zip(rng_states, rng_backups):
+            rng.restore_value(key)
+        raise
 
     # scatter batched output state values
     for (axis, states), vals in zip(out_groups, out_group_vals):
@@ -1149,11 +1204,30 @@ def state_map_transform(
                 static_argnames=static_argnames,
             )
             cache[cache_key] = StateMapPlan.from_live(live)
-        return _execute_plan(
-            live, f, args, kwargs, in_axes, out_axes,
-            axis_size, axis_name, mapping_fn, mapping_kwargs,
-            static_argnames=static_argnames,
-        )
+        try:
+            return _execute_plan(
+                live, f, args, kwargs, in_axes, out_axes,
+                axis_size, axis_name, mapping_fn, mapping_kwargs,
+                static_argnames=static_argnames,
+            )
+        except _PlanStaleError:
+            # the write set diverged from the cached plan (e.g. Python control
+            # flow on an unmapped state changed branch between calls): drop the
+            # plan, re-probe, and retry exactly once. A second divergence
+            # (write set changing within a single call) is surfaced as-is.
+            live = _build_plan(
+                f, args, kwargs,
+                in_predicates, out_predicates,
+                in_axes, axis_size, axis_name,
+                unexpected_out_state_mapping, name,
+                static_argnames=static_argnames,
+            )
+            cache[cache_key] = StateMapPlan.from_live(live)
+            return _execute_plan(
+                live, f, args, kwargs, in_axes, out_axes,
+                axis_size, axis_name, mapping_fn, mapping_kwargs,
+                static_argnames=static_argnames,
+            )
 
     wrapped.__brainstate_state_map__ = True
     return wrapped

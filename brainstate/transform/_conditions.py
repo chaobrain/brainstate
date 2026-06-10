@@ -119,7 +119,7 @@ def cond(pred: ArrayLike, true_fun: Callable, false_fun: Callable, *operands) ->
 
     # evaluate jaxpr
     stateful_true = StatefulFunction(true_fun, name='cond:true').make_jaxpr(*operands)
-    stateful_false = StatefulFunction(false_fun, name='conda:false').make_jaxpr(*operands)
+    stateful_false = StatefulFunction(false_fun, name='cond:false').make_jaxpr(*operands)
 
     # state trace and state values
     state_trace = (stateful_true.get_state_trace(*operands) +
@@ -281,28 +281,32 @@ def ifelse(
 
     Notes
     -----
-    When ``check_cond`` is ``True``, exactly one condition must evaluate to ``True``.
-    A common pattern is to make the final condition ``True`` to encode a default
-    branch.
+    Unlike a Python ``if``/``elif`` chain, conditions are evaluated together rather
+    than first-true-wins, so when ``check_cond`` is ``True`` (the default) they must
+    be **mutually exclusive**: exactly one condition may evaluate to ``True``,
+    otherwise a runtime error is raised. With ``check_cond=False`` the check is
+    skipped and the first ``True`` condition wins (falling back to the last branch
+    when none is ``True``).
 
     Examples
     --------
     .. code-block:: python
 
+        >>> import jax.numpy as jnp
         >>> import brainstate
         >>>
-        >>> def describe(a):
+        >>> def grade(a):
         ...     return brainstate.transform.ifelse(
-        ...         conditions=[a > 5, a > 0, True],
+        ...         conditions=[a > 5, jnp.logical_and(a > 0, a <= 5), a <= 0],
         ...         branches=[
-        ...             lambda: "greater than five",
-        ...             lambda: "positive",
-        ...             lambda: "non-positive",
+        ...             lambda: 2.0,  # greater than five
+        ...             lambda: 1.0,  # positive
+        ...             lambda: 0.0,  # non-positive
         ...         ],
         ...     )
         >>>
-        >>> describe(7)
-        >>> describe(-1)
+        >>> grade(jnp.asarray(7.0))   # 2.0
+        >>> grade(jnp.asarray(-1.0))  # 0.0
     """
     # check branches
     if not all(callable(branch) for branch in branches):

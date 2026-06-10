@@ -177,7 +177,13 @@ def checkify(fun: Callable, errors: Any = user_checks) -> Callable:
 
         # 3. Functionalize the checks; the Error is threaded out.
         checked = _cfy.checkify(pure, errors)
-        err, (out, write_vals) = checked(orig_vals, args, kwargs)
+        try:
+            err, (out, write_vals) = checked(orig_vals, args, kwargs)
+        except Exception:
+            # a failure mid-trace must not leave tracers in the states
+            for st, ov in zip(all_states, orig_vals):
+                st.restore_value(ov)
+            raise
 
         # 4. Restore ALL states: writes -> new values, reads -> originals
         #    (prevents tracers leaking into the global State objects).

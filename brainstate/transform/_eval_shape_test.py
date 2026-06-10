@@ -152,3 +152,29 @@ class TestEvalShape:
         out = brainstate.transform.eval_shape(f, jnp.ones((5,)))
         assert out.shape == (5,)
         assert out.dtype == jnp.float32
+
+
+class TestFailedEvalShapeUnwindsNewStates:
+    """States created inside ``f`` must be unwound (value + stack level)
+    even when the abstract trace fails (audit M5)."""
+
+    def test_failure_inside_f_unwinds_created_states(self):
+        import pytest
+
+        box = {}
+
+        def f():
+            st = brainstate.ShortTermState(jnp.zeros(3))
+            box['st'] = st
+            raise RuntimeError('boom')
+
+        with pytest.raises(RuntimeError):
+            brainstate.transform.eval_shape(f)
+        st = box['st']
+        # The stack level must be unwound so the orphaned state stays usable.
+        # (Its value is a staged tracer either way -- it was created inside the
+        # abstract trace and never had a concrete value -- so only the level
+        # bookkeeping is observable.)
+        assert st.stack_level == 0
+        st.value = jnp.ones(3)
+        assert bool(jnp.allclose(st.value, jnp.ones(3)))

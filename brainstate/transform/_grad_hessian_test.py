@@ -69,5 +69,75 @@ class TestHessian(unittest.TestCase):
         self.assertTrue(bool(jnp.allclose(block, 2.0 * jnp.eye(2))))
 
 
+class TestHessianStateStructure(unittest.TestCase):
+    """The Hessian w.r.t. ``grad_states`` must mirror the user's structure,
+    not expose internal raw-``id()``-keyed dicts (audit M3)."""
+
+    def test_single_state_returns_dense_block(self):
+        w = brainstate.State(jnp.asarray(1.0))
+
+        def loss():
+            return w.value ** 3
+
+        h = brainstate.transform.hessian(loss, grad_states=w)()
+        self.assertNotIsInstance(h, dict)
+        self.assertEqual(float(h), 6.0)  # d2(w^3)/dw2 = 6w
+
+    def test_single_state_with_return_value(self):
+        w = brainstate.State(jnp.asarray(1.0))
+
+        def loss():
+            return w.value ** 3
+
+        h, val = brainstate.transform.hessian(loss, grad_states=w, return_value=True)()
+        self.assertNotIsInstance(h, dict)
+        self.assertEqual(float(h), 6.0)
+        self.assertEqual(float(val), 1.0)
+
+    def test_list_of_states_structure(self):
+        w1 = brainstate.State(jnp.asarray(1.0))
+        w2 = brainstate.State(jnp.asarray(2.0))
+
+        def loss():
+            return w1.value ** 2 * w2.value
+
+        h = brainstate.transform.hessian(loss, grad_states=[w1, w2])()
+        self.assertIsInstance(h, list)
+        self.assertEqual(len(h), 2)
+        self.assertIsInstance(h[0], list)
+        # d2L/dw1dw1 = 2*w2 = 4, d2L/dw1dw2 = 2*w1 = 2, d2L/dw2dw2 = 0
+        self.assertEqual(float(h[0][0]), 4.0)
+        self.assertEqual(float(h[0][1]), 2.0)
+        self.assertEqual(float(h[1][0]), 2.0)
+        self.assertEqual(float(h[1][1]), 0.0)
+
+    def test_dict_of_states_structure(self):
+        ws = {
+            'a': brainstate.State(jnp.asarray(1.0)),
+            'b': brainstate.State(jnp.asarray(2.0)),
+        }
+
+        def loss():
+            return ws['a'].value ** 2 * ws['b'].value
+
+        h = brainstate.transform.hessian(loss, grad_states=ws)()
+        self.assertIsInstance(h, dict)
+        self.assertEqual(set(h.keys()), {'a', 'b'})
+        self.assertEqual(set(h['a'].keys()), {'a', 'b'})
+        self.assertEqual(float(h['a']['a']), 4.0)
+        self.assertEqual(float(h['a']['b']), 2.0)
+        self.assertEqual(float(h['b']['a']), 2.0)
+        self.assertEqual(float(h['b']['b']), 0.0)
+
+    def test_states_and_argnums_not_supported(self):
+        w = brainstate.State(jnp.asarray(1.0))
+
+        def loss(x):
+            return w.value * x ** 2
+
+        with self.assertRaises(NotImplementedError):
+            brainstate.transform.hessian(loss, grad_states=w, argnums=0)
+
+
 if __name__ == "__main__":
     unittest.main()

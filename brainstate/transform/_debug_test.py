@@ -913,5 +913,37 @@ class TestBreakpointIf(unittest.TestCase):
         self.assertTrue(jnp.allclose(out, 0.0))
 
 
+class TestDebugNanUnderEnclosingJit(unittest.TestCase):
+    """``debug_nan`` (the unconditional ``DebugNan.check()`` path) must be
+    traceable under an enclosing ``jit`` instead of failing with a
+    ``TracerBoolConversionError`` (audit M9)."""
+
+    def test_clean_input_inside_jit_traces_and_runs(self):
+        @bst.transform.jit
+        def g(x):
+            bst.transform.debug_nan(lambda y: y * 2.0, x)
+            return x * 2.0
+
+        out = jax.block_until_ready(g(jnp.asarray(1.5)))
+        self.assertEqual(float(out), 3.0)
+
+    def test_nan_input_inside_jit_raises_at_runtime(self):
+        @bst.transform.jit
+        def g(x):
+            bst.transform.debug_nan(jnp.log, x)
+            return x
+
+        with self.assertRaises(Exception) as ctx:
+            jax.block_until_ready(g(jnp.asarray(-1.0)))
+        self.assertNotIsInstance(ctx.exception, jax.errors.TracerBoolConversionError)
+
+    def test_eager_path_still_concretizes(self):
+        # outside any trace the eager raise (clean RuntimeError) must be kept
+        with self.assertRaises(RuntimeError):
+            bst.transform.debug_nan(jnp.log, jnp.asarray(-1.0))
+        # and a clean eager call stays silent
+        bst.transform.debug_nan(jnp.log, jnp.asarray(2.0))
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -584,3 +584,88 @@ class TestForwardGrad(unittest.TestCase):
         leaf = jax.tree.leaves(grads)[0]
         self.assertEqual(leaf.shape, (2,))
         self.assertTrue(bool(jnp.all(jnp.isfinite(leaf))))
+
+
+class TestArgnumsValidation(unittest.TestCase):
+    """Negative or non-integer ``argnums`` must be rejected (audit H3).
+
+    The internal calling convention shifts user argnums by +2 (two leading
+    state-value slots), so a negative argnum silently differentiated an
+    internal slot — e.g. ``argnums=-1`` returned the gradient w.r.t. the
+    state-value dict keyed by raw ``id()`` — instead of raising.
+    """
+
+    def _apis(self):
+        t = brainstate.transform
+        return [t.grad, t.vector_grad, t.jacrev, t.jacfwd, t.hessian]
+
+    def test_negative_int_argnums_raises(self):
+        def loss(x, y):
+            return (x * y) ** 2
+
+        for api in self._apis():
+            with self.assertRaises(ValueError, msg=f'api={api}'):
+                api(loss, argnums=-1)
+        key = brainstate.random.split_key()
+        with self.assertRaises(ValueError):
+            brainstate.transform.fwd_grad(loss, argnums=-1, key=key)
+
+    def test_negative_argnums_in_sequence_raises(self):
+        def loss(x, y):
+            return (x * y) ** 2
+
+        for api in self._apis():
+            with self.assertRaises(ValueError, msg=f'api={api}'):
+                api(loss, argnums=[0, -1])
+
+    def test_negative_argnums_with_grad_states_raises(self):
+        w = brainstate.State(jnp.asarray(1.0))
+
+        def loss(x, y):
+            return (w.value * x * y) ** 2
+
+        with self.assertRaises(ValueError):
+            brainstate.transform.grad(loss, grad_states=w, argnums=-1)
+
+    def test_non_integer_argnums_raises(self):
+        def loss(x, y):
+            return (x * y) ** 2
+
+        for bad in (0.5, True, '0'):
+            with self.assertRaises(ValueError, msg=f'argnums={bad!r}'):
+                brainstate.transform.grad(loss, argnums=bad)
+
+    def test_positive_argnums_values_unchanged(self):
+        w = brainstate.State(jnp.asarray(2.0))
+
+        def loss(x, y):
+            return w.value * x * y
+
+        g = brainstate.transform.grad(loss, argnums=1)(3.0, 4.0)
+        self.assertEqual(float(g), 6.0)  # d/dy = w * x
+
+        state_grads, arg_grads = brainstate.transform.grad(
+            loss, grad_states=w, argnums=1
+        )(3.0, 4.0)
+        self.assertEqual(float(state_grads), 12.0)  # d/dw = x * y
+        self.assertEqual(float(arg_grads), 6.0)
+
+
+class TestDebugNanPhaseName(unittest.TestCase):
+    """``debug_nan=True`` must work when the underlying transform has no
+    ``__name__`` (audit F5: ``vector_grad`` uses a ``functools.partial``)."""
+
+    def test_vector_grad_debug_nan_clean_input(self):
+        def f(x):
+            return x ** 2
+
+        g = brainstate.transform.vector_grad(f, debug_nan=True)(jnp.asarray([1.0, 2.0]))
+        self.assertTrue(bool(jnp.allclose(g, jnp.asarray([2.0, 4.0]))))
+
+    def test_vector_grad_debug_nan_still_raises_on_nan(self):
+        def f(x):
+            return jnp.sqrt(x)  # NaN value and NaN gradient at x < 0
+
+        with self.assertRaises(Exception) as ctx:
+            brainstate.transform.vector_grad(f, debug_nan=True)(jnp.asarray([-1.0]))
+        self.assertNotIsInstance(ctx.exception, AttributeError)

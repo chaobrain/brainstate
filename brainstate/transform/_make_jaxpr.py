@@ -160,15 +160,16 @@ def get_arg_cache_key(
     jax.tree.map(fn_to_check, dyn_args, is_leaf=lambda x: isinstance(x, State))
     dyn_args = jax.tree.map(shaped_abstractify, dyn_args)
 
-    # kwargs
+    # kwargs -- the State check must run BEFORE abstractification, which
+    # flattens a State into its value leaves and would hide it
     static_kwargs, dyn_kwargs = [], []
     for k, v in sorted(kwargs.items()):
         if k in static_argnames:
             static_kwargs.append((k, v))
         else:
+            if fn_to_check is not None:
+                jax.tree.map(fn_to_check, v, is_leaf=lambda x: isinstance(x, State))
             dyn_kwargs.append((k, jax.tree.map(shaped_abstractify, v)))
-    if fn_to_check is not None:
-        jax.tree.map(fn_to_check, dyn_kwargs, is_leaf=lambda x: isinstance(x, State))
 
     # Flatten dynamic args/kwargs into (treedef, leaves) for consistent hashing.
     # Custom pytree nodes (e.g. Quantity) may have __hash__ implementations that
@@ -794,14 +795,18 @@ class StatefulFunction(PrettyObject):
         # Store in the caller-provided container (NOT in the cache)
         _result_holder['state_trace'] = state_trace
 
-        with state_trace:
-            out = self.fun(*args, **dyn_kwargs, **static_kwargs)
-            state_values = (
-                state_trace.get_write_state_values(True)
-                if self.return_only_write else
-                state_trace.get_state_values()
-            )
-        state_trace.recovery_original_values()
+        try:
+            with state_trace:
+                out = self.fun(*args, **dyn_kwargs, **static_kwargs)
+                state_values = (
+                    state_trace.get_write_state_values(True)
+                    if self.return_only_write else
+                    state_trace.get_state_values()
+                )
+        finally:
+            # Restore on failure too: a user error mid-trace must not leave
+            # tracers in the traced states.
+            state_trace.recovery_original_values()
 
         # State instance as functional returns is not allowed.
         # Checking whether the states are returned.

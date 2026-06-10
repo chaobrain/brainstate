@@ -151,6 +151,12 @@ def checkpoint(
         return lambda f: checkpoint(f, prevent_cse=prevent_cse, policy=policy, static_argnums=static_argnums)
 
     static_argnums = _ensure_index_tuple(tuple() if static_argnums is None else static_argnums)
+    if any(i < 0 for i in static_argnums):
+        raise ValueError(
+            f"checkpoint/remat does not support negative static_argnums, got {static_argnums}. "
+            f"A hidden state-value argument is prepended internally, so negative indices "
+            f"would silently point at the wrong argument. Please use non-negative indices."
+        )
     fun = StatefulFunction(fun, static_argnums=static_argnums, name='checkpoint')
     checkpointed_fun = jax.checkpoint(
         fun.jaxpr_call,
