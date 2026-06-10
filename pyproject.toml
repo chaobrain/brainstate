@@ -77,22 +77,22 @@ progressbar = [
     'tqdm',
 ]
 cpu = [
-    'jax[cpu]>=0.6.0',
+    'jax[cpu]>=0.7.0',
     'brainunit>=0.3.0',
     'brainevent>=0.0.7',
 ]
 cuda12 = [
-    'jax[cuda12]>=0.6.0',
+    'jax[cuda12]>=0.7.0',
     'brainunit>=0.3.0',
     'brainevent>=0.0.7',
 ]
 cuda13 = [
-    'jax[cuda13]>=0.6.0',
+    'jax[cuda13]>=0.7.0',
     'brainunit>=0.3.0',
     'brainevent>=0.0.7',
 ]
 tpu = [
-    'jax[tpu]>=0.6.0',
+    'jax[tpu]>=0.7.0',
     'brainunit>=0.3.0',
     'brainevent>=0.0.7',
 ]
@@ -100,7 +100,7 @@ testing = [
     'absl-py',
     'pytest',
     'coverage',
-    'jax>=0.6.0',
+    'jax>=0.7.0',
     'tqdm',
     'brainunit>=0.3.0',
     'brainevent>=0.0.7',
