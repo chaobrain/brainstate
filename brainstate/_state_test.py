@@ -2025,16 +2025,27 @@ class TestIntegrationScenarios(unittest.TestCase):
         self.assertEqual(retrieved_v.unit, u.mV)
 
     def test_jit_compilation_with_states(self):
-        """Test that states work with JAX JIT compilation."""
+        """State writes need brainstate.transform.jit; raw jax.jit is rejected."""
         state = brainstate.State(jnp.array([1.0, 2.0, 3.0]))
 
+        # raw jax.jit cannot track the state write: storing the tracer is
+        # rejected instead of silently corrupting the state
         @jax.jit
+        def update_state_raw(x):
+            state.value = state.value + x
+            return state.value
+
+        with self.assertRaises(brainstate.TraceContextError):
+            update_state_raw(jnp.array([1.0, 1.0, 1.0]))
+
+        @brainstate.transform.jit
         def update_state(x):
             state.value = state.value + x
             return state.value
 
         result = update_state(jnp.array([1.0, 1.0, 1.0]))
         np.testing.assert_array_equal(result, jnp.array([2.0, 3.0, 4.0]))
+        np.testing.assert_array_equal(state.value, jnp.array([2.0, 3.0, 4.0]))
 
 
 class TestStateTransformInteraction(unittest.TestCase):
@@ -2467,3 +2478,120 @@ class TestStateSubclassesCoverage(unittest.TestCase):
         nb = NonBatchState(jnp.full((2,), 2.0))
         self.assertTrue(bool(jnp.allclose(ds.value, jnp.ones((2,)))))
         self.assertTrue(bool(jnp.allclose(nb.value, jnp.full((2,), 2.0))))
+
+
+class TestTracerWriteGuard(unittest.TestCase):
+    """Writing a tracer into a State with no brainstate trace active must
+    raise instead of silently storing the tracer (audit BUG 4)."""
+
+    def test_write_inside_raw_jax_jit_raises(self):
+        st = brainstate.State(jnp.zeros(2))
+
+        @jax.jit
+        def h(x):
+            st.value = st.value + x
+            return x
+
+        with self.assertRaises(brainstate.TraceContextError):
+            h(jnp.ones(2))
+        # the state must be untouched (guard fired before mutation)
+        self.assertTrue(bool(jnp.allclose(st.value, jnp.zeros(2))))
+
+    def test_write_inside_raw_jax_vmap_raises(self):
+        st = brainstate.State(jnp.zeros(2))
+
+        def h(x):
+            st.value = x * 2.0
+            return x
+
+        with self.assertRaises(brainstate.TraceContextError):
+            jax.vmap(h)(jnp.ones((3, 2)))
+
+    def test_read_inside_raw_jax_jit_still_works(self):
+        st = brainstate.State(jnp.full(2, 3.0))
+
+        @jax.jit
+        def h(x):
+            return st.value + x
+
+        out = h(jnp.ones(2))
+        self.assertTrue(bool(jnp.allclose(out, jnp.full(2, 4.0))))
+
+    def test_write_inside_brainstate_jit_still_works(self):
+        st = brainstate.State(jnp.zeros(2))
+
+        @brainstate.transform.jit
+        def h(x):
+            st.value = st.value + x
+            return st.value
+
+        h(jnp.ones(2))
+        self.assertTrue(bool(jnp.allclose(st.value, jnp.ones(2))))
+
+    def test_concrete_write_at_top_level_still_works(self):
+        st = brainstate.State(jnp.zeros(2))
+        st.value = jnp.ones(2)
+        self.assertTrue(bool(jnp.allclose(st.value, jnp.ones(2))))
+
+
+class TestStateCreatedInsideTrace(unittest.TestCase):
+    """A State created inside a traced function must not silently keep a dead
+    tracer as its value (audit BUG 2)."""
+
+    def test_state_kept_from_inside_jit_read_raises(self):
+        holder = {}
+
+        def f(x):
+            if 'st' not in holder:
+                holder['st'] = brainstate.ShortTermState(x * 2.0)
+            return holder['st'].value + x
+
+        jf = brainstate.transform.jit(f)
+        out = jf(jnp.ones(3))  # the call itself succeeds
+        self.assertEqual(out.shape, (3,))
+
+        st = holder['st']
+        with self.assertRaises(brainstate.TraceContextError):
+            _ = st.value
+
+    def test_poisoned_state_recovers_after_concrete_write(self):
+        holder = {}
+
+        def f(x):
+            if 'st' not in holder:
+                holder['st'] = brainstate.ShortTermState(x * 2.0)
+            return holder['st'].value + x
+
+        jf = brainstate.transform.jit(f)
+        jf(jnp.ones(3))
+        st = holder['st']
+        st.value = jnp.zeros(3)
+        self.assertTrue(bool(jnp.allclose(st.value, jnp.zeros(3))))
+
+    def test_temp_state_created_and_dropped_inside_jit_ok(self):
+        def f(x):
+            tmp = brainstate.ShortTermState(x * 2.0)
+            tmp.value = tmp.value + 1.0
+            return tmp.value + x
+
+        jf = brainstate.transform.jit(f)
+        out = jf(jnp.ones(3))
+        self.assertTrue(bool(jnp.allclose(out, jnp.full(3, 4.0))))
+
+
+class TestNewStateCatcherGetByTag(unittest.TestCase):
+    """get_by_tag must match states whose tag set contains the tag (audit M1)."""
+
+    def test_get_by_tag_returns_tagged_states(self):
+        with brainstate.catch_new_states('mytag') as catcher:
+            a = brainstate.State(jnp.zeros(1))
+            b = brainstate.State(jnp.zeros(1))
+        got = catcher.get_by_tag('mytag')
+        self.assertEqual(len(got), 2)
+        self.assertIn(a, got)
+        self.assertIn(b, got)
+
+    def test_get_by_tag_unknown_tag_empty(self):
+        with brainstate.catch_new_states('mytag') as catcher:
+            brainstate.State(jnp.zeros(1))
+        self.assertEqual(len(catcher.get_by_tag('other')), 0)

@@ -113,11 +113,10 @@ class TestEmbedding(unittest.TestCase):
         embedding = bs.nn.Embedding(num_embeddings=4, embedding_size=2, freeze=True)
         indices = jnp.array([1, 2, 3], dtype=jnp.int32)
 
-        def loss_fn(weight):
-            embedding.weight.value = weight
+        def loss_fn():
             return jnp.sum(embedding(indices))
 
-        grad = jax.grad(loss_fn)(embedding.weight.value)
+        grad = bs.transform.grad(loss_fn, grad_states=embedding.weight)()
         self.assertTrue(jnp.allclose(grad, 0.0))
 
     def test_from_pretrained_defaults_to_freeze(self):
@@ -125,22 +124,20 @@ class TestEmbedding(unittest.TestCase):
         embedding = bs.nn.Embedding.from_pretrained(pretrained)
         self.assertTrue(embedding.freeze)
 
-        def loss_fn(weight):
-            embedding.weight.value = weight
+        def loss_fn():
             return jnp.sum(embedding(jnp.array([1, 2], dtype=jnp.int32)))
 
-        grad = jax.grad(loss_fn)(embedding.weight.value)
+        grad = bs.transform.grad(loss_fn, grad_states=embedding.weight)()
         self.assertTrue(jnp.allclose(grad, 0.0))
 
     def test_from_pretrained_unfrozen_gradients(self):
         pretrained = jnp.arange(6.0, dtype=jnp.float32).reshape(2, 3)
         embedding = bs.nn.Embedding.from_pretrained(pretrained, freeze=False)
 
-        def loss_fn(weight):
-            embedding.weight.value = weight
+        def loss_fn():
             return jnp.sum(embedding(jnp.array([0, 1], dtype=jnp.int32)))
 
-        grad = jax.grad(loss_fn)(embedding.weight.value)
+        grad = bs.transform.grad(loss_fn, grad_states=embedding.weight)()
         self.assertFalse(jnp.allclose(grad, 0.0))
 
     def test_max_norm_renormalizes_weights(self):

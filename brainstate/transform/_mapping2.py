@@ -815,7 +815,13 @@ def _map_new_states(
         for rng, key in zip(rng_states, rng_keys):
             rng.restore_value(key)
         with catch_new_states() as catcher:
-            module.init_all_states(**init_kwargs)
+            # plain watcher (no new_arg): init runs under a raw jax.vmap /
+            # jax.pmap here, and state writes of mapped tracers are
+            # legitimate — an active StateTraceStack keeps the tracer-write
+            # guard quiet (the extra stack level is undone by
+            # unwind_new_state_levels, which is delta-based)
+            with StateTraceStack(name='map_new_states:init'):
+                module.init_all_states(**init_kwargs)
         grouped_vals = defaultdict(list)
         grouped_states = defaultdict(list)
         for st in catcher.get_states():

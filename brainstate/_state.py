@@ -45,6 +45,7 @@ import numpy as np
 from jax.api_util import shaped_abstractify
 from jax.extend import source_info_util
 
+from brainstate._compatible_import import Tracer
 from brainstate._error import TraceContextError
 from brainstate._state_global_hooks import GlobalHookRegistry
 from brainstate._state_hook_manager import HookManager
@@ -239,6 +240,25 @@ class StateMetadata(Generic[A]):
     """
     raw_value: A
     metadata: Mapping[str, Any] = dataclasses.field(default_factory=dict)
+
+
+class _InvalidatedTraceValue:
+    """
+    Sentinel value for a State that was created inside a traced function.
+
+    A State created while a JAX trace is active holds a tracer that dies when
+    tracing finishes. Such a state is "poisoned" after the trace: its value is
+    replaced by this sentinel, and reading it raises a ``TraceContextError``
+    until a concrete value is assigned.
+    """
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return '<invalidated: created inside a traced function>'
+
+
+_INVALIDATED_TRACE_VALUE = _InvalidatedTraceValue()
 
 
 class State(Generic[A], PrettyObject):
@@ -462,6 +482,9 @@ class State(Generic[A], PrettyObject):
         """
         The data and its value.
         """
+        # a poisoned state must raise the friendly error before any trace
+        # recording touches the sentinel value
+        self._check_invalidated()
         record_state_value_read(self)
         val = self._read_value()
         self._execute_read_hooks(val)
@@ -481,6 +504,12 @@ class State(Generic[A], PrettyObject):
 
         if isinstance(v, State):  # value checking
             raise ValueError('Cannot set value to a State, ' 'use `copy_from` method instead')
+        # a tracer must never be stored while no brainstate trace is active:
+        # it would outlive its trace and poison the state (see audit BUG 4).
+        # States created inside the *current* JAX trace are exempt — they die
+        # with the trace, so tracer writes to them are harmless.
+        if not TRACE_CONTEXT.state_stack and not self._trace_state.is_valid():
+            self._check_tracer_write_outside_trace(v)
         self._check_value_tree(v)  # check the tree structure
 
         # Execute write_before hooks (can transform or cancel)
@@ -517,12 +546,80 @@ class State(Generic[A], PrettyObject):
         """
         self._level = level
 
+    def _check_tracer_write_outside_trace(self, v) -> None:
+        """
+        Reject storing JAX tracers when no brainstate trace is active.
+
+        Called from the ``value`` setter when ``TRACE_CONTEXT.state_stack``
+        is empty. In that situation a tracer leaf in the assigned value means
+        the surrounding transformation is a raw JAX one (``jax.jit``,
+        ``jax.vmap``, ``jax.grad``, ...), which cannot track state writes:
+        the tracer would be silently stored, outlive its trace, and corrupt
+        every later use of the state.
+
+        Parameters
+        ----------
+        v
+            The value about to be written.
+
+        Raises
+        ------
+        TraceContextError
+            If any leaf of ``v`` is a ``jax.core.Tracer``.
+        """
+        for leaf in jax.tree.leaves(v):
+            if isinstance(leaf, Tracer):
+                self.raise_error_with_source_info(
+                    TraceContextError(
+                        f'Detected a JAX tracer being written into this '
+                        f'{type(self).__name__} while no brainstate transformation '
+                        f'is active. This usually means the state-mutating function '
+                        f'was wrapped with a raw JAX transformation (jax.jit, '
+                        f'jax.vmap, jax.grad, jax.lax.scan, ...), which cannot '
+                        f'track brainstate State updates.\n'
+                        f'How to fix: use the brainstate equivalents instead — '
+                        f'brainstate.transform.jit / vmap / grad / scan — or thread '
+                        f'the value through function arguments and returns.'
+                    )
+                )
+
+    def _check_invalidated(self) -> None:
+        """
+        Raise ``TraceContextError`` if this state was poisoned by a dead trace.
+        """
+        if isinstance(self._value, _InvalidatedTraceValue):
+            self.raise_error_with_source_info(
+                TraceContextError(
+                    f'This {type(self).__name__} was created inside a traced function '
+                    f'(e.g. under brainstate.transform.jit/grad/vmap), so its value was '
+                    f'a tracer that died when tracing finished. Reading it here is '
+                    f'invalid.\n'
+                    f'How to fix: create the state before entering the transformed '
+                    f'function (e.g. initialize the model outside of jit), or use '
+                    f'brainstate.transform.vmap_new_states for batched state creation. '
+                    f'Assigning a concrete value to `.value` makes this state usable '
+                    f'again.'
+                )
+            )
+
     def _read_value(self) -> PyTree[ArrayLike]:
         """
         The interface to customize the value reading.
         """
         self.check_if_deleted()
+        self._check_invalidated()
         return self._value
+
+    def _invalidate_trace_value(self) -> None:
+        """
+        Poison this state: mark its value as invalidated by a finished trace.
+
+        Internal use only. Called after tracing for states that were created
+        inside the traced function and still hold tracers of the dead trace.
+        Any subsequent read raises ``TraceContextError`` until a concrete
+        value is assigned.
+        """
+        vars(self)['_value'] = _INVALIDATED_TRACE_VALUE
 
     def _write_value(self, v) -> None:
         """
@@ -565,6 +662,10 @@ class State(Generic[A], PrettyObject):
         Check if the value tree structure is consistent.
         """
         if TRACE_CONTEXT.tree_check[-1]:
+            if isinstance(self._value, _InvalidatedTraceValue):
+                # poisoned state: there is no valid origin structure to
+                # compare against; any assignment un-poisons it
+                return
             in_tree = jax.tree.structure(v)
             self_tree = jax.tree.structure(self._value)
             if in_tree != self_tree:
@@ -669,7 +770,13 @@ class State(Generic[A], PrettyObject):
         if k in ['_level', '_source_info', '_been_writen', '_trace_state', '_hooks_manager']:
             return None
         if k == '_value':
-            return 'value', jax.tree.map(shaped_abstractify, v)
+            try:
+                return 'value', jax.tree.map(shaped_abstractify, v)
+            except TypeError:
+                # e.g. the invalidated-trace sentinel, or any leaf that
+                # cannot be abstractified — show it raw rather than crash
+                # while building a repr (often inside an error message)
+                return 'value', v
 
         if k == '_name':
             if self.name is None:
@@ -1862,6 +1969,7 @@ class StateTraceStack(Generic[A]):
         self.been_writen: List[bool] = []  # False: read, True: write
         self._state_id_index = dict()
         self._original_state_values = []
+        self._originals_released = False
         self._jax_trace_new_arg: Callable = new_arg
         self._stack_level = None
         self.check_read = check_read
@@ -2068,9 +2176,42 @@ class StateTraceStack(Generic[A]):
         -------
         None
         """
+        if self._originals_released:
+            raise RuntimeError(
+                'Internal error: recovery_original_values() was called after '
+                'release_original_values(). Original state values are only '
+                'available during tracing, before the trace is cached.'
+            )
         for st, val in zip(self.states, self._original_state_values):
             # internal use
             st.restore_value(val)
+
+    def release_original_values(self) -> None:
+        """
+        Drop the original state value snapshots, keeping only their avals.
+
+        After tracing completes, the snapshots taken in :meth:`read_its_value`
+        are no longer needed for recovery, but they keep whatever the states
+        held at trace time alive — including tracers of an enclosing trace
+        when this trace was created inside another transformation. A cached
+        ``StateTraceStack`` must therefore release them: each snapshot is
+        replaced by its abstract value (shape/dtype only), and the ``new_arg``
+        callback (which closes over the defunct trace object) is dropped.
+
+        After release, :meth:`recovery_original_values` raises if called.
+
+        Notes
+        -----
+        This is an internal method, called by
+        ``StatefulFunction.make_jaxpr`` just before the trace is stored in
+        the compilation cache.
+        """
+        self._original_state_values = [
+            jax.tree.map(shaped_abstractify, val)
+            for val in self._original_state_values
+        ]
+        self._originals_released = True
+        self._jax_trace_new_arg = None
 
     def merge(self, *traces) -> 'StateTraceStack':
         """
@@ -2556,7 +2697,8 @@ class NewStateCatcher(PrettyObject):
         if id(state) not in self.state_ids:
             self.state_ids.add(id(state))
             self.states.append(state)
-            state.add_tag(self.state_tag)
+            if self.state_tag is not None:
+                state.add_tag(self.state_tag)
 
     def __iter__(self):
         """
@@ -2615,9 +2757,10 @@ class NewStateCatcher(PrettyObject):
         Returns
         -------
         list
-            A list of states with the specified tag.
+            A list of states whose tag set contains the specified tag.
         """
-        return [state for state in self.states if state.tag == tag]
+        return [state for state in self.states
+                if state.tag is not None and tag in state.tag]
 
     def remove(self, state: State):
         """

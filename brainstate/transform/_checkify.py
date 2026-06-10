@@ -20,6 +20,7 @@ from typing import Any, Callable
 
 from jax.experimental import checkify as _cfy
 
+from brainstate._state import StateTraceStack
 from brainstate._utils import set_module_as
 from brainstate.typing import ArrayLike
 from ._make_jaxpr import StatefulFunction
@@ -172,8 +173,14 @@ def checkify(fun: Callable, errors: Any = user_checks) -> Callable:
         def pure(state_vals, p_args, p_kwargs):
             for st, v in zip(all_states, state_vals):
                 st.restore_value(v)
-            out = fun(*p_args, **p_kwargs)
-            return out, tuple(st.value for st in write_states)
+            # plain watcher (no new_arg): the user function runs under the
+            # raw jax checkify trace here, and state writes of its tracers
+            # are legitimate — an active StateTraceStack keeps the
+            # tracer-write guard quiet
+            with StateTraceStack(name='checkify:run'):
+                out = fun(*p_args, **p_kwargs)
+                new_write_vals = tuple(st.value for st in write_states)
+            return out, new_write_vals
 
         # 3. Functionalize the checks; the Error is threaded out.
         checked = _cfy.checkify(pure, errors)

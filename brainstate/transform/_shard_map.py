@@ -22,7 +22,7 @@ import jax
 from jax.sharding import NamedSharding, PartitionSpec
 
 from brainstate._compatible_import import jax_shard_map, SHARD_MAP_CHECK_KW
-from brainstate._state import State
+from brainstate._state import State, StateTraceStack
 from brainstate._utils import set_module_as
 from ._make_jaxpr import StatefulFunction
 
@@ -221,8 +221,14 @@ def shard_map(
         def pure(state_vals, mapped_args):
             for st, v in zip(all_states, state_vals):
                 st.restore_value(v)
-            out = fun(*mapped_args, **kwargs)
-            return out, tuple(st.value for st in write_states)
+            # plain watcher (no new_arg): the user function runs under a raw
+            # jax.shard_map here, and state writes of its tracers are
+            # legitimate — an active StateTraceStack keeps the tracer-write
+            # guard quiet
+            with StateTraceStack(name='shard_map:run'):
+                out = fun(*mapped_args, **kwargs)
+                new_write_vals = tuple(st.value for st in write_states)
+            return out, new_write_vals
 
         # 4. Place inputs on the mesh per their specs (required: no auto-reshard).
         in_state_vals = tuple(

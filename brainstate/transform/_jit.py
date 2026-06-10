@@ -151,12 +151,11 @@ def _get_jitted_fun(
             pass
 
     def eval_shape(*args, **params):
+        # AOT inspection: nothing executes, so no state value changes and no
+        # writeback — a writeback would spuriously mark read-only states as
+        # written in an enclosing trace
         state_trace = fun.get_state_trace(*args, **params, compile_if_miss=True)
-        read_state_vals = state_trace.get_read_state_values(True)
-        write_state_vals = state_trace.get_write_state_values(True)
-        ret = jit_fun.eval_shape(state_trace.get_state_values(), *args, **params)
-        state_trace.assign_state_vals_v2(read_state_vals, write_state_vals)
-        return ret
+        return jit_fun.eval_shape(state_trace.get_state_values(), *args, **params)
 
     def lower(*args, **params) -> jax.stages.Lowered:
         """
@@ -170,17 +169,9 @@ def _get_jitted_fun(
         -------
         A ``Lowered`` instance representing the lowering.
         """
-        # compile the function and get the state trace
+        # AOT inspection: no execution, no state writeback (see eval_shape)
         state_trace = fun.get_state_trace(*args, **params, compile_if_miss=True)
-        read_state_vals = state_trace.get_read_state_values(True)
-        write_state_vals = state_trace.get_write_state_values(True)
-
-        # compile the model
-        lowered = jit_fun.lower(state_trace.get_state_values(), *args, **params)
-
-        # write the state values back to the states
-        state_trace.assign_state_vals_v2(read_state_vals, write_state_vals)
-        return lowered
+        return jit_fun.lower(state_trace.get_state_values(), *args, **params)
 
     def trace(*args, **params) -> Traced:
         """
@@ -193,17 +184,9 @@ def _get_jitted_fun(
         -------
         A ``Traced`` instance representing the tracing.
         """
-        # compile the function and get the state trace
+        # AOT inspection: no execution, no state writeback (see eval_shape)
         state_trace = fun.get_state_trace(*args, **params, compile_if_miss=True)
-        read_state_vals = state_trace.get_read_state_values(True)
-        write_state_vals = state_trace.get_write_state_values(True)
-
-        # call the jitted function
-        traced = jit_fun.trace(state_trace.get_state_values(), *args, **params)
-
-        # write the state values back to the states
-        state_trace.assign_state_vals_v2(read_state_vals, write_state_vals)
-        return traced
+        return jit_fun.trace(state_trace.get_state_values(), *args, **params)
 
     def compile(*args, **params):
         """Lower this function explicitly for the given arguments.
@@ -216,17 +199,9 @@ def _get_jitted_fun(
         -------
         A ``Lowered`` instance representing the lowering.
         """
-        # compile the function and get the state trace
+        # AOT inspection: no execution, no state writeback (see eval_shape)
         state_trace = fun.get_state_trace(*args, **params, compile_if_miss=True)
-        read_state_vals = state_trace.get_read_state_values(replace_writen=True)
-        write_state_vals = state_trace.get_write_state_values(replace_read=True)
-
-        # compile the model
-        ret = jit_fun.lower(state_trace.get_state_values(), *args, **params).compile()
-
-        # write the state values back to the states
-        state_trace.assign_state_vals_v2(read_state_vals, write_state_vals)
-        return ret
+        return jit_fun.lower(state_trace.get_state_values(), *args, **params).compile()
 
     jitted_fn: JittedFunction
 

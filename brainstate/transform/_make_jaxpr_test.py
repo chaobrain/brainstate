@@ -35,17 +35,16 @@ class TestMakeJaxpr(unittest.TestCase):
             c = brainstate.random.rand_like(arg[0])
             return jnp.sum(temp + c)
 
-        key = brainstate.random.DEFAULT.value
-        jaxpr = jax.make_jaxpr(func4)((jnp.zeros(8), jnp.ones(8)))
-        print(jaxpr)
-        self.assertTrue(len(jaxpr.in_avals) == 2)
-        self.assertTrue(len(jaxpr.consts) == 1)
-        self.assertTrue(len(jaxpr.out_avals) == 1)
-        self.assertTrue(jnp.allclose(jaxpr.consts[0], key))
+        # raw jax.make_jaxpr cannot track the RandomState write: storing the
+        # key tracer is rejected instead of silently leaking it
+        with pytest.raises(brainstate.TraceContextError):
+            jax.make_jaxpr(func4)((jnp.zeros(8), jnp.ones(8)))
 
         brainstate.random.seed(1)
         print(brainstate.random.DEFAULT.value)
 
+        # brainstate.transform.make_jaxpr threads the RandomState properly:
+        # the key is an input/output, not a baked-in const
         jaxpr2, states = brainstate.transform.make_jaxpr(func4)((jnp.zeros(8), jnp.ones(8)))
         print(jaxpr2)
         self.assertTrue(len(jaxpr2.in_avals) == 3)
@@ -1286,42 +1285,43 @@ class TestStateShapeValidation(unittest.TestCase):
     """Test that state shape changes are detected before execution."""
 
     def test_state_shape_change_detected(self):
-        """Test that changing a state's shape after compilation raises an error."""
+        """Changing a state's shape after compilation is treated as a cache
+        miss: the function is transparently recompiled and stays correct."""
         state = brainstate.State(jnp.array([1.0, 2.0]))
 
         def f(x):
-            state.value += x
-            return state.value
+            state.value += 1.0
+            return state.value.sum() + x
 
         sf = brainstate.transform.StatefulFunction(f)
-        x = jnp.array([1.0, 2.0])
+        x = jnp.array(0.0)
         sf.make_jaxpr(x)
+        self.assertEqual(float(sf(x)), 5.0)  # state -> [2, 3]
 
-        # Change state shape
+        # Change state shape out of band
         state._value = jnp.array([1.0, 2.0, 3.0])
-
-        # Should detect shape mismatch
-        with pytest.raises(ValueError, match="State shape/dtype mismatch"):
-            sf(x)
+        self.assertEqual(float(sf(x)), 9.0)  # recompiled; state -> [2, 3, 4]
+        self.assertEqual(state.value.shape, (3,))
 
     def test_state_dtype_change_detected(self):
-        """Test that changing a state's dtype after compilation raises an error."""
+        """Changing a state's dtype after compilation is treated as a cache
+        miss: the function is transparently recompiled and stays correct."""
         state = brainstate.State(jnp.array([1.0, 2.0], dtype=jnp.float32))
 
         def f(x):
-            state.value += x
-            return state.value
+            state.value += 1
+            return state.value.sum() + x
 
         sf = brainstate.transform.StatefulFunction(f)
-        x = jnp.array([1.0, 2.0], dtype=jnp.float32)
+        x = jnp.array(0.0)
         sf.make_jaxpr(x)
+        sf(x)
 
-        # Change state dtype
+        # Change state dtype out of band
         state._value = jnp.array([1, 2], dtype=jnp.int32)
-
-        # Should detect dtype mismatch
-        with pytest.raises(ValueError, match="State shape/dtype mismatch"):
-            sf(x)
+        out = sf(x)
+        self.assertEqual(state.value.dtype, jnp.int32)
+        self.assertEqual(float(out), 5.0)
 
     def test_state_unchanged_passes_validation(self):
         """Test that unchanged states pass validation."""
@@ -1920,3 +1920,96 @@ class TestStateInKwargsRejected(unittest.TestCase):
 
         sf = brainstate.transform.StatefulFunction(f, static_argnames=('which',))
         sf.make_jaxpr(jnp.ones(3), which=st)  # must not raise
+
+
+class TestStateAvalStalenessRecompile(unittest.TestCase):
+    """A state-aval mismatch with the cached compilation is a cache miss and
+    must trigger recompilation, not an error or a stale result (audit BUG 1)."""
+
+    def _mean_fn_and_state(self):
+        st = brainstate.State(jnp.ones(3))
+
+        def f(x):
+            v = st.value
+            return v.sum() / v.shape[0] + x * 0.0
+
+        return f, st
+
+    def test_call_recompiles_on_state_shape_change(self):
+        f, st = self._mean_fn_and_state()
+        sf = brainstate.transform.StatefulFunction(f)
+        self.assertEqual(float(sf(0.0)), 1.0)
+        st.value = jnp.ones(6)
+        self.assertEqual(float(sf(0.0)), 1.0)
+
+    def test_jaxpr_call_auto_recompiles_on_state_shape_change(self):
+        f, st = self._mean_fn_and_state()
+        sf = brainstate.transform.StatefulFunction(f)
+        self.assertEqual(float(sf.jaxpr_call_auto(0.0)), 1.0)
+        st.value = jnp.ones(6)
+        # without staleness detection the cached jaxpr (with 3 baked in)
+        # is replayed on the 6-element state and returns 2.0
+        self.assertEqual(float(sf.jaxpr_call_auto(0.0)), 1.0)
+
+    def test_make_jaxpr_refreshes_stale_compilation(self):
+        f, st = self._mean_fn_and_state()
+        sf = brainstate.transform.StatefulFunction(f)
+        sf.make_jaxpr(0.0)
+        key = sf.get_arg_cache_key(0.0)
+        avals_before = sf._compilation_cache.get(key).state_avals
+        st.value = jnp.ones(6)
+        sf.make_jaxpr(0.0)
+        avals_after = sf._compilation_cache.get(key).state_avals
+        self.assertNotEqual(avals_before, avals_after)
+
+
+class TestCompilationCacheHygiene(unittest.TestCase):
+    """Cached compilations must not retain tracers from an enclosing trace
+    (audit BUG 3)."""
+
+    def _grad_under_jit(self):
+        w = brainstate.ParamState(jnp.array(2.0))
+
+        def loss(x):
+            return (w.value * x).sum()
+
+        gt = brainstate.transform.grad(loss, grad_states=w)
+
+        @brainstate.transform.jit
+        def outer(x):
+            return gt(x)
+
+        return outer, gt
+
+    def test_no_tracers_in_cached_original_values(self):
+        outer, gt = self._grad_under_jit()
+        outer(jnp.ones(3))
+        sf = gt.stateful_target
+        leaves = []
+        for key in sf._compilation_cache.keys():
+            comp = sf._compilation_cache.get(key)
+            for val in comp.state_trace._original_state_values:
+                leaves.extend(jax.tree.leaves(val))
+        self.assertTrue(len(leaves) > 0)
+        for leaf in leaves:
+            self.assertNotIsInstance(leaf, jax.core.Tracer)
+
+    def test_grad_under_jit_passes_checking_leaks(self):
+        outer, _ = self._grad_under_jit()
+        with jax.checking_leaks():
+            out = outer(jnp.ones(3))
+        # d/dw (w * x).sum() = x.sum() = 3.0
+        self.assertEqual(float(out), 3.0)
+
+
+class TestUnhashableStaticArgs(unittest.TestCase):
+    """Unhashable static arguments must produce an actionable TypeError
+    (audit M2)."""
+
+    def test_unhashable_static_arg_clear_error(self):
+        def f(x, cfg):
+            return x
+
+        sf = brainstate.transform.StatefulFunction(f, static_argnums=(1,))
+        with self.assertRaisesRegex(TypeError, '[Ss]tatic argument'):
+            sf.make_jaxpr(jnp.zeros(3), jnp.zeros(3))
