@@ -3350,9 +3350,13 @@ def rayleigh(
 
 @set_module_as('brainstate.random')
 def triangular(
+    left: ArrayLike = 0.0,
+    mode: ArrayLike = 0.5,
+    right: ArrayLike = 1.0,
     size: Optional[Size] = None,
-    key: Optional[SeedOrKey] = None
-) -> jax.Array:
+    key: Optional[SeedOrKey] = None,
+    dtype: Optional[DTypeLike] = None
+) -> Union[jax.Array, u.Quantity]:
     r"""
     Draw samples from the triangular distribution over the
     interval ``[left, right]``.
@@ -3364,6 +3368,14 @@ def triangular(
 
     Parameters
     ----------
+    left : float or array_like of floats, optional
+        Lower limit of the distribution. Default is 0.0.
+    mode : float or array_like of floats, optional
+        The value where the peak of the distribution occurs, must satisfy
+        ``left <= mode <= right``. Default is 0.5.
+    right : float or array_like of floats, optional
+        Upper limit of the distribution, must be larger than ``left``.
+        Default is 1.0.
     size : int or tuple of ints, optional
         Output shape.  If the given shape is, e.g., ``(m, n, k)``, then
         ``m * n * k`` samples are drawn.  If size is ``None`` (default),
@@ -3409,7 +3421,7 @@ def triangular(
     ...              density=True)
     >>> plt.show()
     """
-    return DEFAULT.triangular(size=size, key=key)
+    return DEFAULT.triangular(left, mode, right, size=size, key=key, dtype=dtype)
 
 
 @set_module_as('brainstate.random')

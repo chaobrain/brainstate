@@ -647,7 +647,9 @@ class RandomState(State):
     ):
         df = _remove_unit_param('df', _check_py_seq(df))
         if size is None:
-            size = u.math.shape(size) if size is not None else ()
+            # Match numpy: with no explicit size, draw one sample per ``df`` entry
+            # (a scalar ``df`` yields a scalar).
+            size = u.math.shape(df)
         key = self.__get_key(key)
         dtype = dtype or environ.dftype()
         r = jr.t(key, df=df, shape=_size2shape(size), dtype=dtype)
@@ -867,14 +869,13 @@ class RandomState(State):
         key = self.__get_key(key)
         dtype = dtype or environ.dftype()
         if size is None:
-            if jnp.ndim(df) == 0:
-                dist = jr.normal(key, (df,), dtype=dtype) ** 2
-                dist = dist.sum()
-            else:
-                raise NotImplementedError('Do not support non-scale "df" when "size" is None')
-        else:
-            dist = jr.normal(key, (df,) + _size2shape(size), dtype=dtype) ** 2
-            dist = dist.sum(axis=0)
+            size = u.math.shape(df)
+        # A chi-square distribution with ``df`` degrees of freedom is ``2 * Gamma(df/2)``.
+        # Using the gamma relation (rather than summing ``df`` squared normals) is valid
+        # for any positive real and array-valued ``df``, matches numpy, and mirrors the
+        # sibling ``t`` / ``noncentral_chisquare`` implementations.
+        df = u.math.asarray(df, dtype=dtype)
+        dist = 2.0 * jr.gamma(key, 0.5 * df, shape=_size2shape(size), dtype=dtype)
         return dist
 
     @named_scope(
@@ -911,10 +912,14 @@ class RandomState(State):
         if size is None:
             size = u.math.shape(p)
         key = self.__get_key(key)
-        dtype = dtype or environ.dftype()
-        u_ = jr.uniform(key, size, dtype)
-        r = jnp.floor(jnp.log1p(-u_) / jnp.log1p(-p))
-        return r
+        float_dtype = environ.dftype()
+        u_ = jr.uniform(key, _size2shape(size), float_dtype)
+        # Inverse-CDF sampling. ``floor(log1p(-u) / log1p(-p))`` is supported on
+        # {0, 1, ...} (number of failures); the geometric distribution counts the
+        # number of trials until the first success and is supported on {1, 2, ...}
+        # with ``P(k == 1) == p``, so add one. Samples are integer-valued.
+        r = jnp.floor(jnp.log1p(-u_) / jnp.log1p(-p)) + 1
+        return u.math.asarray(r, dtype=dtype or environ.ditype())
 
     def _check_p2(self, p):
         raise ValueError(f'We require `sum(pvals[:-1]) <= 1`. But we got {p}')
@@ -1025,18 +1030,59 @@ class RandomState(State):
 
     @named_scope(
         'brainstate/random',
-        static_argnums=(0, 1),
-        static_argnames=['size']
+        static_argnums=(0, 4, 6),
+        static_argnames=['dtype', 'size']
     )
     def triangular(
         self,
+        left=0.0,
+        mode=0.5,
+        right=1.0,
         size: Optional[Size] = None,
-        key: Optional[SeedOrKey] = None
+        key: Optional[SeedOrKey] = None,
+        dtype: DTypeLike = None
     ):
+        dtype = dtype or environ.dftype()
+        # ``left``/``mode``/``right`` share a single physical unit, inferred from
+        # whichever bound carries one (a plain bound is then interpreted in that shared
+        # unit). A compatible-but-different unit is converted; an incompatible one raises.
+        values = [
+            u.math.asarray(_check_py_seq(v), dtype=dtype)
+            for v in (left, mode, right)
+        ]
+        unit = u.UNITLESS
+        for v in values:
+            q = u.Quantity(v)
+            if not q.is_unitless:
+                unit = q.unit
+                break
+
+        def _to_shared_unit(v):
+            q = u.Quantity(v)
+            return q.mantissa if q.is_unitless else q.in_unit(unit).mantissa
+
+        left, mode, right = (_to_shared_unit(v) for v in values)
+
+        if size is None:
+            size = lax.broadcast_shapes(
+                u.math.shape(left),
+                u.math.shape(mode),
+                u.math.shape(right),
+            )
+        size = _size2shape(size)
         key = self.__get_key(key)
-        bernoulli_samples = jr.bernoulli(key, p=0.5, shape=_size2shape(size))
-        r = 2 * bernoulli_samples - 1
-        return r
+        samples = jr.uniform(key, size, dtype=dtype)
+
+        # Inverse-CDF (quantile) transform of the triangular distribution. With
+        # ``fc = (mode - left) / (right - left)`` the cut point of the unit uniform,
+        # draws below ``fc`` map onto the rising edge and the rest onto the falling
+        # edge. ``where(span > 0, ...)`` guards the degenerate ``left == right`` case.
+        span = right - left
+        fc = jnp.where(span > 0, (mode - left) / jnp.where(span > 0, span, 1.0), 0.0)
+        rising = left + jnp.sqrt(samples * span * (mode - left))
+        falling = right - jnp.sqrt((1.0 - samples) * span * (right - mode))
+        r = jnp.where(samples < fc, rising, falling)
+        return u.maybe_decimal(r * unit)
 
     @named_scope(
         'brainstate/random',
@@ -1118,7 +1164,10 @@ class RandomState(State):
         random_uniform = jr.uniform(key=key, shape=size, dtype=dtype)
         r = jnp.power(-jnp.log1p(-random_uniform), 1.0 / a)
         if scale_m is not None:
-            r = r / scale_m
+            # ``scale`` is the distribution scale parameter lambda: a 2-parameter
+            # Weibull draw is ``lambda * (-ln(1-U))**(1/a)`` (matching scipy
+            # ``weibull_min`` and the ``weibull`` docstring), so multiply by scale.
+            r = r * scale_m
         return u.maybe_decimal(r * unit)
 
     @named_scope(
@@ -1527,7 +1576,9 @@ class RandomState(State):
         key: Optional[SeedOrKey] = None
     ):
         if high is None:
-            high = max(input)
+            # ``max`` (the Python builtin) raises on multi-dimensional arrays; use an
+            # array reduction so any-rank templates work.
+            high = u.math.max(input)
         return self.randint(low, high, size=u.math.shape(input), dtype=dtype, key=key)
 
 
