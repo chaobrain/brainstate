@@ -669,5 +669,107 @@ class PublicApiTest(absltest.TestCase):
             lazy_import('a_framework_that_does_not_exist_xyz')
 
 
+# ===========================================================================
+# Edge-case tests for audit-discovered bugs
+# ===========================================================================
+
+class NnxNormNoAffineTest(absltest.TestCase):
+    """Norm layers with all affine params disabled must not crash."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.nnx = pytest.importorskip('flax.nnx')
+
+    def _rngs(self):
+        return self.nnx.Rngs(brainstate.random.split_key())
+
+    def test_layernorm_no_affine_import_export(self):
+        nnx = self.nnx
+        x = brainstate.random.randn(4, 6)
+        src = nnx.LayerNorm(6, use_scale=False, use_bias=False, rngs=self._rngs())
+        dst = interop.from_nnx(src)
+        assert_close(src(x), bst_forward(dst, x), 'layernorm no-affine import')
+        back = interop.to_nnx(dst)
+        assert_close(src(x), back(x), 'layernorm no-affine export')
+
+    def test_groupnorm_no_affine_import_export(self):
+        nnx = self.nnx
+        x = brainstate.random.randn(4, 8)
+        src = nnx.GroupNorm(8, num_groups=2, use_scale=False, use_bias=False, rngs=self._rngs())
+        dst = interop.from_nnx(src)
+        assert_close(src(x), bst_forward(dst, x), 'groupnorm no-affine import')
+        back = interop.to_nnx(dst)
+        assert_close(src(x), back(x), 'groupnorm no-affine export')
+
+    def test_layernorm_scale_only(self):
+        nnx = self.nnx
+        x = brainstate.random.randn(4, 6)
+        src = nnx.LayerNorm(6, use_scale=True, use_bias=False, rngs=self._rngs())
+        src.scale[...] = brainstate.random.randn(6)
+        dst = interop.from_nnx(src)
+        assert_close(src(x), bst_forward(dst, x), 'layernorm scale-only import')
+        back = interop.to_nnx(dst)
+        assert_close(src(x), back(x), 'layernorm scale-only export')
+
+    def test_layernorm_bias_only(self):
+        nnx = self.nnx
+        x = brainstate.random.randn(4, 6)
+        src = nnx.LayerNorm(6, use_scale=False, use_bias=True, rngs=self._rngs())
+        src.bias[...] = brainstate.random.randn(6)
+        dst = interop.from_nnx(src)
+        assert_close(src(x), bst_forward(dst, x), 'layernorm bias-only import')
+        back = interop.to_nnx(dst)
+        assert_close(src(x), back(x), 'layernorm bias-only export')
+
+
+class EquinoxNormNoAffineTest(absltest.TestCase):
+    """Norm layers with no affine params in equinox."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.eqx = pytest.importorskip('equinox')
+
+    def test_layernorm_no_affine_import_export(self):
+        eqx = self.eqx
+        x = brainstate.random.randn(4, 6)
+        src = eqx.nn.LayerNorm(6, use_weight=False, use_bias=False)
+        dst = interop.from_equinox(src)
+        assert_close(jax.vmap(src)(x), bst_forward(dst, x), 'eqx layernorm no-affine import')
+        back = interop.to_equinox(dst)
+        assert_close(jax.vmap(src)(x), jax.vmap(back)(x), 'eqx layernorm no-affine export')
+
+    def test_groupnorm_no_affine_import_export(self):
+        eqx = self.eqx
+        x = brainstate.random.randn(4, 8)
+        src = eqx.nn.GroupNorm(groups=2, channels=8, channelwise_affine=False)
+        dst = interop.from_equinox(src)
+        assert_close(jax.vmap(src)(x), bst_forward(dst, x), 'eqx groupnorm no-affine import')
+        back = interop.to_equinox(dst)
+        assert_close(jax.vmap(src)(x), jax.vmap(back)(x), 'eqx groupnorm no-affine export')
+
+    def test_rmsnorm_no_scale_import_export(self):
+        eqx = self.eqx
+        x = brainstate.random.randn(4, 6)
+        src = eqx.nn.RMSNorm(6, use_weight=False, use_bias=False)
+        dst = interop.from_equinox(src)
+        assert_close(jax.vmap(src)(x), bst_forward(dst, x), 'eqx rmsnorm no-scale import')
+        back = interop.to_equinox(dst)
+        assert_close(jax.vmap(src)(x), jax.vmap(back)(x), 'eqx rmsnorm no-scale export')
+
+
+class NnxConvInputDilationTest(absltest.TestCase):
+    """Conv with input_dilation != 1 should raise ConversionError, not silently succeed."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.nnx = pytest.importorskip('flax.nnx')
+
+    def test_input_dilation_raises(self):
+        nnx = self.nnx
+        src = nnx.Conv(3, 4, (3, 3), input_dilation=(2, 2), rngs=nnx.Rngs(0))
+        with self.assertRaises(ConversionError):
+            interop.from_nnx(src, sample_input=(8, 8, 3))
+
+
 if __name__ == '__main__':
     absltest.main()

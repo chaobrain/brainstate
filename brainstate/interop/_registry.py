@@ -124,8 +124,12 @@ def lookup_import(framework: str, foreign_type: type) -> Optional[LayerMapping]:
 
 def lookup_export(bst_type: type, framework: str) -> Optional[LayerMapping]:
     """Return the export mapping for a brainstate type + framework, or ``None``."""
-    table = {bt: m for (bt, fw), m in _EXPORT.items() if fw == framework}
-    return _lookup_by_mro(table, bst_type)
+    if (bst_type, framework) in _EXPORT:
+        return _EXPORT[(bst_type, framework)]
+    for base in bst_type.__mro__:
+        if (base, framework) in _EXPORT:
+            return _EXPORT[(base, framework)]
+    return None
 
 
 def unsupported_bst_reason(bst_type: type, framework: Optional[str] = None) -> Optional[str]:

@@ -103,7 +103,7 @@ def _embed_to_foreign(layer, ctx):
 def _layernorm_to_bst(m, ctx):
     scale = m.weight
     bias = m.bias
-    num = (scale if scale is not None else bias).shape[0]
+    num = int(m.shape[0])
     layer = C.build_layernorm((num,), scale is not None, bias is not None, float(m.eps))
     C.bst_set_norm(layer, 'weight', scale, bias)
     return layer
@@ -111,7 +111,7 @@ def _layernorm_to_bst(m, ctx):
 
 def _layernorm_to_foreign(layer, ctx):
     scale, offset = C.bst_get_norm(layer, 'weight', has_offset=True)
-    num = (scale if scale is not None else offset).shape[0]
+    num = int(layer.in_size[-1])
     m = eqx.nn.LayerNorm(num, eps=float(layer.epsilon),
                          use_weight=scale is not None, use_bias=offset is not None)
     if scale is not None:
@@ -123,7 +123,7 @@ def _layernorm_to_foreign(layer, ctx):
 
 def _rmsnorm_to_bst(m, ctx):
     scale = m.weight
-    num = scale.shape[0]
+    num = int(m.shape[0])
     layer = C.build_rmsnorm((num,), scale is not None, float(m.eps))
     C.bst_set_norm(layer, 'scale', scale, None)
     return layer
@@ -131,16 +131,18 @@ def _rmsnorm_to_bst(m, ctx):
 
 def _rmsnorm_to_foreign(layer, ctx):
     scale, _ = C.bst_get_norm(layer, 'scale', has_offset=False)
-    num = scale.shape[0]
-    # brainstate RMSNorm has no offset -> use_bias=False
-    m = eqx.nn.RMSNorm(num, eps=float(layer.epsilon), use_weight=True, use_bias=False)
-    return _set(m, weight=scale)
+    num = int(layer.in_size[-1])
+    m = eqx.nn.RMSNorm(num, eps=float(layer.epsilon),
+                        use_weight=scale is not None, use_bias=False)
+    if scale is not None:
+        m = _set(m, weight=scale)
+    return m
 
 
 def _groupnorm_to_bst(m, ctx):
     scale = m.weight
     bias = m.bias
-    num = m.channels
+    num = int(m.channels)
     layer = C.build_groupnorm((num,), int(m.groups), scale is not None, bias is not None,
                               float(m.eps))
     C.bst_set_norm(layer, 'weight', scale, bias)
@@ -149,9 +151,9 @@ def _groupnorm_to_bst(m, ctx):
 
 def _groupnorm_to_foreign(layer, ctx):
     scale, offset = C.bst_get_norm(layer, 'weight', has_offset=True)
-    num = (scale if scale is not None else offset).shape[0]
+    num = int(layer.in_size[-1])
     m = eqx.nn.GroupNorm(int(layer.num_groups), num, eps=float(layer.epsilon),
-                         channelwise_affine=scale is not None)
+                         channelwise_affine=(scale is not None or offset is not None))
     if scale is not None:
         m = _set(m, weight=scale)
     if offset is not None:
