@@ -216,10 +216,16 @@ def exp_euler_step(
     # vector_grad returns (Jacobian, function_value)
     jacobian, drift_value = vector_grad(fn, argnums=0, return_value=True)(*args, **kwargs)
 
-    # Convert Jacobian to proper units: [derivative_unit / state_unit] = [1/T]
+    # Convert Jacobian to proper units: [derivative_unit / state_unit] = [1/T].
+    # Divide by the *state* unit, not the Jacobian unit: ``vector_grad`` returns
+    # the Jacobian with its unit stripped to dimensionless, so dividing by
+    # ``u.get_unit(jacobian)`` mislabels the result as ``unit(drift)`` (e.g.
+    # ``mV/ms``) instead of ``1/T``. The mantissa is correct either way, but the
+    # bogus unit makes ``dt * jacobian_with_unit`` dimensional, which the strict
+    # ``u.math.exprel`` in saiunit>=0.4.0 rejects.
     jacobian_with_unit = u.Quantity(
         u.get_mantissa(jacobian),
-        u.get_unit(drift_value) / u.get_unit(jacobian)
+        u.get_unit(drift_value) / u.get_unit(state)
     )
 
     # Compute phi function: phi(z) = (exp(z) - 1) / z
