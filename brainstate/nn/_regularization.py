@@ -21,6 +21,7 @@ during training to encourage certain properties (sparsity, smoothness, etc.)
 and prevent overfitting.
 """
 
+import math
 from abc import ABC, abstractmethod
 
 import brainstate
@@ -869,11 +870,21 @@ class GroupLassoReg(Regularization):
         remainder = n_elements % self.group_size
         if remainder != 0:
             padding = self.group_size - remainder
-            flat = u.math.concatenate([flat, u.math.zeros(padding)])
+            # Build the zero padding with the same unit and dtype as ``flat`` so
+            # that brainunit Quantity inputs do not raise a UnitMismatchError
+            # when concatenated (a dimensionless zero array cannot be combined
+            # with a quantity that carries a physical unit).
+            pad = u.math.zeros(padding, dtype=u.get_mantissa(flat).dtype) * u.get_unit(flat)
+            flat = u.math.concatenate([flat, pad])
 
         # Reshape into groups and compute L2 norm of each group
         groups = u.math.reshape(flat, (-1, self.group_size))
-        group_norms = u.math.sqrt(u.math.sum(groups ** 2, axis=1) + 1e-8)
+        sq_sum = u.math.sum(groups ** 2, axis=1)
+        # Numerical-stability floor for the sqrt. It must carry the same unit as
+        # ``sq_sum`` (the squared unit of the input); a dimensionless epsilon
+        # would raise a UnitMismatchError for brainunit Quantity inputs.
+        eps = 1e-8 * u.get_unit(sq_sum)
+        group_norms = u.math.sqrt(sq_sum + eps)
 
         return self.weight * u.math.sum(group_norms)
 
@@ -1345,10 +1356,14 @@ class OrthogonalReg(Regularization):
         shape_tuple = get_size(shape)
         if len(shape_tuple) == 1:
             n = shape_tuple[0]
-            # Generate random matrix and orthogonalize
-            random_matrix = brainstate.random.randn(int(u.math.sqrt(float(n))), int(u.math.sqrt(float(n))))
+            # Generate a square matrix large enough to yield at least n elements,
+            # orthogonalize, flatten, then slice to exactly n. Using ceil(sqrt(n))
+            # (rather than floor) avoids the reshape ValueError for non-perfect
+            # squares such as n=5 (floor -> 2x2 -> only 4 elements).
+            side = int(math.ceil(math.sqrt(float(n))))
+            random_matrix = brainstate.random.randn(side, side)
             q, _ = u.math.linalg.qr(random_matrix)
-            return u.math.reshape(q, (n,))[:n]
+            return u.math.reshape(q, (-1,))[:n]
         elif len(shape_tuple) == 2:
             m, n = shape_tuple
             random_matrix = brainstate.random.randn(m, n)
@@ -1607,7 +1622,10 @@ class StudentTReg(Regularization):
         scale = u.math.relu(get_value(self.scale)) + 1e-8
 
         z = value / scale
-        return self.weight * u.math.sum(u.math.log(1.0 + z ** 2 / df))
+        # Student-t negative-log-likelihood data term: 0.5*(df+1)*log(1 + z**2/df).
+        # The (df+1)/2 factor is df-dependent; without it the penalty wrongly
+        # vanishes as df -> infinity instead of approaching the Gaussian 0.5*z**2.
+        return self.weight * u.math.sum(0.5 * (df + 1.0) * u.math.log(1.0 + z ** 2 / df))
 
     def sample_init(self, shape: Size) -> Data:
         """

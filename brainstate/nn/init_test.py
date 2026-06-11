@@ -564,12 +564,14 @@ class TestTruncatedNormalBranches(unittest.TestCase):
         self.assertGreaterEqual(arr.min(), -1.001)
         self.assertLessEqual(arr.max(), 1.001)
 
-    @pytest.mark.skip(reason="BUG: TruncatedNormal() with default lower/upper=None "
-                             "crashes in random.truncated_normal (None - array)")
     def test_default_bounds(self):
-        """``TruncatedNormal`` should work with default (None) bounds."""
+        """L3: ``TruncatedNormal`` should work with its default bounds (no crash)."""
         out = brainstate.nn.init.TruncatedNormal()((4,))
         self.assertEqual(out.shape, (4,))
+        # Default bounds are +/- 2 standard deviations.
+        arr = np.asarray(brainstate.nn.init.TruncatedNormal(seed=0)((500,)))
+        self.assertGreaterEqual(arr.min(), -2.001)
+        self.assertLessEqual(arr.max(), 2.001)
 
 
 class TestGammaExponential(unittest.TestCase):

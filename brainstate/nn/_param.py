@@ -231,8 +231,13 @@ class Param(Module):
         """
         Get current parameter value after applying transform.
 
-        Returns cached value when valid. Otherwise, computes ``t.forward(val)``,
-        caches it, and returns the result.
+        Returns the cached value when a valid cache exists. The cache is *opt-in*:
+        it is populated only by an explicit call to :meth:`cache` (and invalidated
+        automatically on writes / :meth:`set_value` / :meth:`clear_cache`). When no
+        valid cache exists, this method computes ``t.forward(val)`` fresh on every
+        call **without** populating the cache. This avoids caching a traced value
+        across ``jit`` boundaries; call :meth:`cache` explicitly to memoize when the
+        underlying value is stable.
 
         Returns
         -------
@@ -464,7 +469,12 @@ class Const(Param):
     A module has non-trainable constant parameter.
 
     A convenience class that creates a fixed (non-trainable) parameter.
-    Equivalent to ``ParamM(value, fit=False)``.
+    Equivalent to ``Param(value, fit=False)``.
+
+    "Non-trainable" means the value is **not** wrapped in a trainable ``ParamState``
+    and is therefore excluded from gradient-based optimization. It does **not** mean
+    the value is immutable: it can still be updated explicitly via :meth:`set_value`
+    or :meth:`clip`.
 
     Parameters
     ----------

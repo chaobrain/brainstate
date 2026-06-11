@@ -75,7 +75,26 @@ class EventLinear(Module):
     def update(self, spk: jax.Array) -> Union[jax.Array, u.Quantity]:
         weight = self.weight.value
         if u.math.size(weight) == 1:
-            return u.math.ones(self.out_size) * (u.math.sum(spk) * weight)
+            # Homogeneous (scalar) weight: every post-synaptic neuron receives the
+            # same total input. The reduction over ``spk`` must mirror the dense path
+            # below so the two stay numerically consistent:
+            #
+            # - ``float_as_event=True``: the dense ``brainevent.EventArray`` path treats
+            #   each nonzero entry as a unit event, so the *forward* value reduces by
+            #   the event count (``sum(spk != 0)``). Its custom VJP, however, propagates
+            #   the value-sum gradient w.r.t. ``spk`` (as ``spk @ weight`` would). We
+            #   reproduce both: the forward equals the event count while the gradient
+            #   flows through the value sum (the stop-gradient cancels in the forward
+            #   pass but leaves a unit derivative on ``spk``).
+            # - ``float_as_event=False``: the dense ``spk @ weight`` path sums spike
+            #   *values*, so reduce by the value sum directly.
+            if self.float_as_event:
+                n_events = u.math.sum(spk != 0)
+                value_sum = u.math.sum(spk)
+                reduced = n_events + (value_sum - jax.lax.stop_gradient(value_sum))
+            else:
+                reduced = u.math.sum(spk)
+            return u.math.ones(self.out_size) * (reduced * weight)
 
         if self.float_as_event:
             return brainevent.EventArray(spk) @ weight

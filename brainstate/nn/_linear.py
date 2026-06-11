@@ -313,15 +313,15 @@ class ScaledWSLinear(Module):
                                                          'and "out_size" must be the same.')
 
         # w_mask
-        self.w_mask = init.param(w_mask, (self.in_size[0], 1))
+        self.w_mask = init.param(w_mask, (self.in_size[-1], 1))
 
         # parameters
         self.eps = eps
 
         # weights
-        params = dict(weight=init.param(w_init, self.in_size + self.out_size, allow_none=False))
+        params = dict(weight=init.param(w_init, (self.in_size[-1], self.out_size[-1]), allow_none=False))
         if b_init is not None:
-            params['bias'] = init.param(b_init, self.out_size, allow_none=False)
+            params['bias'] = init.param(b_init, self.out_size[-1], allow_none=False)
         # gain
         if ws_gain:
             s = params['weight'].shape
@@ -531,9 +531,13 @@ class AllToAll(Module):
                     val = pre_val[..., :self.out_size[-1]]
                     post_val = post_val - val
                 else:
-                    size = list(self.out_size)
-                    size[-1] = self.out_size[-1] - self.in_size[-1]
-                    val = u.math.concatenate([pre_val, u.math.zeros(size, dtype=pre_val.dtype)])
+                    # out_size > in_size: pad the per-unit "self" value with zeros for
+                    # the extra output units, matching pre_val's batch rank, and
+                    # concatenate along the feature (last) axis.
+                    pad_shape = pre_val.shape[:-1] + (self.out_size[-1] - self.in_size[-1],)
+                    val = u.math.concatenate(
+                        [pre_val, u.math.zeros(pad_shape, dtype=pre_val.dtype)], axis=-1
+                    )
                     post_val = post_val - val
             post_val = w_val * post_val
 

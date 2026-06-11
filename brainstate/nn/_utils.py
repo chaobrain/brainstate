@@ -149,6 +149,15 @@ def clip_grad_norm(
 
     where :math:`\\|g\\|_p` is the p-norm of the concatenated gradient vector.
 
+    Notes
+    -----
+    Gradients are flattened and concatenated with plain array ops, so this function
+    assumes **unitless** (dimensionless) gradients. ``brainunit.Quantity`` gradients
+    carrying physical units will have their units stripped in the returned norm, and
+    gradients with *different* units across leaves cannot be combined meaningfully.
+    Strip units (e.g. via ``u.get_mantissa``) before clipping if your gradients carry
+    units.
+
     Examples
     --------
     .. code-block:: python

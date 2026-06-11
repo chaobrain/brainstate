@@ -236,7 +236,7 @@ class HiData:
                 cloned_children[k] = v.clone()
             else:
                 cloned_children[k] = v
-        return self.__class__(children=cloned_children)
+        return self.__class__(children=cloned_children, name=self.name)
 
     @property
     def state_size(self) -> int:
@@ -272,13 +272,13 @@ class HiData:
                 children[k] = v
         for k in updates:
             children[k] = updates[k]
-        return HiData(children=children)
+        return self.__class__(children=children, name=self.name)
 
     def pop(self, *args) -> 'HiData':
         children = {k: v for k, v in self.children.items()}
         for arg in args:
             children.pop(arg)
-        return HiData(children=children)
+        return self.__class__(children=children, name=self.name)
 
     def replace(self, **updates) -> 'HiData':
         """
@@ -296,7 +296,7 @@ class HiData:
         children = {k: v for k, v in self.children.items()}
         for k in updates:
             children[k] = updates[k]
-        return self.__class__(children=children)
+        return self.__class__(children=children, name=self.name)
 
     def to_dict(self) -> Dict:
         """

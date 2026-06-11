@@ -40,8 +40,8 @@ __all__ = [
 class Dropout(ElementWiseBlock):
     """A layer that stochastically ignores a subset of inputs each training step.
 
-    In training, to compensate for the fraction of input values dropped (`rate`),
-    all surviving values are multiplied by `1 / (1 - rate)`.
+    In training, to compensate for the fraction of input values dropped, all surviving
+    values are multiplied by ``1 / prob``, where ``prob`` is the *keep* probability.
 
     This layer is active only during training (``mode=brainstate.mixin.Training``). In other
     circumstances it is a no-op.
@@ -128,7 +128,7 @@ class _DropoutNd(ElementWiseBlock):
         if inp_dim not in (self.minimal_dim, self.minimal_dim + 1):
             raise RuntimeError(f"dropout1d: Expected {self.minimal_dim}D or {self.minimal_dim + 1}D input, "
                                f"but received a {inp_dim}D input. {self._get_msg(x)}")
-        is_not_batched = self.minimal_dim
+        is_not_batched = (inp_dim == self.minimal_dim)
         if is_not_batched:
             channel_axis = self.channel_axis if self.channel_axis >= 0 else (x.ndim + self.channel_axis)
             mask_shape = [(dim if i == channel_axis else 1) for i, dim in enumerate(x.shape)]
@@ -186,9 +186,16 @@ class Dropout1d(_DropoutNd):
 
     Notes
     -----
-    Input shape: :math:`(N, C, L)` or :math:`(C, L)`.
+    With the default ``channel_axis=-1`` (channel-last convention used throughout
+    brainstate), the channel is the last axis.
 
-    Output shape: :math:`(N, C, L)` or :math:`(C, L)` (same shape as input).
+    Input shape: :math:`(N, L, C)` or :math:`(L, C)`.
+
+    Output shape: :math:`(N, L, C)` or :math:`(L, C)` (same shape as input).
+
+    A whole channel (a 1D feature map) is dropped together, and the mask is drawn
+    independently per batch element. Pass ``channel_axis`` to select a different
+    channel dimension.
 
     References
     ----------
@@ -246,9 +253,16 @@ class Dropout2d(_DropoutNd):
 
     Notes
     -----
-    Input shape: :math:`(N, C, H, W)` or :math:`(C, H, W)`.
+    With the default ``channel_axis=-1`` (channel-last convention used throughout
+    brainstate), the channel is the last axis.
 
-    Output shape: :math:`(N, C, H, W)` or :math:`(C, H, W)` (same shape as input).
+    Input shape: :math:`(N, H, W, C)` or :math:`(H, W, C)`.
+
+    Output shape: :math:`(N, H, W, C)` or :math:`(H, W, C)` (same shape as input).
+
+    A whole channel (a 2D feature map) is dropped together, and the mask is drawn
+    independently per batch element. Pass ``channel_axis`` to select a different
+    channel dimension.
 
     References
     ----------
@@ -306,9 +320,16 @@ class Dropout3d(_DropoutNd):
 
     Notes
     -----
-    Input shape: :math:`(N, C, D, H, W)` or :math:`(C, D, H, W)`.
+    With the default ``channel_axis=-1`` (channel-last convention used throughout
+    brainstate), the channel is the last axis.
 
-    Output shape: :math:`(N, C, D, H, W)` or :math:`(C, D, H, W)` (same shape as input).
+    Input shape: :math:`(N, D, H, W, C)` or :math:`(D, H, W, C)`.
+
+    Output shape: :math:`(N, D, H, W, C)` or :math:`(D, H, W, C)` (same shape as input).
+
+    A whole channel (a 3D feature map) is dropped together, and the mask is drawn
+    independently per batch element. Pass ``channel_axis`` to select a different
+    channel dimension.
 
     References
     ----------
@@ -401,9 +422,14 @@ class AlphaDropout(_DropoutNd):
         alpha = -1.7580993408473766
         self.alpha = alpha
 
-        # Affine transformation parameters to maintain mean and variance
-        self.a = ((1 - prob) * (1 + prob * alpha ** 2)) ** -0.5
-        self.b = -self.a * alpha * prob
+        # Affine transformation parameters to maintain mean and variance.
+        # ``prob`` is the *keep* probability; ``q`` is the *drop* probability.
+        # The self-normalizing affine is a = (keep * (1 + q * alpha**2))**-0.5,
+        # b = -a * q * alpha (these only coincide with the keep/drop-swapped form
+        # at prob == 0.5).
+        keep, q = prob, 1. - prob
+        self.a = (keep * (1 + q * alpha ** 2)) ** -0.5
+        self.b = -self.a * q * alpha
 
     def __call__(self, x):
         dtype = u.math.get_dtype(x)
@@ -454,7 +480,8 @@ class FeatureAlphaDropout(ElementWiseBlock):
 
     Notes
     -----
-    Input shape: :math:`(N, C, *)` where C is the channel dimension.
+    With the default ``channel_axis=-1`` (channel-last convention used throughout
+    brainstate), the channel is the last axis, e.g. input shape :math:`(N, *, C)`.
 
     Output shape: Same shape as input.
 
@@ -495,9 +522,11 @@ class FeatureAlphaDropout(ElementWiseBlock):
         alpha = -1.7580993408473766
         self.alpha = alpha
 
-        # Affine transformation parameters to maintain mean and variance
-        self.a = ((1 - prob) * (1 + prob * alpha ** 2)) ** -0.5
-        self.b = -self.a * alpha * prob
+        # Affine transformation parameters to maintain mean and variance.
+        # ``prob`` is the *keep* probability; ``q`` is the *drop* probability.
+        keep, q = prob, 1. - prob
+        self.a = (keep * (1 + q * alpha ** 2)) ** -0.5
+        self.b = -self.a * q * alpha
 
     def __call__(self, x):
         dtype = u.math.get_dtype(x)
@@ -523,8 +552,8 @@ class FeatureAlphaDropout(ElementWiseBlock):
 class DropoutFixed(ElementWiseBlock):
     """A dropout layer with a fixed dropout mask along the time axis.
 
-    In training, to compensate for the fraction of input values dropped,
-    all surviving values are multiplied by `1 / (1 - prob)`.
+    In training, to compensate for the fraction of input values dropped, all surviving
+    values are multiplied by ``1 / prob``, where ``prob`` is the *keep* probability.
 
     This layer is active only during training (``mode=brainstate.mixin.Training``). In other
     circumstances it is a no-op.

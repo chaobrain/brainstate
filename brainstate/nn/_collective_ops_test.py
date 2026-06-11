@@ -827,10 +827,6 @@ class TestVmapCallAllFns(unittest.TestCase):
         self.assertIs(returned, module)
         self.assertTrue(hasattr(module, 'w'))
 
-    @pytest.mark.skip(reason="BUG: vmap_call_all_fns leaks a JAX BatchTracer into "
-                             "newly created state values; the batched value is not "
-                             "committed (shape stays per-lane and later use raises "
-                             "UnexpectedTracerError). See report.")
     def test_batched_init_creates_leading_axis(self):
         """Vmapped init_state should create a committed leading batch axis."""
         module = EnsembleModule()
@@ -840,8 +836,6 @@ class TestVmapCallAllFns(unittest.TestCase):
             )
         self.assertEqual(module.w.value.shape, (_testing.SMALL_BATCH, 3))
 
-    @pytest.mark.skip(reason="BUG: vmap_call_all_fns leaks a JAX BatchTracer into "
-                             "newly created state values. See report.")
     def test_batched_init_distinct_per_lane(self):
         """Each batch lane should receive an independent random initialization."""
         module = EnsembleModule()
@@ -851,8 +845,6 @@ class TestVmapCallAllFns(unittest.TestCase):
             )
         self.assertFalse(bool(jnp.allclose(module.w.value[0], module.w.value[1])))
 
-    @pytest.mark.skip(reason="BUG: vmap_call_all_fns leaks a JAX BatchTracer into "
-                             "newly created state values. See report.")
     def test_positional_single_arg_wrapped(self):
         """A single non-tuple positional argument is wrapped in a tuple."""
 
@@ -1011,3 +1003,54 @@ class TestAssignStateValues(unittest.TestCase):
             {target_key: jnp.ones(3) * 7.0},
         )
         _testing.assert_allclose(net.states()[target_key].value, jnp.ones(3) * 7.0)
+
+    # --- Audit regressions (M1: pytree/unit values; M2: dotted-string keys) ---
+
+    def test_assign_dict_valued_state(self):
+        """M1: a state whose value is a dict must round-trip without crashing."""
+        import brainunit as u
+
+        class DictState(brainstate.nn.Module):
+            def init_state(self):
+                self.d = brainstate.ParamState({'a': jnp.ones(2), 'b': jnp.zeros(3)})
+
+        net = DictState()
+        brainstate.nn.init_all_states(net)
+        key = ('d',)
+        unexpected, missing = brainstate.nn.assign_state_values(
+            net, {key: {'a': jnp.ones(2) * 5.0, 'b': jnp.ones(3) * 2.0}}
+        )
+        self.assertEqual(unexpected, [])
+        self.assertEqual(missing, [])
+        _testing.assert_allclose(net.states()[key].value['a'], jnp.ones(2) * 5.0)
+        _testing.assert_allclose(net.states()[key].value['b'], jnp.ones(3) * 2.0)
+
+    def test_assign_quantity_valued_state(self):
+        """M1: a state whose value carries physical units must keep its unit."""
+        import brainunit as u
+
+        class QtyState(brainstate.nn.Module):
+            def init_state(self):
+                self.v = brainstate.ParamState(jnp.ones(3) * u.mV)
+
+        net = QtyState()
+        brainstate.nn.init_all_states(net)
+        key = ('v',)
+        unexpected, missing = brainstate.nn.assign_state_values(
+            net, {key: jnp.ones(3) * 7.0 * u.mV}
+        )
+        self.assertEqual((unexpected, missing), ([], []))
+        restored = net.states()[key].value
+        self.assertEqual(u.get_unit(restored), u.mV)
+        _testing.assert_allclose(u.get_mantissa(restored), jnp.ones(3) * 7.0)
+
+    def test_assign_accepts_dotted_string_keys(self):
+        """M2: dotted-string keys (as documented) must match tuple state paths."""
+        net = self._make_net()
+        unexpected, missing = brainstate.nn.assign_state_values(
+            net, {'w': jnp.ones(3) * 3.0, 'b': jnp.ones(2) * 4.0}
+        )
+        self.assertEqual(unexpected, [])
+        self.assertEqual(missing, [])
+        _testing.assert_allclose(net.states()[('w',)].value, jnp.ones(3) * 3.0)
+        _testing.assert_allclose(net.states()[('b',)].value, jnp.ones(2) * 4.0)

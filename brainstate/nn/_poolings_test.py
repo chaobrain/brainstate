@@ -563,6 +563,61 @@ class TestMaxUnpool1d(parameterized.TestCase):
 
         self.assertEqual(unpooled.shape, (1, 10, 2))
 
+    def test_maxunpool1d_natural_roundtrip_no_cross_batch(self):
+        """Natural-size unpool keeps each batch element's maxima in that element."""
+        # input (2, 4, 1): batch 0 -> [0,1,2,3], batch 1 -> [4,5,6,7]
+        arr = jnp.arange(8.0).reshape(2, 4, 1)
+
+        pool = nn.MaxPool1d(2, 2, channel_axis=-1, return_indices=True)
+        pooled, indices = pool(arr)
+
+        unpool = nn.MaxUnpool1d(2, 2, channel_axis=-1)
+        unpooled = unpool(pooled, indices)
+
+        self.assertEqual(unpooled.shape, (2, 4, 1))
+        # Each batch element's maxima land in the SAME batch element.
+        np.testing.assert_array_equal(
+            np.asarray(unpooled[..., 0]),
+            np.array([[0.0, 1.0, 0.0, 3.0],
+                      [0.0, 5.0, 0.0, 7.0]]),
+        )
+
+    def test_maxunpool1d_output_size_no_cross_batch_leakage(self):
+        """A non-natural output_size must not leak maxima across batch elements.
+
+        Regression test for the flat-scatter bug where, for batch N>1, values
+        landed in the wrong batch element because the per-batch flat stride of the
+        output differs from that of the input layout when ``output_size`` changes
+        the spatial extent.
+        """
+        # input (2, 4, 1): batch 0 -> [0,1,2,3], batch 1 -> [4,5,6,7]
+        arr = jnp.arange(8.0).reshape(2, 4, 1)
+
+        pool = nn.MaxPool1d(2, 2, channel_axis=-1, return_indices=True)
+        pooled, indices = pool(arr)
+        # pooled maxima: batch 0 -> [1, 3], batch 1 -> [5, 7]
+
+        unpool = nn.MaxUnpool1d(2, 2, channel_axis=-1)
+        # Request a spatial size (6) that differs from the natural size (4).
+        unpooled = unpool(pooled, indices, output_size=(2, 6, 1))
+
+        self.assertEqual(unpooled.shape, (2, 6, 1))
+
+        b0 = np.asarray(unpooled[0, :, 0])
+        b1 = np.asarray(unpooled[1, :, 0])
+
+        # Batch 0 must contain exactly its own maxima {1, 3} and nothing from batch 1.
+        self.assertEqual(set(np.unique(b0[b0 != 0]).tolist()), {1.0, 3.0})
+        self.assertNotIn(5.0, b0.tolist())
+        self.assertNotIn(7.0, b0.tolist())
+        # Batch 1 must contain exactly its own maxima {5, 7}.
+        self.assertEqual(set(np.unique(b1[b1 != 0]).tolist()), {5.0, 7.0})
+        # Positions within each batch element are preserved (col index = original).
+        self.assertEqual(b0[1], 1.0)
+        self.assertEqual(b0[3], 3.0)
+        self.assertEqual(b1[1], 5.0)
+        self.assertEqual(b1[3], 7.0)
+
 
 class TestMaxUnpool2d(parameterized.TestCase):
     """Comprehensive tests for MaxUnpool2d."""
@@ -1065,6 +1120,29 @@ class TestMaxPoolConstructorValidation(unittest.TestCase):
         with self.assertRaises(ValueError):
             p(brainstate.random.randn(3, 4))
 
+    def test_most_negative_channel_axis_accepted(self):
+        """``channel_axis == -ndim`` is valid and matches the positive equivalent.
+
+        Regression test: the previous guard rejected the most-negative valid axis.
+        """
+        x = brainstate.random.randn(4, 10)
+        out_neg = nn.MaxPool1d(2, channel_axis=-2)(x)  # -2 == -ndim for a 2D input
+        out_pos = nn.MaxPool1d(2, channel_axis=0)(x)
+        self.assertEqual(out_neg.shape, (4, 5))
+        np.testing.assert_array_equal(np.asarray(out_neg), np.asarray(out_pos))
+
+    def test_too_negative_channel_axis_raises(self):
+        """A channel axis more negative than ``-ndim`` is still rejected."""
+        p = nn.MaxPool1d(2, channel_axis=-3)
+        with self.assertRaises(ValueError):
+            p(brainstate.random.randn(3, 4))
+
+    def test_most_negative_channel_axis_lppool_and_adaptive(self):
+        """``channel_axis == -ndim`` is accepted by LPPool and adaptive pooling too."""
+        x = brainstate.random.randn(4, 10)
+        self.assertEqual(nn.LPPool1d(2, 2, channel_axis=-2)(x).shape, (4, 5))
+        self.assertEqual(nn.AdaptiveAvgPool1d(5, channel_axis=-2)(x).shape, (4, 5))
+
 
 class TestMaxPoolTransforms(unittest.TestCase):
     """Gradient and jit consistency checks for the max-pooling variants."""
@@ -1387,19 +1465,37 @@ class TestAdaptivePoolValidation(unittest.TestCase):
         out = p(brainstate.random.randn(2, 32, 4))
         self.assertEqual(out.shape, (2, 5, 4))
 
-    @pytest.mark.skip(
-        reason="BUG: AdaptiveAvgPool2d/3d (and Max variants) document a `None` "
-               "target dim ('Use None for dimensions that should not be pooled') "
-               "but `_adaptive_pool1d` computes `size % target_size`, raising "
-               "`TypeError: unsupported operand type(s) for %: 'int' and 'NoneType'` "
-               "when target_size is None. Repro: "
-               "nn.AdaptiveAvgPool2d((None, 7), channel_axis=-1)(randn(1, 10, 9, 8))."
-    )
     def test_adaptive_avg_pool_with_none_target_dim(self):
         """A ``None`` entry in the target size leaves that dimension unchanged."""
         p = nn.AdaptiveAvgPool2d((None, 7), channel_axis=-1)
         out = p(brainstate.random.randn(1, 10, 9, 8))
         self.assertEqual(out.shape, (1, 10, 7, 8))
+
+    def test_adaptive_max_pool2d_with_none_target_dim(self):
+        """``None`` target dims are also supported by the max variant (2d)."""
+        p = nn.AdaptiveMaxPool2d((None, 7), channel_axis=-1)
+        out = p(brainstate.random.randn(1, 10, 9, 8))
+        self.assertEqual(out.shape, (1, 10, 7, 8))
+
+    def test_adaptive_avg_pool3d_with_none_target_dims(self):
+        """Multiple ``None`` target dims leave those axes unchanged (3d)."""
+        p = nn.AdaptiveAvgPool3d((7, None, None), channel_axis=-1)
+        out = p(brainstate.random.randn(1, 10, 9, 8, 64))
+        self.assertEqual(out.shape, (1, 7, 9, 8, 64))
+
+    def test_adaptive_avg_pool_none_target_preserves_values(self):
+        """An unpooled (``None``) axis is left numerically unchanged."""
+        # Pool only the last spatial axis; the first spatial axis (None) untouched.
+        p = nn.AdaptiveAvgPool2d((None, 2), channel_axis=-1)
+        x = brainstate.random.randn(1, 3, 4, 2)
+        out = p(x)
+        self.assertEqual(out.shape, (1, 3, 2, 2))
+        # Manually average the width axis (size 4 -> 2) and compare.
+        expected = jnp.stack(
+            [jnp.mean(x[:, :, 0:2, :], axis=2), jnp.mean(x[:, :, 2:4, :], axis=2)],
+            axis=2,
+        )
+        np.testing.assert_allclose(np.asarray(out), np.asarray(expected), rtol=1e-5, atol=1e-6)
 
 
 class TestAdaptivePoolTransforms(unittest.TestCase):

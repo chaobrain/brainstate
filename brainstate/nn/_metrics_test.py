@@ -607,5 +607,43 @@ class EdgeCasesTest(parameterized.TestCase):
         self.assertEqual(float(recall), 0.0)
 
 
+class MetricsAuditRegressionTest(parameterized.TestCase):
+    """Regression tests for bugs found in the nn-module audit."""
+
+    def test_weighted_average_returns_scalar(self):
+        """E1: 'weighted' averaging must produce a support-weighted scalar, not an array."""
+        preds = jnp.array([0, 0, 1, 1, 1, 2, 2, 2, 2])
+        labels = jnp.array([0, 1, 1, 1, 2, 2, 2, 2, 0])
+        for cls in (bst.nn.PrecisionMetric, bst.nn.RecallMetric, bst.nn.F1ScoreMetric):
+            m = cls(num_classes=3, average='weighted')
+            m.update(predictions=preds, labels=labels)
+            out = m.compute()
+            self.assertEqual(jnp.asarray(out).shape, ())  # scalar, not per-class array
+            self.assertTrue(0.0 <= float(out) <= 1.0)
+
+    def test_weighted_recall_matches_manual_support_weighting(self):
+        """E1: weighted recall == sum(recall_c * support_c) / sum(support_c)."""
+        preds = jnp.array([0, 0, 1, 1, 1, 2, 2, 2, 2])
+        labels = jnp.array([0, 1, 1, 1, 2, 2, 2, 2, 0])
+        m = bst.nn.RecallMetric(num_classes=3, average='weighted')
+        m.update(predictions=preds, labels=labels)
+        # support: class0=2, class1=3, class2=4 ; recall0=1/2, recall1=2/3, recall2=3/4
+        expected = (0.5 * 2 + (2 / 3) * 3 + 0.75 * 4) / 9
+        self.assertAlmostEqual(float(m.compute()), expected, places=5)
+
+    @parameterized.parameters(bst.nn.PrecisionMetric, bst.nn.RecallMetric, bst.nn.F1ScoreMetric)
+    def test_invalid_average_raises(self, cls):
+        """E1: an unknown `average` must raise instead of silently misbehaving."""
+        with self.assertRaises(ValueError):
+            cls(num_classes=3, average='Macro')
+
+    def test_welford_reset_keeps_int32_count(self):
+        """E4: WelfordMetric.reset must keep count dtype int32 (matching __init__)."""
+        m = bst.nn.WelfordMetric()
+        m.update(values=jnp.array([1.0, 2.0, 3.0]))
+        m.reset()
+        self.assertEqual(m.count.value.dtype, jnp.int32)
+
+
 if __name__ == '__main__':
     absltest.main()

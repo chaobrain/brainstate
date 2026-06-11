@@ -122,3 +122,41 @@ class TestEventLinear:
         o2, r2 = jax.jvp(f, (x, w), (jnp.ones_like(x), jnp.ones_like(w)))
         assert (jnp.allclose(o1, o2))
         assert (jnp.allclose(r1, r2))
+
+    @pytest.mark.parametrize('float_as_event', [True, False])
+    def test_homogeneous_matches_dense_nonbinary(self, float_as_event):
+        """Regression for C4: the scalar-weight (homogeneous) path must agree with the
+        dense/heterogeneous path for non-binary float input, for both float_as_event modes.
+
+        With ``float_as_event=True`` the dense ``brainevent.EventArray`` path counts each
+        nonzero entry as a unit event, so the homogeneous path must reduce by event count
+        (``sum(spk != 0)``) rather than by spike value. With ``float_as_event=False`` both
+        paths sum spike values.
+        """
+        n_in = 10
+        n_out = 8
+        weight = 1.5
+        spk = jnp.asarray([0., 2., 0., 3., 0., 0., 1., 0., 0., 5.])
+
+        # Homogeneous (scalar weight) path.
+        homo = brainstate.nn.EventLinear(n_in, n_out, weight, float_as_event=float_as_event)
+        y_homo = homo(spk)
+
+        # Equivalent dense / heterogeneous path: a full weight matrix filled with the scalar.
+        dense = brainstate.nn.EventLinear(
+            n_in, n_out,
+            braintools.init.Constant(weight),
+            float_as_event=float_as_event,
+        )
+        y_dense = dense(spk)
+
+        assert jnp.allclose(y_homo, y_dense), (
+            f"float_as_event={float_as_event}: homogeneous {y_homo} != dense {y_dense}"
+        )
+
+        # Sanity-check the expected reduction explicitly.
+        if float_as_event:
+            expected_scalar = jnp.sum(spk != 0) * weight  # event count = 4 nonzeros
+        else:
+            expected_scalar = jnp.sum(spk) * weight        # value sum = 11
+        assert jnp.allclose(y_homo, jnp.ones((n_out,)) * expected_scalar)

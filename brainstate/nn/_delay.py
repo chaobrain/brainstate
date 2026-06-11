@@ -670,7 +670,10 @@ class Delay(Module):
                 environ.get_dt() if self.update_every is None else self.update_every
             )
             max_delay_step = jnp.max(delay_step)
-            self.max_time = u.math.max(time)
+            # Take the maximum against the existing ``max_time`` so registering a
+            # shorter delay after a longer one does not shrink the buffer window.
+            # This mirrors ``max_length`` below, which already only grows.
+            self.max_time = u.math.maximum(self.max_time, u.math.max(time))
 
             # delay variable
             if self.max_length <= max_delay_step + 1:
@@ -778,9 +781,13 @@ class Delay(Module):
 
         # unified ring buffer method using write_ptr
         with jax.ensure_compile_time_eval():
-            # Use write_ptr instead of environ.get(environ.I)
-            # Note: write_ptr points to the NEXT write position, so current position is write_ptr - 1
-            current_ptr = self.write_ptr.value // self.update_every_step - 1
+            # Use write_ptr instead of environ.get(environ.I).
+            # ``write_ptr`` is a monotonic per-call counter; the most recently
+            # written slot is ``(write_ptr - 1) // update_every_step``. (For the
+            # default ``update_every_step == 1`` this equals the previous
+            # ``write_ptr // step - 1`` form, but it stays correct under frequency
+            # control, where many calls map to the same slot.)
+            current_ptr = (self.write_ptr.value - 1) // self.update_every_step
             di = current_ptr - delay_step
             delay_idx = jnp.asarray(di % self.max_length, dtype=jnp.int32)
             delay_idx = jax.lax.stop_gradient(delay_idx)
@@ -794,10 +801,19 @@ class Delay(Module):
             if self._unit is None:
                 return jax.tree.map(lambda a: a[indices], self.history.value)
             else:
+                # ``self._unit`` holds a ``brainunit.Unit`` per leaf (recorded with
+                # ``is_leaf=is_quantity``). The history buffer may itself be a
+                # ``Quantity`` (when ``target_info`` carried units) whose pytree node
+                # type differs from ``Unit`` — zipping the two without ``is_leaf``
+                # raises "Custom node type mismatch". Treat each history leaf
+                # (Quantity or plain array) as a single leaf, strip any unit it
+                # already carries, then re-apply the recorded unit. This both fixes
+                # the crash and avoids double-counting the unit (mV * mV).
                 return jax.tree.map(
-                    lambda hist, unit: u.maybe_decimal(hist[indices] * unit),
+                    lambda hist, unit: u.maybe_decimal(u.get_mantissa(hist[indices]) * unit),
                     self.history.value,
-                    self._unit
+                    self._unit,
+                    is_leaf=u.math.is_quantity,
                 )
 
     def retrieve_at_time(self, delay_time, *indices) -> PyTree:
@@ -842,7 +858,12 @@ class Delay(Module):
 
         with jax.ensure_compile_time_eval():
             diff = current_time - delay_time
-            float_time_step = diff / dt
+            # Buffer slots are spaced ``update_every`` apart (one slot per
+            # ``update_every_step`` calls), so convert the continuous time offset
+            # into *slot* units using that spacing. Using ``dt`` here would
+            # over-count by ``update_every_step`` whenever frequency control is on.
+            slot_dt = dt if self.update_every is None else self.update_every
+            float_time_step = diff / slot_dt
 
             # Use interpolation methods that call retrieve_at_step for bounds checking
             if (
@@ -867,7 +888,7 @@ class Delay(Module):
             else:
                 # For other interpolation methods (cubic, hermite, polynomial), use the registry
                 # Calculate the buffer position accounting for ring buffer
-                current_ptr = self.write_ptr.value // self.update_every_step - 1
+                current_ptr = (self.write_ptr.value - 1) // self.update_every_step
                 float_buffer_idx = current_ptr - float_time_step
 
                 if isinstance(self.interp_method, str):
@@ -880,7 +901,12 @@ class Delay(Module):
                 return interp_func(self.history.value, indices, float_buffer_idx, self.max_length)
 
     def _write_to_buffer(self, value: PyTree) -> None:
-        """Write a value to the ring buffer at current write_ptr position."""
+        """Write a value into the ring buffer slot for the current write pointer.
+
+        The write pointer is *not* advanced here; advancement happens once per
+        ``update`` call in :meth:`_advance_write_ptr` so the buffer cadence is a
+        function of the number of calls, not of how many writes have occurred.
+        """
         idx = jnp.asarray(self.write_ptr.value // self.update_every_step, dtype=environ.dutype())
         idx = jax.lax.stop_gradient(idx)
         self.history.value = jax.tree.map(
@@ -888,22 +914,18 @@ class Delay(Module):
             self.history.value,
             value
         )
-        self.write_ptr.value = (self.write_ptr.value + 1) % self.max_length
 
-    def _frequency_controlled_update(self, current: PyTree) -> None:
-        """Handle frequency-controlled updates with different strategies."""
+    def _advance_write_ptr(self) -> None:
+        """Advance the monotonic per-call write pointer.
 
-        # Update time accumulator
-        should_update = self.write_ptr.value % self.update_every_step == 0
-
-        def do_nothing():
-            pass
-
-        # Hold: Only write when threshold crossed
-        def write_and_reset():
-            self._write_to_buffer(current)
-
-        cond(should_update, write_and_reset, do_nothing)
+        ``write_ptr`` counts ``update`` calls and wraps at
+        ``max_length * update_every_step`` so that ``write_ptr // update_every_step``
+        cycles through the ``max_length`` buffer slots. For the default
+        (``update_every is None`` ⇒ ``update_every_step == 1``) this reduces to the
+        ordinary ``(write_ptr + 1) % max_length`` ring advance.
+        """
+        period = self.max_length * self.update_every_step
+        self.write_ptr.value = (self.write_ptr.value + 1) % period
 
     def update(self, current: PyTree) -> None:
         """
@@ -921,13 +943,18 @@ class Delay(Module):
             if self.take_aware_unit and self._unit is None:
                 self._unit = jax.tree.map(lambda x: u.get_unit(x), current, is_leaf=u.math.is_quantity)
 
-            # Check if frequency control is enabled
             if self.update_every is None:
-                # Default: update every call
+                # Default: write on every call.
                 self._write_to_buffer(current)
             else:
-                # Frequency-controlled update
-                self._frequency_controlled_update(current)
+                # Frequency-controlled: write only when the per-call pointer lands on
+                # an ``update_every_step`` boundary. ``should_write`` keys off the
+                # monotonic call pointer (advanced below every call), so the cadence
+                # no longer stalls after the first write.
+                should_write = (self.write_ptr.value % self.update_every_step) == 0
+                cond(should_write, lambda: self._write_to_buffer(current), lambda: None)
+            # Advance the per-call pointer exactly once per update, in both modes.
+            self._advance_write_ptr()
 
 
 class StateWithDelay(Delay):

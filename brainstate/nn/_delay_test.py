@@ -42,6 +42,23 @@ class TestDelay(unittest.TestCase):
         with self.assertRaises(KeyError):
             delay.register_entry('c', 10.)
 
+    def test_max_time_is_monotonic_across_registrations(self):
+        """D2: registering a shorter delay after a longer one keeps the larger max_time."""
+        delay = brainstate.nn.Delay(jnp.ones((1,)))
+        delay.register_entry('big', 5.0)
+        big_max_time = float(delay.max_time)
+        delay.register_entry('small', 1.0)
+        # max_time must remain the maximum (5.0), not be clobbered to 1.0.
+        self.assertEqual(float(delay.max_time), big_max_time)
+        self.assertEqual(float(delay.max_time), 5.0)
+
+    def test_max_time_grows_for_larger_later_delay(self):
+        """D2: a longer delay registered later raises max_time accordingly."""
+        delay = brainstate.nn.Delay(jnp.ones((1,)))
+        delay.register_entry('small', 1.0)
+        delay.register_entry('big', 7.0)
+        self.assertEqual(float(delay.max_time), 7.0)
+
     def test_rotation_delay(self):
         rotation_delay = brainstate.nn.Delay(jnp.ones((1,)))
         t0 = 0.
@@ -739,14 +756,48 @@ class TestDelayUpdateFrequency(unittest.TestCase):
             brainstate.nn.Delay(jnp.zeros((2,)), time=1.0, update_every=0.05)
 
     def test_frequency_controlled_hold_update(self):
-        """With ``update_every`` set, the buffer only advances on threshold crossings."""
+        """D1: with ``update_every`` set, the per-call pointer keeps advancing.
+
+        The write pointer counts calls and wraps at ``max_length * update_every_step``;
+        a buffer write happens every ``update_every_step`` calls.
+        """
         delay = brainstate.nn.Delay(jnp.zeros((2,)), time=1.0, update_every=0.5)
         delay.init_state()
-        # update_every_step == 5; only every 5th call writes to the buffer.
+        period = delay.max_length * delay.update_every_step  # 3 * 5 == 15
         for i in range(20):
             delay.update(jnp.ones((2,)) * i)
-        # write_ptr advances once per threshold crossing (20 / 5 == 4 writes).
-        self.assertEqual(int(delay.write_ptr.value), 4 % delay.max_length)
+        # The pointer is a monotonic call counter modulo the period (20 % 15 == 5),
+        # NOT frozen at 1 (the old chicken-and-egg bug).
+        self.assertEqual(int(delay.write_ptr.value), 20 % period)
+
+    def test_update_every_buffer_advances_each_window(self):
+        """D1: the buffer actually records distinct values across windows.
+
+        With ``update_every_step == 5`` the writes at calls 0, 5, 10 land in
+        successive ring slots, so the buffer is not stuck holding the first value.
+        """
+        delay = brainstate.nn.Delay(jnp.zeros((1,)), time=1.0, update_every=0.5)
+        delay.init_state()
+        for i in range(11):
+            delay.update(jnp.ones((1,)) * float(i))
+        # Writes occurred at i = 0, 5, 10 -> the three ring slots hold 0, 5, 10.
+        slots = set(float(v) for v in jnp.ravel(delay.history.value).tolist())
+        self.assertEqual(slots, {0.0, 5.0, 10.0})
+
+    def test_retrieve_at_time_uses_update_every_spacing(self):
+        """D5: continuous-time retrieval converts delay to slots via ``update_every``."""
+        delay = brainstate.nn.Delay(jnp.zeros((1,)), time=1.0,
+                                    update_every=0.5, interpolation='round')
+        delay.init_state()
+        for i in range(11):
+            delay.update(jnp.ones((1,)) * float(i))
+        # Most recent buffer slot holds value 10 (written at call 10). A zero delay
+        # should return it; a one-window (0.5) delay should return the prior slot (5).
+        with brainstate.environ.context(t=1.0):
+            latest = delay.retrieve_at_time(1.0)        # diff = 0 -> newest slot
+            one_back = delay.retrieve_at_time(0.5)      # diff = 0.5 -> one slot back
+        self.assertTrue(jnp.allclose(latest, jnp.ones((1,)) * 10.0))
+        self.assertTrue(jnp.allclose(one_back, jnp.ones((1,)) * 5.0))
 
     def test_update_frequency_none_updates_every_call(self):
         """Without ``update_every`` the buffer advances on every update."""
@@ -845,10 +896,8 @@ class TestDelayUnitAware(unittest.TestCase):
             delay.update(jnp.ones((2,)) * i * u.mV)
         self.assertEqual(delay._unit, u.mV)
 
-    @pytest.mark.skip(reason="BUG: take_aware_unit retrieval fails with pytree node mismatch "
-                             "(Quantity history vs Unit _unit) in _retrieve_at_step_impl")
     def test_take_aware_unit_retrieval(self):
-        """A unit-aware delay should return values carrying the original unit."""
+        """D3: a unit-aware delay returns values carrying the original unit (no crash)."""
         import brainunit as u
         delay = brainstate.nn.Delay(jnp.zeros((2,)) * u.mV, time=1.0, take_aware_unit=True)
         delay.register_entry('e', 0.5)
@@ -857,6 +906,20 @@ class TestDelayUnitAware(unittest.TestCase):
             delay.update(jnp.ones((2,)) * i * u.mV)
         result = delay.at('e')
         self.assertEqual(u.get_unit(result), u.mV)
+
+    def test_take_aware_unit_retrieval_value_not_double_unit(self):
+        """D3: the retrieved magnitude is not double-counted (mV, not mV**2)."""
+        import brainunit as u
+        delay = brainstate.nn.Delay(jnp.zeros((2,)) * u.mV, time=1.0, take_aware_unit=True)
+        delay.register_entry('latest', 0.0)
+        delay.init_state()
+        for i in range(5):
+            delay.update(jnp.ones((2,)) * float(i) * u.mV)
+        result = delay.at('latest')
+        # Unit is exactly mV (mantissa unchanged), confirming no mV**2 double-apply.
+        self.assertEqual(u.get_unit(result), u.mV)
+        # The most recently written value (i = 4) is returned at zero delay.
+        self.assertTrue(jnp.allclose(u.get_mantissa(result), jnp.ones((2,)) * 4.0))
 
 
 class TestDelayMethodBackwardCompat(unittest.TestCase):

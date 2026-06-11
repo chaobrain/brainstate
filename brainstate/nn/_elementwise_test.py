@@ -826,5 +826,30 @@ class TestMemoryAndPerformance(parameterized.TestCase):
         self.assertEqual(output.shape, x.shape)
 
 
+class TestElementwiseAuditRegressions(parameterized.TestCase):
+    """Regression tests for bugs found in the nn-module audit."""
+
+    @parameterized.parameters(nn.Softmax, nn.Softmin, nn.LogSoftmax)
+    def test_softmax_family_default_dim_is_last_axis(self, cls):
+        """A1: default dim must normalize over the last axis, not the whole array."""
+        x = jnp.asarray([[1., 2., 3.], [4., 5., 6.]])
+        out = np.asarray(cls()(x))
+        explicit = np.asarray(cls(dim=-1)(x))
+        np.testing.assert_allclose(out, explicit, rtol=1e-6)
+        if cls is nn.LogSoftmax:
+            probs = np.exp(out)
+        else:
+            probs = out
+        # Each row sums to 1 (the whole-array bug made the grand total 1 instead).
+        np.testing.assert_allclose(probs.sum(axis=-1), np.ones(2), rtol=1e-5)
+
+    def test_prelu_broadcasts_on_last_axis(self):
+        """A3: per-channel PReLU weight broadcasts against the last (channel-last) axis."""
+        m = nn.PReLU(num_parameters=3, init=0.25)
+        x = brainstate.random.randn(2, 4, 3)  # channel-last, C=3
+        out = m(x)
+        self.assertEqual(out.shape, x.shape)
+
+
 if __name__ == '__main__':
     absltest.main()

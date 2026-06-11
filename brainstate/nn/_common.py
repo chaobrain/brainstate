@@ -135,7 +135,10 @@ def _filter_states(
         filtered_states = None
     elif isinstance(filters, dict):
         in_states_filter = defaultdict(list)
-        for filter_, axis in filters:
+        # ``filters`` maps ``{filter: axis}`` (see Parameters). Iterate ``.items()``
+        # so the filter and its axis are unpacked correctly; iterating the dict
+        # directly yields only keys and breaks the documented form.
+        for filter_, axis in filters.items():
             assert isinstance(axis, int), 'The value of in_states must be the map axis, which should be an integer.'
             in_states_filter[axis].append(filter_)
         filtered_states = module.states(*in_states_filter.values())
@@ -564,24 +567,27 @@ class Map(Module):
             raise ValueError(
                 'Map.update called before init_all_states. Please call init_all_states first.'
             )
+        map_kwargs = dict(
+            in_axes=self.in_axes,
+            out_axes=self.out_axes,
+            axis_name=self.axis_name,
+            state_in_axes=self._call_state_axes,
+            state_out_axes=self._call_state_axes,
+        )
         if self.behavior == 'vmap':
             map_fn = vmap2
+            # ``spmd_axis_name`` is a vmap-only concept (nested vmap-over-pmap SPMD).
+            map_kwargs['spmd_axis_name'] = self.spmd_axis_name
         elif self.behavior == 'pmap':
             map_fn = pmap2
+            # ``pmap2`` has no ``spmd_axis_name`` parameter; forwarding it raises a
+            # TypeError, so it is intentionally omitted here.
         else:
             raise ValueError(
                 'Invalid behavior specified. Must be "vmap" or "pmap".'
             )
 
-        return map_fn(
-            self.module,
-            in_axes=self.in_axes,
-            out_axes=self.out_axes,
-            axis_name=self.axis_name,
-            spmd_axis_name=self.spmd_axis_name,
-            state_in_axes=self._call_state_axes,
-            state_out_axes=self._call_state_axes,
-        )(*args, **kwargs)
+        return map_fn(self.module, **map_kwargs)(*args, **kwargs)
 
     def map(
         self,

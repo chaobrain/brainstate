@@ -120,6 +120,24 @@ class FixedNumConn(Module):
         self.out_size = out_size
         self.efferent_target = efferent_target
         assert efferent_target in ('pre', 'post'), 'The target of the connection must be either "pre" or "post".'
+        if efferent_target == 'pre':
+            # The 'pre' path builds indices shaped ``(out_size, conn_num)`` with
+            # values in ``[0, in_size)`` and hands them to
+            # ``brainevent.FixedPreNumConn``/``CSC`` with ``shape=(out_size, in_size)``.
+            # brainevent then validates the index rows against ``in_size`` and the
+            # counts disagree whenever ``in_size != out_size``: with
+            # ``afferent_ratio == 1`` this raises "Pre-synaptic row number mismatch",
+            # and with ``afferent_ratio < 1`` it corrupts the heap (a native
+            # ``free(): invalid next size`` abort that can take down the process).
+            # Until the underlying index layout is corrected, reject this
+            # configuration up front with a clear, catchable error rather than
+            # risking a hard crash.
+            raise NotImplementedError(
+                "efferent_target='pre' is not currently supported by FixedNumConn: "
+                "the generated connection indices do not match the layout expected by "
+                "the underlying brainevent sparse connection, which can raise a shape "
+                "error or abort the process. Use efferent_target='post' instead."
+            )
         assert 0. <= afferent_ratio <= 1., 'Afferent ratio must be in [0, 1].'
         if isinstance(conn_num, float):
             assert 0. <= conn_num <= 1., 'Connection probability must be in [0, 1].'
@@ -140,9 +158,13 @@ class FixedNumConn(Module):
                 n_post = self.in_size[-1]
                 n_pre = self.out_size[-1]
 
+            # A single seeded host-side RNG drives both the connection indices and
+            # the afferent-ratio pre-selection mask, so both are reproducible from
+            # ``seed`` (previously ``pre_selected`` used the global ``np.random``,
+            # ignoring ``seed`` entirely).
+            rng = np.random if seed is None else np.random.RandomState(seed)
             with jax.ensure_compile_time_eval():
                 if allow_multi_conn:
-                    rng = np.random if seed is None else np.random.RandomState(seed)
                     indices = rng.randint(0, n_post, size=(n_pre, self.conn_num))
                 else:
                     indices = init_indices_without_replace(self.conn_num, n_pre, n_post, seed, conn_init)
@@ -159,7 +181,7 @@ class FixedNumConn(Module):
                 self.conn = csr
 
             else:
-                self.pre_selected = np.random.random(n_pre) < afferent_ratio
+                self.pre_selected = rng.random(n_pre) < afferent_ratio
                 indices = indices[self.pre_selected].flatten()
                 conn_weight = u.math.asarray(init.param(conn_weight, (indices.size,), allow_none=False))
                 self.weight = param_type(conn_weight)

@@ -21,6 +21,7 @@ from typing import Callable, Tuple, Union, Sequence, Optional, TypeVar
 import brainunit as u
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 from brainstate._state import ParamState
 from brainstate.typing import ArrayLike
@@ -148,6 +149,92 @@ def replicate(
     else:
         raise TypeError(f"{name} must be a scalar or sequence of length 1 or "
                         f"sequence of length {num_replicate}.")
+
+
+def _bias_shape(
+    num_spatial_dims: int,
+    out_channels: int,
+    channel_first: bool,
+) -> Tuple[int, ...]:
+    """Build a bias shape that broadcasts against the convolution output.
+
+    The bias must broadcast over the channel axis of the output while being
+    a singleton along the batch and spatial axes. The channel axis position
+    depends on the data format.
+
+    Parameters
+    ----------
+    num_spatial_dims : int
+        The number of spatial dimensions of the convolution.
+    out_channels : int
+        The number of output channels.
+    channel_first : bool
+
+        - If True, the output is ``[B, C, *spatial]`` and the bias broadcasts
+          over the channel axis at position 1: ``(1, C) + (1,) * num_spatial_dims``.
+        - If False, the output is ``[B, *spatial, C]`` and the bias broadcasts
+          over the trailing channel axis: ``(1,) * num_spatial_dims + (C,)``.
+
+    Returns
+    -------
+    tuple of int
+        The bias shape, excluding the batch dimension (which broadcasts).
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> _bias_shape(2, 4, channel_first=False)
+        (1, 1, 4)
+        >>> _bias_shape(2, 4, channel_first=True)
+        (1, 4, 1, 1)
+    """
+    if channel_first:
+        return (1, out_channels) + (1,) * num_spatial_dims
+    return (1,) * num_spatial_dims + (out_channels,)
+
+
+def _conv_transpose_padding(k: int, s: int, padding: str) -> Tuple[int, int]:
+    """Compute the (before, after) padding for one dimension of a transposed conv.
+
+    This mirrors ``jax.lax.conv_transpose``'s internal padding computation so that a
+    transposed convolution expressed via ``conv_general_dilated`` (with
+    ``lhs_dilation`` equal to the stride) produces exactly the same output size as
+    ``jax.lax.conv_transpose`` for both 'SAME' and 'VALID' modes at any stride.
+
+    Parameters
+    ----------
+    k : int
+        The effective kernel size along the dimension (already accounting for any
+        right-hand-side dilation).
+    s : int
+        The stride (i.e. the input dilation) along the dimension.
+    padding : {'SAME', 'VALID'}
+        The padding mode of the corresponding forward convolution.
+
+    Returns
+    -------
+    tuple of int
+        The ``(pad_before, pad_after)`` padding to feed to ``conv_general_dilated``.
+
+    Notes
+    -----
+    For 'VALID' padding the output length is ``(in - 1) * s + k``; for 'SAME' it is
+    ``in * s``. The asymmetric split matches Keras/TensorFlow ``Conv?DTranspose``.
+    """
+    if padding == 'SAME':
+        pad_len = k + s - 2
+        if s > k - 1:
+            pad_a = k - 1
+        else:
+            pad_a = int(np.ceil(pad_len / 2))
+    elif padding == 'VALID':
+        pad_len = k + s - 2 + max(k - s, 0)
+        pad_a = k - 1
+    else:
+        raise ValueError(f"Invalid padding mode: {padding}")
+    pad_b = pad_len - pad_a
+    return pad_a, pad_b
 
 
 class _BaseConv(Module):
@@ -303,7 +390,7 @@ class _Conv(_BaseConv):
         weight = init.param(self.w_initializer, self.kernel_shape, allow_none=False)
         params = dict(weight=weight)
         if self.b_initializer is not None:
-            bias_shape = (1,) * len(self.kernel_size) + (self.out_channels,)
+            bias_shape = _bias_shape(self.num_spatial_dims, self.out_channels, self.channel_first)
             bias = init.param(self.b_initializer, bias_shape, allow_none=True)
             params['bias'] = bias
 
@@ -808,7 +895,7 @@ class _ScaledWSConv(_BaseConv):
         weight = init.param(self.w_initializer, self.kernel_shape, allow_none=False)
         params = dict(weight=weight)
         if self.b_initializer is not None:
-            bias_shape = (1,) * len(self.kernel_size) + (self.out_channels,)
+            bias_shape = _bias_shape(self.num_spatial_dims, self.out_channels, self.channel_first)
             bias = init.param(self.b_initializer, bias_shape, allow_none=True)
             params['bias'] = bias
 
@@ -1430,34 +1517,17 @@ class _ConvTranspose(_BaseConv):
         )
 
         # the padding parameter
-        # For transposed convolution, string padding needs to be converted to explicit padding
-        # when using lhs_dilation (stride) > 1
+        # For transposed convolution we run ``conv_general_dilated`` with
+        # ``lhs_dilation`` equal to the stride. The explicit padding that yields the
+        # correct transposed-conv output size differs from a forward conv and is
+        # computed (per dimension) in ``_conv_op`` via ``_conv_transpose_padding`` so
+        # that 'SAME'/'VALID' match ``jax.lax.conv_transpose`` at *all* strides
+        # (including stride == 1).
         if isinstance(padding, str):
             assert padding in ['SAME', 'VALID']
             self.padding_mode = padding
-            # Compute explicit padding for transposed convolution
-            if max(self.stride) > 1:
-                # For transposed conv with stride, compute padding to achieve desired output size
-                spatial_in_size = self.in_size[:-1] if not self.channel_first else self.in_size[1:]
-                if padding == 'SAME':
-                    # For SAME padding with transposed conv: output_size = input_size * stride
-                    # Compute required padding to achieve this
-                    explicit_padding = []
-                    for i, (k, s, in_dim) in enumerate(zip(self.kernel_size, self.stride, spatial_in_size)):
-                        # Desired output size
-                        out_dim = in_dim * s
-                        # Calculate total padding needed
-                        # For transposed conv: out = (in - 1) * stride + kernel - 2 * pad
-                        # Solving for pad: pad = (kernel + (in-1) * stride - out) // 2
-                        total_pad = max(k + (in_dim - 1) * s - out_dim, 0)
-                        pad_left = total_pad // 2
-                        pad_right = total_pad - pad_left
-                        explicit_padding.append((pad_left, pad_right))
-                    padding = tuple(explicit_padding)
-                else:  # 'VALID'
-                    # For VALID padding: no padding
-                    padding = tuple((0, 0) for _ in range(self.num_spatial_dims))
-            # If stride is 1, keep string padding
+            # Keep the mode string; the explicit per-dimension padding is resolved
+            # lazily in ``_conv_op`` (it depends on the effective, dilated kernel size).
         elif isinstance(padding, int):
             self.padding_mode = 'explicit'
             padding = tuple((padding, padding) for _ in range(self.num_spatial_dims))
@@ -1498,7 +1568,7 @@ class _ConvTranspose(_BaseConv):
         weight = init.param(self.w_initializer, self.kernel_shape, allow_none=False)
         params = dict(weight=weight)
         if self.b_initializer is not None:
-            bias_shape = (1,) * len(self.kernel_size) + (self.out_channels,)
+            bias_shape = _bias_shape(self.num_spatial_dims, self.out_channels, self.channel_first)
             bias = init.param(self.b_initializer, bias_shape, allow_none=True)
             params['bias'] = bias
 
@@ -1515,10 +1585,32 @@ class _ConvTranspose(_BaseConv):
         y_shape = abstract_y.shape[1:]
         self.out_size = y_shape
 
+    def _resolve_padding(self):
+        """Resolve the explicit per-dimension padding for the transposed convolution.
+
+        For 'SAME'/'VALID' modes the padding is derived from the (dilated) kernel size
+        and stride via :func:`_conv_transpose_padding`, matching
+        ``jax.lax.conv_transpose``. For explicit (integer/tuple) padding the stored
+        value is used directly.
+        """
+        if self.padding in ('SAME', 'VALID'):
+            pads = []
+            for k, s, d in zip(self.kernel_size, self.stride, self.rhs_dilation):
+                # effective kernel size after right-hand-side dilation
+                eff_k = (k - 1) * d + 1
+                pads.append(_conv_transpose_padding(eff_k, s, self.padding))
+            return tuple(pads)
+        return self.padding
+
     def _conv_op(self, x, params):
         w = params['weight']
         if self.w_mask is not None:
             w = w * self.w_mask
+        # The transposed-convolution kernel layout is
+        # (spatial..., out_channels, in_channels // groups). To match
+        # ``jax.lax.conv_transpose`` (which flips the kernel's spatial axes), flip the
+        # spatial axes here before feeding ``conv_general_dilated``.
+        w = jnp.flip(w, axis=tuple(range(self.num_spatial_dims)))
         # For transposed convolution:
         # - window_strides should be (1,1,...) - no striding in the conv operation
         # - lhs_dilation should be the stride - this creates the upsampling effect
@@ -1527,7 +1619,7 @@ class _ConvTranspose(_BaseConv):
             lhs=x,
             rhs=w,
             window_strides=window_strides,
-            padding=self.padding,
+            padding=self._resolve_padding(),
             lhs_dilation=self.stride,  # For transpose conv, use stride as lhs_dilation
             rhs_dilation=self.rhs_dilation,
             feature_group_count=self.groups,

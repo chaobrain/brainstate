@@ -350,5 +350,26 @@ class NNFunctionsTest(parameterized.TestCase):
             fwd()  # doesn't crash
 
 
+class TestActivationAuditRegressions(parameterized.TestCase):
+    """Regression tests for bugs found in the nn-module audit."""
+
+    def test_rrelu_accepts_python_scalar(self):
+        """A2: rrelu must not crash on a python float (which has no .dtype)."""
+        with brainstate.random.seed_context(0):
+            out = brainstate.nn.rrelu(1.0)
+            self.assertTrue(np.isfinite(np.asarray(out)).all())
+            out_neg = brainstate.nn.rrelu(-1.0)
+            self.assertTrue(np.isfinite(np.asarray(out_neg)).all())
+
+    def test_rrelu_accepts_integer_array(self):
+        """A2: rrelu must not crash on an integer-typed array."""
+        with brainstate.random.seed_context(0):
+            x = jnp.array([-2, -1, 0, 1, 2], dtype=jnp.int32)
+            out = np.asarray(brainstate.nn.rrelu(x))
+            self.assertEqual(out.shape, (5,))
+            # Non-negative entries pass through unchanged.
+            np.testing.assert_allclose(out[2:], np.array([0., 1., 2.]), rtol=1e-6)
+
+
 if __name__ == '__main__':
     absltest.main()

@@ -210,7 +210,7 @@ def soft_shrink(x: ArrayLike, lambd: float = 0.5) -> Union[jax.Array, u.Quantity
         u.math.where(
             x < -lambd,
             x + lambd,
-            u.Quantity(0., unit=u.get_unit(lambd))
+            u.Quantity(0., unit=u.get_unit(x))
         )
     )
 
@@ -279,8 +279,12 @@ def rrelu(x: ArrayLike, lower: float = 0.125, upper: float = 0.3333333333333333)
     .. [1] Xu, B., et al. (2015). "Empirical Evaluation of Rectified Activations
            in Convolutional Network." arXiv:1505.00853
     """
-    a = random.uniform(lower, upper, size=u.math.shape(x), dtype=x.dtype)
-    return u.math.where(u.get_mantissa(x) >= 0., x, a * x)
+    # Derive a float dtype robustly: ``x`` may be a python scalar or an integer
+    # array (neither of which has a usable float ``.dtype`` for sampling).
+    mantissa = u.get_mantissa(x)
+    sample_dtype = jax.numpy.result_type(mantissa, float)
+    a = random.uniform(lower, upper, size=u.math.shape(x), dtype=sample_dtype)
+    return u.math.where(mantissa >= 0., x, a * x)
 
 
 def hard_shrink(x: ArrayLike, lambd: float = 0.5) -> Union[jax.Array, u.Quantity]:

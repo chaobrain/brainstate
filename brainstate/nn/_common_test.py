@@ -179,8 +179,8 @@ class TestEnvironContextExtraContext(unittest.TestCase):
 class TestFilterStatesDict(unittest.TestCase):
     """Exercise the dictionary branch of ``_filter_states``."""
 
-    def test_filter_states_dict_tuple_key(self):
-        """Map a (filter, axis) tuple key to its selected states by axis."""
+    def test_filter_states_dict_multiple_axes(self):
+        """M3: documented ``{filter: axis}`` mapping selects states per axis."""
 
         class M(Module):
             """Module carrying one ParamState and one ShortTermState."""
@@ -192,17 +192,18 @@ class TestFilterStatesDict(unittest.TestCase):
                 self.s = brainstate.ShortTermState(jnp.zeros(3))
 
         module = M()
-        # The implementation iterates over the dict's keys and unpacks each into
-        # (filter_, axis); supply a 2-tuple key so the unpack succeeds.
-        result = _filter_states(module, {(OfType(brainstate.ParamState), 0): 'ignored'})
+        # Two filters mapping to two distinct axes (the documented form).
+        result = _filter_states(
+            module,
+            {OfType(brainstate.ParamState): 0, OfType(brainstate.ShortTermState): 1},
+        )
         self.assertIn(0, result)
+        self.assertIn(1, result)
         self.assertEqual(len(result[0]), 1)
+        self.assertEqual(len(result[1]), 1)
 
-    @pytest.mark.skip(reason="BUG: _filter_states dict branch unpacks dict keys "
-                             "instead of items; documented {filter: axis} form "
-                             "raises TypeError. See report.")
     def test_filter_states_dict_documented_form(self):
-        """Documented ``{filter: axis}`` mapping should select states by axis."""
+        """M3: documented ``{filter: axis}`` mapping should select states by axis."""
 
         class M(Module):
             """Module carrying one ParamState."""
@@ -215,6 +216,7 @@ class TestFilterStatesDict(unittest.TestCase):
         module = M()
         result = _filter_states(module, {OfType(brainstate.ParamState): 0})
         self.assertIn(0, result)
+        self.assertEqual(len(result[0]), 1)
 
 
 class TestToPredicate(unittest.TestCase):
@@ -439,26 +441,25 @@ class TestMapPmapWrapper(unittest.TestCase):
             raise
         self.assertEqual(out.shape, (1, 2))
 
-    def test_pmap_update_is_broken(self):
-        """pmap-mode ``update`` raises TypeError from an invalid pmap2 kwarg.
+    def test_pmap_update_runs(self):
+        """M5: pmap-mode ``update`` runs (``spmd_axis_name`` is not forwarded to pmap2).
 
-        ``Map.update`` always forwards ``spmd_axis_name`` to the map function,
-        but ``pmap2`` does not accept that keyword. This documents the bug while
-        keeping the suite green; see report.
+        Previously ``Map.update`` always forwarded ``spmd_axis_name`` to the map
+        function, but ``pmap2`` does not accept that keyword, so pmap-mode
+        ``update`` raised ``TypeError``. It must now run and produce the batched
+        output shape.
         """
         m = Map(_ParamModule(), init_map_size=1, behavior='pmap')
         try:
-            # ``init_all_states`` already drives the pmap path; jax < 0.10 rejects
-            # ordered effects there, before the TypeError this test documents.
+            # jax < 0.10 rejects ordered effects inside pmap (raised as early as
+            # init_all_states), so the whole pmap interaction is guarded.
             m.init_all_states(din=3, dout=2)
-            m.update(jnp.ones((1, 3)))
-        except TypeError:
-            return  # expected: pmap2 rejects the forwarded spmd_axis_name kwarg
+            out = m.update(jnp.ones((1, 3)))
         except ValueError as e:
             if 'Ordered effects' in str(e):
                 self.skipTest(f'pmap on this JAX version rejects ordered effects: {e}')
             raise
-        self.fail('expected a TypeError from the invalid pmap2 kwarg, but no error was raised')
+        self.assertEqual(out.shape, (1, 2))
 
 
 class TestMapCaller(unittest.TestCase):

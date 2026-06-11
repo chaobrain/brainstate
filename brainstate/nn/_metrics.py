@@ -351,7 +351,7 @@ class WelfordMetric(Metric):
 
         This resets count, mean, and the sum of squared deviations (m2).
         """
-        self.count.value = jnp.array(0, dtype=jnp.uint32)
+        self.count.value = jnp.array(0, dtype=jnp.int32)
         self.mean.value = jnp.array(0, dtype=jnp.float32)
         self.m2.value = jnp.array(0, dtype=jnp.float32)
 
@@ -552,6 +552,10 @@ class PrecisionMetric(Metric):
     __module__ = "brainstate.nn"
 
     def __init__(self, num_classes: tp.Optional[int] = None, average: str = 'macro'):
+        if average not in ('micro', 'macro', 'weighted'):
+            raise ValueError(
+                f"`average` must be one of 'micro', 'macro', 'weighted'. Got {average!r}."
+            )
         self.num_classes = num_classes
         self.average = average
         if num_classes is None:
@@ -560,6 +564,9 @@ class PrecisionMetric(Metric):
         else:
             self.true_positives = MetricState(jnp.zeros(num_classes, dtype=jnp.int32))
             self.false_positives = MetricState(jnp.zeros(num_classes, dtype=jnp.int32))
+            # Per-class support (number of true labels of each class), used by the
+            # 'weighted' average.
+            self.support = MetricState(jnp.zeros(num_classes, dtype=jnp.int32))
 
     def reset(self) -> None:
         """Reset the metric state to zero."""
@@ -569,6 +576,7 @@ class PrecisionMetric(Metric):
         else:
             self.true_positives.value = jnp.zeros(self.num_classes, dtype=jnp.int32)
             self.false_positives.value = jnp.zeros(self.num_classes, dtype=jnp.int32)
+            self.support.value = jnp.zeros(self.num_classes, dtype=jnp.int32)
 
     def update(self, *, predictions: jax.Array, labels: jax.Array, **_) -> None:
         """
@@ -595,6 +603,9 @@ class PrecisionMetric(Metric):
                 )
                 self.false_positives.value = self.false_positives.value.at[c].add(
                     jnp.sum((predictions == c) & (labels != c))
+                )
+                self.support.value = self.support.value.at[c].add(
+                    jnp.sum(labels == c)
                 )
 
     def compute(self) -> jax.Array:
@@ -623,6 +634,14 @@ class PrecisionMetric(Metric):
             return jnp.where(
                 total_tp + total_fp > 0,
                 total_tp / (total_tp + total_fp),
+                jnp.float32(0.0)
+            )
+        elif self.num_classes is not None and self.average == 'weighted':
+            support = self.support.value
+            total = jnp.sum(support)
+            return jnp.where(
+                total > 0,
+                jnp.sum(precision * support) / total,
                 jnp.float32(0.0)
             )
         return precision
@@ -675,6 +694,10 @@ class RecallMetric(Metric):
     __module__ = "brainstate.nn"
 
     def __init__(self, num_classes: tp.Optional[int] = None, average: str = 'macro'):
+        if average not in ('micro', 'macro', 'weighted'):
+            raise ValueError(
+                f"`average` must be one of 'micro', 'macro', 'weighted'. Got {average!r}."
+            )
         self.num_classes = num_classes
         self.average = average
         if num_classes is None:
@@ -746,6 +769,14 @@ class RecallMetric(Metric):
             return jnp.where(
                 total_tp + total_fn > 0,
                 total_tp / (total_tp + total_fn),
+                jnp.float32(0.0)
+            )
+        elif self.num_classes is not None and self.average == 'weighted':
+            # Per-class support equals TP + FN, i.e. the recall denominator.
+            total = jnp.sum(denominator)
+            return jnp.where(
+                total > 0,
+                jnp.sum(recall * denominator) / total,
                 jnp.float32(0.0)
             )
         return recall
@@ -867,8 +898,8 @@ class ConfusionMatrix(Metric):
         >>> metric = brainstate.nn.ConfusionMatrix(num_classes=3)
         >>> metric.update(predictions=predictions, labels=labels)
         >>> metric.compute()
-        Array([[1, 0, 1],
-               [0, 2, 0],
+        Array([[1, 0, 0],
+               [0, 2, 1],
                [1, 0, 0]], dtype=int32)
 
     Notes

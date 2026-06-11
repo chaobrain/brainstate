@@ -476,5 +476,59 @@ class TestDropoutFixed(parameterized.TestCase):
                 self.assertEqual(input_data.shape, output_data.shape)
 
 
+class TestDropoutAuditRegressions(parameterized.TestCase):
+    """Regression tests for bugs found in the nn-module audit."""
+
+    @parameterized.parameters(0.2, 0.5, 0.8)
+    def test_alpha_dropout_affine_constants(self, prob):
+        """N1: AlphaDropout affine a/b must use keep/drop probs correctly (not only valid at 0.5)."""
+        alpha = -1.7580993408473766
+        keep, q = prob, 1.0 - prob
+        expected_a = (keep * (1 + q * alpha ** 2)) ** -0.5
+        expected_b = -expected_a * q * alpha
+        m = brainstate.nn.AlphaDropout(prob=prob)
+        self.assertAlmostEqual(float(m.a), float(expected_a), places=5)
+        self.assertAlmostEqual(float(m.b), float(expected_b), places=5)
+        fm = brainstate.nn.FeatureAlphaDropout(prob=prob)
+        self.assertAlmostEqual(float(fm.a), float(expected_a), places=5)
+        self.assertAlmostEqual(float(fm.b), float(expected_b), places=5)
+
+    def test_alpha_dropout_self_normalizes_for_nonhalf_prob(self):
+        """N1: at prob != 0.5 the output should still keep ~zero mean / ~unit variance."""
+        with brainstate.random.seed_context(0):
+            m = brainstate.nn.AlphaDropout(prob=0.8)
+            x = brainstate.random.randn(200000)
+            with brainstate.environ.context(fit=True):
+                out = np.asarray(m(x))
+        self.assertLess(abs(out.mean()), 0.05)
+        self.assertLess(abs(out.std() - 1.0), 0.05)
+
+    def test_dropout2d_mask_is_independent_per_batch_element(self):
+        """N2: batched Dropout2d must draw an independent channel mask per batch element."""
+        with brainstate.random.seed_context(0):
+            m = brainstate.nn.Dropout2d(prob=0.5)  # default channel_axis=-1 (channel-last)
+            x = brainstate.random.randn(8, 4, 4, 6)  # (N, H, W, C)
+            with brainstate.environ.context(fit=True):
+                out = np.asarray(m(x))
+        # Each channel is dropped as a whole (mask constant over the spatial dims).
+        dropped = np.all(out == 0, axis=(1, 2))   # (N, C)
+        kept = np.all(out != 0, axis=(1, 2))       # (N, C)
+        self.assertTrue(np.all(dropped | kept), "channels must be all-zero or all-kept")
+        # The drop pattern must NOT be identical across the batch (the bug shared one mask).
+        self.assertGreater(float(dropped.std(axis=0).sum()), 0.0,
+                           "channel-drop pattern is identical across the batch axis")
+
+    def test_dropout1d_unbatched_still_channelwise(self):
+        """N2: unbatched Dropout1d still drops whole channels along the last axis."""
+        with brainstate.random.seed_context(1):
+            m = brainstate.nn.Dropout1d(prob=0.5)
+            x = brainstate.random.randn(10, 6)  # (L, C)
+            with brainstate.environ.context(fit=True):
+                out = np.asarray(m(x))
+        dropped = np.all(out == 0, axis=0)  # (C,)
+        kept = np.all(out != 0, axis=0)
+        self.assertTrue(np.all(dropped | kept))
+
+
 if __name__ == '__main__':
     absltest.main()
