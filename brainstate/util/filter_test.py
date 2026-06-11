@@ -19,6 +19,7 @@ Comprehensive tests for filter module.
 import unittest
 from typing import Any
 import numpy as np
+import jax.tree_util as jtu
 
 from brainstate.util.filter import (
     to_predicate,
@@ -206,6 +207,13 @@ class TestPathContainsFilter(unittest.TestCase):
         self.assertFalse(filter_weight([], None))
         self.assertFalse(filter_weight(['other', 'path'], None))
 
+    def test_jax_dict_key_paths_match_by_underlying_key(self):
+        """Match JAX key-path entries such as DictKey by their underlying key."""
+        filter_weight = PathContains('weight')
+        path = jtu.tree_leaves_with_path({'layer': {'weight': 1}})[0][0]
+
+        self.assertTrue(filter_weight(path, None))
+
     def test_numeric_keys(self):
         """Test with numeric keys in path."""
         filter_num = PathContains(0)
@@ -271,6 +279,13 @@ class TestOfTypeFilter(unittest.TestCase):
         # Object with non-matching type attribute
         typed_obj2 = MockTypedObject(dict)
         self.assertFalse(filter_list([], typed_obj2))
+
+    def test_non_type_type_attribute_does_not_raise(self):
+        """A proxy object's non-class ``type`` attribute should simply not match."""
+        filter_list = OfType(list)
+        typed_obj = MockTypedObject("not-a-type")
+
+        self.assertFalse(filter_list([], typed_obj))
 
     def test_repr(self):
         """Test string representation."""

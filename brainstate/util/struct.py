@@ -64,9 +64,7 @@ def is_dataclass(cls: Any) -> bool:
         ``True`` if ``cls`` carries the ``_brainstate_dataclass`` marker set by
         :func:`dataclass`, ``False`` otherwise.
     """
-    if hasattr(cls, '_brainstate_dataclass'):
-        return True
-    return False
+    return dataclasses.is_dataclass(cls) and getattr(cls, '_brainstate_dataclass', False) is True
 
 
 def field(pytree_node: bool = True, **kwargs) -> dataclasses.Field:
@@ -101,13 +99,18 @@ def field(pytree_node: bool = True, **kwargs) -> dataclasses.Field:
         ...     # This field won't be affected by JAX transformations
         ...     name: str = field(pytree_node=False, default="model")
     """
-    metadata = kwargs.pop('metadata', {})
+    metadata = dict(kwargs.pop('metadata', {}))
+    if 'pytree_node' in metadata and metadata['pytree_node'] != pytree_node:
+        raise ValueError(
+            f"Conflicting pytree_node metadata: metadata has {metadata['pytree_node']!r}, "
+            f"argument has {pytree_node!r}."
+        )
     metadata['pytree_node'] = pytree_node
     return dataclasses.field(metadata=metadata, **kwargs)
 
 
 @dataclass_transform(field_specifiers=(field,))
-def dataclass(cls: type[T], **kwargs) -> type[T]:
+def dataclass(cls: type[T] | None = None, **kwargs) -> type[T] | Any:
     """
     Create a dataclass that works with JAX transformations.
 
@@ -161,6 +164,9 @@ def dataclass(cls: type[T], **kwargs) -> type[T]:
         >>> # Use replace to create modified copies
         >>> model2 = model.replace(weights=jnp.ones((3, 3)) * 2)
     """
+    if cls is None:
+        return lambda cls_: dataclass(cls_, **kwargs)
+
     # Check if already converted
     if is_dataclass(cls):
         return cls
@@ -416,12 +422,7 @@ class FrozenDict(Mapping[K, V], Generic[K, V]):
     def __hash__(self) -> int:
         """Return a hash of the dictionary."""
         if self._hash is None:
-            items = []
-            for key, value in self.items():
-                if isinstance(value, dict):
-                    value = FrozenDict(value)
-                items.append((key, value))
-            self._hash = hash(tuple(sorted(items)))
+            self._hash = hash(frozenset(self.items()))
         return self._hash
 
     def __eq__(self, other: object) -> bool:
@@ -613,7 +614,7 @@ class FrozenDict(Mapping[K, V], Generic[K, V]):
 
     def tree_flatten_with_keys(self) -> tuple[list[tuple[Any, Any]], tuple[Any, ...]]:
         """Flatten for JAX pytree with keys."""
-        sorted_keys = sorted(self._data.keys())
+        sorted_keys = sorted(self._data.keys(), key=lambda k: (type(k).__module__, type(k).__qualname__, repr(k)))
         values_with_keys = [
             (jax.tree_util.DictKey(k), self._data[k])
             for k in sorted_keys

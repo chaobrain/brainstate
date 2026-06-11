@@ -399,6 +399,13 @@ class PathContains:
 
     key: Key
 
+    @staticmethod
+    def _path_key(path_part: typing.Any) -> typing.Any:
+        for attr in ('key', 'name', 'idx'):
+            if hasattr(path_part, attr):
+                return getattr(path_part, attr)
+        return path_part
+
     def __call__(self, path: PathParts, x: typing.Any) -> bool:
         """
         Check if the key is present in the path.
@@ -415,7 +422,7 @@ class PathContains:
         bool
             True if the key is present in the path, False otherwise.
         """
-        return self.key in path
+        return any(self._path_key(part) == self.key for part in path)
 
     def __repr__(self) -> str:
         return f'PathContains({self.key!r})'
@@ -504,8 +511,9 @@ class OfType:
             True if the object is an instance of the specified type or
             has a 'type' attribute that is a subclass of the specified type.
         """
+        x_type = getattr(x, 'type', None)
         return isinstance(x, self.type) or (
-            hasattr(x, 'type') and issubclass(x.type, self.type)
+            isinstance(x_type, type) and issubclass(x_type, self.type)
         )
 
     def __repr__(self):

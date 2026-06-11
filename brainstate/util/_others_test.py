@@ -283,6 +283,40 @@ class TestDictManager(unittest.TestCase):
         self.assertTrue(result3)
         self.assertIs(dm['key2'], obj2)
 
+    def test_add_unique_value_allows_readd_after_delete(self):
+        """Keep the identity index in sync after direct item deletion."""
+        dm = DictManager()
+        obj = object()
+        self.assertTrue(dm.add_unique_value('key1', obj))
+
+        del dm['key1']
+
+        self.assertTrue(dm.add_unique_value('key2', obj))
+        self.assertIs(dm['key2'], obj)
+
+    def test_add_unique_value_indexes_existing_direct_mutations(self):
+        """Rebuild stale identity indexes when values were added without helper APIs."""
+        dm = DictManager()
+        obj = object()
+        self.assertTrue(dm.add_unique_value('key1', object()))
+
+        dm['direct'] = obj
+
+        self.assertFalse(dm.add_unique_value('duplicate', obj))
+        self.assertNotIn('duplicate', dm)
+
+    def test_add_unique_value_rejects_existing_key_with_different_value(self):
+        """Do not overwrite an existing key when the new value is unique."""
+        dm = DictManager()
+        obj1 = object()
+        obj2 = object()
+        self.assertTrue(dm.add_unique_value('key1', obj1))
+
+        with self.assertRaises(ValueError):
+            dm.add_unique_value('key1', obj2)
+
+        self.assertIs(dm['key1'], obj1)
+
     def test_unique(self):
         """Test getting unique values."""
         obj1 = object()
@@ -562,6 +596,16 @@ class TestDotDict(unittest.TestCase):
         dd.e = 5
         self.assertEqual(dd['e'], 5)
 
+        # Direct item assignment should still apply nested DotDict conversion.
+        dd['nested'] = {'x': 1}
+        self.assertIsInstance(dd.nested, DotDict)
+        self.assertEqual(dd.nested.x, 1)
+
+        # Attribute assignment should use the same conversion path.
+        dd.another = {'y': 2}
+        self.assertIsInstance(dd.another, DotDict)
+        self.assertEqual(dd.another.y, 2)
+
     def test_nested_dict_conversion(self):
         """Test automatic nested dict conversion."""
         dd = DotDict({
@@ -711,6 +755,10 @@ class TestDotDict(unittest.TestCase):
         self.assertIsNone(result)
         self.assertIsNone(dd.c)
 
+        result = dd.setdefault('nested', {'value': 3})
+        self.assertIsInstance(result, DotDict)
+        self.assertEqual(result.value, 3)
+
     def test_pickling(self):
         """Test pickling/unpickling."""
         dd1 = DotDict({'a': 1, 'b': {'c': 2}})
@@ -846,6 +894,19 @@ class TestUtilityFunctions(unittest.TestCase):
             'a': 1,
             'b': {'c': 2, 'd': 3}
         })
+
+    def test_unflatten_dict_rejects_prefix_conflicts(self):
+        """Reject flattened inputs that would overwrite a scalar with a mapping."""
+        with self.assertRaises(ValueError):
+            unflatten_dict({'a': 1, 'a.b': 2})
+
+        with self.assertRaises(ValueError):
+            unflatten_dict({'a.b': 2, 'a': 1})
+
+    def test_flatten_dict_rejects_non_mapping(self):
+        """Raise a clear TypeError for non-dictionary inputs."""
+        with self.assertRaises(TypeError):
+            flatten_dict([('a', 1)])
 
     def test_flatten_unflatten_roundtrip(self):
         """Test that flatten/unflatten is reversible."""

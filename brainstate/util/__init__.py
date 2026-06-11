@@ -80,6 +80,11 @@ from .struct import (
     pretty_repr,
 )
 
+
+def breakpoint_if(*args, **kwargs):
+    from brainstate.transform._debug import breakpoint_if as _breakpoint_if
+    return _breakpoint_if(*args, **kwargs)
+
 __all__ = [
     # Tracer utilities
     'StateJaxTracer',

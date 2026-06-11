@@ -289,8 +289,13 @@ class DictManager(dict, MutableMapping[K, V]):
             True if the value was added (was unique), False otherwise.
         """
         self._check_elem(val)
-        if not hasattr(self, '_val_id_to_key'):
-            self._val_id_to_key = {id(v): k for k, v in self.items()}
+        self._val_id_to_key = {id(v): k for k, v in self.items()}
+
+        if key in self and id(self[key]) != id(val):
+            raise ValueError(
+                f"Key '{key}' already exists with a different value. "
+                f"Existing: {self[key]}, New: {val}"
+            )
 
         val_id = id(val)
         if val_id not in self._val_id_to_key:
@@ -681,6 +686,7 @@ class DotDict(dict, MutableMapping[str, Any]):
 
     def __setitem__(self, name: str, value: Any) -> None:
         """Set item and update parent if nested."""
+        value = self._hook(value)
         super().__setitem__(name, value)
         try:
             parent = object.__getattribute__(self, '__parent')
@@ -908,6 +914,8 @@ def flatten_dict(
     >>> flatten_dict(d)
     {'a': 1, 'b.c': 2, 'b.d.e': 3}
     """
+    if not isinstance(d, dict):
+        raise TypeError(f"d must be a dict, got {type(d).__name__}.")
     items = []
     for k, v in d.items():
         new_key = f"{parent_key}{sep}{k}" if parent_key else k
@@ -944,17 +952,25 @@ def unflatten_dict(
     >>> unflatten_dict(d)
     {'a': 1, 'b': {'c': 2, 'd': {'e': 3}}}
     """
+    if not isinstance(d, dict):
+        raise TypeError(f"d must be a dict, got {type(d).__name__}.")
     result = {}
 
     for key, value in d.items():
         parts = key.split(sep)
+        if not parts or any(part == '' for part in parts):
+            raise ValueError(f"Invalid flattened key {key!r}.")
         current = result
 
         for part in parts[:-1]:
             if part not in current:
                 current[part] = {}
+            elif not isinstance(current[part], dict):
+                raise ValueError(f"Cannot expand scalar key prefix {part!r} in {key!r}.")
             current = current[part]
 
+        if parts[-1] in current and isinstance(current[parts[-1]], dict):
+            raise ValueError(f"Cannot overwrite mapping at key {key!r} with a scalar value.")
         current[parts[-1]] = value
 
     return result

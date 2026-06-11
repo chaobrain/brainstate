@@ -280,13 +280,20 @@ def nest_mapping(
     for path, value in xs.items():
         if sep is not None:
             path = path.split(sep)
+        path = tuple(path)
+        if not path:
+            raise ValueError('Cannot nest an empty path.')
         if value is empty_node:
             value = {}
         cursor = result
         for key in path[:-1]:
             if key not in cursor:
                 cursor[key] = {}
+            elif not isinstance(cursor[key], abc.Mapping):
+                raise ValueError(f'Cannot expand scalar key prefix {key!r} in path {path!r}.')
             cursor = cursor[key]
+        if path[-1] in cursor and isinstance(cursor[path[-1]], abc.Mapping):
+            raise ValueError(f'Cannot overwrite mapping at path {path!r} with a scalar value.')
         cursor[path[-1]] = value
     return NestedDict(result)
 

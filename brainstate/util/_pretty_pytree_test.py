@@ -721,6 +721,19 @@ class TestPrettyPytreeRoundtrips(unittest.TestCase):
         nested = {'a': 1, 'b': {'c': 2, 'd': {'e': 3}}}
         self.assertEqual(nest_mapping(flat_mapping(nested)).to_dict(), nested)
 
+    def test_nest_mapping_rejects_prefix_conflicts(self):
+        """Reject flat mappings where one path is both a leaf and branch."""
+        with self.assertRaises(ValueError):
+            nest_mapping({('a',): 1, ('a', 'b'): 2})
+
+        with self.assertRaises(ValueError):
+            nest_mapping({('a', 'b'): 2, ('a',): 1})
+
+    def test_nest_mapping_rejects_empty_paths(self):
+        """Reject empty paths because they cannot be nested as mapping keys."""
+        with self.assertRaises(ValueError):
+            nest_mapping({(): 1})
+
     def test_nesteddict_flatten_unflatten_consistent(self):
         """Flatten and unflatten a NestedDict to an equal JAX structure."""
         nd = NestedDict({'a': brainstate.ParamState(1), 'b': {'c': brainstate.ParamState(2)}})
