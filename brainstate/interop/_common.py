@@ -240,6 +240,8 @@ def bst_get_norm(layer, attr, has_offset):
 
 def bst_set_norm(layer, attr, scale, offset):
     """Write the affine parameters of a normalization layer."""
+    if scale is None and offset is None:
+        return
     d = {}
     if scale is not None:
         d['scale'] = scale
@@ -274,7 +276,12 @@ def bst_get_batchnorm(layer):
 def bst_set_batchnorm(layer, scale, offset, running_mean, running_var):
     """Write affine + running statistics of a brainstate ``BatchNorm``."""
     if layer.weight is not None:
-        layer.weight.value = {'scale': scale, 'bias': offset}
+        d = {}
+        if scale is not None:
+            d['scale'] = scale
+        if offset is not None:
+            d['bias'] = offset
+        layer.weight.value = d
     if running_mean is not None:
         layer.running_mean.value = running_mean
     if running_var is not None:

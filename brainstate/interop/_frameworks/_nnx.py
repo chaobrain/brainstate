@@ -26,6 +26,7 @@ import brainunit as u
 
 from .. import _common as C
 from .._common import FrameworkAdapter, lazy_import, new_key
+from .._errors import ConversionError
 from .._registry import (LayerMapping, register_layer_mapping,
                          register_unsupported_bst, register_unsupported_foreign)
 
@@ -105,7 +106,7 @@ def _embed_to_foreign(layer, ctx):
 def _layernorm_to_bst(m, ctx):
     scale = None if m.scale is None else _get(m.scale)
     bias = None if m.bias is None else _get(m.bias)
-    num = (scale if scale is not None else bias).shape[0]
+    num = int(m.num_features)
     layer = C.build_layernorm((num,), scale is not None, bias is not None, float(m.epsilon))
     C.bst_set_norm(layer, 'weight', scale, bias)
     return layer
@@ -113,7 +114,7 @@ def _layernorm_to_bst(m, ctx):
 
 def _layernorm_to_foreign(layer, ctx):
     scale, offset = C.bst_get_norm(layer, 'weight', has_offset=True)
-    num = (scale if scale is not None else offset).shape[0]
+    num = int(layer.in_size[-1])
     m = nnx.LayerNorm(num, epsilon=float(layer.epsilon),
                       use_scale=scale is not None, use_bias=offset is not None, rngs=_rngs(ctx))
     if scale is not None:
@@ -125,7 +126,7 @@ def _layernorm_to_foreign(layer, ctx):
 
 def _rmsnorm_to_bst(m, ctx):
     scale = None if m.scale is None else _get(m.scale)
-    num = scale.shape[0]
+    num = int(m.num_features)
     layer = C.build_rmsnorm((num,), scale is not None, float(m.epsilon))
     C.bst_set_norm(layer, 'scale', scale, None)
     return layer
@@ -133,16 +134,18 @@ def _rmsnorm_to_bst(m, ctx):
 
 def _rmsnorm_to_foreign(layer, ctx):
     scale, _ = C.bst_get_norm(layer, 'scale', has_offset=False)
-    num = scale.shape[0]
-    m = nnx.RMSNorm(num, epsilon=float(layer.epsilon), use_scale=True, rngs=_rngs(ctx))
-    _set(m.scale, scale)
+    num = int(layer.in_size[-1])
+    m = nnx.RMSNorm(num, epsilon=float(layer.epsilon),
+                     use_scale=scale is not None, rngs=_rngs(ctx))
+    if scale is not None:
+        _set(m.scale, scale)
     return m
 
 
 def _groupnorm_to_bst(m, ctx):
     scale = None if m.scale is None else _get(m.scale)
     bias = None if m.bias is None else _get(m.bias)
-    num = (scale if scale is not None else bias).shape[0]
+    num = int(m.num_groups) * int(m.group_size)
     layer = C.build_groupnorm((num,), int(m.num_groups), scale is not None, bias is not None,
                               float(m.epsilon))
     C.bst_set_norm(layer, 'weight', scale, bias)
@@ -151,7 +154,7 @@ def _groupnorm_to_bst(m, ctx):
 
 def _groupnorm_to_foreign(layer, ctx):
     scale, offset = C.bst_get_norm(layer, 'weight', has_offset=True)
-    num = (scale if scale is not None else offset).shape[0]
+    num = int(layer.in_size[-1])
     m = nnx.GroupNorm(num, num_groups=int(layer.num_groups), epsilon=float(layer.epsilon),
                       use_scale=scale is not None, use_bias=offset is not None, rngs=_rngs(ctx))
     if scale is not None:
@@ -187,10 +190,21 @@ def _conv_bias_reshape_to_foreign(b):
     return u.math.reshape(b, (b.shape[-1],))
 
 
+def _as_tuple(v, nd):
+    if isinstance(v, (tuple, list)):
+        return tuple(v)
+    return (v,) * nd
+
+
 def _conv_to_bst(m, ctx):
     w = _get(m.kernel)  # (*k, in//g, out)
     kernel_size = tuple(w.shape[:-2])
     nd = len(kernel_size)
+    if any(d != 1 for d in _as_tuple(getattr(m, 'input_dilation', 1) or 1, nd)):
+        raise ConversionError(
+            "nnx Conv with `input_dilation` != 1 (transposed convolution) is not supported "
+            "by this converter."
+        )
     out_channels = w.shape[-1]
     in_size = ctx.require_size('Conv')
     has_bias = m.bias is not None

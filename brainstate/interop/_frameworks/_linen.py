@@ -114,11 +114,24 @@ def _embed_to_foreign(layer, ctx):
 # LayerNorm / RMSNorm / GroupNorm  (1-D affine vectors -> identity)
 # ---------------------------------------------------------------------------
 
+def _norm_num_from_params(*arrays):
+    """Extract the feature count from the first non-None affine parameter."""
+    for a in arrays:
+        if a is not None:
+            return int(a.shape[0])
+    return None
+
+
 def _layernorm_to_bst(node, ctx):
     p = _params(node)
     scale = p.get('scale')
     bias = p.get('bias')
-    num = (scale if scale is not None else bias).shape[0]
+    num = _norm_num_from_params(scale, bias)
+    if num is None:
+        raise ConversionError(
+            "Cannot determine feature count for linen LayerNorm with no affine parameters "
+            "and no explicit feature size."
+        )
     layer = C.build_layernorm((num,), scale is not None, bias is not None,
                               float(node.module.epsilon))
     C.bst_set_norm(layer, 'weight', scale, bias)
@@ -138,7 +151,11 @@ def _layernorm_to_foreign(layer, ctx):
 
 
 def _rmsnorm_to_bst(node, ctx):
-    scale = _params(node)['scale']
+    scale = _params(node).get('scale')
+    if scale is None:
+        raise ConversionError(
+            "Cannot determine feature count for linen RMSNorm with no scale parameter."
+        )
     layer = C.build_rmsnorm((scale.shape[0],), True, float(node.module.epsilon))
     C.bst_set_norm(layer, 'scale', scale, None)
     return layer
@@ -146,15 +163,23 @@ def _rmsnorm_to_bst(node, ctx):
 
 def _rmsnorm_to_foreign(layer, ctx):
     scale, _ = C.bst_get_norm(layer, 'scale', has_offset=False)
-    module = nn.RMSNorm(epsilon=float(layer.epsilon), use_scale=True)
-    return _LinenNode(module, {'params': {'scale': scale}})
+    has_scale = scale is not None
+    module = nn.RMSNorm(epsilon=float(layer.epsilon), use_scale=has_scale)
+    params = {}
+    if scale is not None:
+        params['scale'] = scale
+    return _LinenNode(module, {'params': params})
 
 
 def _groupnorm_to_bst(node, ctx):
     p = _params(node)
     scale = p.get('scale')
     bias = p.get('bias')
-    num = (scale if scale is not None else bias).shape[0]
+    num = _norm_num_from_params(scale, bias)
+    if num is None:
+        raise ConversionError(
+            "Cannot determine feature count for linen GroupNorm with no affine parameters."
+        )
     layer = C.build_groupnorm((num,), int(node.module.num_groups),
                               scale is not None, bias is not None, float(node.module.epsilon))
     C.bst_set_norm(layer, 'weight', scale, bias)
@@ -163,6 +188,7 @@ def _groupnorm_to_bst(node, ctx):
 
 def _groupnorm_to_foreign(layer, ctx):
     scale, offset = C.bst_get_norm(layer, 'weight', has_offset=True)
+    num = int(layer.in_size[-1])
     module = nn.GroupNorm(num_groups=int(layer.num_groups), epsilon=float(layer.epsilon),
                           use_scale=scale is not None, use_bias=offset is not None)
     params = {}
