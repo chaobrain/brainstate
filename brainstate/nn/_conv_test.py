@@ -17,6 +17,7 @@
 
 import unittest
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -1101,3 +1102,179 @@ class TestConvTransposeGradients(unittest.TestCase):
         conv = brainstate.nn.ConvTranspose2d(in_size=(8, 8, 16), out_channels=8, kernel_size=3)
         x = brainstate.random.randn(2, 8, 8, 16)
         _testing.assert_jit_equal(lambda inp: conv(inp), x)
+
+
+class TestChannelFirstBias(unittest.TestCase):
+    """Regression tests for C1: channel_first=True together with a non-zero bias.
+
+    Previously the bias was always built channels-last as ``(1, ..., 1, C)`` which
+    failed to broadcast against a ``[B, C, *spatial]`` channels-first output.
+    """
+
+    def test_conv2d_channel_first_with_bias(self):
+        """Conv2d with channel_first=True and a constant bias produces [B, C, H, W]."""
+        conv = brainstate.nn.Conv2d(
+            in_size=(3, 8, 8),
+            out_channels=4,
+            kernel_size=3,
+            channel_first=True,
+            b_init=brainstate.init.Constant(1.0),
+        )
+        x = jnp.ones((2, 3, 8, 8))
+        y = conv(x)
+        self.assertEqual(y.shape, (2, 4, 8, 8))
+        self.assertIn('bias', conv.weight.value)
+
+    def test_conv1d_channel_first_with_bias(self):
+        """Conv1d with channel_first=True and a constant bias produces [B, C, L]."""
+        conv = brainstate.nn.Conv1d(
+            in_size=(8, 50),
+            out_channels=16,
+            kernel_size=3,
+            channel_first=True,
+            b_init=brainstate.init.Constant(1.0),
+        )
+        x = jnp.ones((2, 8, 50))
+        y = conv(x)
+        self.assertEqual(y.shape, (2, 16, 50))
+
+    def test_conv3d_channel_first_with_bias(self):
+        """Conv3d with channel_first=True and a constant bias produces [B, C, H, W, D]."""
+        conv = brainstate.nn.Conv3d(
+            in_size=(2, 8, 8, 8),
+            out_channels=4,
+            kernel_size=3,
+            channel_first=True,
+            b_init=brainstate.init.Constant(1.0),
+        )
+        x = jnp.ones((2, 2, 8, 8, 8))
+        y = conv(x)
+        self.assertEqual(y.shape, (2, 4, 8, 8, 8))
+
+    def test_scaled_ws_conv2d_channel_first_with_bias(self):
+        """ScaledWSConv2d with channel_first=True and a constant bias produces [B, C, H, W]."""
+        conv = brainstate.nn.ScaledWSConv2d(
+            in_size=(3, 8, 8),
+            out_channels=4,
+            kernel_size=3,
+            channel_first=True,
+            b_init=brainstate.init.Constant(1.0),
+        )
+        x = jnp.ones((2, 3, 8, 8))
+        y = conv(x)
+        self.assertEqual(y.shape, (2, 4, 8, 8))
+        self.assertIn('bias', conv.weight.value)
+
+    def test_conv_transpose2d_channel_first_with_bias(self):
+        """ConvTranspose2d with channel_first=True and a constant bias produces [B, C, H, W]."""
+        conv = brainstate.nn.ConvTranspose2d(
+            in_size=(16, 8, 8),
+            out_channels=8,
+            kernel_size=3,
+            stride=2,
+            channel_first=True,
+            b_init=brainstate.init.Constant(1.0),
+        )
+        x = jnp.ones((2, 16, 8, 8))
+        y = conv(x)
+        self.assertEqual(y.shape[0], 2)
+        self.assertEqual(y.shape[1], 8)  # channel axis at position 1
+        self.assertIn('bias', conv.weight.value)
+
+    def test_conv_transpose1d_channel_first_with_bias(self):
+        """ConvTranspose1d with channel_first=True and a constant bias produces [B, C, L]."""
+        conv = brainstate.nn.ConvTranspose1d(
+            in_size=(16, 28),
+            out_channels=8,
+            kernel_size=4,
+            stride=2,
+            channel_first=True,
+            b_init=brainstate.init.Constant(1.0),
+        )
+        x = jnp.ones((2, 16, 28))
+        y = conv(x)
+        self.assertEqual(y.shape[0], 2)
+        self.assertEqual(y.shape[1], 8)
+
+
+class TestConvTransposeShapeVsJax(unittest.TestCase):
+    """Regression tests for C2/C3: transposed-conv output sizes must match
+    ``jax.lax.conv_transpose`` for both 'SAME' and 'VALID' at all strides.
+    """
+
+    def _jax_reference(self, x, w, stride, padding):
+        """Channels-last 1D reference via jax.lax.conv_transpose (WOI kernel)."""
+        return jax.lax.conv_transpose(
+            x, w,
+            strides=(stride,),
+            padding=padding,
+            dimension_numbers=('NWC', 'WIO', 'NWC'),
+            transpose_kernel=True,
+        )
+
+    def test_exact_output_shape_matches_jax(self):
+        """Output shape equals jax.lax.conv_transpose for k in {2,3,4,5}, s in {1,2,3}."""
+        in_len = 7
+        in_ch = 2
+        out_ch = 3
+        for k in (2, 3, 4, 5):
+            for s in (1, 2, 3):
+                for padding in ('SAME', 'VALID'):
+                    conv = brainstate.nn.ConvTranspose1d(
+                        in_size=(in_len, in_ch),
+                        out_channels=out_ch,
+                        kernel_size=k,
+                        stride=s,
+                        padding=padding,
+                    )
+                    x = jnp.ones((1, in_len, in_ch))
+                    y = conv(x)
+                    # Reference kernel layout for jax: (K, C_out, C_in)
+                    w_ref = jnp.ones((k, out_ch, in_ch))
+                    y_ref = self._jax_reference(x, w_ref, s, padding)
+                    self.assertEqual(
+                        y.shape, y_ref.shape,
+                        f"shape mismatch k={k} s={s} pad={padding}: "
+                        f"got {y.shape}, jax {y_ref.shape}"
+                    )
+
+    def test_numeric_equivalence_to_jax(self):
+        """No-bias, single-group output matches jax.lax.conv_transpose numerically."""
+        in_len = 9
+        in_ch = 2
+        out_ch = 4
+        for k in (2, 3, 4, 5):
+            for s in (1, 2, 3):
+                for padding in ('SAME', 'VALID'):
+                    conv = brainstate.nn.ConvTranspose1d(
+                        in_size=(in_len, in_ch),
+                        out_channels=out_ch,
+                        kernel_size=k,
+                        stride=s,
+                        padding=padding,
+                    )
+                    x = brainstate.random.randn(1, in_len, in_ch)
+                    y = conv(x)
+                    # brainstate transposed kernel layout is (K, C_out, C_in)
+                    w = conv.weight.value['weight']
+                    y_ref = self._jax_reference(x, w, s, padding)
+                    np.testing.assert_allclose(
+                        np.asarray(y), np.asarray(y_ref), atol=1e-4, rtol=1e-4,
+                        err_msg=f"value mismatch k={k} s={s} pad={padding}"
+                    )
+
+    def test_out_size_attribute_matches_jax(self):
+        """The cached out_size attribute matches jax.lax.conv_transpose."""
+        for k in (2, 3, 4, 5):
+            for s in (1, 2, 3):
+                for padding in ('SAME', 'VALID'):
+                    conv = brainstate.nn.ConvTranspose1d(
+                        in_size=(7, 2),
+                        out_channels=3,
+                        kernel_size=k,
+                        stride=s,
+                        padding=padding,
+                    )
+                    w_ref = jnp.ones((k, 3, 2))
+                    y_ref = self._jax_reference(jnp.ones((1, 7, 2)), w_ref, s, padding)
+                    self.assertEqual(conv.out_size, y_ref.shape[1:])

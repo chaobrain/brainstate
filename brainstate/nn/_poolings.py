@@ -313,9 +313,9 @@ class _MaxPool(Module):
 
     def _infer_shape(self, x_dim, inputs, element):
         channel_axis = self.channel_axis
-        if channel_axis and not 0 <= abs(channel_axis) < x_dim:
+        if channel_axis is not None and not -x_dim <= channel_axis < x_dim:
             raise ValueError(f"Invalid channel axis {channel_axis} for input with {x_dim} dimensions")
-        if channel_axis and channel_axis < 0:
+        if channel_axis is not None and channel_axis < 0:
             channel_axis = x_dim + channel_axis
         all_dims = list(range(x_dim))
         if channel_axis is not None:
@@ -370,16 +370,15 @@ class MaxPool1d(_MaxPool):
                 input(N_i, stride \times k + m, C_j)
 
     If :attr:`padding` is non-zero, then the input is implicitly padded with negative infinity on both sides
-    for :attr:`padding` number of points. :attr:`dilation` is the stride between the elements within the
-    sliding window. This `link`_ has a nice visualization of the pooling parameters.
+    for :attr:`padding` number of points. This `link`_ has a nice visualization of the pooling parameters.
 
     Shape:
         - Input: :math:`(N, L_{in}, C)` or :math:`(L_{in}, C)`.
         - Output: :math:`(N, L_{out}, C)` or :math:`(L_{out}, C)`, where
 
           .. math::
-              L_{out} = \left\lfloor \frac{L_{in} + 2 \times \text{padding} - \text{dilation}
-                    \times (\text{kernel\_size} - 1) - 1}{\text{stride}} + 1\right\rfloor
+              L_{out} = \left\lfloor \frac{L_{in} + 2 \times \text{padding}
+                    - \text{kernel\_size}}{\text{stride}} + 1\right\rfloor
 
     Parameters
     ----------
@@ -457,20 +456,19 @@ class MaxPool2d(_MaxPool):
         \end{aligned}
 
     If :attr:`padding` is non-zero, then the input is implicitly padded with negative infinity on both sides
-    for :attr:`padding` number of points. :attr:`dilation` controls the spacing between the kernel points.
-    It is harder to describe, but this `link`_ has a nice visualization of what :attr:`dilation` does.
+    for :attr:`padding` number of points. This `link`_ has a nice visualization of the pooling parameters.
 
     Shape:
         - Input: :math:`(N, H_{in}, W_{in}, C)` or :math:`(H_{in}, W_{in}, C)`
         - Output: :math:`(N, H_{out}, W_{out}, C)` or :math:`(H_{out}, W_{out}, C)`, where
 
           .. math::
-              H_{out} = \left\lfloor\frac{H_{in} + 2 * \text{padding[0]} - \text{dilation[0]}
-                    \times (\text{kernel\_size[0]} - 1) - 1}{\text{stride[0]}} + 1\right\rfloor
+              H_{out} = \left\lfloor\frac{H_{in} + 2 * \text{padding[0]}
+                    - \text{kernel\_size[0]}}{\text{stride[0]}} + 1\right\rfloor
 
           .. math::
-              W_{out} = \left\lfloor\frac{W_{in} + 2 * \text{padding[1]} - \text{dilation[1]}
-                    \times (\text{kernel\_size[1]} - 1) - 1}{\text{stride[1]}} + 1\right\rfloor
+              W_{out} = \left\lfloor\frac{W_{in} + 2 * \text{padding[1]}
+                    - \text{kernel\_size[1]}}{\text{stride[1]}} + 1\right\rfloor
 
     Parameters
     ----------
@@ -550,24 +548,23 @@ class MaxPool3d(_MaxPool):
         \end{aligned}
 
     If :attr:`padding` is non-zero, then the input is implicitly padded with negative infinity on both sides
-    for :attr:`padding` number of points. :attr:`dilation` controls the spacing between the kernel points.
-    It is harder to describe, but this `link`_ has a nice visualization of what :attr:`dilation` does.
+    for :attr:`padding` number of points. This `link`_ has a nice visualization of the pooling parameters.
 
     Shape:
         - Input: :math:`(N, D_{in}, H_{in}, W_{in}, C)` or :math:`(D_{in}, H_{in}, W_{in}, C)`.
         - Output: :math:`(N, D_{out}, H_{out}, W_{out}, C)` or :math:`(D_{out}, H_{out}, W_{out}, C)`, where
 
           .. math::
-              D_{out} = \left\lfloor\frac{D_{in} + 2 \times \text{padding}[0] - \text{dilation}[0] \times
-                (\text{kernel\_size}[0] - 1) - 1}{\text{stride}[0]} + 1\right\rfloor
+              D_{out} = \left\lfloor\frac{D_{in} + 2 \times \text{padding}[0]
+                - \text{kernel\_size}[0]}{\text{stride}[0]} + 1\right\rfloor
 
           .. math::
-              H_{out} = \left\lfloor\frac{H_{in} + 2 \times \text{padding}[1] - \text{dilation}[1] \times
-                (\text{kernel\_size}[1] - 1) - 1}{\text{stride}[1]} + 1\right\rfloor
+              H_{out} = \left\lfloor\frac{H_{in} + 2 \times \text{padding}[1]
+                - \text{kernel\_size}[1]}{\text{stride}[1]} + 1\right\rfloor
 
           .. math::
-              W_{out} = \left\lfloor\frac{W_{in} + 2 \times \text{padding}[2] - \text{dilation}[2] \times
-                (\text{kernel\_size}[2] - 1) - 1}{\text{stride}[2]} + 1\right\rfloor
+              W_{out} = \left\lfloor\frac{W_{in} + 2 \times \text{padding}[2]
+                - \text{kernel\_size}[2]}{\text{stride}[2]} + 1\right\rfloor
 
     Parameters
     ----------
@@ -710,23 +707,33 @@ class _MaxUnpool(Module):
         return tuple(output_shape)
 
     def _unpool_nd(self, x, indices, output_size=None):
-        """Perform N-dimensional max unpooling."""
+        """Perform N-dimensional max unpooling.
+
+        The ``indices`` returned by :class:`MaxPool` are flat positions within the
+        *natural* (inferred) output shape, i.e. positions in the layout that the
+        original pre-pool input had. To support an arbitrary ``output_size`` (whose
+        spatial extent may differ from the natural one) without leaking values
+        across batch or channel elements, each stored flat index is first unraveled
+        into a multi-dimensional coordinate against the natural shape and then
+        re-raveled against the requested output shape. Coordinates that fall outside
+        the requested output are dropped.
+        """
         x_dim = self.pool_dim + (0 if self.channel_axis is None else 1)
         if x.ndim < x_dim:
             raise ValueError(f'Expected input with >= {x_dim} dimensions, but got {x.ndim}.')
 
-        # Determine output shape
-        if output_size is None:
-            # Infer output shape from input shape
-            spatial_dims = self._get_spatial_dims(x.shape)
-            output_spatial_shape = self._compute_output_shape(spatial_dims, output_size)
-            output_shape = list(x.shape)
+        # Natural output shape: the layout the stored ``indices`` are flat positions in.
+        spatial_dims = self._get_spatial_dims(x.shape)
+        natural_spatial_shape = self._compute_output_shape(spatial_dims, None)
+        natural_shape = list(x.shape)
+        spatial_start = self._get_spatial_start_idx(x.ndim)
+        for i, size in enumerate(natural_spatial_shape):
+            natural_shape[spatial_start + i] = size
+        natural_shape = tuple(natural_shape)
 
-            # Update spatial dimensions in output shape
-            spatial_start = self._get_spatial_start_idx(x.ndim)
-            for i, size in enumerate(output_spatial_shape):
-                output_shape[spatial_start + i] = size
-            output_shape = tuple(output_shape)
+        # Determine the requested output shape.
+        if output_size is None:
+            output_shape = natural_shape
         else:
             # Use provided output size
             if isinstance(output_size, (list, tuple)):
@@ -738,64 +745,48 @@ class _MaxUnpool(Module):
                     if len(output_size) != self.pool_dim:
                         raise ValueError(f"output_size must have {self.pool_dim} spatial dimensions, got {len(output_size)}")
                     output_shape = list(x.shape)
-                    spatial_start = self._get_spatial_start_idx(x.ndim)
                     for i, size in enumerate(output_size):
                         output_shape[spatial_start + i] = size
                     output_shape = tuple(output_shape)
             else:
                 # Single integer provided, use for all spatial dims
                 output_shape = list(x.shape)
-                spatial_start = self._get_spatial_start_idx(x.ndim)
                 for i in range(self.pool_dim):
                     output_shape[spatial_start + i] = output_size
                 output_shape = tuple(output_shape)
 
-        # Create output array filled with zeros
-        output = jnp.zeros(output_shape, dtype=x.dtype)
-
-        # # Scatter input values to output using indices
-        # # Flatten spatial dimensions for easier indexing
-        # batch_dims = x.ndim - self.pool_dim - (0 if self.channel_axis is None else 1)
-        #
-        # # Reshape for processing
-        # if batch_dims > 0:
-        #     batch_shape = x.shape[:batch_dims]
-        #     if self.channel_axis is not None and self.channel_axis < batch_dims:
-        #         # Channel axis is before spatial dims
-        #         channel_idx = self.channel_axis
-        #         n_channels = x.shape[channel_idx]
-        #     elif self.channel_axis is not None:
-        #         # Channel axis is after spatial dims
-        #         if self.channel_axis < 0:
-        #             channel_idx = x.ndim + self.channel_axis
-        #         else:
-        #             channel_idx = self.channel_axis
-        #         n_channels = x.shape[channel_idx]
-        #     else:
-        #         n_channels = None
-        # else:
-        #     batch_shape = ()
-        #     if self.channel_axis is not None:
-        #         if self.channel_axis < 0:
-        #             channel_idx = x.ndim + self.channel_axis
-        #         else:
-        #             channel_idx = self.channel_axis
-        #         n_channels = x.shape[channel_idx]
-        #     else:
-        #         n_channels = None
-
-        # Use JAX's scatter operation
-        # Flatten the indices to 1D for scatter
+        # Flatten values and the stored within-natural-layout indices.
         flat_indices = indices.ravel()
         flat_values = x.ravel()
-        flat_output = output.ravel()
 
-        # Scatter the values
-        flat_output = flat_output.at[flat_indices].set(flat_values)
+        if output_shape == natural_shape:
+            # Fast path: natural-size round-trip, indices already match the output
+            # layout exactly, so scatter directly.
+            flat_output = jnp.zeros(int(np.prod(output_shape)), dtype=x.dtype)
+            flat_output = flat_output.at[flat_indices].set(flat_values)
+            return flat_output.reshape(output_shape)
 
-        # Reshape back to original shape
-        output = flat_output.reshape(output_shape)
+        # General path: map each natural-layout flat index to its multi-dimensional
+        # coordinate, then re-flatten against the requested output shape so that
+        # every value stays within its own batch / channel element.
+        coords = jnp.unravel_index(flat_indices, natural_shape)
 
+        # Determine which coordinates remain inside the requested output bounds.
+        in_bounds = jnp.ones(flat_indices.shape, dtype=bool)
+        for coord, dim in zip(coords, output_shape):
+            in_bounds = in_bounds & (coord < dim)
+
+        # Clip coordinates so ravel stays valid, then route out-of-bounds entries to
+        # a throwaway slot appended to the flat output (dropped after the scatter).
+        clipped_coords = tuple(jnp.minimum(coord, dim - 1) for coord, dim in zip(coords, output_shape))
+        out_flat_size = int(np.prod(output_shape))
+        new_flat = jnp.ravel_multi_index(clipped_coords, output_shape, mode='clip')
+        dump_slot = out_flat_size
+        scatter_indices = jnp.where(in_bounds, new_flat, dump_slot)
+
+        flat_output = jnp.zeros(out_flat_size + 1, dtype=x.dtype)
+        flat_output = flat_output.at[scatter_indices].set(flat_values)
+        output = flat_output[:out_flat_size].reshape(output_shape)
         return output
 
     def _get_spatial_dims(self, shape):
@@ -1070,6 +1061,14 @@ class AvgPool1d(_AvgPool):
     If :attr:`padding` is non-zero, then the input is implicitly zero-padded on both sides
     for :attr:`padding` number of points.
 
+    .. note::
+        Padding cells are **excluded** from the average: each output is divided by the
+        number of *valid* (non-padded) input elements that fall inside its window, not
+        by the full window size. This corresponds to ``count_include_pad=False`` in
+        PyTorch. As a result, the ``1 / k`` divisor in the formula above only holds for
+        windows that contain no padding; windows overlapping the padded border are
+        divided by their valid-element count instead.
+
     Shape:
         - Input: :math:`(N, L_{in}, C)` or :math:`(L_{in}, C)`.
         - Output: :math:`(N, L_{out}, C)` or :math:`(L_{out}, C)`, where
@@ -1146,6 +1145,14 @@ class AvgPool2d(_AvgPool):
 
     If :attr:`padding` is non-zero, then the input is implicitly zero-padded on both sides
     for :attr:`padding` number of points.
+
+    .. note::
+        Padding cells are **excluded** from the average: each output is divided by the
+        number of *valid* (non-padded) input elements that fall inside its window, not
+        by the full window size. This corresponds to ``count_include_pad=False`` in
+        PyTorch. As a result, the ``1 / k`` divisor in the formula above only holds for
+        windows that contain no padding; windows overlapping the padded border are
+        divided by their valid-element count instead.
 
     Shape:
         - Input: :math:`(N, H_{in}, W_{in}, C)` or :math:`(H_{in}, W_{in}, C)`.
@@ -1234,6 +1241,14 @@ class AvgPool3d(_AvgPool):
 
     If :attr:`padding` is non-zero, then the input is implicitly zero-padded on all three sides
     for :attr:`padding` number of points.
+
+    .. note::
+        Padding cells are **excluded** from the average: each output is divided by the
+        number of *valid* (non-padded) input elements that fall inside its window, not
+        by the full window size. This corresponds to ``count_include_pad=False`` in
+        PyTorch. As a result, the ``1 / (kD \times kH \times kW)`` divisor in the formula
+        above only holds for windows that contain no padding; windows overlapping the
+        padded border are divided by their valid-element count instead.
 
     Shape:
         - Input: :math:`(N, D_{in}, H_{in}, W_{in}, C)` or :math:`(D_{in}, H_{in}, W_{in}, C)`.
@@ -1433,9 +1448,9 @@ class _LPPool(Module):
 
     def _infer_shape(self, x_dim, inputs, element):
         channel_axis = self.channel_axis
-        if channel_axis and not 0 <= abs(channel_axis) < x_dim:
+        if channel_axis is not None and not -x_dim <= channel_axis < x_dim:
             raise ValueError(f"Invalid channel axis {channel_axis} for input with {x_dim} dimensions")
-        if channel_axis and channel_axis < 0:
+        if channel_axis is not None and channel_axis < 0:
             channel_axis = x_dim + channel_axis
         all_dims = list(range(x_dim))
         if channel_axis is not None:
@@ -1450,14 +1465,22 @@ class _LPPool(Module):
 class LPPool1d(_LPPool):
     r"""Applies a 1D power-average pooling over an input signal composed of several input planes.
 
-    On each window, the function computed is:
+    On each window, the function computed is the (normalized) power-mean:
 
     .. math::
-        f(X) = \sqrt[p]{\sum_{x \in X} |x|^{p}}
+        f(X) = \left( \frac{1}{N} \sum_{x \in X} |x|^{p} \right)^{1/p}
+
+    where :math:`N` is the number of elements in the window
+    (:math:`N = \prod_i \text{kernel\_size}[i]`).
 
     - At :math:`p = \infty`, one gets max pooling
     - At :math:`p = 1`, one gets average pooling (with absolute values)
     - At :math:`p = 2`, one gets root mean square (RMS) pooling
+
+    .. note::
+        This is a *normalized* power-mean (the sum is divided by the window size
+        :math:`N`). It therefore differs from PyTorch's ``LPPool``, which computes
+        the *unnormalized* power-sum :math:`\left( \sum_{x \in X} |x|^{p} \right)^{1/p}`.
 
     Shape:
         - Input: :math:`(N, L_{in}, C)` or :math:`(L_{in}, C)`.
@@ -1526,14 +1549,22 @@ class LPPool1d(_LPPool):
 class LPPool2d(_LPPool):
     r"""Applies a 2D power-average pooling over an input signal composed of several input planes.
 
-    On each window, the function computed is:
+    On each window, the function computed is the (normalized) power-mean:
 
     .. math::
-        f(X) = \sqrt[p]{\sum_{x \in X} |x|^{p}}
+        f(X) = \left( \frac{1}{N} \sum_{x \in X} |x|^{p} \right)^{1/p}
+
+    where :math:`N` is the number of elements in the window
+    (:math:`N = \prod_i \text{kernel\_size}[i]`).
 
     - At :math:`p = \infty`, one gets max pooling
     - At :math:`p = 1`, one gets average pooling (with absolute values)
     - At :math:`p = 2`, one gets root mean square (RMS) pooling
+
+    .. note::
+        This is a *normalized* power-mean (the sum is divided by the window size
+        :math:`N`). It therefore differs from PyTorch's ``LPPool``, which computes
+        the *unnormalized* power-sum :math:`\left( \sum_{x \in X} |x|^{p} \right)^{1/p}`.
 
     Shape:
         - Input: :math:`(N, H_{in}, W_{in}, C)` or :math:`(H_{in}, W_{in}, C)`
@@ -1607,14 +1638,22 @@ class LPPool2d(_LPPool):
 class LPPool3d(_LPPool):
     r"""Applies a 3D power-average pooling over an input signal composed of several input planes.
 
-    On each window, the function computed is:
+    On each window, the function computed is the (normalized) power-mean:
 
     .. math::
-        f(X) = \sqrt[p]{\sum_{x \in X} |x|^{p}}
+        f(X) = \left( \frac{1}{N} \sum_{x \in X} |x|^{p} \right)^{1/p}
+
+    where :math:`N` is the number of elements in the window
+    (:math:`N = \prod_i \text{kernel\_size}[i]`).
 
     - At :math:`p = \infty`, one gets max pooling
     - At :math:`p = 1`, one gets average pooling (with absolute values)
     - At :math:`p = 2`, one gets root mean square (RMS) pooling
+
+    .. note::
+        This is a *normalized* power-mean (the sum is divided by the window size
+        :math:`N`). It therefore differs from PyTorch's ``LPPool``, which computes
+        the *unnormalized* power-sum :math:`\left( \sum_{x \in X} |x|^{p} \right)^{1/p}`.
 
     Shape:
         - Input: :math:`(N, D_{in}, H_{in}, W_{in}, C)` or :math:`(D_{in}, H_{in}, W_{in}, C)`.
@@ -1784,8 +1823,8 @@ class _AdaptivePool(Module):
         # channel axis
         channel_axis = self.channel_axis
 
-        if channel_axis:
-            if not 0 <= abs(channel_axis) < x.ndim:
+        if channel_axis is not None:
+            if not -x.ndim <= channel_axis < x.ndim:
                 raise ValueError(f"Invalid channel axis {channel_axis} for {x.shape}")
             if channel_axis < 0:
                 channel_axis = x.ndim + channel_axis
@@ -1801,9 +1840,13 @@ class _AdaptivePool(Module):
 
         # pooling
         for i, di in enumerate(pool_dims[-len(self.target_shape):]):
+            target = self.target_shape[i]
+            # A ``None`` target means "do not pool this axis" -- leave it unchanged.
+            if target is None:
+                continue
             poo_axes = [j for j in range(x.ndim) if j != di]
             op = _generate_vmap(_adaptive_pool1d, poo_axes)
-            x = op(x, self.target_shape[i], self.operation)
+            x = op(x, target, self.operation)
         return x
 
 

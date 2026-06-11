@@ -397,9 +397,19 @@ class SigmoidT(Transform):
 
         For sigmoid: d/dx[lower + width * sigmoid(x)] = width * sigmoid(x) * (1 - sigmoid(x))
         log|det J| = sum(log(width) + log(sigmoid(x)) + log(1 - sigmoid(x)))
+
+        Notes
+        -----
+        ``width`` may carry physical units (when ``lower``/``upper`` are
+        :class:`~brainunit.Quantity`). The log-determinant is a dimensionless
+        log-density correction, so the unit is stripped from ``width`` via
+        :func:`brainunit.get_mantissa` before taking the logarithm. The numerically
+        stable identity ``log(sigmoid(x)) + log(1 - sigmoid(x)) = log_sigmoid(x) +
+        log_sigmoid(-x)`` avoids ``log(0)`` for large ``|x|``.
         """
-        s = jax.nn.sigmoid(x)
-        return jnp.sum(jnp.log(self.width) + jnp.log(s) + jnp.log(1 - s), axis=-1)
+        log_width = jnp.log(u.get_mantissa(self.width))
+        log_s = jax.nn.log_sigmoid(x) + jax.nn.log_sigmoid(-x)
+        return jnp.sum(log_width + log_s, axis=-1)
 
 
 class SoftplusT(Transform):
@@ -490,10 +500,11 @@ class SoftplusT(Transform):
             
         Notes
         -----
-        Uses log1p for numerical stability: log1p(exp(x)) = log(1 + exp(x)).
-        For large x, this avoids overflow in the exponential.
+        Uses ``jax.nn.softplus`` for numerical stability: softplus(x) = log(1 + exp(x)),
+        which is exact for all ``x`` (the previous ``log1p(exp(x))`` form saturated for
+        ``x`` beyond ~20, breaking the forward map and round-trip).
         """
-        return jnp.log1p(save_exp(x)) * self.unit + self.lower
+        return jax.nn.softplus(x) * self.unit + self.lower
 
     def inverse(self, y: ArrayLike) -> Array:
         """
@@ -512,9 +523,14 @@ class SoftplusT(Transform):
         Notes
         -----
         Input must be strictly greater than lower bound to avoid numerical issues.
-        Uses numerically stable exponential for large (y - lower) values.
+        Uses the numerically stable softplus inverse ``z + log(-expm1(-z))`` which is
+        accurate across the whole range (the previous ``log(exp(z) - 1)`` form clipped
+        ``z`` at ~20 and so failed to invert large constrained values). ``z`` is
+        dimensionless after dividing out ``self.unit``, so its mantissa is taken to
+        keep the bare-``jnp`` log/expm1 calls valid.
         """
-        return u.math.log(save_exp((y - self.lower) / self.unit) - 1.0)
+        z = u.get_mantissa((y - self.lower) / self.unit)
+        return z + jnp.log(-jnp.expm1(-z))
 
     def log_abs_det_jacobian(self, x: ArrayLike, y: ArrayLike) -> Array:
         r"""
@@ -523,7 +539,7 @@ class SoftplusT(Transform):
         For softplus: d/dx[log(1 + exp(x))] = sigmoid(x)
         log|det J| = sum(log(sigmoid(x))) = sum(x - softplus(x))
         """
-        return jnp.sum(x - jnp.log1p(save_exp(x)), axis=-1)
+        return jnp.sum(jax.nn.log_sigmoid(x), axis=-1)
 
 
 class NegSoftplusT(SoftplusT):
@@ -615,9 +631,9 @@ class NegSoftplusT(SoftplusT):
             
         Notes
         -----
-        Implemented as: upper - softplus(-x).
+        Implemented as: upper - softplus(-x), using the stable ``jax.nn.softplus``.
         """
-        return self.lower - jnp.log1p(save_exp(-x)) * self.unit
+        return self.lower - jax.nn.softplus(-x) * self.unit
 
     def inverse(self, y: ArrayLike) -> Array:
         """
@@ -636,9 +652,11 @@ class NegSoftplusT(SoftplusT):
         Notes
         -----
         Inverts: y = upper - softplus(-x) => x = -softplus^{-1}(upper - y).
+        ``s`` is dimensionless after dividing out ``self.unit``, so its mantissa is
+        taken to keep the bare-``jnp`` log/expm1 calls valid.
         """
-        s = (self.lower - y) / self.unit
-        return -u.math.log(save_exp(s) - 1.0)
+        s = u.get_mantissa((self.lower - y) / self.unit)
+        return -(s + jnp.log(-jnp.expm1(-s)))
 
 
 class LogT(Transform):
@@ -654,6 +672,19 @@ class LogT(Transform):
     ----------
     lower : array_like
         Lower bound of the target interval.
+
+    Notes
+    -----
+    .. important::
+
+        ``forward`` uses :func:`save_exp`, which clips the exponent at
+        ``max_value=20`` for numerical stability. Inputs with ``x > 20`` therefore
+        saturate at ``lower + exp(20) * unit`` (``exp(20) ≈ 4.85e8``) and the
+        transform is **not invertible** in that regime — ``inverse(forward(x))``
+        will not round-trip for ``x > 20``. The analytic ``log_abs_det_jacobian``
+        (``sum(x)``) is likewise only valid where the exponential is unclipped.
+        Keep the unconstrained representation within roughly ``[-20, 20]`` to stay
+        in the bijective region.
     """
     __module__ = 'brainstate.nn'
 
@@ -681,6 +712,16 @@ class ExpT(Transform):
     Exponential transformation mapping (-inf, +inf) to (lower, +inf).
 
     Equivalent to Log; provided for explicit naming.
+
+    Notes
+    -----
+    .. important::
+
+        ``forward`` uses :func:`save_exp`, which clips the exponent at
+        ``max_value=20``. Inputs with ``x > 20`` saturate at
+        ``lower + exp(20) * unit`` and the transform is **not invertible** there;
+        the analytic ``log_abs_det_jacobian`` (``sum(x)``) is only valid in the
+        unclipped region. Keep inputs within roughly ``[-20, 20]``.
     """
     __module__ = 'brainstate.nn'
 
@@ -930,7 +971,10 @@ class AffineT(Transform):
             If scale is zero or numerically close to zero, making the
             transformation non-invertible.
         """
-        if jnp.allclose(scale, 0):
+        # Compare on the mantissa so a unit-carrying scale (e.g. unit conversions)
+        # does not break the zero check; invertibility only requires a non-zero
+        # magnitude.
+        if jnp.allclose(u.get_mantissa(scale), 0):
             raise ValueError("a cannot be zero, must be invertible")
         self.a = scale
         self.b = shift
@@ -971,9 +1015,27 @@ class AffineT(Transform):
         return (x - self.b) / self.a
 
     def log_abs_det_jacobian(self, x: ArrayLike, y: ArrayLike) -> Array:
-        """For affine: d/dx[ax + b] = a, so log|det J| = n * log|a|."""
-        n = jnp.shape(x)[-1] if jnp.ndim(x) > 0 else 1
-        return n * jnp.log(jnp.abs(self.a))
+        r"""
+        Compute log absolute determinant of the Jacobian.
+
+        For affine ``y = a * x + b`` the Jacobian is diagonal with entries ``a``,
+        so ``log|det J| = sum_i log|a_i|`` over the event (last) axis.
+
+        Notes
+        -----
+        - The scale ``a`` may be a scalar or a per-dimension array; it is broadcast
+          against ``x`` and summed over the last axis, so a batched input of shape
+          ``(B, n)`` yields a ``(B,)`` result rather than a single scalar.
+        - ``a`` may carry physical units (unit conversions). The log-determinant is
+          a dimensionless log-density correction, so the unit is stripped via
+          :func:`brainunit.get_mantissa` before taking the logarithm.
+        """
+        log_a = jnp.log(jnp.abs(u.get_mantissa(self.a)))
+        if jnp.ndim(x) == 0:
+            return jnp.sum(log_a)
+        # Broadcast the (possibly per-dimension) scale across x and contract the
+        # event axis, preserving any leading batch dimensions.
+        return jnp.sum(jnp.broadcast_to(log_a, jnp.shape(x)), axis=-1)
 
 
 class ChainT(Transform):
@@ -1285,6 +1347,16 @@ class PositiveT(Transform):
     .. math::
         \text{inverse}(y) = \log(y)
 
+    Notes
+    -----
+    .. important::
+
+        ``forward`` uses :func:`save_exp`, which clips the exponent at
+        ``max_value=20``. Inputs with ``x > 20`` saturate at ``exp(20) ≈ 4.85e8``
+        and the transform is **not invertible** there; the analytic
+        ``log_abs_det_jacobian`` (``sum(x)``) is only valid in the unclipped
+        region. Keep inputs within roughly ``[-20, 20]``.
+
     Examples
     --------
     >>> transform = PositiveT()
@@ -1349,11 +1421,12 @@ class NegativeT(Transform):
 
     def forward(self, x: ArrayLike) -> Array:
         """Transform unbounded input to negative values."""
-        return -jnp.log1p(save_exp(-x))
+        return -jax.nn.softplus(-x)
 
     def inverse(self, y: ArrayLike) -> Array:
         """Transform negative input back to unbounded domain."""
-        return -u.math.log(save_exp(-y) - 1.0)
+        s = -u.get_mantissa(y)
+        return -(s + jnp.log(-jnp.expm1(-s)))
 
 
 class ScaledSigmoidT(Transform):
@@ -1539,14 +1612,15 @@ class OrderedT(Transform):
     def forward(self, x: ArrayLike) -> Array:
         """Transform unconstrained input to ordered vectors."""
         first = x[..., :1]
-        rest = jnp.log1p(save_exp(x[..., 1:]))
+        rest = jax.nn.softplus(x[..., 1:])
         return jnp.concatenate([first, first + jnp.cumsum(rest, axis=-1)], axis=-1)
 
     def inverse(self, y: ArrayLike) -> Array:
         """Transform ordered vectors back to unconstrained domain."""
         first = y[..., :1]
         diffs = y[..., 1:] - y[..., :-1]
-        rest = u.math.log(u.math.exp(diffs) - 1)
+        # Stable softplus inverse of the positive gaps.
+        rest = diffs + jnp.log(-jnp.expm1(-diffs))
         return jnp.concatenate([first, rest], axis=-1)
 
 

@@ -542,5 +542,36 @@ class TestHiDataDtypeNestedSkip(unittest.TestCase):
         self.assertEqual(outer.dtype, jnp.float32)
 
 
+class TestHiDataNamePreservation(unittest.TestCase):
+    """Regression tests for audit finding T6 (name dropped by clone/add/pop/replace)."""
+
+    def test_clone_preserves_name(self):
+        d = HiData(children={'x': jnp.array([1.0])}, name='layer1')
+        self.assertEqual(d.clone().name, 'layer1')
+
+    def test_add_preserves_name(self):
+        d = HiData(children={'x': jnp.array([1.0])}, name='layer1')
+        self.assertEqual(d.add(y=jnp.array([2.0])).name, 'layer1')
+
+    def test_pop_preserves_name(self):
+        d = HiData(children={'x': jnp.array([1.0]), 'y': jnp.array([2.0])}, name='layer1')
+        popped = d.pop('y')
+        self.assertEqual(popped.name, 'layer1')
+        self.assertNotIn('y', popped)
+
+    def test_replace_preserves_name(self):
+        d = HiData(children={'x': jnp.array([1.0])}, name='layer1')
+        self.assertEqual(d.replace(x=jnp.array([5.0])).name, 'layer1')
+
+    def test_clone_preserves_subclass_and_name(self):
+        class MyState(HiData):
+            pass
+
+        d = MyState(children={'x': jnp.array([1.0])}, name='custom')
+        cloned = d.clone()
+        self.assertIsInstance(cloned, MyState)
+        self.assertEqual(cloned.name, 'custom')
+
+
 if __name__ == '__main__':
     unittest.main()

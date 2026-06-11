@@ -96,11 +96,24 @@ def exp_euler_step(
 
     **Algorithm:**
 
-    The method computes the Jacobian :math:`J = \frac{\partial f}{\partial x}` and
-    uses the exponential-related function :math:`\varphi(z) = (e^z - 1)/z` to update:
+    The method computes the *element-wise* (diagonal) derivative
+    :math:`J_i = \frac{\partial f_i}{\partial x_i}` via ``vector_grad`` and uses the
+    exponential-related function :math:`\varphi(z) = (e^z - 1)/z` to update each
+    component independently:
 
     .. math::
-        x_{n+1} = x_n + dt \cdot \varphi(dt \cdot J) \cdot f(x_n, t_n)
+        x_{n+1, i} = x_{n, i} + dt \cdot \varphi(dt \cdot J_i) \cdot f_i(x_n, t_n)
+
+    .. important::
+
+        Only the diagonal of the Jacobian is used; **off-diagonal coupling between
+        state components is treated explicitly (plain Euler), not integrated
+        exponentially**. For strongly coupled systems where the cross terms
+        :math:`\partial f_i / \partial x_j` (:math:`i \neq j`) dominate, this scheme
+        behaves like forward Euler on those terms. It is exact only for systems whose
+        linearization is diagonal (each component decays/grows according to its own
+        :math:`\partial f_i / \partial x_i`), which is the common case for
+        per-neuron/per-synapse dynamics in spiking networks.
 
     For SDEs, a stochastic term is added:
 

@@ -347,10 +347,11 @@ class TruncatedNormal(Initializer):
       The standard deviation of the normal distribution before truncating.
     lower : float, ndarray
       A float or array of floats representing the lower bound for
-        truncation. Must be broadcast-compatible with ``upper``.
+        truncation. Must be broadcast-compatible with ``upper``. Default is ``-2.0``
+        (in units of standard deviations before scaling).
     upper : float, ndarray
       A float or array of floats representing the  upper bound for
-      truncation. Must be broadcast-compatible with ``lower``.
+      truncation. Must be broadcast-compatible with ``lower``. Default is ``2.0``.
 
     """
     __module__ = 'brainstate.nn'
@@ -360,8 +361,8 @@ class TruncatedNormal(Initializer):
         loc: ArrayLike = 0.,
         scale: ArrayLike = 1.,
         unit: u.Unit = u.UNITLESS,
-        lower: ArrayLike = None,
-        upper: ArrayLike = None,
+        lower: ArrayLike = -2.0,
+        upper: ArrayLike = 2.0,
         seed: SeedOrKey = None,
     ):
         super().__init__()

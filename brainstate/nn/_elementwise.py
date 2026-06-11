@@ -158,6 +158,13 @@ class RReLU(ElementWiseBlock):
     upper : float, optional
         Upper bound of the uniform distribution. Default: :math:`\frac{1}{3}`
 
+    Notes
+    -----
+    Unlike PyTorch's ``RReLU``, this layer samples a fresh random negative slope on
+    **every** call (there is no separate evaluation mode that uses the fixed midpoint
+    slope). Inference is therefore non-deterministic; fix ``lower == upper`` for a
+    deterministic slope.
+
     Shape
     -----
     - Input: :math:`(*)`, where :math:`*` means any number of dimensions.
@@ -956,8 +963,10 @@ class PReLU(ElementWiseBlock):
     Notes
     -----
     - Weight decay should not be used when learning :math:`a` for good performance.
-    - Channel dim is the 2nd dim of input. When input has dims < 2, then there is
-      no channel dim and the number of channels = 1.
+    - Following brainstate's channel-last convention, the per-channel parameter
+      :math:`a` broadcasts against the **last** axis of the input. When
+      ``num_parameters > 1``, the size of the input's last dimension must equal
+      ``num_parameters``.
 
     Examples
     --------
@@ -1083,7 +1092,7 @@ class Softmin(ElementWiseBlock):
         self.dim = dim
 
     def __call__(self, x: ArrayLike) -> ArrayLike:
-        return F.softmin(x, self.dim)
+        return F.softmin(x, -1 if self.dim is None else self.dim)
 
     def __repr__(self):
         return f'{self.__class__.__name__}(dim={self.dim})'
@@ -1144,7 +1153,7 @@ class Softmax(ElementWiseBlock):
         self.dim = dim
 
     def __call__(self, x: ArrayLike) -> ArrayLike:
-        return F.softmax(x, self.dim)
+        return F.softmax(x, -1 if self.dim is None else self.dim)
 
     def __repr__(self):
         return f'{self.__class__.__name__}(dim={self.dim})'
@@ -1227,7 +1236,7 @@ class LogSoftmax(ElementWiseBlock):
         self.dim = dim
 
     def __call__(self, x: ArrayLike) -> ArrayLike:
-        return F.log_softmax(x, self.dim)
+        return F.log_softmax(x, -1 if self.dim is None else self.dim)
 
     def __repr__(self):
         return f'{self.__class__.__name__}(dim={self.dim})'

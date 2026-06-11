@@ -448,5 +448,76 @@ class TestClipTransform(unittest.TestCase):
         self.assertIn("upper=1.0", repr(t))
 
 
+class TestTransformAuditRegressions(unittest.TestCase):
+    """Regression tests for audit findings T2-T5 (transform numerics/units)."""
+
+    def test_softplus_roundtrip_large_constrained_value(self):
+        # T2/T3: the old log1p(save_exp(x)) forward clipped at exp(20), so large
+        # unconstrained inputs saturated and inverse(forward(x)) failed to round-trip.
+        t = SoftplusT(0.0)
+        x = jnp.array([25.0, 30.0, 50.0])  # all beyond the old save_exp clip (20)
+        y = t.forward(x)
+        # forward should be ~identity for large x (softplus(x) ≈ x), not clipped.
+        np.testing.assert_allclose(u.get_mantissa(y), np.asarray(x), rtol=1e-4)
+        xr = t.inverse(y)
+        np.testing.assert_allclose(np.asarray(xr), np.asarray(x), rtol=1e-4)
+
+    def test_negsoftplus_roundtrip_large_value(self):
+        # T2/T3: same saturation bug in the reflected transform.
+        t = NegSoftplusT(0.0)
+        x = jnp.array([25.0, 40.0])
+        y = t.forward(x)
+        xr = t.inverse(y)
+        np.testing.assert_allclose(np.asarray(xr), np.asarray(x), rtol=1e-4)
+
+    def test_softplus_roundtrip_with_units(self):
+        # T4: dividing out the unit yields a dimensionless Quantity; inverse must
+        # strip it so bare jnp.expm1/log do not choke on a Quantity.
+        t = SoftplusT(0.0 * u.mV)
+        x = jnp.array([-3.0, 0.0, 5.0, 25.0])
+        y = t.forward(x)
+        self.assertEqual(u.get_unit(y), u.mV)
+        xr = t.inverse(y)
+        np.testing.assert_allclose(np.asarray(xr), np.asarray(x), rtol=1e-4)
+
+    def test_sigmoid_log_abs_det_jacobian_with_units(self):
+        # T4: log_abs_det_jacobian crashed when bounds carried units because
+        # jnp.log was applied to a Quantity width. It must now run and be finite.
+        t = SigmoidT(0.0 * u.mV, 10.0 * u.mV)
+        x = jnp.array([-2.0, 0.0, 3.0])
+        ladj = t.log_abs_det_jacobian(x, t.forward(x))
+        self.assertTrue(np.all(np.isfinite(np.asarray(ladj))))
+        # large |x| must not produce -inf/nan (stable log_sigmoid form).
+        ladj_big = t.log_abs_det_jacobian(jnp.array([100.0, -100.0]), None)
+        self.assertTrue(np.all(np.isfinite(np.asarray(ladj_big))))
+
+    def test_affine_log_abs_det_jacobian_batch_shape(self):
+        # T5: batched input (B, n) must yield a (B,) log-det, not a single scalar.
+        t = AffineT(2.0, 1.0)
+        x = jnp.ones((4, 3))
+        ladj = t.log_abs_det_jacobian(x, t.forward(x))
+        self.assertEqual(np.shape(ladj), (4,))
+        np.testing.assert_allclose(np.asarray(ladj), 3 * np.log(2.0), rtol=1e-6)
+
+    def test_affine_log_abs_det_jacobian_array_scale(self):
+        # T5: per-dimension scale must contract over the event axis as sum(log|a_i|).
+        a = jnp.array([2.0, 3.0, 4.0])
+        t = AffineT(a, 0.0)
+        x = jnp.ones((5, 3))
+        ladj = t.log_abs_det_jacobian(x, t.forward(x))
+        self.assertEqual(np.shape(ladj), (5,))
+        np.testing.assert_allclose(
+            np.asarray(ladj), np.sum(np.log(np.abs(np.asarray(a)))), rtol=1e-6
+        )
+
+    def test_affine_log_abs_det_jacobian_with_units(self):
+        # T4: unit-carrying scale must not crash jnp.log.
+        t = AffineT(2.0 * u.mV, 0.0 * u.mV)
+        x = jnp.array([1.0, 2.0])
+        ladj = t.log_abs_det_jacobian(x, None)
+        self.assertTrue(np.all(np.isfinite(np.asarray(ladj))))
+        np.testing.assert_allclose(np.asarray(ladj), 2 * np.log(2.0), rtol=1e-6)
+
+
 if __name__ == '__main__':
     unittest.main()

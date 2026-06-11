@@ -18,6 +18,7 @@
 import unittest
 
 import brainstate
+import brainunit as u
 import jax.numpy as jnp
 import numpy as np
 
@@ -343,6 +344,14 @@ class TestGroupLassoReg(unittest.TestCase):
         # sqrt(1) + sqrt(4) + sqrt(9) = 1 + 2 + 3 = 6 (approximately, with epsilon)
         np.testing.assert_allclose(loss, 6.0, rtol=1e-3)
 
+    def test_quantity_input_with_padding(self):
+        """Quantity input whose size is not a multiple of group_size (bug R3)."""
+        # param size 5 is not a multiple of group_size 2 -> padding needed
+        reg = GroupLassoReg(weight=1.0, group_size=2)
+        value = jnp.array([1.0, 0.5, -0.5, 0.2, 0.3]) * u.mV
+        loss = reg.loss(value)
+        self.assertTrue(np.isfinite(float(u.get_mantissa(loss))))
+
     def test_sample_init_shape(self):
         """Test sample_init returns correct shape."""
         reg = GroupLassoReg(weight=1.0, group_size=2)
@@ -514,6 +523,13 @@ class TestOrthogonalReg(unittest.TestCase):
         sample = reg.sample_init((4, 3))
         self.assertEqual(sample.shape, (4, 3))
 
+    def test_sample_init_1d_non_perfect_square(self):
+        """1D non-perfect-square shapes must not raise (bug R2)."""
+        reg = OrthogonalReg(weight=1.0)
+        for n in (5, 7):
+            sample = reg.sample_init((n,))
+            self.assertEqual(sample.shape, (n,))
+
     def test_reset_value(self):
         """Test reset_value returns zero."""
         reg = OrthogonalReg(weight=1.0)
@@ -621,6 +637,31 @@ class TestStudentTReg(unittest.TestCase):
         loss = reg.loss(value)
         # At x=0, loss = log(1 + 0) = 0
         np.testing.assert_allclose(loss, 0.0, atol=1e-5)
+
+    def test_nll_factor_df3(self):
+        """Per-element penalty must include the (df+1)/2 factor (bug R1)."""
+        reg = StudentTReg(weight=1.0, df=3.0, scale=1.0)
+        value = jnp.array([2.0])
+        loss = reg.loss(value)
+        # Correct Student-t NLL data term: 0.5*(df+1)*log(1 + z**2/df)
+        # df=3, z=2 -> 0.5*4*log(1 + 4/3) = 2*log(7/3) ~ 1.6946
+        expected = 0.5 * (3.0 + 1.0) * np.log(1.0 + 4.0 / 3.0)
+        np.testing.assert_allclose(float(loss), expected, rtol=1e-5)
+        # And it must NOT equal the unfactored value ~0.847
+        unfactored = np.log(1.0 + 4.0 / 3.0)
+        self.assertGreater(float(loss), unfactored * 1.5)
+
+    def test_gaussian_limit_large_df(self):
+        """As df -> infinity the penalty approaches the Gaussian 0.5*z**2 (bug R1)."""
+        # Use float64 so the assertion exercises the math, not float32 rounding
+        # of log(1 + 4e-6). Under float32 the value is ~2.027 (a precision
+        # artifact); the limit itself is correct.
+        with brainstate.environ.context(precision=64):
+            reg = StudentTReg(weight=1.0, df=1e6, scale=1.0)
+            value = jnp.asarray([2.0], dtype=brainstate.environ.dftype())
+            loss = reg.loss(value)
+        gaussian_limit = 0.5 * 2.0 ** 2  # 2.0
+        np.testing.assert_allclose(float(loss), gaussian_limit, rtol=1e-3)
 
     def test_loss_increases_with_distance(self):
         """Test that loss increases with distance from zero."""

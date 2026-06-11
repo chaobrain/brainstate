@@ -471,5 +471,28 @@ class TestLinearEdgeCases(unittest.TestCase):
             brainstate.nn.SparseLinear(jnp.ones((5, 5)))
 
 
+class TestLinearAuditRegressions(parameterized.TestCase):
+    """Regression tests for bugs found in the nn-module audit."""
+
+    def test_scaled_ws_linear_multidim_sizes(self):
+        """L1: ScaledWSLinear must build a 2D (in[-1], out[-1]) weight for multi-dim sizes."""
+        layer = brainstate.nn.ScaledWSLinear((4, 10), (4, 5))
+        self.assertEqual(layer.weight.value['weight'].shape, (10, 5))
+        x = jnp.ones((4, 10))
+        y = layer(x)
+        self.assertEqual(y.shape, (4, 5))
+
+    def test_all_to_all_scalar_weight_out_greater_than_in_no_self(self):
+        """L2: AllToAll scalar weight + include_self=False must work when out_size > in_size."""
+        layer = brainstate.nn.AllToAll((3,), (5,), include_self=False)
+        layer.weight.value = {'weight': jnp.asarray(2.0)}
+        # unbatched
+        out = layer(jnp.ones((3,)))
+        self.assertEqual(out.shape, (5,))
+        # batched
+        out_b = layer(jnp.ones((2, 3)))
+        self.assertEqual(out_b.shape, (2, 5))
+
+
 if __name__ == '__main__':
     unittest.main()

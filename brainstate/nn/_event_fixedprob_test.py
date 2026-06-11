@@ -204,6 +204,22 @@ class TestFixedNumConnConstruction:
         out = m(brainstate.random.rand(20))
         assert out.shape == (40,)
 
+    def test_afferent_ratio_pre_selected_respects_seed(self):
+        """D4: ``pre_selected`` is reproducible from ``seed`` (was global np.random)."""
+        m1 = FixedNumConn(20, 40, 0.2, 1.0, efferent_target='post',
+                          afferent_ratio=0.5, seed=7)
+        m2 = FixedNumConn(20, 40, 0.2, 1.0, efferent_target='post',
+                          afferent_ratio=0.5, seed=7)
+        assert np.array_equal(np.asarray(m1.pre_selected), np.asarray(m2.pre_selected))
+
+    def test_afferent_ratio_pre_selected_differs_across_seeds(self):
+        """Different seeds yield different ``pre_selected`` masks."""
+        m1 = FixedNumConn(60, 40, 0.2, 1.0, efferent_target='post',
+                          afferent_ratio=0.5, seed=1)
+        m2 = FixedNumConn(60, 40, 0.2, 1.0, efferent_target='post',
+                          afferent_ratio=0.5, seed=2)
+        assert not np.array_equal(np.asarray(m1.pre_selected), np.asarray(m2.pre_selected))
+
 
 class TestFixedNumConnZeroConnection:
     """Cover the zero-connection (FakeState) path of ``FixedNumConn``."""
@@ -244,28 +260,28 @@ class TestEventFixedProbAlias:
         assert np.allclose(out, ref, rtol=1e-4, atol=1e-4)
 
 
-class TestFixedNumConnKnownBugs:
-    """Document genuine construction bugs in the ``efferent_target='pre'`` path."""
+class TestFixedNumConnEfferentTargetPreGuard:
+    """D7: the broken ``efferent_target='pre'`` path is rejected up front.
 
-    @pytest.mark.skip(reason="BUG: efferent_target='pre' crashes in brainevent."
-                             " FixedNumConn builds indices of shape (n_pre, conn_num) = "
-                             "(out_size, conn_num) but brainevent.FixedPreNumConn(shape=(n_pre, "
-                             "n_post)) validates indices rows against shape[1]=n_post=in_size, "
-                             "raising 'Pre-synaptic row number mismatch. 40 != 20'.")
-    def test_efferent_target_pre_constructs(self):
-        """``efferent_target='pre'`` should construct a valid connection (currently crashes)."""
-        m = FixedNumConn(20, 40, 0.2, 1.0, efferent_target='pre', seed=1)
-        out = m(brainstate.random.rand(40))
-        assert out.shape == (20,)
+    The 'pre' index layout disagrees with the underlying brainevent connection
+    shape: with ``afferent_ratio == 1`` brainevent raises a shape mismatch, and
+    with ``afferent_ratio < 1`` it aborts the process via a native heap
+    corruption. ``FixedNumConn`` now guards against this by raising a clear,
+    catchable ``NotImplementedError`` before any unsafe construction happens.
+    """
 
-    @pytest.mark.skip(reason="BUG: efferent_target='pre' with afferent_ratio<1 triggers a native"
-                             " memory abort ('free(): invalid next size (fast)') inside the "
-                             "brainevent CSC path, because indices are sized for (n_pre, conn_num)"
-                             " = (out_size, conn_num) rather than the n_post=in_size rows the CSC "
-                             "shape expects.")
-    def test_efferent_target_pre_afferent_ratio_constructs(self):
-        """'pre' target with sub-unity afferent_ratio should build a CSC connection."""
-        m = FixedNumConn(20, 40, 0.2, 1.0, efferent_target='pre',
+    def test_efferent_target_pre_raises_not_implemented(self):
+        """``efferent_target='pre'`` raises a clear ``NotImplementedError``."""
+        with pytest.raises(NotImplementedError):
+            FixedNumConn(20, 40, 0.2, 1.0, efferent_target='pre', seed=1)
+
+    def test_efferent_target_pre_afferent_ratio_raises_not_implemented(self):
+        """'pre' with sub-unity afferent_ratio is rejected before the unsafe path."""
+        with pytest.raises(NotImplementedError):
+            FixedNumConn(20, 40, 0.2, 1.0, efferent_target='pre',
                          afferent_ratio=0.5, seed=1)
-        out = m(brainstate.random.rand(40))
-        assert out.shape == (20,)
+
+    def test_efferent_target_pre_square_also_guarded(self):
+        """Even square in/out sizes are guarded (the path is uniformly unsupported)."""
+        with pytest.raises(NotImplementedError):
+            FixedNumConn(20, 20, 0.2, 1.0, efferent_target='pre', seed=1)

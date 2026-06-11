@@ -48,6 +48,38 @@ __all__ = [
 max_int = np.iinfo(np.int32).max
 
 
+def _format_size_arg(size, attr_name: str) -> tuple:
+    """Normalize an ``in_size``/``out_size`` argument to a tuple of ints.
+
+    Accepts a Python ``int``, any 0-dimensional integer numpy value (both
+    ``np.generic`` scalars such as ``np.int64(5)`` and 0-d ``np.ndarray`` such as
+    ``np.array(5)``), or an existing tuple/list. This unifies the two size
+    setters, which previously handled only one of the numpy scalar forms each and
+    additionally called ``np.issubdtype`` on an array instance (a ``TypeError``).
+
+    Parameters
+    ----------
+    size : int, numpy scalar/0-d array, tuple, or list
+        The raw size specification.
+    attr_name : str
+        Name of the attribute (for error messages).
+
+    Returns
+    -------
+    tuple
+        The size as a tuple of ints.
+    """
+    if isinstance(size, int):
+        return (size,)
+    # Both numpy scalars (np.generic) and 0-d ndarrays report ndim == 0; compare
+    # on the dtype (never the instance) so np.issubdtype receives a valid input.
+    if isinstance(size, (np.generic, np.ndarray)) and np.ndim(size) == 0:
+        if np.issubdtype(np.asarray(size).dtype, np.integer):
+            return (int(size),)
+    assert isinstance(size, (tuple, list)), f"Invalid type of {attr_name}: {type(size)}"
+    return tuple(size)
+
+
 class Module(Node, ParamDesc):
     """
     Base class for neural network modules in BrainState.
@@ -130,13 +162,7 @@ class Module(Node, ParamDesc):
 
     @in_size.setter
     def in_size(self, in_size: Sequence[int] | int):
-        if isinstance(in_size, int):
-            in_size = (in_size,)
-        elif isinstance(in_size, np.generic):
-            if np.issubdtype(in_size, np.integer) and in_size.ndim == 0:
-                in_size = (int(in_size),)
-        assert isinstance(in_size, (tuple, list)), f"Invalid type of in_size: {in_size} {type(in_size)}"
-        self._in_size = tuple(in_size)
+        self._in_size = _format_size_arg(in_size, 'in_size')
 
     @property
     def out_size(self) -> Size:
@@ -144,13 +170,7 @@ class Module(Node, ParamDesc):
 
     @out_size.setter
     def out_size(self, out_size: Sequence[int] | int):
-        if isinstance(out_size, int):
-            out_size = (out_size,)
-        elif isinstance(out_size, np.ndarray):
-            if np.issubdtype(out_size, np.integer) and out_size.ndim == 0:
-                out_size = (int(out_size),)
-        assert isinstance(out_size, (tuple, list)), f"Invalid type of out_size: {type(out_size)}"
-        self._out_size = tuple(out_size)
+        self._out_size = _format_size_arg(out_size, 'out_size')
 
     @not_implemented
     def update(self, *args, **kwargs):
@@ -777,13 +797,28 @@ class Sequential(Module):
 
     def __getitem__(self, key: Union[int, slice]):
         if isinstance(key, slice):
-            return Sequential(*self.layers[key])
+            return self._from_layers(self.layers[key])
         elif isinstance(key, int):
             return self.layers[key]
         elif isinstance(key, (tuple, list)):
-            return Sequential(*[self.layers[k] for k in key])
+            return self._from_layers([self.layers[k] for k in key])
         else:
             raise KeyError(f'Unknown type of key: {type(key)}')
+
+    @classmethod
+    def _from_layers(cls, layers: Sequence[Module]) -> 'Sequential':
+        """Build a ``Sequential`` from an already-formatted layer list.
+
+        Handles the empty case (e.g. an out-of-range or degenerate slice), which
+        ``cls(*layers)`` cannot because ``__init__`` requires at least one layer.
+        """
+        layers = list(layers)
+        if len(layers) == 0:
+            seq = cls.__new__(cls)
+            Module.__init__(seq)
+            seq.layers = []
+            return seq
+        return cls(*layers)
 
     def append(self, layer: Callable):
         """

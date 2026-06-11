@@ -20,10 +20,9 @@ from typing import Callable, TypeVar, Any, Dict
 
 import jax
 
-from brainstate._state import catch_new_states
 from brainstate._utils import set_module_as
 from brainstate.graph import nodes
-from brainstate.transform import vmap, vmap_new_states
+from brainstate.transform import vmap_new_states
 from brainstate.typing import Filter
 from ._module import Module
 
@@ -274,24 +273,25 @@ def vmap_call_all_fns(
     if not isinstance(kwargs, Mapping):
         raise TypeError(f'kwargs must be a mapping, but got {type(kwargs).__name__}.')
 
-    @vmap(axis_size=axis_size)
-    def vmapped_fn():
-        with catch_new_states(state_tag) as inner_catcher:
-            call_all_fns(
-                target,
-                fn_name=fn_name,
-                args=args,
-                kwargs=kwargs,
-                node_to_exclude=node_to_exclude,
-                fn_if_not_exist=fn_if_not_exist
-            )
-        return inner_catcher.get_state_values()
+    # Delegate to ``vmap_new_states``, the same transform used by
+    # ``vmap_init_all_states``. The previous hand-rolled implementation paired an
+    # inner ``catch_new_states`` (returning per-lane values) with an outer one
+    # (returning the State objects) and wrote the values back manually. Because the
+    # States were created *inside* the vmap trace, the write-back could commit a
+    # ``BatchTracer`` into ``state.value`` and the batched leading axis was never
+    # materialized, raising ``UnexpectedTracerError`` on later use. ``vmap_new_states``
+    # handles new-state batching correctly in a single, well-tested pass.
+    def call_fn():
+        call_all_fns(
+            target,
+            fn_name=fn_name,
+            args=args,
+            kwargs=kwargs,
+            node_to_exclude=node_to_exclude,
+            fn_if_not_exist=fn_if_not_exist,
+        )
 
-    with catch_new_states(state_tag) as outer_catcher:
-        values = vmapped_fn()
-        states = outer_catcher.get_states()
-    for state, value in zip(states, values):
-        state.value = value
+    vmap_new_states(call_fn, state_tag=state_tag, axis_size=axis_size)()
     return target
 
 
@@ -631,14 +631,33 @@ def assign_state_values(
 
     # Get current module states
     variables = target.states()
-    keys1 = set(all_states.keys())
-    keys2 = set(variables.keys())
 
-    # Update matching states
-    for key in keys2.intersection(keys1):
-        variables[key].value = jax.numpy.asarray(all_states[key])
+    # Normalize keys so both tuple paths (``('layer1', 'weight')`` — the form
+    # ``states()`` returns) and the documented dotted-string paths
+    # (``'layer1.weight'``) compare equal (M2). We keep the *original* key
+    # objects for the returned ``unexpected``/``missing`` lists so callers that
+    # rely on tuple paths keep working.
+    def _norm_key(k):
+        return '.'.join(str(p) for p in k) if isinstance(k, tuple) else str(k)
 
-    # Return mismatched keys
-    unexpected_keys = sorted(keys1 - keys2)
-    missing_keys = sorted(keys2 - keys1)
+    var_by_norm = {_norm_key(k): k for k in variables.keys()}
+    incoming_by_norm = {_norm_key(k): k for k in all_states.keys()}
+
+    # Update matching states. ``jax.tree.map`` preserves pytree-structured values
+    # (e.g. dict-valued states) and unit-carrying ``Quantity`` values, both of
+    # which ``jax.numpy.asarray`` would reject (M1).
+    for norm in set(var_by_norm).intersection(incoming_by_norm):
+        variables[var_by_norm[norm]].value = jax.tree.map(
+            jax.numpy.asarray, all_states[incoming_by_norm[norm]]
+        )
+
+    # Return mismatched keys in their original (caller-supplied / module) form.
+    unexpected_keys = sorted(
+        (incoming_by_norm[n] for n in set(incoming_by_norm) - set(var_by_norm)),
+        key=_norm_key,
+    )
+    missing_keys = sorted(
+        (var_by_norm[n] for n in set(var_by_norm) - set(incoming_by_norm)),
+        key=_norm_key,
+    )
     return unexpected_keys, missing_keys

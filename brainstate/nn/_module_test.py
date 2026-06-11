@@ -1150,26 +1150,75 @@ class TestSequentialEmpty(unittest.TestCase):
         self.assertEqual(seq.in_size, (3,))
         self.assertEqual(seq.out_size, (4,))
 
+    def test_empty_slice_returns_empty_sequential(self):
+        """M6: an out-of-range slice yields an empty Sequential, not a crash."""
+        seq = brainstate.nn.Sequential(brainstate.nn.Linear(3, 4), brainstate.nn.Linear(4, 5))
+        empty = seq[10:20]
+        self.assertIsInstance(empty, Sequential)
+        self.assertEqual(len(empty.layers), 0)
+
+    def test_degenerate_slice_returns_empty_sequential(self):
+        """M6: a degenerate ``[i:i]`` slice yields an empty Sequential."""
+        seq = brainstate.nn.Sequential(brainstate.nn.Linear(3, 4), brainstate.nn.Linear(4, 5))
+        empty = seq[1:1]
+        self.assertIsInstance(empty, Sequential)
+        self.assertEqual(len(empty.layers), 0)
+
+    def test_empty_tuple_index_returns_empty_sequential(self):
+        """M6: indexing with an empty tuple yields an empty Sequential."""
+        seq = brainstate.nn.Sequential(brainstate.nn.Linear(3, 4), brainstate.nn.Linear(4, 5))
+        empty = seq[()]
+        self.assertIsInstance(empty, Sequential)
+        self.assertEqual(len(empty.layers), 0)
+
+    def test_nonempty_slice_still_works(self):
+        """A normal sub-slice still produces a populated Sequential."""
+        seq = brainstate.nn.Sequential(
+            brainstate.nn.Linear(3, 4), brainstate.nn.Linear(4, 5), brainstate.nn.Linear(5, 6)
+        )
+        sub = seq[1:]
+        self.assertIsInstance(sub, Sequential)
+        self.assertEqual(len(sub.layers), 2)
+
 
 class TestModuleSizeSetterEdges(unittest.TestCase):
     """Cover numpy-typed and invalid inputs to the size setters."""
 
-    def test_out_size_zero_d_integer_ndarray_bug(self):
-        """A 0-d integer ``np.ndarray`` ``out_size`` hits a source bug (documents BUG).
-
-        The setter calls ``np.issubdtype(out_size, np.integer)`` passing the array
-        itself rather than its ``.dtype``; numpy raises ``TypeError`` ("Cannot
-        construct a dtype from an array"), so a 0-d integer array cannot be used.
-        """
+    def test_out_size_zero_d_integer_ndarray(self):
+        """M7: a 0-d integer ``np.ndarray`` ``out_size`` is normalized to a tuple."""
         mod = Module()
-        with self.assertRaises(TypeError):
-            mod.out_size = np.array(6)
+        mod.out_size = np.array(6)
+        self.assertEqual(mod.out_size, (6,))
+
+    def test_out_size_numpy_integer_scalar(self):
+        """M7: a numpy integer scalar (``np.generic``) ``out_size`` is accepted."""
+        mod = Module()
+        mod.out_size = np.int64(5)
+        self.assertEqual(mod.out_size, (5,))
+
+    def test_in_size_zero_d_integer_ndarray(self):
+        """M7: a 0-d integer ``np.ndarray`` ``in_size`` is normalized to a tuple."""
+        mod = Module()
+        mod.in_size = np.array(4)
+        self.assertEqual(mod.in_size, (4,))
+
+    def test_in_size_numpy_integer_scalar(self):
+        """A numpy integer scalar (``np.generic``) ``in_size`` is accepted."""
+        mod = Module()
+        mod.in_size = np.int32(3)
+        self.assertEqual(mod.in_size, (3,))
 
     def test_in_size_non_integer_generic_raises(self):
         """A non-integer ``np.generic`` ``in_size`` fails the type assertion."""
         mod = Module()
         with self.assertRaises(AssertionError):
             mod.in_size = np.float64(3.0)
+
+    def test_out_size_non_integer_zero_d_ndarray_raises(self):
+        """A non-integer 0-d ``np.ndarray`` ``out_size`` fails the type assertion."""
+        mod = Module()
+        with self.assertRaises(AssertionError):
+            mod.out_size = np.array(3.0)
 
 
 class _UnsizedModule(Module):
