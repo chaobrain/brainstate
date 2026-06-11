@@ -25,6 +25,21 @@ from brainstate.util._cache import BoundedCache
 class TestBoundedCache(unittest.TestCase):
     """Test the BoundedCache class."""
 
+    def test_cache_rejects_negative_maxsize(self):
+        """Reject negative cache sizes before eviction logic can corrupt state."""
+        with pytest.raises(ValueError, match="maxsize"):
+            BoundedCache(maxsize=-1)
+
+    def test_cache_zero_maxsize_does_not_store_items(self):
+        """A zero-sized cache behaves as permanently empty instead of raising."""
+        cache = BoundedCache(maxsize=0)
+
+        cache.set('key1', 'value1')
+
+        self.assertEqual(len(cache), 0)
+        self.assertNotIn('key1', cache)
+        self.assertIsNone(cache.get('key1'))
+
     def test_cache_basic_operations(self):
         """Test basic get and set operations."""
         cache = BoundedCache(maxsize=3)
@@ -235,6 +250,9 @@ class TestBoundedCache(unittest.TestCase):
         error_msg = str(exc_info.value)
         # Should show requested key
         self.assertIn('nonexistent', error_msg)
+        # Should show the formatted number of available keys
+        self.assertIn('Available 2 keys:', error_msg)
+        self.assertNotIn('{len(available_keys)}', error_msg)
         # Should show available keys
         self.assertIn('key1', error_msg)
         self.assertIn('key2', error_msg)

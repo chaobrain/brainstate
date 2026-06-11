@@ -35,6 +35,10 @@ class BoundedCache:
     """
 
     def __init__(self, maxsize: int = 128):
+        if not isinstance(maxsize, int):
+            raise TypeError(f"maxsize must be an integer, got {type(maxsize).__name__}.")
+        if maxsize < 0:
+            raise ValueError(f"maxsize must be non-negative, got {maxsize}.")
         self._cache = OrderedDict()
         self._maxsize = maxsize
         self._lock = threading.RLock()
@@ -92,7 +96,7 @@ class BoundedCache:
                     f"Requested key:",
                     f"  {key}",
                     f"",
-                    f"Available {{len(available_keys)}} keys:",
+                    f"Available {len(available_keys)} keys:",
                 ]
                 if available_keys:
                     for i, k in enumerate(available_keys, 1):
@@ -128,6 +132,8 @@ class BoundedCache:
                     f"Cannot overwrite existing cached value. "
                     f"Clear the cache first if you need to recompile."
                 )
+            if self._maxsize == 0:
+                return
             if len(self._cache) >= self._maxsize:
                 self._cache.popitem(last=False)
             self._cache[key] = value

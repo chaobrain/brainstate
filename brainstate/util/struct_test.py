@@ -14,6 +14,7 @@ import pytest
 # Import the modules to test
 from brainstate.util import (
     field,
+    is_dataclass,
     dataclass,
     PyTreeNode,
     FrozenDict,
@@ -175,6 +176,36 @@ class TestDataclass:
         p = Point(1.0, 2.0)
         assert p.x == 1.0
         assert hasattr(Point, '_brainstate_dataclass')
+
+    def test_dataclass_supports_bare_parentheses(self):
+        """Allow @dataclass() usage like the stdlib decorator."""
+        @dataclass()
+        class Point:
+            x: float
+
+        p = Point(1.0)
+
+        assert p.x == 1.0
+
+    def test_field_does_not_mutate_caller_metadata(self):
+        """Copy provided metadata before adding the pytree marker."""
+        metadata = {'custom': 'data'}
+
+        field(pytree_node=False, metadata=metadata)
+
+        assert metadata == {'custom': 'data'}
+
+    def test_field_rejects_conflicting_pytree_metadata(self):
+        """Reject metadata that disagrees with the explicit pytree_node flag."""
+        with pytest.raises(ValueError, match='pytree_node'):
+            field(pytree_node=False, metadata={'pytree_node': True})
+
+    def test_is_dataclass_rejects_spoofed_marker(self):
+        """Do not treat arbitrary marker attributes as BrainState dataclasses."""
+        class Spoofed:
+            _brainstate_dataclass = True
+
+        assert not is_dataclass(Spoofed)
 
 
 class TestPyTreeNode:
@@ -726,6 +757,22 @@ class TestFrozenDictCoverage(unittest.TestCase):
         self.assertEqual(h1, hash(fd))
         fd2 = FrozenDict({'a': {'b': 1}})
         self.assertEqual(hash(fd), hash(fd2))
+
+    def test_hash_with_mixed_key_types(self):
+        """Hash mappings with valid but mutually incomparable key types."""
+        fd1 = FrozenDict({1: 'int', '1': 'str'})
+        fd2 = FrozenDict({'1': 'str', 1: 'int'})
+
+        self.assertEqual(hash(fd1), hash(fd2))
+        self.assertEqual(fd1, fd2)
+
+    def test_jax_flatten_with_mixed_key_types(self):
+        """Flatten mappings with valid but mutually incomparable key types."""
+        fd = FrozenDict({1: jnp.array(1), '1': jnp.array(2)})
+
+        leaves = jax.tree_util.tree_leaves(fd)
+
+        self.assertEqual(len(leaves), 2)
 
     def test_pretty_repr_empty_frozendict(self):
         """Render an empty FrozenDict as FrozenDict({})."""
