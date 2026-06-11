@@ -295,7 +295,16 @@ def _graph_pop(node, id_to_index, path_parts, flatted_state_dicts, predicates) -
         if _is_node(value):
             _graph_pop(value, id_to_index, (*path_parts, name), flatted_state_dicts, predicates)
             continue
-        if not _is_node_leaf(value) or id(value) in id_to_index:
+        if not _is_node_leaf(value):
+            continue
+        if id(value) in id_to_index:
+            # This ``State`` was already matched and popped via another
+            # (shared/tied) reference. Detach this alias too so the popped state
+            # leaves no dangling reference behind, but do not record it twice
+            # (it is deduplicated by identity). States are only ever entered into
+            # ``id_to_index`` when popped, so membership here means "popped".
+            if _is_graph_node(node):
+                impl.pop_key(node, name)
             continue
         node_path = (*path_parts, name)
         for state_dict, predicate in zip(flatted_state_dicts, predicates):
