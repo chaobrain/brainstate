@@ -112,7 +112,10 @@ def merge_context() -> Iterator[Tuple[MergeContext, dict]]:
     unflatten_ctx = MergeContext(index_ref)
     GRAPH_CONTEXT.index_ref_stack.append(unflatten_ctx)
     try:
-        yield unflatten_ctx, dict(unflatten_ctx.index_ref)
+        # Yield the *live* table (not a snapshot copy) so callers can inspect the
+        # accumulated ``index -> rebuilt object`` mapping after the block, exactly
+        # as ``split_context`` exposes its live ``ref_index``.
+        yield unflatten_ctx, index_ref
     finally:
         GRAPH_CONTEXT.index_ref_stack.pop()
         del unflatten_ctx.index_ref

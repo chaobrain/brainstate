@@ -697,5 +697,41 @@ class TestNodeRepr(unittest.TestCase):
         self.assertIsNone(node.__pretty_repr_item__('inv', 5))
 
 
+class TestCheckValidContext(unittest.TestCase):
+    """``Node.check_valid_context`` regression coverage.
+
+    Graph nodes carry no ``_trace_state`` of their own (only ``State`` objects
+    do), so the method previously crashed with ``AttributeError``. It must
+    instead validate the trace context of the states reachable from the node.
+    """
+
+    def test_does_not_raise_attribute_error_on_real_module(self):
+        m = brainstate.nn.Linear(2, 3)
+        # In a valid (non-traced) context this returns None, never AttributeError.
+        self.assertIsNone(m.check_valid_context(lambda: 'should not raise'))
+
+    def test_plain_node_with_state(self):
+        class Plain(Node):
+            def __init__(self):
+                self.w = brainstate.ParamState(jnp.zeros(3))
+
+        self.assertIsNone(Plain().check_valid_context(lambda: 'ok'))
+
+    def test_stateless_node(self):
+        class Empty(Node):
+            def __init__(self):
+                self.tag = 'x'
+
+        self.assertIsNone(Empty().check_valid_context(lambda: 'ok'))
+
+    def test_nested_states_are_validated(self):
+        class Outer(Node):
+            def __init__(self):
+                self.inner = brainstate.nn.Linear(2, 3)
+                self.p = brainstate.ParamState(jnp.zeros(1))
+
+        self.assertIsNone(Outer().check_valid_context(lambda: 'ok'))
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -1147,5 +1147,57 @@ class TestCloneAndGraphdef(unittest.TestCase):
         self.assertEqual(gd, gd2)
 
 
+class TestPopStatesSharedAliases(absltest.TestCase):
+    """``pop_states`` must fully detach shared/tied states.
+
+    Regression: a matched ``State`` was deduped by id and only its *first*
+    reference was popped, leaving later aliases dangling on the node.
+    """
+
+    def test_pop_removes_all_aliases_plain_node(self):
+        class Two(brainstate.graph.Node):
+            def __init__(self, s):
+                self.a = s
+                self.b = s  # shared
+
+        s = brainstate.ParamState(jnp.zeros(1))
+        t = Two(s)
+        popped = brainstate.graph.pop_states(t, brainstate.ParamState)
+        # Recorded exactly once (deduped by identity)...
+        self.assertEqual(len(popped.to_flat()), 1)
+        # ...and *both* aliases removed, so the node retains no state.
+        self.assertFalse(hasattr(t, 'a'))
+        self.assertFalse(hasattr(t, 'b'))
+        self.assertEqual(len(brainstate.graph.states(t)), 0)
+
+    def test_pop_removes_tied_weights(self):
+        class Foo(brainstate.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.bar = brainstate.nn.Linear(2, 2)
+                self.baz = brainstate.nn.Linear(2, 2)
+                self.baz.weight = self.bar.weight  # tied
+
+        node = Foo()
+        popped = brainstate.graph.pop_states(node, brainstate.ParamState)
+        self.assertEqual(len(popped.to_flat()), 1)
+        self.assertFalse(hasattr(node.bar, 'weight'))
+        self.assertFalse(hasattr(node.baz, 'weight'))
+        self.assertEqual(len(brainstate.graph.states(node)), 0)
+
+    def test_pop_unshared_state_unaffected(self):
+        """A non-shared state still pops normally (no regression)."""
+        class One(brainstate.graph.Node):
+            def __init__(self):
+                self.p = brainstate.ParamState(jnp.zeros(2))
+                self.q = brainstate.ShortTermState(jnp.zeros(2))
+
+        n = One()
+        popped = brainstate.graph.pop_states(n, brainstate.ParamState)
+        self.assertEqual(len(popped.to_flat()), 1)
+        self.assertFalse(hasattr(n, 'p'))
+        self.assertTrue(hasattr(n, 'q'))
+
+
 if __name__ == '__main__':
     absltest.main()

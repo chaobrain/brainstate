@@ -28,7 +28,7 @@ from brainstate._state import State, TreefyState
 from brainstate.typing import Key
 from brainstate.util import PrettyObject
 from ._operations import treefy_split, treefy_merge
-from ._walk import register_graph_node_type
+from ._walk import register_graph_node_type, iter_leaf
 
 __all__ = ['Node']
 
@@ -128,9 +128,28 @@ class Node(PrettyObject, metaclass=GraphNodeMeta):
         return treefy_merge(graphdef, state)
 
     def check_valid_context(self, error_msg: Callable[[], str]) -> None:
-        """Raise :class:`TraceContextError` if the current trace context is invalid."""
-        if not self._trace_state.is_valid():
-            raise TraceContextError(error_msg())
+        """Raise :class:`TraceContextError` if the node's trace context is invalid.
+
+        A graph node carries no trace state of its own; the only objects that
+        track a JAX trace level are the :class:`~brainstate.State`\\ s it holds.
+        The node is therefore valid exactly when every reachable ``State`` is
+        valid. If any contained ``State`` was created at an incompatible trace
+        level, ``error_msg()`` is raised.
+
+        Parameters
+        ----------
+        error_msg : callable
+            Zero-argument callable returning the error message; evaluated lazily
+            only when a violation is detected.
+
+        Raises
+        ------
+        TraceContextError
+            If any ``State`` reachable from this node has an invalid trace.
+        """
+        for _, value in iter_leaf(self):
+            if isinstance(value, State) and not value._trace_state.is_valid():
+                raise TraceContextError(error_msg())
 
 
 # -------------------------------

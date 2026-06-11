@@ -102,6 +102,22 @@ class TestSplitMergeContextIdentity(absltest.TestCase):
             self.assertIsNotNone(mctx)
         self.assertFalse(hasattr(mctx, 'index_ref'))
 
+    def test_merge_context_exposes_live_index_ref(self):
+        """``merge_context`` must yield the *live* index_ref table.
+
+        Regression: it previously yielded ``dict(unflatten_ctx.index_ref)`` — a
+        snapshot taken at yield time (empty) and disconnected from the table that
+        ``treefy_merge`` actually populates. This is now symmetric with
+        ``split_context``, which yields its live ``RefMap``.
+        """
+        m = brainstate.nn.Linear(2, 3)
+        graphdef, state = brainstate.graph.treefy_split(m)
+        with brainstate.graph.merge_context() as (ctx, index_ref):
+            rebuilt = ctx.treefy_merge(graphdef, state)
+        # The yielded table is populated and contains the rebuilt root object.
+        self.assertGreater(len(index_ref), 0)
+        self.assertIn(id(rebuilt), {id(v) for v in index_ref.values()})
+
 
 if __name__ == '__main__':
     absltest.main()
