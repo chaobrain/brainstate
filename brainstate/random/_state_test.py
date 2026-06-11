@@ -861,10 +861,11 @@ class TestRandomStateMoreDistributions(unittest.TestCase):
         self.assertEqual(self.rs.chisquare(3).shape, ())
         self.assertEqual(self.rs.chisquare(3, size=(4,)).shape, (4,))
 
-    def test_chisquare_nonscalar_df_requires_size(self):
-        """chisquare with non-scalar df and no size is unsupported."""
-        with self.assertRaises(NotImplementedError):
-            self.rs.chisquare(jnp.array([2, 3]))
+    def test_chisquare_nonscalar_df_infers_shape(self):
+        """chisquare with non-scalar df and no size infers the shape from df."""
+        arr = self.rs.chisquare(jnp.array([2.0, 3.0]))
+        self.assertEqual(arr.shape, (2,))
+        self.assertTrue((arr >= 0).all())
 
     def test_dirichlet(self):
         """dirichlet rows sum to one over the simplex axis."""
@@ -873,10 +874,11 @@ class TestRandomStateMoreDistributions(unittest.TestCase):
         np.testing.assert_allclose(np.asarray(arr).sum(axis=-1), 1.0, atol=1e-5)
 
     def test_geometric(self):
-        """geometric yields non-negative integer-valued samples."""
+        """geometric yields integer-valued samples supported on {1, 2, ...}."""
         arr = self.rs.geometric(0.5, size=(3,))
         self.assertEqual(arr.shape, (3,))
-        self.assertTrue((arr >= 0).all())
+        self.assertTrue((arr >= 1).all())
+        self.assertTrue(np.issubdtype(np.asarray(arr).dtype, np.integer))
 
     def test_multinomial(self):
         """multinomial counts sum to n across the category axis."""
@@ -932,10 +934,10 @@ class TestRandomStateMoreDistributions(unittest.TestCase):
         self.assertTrue((arr >= 0).all())
 
     def test_triangular(self):
-        """triangular returns values in {-1, 1}."""
-        arr = self.rs.triangular(size=(50,))
+        """triangular draws lie within [left, right] with the requested shape."""
+        arr = self.rs.triangular(-1.0, 0.0, 2.0, size=(50,))
         self.assertEqual(arr.shape, (50,))
-        self.assertTrue(jnp.all((arr == -1) | (arr == 1)))
+        self.assertTrue(jnp.all((arr >= -1.0) & (arr <= 2.0)))
 
     def test_vonmises(self):
         """vonmises returns angles within (-pi, pi]."""

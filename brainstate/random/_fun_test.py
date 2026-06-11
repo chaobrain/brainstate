@@ -404,9 +404,11 @@ class TestRandom(unittest.TestCase):
         self.assertTrue(a.dtype, float)
 
     def test_chisquare2(self):
+        # Array ``df`` with ``size=None`` infers the shape from ``df`` (gamma-based
+        # implementation supports non-scalar and non-integer degrees of freedom).
         brainstate.random.seed()
-        with self.assertRaises(NotImplementedError):
-            a = brainstate.random.chisquare(df=[2, 3, 4])
+        a = brainstate.random.chisquare(df=[2, 3, 4])
+        self.assertTupleEqual(a.shape, (3,))
 
     def test_chisquare3(self):
         brainstate.random.seed()
@@ -542,8 +544,9 @@ class TestRandom(unittest.TestCase):
 
     def test_triangular(self):
         brainstate.random.seed()
-        a = brainstate.random.triangular((2, 2))
+        a = brainstate.random.triangular(-3.0, 0.0, 8.0, (2, 2))
         self.assertTupleEqual(a.shape, (2, 2))
+        self.assertTrue(((a >= -3.0) & (a <= 8.0)).all())
 
     def test_vonmises(self):
         brainstate.random.seed()
@@ -680,7 +683,7 @@ _SIZED_DISTRIBUTIONS = (
     ("chisquare", lambda size: brainstate.random.chisquare(3, size)),
     ("t", lambda size: brainstate.random.t(5.0, size)),
     ("standard_t", lambda size: brainstate.random.standard_t(5.0, size)),
-    ("triangular", lambda size: brainstate.random.triangular(size)),
+    ("triangular", lambda size: brainstate.random.triangular(0.0, 0.5, 1.0, size)),
     ("vonmises", lambda size: brainstate.random.vonmises(0.0, 1.0, size)),
     ("maxwell", lambda size: brainstate.random.maxwell(size)),
     ("f", lambda size: brainstate.random.f(2.0, 5.0, size)),
@@ -863,3 +866,109 @@ class TestDistributionContract(parameterized.TestCase):
         x = brainstate.random.poisson(3.0, (10000,))
         self.assertTrue(bool(jnp.all(x >= 0)))
         self.assertLess(abs(float(jnp.mean(x)) - 3.0), 0.2)
+
+
+class TestAuditRegressions(parameterized.TestCase):
+    """Regression tests for bugs found in the brainstate.random audit."""
+
+    # --- A: standard_t array df with size=None ----------------------------------
+
+    def test_standard_t_array_df_infers_shape(self):
+        """standard_t infers output shape from array ``df`` when ``size`` is None."""
+        brainstate.random.seed(0)
+        a = brainstate.random.standard_t([1.0, 2.0, 4.0])
+        self.assertTupleEqual(tuple(a.shape), (3,))
+        self.assertTrue(bool(jnp.all(jnp.isfinite(a))))
+
+    def test_standard_t_scalar_df_unchanged(self):
+        """standard_t with a scalar ``df`` still returns a scalar."""
+        brainstate.random.seed(0)
+        self.assertTupleEqual(tuple(brainstate.random.standard_t(3.0).shape), ())
+
+    # --- B: weibull_min scale multiplies -----------------------------------------
+
+    @pytest.mark.slow
+    def test_weibull_min_scale_multiplies(self):
+        """weibull_min(a, scale) scales the standard draw by ``scale`` (not 1/scale)."""
+        brainstate.random.seed(0)
+        base = np.asarray(brainstate.random.weibull(2.0, 200000))
+        brainstate.random.seed(0)
+        scaled = np.asarray(brainstate.random.weibull_min(2.0, 4.0, 200000))
+        # Same key/uniforms, so the ratio is exactly the scale factor elementwise.
+        np.testing.assert_allclose(scaled / base, 4.0, rtol=1e-4)
+
+    # --- C: triangular is a real triangular distribution -------------------------
+
+    def test_triangular_within_bounds(self):
+        """triangular(left, mode, right) stays within [left, right]."""
+        brainstate.random.seed(0)
+        a = np.asarray(brainstate.random.triangular(-3.0, 0.0, 8.0, 1000))
+        self.assertTupleEqual(a.shape, (1000,))
+        self.assertTrue((a >= -3.0).all() and (a <= 8.0).all())
+
+    def test_triangular_scalar(self):
+        """triangular returns a scalar when all parameters are scalars and size is None."""
+        brainstate.random.seed(0)
+        self.assertTupleEqual(tuple(brainstate.random.triangular(0.0, 0.5, 1.0).shape), ())
+
+    @pytest.mark.slow
+    def test_triangular_mode_skews_mean(self):
+        """The sample mean approaches the analytic mean (left+mode+right)/3."""
+        brainstate.random.seed(0)
+        a = np.asarray(brainstate.random.triangular(0.0, 2.0, 3.0, 200000))
+        self.assertLess(abs(a.mean() - (0.0 + 2.0 + 3.0) / 3.0), 0.02)
+
+    def test_triangular_docstring_example_runs(self):
+        """The documented ``triangular(-3, 0, 8, N)`` call no longer raises."""
+        brainstate.random.seed(0)
+        a = brainstate.random.triangular(-3, 0, 8, 100)
+        self.assertTupleEqual(tuple(a.shape), (100,))
+
+    # --- D: geometric off-by-one and integer dtype -------------------------------
+
+    def test_geometric_support_starts_at_one(self):
+        """geometric is supported on the positive integers {1, 2, ...}."""
+        brainstate.random.seed(0)
+        a = np.asarray(brainstate.random.geometric(0.5, size=(5000,)))
+        self.assertGreaterEqual(int(a.min()), 1)
+        self.assertTrue(np.issubdtype(a.dtype, np.integer))
+
+    @pytest.mark.slow
+    def test_geometric_pmf_first_success(self):
+        """P(k == 1) approaches ``p`` (NumPy convention)."""
+        brainstate.random.seed(0)
+        a = np.asarray(brainstate.random.geometric(0.35, size=(200000,)))
+        self.assertLess(abs((a == 1).mean() - 0.35), 0.01)
+
+    # --- E: randint_like default high with ndim>1 input --------------------------
+
+    def test_randint_like_multidim_default_high(self):
+        """randint_like infers ``high`` from a multi-dimensional template."""
+        brainstate.random.seed(0)
+        template = jnp.array([[3, 7], [2, 9]])
+        a = brainstate.random.randint_like(template)
+        self.assertTupleEqual(tuple(a.shape), (2, 2))
+        self.assertTrue(bool(jnp.all(a >= 0)) and bool(jnp.all(a < 9)))
+
+    # --- F: chisquare accepts float and array df ---------------------------------
+
+    def test_chisquare_float_scalar_df(self):
+        """chisquare accepts a non-integer scalar ``df``."""
+        brainstate.random.seed(0)
+        a = brainstate.random.chisquare(3.5)
+        self.assertTupleEqual(tuple(a.shape), ())
+        self.assertTrue(float(a) >= 0.0)
+
+    def test_chisquare_array_df_infers_shape(self):
+        """chisquare with array ``df`` and ``size=None`` infers the shape from ``df``."""
+        brainstate.random.seed(0)
+        a = brainstate.random.chisquare(jnp.array([2.0, 3.0, 4.0]))
+        self.assertTupleEqual(tuple(a.shape), (3,))
+        self.assertTrue(bool(jnp.all(a >= 0.0)))
+
+    @pytest.mark.slow
+    def test_chisquare_mean_matches_df(self):
+        """A large chi-square sample has mean ~ df."""
+        brainstate.random.seed(0)
+        a = np.asarray(brainstate.random.chisquare(7.0, size=(100000,)))
+        self.assertLess(abs(a.mean() - 7.0), 0.1)
