@@ -332,16 +332,23 @@ def _iter_graph(
     def _iter(node_, visited, path_, level_):
         if level_ > hi:
             return
-        if _is_node(node_):
+        kind = classify(node_)
+        if kind == GRAPH_NODE or kind == PYTREE:
             if id(node_) in visited:
                 return
             visited.add(id(node_))
-            for key, value in _get_node_impl(node_).node_dict(node_).items():
+            if kind == GRAPH_NODE:
+                impl = _node_impl_for_type[type(node_)]
+            else:
+                impl = PYTREE_NODE_IMPL
+            items, _ = impl.flatten(node_)
+            for key, value in items:
+                child_is_node = classify(value) == GRAPH_NODE
                 yield from _iter(
                     value, visited, (*path_, key),
-                    level_ + 1 if _is_graph_node(value) else level_,
+                    level_ + 1 if child_is_node else level_,
                 )
-            if want == 'node' and _is_graph_node(node_) and level_ >= lo:
+            if want == 'node' and kind == GRAPH_NODE and level_ >= lo:
                 yield path_, node_
         else:
             if want == 'leaf' and level_ >= lo:
