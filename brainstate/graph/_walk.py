@@ -317,7 +317,8 @@ PYTREE_NODE_IMPL = PyTreeNodeImpl(
 # ---------------------------------------------------------------------------
 
 def _iter_graph(
-    node: Any, *, allowed_hierarchy: tuple[int, int], want: str
+    node: Any, *, allowed_hierarchy: tuple[int, int], want: str,
+    dedup_leaves: bool = True,
 ) -> Iterator[tuple[PathParts, Any]]:
     """Shared depth-first traversal backing the iteration family.
 
@@ -352,6 +353,13 @@ def _iter_graph(
                 yield path_, node_
         else:
             if want == 'leaf' and level_ >= lo:
+                # State leaves dedup by identity (first pre-order path wins).
+                # Reusing `visited` is safe: containers and State leaves are
+                # disjoint object sets, so their ids never collide.
+                if dedup_leaves and (kind == STATE or kind == STATE_LEAF):
+                    if id(node_) in visited:
+                        return
+                    visited.add(id(node_))
                 yield path_, node_
 
     yield from _iter(node, set(), (), 0)
@@ -363,7 +371,9 @@ def iter_leaf(
 ) -> Iterator[tuple[PathParts, Any]]:
     """Iterate ``(path, value)`` over every leaf in the graph.
 
-    Repeated containers are visited only once (by identity).
+    Repeated containers are visited only once (by identity). State leaves are
+    likewise deduplicated by identity: if the same State object is reachable
+    via multiple paths, only its first pre-order occurrence is yielded.
 
     Parameters
     ----------
