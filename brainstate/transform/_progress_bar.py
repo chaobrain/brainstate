@@ -391,14 +391,33 @@ class ProgressBar(object):
             kwargs.pop(kwarg, None)
         self.kwargs = kwargs
 
-        # description
+        # description -- ``desc`` is user-supplied, so validate with real
+        # exceptions: ``assert`` is stripped under ``python -O``, which would let
+        # a malformed ``desc`` reach the formatting callbacks and fail cryptically.
         if desc is not None:
             if isinstance(desc, str):
                 pass
             else:
-                assert isinstance(desc, (tuple, list)), 'Description should be a tuple or list.'
-                assert isinstance(desc[0], str), 'Description should be a string.'
-                assert callable(desc[1]), 'Description should be a callable.'
+                if not isinstance(desc, (tuple, list)):
+                    raise TypeError(
+                        f'desc must be a string or a (format_string, callable) '
+                        f'tuple/list, but got {type(desc).__name__}.'
+                    )
+                if len(desc) != 2:
+                    raise ValueError(
+                        f'desc tuple/list must have exactly two elements '
+                        f'(format_string, callable), but got {len(desc)}.'
+                    )
+                if not isinstance(desc[0], str):
+                    raise TypeError(
+                        f'The first element of a desc tuple must be a format '
+                        f'string, but got {type(desc[0]).__name__}.'
+                    )
+                if not callable(desc[1]):
+                    raise TypeError(
+                        f'The second element of a desc tuple must be callable, '
+                        f'but got {type(desc[1]).__name__}.'
+                    )
         self.desc = desc
 
     def init(self, n: int):
@@ -477,7 +496,14 @@ class ProgressBarRunner(object):
 
     def __call__(self, iter_num, **kwargs):
         data = dict() if isinstance(self.message, str) else self.message[1](dict(i=iter_num, **kwargs))
-        assert isinstance(data, dict), 'Description function should return a dictionary.'
+        # The description callback is user-supplied; validate its return with a
+        # real exception (``assert`` is stripped under ``python -O``), which would
+        # otherwise let a non-dict reach ``str.format(**data)`` and fail cryptically.
+        if not isinstance(data, dict):
+            raise TypeError(
+                f'The desc format function must return a dict, but got '
+                f'{type(data).__name__}.'
+            )
 
         _ = jax.lax.cond(
             iter_num == 0,
@@ -485,8 +511,14 @@ class ProgressBarRunner(object):
             lambda x: None,
             data
         )
+        # Guard the update on ``iter_num < self.n``. ``checkpointed_scan`` runs
+        # through ``_bounded_while_loop``, whose skip path advances the counter
+        # PAST ``self.n - 1`` (by whole sub-blocks) after the loop is done and
+        # still invokes this runner. Without the guard those post-completion
+        # calls can satisfy ``iter_num % print_freq == print_freq - 1`` and fire
+        # ``update()`` after ``close()`` already ran, pushing the bar past 100%.
         _ = jax.lax.cond(
-            iter_num % self.print_freq == (self.print_freq - 1),
+            (iter_num < self.n) & (iter_num % self.print_freq == (self.print_freq - 1)),
             lambda x: jax.debug.callback(self._update_tqdm, x, ordered=True),
             lambda x: None,
             data

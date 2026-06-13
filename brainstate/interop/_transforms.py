@@ -135,10 +135,12 @@ class AddScalar(Transform):
         self.constant = constant
 
     def forward(self, x):
-        return x + self.constant
+        # Wrap the constant in x's unit so a united ``brainunit.Quantity`` bias
+        # folds in correctly (raw ``x + constant`` raises on a dimensioned x).
+        return u.math.add(x, u.Quantity(self.constant, unit=u.get_unit(x)))
 
     def inverse(self, x):
-        return x - self.constant
+        return u.math.subtract(x, u.Quantity(self.constant, unit=u.get_unit(x)))
 
     def __repr__(self):
         return f"AddScalar({self.constant})"

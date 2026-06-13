@@ -203,11 +203,11 @@ def states(
     """
     num_filters = len(filters)
     if num_filters == 0:
-        filters = (..., ...)
+        filters = (...,)
     else:
         filters = (*filters, ...)
     gen = _states_generator(node, allowed_hierarchy=allowed_hierarchy)
-    flat_states = _split_flatted(gen, (*filters, ...))
+    flat_states = _split_flatted(gen, filters)
     state_maps = tuple(FlattedDict(flat) for flat in flat_states)
     return state_maps[0] if num_filters < 2 else state_maps[:num_filters]
 
@@ -236,11 +236,11 @@ def nodes(
     """
     num_filters = len(filters)
     if num_filters == 0:
-        filters = (..., ...)
+        filters = (...,)
     else:
         filters = (*filters, ...)
     gen = iter_node(node, allowed_hierarchy=allowed_hierarchy)
-    flat_nodes = _split_flatted(gen, (*filters, ...))
+    flat_nodes = _split_flatted(gen, filters)
     node_maps = tuple(FlattedDict(flat) for flat in flat_nodes)
     return node_maps[0] if num_filters < 2 else node_maps[:num_filters]
 

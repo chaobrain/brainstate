@@ -105,9 +105,28 @@ class TestProgressBarConstruction(unittest.TestCase):
         self.assertEqual(pbar.desc[0], "step {i}")
 
     def test_desc_tuple_requires_callable(self):
-        """A ``desc`` tuple whose second element is not callable raises."""
-        with self.assertRaises(AssertionError):
+        """A ``desc`` tuple whose second element is not callable raises.
+
+        Uses a real ``TypeError`` (not ``AssertionError``) so the validation
+        survives ``python -O`` (audit Tier C).
+        """
+        with self.assertRaises(TypeError):
             ProgressBar(desc=("step {i}", "not-callable"))
+
+    def test_desc_tuple_first_must_be_string(self):
+        """A ``desc`` tuple whose first element is not a string raises TypeError."""
+        with self.assertRaises(TypeError):
+            ProgressBar(desc=(123, lambda d: d))
+
+    def test_desc_must_be_str_or_sequence(self):
+        """A ``desc`` that is neither a string nor a tuple/list raises TypeError."""
+        with self.assertRaises(TypeError):
+            ProgressBar(desc=123)
+
+    def test_desc_tuple_wrong_length_raises(self):
+        """A ``desc`` tuple without exactly two elements raises ValueError."""
+        with self.assertRaises(ValueError):
+            ProgressBar(desc=("only-one",))
 
 
 class TestProgressBarInitFrequency(unittest.TestCase):
@@ -467,6 +486,66 @@ class TestProgressBarCountNoOvershoot(unittest.TestCase):
         runner = ProgressBar(count=20).init(50)
         self.assertEqual(runner.print_freq, 2)
         self.assertEqual(runner.remainder, 50 % runner.print_freq)
+
+
+class TestCheckpointedScanNoPostCloseUpdate(unittest.TestCase):
+    """``checkpointed_scan`` drives its bar through ``_bounded_while_loop``,
+    whose skip path advances the counter PAST ``n - 1`` after the loop is done.
+    ``ProgressBarRunner.__call__`` must guard the update on ``iter_num < n`` so
+    those post-completion calls never fire ``update()`` after ``close()`` and
+    push the bar past 100% (audit item 18)."""
+
+    def _run_and_collect(self, n, base, freq):
+        created = []
+
+        class _RecordingBar:
+            def __init__(self, *args, **kwargs):
+                self.n = 0
+                self.closed = False
+                self.updates_after_close = 0
+                created.append(self)
+
+            def update(self, delta):
+                if self.closed:
+                    self.updates_after_close += 1
+                self.n += delta
+
+            def set_description(self, *args, **kwargs):
+                pass
+
+            def close(self):
+                self.closed = True
+
+        with mock.patch.object(_pbmod, "tqdm_installed", False):
+            with mock.patch.object(_pbmod, "_FallbackProgressBar", _RecordingBar):
+                def step(c, x):
+                    return c + x, c + x
+
+                _, ys = brainstate.transform.checkpointed_scan(
+                    step, 0.0, jnp.arange(float(n)), base=base,
+                    pbar=ProgressBar(freq=freq),
+                )
+                ys.block_until_ready()
+        return created
+
+    def test_no_post_close_update_and_exact_position(self):
+        # base=2 forces several skip-call counter bumps past n-1.
+        n = 5
+        created = self._run_and_collect(n, base=2, freq=1)
+        self.assertTrue(created, "expected the runner to create a progress bar")
+        bar = created[0]
+        # No update() may land after close()...
+        self.assertEqual(bar.updates_after_close, 0)
+        # ...and the bar must end at exactly n (never past 100%).
+        self.assertEqual(bar.n, n)
+
+    def test_no_overshoot_various_lengths(self):
+        for n in (3, 4, 7, 8, 16):
+            created = self._run_and_collect(n, base=2, freq=1)
+            self.assertTrue(created)
+            bar = created[0]
+            self.assertEqual(bar.updates_after_close, 0, msg=f"n={n}")
+            self.assertEqual(bar.n, n, msg=f"n={n}")
 
 
 if __name__ == "__main__":

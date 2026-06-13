@@ -89,7 +89,10 @@ def tanh(x: ArrayLike) -> Union[jax.Array, u.Quantity]:
     return u.math.tanh(x)
 
 
-def softmin(x: ArrayLike, axis: int = -1) -> Union[jax.Array, u.Quantity]:
+def softmin(
+    x: ArrayLike,
+    axis: int | tuple[int, ...] | None = -1
+) -> Union[jax.Array, u.Quantity]:
     r"""
     Softmin activation function.
 
@@ -103,9 +106,10 @@ def softmin(x: ArrayLike, axis: int = -1) -> Union[jax.Array, u.Quantity]:
     ----------
     x : ArrayLike
         Input array of any shape.
-    axis : int, optional
-        The axis along which Softmin will be computed. Every slice along this
-        dimension will sum to 1. Default is -1.
+    axis : int or tuple of int, optional
+        The axis or axes along which Softmin will be computed. Every slice along
+        these dimensions will sum to 1. Either an integer or a tuple of integers.
+        Default is -1.
 
     Returns
     -------
@@ -209,7 +213,9 @@ def soft_shrink(x: ArrayLike, lambd: float = 0.5) -> Union[jax.Array, u.Quantity
         u.math.where(
             x < -lambd,
             x + lambd,
-            u.Quantity(0., unit=u.get_unit(x))
+            # Use a zero that mirrors the input's unit *and* dtype so that an
+            # integer input is not silently promoted to float by a ``0.`` literal.
+            u.math.zeros_like(x)
         )
     )
 
@@ -319,7 +325,9 @@ def hard_shrink(x: ArrayLike, lambd: float = 0.5) -> Union[jax.Array, u.Quantity
         u.math.where(
             x < -lambd,
             x,
-            u.Quantity(0., unit=u.get_unit(x))
+            # Use a zero that mirrors the input's unit *and* dtype so that an
+            # integer input is not silently promoted to float by a ``0.`` literal.
+            u.math.zeros_like(x)
         )
     )
 

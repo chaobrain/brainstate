@@ -93,12 +93,17 @@ def split_total(
     >>> split_total(100, 1.5)  # Raises ValueError
     ValueError: 'fraction' value cannot be greater than 1.
     """
-    if not isinstance(total, int):
+    # ``bool`` is a subclass of ``int``; reject it explicitly so that a boolean
+    # is never silently treated as 0/1 (which would also leak a ``bool`` into the
+    # ``int`` return value).
+    if isinstance(total, bool) or not isinstance(total, int):
         raise TypeError(f"'total' must be an integer, got {type(total).__name__}.")
     if total <= 0:
         raise ValueError(f"'total' must be a positive integer, got {total}.")
 
-    if isinstance(fraction, float):
+    if isinstance(fraction, bool):
+        raise TypeError(f"'fraction' must be an integer or float, got {type(fraction).__name__}.")
+    elif isinstance(fraction, float):
         if fraction < 0:
             raise ValueError(f"'fraction' value cannot be negative, got {fraction}.")
         if fraction > 1:
@@ -600,13 +605,21 @@ def clear_buffer_memory(
     >>> clear_buffer_memory(compilation=True)  # Also clear compilation cache
     """
     if array:
-        try:
-            from brainstate._compatible_import import get_backend
-            backend = get_backend(platform)
-            for buf in backend.live_buffers():
+        from brainstate._compatible_import import get_backend
+        # Acquiring the backend and listing live buffers are setup steps: if they
+        # fail (e.g. an unknown platform, or a JAX version without ``live_buffers``)
+        # surface the error to the caller instead of hiding a real misconfiguration.
+        backend = get_backend(platform)
+        live_buffers = backend.live_buffers()
+        # Individual buffer deletions, on the other hand, are best-effort: a single
+        # buffer that cannot be freed should not abort the whole cleanup loop. Warn
+        # per failure (rather than swallowing every error under one message) so the
+        # cause stays visible.
+        for buf in live_buffers:
+            try:
                 buf.delete()
-        except Exception as e:
-            warnings.warn(f"Failed to clear buffers: {e}", RuntimeWarning)
+            except Exception as e:
+                warnings.warn(f"Failed to delete buffer {buf!r}: {e}", RuntimeWarning)
 
     if compilation:
         jax.clear_caches()
@@ -822,6 +835,40 @@ class DotDict(dict, MutableMapping[str, Any]):
         if key not in self:
             self[key] = default
         return self[key]
+
+    def __or__(self, other: Mapping[str, Any]) -> 'DotDict':
+        """Combine with another mapping using ``|``, preserving the DotDict type.
+
+        Unlike ``dict.__or__`` (which would return a plain ``dict``), this keeps
+        the result a :class:`DotDict` and recursively hooks nested mappings.
+        """
+        if not isinstance(other, Mapping):
+            return NotImplemented
+        new_dict = self.__class__(self)
+        new_dict.update(other)
+        return new_dict
+
+    def __ror__(self, other: Mapping[str, Any]) -> 'DotDict':
+        """Right-hand ``|`` so ``mapping | dotdict`` yields a hooked DotDict.
+
+        Note: ``dict.__or__`` already accepts ``DotDict`` operands, so a plain
+        ``dict`` on the left handles the operation itself and this is only reached
+        for non-``dict`` mappings.
+        """
+        if not isinstance(other, Mapping):
+            return NotImplemented
+        # ``other`` may be any Mapping (not just a dict); normalise via ``dict()``
+        # so DotDict.__init__ takes its dict branch instead of mis-iterating keys.
+        new_dict = self.__class__(dict(other))
+        new_dict.update(self)
+        return new_dict
+
+    def __ior__(self, other: Mapping[str, Any]) -> 'DotDict':
+        """In-place ``|=`` that routes through the hook-aware ``update``."""
+        if not isinstance(other, Mapping):
+            return NotImplemented
+        self.update(other)
+        return self
 
     def __getstate__(self) -> Dict[str, Any]:
         """Get state for pickling."""

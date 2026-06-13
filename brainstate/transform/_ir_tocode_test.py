@@ -616,6 +616,28 @@ class TestControlFlowHandlers(unittest.TestCase):
         _roundtrip_check(self, f, jnp.float32(0.0), jnp.float32(1.0),
                          jnp.float32([1., 2., 3.]))
 
+    def test_scan_name_collision_with_namer(self):
+        """The scan wrapper's carry/x/final_carry/ys names must not collide
+        with variable-namer output.
+
+        The base-26 namer can emit ``x`` (index 23) and ``ys`` (index 642).
+        With enough preceding variables a carry var is named ``x`` and, with a
+        hardcoded ``x`` lambda arg, the inner unpacking ``..., x, ... = (carry, x)``
+        silently rebinds the carry from the xs slice. This drives the namer past
+        ``x`` and uses an asymmetric body so any such collision changes results.
+        """
+        def f(init, xs):
+            a = init
+            for _ in range(20):  # advance the namer toward index 23 ('x')
+                a = a + 1.0
+            def body(carry, x):
+                c0, c1 = carry
+                # asymmetric: c1 must survive untouched by the xs slice ``x``
+                return (c0 + x, c1 * 2.0), c1
+            (f0, f1), ys = jax.lax.scan(body, (a, jnp.float32(1.0)), xs)
+            return f0, f1, ys
+        _roundtrip_check(self, f, jnp.float32(0.0), jnp.float32([1., 2., 3., 4.]))
+
     def test_scan_zero_carry(self):
         """scan with zero carry (map-like) exercises the num_carry==0 branch."""
         def f(xs):
@@ -1138,7 +1160,23 @@ class TestHelperContainers(unittest.TestCase):
         self.assertEqual(len(m), 1)
         self.assertIn('IdentityMap', repr(m))
         self.assertIn('IdentityMap', str(m))
-        self.assertIn('y', list(m))
+        # __iter__ must yield KEYS (the Mapping contract), not values: the
+        # remaining key ``b`` is iterated, and its value is reachable via [].
+        self.assertEqual(list(m), [b])
+        self.assertEqual(m[b], 'y')
+
+    def test_identity_map_mapping_contract(self):
+        """keys()/values()/items()/dict() honor the Mapping contract."""
+        m = _ir_tocode.IdentityMap()
+        a, b = [1], [2]
+        m[a] = 'x'
+        m[b] = 'y'
+        # keys() yields the actual key objects (by identity)
+        self.assertEqual(list(m.keys()), [a, b])
+        # values() yields the stored values, items() the (key, value) pairs.
+        # These previously raised KeyError because __iter__ yielded values.
+        self.assertEqual(list(m.values()), ['x', 'y'])
+        self.assertEqual(list(m.items()), [(a, 'x'), (b, 'y')])
 
     def test_identity_map_init_mapping(self):
         """The constructor accepts an initial mapping (exercises update)."""

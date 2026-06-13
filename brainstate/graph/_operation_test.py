@@ -475,6 +475,13 @@ class TestGraphOperation(unittest.TestCase):
         assert params is not None
         assert others is not None
 
+        # The (filter, rest) partition must be a complete, non-overlapping cover
+        # of all states (no leakage into spurious extra buckets). This locks the
+        # behaviour after the redundant trailing-Everything predicate was removed
+        # from ``states`` / ``nodes``.
+        self.assertEqual(len(params) + len(others), len(all_states))
+        self.assertTrue(all(isinstance(v, brainstate.ParamState) for v in params.values()))
+
     def test_split_merge_split_round_trip(self):
         # Regression: a state reconstructed by ``treefy_merge`` must be
         # splittable again. ``State.to_state_ref`` strips ``_trace_state`` when

@@ -236,6 +236,9 @@ def reset(*, env: Optional[EnvironmentState] = None) -> None:
         env.settings.clear()
         env.contexts.clear()
         env.functions.clear()
+        # Also drop the per-key locks: leaving them behind keeps stale
+        # RLock objects around for keys that no longer have any settings.
+        env.locks.clear()
         # Re-initialize with default precision
         env.settings[PRECISION] = DEFAULT_PRECISION
 
@@ -1515,7 +1518,7 @@ def dctype(*, env: Optional[EnvironmentState] = None) -> DTypeLike:
     return _get_complex(_get_precision(env=env))
 
 
-def tolerance(*, env: Optional[EnvironmentState] = None) -> jnp.ndarray:
+def tolerance(*, env: Optional[EnvironmentState] = None) -> np.ndarray:
     """
     Get numerical tolerance based on current precision.
 
@@ -1529,8 +1532,10 @@ def tolerance(*, env: Optional[EnvironmentState] = None) -> jnp.ndarray:
 
     Returns
     -------
-    jnp.ndarray
-        Tolerance value as a scalar array.
+    np.ndarray
+        Tolerance value as a scalar array whose dtype matches the requested
+        precision (float64 for 64-bit, float32 for 32-bit, float16 otherwise),
+        independent of JAX's global x64 configuration.
 
     Examples
     --------
@@ -1571,12 +1576,19 @@ def tolerance(*, env: Optional[EnvironmentState] = None) -> jnp.ndarray:
     """
     precision = get_precision(env=env)
 
+    # Build the constant with NumPy so the requested precision's dtype is always
+    # honoured. ``jnp.array(1e-12, dtype=np.float64)`` is silently downcast to
+    # float32 whenever JAX's global x64 flag is disabled -- which is the default
+    # -- so a custom env with ``precision=64`` would otherwise hand back a
+    # float32 tolerance, contradicting both the requested precision and the
+    # documented value. NumPy faithfully preserves float64 regardless of JAX's
+    # global config, and the resulting scalar still broadcasts against JAX arrays.
     if precision == 64:
-        return jnp.array(1e-12, dtype=np.float64)
+        return np.asarray(1e-12, dtype=np.float64)
     elif precision == 32:
-        return jnp.array(1e-5, dtype=np.float32)
+        return np.asarray(1e-5, dtype=np.float32)
     else:
-        return jnp.array(1e-2, dtype=np.float16)
+        return np.asarray(1e-2, dtype=np.float16)
 
 
 def register_default_behavior(

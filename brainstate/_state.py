@@ -401,8 +401,18 @@ class State(Generic[A], PrettyObject):
         # record the state initialization
         record_state_init(self)
 
-        # Execute init hooks
-        self._execute_init_hooks(value, metadata)
+        # Execute init hooks.
+        # Only user-facing metadata is exposed to hooks: the internal
+        # bookkeeping fields (the value itself, the trace level, the source
+        # info, the hook manager and the written flag) are stripped so that
+        # ``ctx.init_metadata`` carries just ``_name``/``tag`` and any custom
+        # keyword arguments the user supplied. The value is already passed as
+        # the dedicated ``value`` argument, so duplicating it here is needless.
+        init_metadata = {
+            k: v for k, v in metadata.items()
+            if k not in ('_value', '_level', '_source_info', '_hooks_manager', '_been_writen')
+        }
+        self._execute_init_hooks(value, init_metadata)
 
     if not TYPE_CHECKING:
         def __setattr__(self, name: str, value: Any) -> None:
@@ -755,6 +765,11 @@ class State(Generic[A], PrettyObject):
         attributes['_trace_state'] = StateJaxTracer()
         attributes['_source_info'] = source_info_util.current()
         attributes['_been_writen'] = False
+        # Give the copy its own hook manager. ``vars(self).copy()`` is a shallow
+        # copy, so without this the original and the copy would share the same
+        # HookManager instance: registering/removing a hook on one would silently
+        # mutate the other. Hooks are per-state behaviour and must not alias.
+        attributes['_hooks_manager'] = HookManager()
         # update the metadata
         vars(obj).update(attributes)
         return obj
@@ -820,6 +835,10 @@ class State(Generic[A], PrettyObject):
             This method uses jax.tree.leaves to flatten any nested structure in the state value,
             and jax.numpy.size to compute the size of each leaf node.
         """
+        # A state poisoned by a dead trace has no meaningful element count; the
+        # sentinel would otherwise be treated as a single leaf and report ``1``.
+        # Raise the same descriptive error a normal read would.
+        self._check_invalidated()
         sizes = [jax.numpy.size(val) for val in jax.tree.leaves(self._value)]
         return sum(sizes)
 
@@ -843,17 +862,29 @@ class State(Generic[A], PrettyObject):
         trace_state = self._trace_state
         level = self._level
         source_info = self._source_info
+        # keep our own hook manager: hooks are per-state behaviour and adopting
+        # ``other``'s manager would alias it between the two states (a hook
+        # registered on one would fire on the other). ``other``'s manager stays
+        # with ``other``.
+        hooks_manager = self._hooks_manager
 
         # copy other metadata
         other_vars = vars(other).copy()
         del other_vars['_trace_state']
         del other_vars['_level']
         del other_vars['_source_info']
+        other_vars.pop('_hooks_manager', None)
 
         # update the metadata
         vars_dict = vars(self)
         vars_dict.clear()
-        vars_dict.update(other_vars, _trace_state=trace_state, _level=level, _source_info=source_info)
+        vars_dict.update(
+            other_vars,
+            _trace_state=trace_state,
+            _level=level,
+            _source_info=source_info,
+            _hooks_manager=hooks_manager,
+        )
 
     # Hook execution methods
 
@@ -1662,10 +1693,12 @@ class HiddenTreeState(HiddenGroupState):
         """
         The number of hidden states.
         """
-        assert self.value.shape[-1] == len(self.name2index), (
-            f'The number of hidden states '
-            f'is not equal to the number of hidden state names.'
-        )
+        if self.value.shape[-1] != len(self.name2index):
+            raise ValueError(
+                f'The number of hidden states ({self.value.shape[-1]}) '
+                f'is not equal to the number of hidden state names '
+                f'({len(self.name2index)}).'
+            )
         return self.value.shape[-1]
 
     def _check_value(
@@ -2097,7 +2130,18 @@ class StateTraceStack(Generic[A]):
         return self
 
     def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
-        TRACE_CONTEXT.state_stack.pop()
+        # Only pop ourselves. A plain unconditional ``pop()`` corrupts an
+        # unrelated stack if these context managers are entered/exited out of
+        # LIFO order, or if ``__exit__`` runs twice. Verify the top is ``self``
+        # before removing it.
+        stack = TRACE_CONTEXT.state_stack
+        if not stack or stack[-1] is not self:
+            raise RuntimeError(
+                f"{type(self).__name__} is being exited out of order: it is not "
+                f"on top of the trace stack. State trace contexts must be exited "
+                f"in the reverse order they were entered (last-in, first-out)."
+            )
+        stack.pop()
         # print('pop', [s.name for s in TRACE_CONTEXT.state_stack])
 
     def read_its_value(self, state: State) -> None:

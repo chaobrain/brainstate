@@ -90,8 +90,9 @@ class TestWarpGradFn(unittest.TestCase):
         self.assertTrue(bool(jnp.allclose(new_fn(jnp.array([3.0, 4.0])), jnp.array([13.0, 24.0]))))
 
     def test_int_argnum_out_of_range_raises(self):
-        """An int argnum out of range raises ``AssertionError``."""
-        with self.assertRaises(AssertionError):
+        """An int argnum out of range raises ``IndexError`` (not
+        ``AssertionError``, which is stripped under ``python -O``)."""
+        with self.assertRaises(IndexError):
             warp_grad_fn(lambda a: a, 5, (jnp.ones((2,)),), {})
 
     def test_sequence_argnums_rebinds_multiple_args(self):
@@ -107,8 +108,9 @@ class TestWarpGradFn(unittest.TestCase):
         self.assertTrue(bool(jnp.allclose(out, jnp.array([42.0]))))
 
     def test_sequence_argnums_out_of_range_raises(self):
-        """A sequence argnum out of range raises ``AssertionError``."""
-        with self.assertRaises(AssertionError):
+        """A sequence argnum out of range raises ``IndexError`` (not
+        ``AssertionError``, which is stripped under ``python -O``)."""
+        with self.assertRaises(IndexError):
             warp_grad_fn(lambda a, b: a + b, (0, 9), (jnp.ones((2,)), jnp.ones((2,))), {})
 
 

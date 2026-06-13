@@ -591,5 +591,44 @@ class TestTransformAuditRegressions(unittest.TestCase):
         np.testing.assert_allclose(np.asarray(xr), np.asarray(x), atol=1e-4)
 
 
+class TestTransformAuditRegressions2(unittest.TestCase):
+    """Regression tests for transform audit findings (T15-T17)."""
+
+    def test_softplus_float_lower_returns_plain_array(self):
+        # T15: a plain-float ``lower`` must not yield a dimensionless Quantity.
+        y = SoftplusT(2.0).forward(jnp.array([0.0, 1.0]))
+        self.assertNotIsInstance(y, u.Quantity)
+
+    def test_negsoftplus_float_upper_returns_plain_array(self):
+        y = NegSoftplusT(0.0).forward(jnp.array([0.0, 1.0]))
+        self.assertNotIsInstance(y, u.Quantity)
+
+    def test_softplus_unit_lower_still_carries_unit(self):
+        # The fix must not strip a genuine physical unit.
+        y = SoftplusT(2.0 * u.mV).forward(jnp.array([0.0]))
+        self.assertIsInstance(y, u.Quantity)
+        self.assertEqual(u.get_unit(y), u.get_unit(1.0 * u.mV))
+
+    def test_clip_inverse_reclips_out_of_range(self):
+        # T16: the docstring claimed inverse raises NotImplementedError, but it
+        # re-clips. Confirm the documented (and tested) re-clip behavior: an
+        # out-of-range value is projected onto the nearest bound.
+        t = ClipT(lower=0.0, upper=1.0)
+        np.testing.assert_allclose(np.asarray(t.inverse(jnp.array([2.0, -1.0]))),
+                                   np.array([1.0, 0.0]), rtol=1e-6)
+
+    def test_scaledsigmoid_rejects_nonpositive_beta(self):
+        # T17: beta=0 collapses forward and makes inverse divide by zero.
+        for bad in (0.0, -1.0):
+            with self.assertRaises(ValueError):
+                ScaledSigmoidT(0.0, 1.0, beta=bad)
+
+    def test_scaledsigmoid_valid_beta_roundtrips(self):
+        t = ScaledSigmoidT(0.0, 1.0, beta=2.0)
+        y = jnp.array([0.3, 0.6])
+        np.testing.assert_allclose(np.asarray(t.forward(t.inverse(y))),
+                                   np.asarray(y), atol=1e-5)
+
+
 if __name__ == '__main__':
     unittest.main()

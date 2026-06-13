@@ -73,7 +73,7 @@ def named_call(fun: Optional[Callable] = None, *, name: Optional[str] = None) ->
         ...     return jnp.sin(x) * 2.0
         >>>
         >>> block(jnp.array([1.0, 2.0]))
-        Array([1.6829419, 1.8185949], dtype=float32)
+        Array([1.6829419, 1.8185948], dtype=float32)
     """
     def _wrap(f: Callable) -> Callable:
         scope_name = name if name is not None else getattr(f, '__name__', 'named_call')

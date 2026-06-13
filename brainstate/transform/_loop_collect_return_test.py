@@ -322,6 +322,22 @@ class TestCheckpointedScanValidation(unittest.TestCase):
         )
         self.assertTrue(jnp.allclose(carry, jnp.sum(xs), atol=1e-5))
 
+    def test_checkpointed_scan_single_value_return_raises(self):
+        """Item 6: f returning a single value (not a (carry, out) tuple) must
+        raise a clear ValueError, not a stripped assert / opaque
+        ``TypeError: len() of unsized object``."""
+        with self.assertRaises(ValueError):
+            brainstate.transform.checkpointed_scan(
+                lambda c, x: c + x, 0.0, jnp.arange(4.0)
+            )
+
+    def test_checkpointed_scan_three_tuple_return_raises(self):
+        """Item 6: f returning a three-tuple must raise a clear ValueError."""
+        with self.assertRaises(ValueError):
+            brainstate.transform.checkpointed_scan(
+                lambda c, x: (c + x, x, x), 0.0, jnp.arange(4.0)
+            )
+
 
 class TestCheckpointedScanBasic(unittest.TestCase):
     """Tests for basic correctness of checkpointed_scan()."""

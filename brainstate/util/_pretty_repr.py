@@ -239,17 +239,28 @@ class MappingReprMixin(Mapping[A, B]):
     """
     Mapping mixin for pretty representation.
 
-    This mixin provides a default pretty representation for mapping-like objects.
+    This mixin only supplies a ``__pretty_repr__`` implementation (the hook
+    consumed by :func:`pretty_repr_object`); it does **not** override ``__repr__``
+    or ``__str__``. In particular, mixing it into ``dict`` does not change how the
+    object prints, because ``dict.__repr__`` still wins via the MRO. To obtain the
+    multi-line pretty string you must route through :func:`pretty_repr_object`,
+    which also requires the object to be a :class:`PrettyRepr` instance.
 
     Examples
     --------
     .. code-block:: python
 
-        >>> class MyMapping(dict, MappingReprMixin):
-        ...     pass
+        >>> from brainstate.util._pretty_repr import (
+        ...     MappingReprMixin, PrettyRepr, pretty_repr_object
+        ... )
+        >>>
+        >>> # Combine with ``PrettyRepr`` and expose the pretty output through an
+        >>> # explicit ``__repr__`` (``dict.__repr__`` would otherwise shadow it).
+        >>> class PrettyDict(dict, MappingReprMixin, PrettyRepr):
+        ...     def __repr__(self):
+        ...         return pretty_repr_object(self)
         ...
-        >>> m = MyMapping({'a': 1, 'b': 2})
-        >>> print(m)
+        >>> print(PrettyDict({'a': 1, 'b': 2}))
         {
           'a': 1,
           'b': 2

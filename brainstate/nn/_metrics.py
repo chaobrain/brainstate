@@ -1028,13 +1028,17 @@ class MultiMetric(Metric):
     All keyword arguments passed to ``update`` are forwarded to all underlying metrics.
     Each metric will extract the arguments it needs based on its implementation.
 
-    Reserved method names ('reset', 'update', 'compute') cannot be used as metric names.
+    Reserved names ('reset', 'update', 'compute', '_metric_names') cannot be used as
+    metric names.
     """
     __module__ = "brainstate.nn"
 
     def __init__(self, **metrics):
-        # Validate that no reserved names are used
-        reserved_names = {'reset', 'update', 'compute'}
+        # Validate that no reserved names are used. This includes the public method
+        # names *and* the internal ``_metric_names`` bookkeeping attribute, which
+        # would otherwise be silently overwritten by a metric of the same name and
+        # break ``reset``/``update``/``compute``.
+        reserved_names = {'reset', 'update', 'compute', '_metric_names'}
         for metric_name in metrics.keys():
             if metric_name in reserved_names:
                 raise ValueError(

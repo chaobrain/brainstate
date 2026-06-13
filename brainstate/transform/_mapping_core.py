@@ -183,11 +183,20 @@ def _flatten_in_out_states(
 def _remove_axis(x, axis: int):
     if not isinstance(axis, int):
         raise TypeError(f"Expected the mapped axis to be an integer, but got {type(axis)}.")
+    # A non-array (scalar) leaf has no ``ndim``/``shape``; touching them yields an
+    # opaque ``AttributeError``. Report which leaf cannot carry a mapped axis.
+    ndim = getattr(x, 'ndim', None)
+    if ndim is None:
+        raise ValueError(
+            f"Cannot map axis {axis} over a non-array leaf of type "
+            f"{type(x).__name__}: it has no array dimensions. Mapped inputs and "
+            f"states must be arrays; use a None axis to broadcast scalars."
+        )
     if axis < 0:
-        axis += x.ndim
-    if axis < 0 or axis >= x.ndim:
+        axis += ndim
+    if axis < 0 or axis >= ndim:
         raise ValueError(f"Mapped axis {axis} is out of bounds for array of shape {x.shape}.")
-    return x[tuple(slice(None, None, None) if i != axis else 0 for i in range(x.ndim))]
+    return x[tuple(slice(None, None, None) if i != axis else 0 for i in range(ndim))]
 
 
 def _deaxed_like(x, axis: int):
@@ -212,10 +221,22 @@ def _deaxed_like(x, axis: int):
 
 def _compile_stateful_function(
     stateful_fn: StatefulFunction,
-    in_axes: int | Tuple[int, ...],
-    args: Tuple
+    in_axes: Tuple[Any, int | None | Tuple],
+    args: Tuple[Any, Tuple],
 ):
     """Strip mapped axes and build a per-signature cache key for a stateful fn.
+
+    Parameters
+    ----------
+    stateful_fn : StatefulFunction
+        The stateful function being mapped.
+    in_axes : tuple
+        A 2-tuple ``(state_in_axes, arg_in_axes)`` -- *not* a bare int. The first
+        element holds the per-state mapped axes and the second the per-argument
+        ``in_axes`` (an int, ``None``, or a tuple); both are unpacked below.
+    args : tuple
+        A 2-tuple ``(state_vals, args)`` of the current state values and the
+        positional arguments.
 
     .. note::
 
@@ -303,6 +324,15 @@ def _get_batch_size(
     # Ensure all batch sizes are consistent.
     if len(set(batch_sizes)) > 1:
         raise ValueError(f"Inconsistent batch sizes found: {set(batch_sizes)}")
+    # Cross-check an explicit ``axis_size`` against the inferred size instead of
+    # silently ignoring it. Previously ``axis_size`` was consulted only when no
+    # size could be inferred, so a wrong ``axis_size`` paired with batched inputs
+    # passed unnoticed (jax.vmap would later error, but far less clearly).
+    if axis_size is not None and axis_size != batch_sizes[0]:
+        raise ValueError(
+            f"Explicit axis_size={axis_size} does not match the mapped axis size "
+            f"{batch_sizes[0]} inferred from the batched inputs/states."
+        )
     return batch_sizes[0]
 
 
@@ -929,7 +959,12 @@ def _build_plan(
         det = detected.get(id(st))
 
         if in_axis is not None:
-            # batched input -> also a batched output at the same axis
+            # A batched input is scattered back as a batched output only when it
+            # is actually written by ``f`` or explicitly declared in
+            # ``state_out_axes``. A purely read-only batched input must NOT be
+            # added to the output groups: it is unchanged by the call, so
+            # collecting and re-stacking it is wasted work (and forces it to be a
+            # vmap output it never needed to be).
             matched, out_axis = _match_out_axis(st)
             if matched and out_axis is not None and out_axis != in_axis:
                 st.raise_error_with_source_info(
@@ -938,7 +973,8 @@ def _build_plan(
                         f"state_out_axes maps it to axis {out_axis}."
                     )
                 )
-            out_axis_groups[in_axis].append(st)
+            if is_write or matched:
+                out_axis_groups[in_axis].append(st)
             continue
 
         matched, out_axis = _match_out_axis(st)
@@ -1109,12 +1145,24 @@ def _execute_plan(plan: LiveStateMapPlan, f, args, kwargs, in_axes, out_axes,
         raise
 
     # scatter batched output state values
+    out_group_ids = {id(st) for _, states in out_groups for st in states}
     for (axis, states), vals in zip(out_groups, out_group_vals):
         for st, v in zip(states, vals):
             st.restore_value(v)
     # restore broadcast output state values
     for st, v in zip(oth_out_states, oth_vals):
         st.restore_value(v)
+    # Restore read-only batched inputs from their pre-call snapshot. They are fed
+    # per-lane into ``fn_to_map`` (which leaves each state holding a single lane),
+    # but a read-only input is unchanged by the call and is deliberately NOT a
+    # vmap output, so without this its leaked per-lane value would replace the
+    # original batched value. (Written/declared inputs are in ``out_groups`` and
+    # were already scattered above; only the input-group states need this.)
+    snapshot_by_id = {id(st): val for st, val in snapshots}
+    for _, states in in_groups:
+        for st in states:
+            if id(st) not in out_group_ids and id(st) in snapshot_by_id:
+                st.restore_value(snapshot_by_id[id(st)])
     # restore the global RNG once (randomness consumed exactly once per call)
     for rng, key in zip(rng_states, rng_backups):
         rng.restore_value(key)

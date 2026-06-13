@@ -316,10 +316,13 @@ def ifelse(
     branches = tuple(branches)
     if len(branches) == 0:
         raise ValueError("Empty branch sequence")
-    elif len(branches) == 1:
-        return branches[0](*operands)
+    # Validate the condition/branch length contract before any short-circuit so a
+    # single branch paired with a mismatched number of conditions cannot silently
+    # ignore the conditions.
     if len(conditions) != len(branches):
         raise ValueError("The number of conditions should be equal to the number of branches.")
+    if len(branches) == 1:
+        return branches[0](*operands)
 
     # format index
     conditions = jnp.asarray(conditions, np.int32)

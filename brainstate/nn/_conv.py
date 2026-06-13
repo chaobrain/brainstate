@@ -261,7 +261,12 @@ class _BaseConv(Module):
         super().__init__(name=name)
 
         # general parameters
-        assert self.num_spatial_dims + 1 == len(in_size)
+        if self.num_spatial_dims + 1 != len(in_size):
+            raise ValueError(
+                f"in_size must have {self.num_spatial_dims + 1} entries "
+                f"({self.num_spatial_dims} spatial dimensions plus the channel "
+                f"dimension), but got {tuple(in_size)} with length {len(in_size)}."
+            )
         self.in_size = tuple(in_size)
         self.channel_first = channel_first
         self.channels_last = not channel_first
@@ -285,11 +290,52 @@ class _BaseConv(Module):
         )
 
         # the padding parameter
+        padding, _ = self._parse_padding(padding)
+        self.padding = padding
+
+        # the number of in-/out-channels
+        if self.out_channels % self.groups != 0:
+            raise ValueError(
+                f'"out_channels" ({self.out_channels}) should be divisible by '
+                f'groups ({self.groups})'
+            )
+        if self.in_channels % self.groups != 0:
+            raise ValueError(
+                f'"in_channels" ({self.in_channels}) should be divisible by '
+                f'groups ({self.groups})'
+            )
+
+        # kernel shape and w_mask
+        kernel_shape = tuple(self.kernel_size) + (self.in_channels // self.groups, self.out_channels)
+        self.kernel_shape = kernel_shape
+        self.w_mask = init.param(w_mask, kernel_shape, allow_none=True)
+
+    def _parse_padding(self, padding):
+        """Normalize the ``padding`` argument into the representation used by
+        ``jax.lax.conv_general_dilated``.
+
+        Returns a tuple ``(padding, padding_mode)`` where ``padding`` is either the
+        validated mode string (``'SAME'``/``'VALID'``) or a tuple of ``(low, high)``
+        pairs (one per spatial dimension), and ``padding_mode`` is ``'SAME'``,
+        ``'VALID'`` or ``'explicit'``. Raises ``ValueError`` (never a bare
+        ``AssertionError``/``IndexError``) for malformed input.
+        """
         if isinstance(padding, str):
-            assert padding in ['SAME', 'VALID']
+            if padding not in ('SAME', 'VALID'):
+                raise ValueError(
+                    f"String padding must be 'SAME' or 'VALID', got {padding!r}."
+                )
+            return padding, padding
         elif isinstance(padding, int):
             padding = tuple((padding, padding) for _ in range(self.num_spatial_dims))
+            return padding, 'explicit'
         elif isinstance(padding, (tuple, list)):
+            if len(padding) == 0:
+                raise ValueError(
+                    "Padding sequence must not be empty; expected an int, a "
+                    "Tuple[int, int], or a sequence of Tuple[int, int] with length "
+                    f"1 or {self.num_spatial_dims}."
+                )
             if isinstance(padding[0], int):
                 if self.num_spatial_dims == 1 and len(padding) == 2:
                     padding = (tuple(padding),)
@@ -300,6 +346,7 @@ class _BaseConv(Module):
                         f"Integer padding tuple {padding} must have length "
                         f"{self.num_spatial_dims} (one value per spatial dim)."
                     )
+                return padding, 'explicit'
             elif isinstance(padding[0], (tuple, list)):
                 if len(padding) == 1:
                     padding = tuple(padding) * self.num_spatial_dims
@@ -311,18 +358,17 @@ class _BaseConv(Module):
                             f"or sequence of Tuple[int, int] with length {self.num_spatial_dims}."
                         )
                     padding = tuple(padding)
+                return padding, 'explicit'
+            else:
+                raise ValueError(
+                    f"Padding {padding} must be a Tuple[int, int], or a sequence "
+                    f"of Tuple[int, int]; got element of type {type(padding[0]).__name__}."
+                )
         else:
-            raise ValueError
-        self.padding = padding
-
-        # the number of in-/out-channels
-        assert self.out_channels % self.groups == 0, '"out_channels" should be divisible by groups'
-        assert self.in_channels % self.groups == 0, '"in_channels" should be divisible by groups'
-
-        # kernel shape and w_mask
-        kernel_shape = tuple(self.kernel_size) + (self.in_channels // self.groups, self.out_channels)
-        self.kernel_shape = kernel_shape
-        self.w_mask = init.param(w_mask, kernel_shape, allow_none=True)
+            raise ValueError(
+                "Padding must be a string ('SAME'/'VALID'), an int, a "
+                f"Tuple[int, int], or a sequence of Tuple[int, int]; got {type(padding).__name__}."
+            )
 
     def _check_input_dim(self, x):
         if x.ndim == self.num_spatial_dims + 2:
@@ -1500,7 +1546,12 @@ class _ConvTranspose(_BaseConv):
         Module.__init__(self, name=name)
 
         # general parameters
-        assert self.num_spatial_dims + 1 == len(in_size)
+        if self.num_spatial_dims + 1 != len(in_size):
+            raise ValueError(
+                f"in_size must have {self.num_spatial_dims + 1} entries "
+                f"({self.num_spatial_dims} spatial dimensions plus the channel "
+                f"dimension), but got {tuple(in_size)} with length {len(in_size)}."
+            )
         self.in_size = tuple(in_size)
         self.channel_first = channel_first
         self.channels_last = not channel_first
@@ -1528,45 +1579,22 @@ class _ConvTranspose(_BaseConv):
         # correct transposed-conv output size differs from a forward conv and is
         # computed (per dimension) in ``_conv_op`` via ``_conv_transpose_padding`` so
         # that 'SAME'/'VALID' match ``jax.lax.conv_transpose`` at *all* strides
-        # (including stride == 1).
-        if isinstance(padding, str):
-            assert padding in ['SAME', 'VALID']
-            self.padding_mode = padding
-            # Keep the mode string; the explicit per-dimension padding is resolved
-            # lazily in ``_conv_op`` (it depends on the effective, dilated kernel size).
-        elif isinstance(padding, int):
-            self.padding_mode = 'explicit'
-            padding = tuple((padding, padding) for _ in range(self.num_spatial_dims))
-        elif isinstance(padding, (tuple, list)):
-            self.padding_mode = 'explicit'
-            if isinstance(padding[0], int):
-                if self.num_spatial_dims == 1 and len(padding) == 2:
-                    padding = (tuple(padding),)
-                elif len(padding) == self.num_spatial_dims:
-                    padding = tuple((p, p) for p in padding)
-                else:
-                    raise ValueError(
-                        f"Integer padding tuple {padding} must have length "
-                        f"{self.num_spatial_dims} (one value per spatial dim)."
-                    )
-            elif isinstance(padding[0], (tuple, list)):
-                if len(padding) == 1:
-                    padding = tuple(padding) * self.num_spatial_dims
-                else:
-                    if len(padding) != self.num_spatial_dims:
-                        raise ValueError(
-                            f"Padding {padding} must be a Tuple[int, int], "
-                            f"or sequence of Tuple[int, int] with length 1, "
-                            f"or sequence of Tuple[int, int] with length {self.num_spatial_dims}."
-                        )
-                    padding = tuple(padding)
-        else:
-            raise ValueError
+        # (including stride == 1). For a mode string we keep the string and resolve
+        # the explicit per-dimension padding lazily in ``_conv_op``.
+        padding, self.padding_mode = self._parse_padding(padding)
         self.padding = padding
 
         # the number of in-/out-channels
-        assert self.out_channels % self.groups == 0, '"out_channels" should be divisible by groups'
-        assert self.in_channels % self.groups == 0, '"in_channels" should be divisible by groups'
+        if self.out_channels % self.groups != 0:
+            raise ValueError(
+                f'"out_channels" ({self.out_channels}) should be divisible by '
+                f'groups ({self.groups})'
+            )
+        if self.in_channels % self.groups != 0:
+            raise ValueError(
+                f'"in_channels" ({self.in_channels}) should be divisible by '
+                f'groups ({self.groups})'
+            )
 
         # kernel shape for transpose conv
         # When transpose=True in dimension_numbers, kernel is (spatial..., out_channels, in_channels // groups)

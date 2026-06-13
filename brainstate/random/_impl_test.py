@@ -68,6 +68,24 @@ class TestMultinomial(unittest.TestCase):
         self.assertEqual(counts.shape, (3,))
         self.assertEqual(int(jnp.sum(counts)), 4)
 
+    def test_array_valued_n_returns_integer_counts(self):
+        """Audit item 1: with an array-valued ``n`` the counts stay integer.
+
+        The heterogeneous-``n`` branch subtracts an ``excess`` term that used to be
+        built as float (``jnp.zeros`` default + a float concatenate), promoting the
+        returned counts to floating point and violating the integer-counts contract.
+        """
+        p = jnp.array([[0.2, 0.3, 0.5], [0.1, 0.1, 0.8]])
+        # Both a genuinely heterogeneous n and an array-but-equal n hit the same
+        # (previously float-producing) branch.
+        for n in (jnp.array([10, 5]), jnp.array([7, 7])):
+            with self.subTest(n=np.asarray(n).tolist()):
+                counts = _impl.multinomial(self.key, p, n, n_max=10)
+                self.assertTrue(jnp.issubdtype(counts.dtype, jnp.integer),
+                                msg=f'expected integer counts, got {counts.dtype}')
+                np.testing.assert_array_equal(
+                    np.asarray(jnp.sum(counts, axis=-1)), np.asarray(n))
+
 
 class TestVonMisesCentered(unittest.TestCase):
     """Validate the ``von_mises_centered`` rejection sampler in ``_impl.py``."""

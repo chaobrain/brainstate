@@ -376,6 +376,25 @@ class TestExpandPjitPrimitive(unittest.TestCase):
         graph, *_ = viz.expand_pjit_primitive(jpr.jaxpr, "", 0, False, True, "g")
         self.assertIsNotNone(graph)
 
+    def test_expand_pjit_primitive_no_phantom_parent_edges(self):
+        """The standalone pjit expansion must not return parent-linking edges or
+        nodes keyed off its own vars: it has no enclosing equation, so such edges
+        point at non-existent ``{parent_id}_{var}`` nodes (audit item 4)."""
+        import brainstate.transform._ir_visualize as viz
+
+        def f(x):
+            return jnp.sin(x) * 2.0
+
+        jpr = jax.make_jaxpr(f)(jnp.float32(1.0))
+        graph, arg_edges, out_nodes, out_edges, n = viz.expand_pjit_primitive(
+            jpr.jaxpr, "parent", 0, False, True, "g"
+        )
+        self.assertIsNotNone(graph)
+        # No phantom parent linkage.
+        self.assertEqual(list(arg_edges), [])
+        self.assertEqual(list(out_nodes), [])
+        self.assertEqual(list(out_edges), [])
+
 
 @unittest.skipUnless(PYDOT, "pydot not installed")
 class TestExpandNonPrimitiveErrors(unittest.TestCase):

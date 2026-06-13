@@ -155,15 +155,17 @@ class ChainedReg(Regularization):
         Overall regularization weight (lambda) that scales the combined loss.
         Default is 1.0.
     fit_hyper : bool, optional
-        Whether to optimize weight as a trainable parameter.
+        Stored on the instance and forwarded to component regularizations that
+        support trainable shape hyperparameters. The overall ``weight`` of the
+        chain itself is always a fixed constant and is never made trainable.
         Default is ``False``.
 
     Attributes
     ----------
     regularizations : tuple of Regularization
         The regularizations being combined.
-    weight : array_like or ParamState
-        Regularization weight (trainable if ``fit_hyper=True``).
+    weight : array_like
+        Fixed regularization weight (a constant, never trainable).
 
     Examples
     --------
@@ -283,7 +285,8 @@ class GaussianReg(Regularization):
     weight : float, optional
         Regularization weight (lambda). Default is 1.0.
     fit_hyper : bool, optional
-        Whether to optimize mean, precision, and weight as trainable parameters.
+        Whether to optimize ``mean`` and ``precision`` as trainable parameters.
+        The ``weight`` is always a fixed constant and is never made trainable.
         Default is ``False``.
 
     Attributes
@@ -292,8 +295,8 @@ class GaussianReg(Regularization):
         Prior mean (trainable if ``fit_hyper=True``).
     precision : array_like or ParamState
         Prior precision (trainable if ``fit_hyper=True``).
-    weight : array_like or ParamState
-        Regularization weight (trainable if ``fit_hyper=True``).
+    weight : array_like
+        Fixed regularization weight (a constant, never trainable).
 
     Examples
     --------
@@ -392,13 +395,14 @@ class L1Reg(Regularization):
     weight : float, optional
         Regularization weight (lambda). Default is 1.0.
     fit_hyper : bool, optional
-        Whether to optimize weight as a trainable parameter.
+        Stored on the instance for API consistency. ``L1Reg`` has no trainable
+        shape hyperparameters, so ``weight`` is always a fixed constant.
         Default is ``False``.
 
     Attributes
     ----------
-    weight : array_like or ParamState
-        Regularization weight (trainable if ``fit_hyper=True``).
+    weight : array_like
+        Fixed regularization weight (a constant, never trainable).
 
     Examples
     --------
@@ -488,13 +492,14 @@ class L2Reg(Regularization):
     weight : float, optional
         Regularization weight (lambda). Default is 1.0.
     fit_hyper : bool, optional
-        Whether to optimize weight as a trainable parameter.
+        Stored on the instance for API consistency. ``L2Reg`` has no trainable
+        shape hyperparameters, so ``weight`` is always a fixed constant.
         Default is ``False``.
 
     Attributes
     ----------
-    weight : array_like or ParamState
-        Regularization weight (trainable if ``fit_hyper=True``).
+    weight : array_like
+        Fixed regularization weight (a constant, never trainable).
 
     Examples
     --------
@@ -552,8 +557,10 @@ class L2Reg(Regularization):
         array_like
             Sample from N(0, 1/weight).
         """
-        # L2 prior corresponds to Gaussian with zero mean
-        std = 1.0 / u.math.sqrt(self.weight + 1e-8)
+        # L2 prior corresponds to Gaussian with zero mean. Clamp the weight with
+        # ``relu`` (matching ``loss``) before the sqrt so a negative weight yields
+        # a finite (large-variance) std instead of NaN.
+        std = 1.0 / u.math.sqrt(brainstate.nn.relu(get_value(self.weight)) + 1e-8)
         return std * brainstate.random.randn(*get_size(shape))
 
     def reset_value(self) -> Data:
@@ -589,8 +596,9 @@ class ElasticNetReg(Regularization):
         Mixing ratio between L1 and L2 (0 = pure L2, 1 = pure L1).
         Default is 0.5.
     fit_hyper : bool, optional
-        Whether to optimize weights as trainable parameters.
-        Default is ``False``.
+        Whether to optimize the mixing ratio ``alpha`` as a trainable parameter.
+        The ``l1_weight`` and ``l2_weight`` are always fixed constants and are
+        never made trainable. Default is ``False``.
 
     Examples
     --------
@@ -781,8 +789,10 @@ class HuberReg(Regularization):
         array_like
             Sample approximately from Huber prior (using Gaussian).
         """
-        # Approximate with Gaussian for simplicity
-        std = 1.0 / u.math.sqrt(self.weight)
+        # Approximate with Gaussian for simplicity. Clamp the weight with ``relu``
+        # (matching ``loss``) and add an epsilon so a non-positive weight yields a
+        # finite std instead of NaN/inf.
+        std = 1.0 / u.math.sqrt(brainstate.nn.relu(get_value(self.weight)) + 1e-8)
         return std * brainstate.random.randn(*get_size(shape))
 
     def reset_value(self) -> Data:
@@ -844,6 +854,15 @@ class GroupLassoReg(Regularization):
     ):
         super().__init__(fit_hyper)
 
+        # ``group_size`` is used as a divisor (``n % group_size``) and reshape
+        # dimension, so it must be a positive integer. A value of 0 raises
+        # ZeroDivisionError and a negative value silently mis-groups via Python's
+        # modulo semantics; reject both up front.
+        if not isinstance(group_size, int):
+            raise TypeError(f"group_size must be an int, but got {type(group_size)}.")
+        if group_size <= 0:
+            raise ValueError(f"group_size must be a positive integer, but got {group_size}.")
+
         weight_t = u.math.asarray(weight, dtype=brainstate.environ.dftype())
         self.weight = weight_t
         self.group_size = group_size
@@ -903,7 +922,9 @@ class GroupLassoReg(Regularization):
         array_like
             Sample (using Gaussian approximation).
         """
-        std = 1.0 / u.math.sqrt(self.weight)
+        # Clamp the weight with ``relu`` (matching ``loss``) and add an epsilon so
+        # a non-positive weight yields a finite std instead of NaN/inf.
+        std = 1.0 / u.math.sqrt(brainstate.nn.relu(get_value(self.weight)) + 1e-8)
         return std * brainstate.random.randn(*get_size(shape))
 
     def reset_value(self) -> Data:
@@ -967,6 +988,12 @@ class TotalVariationReg(Regularization):
     ):
         super().__init__(fit_hyper)
 
+        # Only first- and second-order finite differences are implemented; any
+        # other value was previously silently treated as order 2. Reject it so a
+        # typo (e.g. ``order=3``) does not produce a misleading result.
+        if order not in (1, 2):
+            raise ValueError(f"order must be 1 or 2, but got {order}.")
+
         weight_t = u.math.asarray(weight, dtype=brainstate.environ.dftype())
         self.weight = weight_t
         self.order = order
@@ -1012,7 +1039,9 @@ class TotalVariationReg(Regularization):
         array_like
             Smooth sample using cumulative sum of noise.
         """
-        std = 1.0 / u.math.sqrt(self.weight)
+        # Clamp the weight with ``relu`` (matching ``loss``) and add an epsilon so
+        # a non-positive weight yields a finite std instead of NaN/inf.
+        std = 1.0 / u.math.sqrt(brainstate.nn.relu(get_value(self.weight)) + 1e-8)
         # Generate smooth samples using cumulative sum
         noise = std * brainstate.random.randn(*get_size(shape))
         return u.math.cumsum(noise.flatten()).reshape(get_size(shape)) / u.math.sqrt(
@@ -1178,6 +1207,11 @@ class EntropyReg(Regularization):
     -----
     Entropy regularization is useful in attention mechanisms and
     reinforcement learning to encourage exploration.
+
+    The softmax is computed over **all** elements flattened together (one global
+    distribution), not per-row. For a ``(batch, K)`` input this yields a single
+    ``batch * K``-way distribution rather than ``batch`` independent ``K``-way
+    ones, so the per-element wording above only matches a 1-D input.
     """
 
     __module__ = 'brainstate.nn'
@@ -1529,14 +1563,17 @@ class SpectralNormReg(Regularization):
 
         sample = brainstate.random.randn(*shape_tuple)
 
-        # Scale by max_value / estimated_norm
+        # Rescale the sample so its (estimated) spectral norm matches the requested
+        # ``max_value`` -- i.e. it sits right at the constraint boundary that
+        # ``loss`` penalises. The previous extra ``* 0.5`` factor systematically
+        # produced samples at only half the requested spectral norm.
         if len(shape_tuple) >= 2:
             sigma = self._estimate_spectral_norm(sample)
-            scale = max_val / (sigma + 1e-8) * 0.5
+            scale = max_val / (sigma + 1e-8)
             return sample * scale
         else:
             norm = u.math.sqrt(u.math.sum(sample ** 2) + 1e-8)
-            return sample * max_val / (norm + 1e-8) * 0.5
+            return sample * max_val / (norm + 1e-8)
 
     def reset_value(self) -> Data:
         """
@@ -2906,6 +2943,10 @@ class DirichletReg(Regularization):
     Dirichlet prior is appropriate for attention weights, mixture proportions,
     and other probability simplexes. alpha=1 is uniform, alpha<1 encourages
     sparsity, alpha>1 encourages uniformity.
+
+    The softmax/simplex is formed over **all** elements flattened together (one
+    global simplex), not per-row: a ``(batch, K)`` input becomes a single
+    ``batch * K``-way simplex rather than ``batch`` independent ``K``-way ones.
     """
 
     __module__ = 'brainstate.nn'

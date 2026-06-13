@@ -24,7 +24,7 @@ description mixins, alignment interfaces, and custom type definitions for
 expressing complex type requirements.
 """
 
-from typing import Sequence, Optional, TypeVar, Union, _GenericAlias
+from typing import Any, Sequence, Optional, TypeVar, Union, _GenericAlias
 
 import jax
 
@@ -250,9 +250,16 @@ class HashableDict(dict):
 
     def __hash__(self):
         """
-        Compute hash from sorted items for consistent hashing regardless of insertion order.
+        Compute an order-independent hash of the items.
+
+        A ``frozenset`` of the items is used rather than ``sorted(...)``: sorting
+        compares keys against one another, which raises ``TypeError`` for dicts
+        whose keys are of mutually-unorderable types (e.g. mixing ``int`` and
+        ``str`` keys). ``frozenset`` only requires the items to be hashable
+        (which the constructor guarantees) and is likewise insertion-order
+        independent.
         """
-        return hash(tuple(sorted(self.items())))
+        return hash(frozenset(self.items()))
 
 
 class NoSubclassMeta(type):
@@ -464,7 +471,7 @@ class ParamDescriber(metaclass=NoSubclassMeta):
         return self._identifier
 
     @identifier.setter
-    def identifier(self, value: ArrayLike):
+    def identifier(self, value: Any):
         """
         Prevent modification of the identifier.
 
@@ -586,6 +593,22 @@ class _JointGenericAlias(_GenericAlias, _root=True):
         when unpickling.
         """
         return (_JointGenericAlias, (self.__origin__, self.__args__))
+
+    def __call__(self, *args, **kwargs):
+        """
+        Reject instantiation.
+
+        ``JointTypes[A, B]`` is a type-checking alias (use it with
+        ``isinstance``/``issubclass`` or as an annotation), not a constructor.
+        Its ``__origin__`` is ``object``, so the inherited ``_GenericAlias``
+        behaviour would otherwise silently build a bare ``object()`` instead of
+        an instance satisfying the joint type.
+        """
+        raise TypeError(
+            f"Cannot instantiate {self!r}: it is an intersection type used for "
+            f"isinstance/issubclass checks and annotations, not a constructor. "
+            f"Instantiate one of its component classes directly."
+        )
 
 
 class _OneOfGenericAlias(_GenericAlias, _root=True):

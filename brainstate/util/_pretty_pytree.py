@@ -804,7 +804,11 @@ class NestedDict(PrettyDict):
             >>> type(pure)
             <class 'dict'>
         """
-        flat_values = {k: x for k, x in self.to_flat().items()}
+        # ``keep_empty_nodes=True`` so that empty nested mappings (e.g. ``{'a': {}}``)
+        # survive the flatten/nest round-trip; the default would silently drop them,
+        # contradicting this method's "same nested structure" contract. ``nest_mapping``
+        # restores the empty-node sentinel back to an empty ``dict``.
+        flat_values = flat_mapping(self, keep_empty_nodes=True)
         return nest_mapping(flat_values).to_dict()
 
     def replace_by_pure_dict(

@@ -377,16 +377,41 @@ else:
         """
 
         def wrapper(fun: T) -> T:
+            # Copy each piece of metadata independently. A single shared
+            # try/except would abandon every remaining attribute the moment one
+            # copy failed (e.g. a read-only __dict__ on a builtin), leaving the
+            # wrapper with a partially-populated, inconsistent set of metadata.
             try:
                 name = fun_name(wrapped)
-                doc = getattr(wrapped, "__doc__", "") or ""
+            except Exception:
+                name = getattr(wrapped, "__name__", "<unknown>")
+            try:
                 fun.__dict__.update(getattr(wrapped, "__dict__", {}))
+            except Exception:
+                pass
+            try:
                 fun.__annotations__ = getattr(wrapped, "__annotations__", {})
+            except Exception:
+                pass
+            try:
                 fun.__name__ = name if namestr is None else namestr.format(fun=name)
+            except Exception:
+                pass
+            try:
                 fun.__module__ = getattr(wrapped, "__module__", "<unknown module>")
+            except Exception:
+                pass
+            try:
+                doc = getattr(wrapped, "__doc__", "") or ""
                 fun.__doc__ = (doc if docstr is None
                                else docstr.format(fun=name, doc=doc, **kwargs))
-                fun.__qualname__ = getattr(wrapped, "__qualname__", fun.__name__)
+            except Exception:
+                pass
+            try:
+                fun.__qualname__ = getattr(wrapped, "__qualname__", getattr(fun, "__name__", name))
+            except Exception:
+                pass
+            try:
                 fun.__wrapped__ = wrapped
             except Exception:
                 pass

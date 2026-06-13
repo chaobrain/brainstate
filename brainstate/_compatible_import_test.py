@@ -424,6 +424,42 @@ class TestFunctionWrapping(unittest.TestCase):
         # Should handle missing attributes without crashing
         self.assertTrue(callable(wrapper))
 
+    def test_a1_partial_failure_does_not_drop_remaining_metadata(self):
+        """Appendix item 1: a failure copying one attribute must not abort the
+        rest. With a single shared try/except, a read-only ``__name__`` on the
+        wrapper aborted ``__doc__``/``__qualname__``/``__wrapped__`` too."""
+
+        def original():
+            """Original doc."""
+            pass
+
+        original.custom_marker = "kept"
+
+        class FunkyWrapper:
+            """A callable whose ``__name__`` cannot be assigned."""
+            __doc__ = None  # settable on the instance
+
+            def __init__(self):
+                self.__dict__ = {}
+
+            def __call__(self):
+                pass
+
+            # __name__ assignment raises -> the early-failing attribute
+            def __setattr__(self, key, value):
+                if key == "__name__":
+                    raise AttributeError("read-only __name__")
+                object.__setattr__(self, key, value)
+
+        fun = FunkyWrapper()
+        result = compat.wraps(original)(fun)
+
+        # __name__ copy failed, but the later attributes must still be applied.
+        self.assertEqual(result.__doc__, "Original doc.")
+        self.assertIs(result.__wrapped__, original)
+        # __dict__ (copied before __name__) must also be preserved.
+        self.assertEqual(result.custom_marker, "kept")
+
 
 class TestEdgeCases(unittest.TestCase):
     """Test edge cases and boundary conditions."""

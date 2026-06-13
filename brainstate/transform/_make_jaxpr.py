@@ -157,7 +157,11 @@ def get_arg_cache_key(
             static_args.append(arg)
         else:
             dyn_args.append(arg)
-    jax.tree.map(fn_to_check, dyn_args, is_leaf=lambda x: isinstance(x, State))
+    # Mirror the kwargs branch below: skip the State check when ``fn_to_check``
+    # is None. Without this guard ``jax.tree.map(None, ...)`` raises a confusing
+    # ``TypeError: 'NoneType' object is not callable`` on the positional args.
+    if fn_to_check is not None:
+        jax.tree.map(fn_to_check, dyn_args, is_leaf=lambda x: isinstance(x, State))
     dyn_args = jax.tree.map(shaped_abstractify, dyn_args)
 
     # kwargs -- the State check must run BEFORE abstractification, which
@@ -469,7 +473,13 @@ class StatefulFunction(PrettyObject):
             if current_def != compiled_def or len(current_leaves) != len(compiled_leaves):
                 return True
             for cur, ref in zip(current_leaves, compiled_leaves):
-                if shaped_abstractify(cur) != ref:
+                # Compare shape and dtype only, per the documented contract. Full
+                # aval equality also distinguishes ``weak_type`` (e.g. a Python
+                # float -> ``weak_type=True`` vs an array -> ``weak_type=False``),
+                # which would flag an otherwise-identical state as stale and force
+                # a spurious recompile.
+                cur_aval = shaped_abstractify(cur)
+                if cur_aval.shape != ref.shape or cur_aval.dtype != ref.dtype:
                     return True
         return False
 
@@ -902,8 +912,11 @@ class StatefulFunction(PrettyObject):
         # static args
         cache_key = self.get_arg_cache_key(*args, **kwargs)
 
-        # Validate static_argnums bounds
-        if self.static_argnums and args:
+        # Validate static_argnums bounds. The check must run even when ``args``
+        # is empty: calling with only keyword arguments while ``static_argnums``
+        # names a positional index (e.g. ``static_argnums=(0,)``) is still
+        # out of range -- gating on ``and args`` silently skipped that case.
+        if self.static_argnums:
             max_idx = max(self.static_argnums)
             if max_idx >= len(args):
                 raise ValueError(
@@ -1038,6 +1051,17 @@ class StatefulFunction(PrettyObject):
             states: Sequence[State] = tuple(compilation.state_trace.states)
             if len(state_vals) != len(states):
                 raise ValueError(f'State length mismatch: expected {len(states)} states, got {len(state_vals)}')
+            # A correct-length ``state_vals`` whose entries are ``None`` would
+            # otherwise flatten away (``None`` is an empty pytree) and reach
+            # ``eval_jaxpr`` with too few operands, failing with an opaque
+            # ``foreach()``/argument-count error. Each entry is one tracked
+            # state's value and must be present; report the offending indices.
+            none_indices = [i for i, v in enumerate(state_vals) if v is None]
+            if none_indices:
+                raise ValueError(
+                    f'state_vals contains None at index(es) {none_indices}; '
+                    f'every tracked state must be given a concrete value.'
+                )
 
             # parameters
             kwargs = {k: v for k, v in kwargs.items() if k not in self.static_argnames}  # remove static kwargs
@@ -1164,7 +1188,21 @@ class StatefulFunction(PrettyObject):
 
         for i, (state, compiled_aval) in enumerate(zip(state_trace.states, compiled_avals)):
             current_aval = jax.tree.map(shaped_abstractify, state.value)
-            if current_aval != compiled_aval:
+            # Compare structurally rather than with ``!=`` on the whole aval.
+            # A direct ``current_aval != compiled_aval`` dispatches to the leaf
+            # type's ``__ne__``; for a unit-aware ``Quantity`` with mismatched
+            # units that raises ``UnitMismatchError`` instead of the documented
+            # ``ValueError``. Flattening folds any unit change into the treedef
+            # and leaves plain ``ShapedArray`` leaves to compare by shape/dtype.
+            cur_leaves, cur_def = jax.tree.flatten(current_aval)
+            ref_leaves, ref_def = jax.tree.flatten(compiled_aval)
+            mismatch = (
+                cur_def != ref_def
+                or len(cur_leaves) != len(ref_leaves)
+                or any(c.shape != r.shape or c.dtype != r.dtype
+                       for c, r in zip(cur_leaves, ref_leaves))
+            )
+            if mismatch:
                 raise ValueError(
                     f'State shape/dtype mismatch for state {i} '
                     f'(type: {type(state).__name__}): '

@@ -165,6 +165,41 @@ class TestGradientTransformDebugNaN(unittest.TestCase):
         grads = gt()
         self.assertTrue(bool(jnp.allclose(grads, jnp.array([6.0, 8.0]))))
 
+    def test_nan_check_detects_complex(self):
+        """The JIT-compatible NaN check must flag NaN in complex gradients."""
+        from brainstate.transform._grad_transform import _check_nan_jit_compatible
+        clean = jnp.array([1.0 + 2.0j], dtype=jnp.complex64)
+        nan_real = jnp.array([complex(float('nan'), 1.0)], dtype=jnp.complex64)
+        nan_imag = jnp.array([complex(1.0, float('nan'))], dtype=jnp.complex64)
+        self.assertFalse(bool(_check_nan_jit_compatible(clean)))
+        self.assertTrue(bool(_check_nan_jit_compatible(nan_real)))
+        self.assertTrue(bool(_check_nan_jit_compatible(nan_imag)))
+
+
+class TestHasAuxValidation(unittest.TestCase):
+    """``has_aux=True`` requires the function to return a (loss, aux) pair."""
+
+    def test_non_tuple_aux_return_raises_type_error(self):
+        """A non-(tuple/list) return under has_aux=True raises a clear TypeError,
+        not a bare assertion stripped under ``python -O``."""
+
+        def f(x):
+            return jnp.sum(x ** 2)  # forgot to return aux
+
+        with self.assertRaises(TypeError) as ctx:
+            brainstate.transform.grad(f, has_aux=True)(jnp.ones((3,)))
+        self.assertIn('has_aux', str(ctx.exception))
+
+    def test_tuple_aux_return_ok(self):
+        """A proper (loss, aux) pair works under has_aux=True."""
+
+        def f(x):
+            return jnp.sum(x ** 2), {'n': x.shape[0]}
+
+        grads, aux = brainstate.transform.grad(f, has_aux=True)(jnp.ones((2,)))
+        self.assertTrue(bool(jnp.allclose(grads, 2.0 * jnp.ones((2,)))))
+        self.assertEqual(aux['n'], 2)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -219,7 +219,12 @@ def graph_to_tree(
     leaf_prefixes = broadcast_prefix(prefix, may_have_graph_nodes, prefix_is_leaf=lambda x: x is None)
     leaf_keys, treedef = jax.tree_util.tree_flatten_with_path(may_have_graph_nodes)
 
-    assert len(leaf_keys) == len(leaf_prefixes)
+    if len(leaf_keys) != len(leaf_prefixes):
+        raise ValueError(
+            f"Mismatched number of leaves ({len(leaf_keys)}) and broadcast prefixes "
+            f"({len(leaf_prefixes)}); the `prefix` is not a valid prefix tree of "
+            f"`may_have_graph_nodes`."
+        )
 
     with split_context() as (ctx, index_ref):
         leaves_out = []
@@ -301,7 +306,11 @@ def tree_to_graph(
     _prefix_is_leaf = lambda x: x is None or is_leaf(x)
     leaf_prefixes = broadcast_prefix(prefix, tree, prefix_is_leaf=_prefix_is_leaf, tree_is_leaf=is_leaf)
     leaf_keys, treedef = jax.tree_util.tree_flatten_with_path(tree, is_leaf=is_leaf)
-    assert len(leaf_keys) == len(leaf_prefixes), "Mismatched number of keys and prefixes"
+    if len(leaf_keys) != len(leaf_prefixes):
+        raise ValueError(
+            f"Mismatched number of leaves ({len(leaf_keys)}) and broadcast prefixes "
+            f"({len(leaf_prefixes)}); the `prefix` is not a valid prefix tree of `tree`."
+        )
 
     with merge_context() as (ctx, index_ref):
         leaves_out = []

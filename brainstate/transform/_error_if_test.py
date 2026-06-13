@@ -73,3 +73,24 @@ class TestErrorMsgDirect(unittest.TestCase):
         with self.assertRaises(ValueError) as ctx:
             _error_msg('plain message')
         self.assertIn('plain message', str(ctx.exception))
+
+    def test_positional_brace_style_message(self):
+        """A natural brace-style positional message must format, not raise TypeError."""
+        from brainstate.transform._error_if import _error_msg
+        with self.assertRaises(ValueError) as ctx:
+            _error_msg('bad value {}', 5)
+        self.assertIn('bad value 5', str(ctx.exception))
+
+    def test_positional_brace_style_multiple(self):
+        """Multiple positional args with brace-style placeholders format in order."""
+        from brainstate.transform._error_if import _error_msg
+        with self.assertRaises(ValueError) as ctx:
+            _error_msg('{} vs {}', 1, 2)
+        self.assertIn('1 vs 2', str(ctx.exception))
+
+    def test_jit_error_if_positional_brace_message(self):
+        """jit_error_if with a brace-style positional message raises ValueError, not an opaque format error."""
+        with self.assertRaises(Exception) as ctx:
+            brainstate.transform.jit_error_if(jnp.asarray(True), 'bad value {}', jnp.asarray(5))
+        # The original bug surfaced as "not all arguments converted during string formatting".
+        self.assertNotIn('not all arguments converted', str(ctx.exception))

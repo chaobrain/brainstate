@@ -1497,5 +1497,67 @@ class TestChainedReg(unittest.TestCase):
         np.testing.assert_allclose(chained.loss(value), expected, rtol=1e-5)
 
 
+class TestRegularizationAuditRegressions(unittest.TestCase):
+    """Regression tests for regularization audit findings (R9-R13)."""
+
+    def test_weight_is_not_paramstate_even_with_fit_hyper(self):
+        # R9: docstrings used to claim ``weight`` becomes trainable; it never
+        # does. Verify ``weight`` stays a plain (non-ParamState) constant.
+        for reg in (L1Reg(weight=0.1, fit_hyper=True),
+                    L2Reg(weight=0.1, fit_hyper=True),
+                    GaussianReg(mean=0.0, std=1.0, weight=0.1, fit_hyper=True)):
+            self.assertNotIsInstance(reg.weight, brainstate.ParamState)
+
+    def test_l2_sample_init_negative_weight_is_finite(self):
+        # R10: sample_init divided by sqrt(weight) without relu -> NaN for a
+        # negative weight. It must now be finite (matching loss()'s relu clamp).
+        s = L2Reg(weight=-1.0).sample_init((8,))
+        self.assertTrue(bool(jnp.all(jnp.isfinite(s))))
+
+    def test_huber_grouplasso_tv_sample_init_negative_weight_finite(self):
+        for reg in (HuberReg(weight=-1.0),
+                    GroupLassoReg(weight=-1.0, group_size=2),
+                    TotalVariationReg(weight=-1.0)):
+            s = reg.sample_init((6,))
+            self.assertTrue(bool(jnp.all(jnp.isfinite(s))), msg=type(reg).__name__)
+
+    def test_grouplasso_zero_group_size_rejected(self):
+        # R11: group_size=0 previously raised ZeroDivisionError inside loss().
+        with self.assertRaises(ValueError):
+            GroupLassoReg(weight=1.0, group_size=0)
+
+    def test_grouplasso_negative_group_size_rejected(self):
+        # R11: a negative group_size silently mis-grouped via Python modulo.
+        with self.assertRaises(ValueError):
+            GroupLassoReg(weight=1.0, group_size=-2)
+
+    def test_totalvariation_invalid_order_rejected(self):
+        # R12: any order != 1 was silently treated as order 2.
+        with self.assertRaises(ValueError):
+            TotalVariationReg(weight=1.0, order=3)
+        with self.assertRaises(ValueError):
+            TotalVariationReg(weight=1.0, order=0)
+        # Valid orders still accepted.
+        self.assertEqual(TotalVariationReg(order=1).order, 1)
+        self.assertEqual(TotalVariationReg(order=2).order, 2)
+
+    def test_spectralnorm_sample_init_targets_full_max_value(self):
+        # R13: sample_init multiplied by an extra 0.5, so samples sat at half the
+        # requested spectral norm. The estimated norm must now be ~max_value.
+        reg = SpectralNormReg(weight=1.0, max_value=4.0)
+        sample = reg.sample_init((8, 8))
+        sigma = float(reg._estimate_spectral_norm(sample))
+        # Power-iteration estimate -> generous tolerance, but it must clearly be
+        # near 4.0 rather than the old ~2.0.
+        self.assertGreater(sigma, 3.0)
+        np.testing.assert_allclose(sigma, 4.0, rtol=0.2)
+
+    def test_spectralnorm_sample_init_1d_targets_full_max_value(self):
+        reg = SpectralNormReg(weight=1.0, max_value=4.0)
+        sample = reg.sample_init((16,))
+        norm = float(jnp.sqrt(jnp.sum(sample ** 2)))
+        np.testing.assert_allclose(norm, 4.0, rtol=1e-3)
+
+
 if __name__ == '__main__':
     unittest.main()

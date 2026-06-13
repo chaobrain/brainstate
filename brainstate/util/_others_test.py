@@ -110,6 +110,30 @@ class TestSplitTotal(unittest.TestCase):
             split_total(100, 150)
         self.assertIn("cannot be greater than total", str(ctx.exception))
 
+    def test_bool_rejected(self):
+        """Reject bool arguments so they are never treated as 0/1 or leak into the int return.
+
+        ``bool`` is a subclass of ``int``; without an explicit guard
+        ``split_total(100, True)`` would return ``True`` and ``split_total(True, 0.5)``
+        would silently treat the total as ``1``.
+        """
+        # bool fraction must raise (would otherwise be int 0/1 and return a bool)
+        for frac in (True, False):
+            with self.assertRaises(TypeError) as ctx:
+                split_total(100, frac)
+            self.assertIn("must be an integer or float", str(ctx.exception))
+
+        # bool total must raise (would otherwise pass the int check as 0/1)
+        for tot in (True, False):
+            with self.assertRaises(TypeError) as ctx:
+                split_total(tot, 0.5)
+            self.assertIn("must be an integer", str(ctx.exception))
+
+    def test_return_type_is_strict_int(self):
+        """Return a strict ``int`` (never a ``bool``) for all valid inputs."""
+        for r in (split_total(100, 0.5), split_total(100, 25), split_total(100, 100), split_total(100, 0)):
+            self.assertIs(type(r), int)
+
 
 class TestNameContext(unittest.TestCase):
     """Test cases for NameContext and get_unique_name."""
@@ -833,6 +857,53 @@ class TestDotDict(unittest.TestCase):
         self.assertIsInstance(result, DotDict)
         self.assertEqual(result.value, 3)
 
+    def test_or_operator_preserves_type_and_hooks(self):
+        """``DotDict | dict`` returns a DotDict and recursively hooks nested dicts.
+
+        Without explicit ``__or__`` this delegates to ``dict.__or__`` and returns a
+        plain ``dict`` (losing both the type and the nested-conversion hook).
+        """
+        dd = DotDict({'a': 1})
+        result = dd | {'b': {'c': 2}}
+        self.assertIsInstance(result, DotDict)
+        self.assertIsInstance(result['b'], DotDict)
+        self.assertEqual(result.b.c, 2)
+        # original is unchanged
+        self.assertNotIn('b', dd)
+        # non-mapping right operand is not handled
+        self.assertEqual(dd.__or__(123), NotImplemented)
+
+    def test_ior_operator_preserves_type_and_hooks(self):
+        """``DotDict |= dict`` updates in place via the hook-aware ``update``."""
+        dd = DotDict({'a': 1})
+        dd |= {'b': {'c': 2}}
+        self.assertIsInstance(dd, DotDict)
+        self.assertIsInstance(dd['b'], DotDict)
+        self.assertEqual(dd.b.c, 2)
+
+    def test_ror_operator_with_generic_mapping(self):
+        """``mapping | DotDict`` (non-dict left operand) yields a hooked DotDict."""
+        import collections.abc as abc
+
+        class ReadOnlyMapping(abc.Mapping):
+            def __init__(self, data):
+                self._data = dict(data)
+
+            def __getitem__(self, key):
+                return self._data[key]
+
+            def __iter__(self):
+                return iter(self._data)
+
+            def __len__(self):
+                return len(self._data)
+
+        result = ReadOnlyMapping({'b': {'c': 2}}) | DotDict({'a': 1})
+        self.assertIsInstance(result, DotDict)
+        self.assertIsInstance(result['b'], DotDict)
+        self.assertEqual(result.a, 1)
+        self.assertEqual(result.b.c, 2)
+
     def test_pickling(self):
         """Test pickling/unpickling."""
         dd1 = DotDict({'a': 1, 'b': {'c': 2}})
@@ -1127,6 +1198,69 @@ class TestJaxIntegration(unittest.TestCase):
             doubled['dict_manager']['a'],
             jnp.array([2, 4])
         ))
+
+
+class TestClearBufferMemory(unittest.TestCase):
+    """Test cases for clear_buffer_memory error handling (item 3)."""
+
+    def test_runs_without_error_when_buffers_delete_cleanly(self):
+        """Complete normally when every live buffer deletes cleanly (happy path).
+
+        Mocks the backend instead of clearing the real one: a real
+        ``clear_buffer_memory()`` deletes JAX's process-global device buffers,
+        including the ordered-effect runtime token that ``jit_error_if`` relies
+        on. Tearing that down corrupts unrelated tests later in the same process
+        (``BlockHostUntilReady() called on deleted or donated buffer``). The real
+        deletion loop and its error handling are covered by the mocked tests below.
+        """
+        buf1, buf2 = MagicMock(), MagicMock()
+        backend = MagicMock()
+        backend.live_buffers.return_value = [buf1, buf2]
+        with patch("brainstate._compatible_import.get_backend", return_value=backend):
+            clear_buffer_memory()  # should not raise
+        buf1.delete.assert_called_once()
+        buf2.delete.assert_called_once()
+
+    def test_per_buffer_delete_failure_warns_and_continues(self):
+        """Warn per failing buffer deletion but still delete the others.
+
+        Previously every error was swallowed under a single warning; now each
+        ``delete()`` failure is isolated so one bad buffer cannot abort the loop.
+        """
+        good = MagicMock()
+        bad = MagicMock()
+        bad.delete.side_effect = RuntimeError("cannot free")
+        another = MagicMock()
+        backend = MagicMock()
+        backend.live_buffers.return_value = [good, bad, another]
+
+        with patch("brainstate._compatible_import.get_backend", return_value=backend):
+            with self.assertWarns(RuntimeWarning):
+                clear_buffer_memory()
+
+        # the failing buffer did not prevent the others from being deleted
+        good.delete.assert_called_once()
+        another.delete.assert_called_once()
+
+    def test_backend_acquisition_error_is_not_swallowed(self):
+        """Surface setup errors (e.g. unknown platform) instead of hiding them.
+
+        The old implementation caught *all* exceptions, masking a genuine
+        misconfiguration; backend acquisition failures should now propagate.
+        """
+        with patch(
+            "brainstate._compatible_import.get_backend",
+            side_effect=RuntimeError("unknown platform"),
+        ):
+            with self.assertRaises(RuntimeError):
+                clear_buffer_memory(platform="definitely_not_a_platform")
+
+    def test_array_false_skips_buffer_clearing(self):
+        """Skip buffer clearing entirely when ``array=False``."""
+        backend = MagicMock()
+        with patch("brainstate._compatible_import.get_backend", return_value=backend) as gb:
+            clear_buffer_memory(array=False)
+        gb.assert_not_called()
 
 
 if __name__ == '__main__':

@@ -510,6 +510,38 @@ class TestPyTreeTypes(unittest.TestCase):
         with self.assertRaises(ValueError):
             PyTree[float,]  # 1-tuple with trailing comma would be (float,)
 
+    def test_a22_unhashable_leaf_raises_clear_typeerror(self):
+        """Appendix item 22: an unhashable leaf type raises a clear TypeError,
+        not a cryptic 'unhashable type' from inside lru_cache."""
+        with self.assertRaises(TypeError) as ctx:
+            PyTree[[int, str]]  # a list is unhashable
+        self.assertIn("hashable", str(ctx.exception).lower())
+        with self.assertRaises(TypeError):
+            PyTree[{"a": int}]  # a dict is unhashable
+        with self.assertRaises(TypeError):
+            PyTree[[int], "T"]  # unhashable leaf in the 2-tuple form
+
+    def test_a23_whitespace_variants_are_the_same_class(self):
+        """Appendix item 23: whitespace-variant structures collapse to a single
+        class with a normalised structure string."""
+        a = PyTree[int, "S T"]
+        b = PyTree[int, "S  T"]  # double internal space
+        c = PyTree[int, "  S   T  "]  # plus outer padding
+        self.assertIs(a, b)
+        self.assertIs(a, c)
+        self.assertEqual(a.structure, "S T")
+
+    def test_a24_ellipsis_only_and_double_ellipsis_rejected(self):
+        """Appendix item 24: ellipsis-only, double-ellipsis, both-ends and
+        interior-ellipsis structures are rejected."""
+        for bad in ["...", "... ...", "... T ...", "S ... T", "T ... S"]:
+            with self.subTest(structure=bad):
+                with self.assertRaises(ValueError):
+                    PyTree[int, bad]
+        # single leading / trailing ellipsis remain valid
+        PyTree[int, "... T"]
+        PyTree[int, "T ..."]
+
 
 class TestRandomTypes(unittest.TestCase):
     """Test random number generation types."""

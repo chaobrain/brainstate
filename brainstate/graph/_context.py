@@ -20,14 +20,14 @@ A :func:`split_context` shares one growing ``ref_index`` across several
 split objects collapse to the same global index. The paired
 :func:`merge_context` shares the inverse ``index_ref`` table across
 :meth:`MergeContext.treefy_merge` calls so those references rebuild as one
-object. The context stacks are thread-local.
+object. Each call owns its own table, so concurrent split/merge on separate
+threads stay isolated.
 """
 
 from __future__ import annotations
 
 import contextlib
 import dataclasses
-import threading
 from typing import Any, Iterator, Tuple, TypeVar
 
 from typing_extensions import Unpack
@@ -49,21 +49,6 @@ A = TypeVar('A')
 
 
 @dataclasses.dataclass
-class GraphContext(threading.local):
-    """Thread-local stacks of active split/merge contexts.
-
-    Inheriting from ``threading.local`` ensures each thread has its own
-    independent context stacks, making nested transforms safe under parallelism.
-    """
-
-    ref_index_stack: list[SplitContext] = dataclasses.field(default_factory=list)
-    index_ref_stack: list[MergeContext] = dataclasses.field(default_factory=list)
-
-
-GRAPH_CONTEXT = GraphContext()
-
-
-@dataclasses.dataclass
 class SplitContext:
     """Context for splitting graph nodes, tracking shared references."""
 
@@ -80,11 +65,9 @@ def split_context() -> Iterator[Tuple[SplitContext, RefMap[Any, Index]]]:
     """Context manager for splitting multiple graph nodes sharing a reference index."""
     index_ref: RefMap[Any, Index] = RefMap()
     flatten_ctx = SplitContext(index_ref)
-    GRAPH_CONTEXT.ref_index_stack.append(flatten_ctx)
     try:
         yield flatten_ctx, index_ref
     finally:
-        GRAPH_CONTEXT.ref_index_stack.pop()
         del flatten_ctx.ref_index
 
 
@@ -110,12 +93,10 @@ def merge_context() -> Iterator[Tuple[MergeContext, dict]]:
     """Context manager for merging multiple graph nodes sharing a reference index."""
     index_ref: dict[Index, Any] = {}
     unflatten_ctx = MergeContext(index_ref)
-    GRAPH_CONTEXT.index_ref_stack.append(unflatten_ctx)
     try:
         # Yield the *live* table (not a snapshot copy) so callers can inspect the
         # accumulated ``index -> rebuilt object`` mapping after the block, exactly
         # as ``split_context`` exposes its live ``ref_index``.
         yield unflatten_ctx, index_ref
     finally:
-        GRAPH_CONTEXT.index_ref_stack.pop()
         del unflatten_ctx.index_ref

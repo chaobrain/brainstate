@@ -164,6 +164,13 @@ class TestParamDesc(unittest.TestCase):
         with self.assertRaises(AttributeError):
             desc.identifier = "new"
 
+    def test_a19_identifier_setter_annotation_not_misleading(self):
+        """Appendix item 19: the always-raising identifier setter should not
+        advertise a misleading `value: ArrayLike` parameter type."""
+        from typing import Any
+        prop = brainstate.mixin.ParamDescriber.__dict__['identifier']
+        self.assertEqual(prop.fset.__annotations__.get('value'), Any)
+
     def test_param_describer_class_getitem(self):
         """Test ParamDescriber[Class] notation."""
 
@@ -212,6 +219,24 @@ class TestHashableDict(unittest.TestCase):
         d = brainstate.mixin.HashableDict({"x": 10})
         cache = {d: "result"}
         self.assertEqual(cache[d], "result")
+
+    def test_a18_mixed_unorderable_keys_hashable(self):
+        """Appendix item 18: mixed unorderable key types must still hash.
+
+        sorted() over {1: ..., 'x': ...} raised TypeError comparing int and str.
+        """
+        d = brainstate.mixin.HashableDict({1: "a", "x": "b", 2.0: "c"})
+        h = hash(d)  # must not raise
+        self.assertIsInstance(h, int)
+        # usable as a dict key too
+        cache = {d: "ok"}
+        self.assertEqual(cache[d], "ok")
+
+    def test_a18_mixed_keys_order_independent(self):
+        """Equal dicts with mixed keys hash equally regardless of order."""
+        d1 = brainstate.mixin.HashableDict({1: "a", "x": "b"})
+        d2 = brainstate.mixin.HashableDict({"x": "b", 1: "a"})
+        self.assertEqual(hash(d1), hash(d2))
 
 
 class TestJointTypes(unittest.TestCase):
@@ -291,6 +316,23 @@ class TestJointTypes(unittest.TestCase):
         # Should handle duplicates gracefully
         JointA = brainstate.mixin.JointTypes(A, A, A)
         self.assertEqual(JointA, A)
+
+    def test_a20_calling_joint_alias_raises(self):
+        """Appendix item 20: calling a JointTypes alias must raise, not silently
+        build a bare object()."""
+
+        class A:
+            pass
+
+        class B:
+            pass
+
+        Combined = brainstate.mixin.JointTypes(A, B)
+        with self.assertRaises(TypeError):
+            Combined()
+        # subscript form too
+        with self.assertRaises(TypeError):
+            brainstate.mixin.JointTypes[A, B]()
 
 
 class TestOneOfTypes(unittest.TestCase):

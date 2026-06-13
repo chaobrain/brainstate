@@ -296,8 +296,12 @@ class TestErrorHandling(unittest.TestCase):
             conv(x_wrong)
 
     def test_invalid_groups(self):
-        """Test that invalid group configurations raise errors."""
-        with self.assertRaises(AssertionError):
+        """Test that invalid group configurations raise errors.
+
+        Validation of user-supplied constructor arguments must raise ``ValueError``
+        (which survives ``python -O``), not ``AssertionError``.
+        """
+        with self.assertRaises(ValueError):
             # out_channels not divisible by groups
             conv = brainstate.nn.Conv2d(in_size=(32, 32, 16), out_channels=30, kernel_size=3, groups=4)
 
@@ -677,8 +681,12 @@ class TestErrorHandlingConvTranspose(unittest.TestCase):
     """Test error handling for transposed convolutions."""
 
     def test_invalid_groups(self):
-        """Test that invalid groups raises assertion error."""
-        with self.assertRaises(AssertionError):
+        """Test that invalid groups raises a ValueError.
+
+        Validation of user-supplied constructor arguments must raise ``ValueError``
+        (which survives ``python -O``), not ``AssertionError``.
+        """
+        with self.assertRaises(ValueError):
             brainstate.nn.ConvTranspose2d(
                 in_size=(16, 16, 32),
                 out_channels=15,  # Not divisible by groups
@@ -1309,3 +1317,71 @@ class TestConvTransposeShapeVsJax(unittest.TestCase):
                     w_ref = jnp.ones((k, 3, 2))
                     y_ref = self._jax_reference(jnp.ones((1, 7, 2)), w_ref, s, padding)
                     self.assertEqual(conv.out_size, y_ref.shape[1:])
+
+
+class TestConvValidationAuditRegressions(unittest.TestCase):
+    """Regression tests for nn-audit items 3/4/5 (conv input validation).
+
+    Items 3 & 5: runtime input validation used ``assert``, which is stripped under
+    ``python -O``. These must raise ``ValueError`` (a subclass-checked exception that
+    survives ``-O``), never ``AssertionError``.
+
+    Item 4: padding parsing raised a cryptic ``IndexError`` on an empty sequence and a
+    bare ``raise ValueError`` with no message.
+    """
+
+    def test_in_size_wrong_length_raises_valueerror(self):
+        """Item 3: in_size length mismatch raises ValueError, not (stripped) assert."""
+        with self.assertRaises(ValueError):
+            brainstate.nn.Conv2d(in_size=(8, 3), out_channels=4, kernel_size=3)  # needs 3 entries
+        with self.assertRaises(ValueError):
+            brainstate.nn.ConvTranspose2d(in_size=(8, 3), out_channels=4, kernel_size=3)
+
+    def test_groups_not_divisible_raises_valueerror(self):
+        """Item 3: non-divisible channels/groups raises ValueError, not assert."""
+        with self.assertRaises(ValueError):
+            brainstate.nn.Conv2d(in_size=(8, 8, 4), out_channels=5, kernel_size=3, groups=2)
+        with self.assertRaises(ValueError):
+            brainstate.nn.ConvTranspose2d(in_size=(8, 8, 4), out_channels=5, kernel_size=3, groups=2)
+
+    def test_invalid_string_padding_raises_valueerror(self):
+        """Item 3: an unknown padding-mode string raises ValueError, not assert."""
+        with self.assertRaises(ValueError):
+            brainstate.nn.Conv2d(in_size=(8, 8, 3), out_channels=4, kernel_size=3, padding='FULL')
+        with self.assertRaises(ValueError):
+            brainstate.nn.ConvTranspose2d(in_size=(8, 8, 3), out_channels=4, kernel_size=3, padding='FULL')
+
+    def test_empty_padding_sequence_raises_valueerror_not_indexerror(self):
+        """Item 4: an empty padding sequence raises a clear ValueError (was IndexError)."""
+        with self.assertRaises(ValueError):
+            brainstate.nn.Conv2d(in_size=(8, 8, 3), out_channels=4, kernel_size=3, padding=[])
+        with self.assertRaises(ValueError):
+            brainstate.nn.ConvTranspose2d(in_size=(8, 8, 3), out_channels=4, kernel_size=3, padding=[])
+
+    def test_invalid_padding_type_has_message(self):
+        """Item 4: the bare ``raise ValueError`` now carries an explanatory message."""
+        with self.assertRaises(ValueError) as ctx:
+            brainstate.nn.Conv2d(in_size=(8, 8, 3), out_channels=4, kernel_size=3, padding=3.5)
+        self.assertTrue(str(ctx.exception))  # non-empty message
+
+    def test_validation_not_assertion(self):
+        """Items 3/5: the raised exception is ValueError, not AssertionError.
+
+        (``AssertionError`` would be silently removed by ``python -O``.)
+        """
+        for bad in (
+            lambda: brainstate.nn.Conv2d(in_size=(8, 3), out_channels=4, kernel_size=3),
+            lambda: brainstate.nn.Conv2d(in_size=(8, 8, 4), out_channels=5, kernel_size=3, groups=2),
+            lambda: brainstate.nn.Conv2d(in_size=(8, 8, 3), out_channels=4, kernel_size=3, padding='FULL'),
+        ):
+            with self.assertRaises(ValueError):
+                bad()
+            self.assertNotIsInstance(self._capture(bad), AssertionError)
+
+    @staticmethod
+    def _capture(fn):
+        try:
+            fn()
+        except Exception as e:  # noqa: BLE001
+            return e
+        return None

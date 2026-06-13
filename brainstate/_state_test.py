@@ -2724,6 +2724,94 @@ class TestStateAuditRegressions(unittest.TestCase):
         merged = StateTraceStack().merge(StateTraceStack(), StateTraceStack())
         self.assertFalse(merged._originals_released)
 
+    # --- A4: init hooks receive only user-facing metadata, not internals ---
+    def test_a4_init_hook_metadata_excludes_internals(self):
+        captured = {}
+
+        def hook(ctx):
+            captured.update(ctx.init_metadata)
+
+        handle = brainstate.register_state_hook('init', hook)
+        try:
+            brainstate.State(jnp.array([1, 2, 3]), name='nm', tag='tg')
+        finally:
+            handle.remove()
+        # internal bookkeeping fields must NOT leak into init_metadata
+        for leaked in ('_value', '_level', '_source_info', '_hooks_manager', '_been_writen'):
+            self.assertNotIn(leaked, captured)
+        # user-facing metadata is still present
+        self.assertEqual(captured['_name'], 'nm')
+        self.assertIn('tg', captured['tag'])
+
+    # --- A6: copy()/copy_from() do not alias the hook manager ---
+    def test_a6_copy_has_independent_hook_manager(self):
+        s = brainstate.State(jnp.ones(3))
+        c = s.copy()
+        self.assertIsNot(s._hooks_manager, c._hooks_manager)
+        # registering on the copy must not affect the original
+        c.register_hook('read', lambda ctx: None)
+        self.assertTrue(c.has_hooks('read'))
+        self.assertFalse(s.has_hooks('read'))
+
+    def test_a6_copy_from_keeps_own_hook_manager(self):
+        dst = brainstate.State(jnp.ones(3))
+        src = brainstate.State(jnp.zeros(3))
+        dst_mgr = dst._hooks_manager
+        dst.copy_from(src)
+        # dst keeps its own manager; it is not aliased to src's
+        self.assertIs(dst._hooks_manager, dst_mgr)
+        self.assertIsNot(dst._hooks_manager, src._hooks_manager)
+        src.register_hook('read', lambda ctx: None)
+        self.assertFalse(dst.has_hooks('read'))
+
+    # --- A7: numel() on a poisoned state raises rather than returning 1 ---
+    def test_a7_numel_normal(self):
+        s = brainstate.State(jnp.ones((3, 4)))
+        self.assertEqual(s.numel(), 12)
+
+    def test_a7_numel_poisoned_raises(self):
+        from brainstate._state import TraceContextError
+        s = brainstate.State(jnp.ones((2, 2)))
+        s._invalidate_trace_value()
+        with self.assertRaises(TraceContextError):
+            s.numel()
+
+    # --- A8: num_state validates via raise (survives python -O) ---
+    def test_a8_num_state_mismatch_raises_valueerror(self):
+        t = brainstate.HiddenTreeState({'v': jnp.ones((4, 3)), 'i': jnp.ones((4, 3))})
+        # corrupt the invariant: drop one name without changing the array
+        t.name2index.pop('i')
+        with self.assertRaises(ValueError):
+            _ = t.num_state
+
+    # --- A10: StateTraceStack.__exit__ only pops itself ---
+    def test_a10_exit_out_of_order_raises_and_preserves_stack(self):
+        from brainstate._state import StateTraceStack, TRACE_CONTEXT
+        outer = StateTraceStack(name='outer')
+        inner = StateTraceStack(name='inner')
+        depth0 = len(TRACE_CONTEXT.state_stack)
+        outer.__enter__()
+        inner.__enter__()
+        try:
+            # exiting `outer` while `inner` is on top is out-of-order: must raise
+            with self.assertRaises(RuntimeError):
+                outer.__exit__(None, None, None)
+            # inner must still be on top (stack not corrupted)
+            self.assertIs(TRACE_CONTEXT.state_stack[-1], inner)
+        finally:
+            # unwind cleanly in correct LIFO order
+            inner.__exit__(None, None, None)
+            outer.__exit__(None, None, None)
+        self.assertEqual(len(TRACE_CONTEXT.state_stack), depth0)
+
+    def test_a10_normal_nested_exit_ok(self):
+        from brainstate._state import StateTraceStack, TRACE_CONTEXT
+        depth0 = len(TRACE_CONTEXT.state_stack)
+        with StateTraceStack(name='a'):
+            with StateTraceStack(name='b'):
+                self.assertEqual(len(TRACE_CONTEXT.state_stack), depth0 + 2)
+        self.assertEqual(len(TRACE_CONTEXT.state_stack), depth0)
+
 
 if __name__ == '__main__':
     unittest.main()

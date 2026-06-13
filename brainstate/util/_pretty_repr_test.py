@@ -333,6 +333,32 @@ class TestMappingReprMixin(unittest.TestCase):
         items = list(m.__pretty_repr__())
         self.assertEqual(len(items), 1)  # Only PrettyType, no attributes
 
+    def test_mixin_alone_does_not_change_repr(self):
+        """``dict`` + mixin does NOT pretty-print; ``dict.__repr__`` still wins.
+
+        Regression for the misleading docstring that claimed ``print(m)`` produced
+        a multi-line block. Mixing into ``dict`` leaves ``repr``/``str`` unchanged.
+        """
+        class MyMapping(dict, MappingReprMixin):
+            pass
+
+        m = MyMapping({'a': 1, 'b': 2})
+        self.assertEqual(repr(m), "{'a': 1, 'b': 2}")
+        self.assertNotIn('\n', repr(m))
+
+    def test_documented_pretty_print_pattern(self):
+        """The corrected docstring pattern yields the multi-line pretty output.
+
+        Combining the mixin with :class:`PrettyRepr` and an explicit ``__repr__``
+        that calls :func:`pretty_repr_object` produces the documented block.
+        """
+        class PrettyDict(dict, MappingReprMixin, PrettyRepr):
+            def __repr__(self):
+                return pretty_repr_object(self)
+
+        text = repr(PrettyDict({'a': 1, 'b': 2}))
+        self.assertEqual(text, "{\n  'a': 1,\n  'b': 2\n}")
+
 
 class TestPrettyMapping(unittest.TestCase):
     """Test cases for PrettyMapping class."""

@@ -925,5 +925,33 @@ class TestPaddingSpatialOrder(unittest.TestCase):
         np.testing.assert_array_equal(out[0, :, :, 1, 0], x[0, :, :, 0, 0])
 
 
+class TestFormatPaddingScalarTypes(unittest.TestCase):
+    """Regression: _format_padding must accept numpy/JAX integer scalars (P1)."""
+
+    def test_numpy_int_scalar_is_int_form(self):
+        # np.int64 is not a Python ``int``; previously this fell through to
+        # ``list(padding)`` and raised "object is not iterable".
+        self.assertEqual(_format_padding(np.int64(2), 1), [(2, 2)])
+        self.assertEqual(_format_padding(np.int32(3), 2), [(3, 3), (3, 3)])
+
+    def test_jax_int_scalar_is_int_form(self):
+        self.assertEqual(_format_padding(jnp.array(2), 1), [(2, 2)])
+
+    def test_numpy_0d_array_is_int_form(self):
+        self.assertEqual(_format_padding(np.array(4), 3), [(4, 4), (4, 4), (4, 4)])
+
+    def test_numpy_int_scalar_in_layer(self):
+        # End-to-end: a numpy-int padding should build and run a pad layer.
+        pad = brainstate.nn.ZeroPad1d(np.int64(2))
+        x = jnp.ones((1, 5, 3))
+        self.assertEqual(pad(x).shape, (1, 9, 3))
+
+    def test_python_and_sequence_forms_unchanged(self):
+        self.assertEqual(_format_padding(2, 1), [(2, 2)])
+        self.assertEqual(_format_padding([2, 3], 2), [(2, 2), (3, 3)])
+        with self.assertRaises(ValueError):
+            _format_padding([1, 2, 3], 1)
+
+
 if __name__ == '__main__':
     unittest.main()

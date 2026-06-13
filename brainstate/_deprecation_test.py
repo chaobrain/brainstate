@@ -2345,5 +2345,63 @@ class TestDunderAndInternalNameShortCircuit(unittest.TestCase):
         self.assertIs(func, brainstate.nn.relu)
 
 
+class TestScopedFallbackUsesLazyReplacement(unittest.TestCase):
+    """Appendix items 2 & 3: scoped string-source fallback resolves the
+    replacement module via the lazy property, and the standard-import path for
+    non-brainstate sources still works after removing the dead `module_parts`."""
+
+    def test_a3_string_fallback_resolves_lazy_replacement_module(self):
+        """When a scoped string source fails to import, the fallback must resolve
+        a string `_replacement_module` lazily (not getattr a raw string)."""
+        # replacement_module is a *string* path (lazy import). The scoped API
+        # 'pi' points at a bogus module path that fails to import, forcing the
+        # except-branch fallback to look it up on the replacement module.
+        proxy = DeprecatedModule(
+            deprecated_name='test.lazy_fallback',
+            replacement_module='math',  # lazy: a string, not yet imported
+            replacement_name='math',
+            scoped_apis={'pi': 'nonexistent.module.path'},
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            # Before the fix this raised AttributeError: 'str' object has no
+            # attribute 'pi' (getattr on the raw string). Now it resolves math.pi.
+            import math
+            self.assertEqual(proxy.pi, math.pi)
+
+    def test_a3_module_object_fallback_uses_replacement(self):
+        """The module-object source branch also falls back via the property."""
+        import math
+
+        class OnlyE:
+            e = math.e
+
+        proxy = DeprecatedModule(
+            deprecated_name='test.objfallback',
+            replacement_module='math',  # lazy string
+            replacement_name='math',
+            scoped_apis={'pi': OnlyE},  # object source lacking 'pi'
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            # 'pi' is absent on OnlyE -> fallback must resolve math.pi.
+            self.assertEqual(proxy.pi, math.pi)
+
+    def test_a2_standard_import_path_still_works(self):
+        """Removing the unused `module_parts` does not break non-brainstate
+        string sources resolved via __import__."""
+        import os
+
+        proxy = DeprecatedModule(
+            deprecated_name='test.stdimport',
+            replacement_module='os',
+            replacement_name='os',
+            scoped_apis={'getpid': 'os'},  # non-'brainstate.' source path
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            self.assertIs(proxy.getpid, os.getpid)
+
+
 if __name__ == '__main__':
     unittest.main()

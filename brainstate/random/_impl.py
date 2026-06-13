@@ -92,9 +92,13 @@ def multinomial(
     if jnp.ndim(n) > 0:
         mask = _promote_shapes(jnp.arange(n_max) < jnp.expand_dims(n, -1), shape=shape + (n_max,))[0]
         mask = jnp.moveaxis(mask, -1, 0).astype(indices.dtype)
+        # ``excess`` must share ``indices``'s integer dtype: subtracting a
+        # float-typed ``excess`` (the previous ``jnp.zeros`` default) would promote
+        # the returned counts to floating point, violating the integer-counts
+        # contract for array-valued ``n``.
         excess = jnp.concatenate(
-            [jnp.expand_dims(n_max - n, -1),
-             jnp.zeros(u.math.shape(n) + (p.shape[-1] - 1,))],
+            [jnp.expand_dims((n_max - n).astype(indices.dtype), -1),
+             jnp.zeros(u.math.shape(n) + (p.shape[-1] - 1,), dtype=indices.dtype)],
             -1
         )
     else:

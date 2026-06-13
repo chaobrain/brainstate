@@ -806,16 +806,14 @@ class TestRandomStateMisc(unittest.TestCase):
             self.rs.restore_key()
 
     def test_split_key_with_backup(self):
-        """split_key(backup=True) records the post-split key as the restore point."""
-        # split_key advances the internal key to keys[0] and *then* backs it up,
-        # so the backed-up value is the advanced key, not the pre-split key.
+        """split_key(backup=True) records the pre-split key as the restore point."""
+        # split_key backs up the current key *before* advancing, so restore_key
+        # rewinds to the original pre-split key (the documented contract).
+        pre_split = _key_data(self.rs.value)
         self.rs.split_key(backup=True)
-        post_split = _key_data(self.rs.value)
-        # Advance again, then restore back to the post-split key.
-        self.rs.split_key()
-        self.assertFalse(np.array_equal(_key_data(self.rs.value), post_split))
+        self.assertFalse(np.array_equal(_key_data(self.rs.value), pre_split))
         self.rs.restore_key()
-        np.testing.assert_array_equal(_key_data(self.rs.value), post_split)
+        np.testing.assert_array_equal(_key_data(self.rs.value), pre_split)
 
 
 class TestRandomStateMoreDistributions(unittest.TestCase):
@@ -1369,6 +1367,110 @@ class TestRandomStateAuditFixes(unittest.TestCase):
         """A valid df still samples normally."""
         rs = RandomState(0)
         self.assertEqual(jnp.asarray(rs.chisquare(3.0, 5)).shape, (5,))
+
+    # --- Audit item 8: geometric validates p in (0, 1] --------------------------
+
+    def test_geometric_invalid_p_raises(self):
+        """geometric(p) with p<=0 or p>1 raises (NumPy raises; previously p=0
+        silently returned the int-overflow sentinel)."""
+        rs = RandomState(0)
+        for bad in (0.0, -0.5, 1.5):
+            with self.subTest(p=bad):
+                with self.assertRaises(Exception):
+                    np.asarray(rs.geometric(bad))
+
+    def test_geometric_valid_p_unaffected(self):
+        """A valid p still samples positive integers."""
+        rs = RandomState(0)
+        out = np.asarray(rs.geometric(0.5, size=(50,)))
+        self.assertEqual(out.shape, (50,))
+        self.assertTrue((out >= 1).all())
+
+    # --- Audit item 3: zipf validates a > 1 -------------------------------------
+
+    def test_zipf_invalid_a_raises(self):
+        """zipf(a) with a<=1 raises (NumPy raises 'a <= 1 or a is NaN';
+        previously it silently collapsed to all-ones)."""
+        rs = RandomState(0)
+        for bad in (1.0, 0.5, -1.0):
+            with self.subTest(a=bad):
+                with self.assertRaises(Exception):
+                    np.asarray(rs.zipf(bad, size=(3,)))
+
+    def test_zipf_valid_a_unaffected(self):
+        """A valid a > 1 still samples positive integers."""
+        rs = RandomState(0)
+        out = np.asarray(rs.zipf(2.0, size=(20,)))
+        self.assertEqual(out.shape, (20,))
+        self.assertTrue((out >= 1).all())
+
+    # --- Audit item 9: rayleigh(scale=None) no longer crashes -------------------
+
+    def test_rayleigh_scale_none(self):
+        """rayleigh(scale=None) treats the missing scale as unit scale instead of
+        crashing on ``x * None``."""
+        rs = RandomState(0)
+        out = np.asarray(rs.rayleigh(None, size=(4,)))
+        self.assertEqual(out.shape, (4,))
+        self.assertTrue((out >= 0).all())
+
+    def test_rayleigh_scale_none_matches_unit_scale(self):
+        """scale=None is equivalent to scale=1.0 for the same key."""
+        rs = RandomState(0)
+        key = formalize_key(7)
+        none_out = np.asarray(rs.rayleigh(None, size=(4,), key=key))
+        one_out = np.asarray(rs.rayleigh(1.0, size=(4,), key=key))
+        np.testing.assert_allclose(none_out, one_out)
+
+    # --- Audit item 10: triangular validates left <= mode <= right --------------
+
+    def test_triangular_invalid_bounds_raises(self):
+        """triangular rejects mode>right, left>mode, and left>=right (NumPy
+        raises; previously these silently sampled the wrong distribution)."""
+        rs = RandomState(0)
+        for left, mode, right in [(0.0, 2.0, 1.0), (0.0, -1.0, 1.0), (1.0, 0.5, 1.0)]:
+            with self.subTest(left=left, mode=mode, right=right):
+                with self.assertRaises(Exception):
+                    np.asarray(rs.triangular(left, mode, right, size=(4,)))
+
+    def test_triangular_valid_bounds_unaffected(self):
+        """Valid bounds still produce samples within [left, right]."""
+        rs = RandomState(0)
+        out = np.asarray(rs.triangular(-1.0, 0.0, 1.0, size=(200,)))
+        self.assertTrue((out >= -1.0).all() and (out <= 1.0).all())
+
+    # --- Audit item 5: _numpy_keys draws from the full uint32 range --------------
+
+    def test_numpy_keys_uses_full_uint32_range(self):
+        """_numpy_keys no longer caps seeds at 10000 (which invited collisions)."""
+        rs = RandomState(0)
+        keys = rs._numpy_keys(20000)
+        self.assertEqual(keys.dtype, np.uint32)
+        # With the old [0, 10000) range this maximum could never exceed 9999.
+        self.assertGreater(int(keys.max()), 10000)
+
+    # --- Audit item 4: split_key RMW is serialized under threads (defensive) ----
+
+    def test_split_key_threadsafe_no_duplicate_keys(self):
+        """Concurrent split_key calls on a shared state never hand out the same
+        key (the read-modify-write is lock-guarded). Defensive: scheduling makes
+        a pre-fix failure likely but not strictly deterministic."""
+        import threading
+        rs = RandomState(0)
+        results = []
+        lock = threading.Lock()
+
+        def worker():
+            k = rs.split_key()
+            with lock:
+                results.append(tuple(_key_data(k).tolist()))
+
+        threads = [threading.Thread(target=worker) for _ in range(16)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        self.assertEqual(len(results), len(set(results)))
 
 
 if __name__ == '__main__':

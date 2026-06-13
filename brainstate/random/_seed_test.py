@@ -243,14 +243,16 @@ class TestSeedUtilities(unittest.TestCase):
             brainstate.random.split_keys(2.5)
 
     def test_split_key_with_backup_then_restore(self):
-        """split_key(backup=True) records a backup that restore_key can recover."""
+        """split_key(backup=True) backs up the pre-split key so restore_key rewinds."""
         brainstate.random.seed(5)
+        original = brainstate.random.get_key()  # capture BEFORE the split
         keys = brainstate.random.split_key(2, backup=True)
         self.assertEqual(keys.shape, (2,))
-        backed_up = brainstate.random.get_key()
         _ = brainstate.random.rand(2)  # advance state
         brainstate.random.restore_key()
-        self.assertTrue(bool(jnp.array_equal(brainstate.random.get_key(), backed_up)))
+        # restore rewinds to the original pre-split key (documented contract),
+        # not the already-advanced key.
+        self.assertTrue(bool(jnp.array_equal(brainstate.random.get_key(), original)))
 
     # ------------------------------------------------------------------ #
     # restore_key                                                        #
@@ -272,7 +274,7 @@ class TestSeedUtilities(unittest.TestCase):
         brainstate.random.self_assign_multi_keys(3, backup=True)
         # the working value now holds the n multi-keys (batch of typed keys)
         self.assertEqual(brainstate.random.get_key().shape, (3,))
-        # restore_key recovers a usable single key (the intermediate split key)
+        # restore_key recovers the original pre-assignment single key
         brainstate.random.restore_key()
         restored = brainstate.random.get_key()
         self.assertEqual(restored.shape, ())

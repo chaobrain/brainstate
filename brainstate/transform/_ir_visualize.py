@@ -451,10 +451,14 @@ if pydot_is_installed:
                     branch_label = (
                         eqn.params["name"] if "name" in eqn.params else eqn.primitive.name
                     )
-                    no_literal_inputs = any(
-                        [isinstance(a, Literal) for a in branch.jaxpr.invars]
-                    )
-                    collapse_branch = no_literal_inputs or collapse_primitives
+                    # A single-equation branch is collapsed exactly when
+                    # ``collapse_primitives`` asks for it. (A previous
+                    # ``no_literal_inputs = any(isinstance(a, Literal) for a in
+                    # branch.jaxpr.invars)`` term was both misnamed -- it computed
+                    # "has a literal input" -- and inert: ``jaxpr.invars`` are
+                    # binder ``Var``s, never ``Literal``, so it was always False
+                    # and never actually forced a collapse.)
+                    collapse_branch = collapse_primitives
                     if collapse_branch:
                         branch_label = f"branch {i}: {branch_label}"
                     else:
@@ -803,7 +807,17 @@ if pydot_is_installed:
             **GRAPH_STYLING,
         )
 
-        argument_nodes, argument_edges = get_arguments(
+        # ``expand_pjit_primitive`` renders ``jaxpr`` as a self-contained graph
+        # with no enclosing equation, so there are no real parent operands to map
+        # the formal parameters/results onto. We therefore pass the jaxpr's own
+        # ``invars``/``outvars`` as the "parent" vars purely to build the inner
+        # argument/output nodes, then DISCARD the parent-linking edges/nodes
+        # ``get_arguments``/``get_outputs`` return: those point at
+        # ``{parent_id}_{var}`` source/sink nodes that do not exist (the parent
+        # has its own variable names), producing phantom default nodes. The live
+        # ``expand_non_primitive`` path avoids this by passing the enclosing
+        # ``eqn.invars``/``eqn.outvars`` instead.
+        argument_nodes, _phantom_arg_edges = get_arguments(
             graph_id,
             parent_id,
             jaxpr.constvars,
@@ -828,7 +842,7 @@ if pydot_is_installed:
             for edge in out_edges:
                 graph.add_edge(edge)
 
-        output_nodes, out_edges, out_nodes, id_edges = get_outputs(
+        output_nodes, _phantom_out_edges, _phantom_out_nodes, id_edges = get_outputs(
             graph_id,
             parent_id,
             jaxpr.invars,
@@ -841,7 +855,9 @@ if pydot_is_installed:
         for edge in id_edges:
             graph.add_edge(edge)
 
-        return graph, argument_edges, out_nodes, out_edges, n
+        # No real parent: return empty parent-linking edge/node lists rather than
+        # the phantom ones keyed off this jaxpr's own vars.
+        return graph, [], [], [], n
 
 
     def get_scan(

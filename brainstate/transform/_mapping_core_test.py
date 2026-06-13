@@ -1491,5 +1491,69 @@ class TestStaticArgnumsRejected(unittest.TestCase):
         self.assertTrue(jnp.allclose(out, jnp.asarray([0., 10., 20.])))
 
 
+class TestRemoveAxisScalar(unittest.TestCase):
+    """Item 12: _remove_axis must reject non-array (scalar) leaves with a clear
+    error instead of an opaque AttributeError on ``.ndim``."""
+
+    def test_python_scalar_raises_value_error(self):
+        with self.assertRaises(ValueError):
+            _remove_axis(5.0, 0)
+
+    def test_int_scalar_raises_value_error(self):
+        with self.assertRaises(ValueError):
+            _remove_axis(3, 0)
+
+    def test_array_still_works(self):
+        out = _remove_axis(jnp.arange(6.).reshape(2, 3), 0)
+        self.assertEqual(out.shape, (3,))
+
+
+class TestAxisSizeCrossCheck(unittest.TestCase):
+    """Item 14: an explicit axis_size must be cross-checked against the inferred
+    mapped-axis size, not silently ignored when a size is inferable."""
+
+    def test_conflicting_axis_size_raises(self):
+        with self.assertRaises(ValueError):
+            _get_batch_size((jnp.ones((4, 2)),), in_axes=0, in_states={}, axis_size=7)
+
+    def test_matching_axis_size_ok(self):
+        batch = _get_batch_size((jnp.ones((4, 2)),), in_axes=0, in_states={}, axis_size=4)
+        self.assertEqual(batch, 4)
+
+    def test_axis_size_fallback_unchanged(self):
+        # No inferable size -> axis_size is still used as the fallback.
+        self.assertEqual(_get_batch_size((), 0, {}, axis_size=5), 5)
+
+
+class TestReadOnlyBatchedInputNotScattered(unittest.TestCase):
+    """Item 15: a read-only batched-input state must stay at its original
+    (batched) value across calls -- it is fed per-lane but not scattered back as
+    an output, and must be restored from its pre-call snapshot."""
+
+    def test_readonly_declared_input_is_stable(self):
+        B, N = 3, 4
+        a = brainstate.HiddenState(jnp.ones((B, N)))      # read-only batched input
+        b = brainstate.ShortTermState(jnp.zeros((B, N)))  # RMW, auto-promoted
+
+        def f(x):
+            b.value = b.value + a.value + x
+            return b.value
+
+        mapped = state_map_transform(f, in_axes=0, out_axes=0, state_in_axes={0: a})
+        xs = jnp.ones((B, N))
+        o1 = mapped(xs)
+        self.assertEqual(a.value.shape, (B, N))            # unchanged shape
+        self.assertTrue(jnp.allclose(a.value, 1.0))        # unchanged value
+        self.assertEqual(b.value.shape, (B, N))
+        self.assertTrue(jnp.allclose(b.value, 2.0))        # 0 + a(1) + x(1)
+        o2 = mapped(xs)
+        # Read-only input still stable; the RMW state keeps accumulating.
+        self.assertEqual(a.value.shape, (B, N))
+        self.assertTrue(jnp.allclose(a.value, 1.0))
+        self.assertTrue(jnp.allclose(b.value, 4.0))
+        self.assertEqual(o1.shape, (B, N))
+        self.assertEqual(o2.shape, (B, N))
+
+
 if __name__ == "__main__":
     unittest.main()

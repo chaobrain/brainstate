@@ -216,5 +216,39 @@ class TestConvertHelpers(unittest.TestCase):
         self.assertIs(_convert._get_rand_state(), RandomState)
 
 
+class TestLeafPrefixParityValidation(unittest.TestCase):
+    """The leaf/prefix length-parity guard must hold even under ``python -O``.
+
+    The check was historically an ``assert``, which is stripped when Python runs
+    optimized; a length mismatch would then silently truncate-``zip`` leaves and
+    prefixes (a wrong result) instead of raising. These tests force a mismatch
+    and require the *explicit* parity ``ValueError`` (identified by its message),
+    so they fail if the guard reverts to a stripped ``assert``.
+    """
+
+    def test_graph_to_tree_mismatched_prefixes_raise(self):
+        node = _Linear(2, 3)
+        original = _convert.broadcast_prefix
+        # Force a prefix list one element longer than the flattened leaves so the
+        # explicit guard (not a downstream pytree error) is the one that fires.
+        _convert.broadcast_prefix = lambda *a, **k: original(*a, **k) + [None]
+        try:
+            with self.assertRaisesRegex(ValueError, 'Mismatched number of leaves'):
+                graph_to_tree(node)
+        finally:
+            _convert.broadcast_prefix = original
+
+    def test_tree_to_graph_mismatched_prefixes_raise(self):
+        node = _Linear(2, 3)
+        tree, _ = graph_to_tree(node)
+        original = _convert.broadcast_prefix
+        _convert.broadcast_prefix = lambda *a, **k: original(*a, **k) + [None]
+        try:
+            with self.assertRaisesRegex(ValueError, 'Mismatched number of leaves'):
+                tree_to_graph(tree)
+        finally:
+            _convert.broadcast_prefix = original
+
+
 if __name__ == "__main__":
     unittest.main()

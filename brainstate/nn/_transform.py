@@ -504,7 +504,10 @@ class SoftplusT(Transform):
         which is exact for all ``x`` (the previous ``log1p(exp(x))`` form saturated for
         ``x`` beyond ~20, breaking the forward map and round-trip).
         """
-        return jax.nn.softplus(x) * self.unit + self.lower
+        # ``maybe_decimal`` demotes the result back to a plain array when ``lower``
+        # carries no physical unit (``self.unit`` is dimensionless), so a plain
+        # float ``lower`` does not spuriously yield a dimensionless Quantity.
+        return u.maybe_decimal(jax.nn.softplus(x) * self.unit + self.lower)
 
     def inverse(self, y: ArrayLike) -> Array:
         """
@@ -633,7 +636,9 @@ class NegSoftplusT(SoftplusT):
         -----
         Implemented as: upper - softplus(-x), using the stable ``jax.nn.softplus``.
         """
-        return self.lower - jax.nn.softplus(-x) * self.unit
+        # ``maybe_decimal`` demotes the result to a plain array when ``upper``
+        # carries no physical unit, mirroring ``SoftplusT.forward``.
+        return u.maybe_decimal(self.lower - jax.nn.softplus(-x) * self.unit)
 
     def inverse(self, y: ArrayLike) -> Array:
         """
@@ -829,7 +834,9 @@ class ClipT(Transform):
     -----
     Clipping is a non-bijective transformation since multiple input values can
     map to the same output value at the bounds. Therefore, the inverse method
-    is not implemented.
+    cannot recover the original input; it provides a best-effort pseudo-inverse
+    that simply re-applies the clip (a passthrough for values already inside
+    ``[lower, upper]``).
 
     Examples
     --------
@@ -877,12 +884,23 @@ class ClipT(Transform):
 
     def inverse(self, y: ArrayLike) -> Array:
         """
-        Inverse transformation is not defined for clipping.
+        Best-effort inverse for the (non-bijective) clipping transform.
 
-        Raises
-        ------
-        NotImplementedError
-            Clipping is not bijective; inverse cannot be defined.
+        Clipping is not bijective, so a true inverse does not exist. As a
+        best-effort pseudo-inverse this re-applies the clip, which acts as the
+        identity for values already inside ``[lower, upper]`` and projects
+        out-of-range values back onto the nearest bound.
+
+        Parameters
+        ----------
+        y : array_like
+            Values in ``[lower, upper]`` (typically the output of ``forward``).
+
+        Returns
+        -------
+        Array
+            The values clipped to ``[lower, upper]`` (a passthrough for in-range
+            inputs).
         """
         return u.math.clip(y, a_min=self.lower, a_max=self.upper)
 
@@ -1499,6 +1517,13 @@ class ScaledSigmoidT(Transform):
             Sharpness parameter, by default 1.0.
         """
         super().__init__()
+        # ``beta`` is the sharpness of the sigmoid and must be a positive finite
+        # number. ``beta == 0`` collapses ``forward`` to the constant midpoint and
+        # makes ``inverse`` divide by zero (NaN); a negative ``beta`` silently
+        # reverses the monotonicity of the map. ``beta != beta`` catches NaN
+        # without importing ``math``.
+        if not (beta > 0) or beta == float('inf') or beta != beta:
+            raise ValueError(f"beta must be a positive finite number, but got {beta}.")
         self.lower = lower
         self.width = upper - lower
         self.beta = beta

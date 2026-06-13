@@ -2137,5 +2137,97 @@ class TestStaleCacheRecompileNJ2(unittest.TestCase):
         )
 
 
+class TestAuditFixes(unittest.TestCase):
+    """Regression tests for the make_jaxpr audit items 7-11."""
+
+    def test_get_arg_cache_key_fn_to_check_none_on_args(self):
+        """Item 7: ``fn_to_check=None`` must skip the positional-arg State check
+        (mirroring the kwargs branch) instead of calling ``None``."""
+        from brainstate.transform._make_jaxpr import get_arg_cache_key
+        # Must not raise ``TypeError: 'NoneType' object is not callable``.
+        key = get_arg_cache_key((), (), (jnp.array([1.0, 2.0]),), {}, fn_to_check=None)
+        self.assertIsNotNone(key)
+
+    def test_weak_type_change_is_not_stale(self):
+        """Item 8: a weak_type-only change (same shape/dtype) must not be treated
+        as a stale compilation and force a recompile."""
+        st = brainstate.State(jnp.float32(1.0))  # strong-typed scalar
+
+        def f(x):
+            st.value = st.value + x
+            return st.value
+
+        sf = brainstate.transform.StatefulFunction(f)
+        sf.make_jaxpr(jnp.float32(2.0))
+        cache_key = sf.get_arg_cache_key(jnp.float32(2.0))
+        compilation = sf._get_compilation(cache_key)
+        # Replace the state with a weak-typed python scalar (same shape/dtype).
+        st.value = 5.0
+        self.assertFalse(sf._compilation_is_stale(compilation))
+
+    def test_shape_change_is_stale(self):
+        """Item 8 guard: a genuine shape change must still be detected."""
+        st = brainstate.State(jnp.zeros(3))
+
+        def f(x):
+            st.value = st.value + x
+            return st.value
+
+        sf = brainstate.transform.StatefulFunction(f)
+        sf.make_jaxpr(jnp.zeros(3))
+        cache_key = sf.get_arg_cache_key(jnp.zeros(3))
+        compilation = sf._get_compilation(cache_key)
+        st.value = jnp.zeros(5)  # different shape
+        self.assertTrue(sf._compilation_is_stale(compilation))
+
+    def test_static_argnums_out_of_range_kwargs_only(self):
+        """Item 9: an out-of-range ``static_argnums`` must raise even when the
+        function is invoked with keyword arguments only (empty ``args``)."""
+        def f(x, n=2):
+            return x ** n
+
+        sf = brainstate.transform.StatefulFunction(f, static_argnums=(0,))
+        with pytest.raises(ValueError, match="static_argnums contains index 0"):
+            sf.make_jaxpr(x=jnp.array([1.0, 2.0]), n=3)
+
+    def test_jaxpr_call_none_state_value(self):
+        """Item 10: a correct-length ``state_vals`` with a ``None`` entry must
+        raise a clear ValueError, not a cryptic eval_jaxpr/foreach error."""
+        st = brainstate.State(jnp.array([1.0, 2.0]))
+
+        def f(x):
+            st.value = st.value + x
+            return st.value.sum()
+
+        sf = brainstate.transform.StatefulFunction(f)
+        x = jnp.array([1.0, 2.0])
+        sf.make_jaxpr(x)
+        with pytest.raises(ValueError, match="None at index"):
+            sf.jaxpr_call([None], x)
+
+    def test_validate_state_shapes_unit_mismatch_raises_value_error(self):
+        """Item 11: ``_validate_state_shapes`` must raise ValueError (not
+        UnitMismatchError) when a Quantity state's units change."""
+        try:
+            import brainunit as u
+        except ImportError:
+            self.skipTest("brainunit not available")
+
+        sv = brainstate.State(u.Quantity(jnp.array([1.0, 2.0]), unit=u.mV))
+
+        def g(x):
+            sv.value = sv.value + x
+            return sv.value
+
+        sf = brainstate.transform.StatefulFunction(g)
+        xq = u.Quantity(jnp.array([1.0, 2.0]), unit=u.mV)
+        sf.make_jaxpr(xq)
+        cache_key = sf.get_arg_cache_key(xq)
+        # Change to an incompatible unit (mV -> mA).
+        sv.value = u.Quantity(jnp.array([1.0, 2.0]), unit=u.mA)
+        with pytest.raises(ValueError, match="shape/dtype mismatch"):
+            sf._validate_state_shapes(cache_key)
+
+
 if __name__ == '__main__':
     unittest.main()

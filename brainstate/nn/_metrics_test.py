@@ -721,6 +721,24 @@ class MetricsAuditRegressionTest(parameterized.TestCase):
         m.reset()
         self.assertEqual(m.count.value.dtype, jnp.int32)
 
+    def test_multimetric_reserved_internal_name(self):
+        """Item 9: '_metric_names' is reserved and must raise, not silently corrupt state.
+
+        Pre-fix, a metric named '_metric_names' overwrote the internal bookkeeping
+        list, so reset/update/compute raised 'object is not iterable'.
+        """
+        with self.assertRaises(ValueError):
+            bst.nn.MultiMetric(_metric_names=bst.nn.AverageMetric())
+
+    def test_multimetric_valid_names_still_work(self):
+        """Item 9: ordinary metric names continue to work after tightening the check."""
+        m = bst.nn.MultiMetric(loss=bst.nn.AverageMetric(), acc=bst.nn.AccuracyMetric())
+        m.update(values=jnp.array([1.0, 3.0]),
+                 logits=jnp.array([[0.1, 0.9], [0.8, 0.2]]),
+                 labels=jnp.array([1, 0]))
+        out = m.compute()
+        self.assertEqual(set(out.keys()), {'loss', 'acc'})
+
 
 if __name__ == '__main__':
     absltest.main()

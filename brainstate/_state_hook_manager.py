@@ -262,7 +262,19 @@ class HookManager:
         Returns
         -------
         True if hooks are registered, False otherwise
+
+        Raises
+        ------
+        ValueError
+            If ``hook_type`` is not a recognised hook type.
         """
+        # Validate the type up front so the result never depends on whether any
+        # hooks happen to be registered: an invalid type must always raise,
+        # rather than returning False on the (no-hooks) fast path and raising
+        # ValueError once hooks exist.
+        if hook_type is not None and hook_type not in allowed_hook_types:
+            raise ValueError(f"Invalid hook type: {hook_type}")
+
         # Fast path without lock for common case
         if not self._has_hooks:
             return False

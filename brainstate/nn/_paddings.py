@@ -29,6 +29,7 @@ from typing import Union, Sequence, Optional
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 from brainstate import environ
 from brainstate.typing import Size
@@ -66,7 +67,14 @@ def _format_padding(padding: Union[int, Sequence[int]], ndim: int) -> Sequence[t
     -------
     List of padding tuples for each dimension
     """
-    if isinstance(padding, int):
+    # Accept Python ints as well as 0-d numpy/JAX integer scalars as the
+    # scalar form. ``isinstance(padding, int)`` alone rejects ``numpy.int64``
+    # and similar, which then fall through to ``list(padding)`` and raise a
+    # confusing "object is not iterable" TypeError.
+    if isinstance(padding, (int, np.integer)) or (
+        hasattr(padding, 'ndim') and getattr(padding, 'ndim') == 0
+    ):
+        padding = int(padding)
         # Same padding for all sides of all dimensions
         return [(padding, padding) for _ in range(ndim)]
 

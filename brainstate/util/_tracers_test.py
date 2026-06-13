@@ -61,6 +61,37 @@ class TestStateJaxTracer(unittest.TestCase):
         """Return True from ``__eq__`` for another tracer with the same trace."""
         self.assertTrue(StateJaxTracer().__eq__(StateJaxTracer()))
 
+    def test_is_hashable(self):
+        """Remain hashable despite defining ``__eq__`` (which would null ``__hash__``).
+
+        The captured ``OpaqueTraceState`` is itself unhashable, so a type-based
+        constant hash is used; this keeps tracers usable as set members / dict keys.
+        """
+        tracer = StateJaxTracer()
+        self.assertIsInstance(hash(tracer), int)
+        # equal tracers must hash equally (eq/hash invariant)
+        self.assertEqual(hash(StateJaxTracer()), hash(StateJaxTracer()))
+        # usable in a set / as a dict key
+        self.assertEqual(len({StateJaxTracer(), StateJaxTracer()}), 1)
+        self.assertEqual({tracer: 'value'}[StateJaxTracer()], 'value')
+
+    def test_hashable_inside_and_across_traces(self):
+        """Tracers captured in different traces are all hashable and dict-usable."""
+        top = StateJaxTracer()
+        captured = []
+
+        @jax.jit
+        def f(x):
+            captured.append(StateJaxTracer())
+            return x
+
+        f(jnp.ones((3,)))
+        # both are hashable even though they are not equal
+        self.assertNotEqual(top, captured[0])
+        mapping = {top: 'top', captured[0]: 'jit'}
+        self.assertIn(top, mapping)
+        self.assertIsInstance(hash(captured[0]), int)
+
     def test_repr_contains_class_name(self):
         """Name the class and the captured attribute in the pretty repr."""
         text = repr(StateJaxTracer())

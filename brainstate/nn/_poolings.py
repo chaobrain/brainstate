@@ -193,9 +193,10 @@ class _MaxPool(Module):
         if isinstance(kernel_size, int):
             kernel_size = (kernel_size,) * pool_dim
         elif isinstance(kernel_size, Sequence):
-            assert isinstance(kernel_size, (tuple, list)), f'kernel_size should be a tuple, but got {type(kernel_size)}'
-            assert all(
-                [isinstance(x, int) for x in kernel_size]), f'kernel_size should be a tuple of ints. {kernel_size}'
+            if not isinstance(kernel_size, (tuple, list)):
+                raise TypeError(f'kernel_size should be a tuple, but got {type(kernel_size)}')
+            if not all([isinstance(x, int) for x in kernel_size]):
+                raise TypeError(f'kernel_size should be a tuple of ints. {kernel_size}')
             if len(kernel_size) != pool_dim:
                 raise ValueError(f'kernel_size should a tuple with {pool_dim} ints, but got {len(kernel_size)}')
         else:
@@ -208,10 +209,12 @@ class _MaxPool(Module):
         if isinstance(stride, int):
             stride = (stride,) * pool_dim
         elif isinstance(stride, Sequence):
-            assert isinstance(stride, (tuple, list)), f'stride should be a tuple, but got {type(stride)}'
-            assert all([isinstance(x, int) for x in stride]), f'stride should be a tuple of ints. {stride}'
+            if not isinstance(stride, (tuple, list)):
+                raise TypeError(f'stride should be a tuple, but got {type(stride)}')
+            if not all([isinstance(x, int) for x in stride]):
+                raise TypeError(f'stride should be a tuple of ints. {stride}')
             if len(stride) != pool_dim:
-                raise ValueError(f'stride should a tuple with {pool_dim} ints, but got {len(kernel_size)}')
+                raise ValueError(f'stride should a tuple with {pool_dim} ints, but got {len(stride)}')
         else:
             raise TypeError(f'stride should be a int or a tuple with {pool_dim} ints.')
         self.stride = stride
@@ -236,14 +239,15 @@ class _MaxPool(Module):
                     raise ValueError(f"Each entry in padding must be tuple of 2 ints. {padding} ")
                 if len(padding) == 1:
                     padding = tuple(padding) * pool_dim
-                assert len(padding) == pool_dim, f'padding should has the length of {pool_dim}. {padding}'
+                if len(padding) != pool_dim:
+                    raise ValueError(f'padding should has the length of {pool_dim}. {padding}')
         else:
-            raise ValueError
+            raise ValueError(f'padding should be a str, int, or sequence, but got {type(padding)}')
         self.padding = padding
 
         # channel_axis
-        assert channel_axis is None or isinstance(channel_axis, int), \
-            f'channel_axis should be an int, but got {channel_axis}'
+        if not (channel_axis is None or isinstance(channel_axis, int)):
+            raise TypeError(f'channel_axis should be an int, but got {channel_axis}')
         self.channel_axis = channel_axis
 
         # in & out shapes
@@ -649,9 +653,10 @@ class _MaxUnpool(Module):
         if isinstance(kernel_size, int):
             kernel_size = (kernel_size,) * pool_dim
         elif isinstance(kernel_size, Sequence):
-            assert isinstance(kernel_size, (tuple, list)), f'kernel_size should be a tuple, but got {type(kernel_size)}'
-            assert all(
-                [isinstance(x, int) for x in kernel_size]), f'kernel_size should be a tuple of ints. {kernel_size}'
+            if not isinstance(kernel_size, (tuple, list)):
+                raise TypeError(f'kernel_size should be a tuple, but got {type(kernel_size)}')
+            if not all([isinstance(x, int) for x in kernel_size]):
+                raise TypeError(f'kernel_size should be a tuple of ints. {kernel_size}')
             if len(kernel_size) != pool_dim:
                 raise ValueError(f'kernel_size should a tuple with {pool_dim} ints, but got {len(kernel_size)}')
         else:
@@ -664,8 +669,10 @@ class _MaxUnpool(Module):
         if isinstance(stride, int):
             stride = (stride,) * pool_dim
         elif isinstance(stride, Sequence):
-            assert isinstance(stride, (tuple, list)), f'stride should be a tuple, but got {type(stride)}'
-            assert all([isinstance(x, int) for x in stride]), f'stride should be a tuple of ints. {stride}'
+            if not isinstance(stride, (tuple, list)):
+                raise TypeError(f'stride should be a tuple, but got {type(stride)}')
+            if not all([isinstance(x, int) for x in stride]):
+                raise TypeError(f'stride should be a tuple of ints. {stride}')
             if len(stride) != pool_dim:
                 raise ValueError(f'stride should a tuple with {pool_dim} ints, but got {len(stride)}')
         else:
@@ -683,8 +690,8 @@ class _MaxUnpool(Module):
         self.padding = padding
 
         # channel_axis
-        assert channel_axis is None or isinstance(channel_axis, int), \
-            f'channel_axis should be an int, but got {channel_axis}'
+        if not (channel_axis is None or isinstance(channel_axis, int)):
+            raise TypeError(f'channel_axis should be an int, but got {channel_axis}')
         self.channel_axis = channel_axis
 
         # in & out shapes
@@ -1352,9 +1359,10 @@ class _LPPool(Module):
         if isinstance(kernel_size, int):
             kernel_size = (kernel_size,) * pool_dim
         elif isinstance(kernel_size, Sequence):
-            assert isinstance(kernel_size, (tuple, list)), f'kernel_size should be a tuple, but got {type(kernel_size)}'
-            assert all(
-                [isinstance(x, int) for x in kernel_size]), f'kernel_size should be a tuple of ints. {kernel_size}'
+            if not isinstance(kernel_size, (tuple, list)):
+                raise TypeError(f'kernel_size should be a tuple, but got {type(kernel_size)}')
+            if not all([isinstance(x, int) for x in kernel_size]):
+                raise TypeError(f'kernel_size should be a tuple of ints. {kernel_size}')
             if len(kernel_size) != pool_dim:
                 raise ValueError(f'kernel_size should a tuple with {pool_dim} ints, but got {len(kernel_size)}')
         else:
@@ -1367,8 +1375,10 @@ class _LPPool(Module):
         if isinstance(stride, int):
             stride = (stride,) * pool_dim
         elif isinstance(stride, Sequence):
-            assert isinstance(stride, (tuple, list)), f'stride should be a tuple, but got {type(stride)}'
-            assert all([isinstance(x, int) for x in stride]), f'stride should be a tuple of ints. {stride}'
+            if not isinstance(stride, (tuple, list)):
+                raise TypeError(f'stride should be a tuple, but got {type(stride)}')
+            if not all([isinstance(x, int) for x in stride]):
+                raise TypeError(f'stride should be a tuple of ints. {stride}')
             if len(stride) != pool_dim:
                 raise ValueError(f'stride should a tuple with {pool_dim} ints, but got {len(stride)}')
         else:
@@ -1395,14 +1405,15 @@ class _LPPool(Module):
                     raise ValueError(f"Each entry in padding must be tuple of 2 ints. {padding} ")
                 if len(padding) == 1:
                     padding = tuple(padding) * pool_dim
-                assert len(padding) == pool_dim, f'padding should has the length of {pool_dim}. {padding}'
+                if len(padding) != pool_dim:
+                    raise ValueError(f'padding should has the length of {pool_dim}. {padding}')
         else:
-            raise ValueError
+            raise ValueError(f'padding should be a str, int, or sequence, but got {type(padding)}')
         self.padding = padding
 
         # channel_axis
-        assert channel_axis is None or isinstance(channel_axis, int), \
-            f'channel_axis should be an int, but got {channel_axis}'
+        if not (channel_axis is None or isinstance(channel_axis, int)):
+            raise TypeError(f'channel_axis should be an int, but got {channel_axis}')
         self.channel_axis = channel_axis
 
         # in & out shapes
@@ -1812,10 +1823,27 @@ class _AdaptivePool(Module):
 
         self.channel_axis = channel_axis
         self.operation = operation
+        # ``str`` is a ``Sequence`` so it must be rejected explicitly; otherwise a
+        # string of the right length would be silently accepted as a target shape.
+        if isinstance(target_size, str):
+            raise TypeError("`target_size` must be an int or a sequence of ints, not a str.")
         if isinstance(target_size, int):
+            if target_size <= 0:
+                raise ValueError(f"`target_size` must be a positive int, but got {target_size}.")
             self.target_shape = (target_size,) * num_spatial_dims
         elif isinstance(target_size, Sequence) and (len(target_size) == num_spatial_dims):
-            self.target_shape = target_size
+            # Each entry must be a positive int or ``None`` (meaning "do not pool
+            # this axis"); reject non-positive sizes and non-int/None entries.
+            for t in target_size:
+                if t is None:
+                    continue
+                if not isinstance(t, int):
+                    raise TypeError("`target_size` entries must be ints or None, "
+                                    f"but got {type(t)}.")
+                if t <= 0:
+                    raise ValueError("`target_size` entries must be positive ints, "
+                                     f"but got {t}.")
+            self.target_shape = tuple(target_size)
         else:
             raise ValueError("`target_size` must either be an int or tuple of length "
                              f"{num_spatial_dims} containing ints.")
@@ -1851,7 +1879,11 @@ class _AdaptivePool(Module):
                              f"But got {x.ndim} dimensions.")
         # pooling dimensions
         pool_dims = list(range(x.ndim))
-        if channel_axis:
+        # ``channel_axis`` has been normalised to a non-negative int above when it
+        # is not ``None``. Use an explicit ``is not None`` check so that
+        # ``channel_axis=0`` (a falsy but valid axis) still removes the channel
+        # axis from the pooled dimensions.
+        if channel_axis is not None:
             pool_dims.pop(channel_axis)
 
         # pooling

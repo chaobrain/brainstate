@@ -15,6 +15,7 @@
 
 # -*- coding: utf-8 -*-
 
+import threading
 from operator import index
 from typing import Optional
 
@@ -57,6 +58,16 @@ __all__ = [
     'RandomState',
     'DEFAULT',
 ]
+
+# Serializes the read-modify-write of a RandomState's key (read ``self.value``,
+# ``jr.split``, write ``keys[0]`` back). The module-global ``DEFAULT`` is shared
+# across threads, so an unguarded RMW could let two threads observe the same key
+# and produce correlated streams, or lose an update. A module-level (rather than
+# per-instance) lock keeps RandomState free of an unpicklable / non-pytree
+# attribute; the guarded section is a tiny pure-Python critical region, so
+# serializing it across instances is negligible overhead. Reentrant so that a
+# guarded method may call another guarded helper without self-deadlock.
+_KEY_RMW_LOCK = threading.RLock()
 
 
 def _randn_static_argnums(self, *dn, **kwargs):
@@ -145,7 +156,10 @@ class RandomState(State):
             self.seed()
 
     def _numpy_keys(self, batch_size):
-        return np.random.randint(0, 10000, (batch_size, 2), dtype=np.uint32)
+        # Draw seeds from the full uint32 range. The previous ``[0, 10000)`` range
+        # was small enough to make collisions (and thus correlated keys) likely; the
+        # full range matches the seeding used elsewhere in this class.
+        return np.random.randint(0, 2 ** 32, (batch_size, 2), dtype=np.uint32)
 
     # ------------------- #
     # seed and random key #
@@ -215,11 +229,18 @@ class RandomState(State):
             if n < 1:
                 raise ValueError(f'n should be a positive integer, but got {n}')
 
-        # Reading ``self.value`` materializes a lazy placeholder into a typed key.
-        keys = jr.split(self.value, num=2 if n is None else n + 1)
-        self.value = keys[0]
-        if backup:
-            self.backup_key()
+        # Hold the lock across the whole read-modify-write so a concurrent splitter
+        # (notably on the shared ``DEFAULT``) cannot observe the same key.
+        with _KEY_RMW_LOCK:
+            # Reading ``self.value`` materializes a lazy placeholder into a typed key.
+            keys = jr.split(self.value, num=2 if n is None else n + 1)
+            if backup:
+                # ``self.value`` is still the pre-split key here. Back it up so
+                # ``restore_key`` rewinds to the original state (the documented
+                # contract); backing up after ``self.value = keys[0]`` would record
+                # the already-advanced key and make restore a no-op.
+                self.backup_key()
+            self.value = keys[0]
         if n is None:
             return keys[1]
         else:
@@ -239,13 +260,15 @@ class RandomState(State):
             raise TypeError(f'n must be an integer, but got {n!r}')
         if n < 1:
             raise ValueError(f'n should be a positive integer, but got {n}')
-        if backup:
-            keys = jr.split(self.value, n + 1)
-            self.value = keys[0]
-            self.backup_key()
-            self.value = keys[1:]
-        else:
-            self.value = jr.split(self.value, n)
+        with _KEY_RMW_LOCK:
+            # ``jr.split`` reads (and materializes) the current pre-assignment key.
+            new_keys = jr.split(self.value, n)
+            if backup:
+                # ``self.value`` is still the pre-assignment key here; back it up so
+                # ``restore_key`` rewinds to the original single-key state rather than
+                # an intermediate advanced key.
+                self.backup_key()
+            self.value = new_keys
 
     def __get_key(self, key):
         return self.split_key() if key is None else _format_key(key)
@@ -961,6 +984,16 @@ class RandomState(State):
         dtype: DTypeLike = None
     ):
         p = _remove_unit_param('p', _check_py_seq(p))
+        # NumPy raises for ``p <= 0`` or ``p > 1``; without this guard those inputs
+        # silently yield garbage (e.g. ``p == 0`` produces the integer-overflow
+        # sentinel instead of an error). Use ``jit_error_if`` so the check also
+        # holds under ir_compilation.
+        from brainstate.transform._error_if import jit_error_if
+        jit_error_if(
+            jnp.any(jnp.logical_or(jnp.asarray(p) <= 0, jnp.asarray(p) > 1)),
+            'Parameter p must be in the half-open interval (0, 1], but got {p}',
+            p=p
+        )
         if size is None:
             size = u.math.shape(p)
         key = self.__get_key(key)
@@ -1083,7 +1116,9 @@ class RandomState(State):
         key = self.__get_key(key)
         dtype = dtype or environ.dftype()
         x = jnp.sqrt(-2. * jnp.log(jr.uniform(key, shape=_size2shape(size), dtype=dtype)))
-        r = x * scale_m
+        # ``scale=None`` (an explicitly passed default) means unit scale; multiplying
+        # ``x * None`` would raise a TypeError, so only apply the scale when present.
+        r = x if scale_m is None else x * scale_m
         return u.maybe_decimal(r * unit)
 
     @named_scope(
@@ -1120,6 +1155,22 @@ class RandomState(State):
             return q.mantissa if q.is_unitless else q.in_unit(unit).mantissa
 
         left, mode, right = (_to_shared_unit(v) for v in values)
+
+        # NumPy requires ``left <= mode <= right`` with ``left < right`` and raises
+        # otherwise; without this guard invalid bounds silently produce samples from
+        # the wrong distribution (the inverse-CDF branch selection masks the NaN that
+        # a negative ``sqrt`` argument would otherwise create, so the failure is
+        # silent). ``jit_error_if`` keeps the check valid under ir_compilation.
+        from brainstate.transform._error_if import jit_error_if
+        left_a = jnp.asarray(left)
+        mode_a = jnp.asarray(mode)
+        right_a = jnp.asarray(right)
+        jit_error_if(
+            jnp.any(left_a > mode_a) | jnp.any(mode_a > right_a) | jnp.any(left_a >= right_a),
+            'triangular requires left <= mode <= right and left < right, '
+            'but got left={left}, mode={mode}, right={right}',
+            left=left, mode=mode, right=right
+        )
 
         if size is None:
             size = lax.broadcast_shapes(
@@ -1445,6 +1496,16 @@ class RandomState(State):
         dtype: DTypeLike = None
     ):
         a = _remove_unit_param('a', _check_py_seq(a))
+        # NumPy requires ``a > 1`` and raises ("a <= 1 or a is NaN") otherwise; the
+        # sampler silently returns garbage (it collapses to all-ones) for ``a <= 1``.
+        # ``jit_error_if`` keeps the check valid under ir_compilation. ``a > 1`` is
+        # negated as ``not (a > 1)`` so NaN (which fails every comparison) is rejected.
+        from brainstate.transform._error_if import jit_error_if
+        jit_error_if(
+            jnp.any(jnp.logical_not(jnp.asarray(a) > 1)),
+            'Parameter a must be greater than 1, but got {a}',
+            a=a
+        )
         if size is None:
             size = u.math.shape(a)
         r = zipf(

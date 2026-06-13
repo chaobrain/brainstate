@@ -221,7 +221,12 @@ def scan(
         else:
             raise TypeError("pbar argument should be a ProgressBar instance or an integer.")
         f = _wrap_fun_with_pbar(f, pbar_runner)
-        init = (0, init) if pbar else init
+        # Use the unambiguous ``has_pbar`` flag (always True in this branch)
+        # rather than the truthiness of ``pbar`` itself: a ``ProgressBar``
+        # instance or non-zero int is the only thing that reaches here, but
+        # keying the carry shape off ``pbar`` truthiness is a latent trap if a
+        # future falsy-but-not-None pbar type is added.
+        init = (0, init) if has_pbar else init
 
     # not jit
     if jax.config.jax_disable_jit:
@@ -400,7 +405,16 @@ def checkpointed_scan(
 
     # initialize the collected values/dataa
     out_info = stateful_fun.get_out_shapes_by_cache(cache_key)[0]
-    assert len(out_info) == 2, "function in checkpointed_scan should return two data: carray and out."
+    # ``f`` is user-supplied; validate its (carry, out) two-tuple contract with a
+    # real exception. An ``assert len(out_info) == 2`` was both stripped under
+    # ``python -O`` and, for a non-tuple return (e.g. ``return c + x``), raised an
+    # opaque ``TypeError: len() of unsized object`` because ``out_info`` is then a
+    # bare ``ShapeDtypeStruct``. Check the structure explicitly.
+    if not isinstance(out_info, (tuple, list)) or len(out_info) != 2:
+        raise ValueError(
+            "f in checkpointed_scan must return a two-tuple (carry, out), but its "
+            f"return has structure {jax.tree.structure(out_info)}."
+        )
     data2collection = jax.tree.map(lambda x: jnp.zeros((length,) + x.shape, x.dtype), out_info[1])
     del out_info
 

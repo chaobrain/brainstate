@@ -1164,3 +1164,31 @@ class TestAuditRegressions(unittest.TestCase):
         nd = NestedDict({'a': 1})
         with self.assertRaises(TypeError):
             _ = nd | {'b': 2}
+
+    def test_to_pure_dict_preserves_empty_subdicts(self):
+        # to_pure_dict must keep empty nested mappings (its docstring promises the
+        # "same nested structure"). The default flatten drops empty mappings, so
+        # without keep_empty_nodes=True a key like 'empty' silently disappears.
+        nested = NestedDict({'a': {'b': 1, 'c': 2}, 'empty': {}, 'deep': {'x': {}, 'y': 5}})
+        pure = nested.to_pure_dict()
+
+        expected = {'a': {'b': 1, 'c': 2}, 'empty': {}, 'deep': {'x': {}, 'y': 5}}
+        self.assertEqual(pure, expected)
+        self.assertIn('empty', pure)
+        self.assertEqual(pure['empty'], {})
+        self.assertEqual(pure['deep']['x'], {})
+
+        # the result must be pure ``dict`` all the way down (no NestedDict wrappers)
+        def _all_plain_dict(d):
+            if isinstance(d, dict):
+                self.assertIs(type(d), dict)
+                for v in d.values():
+                    _all_plain_dict(v)
+
+        _all_plain_dict(pure)
+
+    def test_to_pure_dict_root_empty(self):
+        # An entirely empty NestedDict round-trips to an empty plain dict.
+        pure = NestedDict({}).to_pure_dict()
+        self.assertEqual(pure, {})
+        self.assertIs(type(pure), dict)

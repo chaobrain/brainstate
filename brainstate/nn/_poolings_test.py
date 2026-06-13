@@ -1634,5 +1634,60 @@ class TestAdaptivePoolTransforms(unittest.TestCase):
         assert_grad_finite(lambda y: jnp.sum(pool(y)), x)
 
 
+class TestPoolingAuditRegressions(unittest.TestCase):
+    """Regression tests for pooling audit findings (P3-P8)."""
+
+    def test_maxpool_stride_length_error_reports_stride_len(self):
+        # P4: the stride-length error must mention the stride length, not the
+        # kernel length. With kernel len 2 and stride len 3 the message must
+        # report 3.
+        with self.assertRaises(ValueError) as ctx:
+            nn.MaxPool2d(kernel_size=(2, 2), stride=(2, 2, 2))
+        self.assertIn("got 3", str(ctx.exception))
+
+    def test_maxpool_bad_kernel_element_raises_not_assert(self):
+        # P3: non-int kernel elements must raise (TypeError), not rely on
+        # ``assert`` (which is stripped under ``python -O``).
+        with self.assertRaises(TypeError):
+            nn.MaxPool2d(kernel_size=(2.0, 2))
+
+    def test_maxpool_bad_channel_axis_raises_not_assert(self):
+        # P3: a bad channel_axis must raise TypeError, not assert.
+        with self.assertRaises(TypeError):
+            nn.MaxPool2d(kernel_size=2, channel_axis=1.5)
+
+    def test_lppool_bad_stride_element_raises_not_assert(self):
+        # P3/P5: _LPPool must validate via raise, not assert.
+        with self.assertRaises(TypeError):
+            nn.LPPool2d(norm_type=2, kernel_size=2, stride=(2.0, 2))
+
+    def test_adaptivepool_rejects_str_target_size(self):
+        # P6: a str target_size must be rejected (str is a Sequence).
+        with self.assertRaises(TypeError):
+            nn.AdaptiveAvgPool1d(target_size="ab")
+
+    def test_adaptivepool_rejects_nonpositive_target_size(self):
+        # P6: non-positive target sizes must be rejected.
+        with self.assertRaises(ValueError):
+            nn.AdaptiveAvgPool1d(target_size=0)
+        with self.assertRaises(ValueError):
+            nn.AdaptiveAvgPool2d(target_size=(2, -1))
+
+    def test_adaptivepool_channel_axis_zero_preserves_channels(self):
+        # P7/P8: channel_axis=0 must skip the channel axis when pooling. Input
+        # (C=3, L=4) -> (C=3, L=2); previously ``if channel_axis:`` was falsy for
+        # 0 and the channel axis was incorrectly pooled.
+        pool = nn.AdaptiveAvgPool1d(target_size=2, channel_axis=0)
+        x = jnp.arange(12.0).reshape(3, 4)
+        y = pool(x)
+        self.assertEqual(y.shape, (3, 2))
+        # Each channel row is the mean over its two adaptive windows.
+        expected = jnp.stack([
+            jnp.array([(x[c, 0] + x[c, 1]) / 2, (x[c, 2] + x[c, 3]) / 2])
+            for c in range(3)
+        ])
+        np.testing.assert_allclose(np.asarray(y), np.asarray(expected), rtol=1e-6)
+
+
 if __name__ == '__main__':
     absltest.main()

@@ -370,6 +370,13 @@ class TestIfElseValidation(unittest.TestCase):
         with self.assertRaises(ValueError):
             brainstate.transform.ifelse([True, False, False], [lambda: 1, lambda: 2])
 
+    def test_single_branch_mismatched_conditions_raise(self):
+        """A single branch with >1 conditions must not silently short-circuit."""
+        # Previously the single-branch early return bypassed the length check and
+        # silently ignored the extra conditions, returning the lone branch's value.
+        with self.assertRaises(ValueError):
+            brainstate.transform.ifelse([True, False], [lambda: 42.0])
+
     def test_check_cond_false_skips_validation(self):
         """``check_cond=False`` skips the one-hot validation."""
         out = brainstate.transform.ifelse(

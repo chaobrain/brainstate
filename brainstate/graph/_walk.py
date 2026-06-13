@@ -99,7 +99,14 @@ class NodeImplBase(Generic[N, Leaf, AuxData]):
     def node_dict(self, node: N) -> dict[Key, Leaf]:
         """Return the node's one-level children as an ordered ``{key: value}`` dict."""
         nodes, _ = self.flatten(node)
-        return dict(nodes)
+        nodes = tuple(nodes)
+        result = dict(nodes)
+        if len(result) != len(nodes):
+            raise ValueError(
+                f"Duplicate child keys returned by the flatten function for "
+                f"{type(node).__name__}; each child key must be unique."
+            )
+        return result
 
 
 @dataclasses.dataclass(frozen=True)
@@ -192,7 +199,13 @@ def get_node_impl_for_type(x: type) -> NodeImpl:
     """Return the node-impl registered for type ``x`` (or the pytree impl)."""
     if x is PytreeType:
         return PYTREE_NODE_IMPL
-    return _node_impl_for_type[x]
+    try:
+        return _node_impl_for_type[x]
+    except KeyError:
+        raise ValueError(
+            f"Unknown graph node type: {x!r}. Register it with "
+            f"brainstate.graph.register_graph_node_type before flatten/unflatten."
+        ) from None
 
 
 # ---------------------------------------------------------------------------
@@ -224,8 +237,8 @@ def _key_path_to_key(key: Any) -> Key:
     elif isinstance(key, (jax.tree_util.DictKey, jax.tree_util.FlattenedIndexKey)):
         if not isinstance(key.key, Key):
             raise ValueError(
-                f'Invalid key: {key.key}. May be due to its type not being '
-                f'hashable or comparable.'
+                f'Invalid key: {key.key!r}. A pytree key must be hashable '
+                f'(its type does not satisfy the Key protocol).'
             )
         return key.key
     elif isinstance(key, jax.tree_util.GetAttrKey):
