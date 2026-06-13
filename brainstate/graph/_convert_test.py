@@ -291,5 +291,28 @@ class TestLeafPrefixParityValidation(unittest.TestCase):
             _convert.broadcast_prefix = original
 
 
+class TestGraphToTreeStates(unittest.TestCase):
+    def test_find_states_and_sharing(self):
+        import jax.numpy as jnp
+        import brainstate as bs
+        from brainstate import graph
+
+        class Box(graph.Node):
+            def __init__(self, **kw):
+                for k, v in kw.items():
+                    setattr(self, k, v)
+
+        shared = bs.ParamState(jnp.ones((3, 3)))
+        a, b = Box(w=shared), Box(w=shared)
+        from brainstate.util import FlattedDict
+        tree, find = graph.graph_to_tree([a, b])
+        self.assertIsInstance(find, FlattedDict)
+        # shared State surfaces in find_states (deduped)
+        self.assertTrue(any(v is shared for v in find.values()))
+        # round-trip restores sharing
+        back = graph.tree_to_graph(tree)
+        self.assertIs(back[0].w, back[1].w)
+
+
 if __name__ == "__main__":
     unittest.main()

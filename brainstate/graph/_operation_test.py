@@ -1290,5 +1290,93 @@ class TestPopStatesSharedAliases(absltest.TestCase):
         self.assertTrue(hasattr(n, 'q'))
 
 
+class TestSharedStateDedup(unittest.TestCase):
+    def _tied_model(self):
+        import jax.numpy as jnp
+        import brainstate as bs
+        from brainstate import graph
+
+        class Box(graph.Node):
+            def __init__(self, **kw):
+                for k, v in kw.items():
+                    setattr(self, k, v)
+
+        shared = bs.ParamState(jnp.ones((2, 2)))
+        return Box(a=shared, z=shared), shared
+
+    def test_states_dedups_shared_state(self):
+        from brainstate import graph
+        model, shared = self._tied_model()
+        st = graph.states(model)
+        vals = list(st.values())
+        self.assertEqual(len(vals), 1)               # was 2 before the fix
+        self.assertIs(vals[0], shared)
+
+    def test_states_matches_treefy_states_count(self):
+        from brainstate import graph
+        model, _ = self._tied_model()
+        self.assertEqual(len(graph.states(model)),
+                         len(graph.treefy_states(model).to_flat()))
+
+    def test_iter_leaf_yields_shared_state_once(self):
+        from brainstate import graph
+        model, shared = self._tied_model()
+        n = sum(1 for _, v in graph.iter_leaf(model) if v is shared)
+        self.assertEqual(n, 1)
+
+    def test_nodes_still_dedups(self):
+        from brainstate import graph
+        import jax.numpy as jnp
+        import brainstate as bs
+
+        class Box(graph.Node):
+            def __init__(self, **kw):
+                for k, v in kw.items():
+                    setattr(self, k, v)
+
+        sub = Box(w=bs.ParamState(jnp.ones(1)))
+        parent = Box(a=sub, b=sub)
+        # nodes(parent) returns parent itself (level 0) + sub once (deduped).
+        # Without dedup it would be 3 (parent + sub twice); with dedup it's 2.
+        self.assertEqual(len(graph.nodes(parent)), 2)
+
+    def test_inconsistent_aliasing_still_detected(self):
+        # Deduping leaves must NOT defeat check_consistent_aliasing, which works
+        # across top-level graph_to_tree leaves (persistent node_prefixes), not
+        # within one traversal. Same node in two slots with conflicting prefixes.
+        from brainstate import graph
+        import jax.numpy as jnp
+        import brainstate as bs
+
+        class Box(graph.Node):
+            def __init__(self, **kw):
+                for k, v in kw.items():
+                    setattr(self, k, v)
+
+        shared = Box(w=bs.ParamState(jnp.ones(2)))
+        with self.assertRaises(ValueError):
+            graph.graph_to_tree([shared, shared], prefix=[0, 1])
+
+    def test_dedup_false_yields_all_paths(self):
+        from brainstate.graph._walk import _iter_graph, MAX_INT
+        model, shared = self._tied_model()
+        # Mirror iter_leaf's allowed_hierarchy/want exactly, but disable leaf dedup.
+        # iter_leaf calls: _iter_graph(node, allowed_hierarchy=(0, MAX_INT), want='leaf')
+        hits = [
+            (p, v)
+            for p, v in _iter_graph(model, allowed_hierarchy=(0, MAX_INT), want='leaf', dedup_leaves=False)
+            if v is shared
+        ]
+        self.assertEqual(len(hits), 2)               # both 'a' and 'z' paths
+
+        # The default (dedup=True) must still yield exactly one occurrence.
+        dedup_hits = [
+            (p, v)
+            for p, v in _iter_graph(model, allowed_hierarchy=(0, MAX_INT), want='leaf')
+            if v is shared
+        ]
+        self.assertEqual(len(dedup_hits), 1)
+
+
 if __name__ == '__main__':
     absltest.main()

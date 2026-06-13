@@ -36,8 +36,9 @@ from ._graphdef import (
 )
 from ._reftrack import RefMap
 from ._walk import (
-    _is_node, _is_graph_node, _is_state_leaf, _get_node_impl,
-    get_node_impl_for_type, PYTREE_NODE_IMPL,
+    _is_node, get_node_impl_for_type, PYTREE_NODE_IMPL,
+    classify, GRAPH_NODE, PYTREE, STATE, STATE_LEAF,
+    _node_impl_for_type,
 )
 
 __all__ = ['flatten', 'unflatten']
@@ -66,23 +67,40 @@ class _Encoder:
         self.mapping: dict[PathParts, Any] = {}
 
     def edge(self, path: PathParts, value: Any) -> Edge:
-        if _is_node(value):
-            if _is_graph_node(value):
-                if value in self.ref_index:
-                    return NodeEdge(self.ref_index[value])
-                index = len(self.ref_index)
-                self.ref_index[value] = index
-                impl = _get_node_impl(value)
-                items, metadata = impl.flatten(value)
-                fields = tuple((k, self.edge((*path, k), v)) for k, v in items)
-                self.specs.append(NodeSpec(impl.type, index, metadata, fields))
-                return NodeEdge(index)
-            impl = _get_node_impl(value)               # pytree (re-expanded)
+        kind = classify(value)
+
+        if kind == GRAPH_NODE:
+            if value in self.ref_index:
+                return NodeEdge(self.ref_index[value])
+            index = len(self.ref_index)
+            self.ref_index[value] = index
+            impl = _node_impl_for_type[type(value)]
             items, metadata = impl.flatten(value)
             fields = tuple((k, self.edge((*path, k), v)) for k, v in items)
+            self.specs.append(NodeSpec(impl.type, index, metadata, fields))
+            return NodeEdge(index)
+
+        if kind == PYTREE:
+            items, metadata = PYTREE_NODE_IMPL.flatten(value)
+            fields = tuple((k, self.edge((*path, k), v)) for k, v in items)
+            # Exclude identity-hashable objects (e.g. TreefyState): they hash()
+            # successfully but may wrap live JAX arrays and carry no value-equality
+            # guarantee, so collapsing them would bake a live array into the static
+            # IR. The hash() try/except below does NOT catch these (identity hash
+            # never raises) — this clause is the only thing that blocks them.
+            if (
+                all(type(e) is StaticEdge for _, e in fields)
+                and type(value).__hash__ is not object.__hash__
+            ):
+                try:
+                    hash(value)
+                except TypeError:
+                    pass               # unhashable container -> keep the PytreeEdge
+                else:
+                    return StaticEdge(value)
             return PytreeEdge(metadata, fields)
 
-        if isinstance(value, State):
+        if kind == STATE:
             if value in self.ref_index:
                 return StateEdge(self.ref_index[value], None, type(value))
             index = len(self.ref_index)
@@ -90,13 +108,11 @@ class _Encoder:
             self.mapping[path] = value.to_state_ref() if self.treefy_state else value
             return StateEdge(index, path, type(value))
 
-        if _is_state_leaf(value):                      # bare TreefyState
+        if kind == STATE_LEAF:                  # bare non-pytree TreefyState (rare)
             self.mapping[path] = value
             return StateLeafEdge(path)
 
-        # Any other value is an inline static field. It is kept as-is (matching
-        # the legacy engine); hashability is enforced lazily by ``GraphDef`` so
-        # that graphs with unhashable static attributes still split/merge.
+        # STATIC — kept as-is; hashability enforced lazily by GraphDef.
         return StaticEdge(value)
 
 
@@ -199,7 +215,7 @@ def _iter_edges(graphdef: GraphDef):
     while stack:
         e = stack.pop()
         yield e
-        if isinstance(e, PytreeEdge):
+        if type(e) is PytreeEdge:
             stack.extend(c for _, c in e.fields)
 
 
@@ -260,7 +276,7 @@ def unflatten(
 
     # Pass 0 — materialize States into index_ref (handles all sharing/back-refs).
     for e in _iter_edges(graphdef):
-        if isinstance(e, StateEdge) and e.path is not None and e.index not in index_ref:
+        if type(e) is StateEdge and e.path is not None and e.index not in index_ref:
             value = flat_states.get(e.path, _MISSING)
             if value is not _MISSING:
                 index_ref[e.index] = _materialize_state(value, e.index, index_ref_cache)
@@ -283,18 +299,19 @@ def unflatten(
         index_ref[spec.index] = shell
 
     def resolve(edge):
-        if isinstance(edge, StaticEdge):
+        et = type(edge)
+        if et is StaticEdge:
             return edge.value
-        if isinstance(edge, NodeEdge):
+        if et is NodeEdge:
             return index_ref[edge.index]
-        if isinstance(edge, StateEdge):
+        if et is StateEdge:
             if edge.index in index_ref:
                 return index_ref[edge.index]
             raise ValueError(
                 f"Expected key {_format_path(edge.path) if edge.path else edge.path!r} "
                 f"in the state mapping while rebuilding the graph."
             )
-        if isinstance(edge, StateLeafEdge):
+        if et is StateLeafEdge:
             value = flat_states.get(edge.path, _MISSING)
             if value is _MISSING:
                 raise ValueError(
@@ -302,7 +319,7 @@ def unflatten(
                     f"in the state mapping while rebuilding the graph."
                 )
             return value.to_state() if isinstance(value, TreefyState) else value
-        if isinstance(edge, PytreeEdge):
+        if et is PytreeEdge:
             items = tuple((k, resolve(c)) for k, c in edge.fields)
             return PYTREE_NODE_IMPL.unflatten(items, edge.metadata)
         raise TypeError(f"Unknown edge type: {type(edge)}")

@@ -187,6 +187,10 @@ def states(
 ) -> Union[FlattedDict, Tuple[FlattedDict, ...]]:
     """Collect ``State`` objects from a graph node as ``FlattedDict``(s).
 
+    Shared ``State`` objects (reachable via multiple paths) are deduplicated by
+    identity: each unique State appears exactly once, matching the behaviour of
+    :func:`treefy_states`.
+
     Parameters
     ----------
     node : Any

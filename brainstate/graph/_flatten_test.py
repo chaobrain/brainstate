@@ -268,5 +268,95 @@ class TestFormatPath(unittest.TestCase):
         self.assertEqual(_flatten._format_path(("a", "b", "c")), "a.b.c")
 
 
+class TestEncodeKinds(unittest.TestCase):
+    def test_bare_treefy_state_encodes_as_pytree(self):
+        import jax.numpy as jnp
+        import brainstate as bs
+        from brainstate import graph
+        from brainstate.graph import PytreeEdge
+
+        class Box(graph.Node):
+            def __init__(self, **kw):
+                for k, v in kw.items():
+                    setattr(self, k, v)
+
+        ts = bs.ParamState(jnp.ones(2)).to_state_ref()
+        gd, _ = graph.flatten(Box(ts=ts))
+        kinds = {k: type(e).__name__ for k, e in gd.node_specs[0].fields}
+        self.assertEqual(kinds['ts'], 'PytreeEdge')   # preserved legacy behavior
+
+
+class TestStaticCollapse(unittest.TestCase):
+    def setUp(self):
+        import brainstate as bs
+        from brainstate import graph
+
+        class Box(graph.Node):
+            def __init__(self, **kw):
+                for k, v in kw.items():
+                    setattr(self, k, v)
+
+        self.Box = Box
+
+    def test_hashable_static_tuple_collapses(self):
+        from brainstate import graph
+        from brainstate.graph import StaticEdge
+        gd, st = graph.flatten(self.Box(shape=(2, 3), name=None))
+        fields = dict(gd.node_specs[0].fields)
+        self.assertIsInstance(fields['shape'], StaticEdge)
+        self.assertEqual(fields['shape'].value, (2, 3))
+        self.assertIsInstance(fields['name'], StaticEdge)   # None collapses too
+        # round-trip + value fidelity
+        rebuilt = graph.unflatten(gd, st)
+        self.assertEqual(rebuilt.shape, (2, 3))
+        self.assertIsNone(rebuilt.name)
+        # GraphDef stays hashable and stable for equal models
+        gd2, _ = graph.flatten(self.Box(shape=(2, 3), name=None))
+        self.assertEqual(hash(gd), hash(gd2))
+
+    def test_unhashable_static_list_stays_pytree(self):
+        from brainstate import graph
+        from brainstate.graph import PytreeEdge
+        gd, st = graph.flatten(self.Box(shape=[2, 3]))
+        fields = dict(gd.node_specs[0].fields)
+        self.assertIsInstance(fields['shape'], PytreeEdge)   # list is unhashable
+        self.assertEqual(graph.unflatten(gd, st).shape, [2, 3])
+        hash(gd)   # still hashable (PytreeEdge of StaticEdges)
+
+    def test_static_tuple_with_array_not_collapsed(self):
+        import jax.numpy as jnp
+        from brainstate import graph
+        from brainstate.graph import PytreeEdge
+        gd, st = graph.flatten(self.Box(meta=(1, jnp.ones(2))))
+        fields = dict(gd.node_specs[0].fields)
+        # tuple holding an array is unhashable -> not collapsed -> stays a pytree
+        self.assertIsInstance(fields['meta'], PytreeEdge)
+        rebuilt = graph.unflatten(gd, st)
+        self.assertEqual(rebuilt.meta[0], 1)
+
+    def test_empty_containers_round_trip(self):
+        from brainstate import graph
+        b = self.Box(lst=[], d={}, t=())
+        r = graph.unflatten(*graph.flatten(b))
+        self.assertEqual((r.lst, r.d, r.t), ([], {}, ()))
+
+    def test_identity_hashable_pytree_not_collapsed(self):
+        # A bare TreefyState is PYTREE-classified and identity-hashable; its array
+        # child becomes a StaticEdge. The __hash__ guard must keep it a PytreeEdge
+        # so the live array is NOT baked into the static IR.
+        import jax.numpy as jnp
+        import brainstate as bs
+        from brainstate import graph
+        from brainstate.graph import PytreeEdge, StaticEdge
+        ts = bs.ParamState(jnp.ones(2)).to_state_ref()
+        gd, st = graph.flatten(self.Box(ts=ts))
+        fields = dict(gd.node_specs[0].fields)
+        self.assertIsInstance(fields['ts'], PytreeEdge)
+        self.assertNotIsInstance(fields['ts'], StaticEdge)
+        # round-trips with the value intact (not frozen as a static constant)
+        rebuilt = graph.unflatten(gd, st)
+        self.assertEqual(rebuilt.ts.value.shape, (2,))
+
+
 if __name__ == "__main__":
     unittest.main()

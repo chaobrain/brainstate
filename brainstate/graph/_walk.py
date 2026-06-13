@@ -68,17 +68,18 @@ def _is_node_leaf(x: Any) -> TypeGuard[State]:
 
 def _is_pytree_node(x: Any) -> bool:
     """Return whether ``x`` is a (non-leaf) JAX pytree container."""
-    return not jax.tree_util.all_leaves((x,))
+    return classify(x) == PYTREE
 
 
 def _is_graph_node(x: Any) -> bool:
     """Return whether ``type(x)`` is a registered mutable graph-node type."""
-    return type(x) in _node_impl_for_type
+    return classify(x) == GRAPH_NODE
 
 
 def _is_node(x: Any) -> bool:
     """Return whether ``x`` is a container the engine descends into."""
-    return _is_graph_node(x) or _is_pytree_node(x)
+    k = classify(x)
+    return k == GRAPH_NODE or k == PYTREE
 
 
 def _is_node_type(x: type) -> bool:
@@ -133,6 +134,51 @@ NodeImpl = GraphNodeImpl | PyTreeNodeImpl
 _node_impl_for_type: dict[type, NodeImpl] = {}
 
 
+# ---------------------------------------------------------------------------
+# Value classification (type-keyed, cached)
+# ---------------------------------------------------------------------------
+# Kinds, ordered to match the historical encoder/kernel dispatch exactly:
+# a value is a graph node, else a pytree container, else a State, else a bare
+# TreefyState leaf, else an inline static. The order matters: TreefyState IS a
+# registered jax pytree, so it must resolve to PYTREE (not STATE_LEAF) to keep
+# the legacy behavior of encoding a bare TreefyState attribute as a PytreeEdge.
+GRAPH_NODE, PYTREE, STATE, STATE_LEAF, STATIC = range(5)
+
+_KIND_CACHE: dict[type, int] = {}
+
+
+def _compute_kind(t: type, x: Any) -> int:
+    if t in _node_impl_for_type:
+        return GRAPH_NODE
+    if not jax.tree_util.all_leaves((x,)):  # x (the instance) is needed only for the pytree check; all other branches are type-only
+        return PYTREE
+    if issubclass(t, State):
+        return STATE
+    if issubclass(t, TreefyState):
+        return STATE_LEAF
+    return STATIC
+
+
+def classify(x: Any) -> int:
+    """Classify ``x`` into one of GRAPH_NODE/PYTREE/STATE/STATE_LEAF/STATIC.
+
+    The result depends only on ``type(x)`` for the registered/container types
+    the engine encounters, so it is memoized per type. The cache is cleared by
+    :func:`register_graph_node_type`.
+    """
+    t = type(x)
+    k = _KIND_CACHE.get(t)
+    if k is None:
+        k = _compute_kind(t, x)
+        _KIND_CACHE[t] = k
+    return k
+
+
+def _clear_classification_cache() -> None:
+    """Drop all memoized classifications (internal; tests / dynamic registration)."""
+    _KIND_CACHE.clear()
+
+
 @set_module_as('brainstate.graph')
 def register_graph_node_type(
     type: type,
@@ -181,6 +227,7 @@ def register_graph_node_type(
         type=type, flatten=flatten, set_key=set_key,
         pop_key=pop_key, create_empty=create_empty, clear=clear,
     )
+    _KIND_CACHE.clear()
 
 
 def _get_node_impl(x: Any) -> NodeImpl:
@@ -270,7 +317,8 @@ PYTREE_NODE_IMPL = PyTreeNodeImpl(
 # ---------------------------------------------------------------------------
 
 def _iter_graph(
-    node: Any, *, allowed_hierarchy: tuple[int, int], want: str
+    node: Any, *, allowed_hierarchy: tuple[int, int], want: str,
+    dedup_leaves: bool = True,
 ) -> Iterator[tuple[PathParts, Any]]:
     """Shared depth-first traversal backing the iteration family.
 
@@ -285,19 +333,33 @@ def _iter_graph(
     def _iter(node_, visited, path_, level_):
         if level_ > hi:
             return
-        if _is_node(node_):
+        kind = classify(node_)
+        if kind == GRAPH_NODE or kind == PYTREE:
             if id(node_) in visited:
                 return
             visited.add(id(node_))
-            for key, value in _get_node_impl(node_).node_dict(node_).items():
+            if kind == GRAPH_NODE:
+                impl = _node_impl_for_type[type(node_)]
+            else:
+                impl = PYTREE_NODE_IMPL
+            items, _ = impl.flatten(node_)
+            for key, value in items:
+                child_is_node = classify(value) == GRAPH_NODE
                 yield from _iter(
                     value, visited, (*path_, key),
-                    level_ + 1 if _is_graph_node(value) else level_,
+                    level_ + 1 if child_is_node else level_,
                 )
-            if want == 'node' and _is_graph_node(node_) and level_ >= lo:
+            if want == 'node' and kind == GRAPH_NODE and level_ >= lo:
                 yield path_, node_
         else:
             if want == 'leaf' and level_ >= lo:
+                # State leaves dedup by identity (first pre-order path wins).
+                # Reusing `visited` is safe: containers and State leaves are
+                # disjoint object sets, so their ids never collide.
+                if dedup_leaves and (kind == STATE or kind == STATE_LEAF):
+                    if id(node_) in visited:
+                        return
+                    visited.add(id(node_))
                 yield path_, node_
 
     yield from _iter(node, set(), (), 0)
@@ -309,7 +371,9 @@ def iter_leaf(
 ) -> Iterator[tuple[PathParts, Any]]:
     """Iterate ``(path, value)`` over every leaf in the graph.
 
-    Repeated containers are visited only once (by identity).
+    Repeated containers are visited only once (by identity). State leaves are
+    likewise deduplicated by identity: if the same State object is reachable
+    via multiple paths, only its first pre-order occurrence is yielded.
 
     Parameters
     ----------
