@@ -1,6 +1,80 @@
 # Release Notes
 
 
+## Version 0.5.0 (2026-06-14)
+
+A repository-wide correctness release. Following the `brainstate.transform` audit that shipped in 0.4.x, this cycle extended the same expert-audit discipline to nearly every remaining module — `random`, `graph`, `interop`, `nn`, `util`, the `vmap` / `pmap` / `shard_map` mapping engine, and the `exp_euler` integrator — and then closed out a single consolidated cross-module audit (`dev/issues.md`) covering one critical, twenty-one high, forty-six medium, and twenty-nine low findings, plus a long appendix of unverified items. Every fix ships with a behavioral regression test (several previously-skipped "known bug" tests are now un-skipped and passing), and the suite is green across the full CI JAX matrix (0.7.0, 0.8.0, 0.9.0, and latest). The release also lands a graph-layer performance pass. No public APIs are removed or renamed; the only behavioral changes are previously-silent wrong-result or invalid-input paths that now fail loudly with descriptive errors.
+
+### Performance
+
+- **Graph flatten/unflatten fast paths** (#218): value classification is now memoized in a type-keyed cache that backs the node predicates, the encoder dispatch, and the flattening kernel (which classifies once and iterates node items directly); the decoder uses exact-type dispatch; all-static hashable pytrees collapse to a single `StaticEdge`; and `graph_to_tree` reads its `State`s directly from the `RefMap`. Shared `State`s are de-duplicated in `iter_leaf` / `states` to match `treefy_states`.
+
+### Bug Fixes
+
+#### `brainstate.random` (#211)
+
+Six reachable distribution bugs, each contradicting the function's own NumPy-style docstring:
+
+- **`standard_t`** with an array `df` and `size=None` returned shape `()` (and raised `ValueError`) via a dead `shape(size)` branch; it now infers the shape from `df`, matching the sibling `t`.
+- **`weibull_min`** divided by `scale` instead of multiplying; it is now `r * scale`, matching `scipy.stats.weibull_min` and the `weibull` scale convention.
+- **`triangular`** was a Rademacher `2*bernoulli-1` (±1) draw with a size-only signature, so the documented `triangular(-3, 0, 8, N)` raised `TypeError`. It is reimplemented as the true `triangular(left, mode, right, size)` via inverse-CDF, with shared-unit support like `uniform`.
+- **`geometric`** was off-by-one (support `{0,1,...}` instead of `{1,2,...}`) and returned a float; it now returns an integer dtype with `P(k==1) == p`.
+- **`randint_like`** computed its default `high = max(input)` with the Python builtin, raising on templates with more than one dimension; it now uses `u.math.max`.
+- **`chisquare`** summed `df` squared normals, rejecting non-integer scalar `df` and array `df` with `size=None`; it now uses the `2 · Gamma(df/2)` relation, valid for any positive real or array `df`.
+
+#### `brainstate.graph` (#212)
+
+- **`merge_context`** yielded `dict(index_ref)` — an empty snapshot disconnected from the table that `treefy_merge` populates. It now yields the live dict, symmetric with `split_context`.
+- **`Node.check_valid_context`** read `self._trace_state`, which graph nodes never carry, raising `AttributeError` for every graph node (e.g. `nn.Linear`). A node's validity is now computed as the conjunction of the trace validity of the `State`s reachable from it.
+- **`pop_states`** deduplicated a matched `State` by identity and popped only its first reference, leaving later shared/tied aliases dangling on the node. Every alias of a popped state is now detached while the state is still recorded once.
+
+#### `brainstate.interop` (#213)
+
+- Added the missing `input_dilation` guard to the `nnx` `Conv` import (previously silent data corruption).
+- Norm-channel extraction now reads framework metadata instead of affine parameters that may be `None`, fixing crashes on `LayerNorm` / `RMSNorm` / `GroupNorm` configured without affine.
+- `bst_set_norm` early-returns when both `scale` and `offset` are `None`; `bst_set_batchnorm` omits `None`-valued keys from the weight dict.
+- `lookup_export` no longer rebuilds an O(N) dict on every call.
+
+#### `brainstate.nn` (#215)
+
+A systematic audit of the neural-network module:
+
+- **Dropout & activations**: corrected the self-normalizing affine constants in `AlphaDropout` / `FeatureAlphaDropout`; fixed unbatched minimal-dim detection in `Dropout2d` / `Dropout3d` (per-element mask independence); defaulted `Softmin` / `Softmax` / `LogSoftmax` to the last axis; and fixed unit/integer handling in `rrelu` and the `soft_shrink` zero branch.
+- **Linear & init**: fixed `ScaledWSLinear` mask/weight/bias shapes and `AllToAll` `out > in` padding; corrected `TruncatedNormal` default bounds and the `clip_grad_norm` unitless-gradient note.
+- **Metrics**: added the `'weighted'` average (with validation) to `Precision` / `Recall` and fixed the `Welford` integer counter.
+- **Bijective transforms**: `Softplus` / `NegSoftplus` / `Negative` / `Ordered` now use a saturation-free forward and a unit-safe stable inverse; `Sigmoid` / `Affine` `log_abs_det_jacobian` handle units and per-batch shape; `Affine` checks for a zero scale; `HiData.clone` / `add` / `pop` / `replace` preserve the name.
+- **Module & collective ops**: `assign_state_values` accepts pytree / `Quantity` values via `tree.map` and dotted-string or tuple keys; `vmap_call_all_fns` is rebuilt on `vmap_new_states` (fixing a `BatchTracer` leak); `Map.update` no longer forwards `spmd_axis_name` to `pmap2`; an empty-slice of a `Sequential` returns an empty `Sequential`; and the `in_size` / `out_size` setters accept numpy scalars and 0-d arrays uniformly.
+- **Delay & dynamics**: `Delay.max_time` grows monotonically across registrations; unit-aware retrieval no longer crashes or double-applies units; `update_every` is now functional via a monotonic per-call write pointer; and `FixedNumConn` respects the seed for its `afferent_ratio` mask and guards the unsupported `efferent_target='pre'` path with a clear `NotImplementedError`.
+
+#### `brainstate.transform` mapping engine (#216)
+
+Eight verified bugs in the `vmap` / `pmap` / `shard_map` engine:
+
+- An `'auto'` undeclared read-modify-write state whose leading dim differs from the batch grew a new leading axis on every warm call; per-lane promotion is now re-decided from the live value each call, so warm and cold results agree.
+- `pmap2_new_states` failed when the init used no `RandomState`; a dummy iota is now fed (and ignored) so `pmap` always has a mapped argument.
+- `'auto'` could silently flip read-modify-write vs. scatter on a coincidental dimension match; a `_ReadTrackingTrace` now separates genuine reads and a one-time `UserWarning` fires when an undeclared RMW state's dim differs from the batch.
+- `axis_size` is validated, raising a clear `ValueError` on conflict with the inferred batch size; `map` over a 0-d input raises a clear `ValueError` instead of a cryptic `IndexError`; and the legacy `vmap` undeclared-write error now speaks the `out_states` vocabulary.
+- `shard_map`'s undeclared (replicated) per-shard write against sharded data now points at `state_in_specs` / `state_out_specs` instead of failing with an opaque broadcast error.
+- `StatefulMapping(static_argnums=...)` no longer maps the static argument: static positional args are closed over, matching `jax.jit`.
+
+#### `brainstate.nn.exp_euler` (#210)
+
+- Corrected the Jacobian unit conversion in the drift calculation of the exponential-Euler integrator, and clarified the diagonal-Jacobian docstring.
+
+#### `brainstate.util` & cross-module hardening (#217)
+
+The consolidated `dev/issues.md` audit resolved every catalogued finding across `nn`, `random`, `transform`, `util`, `graph`, `interop`, and the core, plus utility edge cases surfaced separately. Each fix is paired with a behavioral regression test; genuinely ambiguous contracts were resolved by documenting the existing behavior rather than silently changing it.
+
+### Hardening (stricter validation)
+
+Runtime validation that previously relied on `assert` — and was therefore stripped under `python -O`, allowing invalid input to flow through to silently wrong results — now raises descriptive `TypeError` / `ValueError` across `nn`, `random`, `transform`, `util`, `graph`, `interop`, and the core (#217). All such checks target stable, public JAX APIs.
+
+### Quality
+
+- Full test suite: **5296 passed, 23 skipped**; `mypy` clean; patch coverage 100% (lines) for the cross-module audit and 98% for the mapping-engine fixes (#216, #217).
+- Verified green on the complete CI JAX matrix: 0.7.0, 0.8.0, 0.9.0, and latest.
+
+
 ## Version 0.4.2 (2026-06-10)
 
 A correctness-hardening patch release for `brainstate.transform`. A JAX-expert audit of the state-based transformation layer — `jit`, `grad` / `vector_grad` / `jacobian` / `hessian`, `cond` / `switch` / `ifelse`, the bounded and collecting loops, the state-aware mapping engine, `shard_map`, `checkify`, `named_scope`, and `checkpoint` — surfaced a family of stale-cache, tracer-leak, and silent-misbehavior bugs. This release fixes every reproduced issue and tightens argument validation so that previously silent wrong-result paths now fail loudly. The minimum supported JAX is raised to 0.7.0. Each fix ships with a regression test verified to fail before and pass after the change (#207, #208).

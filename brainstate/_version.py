@@ -13,6 +13,6 @@
 # limitations under the License.
 # ==============================================================================
 
-__version__ = "0.4.2"
+__version__ = "0.5.0"
 __version_info__ = tuple(map(int, __version__.split('.')))
 
