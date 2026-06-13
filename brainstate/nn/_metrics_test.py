@@ -401,6 +401,33 @@ class F1ScoreMetricTest(parameterized.TestCase):
         # Per-class F1: [0.0198, 0.6689] -> mean = 0.34435
         self.assertAlmostEqual(float(result), 0.3443, places=3)
 
+    def test_f1_score_multiclass_micro_exact(self):
+        """Micro-averaged multi-class F1 equals overall accuracy (single-label).
+
+        Covers the ``avg == 'micro'`` branch of ``F1ScoreMetric.compute()`` for
+        ``num_classes is not None``: micro precision and micro recall are both
+        equal to the global accuracy, so their harmonic mean is the accuracy too.
+        """
+        labels = jnp.array([0, 0, 0, 0, 0, 1, 1, 2, 2, 2])
+        preds = jnp.array([0, 0, 1, 2, 0, 1, 2, 2, 0, 1])
+        metric = bst.nn.F1ScoreMetric(num_classes=3, average='micro')
+        metric.update(predictions=preds, labels=labels)
+        result = metric.compute()
+        # 5 of 10 predictions are correct -> accuracy 0.5 -> micro F1 0.5.
+        self.assertAlmostEqual(float(result), 0.5, places=5)
+        # It must equal the harmonic mean of the component micro metrics.
+        p = float(metric.precision_metric.compute())
+        r = float(metric.recall_metric.compute())
+        self.assertAlmostEqual(float(result), 2 * p * r / (p + r), places=5)
+
+    def test_f1_score_multiclass_micro_all_correct(self):
+        """Micro F1 is 1.0 when every single-label prediction is correct."""
+        labels = jnp.array([0, 1, 2, 2, 1, 0])
+        preds = jnp.array([0, 1, 2, 2, 1, 0])
+        metric = bst.nn.F1ScoreMetric(num_classes=3, average='micro')
+        metric.update(predictions=preds, labels=labels)
+        self.assertAlmostEqual(float(metric.compute()), 1.0, places=5)
+
     def test_f1_score_reset(self):
         """Test reset functionality."""
         metric = bst.nn.F1ScoreMetric()

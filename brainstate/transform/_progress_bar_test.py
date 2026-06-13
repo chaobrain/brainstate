@@ -548,5 +548,39 @@ class TestCheckpointedScanNoPostCloseUpdate(unittest.TestCase):
             self.assertEqual(bar.n, n, msg=f"n={n}")
 
 
+class TestProgressBarRunnerDescReturnValidation(unittest.TestCase):
+    """``ProgressBarRunner.__call__`` validates the user desc callback's return.
+
+    A ``(fmt, fn)`` desc whose ``fn`` returns a non-dict would otherwise reach
+    ``str.format(**data)`` and fail cryptically. The runner raises a clear
+    ``TypeError`` (a real exception, not an ``assert`` stripped under ``python
+    -O``) before dispatching the ``jax.lax.cond``."""
+
+    def test_non_dict_desc_return_raises_type_error(self):
+        """A desc callback returning a non-dict raises TypeError naming the type."""
+        def bad_fmt(data):
+            return "not-a-dict"  # callable (passes construction) but wrong return
+
+        runner = ProgressBar(freq=2, desc=("iter {i}", bad_fmt)).init(10)
+        with self.assertRaises(TypeError) as ctx:
+            runner(0)
+        msg = str(ctx.exception)
+        self.assertIn("must return a dict", msg)
+        # The error reports the offending return type.
+        self.assertIn("str", msg)
+
+    def test_dict_desc_return_does_not_raise_type_error(self):
+        """A desc callback returning a dict passes the validation guard.
+
+        ``__call__`` proceeds into ``jax.lax.cond``; we only assert that the
+        non-dict guard does not trip for a well-behaved callback."""
+        def good_fmt(data):
+            return {"i": data["i"]}
+
+        runner = ProgressBar(freq=2, desc=("iter {i}", good_fmt)).init(10)
+        # Must not raise TypeError from the desc-return guard.
+        runner(0)
+
+
 if __name__ == "__main__":
     unittest.main()

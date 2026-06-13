@@ -2228,6 +2228,29 @@ class TestAuditFixes(unittest.TestCase):
         with pytest.raises(ValueError, match="shape/dtype mismatch"):
             sf._validate_state_shapes(cache_key)
 
+    def test_validate_state_shapes_unchanged_returns_none(self):
+        """``_validate_state_shapes`` returns without raising when every tracked
+        state still matches the shape/dtype it was compiled with (the
+        no-mismatch branch).
+
+        The companion test above covers the mismatch->ValueError branch; here
+        the state value is left untouched between compilation and validation, so
+        the per-state comparison finds no mismatch for any state and the method
+        completes normally (returning ``None``)."""
+        sv = brainstate.State(jnp.array([1.0, 2.0, 3.0]))
+
+        def g(x):
+            sv.value = sv.value + x
+            return sv.value.sum()
+
+        sf = brainstate.transform.StatefulFunction(g)
+        x = jnp.array([1.0, 2.0, 3.0])
+        sf.make_jaxpr(x)
+        cache_key = sf.get_arg_cache_key(x)
+
+        # Shapes/dtypes are unchanged -> no mismatch -> no exception.
+        self.assertIsNone(sf._validate_state_shapes(cache_key))
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -198,6 +198,47 @@ class TestAliasingChecks(unittest.TestCase):
         shared = Empty()
         graph_to_tree([shared, shared], prefix=0)  # should not raise
 
+    def test_nested_graph_node_walked_and_recorded(self):
+        """The ``iter_node`` pass descends into *nested* graph nodes too.
+
+        ``check_consistent_aliasing`` walks every graph node reachable from a
+        leaf (the leaf node and each nested graph-node child). A single node that
+        holds an inner graph node must split without raising; the walk visits both
+        the outer and the inner node.
+        """
+
+        class Inner(brainstate.graph.Node):
+            def __init__(self):
+                self.w = brainstate.ParamState(jnp.ones((2,)))
+
+        class Outer(brainstate.graph.Node):
+            def __init__(self, inner):
+                self.inner = inner  # a nested graph node
+
+        tree, _ = graph_to_tree(Outer(Inner()), prefix=0)
+        self.assertIsNotNone(tree)
+
+    def test_shared_nested_graph_node_inconsistent_prefix_raises(self):
+        """A *nested* graph node shared across slots with conflicting prefixes
+        is detected by the per-node aliasing walk and raises ``ValueError``.
+
+        The inner node is reachable only by descending into each outer node, so
+        catching the conflict proves the walk records prefixes for nested nodes,
+        not just the top-level leaf node.
+        """
+
+        class Inner(brainstate.graph.Node):
+            def __init__(self):
+                self.w = brainstate.ParamState(jnp.ones((2,)))
+
+        class Outer(brainstate.graph.Node):
+            def __init__(self, inner):
+                self.inner = inner
+
+        inner = Inner()
+        with self.assertRaises(ValueError):
+            graph_to_tree([Outer(inner), Outer(inner)], prefix=[0, 1])
+
 
 class TestConvertHelpers(unittest.TestCase):
     """Internal helpers used by the conversion routines."""

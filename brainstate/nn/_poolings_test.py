@@ -1689,5 +1689,126 @@ class TestPoolingAuditRegressions(unittest.TestCase):
         np.testing.assert_allclose(np.asarray(y), np.asarray(expected), rtol=1e-6)
 
 
+class TestPoolingSequenceBranchValidation(unittest.TestCase):
+    """Cover the ``Sequence``-but-not-``tuple``/``list`` and non-int-element
+    validation branches across the pooling base classes.
+
+    These branches fire for an argument that *is* a ``collections.abc.Sequence``
+    (so it passes the ``isinstance(x, Sequence)`` guard) yet is neither a tuple
+    nor a list -- e.g. a ``range`` object -- and for tuple/list arguments whose
+    elements are not all ints. The existing tests only exercise the outer
+    ``else`` (non-int, non-sequence) branch, so these complete the matrix.
+    """
+
+    # ------------------------------------------------------------------ _MaxPool
+
+    def test_maxpool_kernel_size_sequence_not_tuple_raises(self):
+        """A ``range`` kernel_size (a Sequence, not a tuple/list) is rejected."""
+        with self.assertRaisesRegex(TypeError, 'kernel_size should be a tuple'):
+            nn.MaxPool2d(range(2))
+
+    def test_maxpool_stride_sequence_not_tuple_raises(self):
+        """A ``range`` stride (a Sequence, not a tuple/list) is rejected."""
+        with self.assertRaisesRegex(TypeError, 'stride should be a tuple'):
+            nn.MaxPool2d(2, stride=range(2))
+
+    def test_maxpool_stride_non_int_elements_raises(self):
+        """A stride tuple containing a non-int element is rejected."""
+        with self.assertRaisesRegex(TypeError, 'stride should be a tuple of ints'):
+            nn.MaxPool2d(2, stride=(2.0, 2))
+
+    def test_maxpool_padding_tuple_sequence_wrong_length_raises(self):
+        """A sequence of ``(lo, hi)`` padding pairs of the wrong length is rejected.
+
+        Each entry is a valid 2-tuple, so validation falls through to the final
+        length check, which must reject a length that is neither 1 nor ``pool_dim``.
+        """
+        with self.assertRaisesRegex(ValueError, 'padding should has the length of 2'):
+            nn.MaxPool2d(2, padding=[(1, 1), (1, 1), (1, 1)])
+
+    # ---------------------------------------------------------------- _MaxUnpool
+
+    def test_maxunpool_kernel_size_sequence_not_tuple_raises(self):
+        """A ``range`` unpool kernel_size is rejected."""
+        with self.assertRaisesRegex(TypeError, 'kernel_size should be a tuple'):
+            nn.MaxUnpool2d(range(2))
+
+    def test_maxunpool_kernel_size_non_int_elements_raises(self):
+        """An unpool kernel tuple with a non-int element is rejected."""
+        with self.assertRaisesRegex(TypeError, 'kernel_size should be a tuple of ints'):
+            nn.MaxUnpool2d((2.0, 2))
+
+    def test_maxunpool_stride_sequence_not_tuple_raises(self):
+        """A ``range`` unpool stride is rejected."""
+        with self.assertRaisesRegex(TypeError, 'stride should be a tuple'):
+            nn.MaxUnpool2d(2, stride=range(2))
+
+    def test_maxunpool_stride_non_int_elements_raises(self):
+        """An unpool stride tuple with a non-int element is rejected."""
+        with self.assertRaisesRegex(TypeError, 'stride should be a tuple of ints'):
+            nn.MaxUnpool2d(2, stride=(2.0, 2))
+
+    def test_maxunpool_channel_axis_non_int_raises(self):
+        """A non-int, non-None unpool ``channel_axis`` is rejected."""
+        with self.assertRaisesRegex(TypeError, 'channel_axis should be an int'):
+            nn.MaxUnpool2d(2, channel_axis=1.5)
+
+    # ------------------------------------------------------------------- _LPPool
+
+    def test_lppool_kernel_size_sequence_not_tuple_raises(self):
+        """A ``range`` LP kernel_size is rejected."""
+        with self.assertRaisesRegex(TypeError, 'kernel_size should be a tuple'):
+            nn.LPPool2d(2, range(2))
+
+    def test_lppool_kernel_size_non_int_elements_raises(self):
+        """An LP kernel tuple with a non-int element is rejected."""
+        with self.assertRaisesRegex(TypeError, 'kernel_size should be a tuple of ints'):
+            nn.LPPool2d(2, (2.0, 2))
+
+    def test_lppool_stride_sequence_not_tuple_raises(self):
+        """A ``range`` LP stride is rejected."""
+        with self.assertRaisesRegex(TypeError, 'stride should be a tuple'):
+            nn.LPPool2d(2, 2, stride=range(2))
+
+    def test_lppool_padding_tuple_sequence_wrong_length_raises(self):
+        """A sequence of LP padding pairs of the wrong length is rejected."""
+        with self.assertRaisesRegex(ValueError, 'padding should has the length of 2'):
+            nn.LPPool2d(2, 2, padding=[(1, 1), (1, 1), (1, 1)])
+
+    def test_lppool_channel_axis_non_int_raises(self):
+        """A non-int, non-None LP ``channel_axis`` is rejected."""
+        with self.assertRaisesRegex(TypeError, 'channel_axis should be an int'):
+            nn.LPPool2d(2, 2, channel_axis=1.5)
+
+
+class TestAdaptivePoolHelperValidation(unittest.TestCase):
+    """Cover the lower-bound and element-type guards of adaptive pooling."""
+
+    def test_adaptive_pool1d_target_size_below_one_raises(self):
+        """The 1D helper rejects ``target_size < 1`` before any reshape.
+
+        This guard sits ahead of the ``size < target_size`` check, so it is only
+        reachable by calling the helper directly with a non-positive target (the
+        public layers reject ``target_size <= 0`` earlier in their constructor).
+        """
+        from brainstate.nn._poolings import _adaptive_pool1d
+        with self.assertRaisesRegex(ValueError, 'target_size must be >= 1'):
+            _adaptive_pool1d(jnp.arange(4.0), 0, jnp.mean)
+        with self.assertRaisesRegex(ValueError, 'target_size must be >= 1'):
+            _adaptive_pool1d(jnp.arange(4.0), -3, jnp.mean)
+
+    def test_adaptive_pool_target_size_non_int_entry_raises(self):
+        """A target-size tuple with a non-int, non-None entry is rejected.
+
+        This is distinct from the non-positive-entry case (``(2, -1)``): here the
+        offending entry is a float, so the ``isinstance(t, int)`` guard fires with
+        a ``TypeError`` rather than the value-range ``ValueError``.
+        """
+        with self.assertRaisesRegex(TypeError, 'target_size.*entries must be ints or None'):
+            nn.AdaptiveAvgPool2d((2, 2.5))
+        with self.assertRaisesRegex(TypeError, 'target_size.*entries must be ints or None'):
+            nn.AdaptiveMaxPool2d((2, 2.5))
+
+
 if __name__ == '__main__':
     absltest.main()

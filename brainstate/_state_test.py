@@ -2813,5 +2813,121 @@ class TestStateAuditRegressions(unittest.TestCase):
         self.assertEqual(len(TRACE_CONTEXT.state_stack), depth0)
 
 
+class TestHiddenStateSetGetBranches(unittest.TestCase):
+    """Cover the validation/unit branches of HiddenGroupState and HiddenTreeState.
+
+    These exercise the error-raising and alternate branches inside
+    ``set_value`` / ``get_value`` / ``_check_value`` that the happy-path tests
+    above do not reach.
+    """
+
+    # --- HiddenGroupState.set_value: key that is neither int nor str ---
+    def test_group_set_value_non_int_str_key_raises(self):
+        s = brainstate.HiddenGroupState(jnp.zeros((4, 3)))
+        with self.assertRaises(TypeError) as ctx:
+            s.set_value({1.5: jnp.ones((4,))})  # float key -> not int, not str
+        msg = str(ctx.exception)
+        self.assertIn('should be int or str', msg)
+        self.assertIn('1.5', msg)
+
+    # --- HiddenGroupState.set_value: non-dimensionless (unit-carrying) else branch ---
+    def test_group_set_value_with_unit_uses_quantity_branch(self):
+        # A unit-carrying group state forces the ``else`` branch that converts
+        # the new values through ``u.Quantity(...).to(unit)`` before scattering.
+        s = brainstate.HiddenGroupState(jnp.ones((4, 3)) * u.mV)
+        self.assertFalse(u.get_unit(s.value).dim.is_dimensionless)
+        s.set_value({0: jnp.full((4,), 5.0) * u.mV})
+        got = s.get_value(0)
+        self.assertEqual(u.get_unit(got), u.mV)
+        np.testing.assert_allclose(np.asarray(u.get_magnitude(got)), np.full((4,), 5.0))
+        # untouched columns keep their original value
+        np.testing.assert_allclose(np.asarray(u.get_magnitude(s.get_value(1))), np.ones((4,)))
+
+    def test_group_set_value_dimensionless_uses_if_branch(self):
+        # Dimensionless companion so the ``if`` (true) side of the same branch
+        # is also exercised; the value is updated without unit conversion.
+        s = brainstate.HiddenGroupState(jnp.zeros((4, 3)))
+        self.assertTrue(u.get_unit(s.value).dim.is_dimensionless)
+        s.set_value({2: jnp.full((4,), 7.0)})
+        np.testing.assert_allclose(np.asarray(s.get_value(2)), np.full((4,), 7.0))
+
+    # --- HiddenTreeState._check_value: value that is neither dict nor sequence ---
+    def test_tree_check_value_non_dict_sequence_raises(self):
+        with self.assertRaises(TypeError) as ctx:
+            brainstate.HiddenTreeState(123)  # int -> not dict, not tuple/list
+        msg = str(ctx.exception)
+        self.assertIn('HiddenTreeState', msg)
+        self.assertIn('dictionary/sequence', msg)
+
+    # --- HiddenTreeState.get_value: integer index out of range ---
+    def test_tree_get_value_int_out_of_range_raises(self):
+        t = brainstate.HiddenTreeState({'v': jnp.ones((4, 3)) * u.mV,
+                                        'i': jnp.ones((4, 3)) * u.mA})
+        with self.assertRaises(IndexError) as ctx:
+            t.get_value(99)
+        self.assertIn('out of range', str(ctx.exception))
+
+    # --- HiddenTreeState.get_value: negative (in-range) integer index ---
+    def test_tree_get_value_negative_index(self):
+        t = brainstate.HiddenTreeState({'v': jnp.ones((4, 3)) * u.mV,
+                                        'i': jnp.full((4, 3), 2.0) * u.mA})
+        neg = t.get_value(-1)            # wraps to the last hidden state
+        last = t.get_value(t.num_state - 1)
+        self.assertEqual(u.get_unit(neg), u.mA)
+        np.testing.assert_allclose(np.asarray(u.get_magnitude(neg)),
+                                   np.asarray(u.get_magnitude(last)))
+
+    # --- HiddenTreeState.get_value: string name not present ---
+    def test_tree_get_value_unknown_name_raises(self):
+        t = brainstate.HiddenTreeState({'v': jnp.ones((4, 3)) * u.mV})
+        with self.assertRaises(KeyError) as ctx:
+            t.get_value('does_not_exist')
+        self.assertIn('not found', str(ctx.exception))
+
+    # --- HiddenTreeState.set_value: value that is neither dict nor sequence ---
+    def test_tree_set_value_non_dict_sequence_raises(self):
+        t = brainstate.HiddenTreeState({'v': jnp.ones((4, 3)) * u.mV})
+        with self.assertRaises(TypeError) as ctx:
+            t.set_value(123)
+        msg = str(ctx.exception)
+        self.assertIn('set_value', msg)
+        self.assertIn('dictionary of hidden states', msg)
+
+    # --- HiddenTreeState.set_value: key that is neither int nor str ---
+    def test_tree_set_value_non_int_str_key_raises(self):
+        t = brainstate.HiddenTreeState({'v': jnp.ones((4, 3)) * u.mV,
+                                        'i': jnp.ones((4, 3)) * u.mA})
+        with self.assertRaises(TypeError) as ctx:
+            t.set_value({1.5: jnp.ones((4, 3)) * u.mV})  # float key
+        msg = str(ctx.exception)
+        self.assertIn('should be int or str', msg)
+        self.assertIn('1.5', msg)
+
+    # --- HiddenTreeState.get_value: string name that IS present (false side of the
+    #     name-not-found check) ---
+    def test_tree_get_value_known_name(self):
+        t = brainstate.HiddenTreeState({'v': jnp.full((4, 3), 3.0) * u.mV,
+                                        'i': jnp.ones((4, 3)) * u.mA})
+        got = t.get_value('v')
+        self.assertEqual(u.get_unit(got), u.mV)
+        np.testing.assert_allclose(np.asarray(u.get_magnitude(got)), np.full((4, 3), 3.0))
+
+    # --- HiddenTreeState.set_value: value with the wrong shape ---
+    def test_tree_set_value_wrong_shape_raises(self):
+        t = brainstate.HiddenTreeState({'v': jnp.ones((4, 3)) * u.mV})
+        with self.assertRaises(ValueError) as ctx:
+            t.set_value({0: jnp.ones((9, 9)) * u.mV})
+        self.assertIn('shape of the hidden state', str(ctx.exception))
+
+    # --- HiddenTreeState.set_value: value with the correct shape (false side of the
+    #     shape check) ---
+    def test_tree_set_value_correct_shape_updates(self):
+        t = brainstate.HiddenTreeState({'v': jnp.ones((4, 3)) * u.mV})
+        t.set_value({0: jnp.full((4, 3), 6.0) * u.mV})
+        got = t.get_value('v')
+        self.assertEqual(u.get_unit(got), u.mV)
+        np.testing.assert_allclose(np.asarray(u.get_magnitude(got)), np.full((4, 3), 6.0))
+
+
 if __name__ == '__main__':
     unittest.main()

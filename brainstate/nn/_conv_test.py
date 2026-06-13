@@ -305,6 +305,16 @@ class TestErrorHandling(unittest.TestCase):
             # out_channels not divisible by groups
             conv = brainstate.nn.Conv2d(in_size=(32, 32, 16), out_channels=30, kernel_size=3, groups=4)
 
+    def test_in_channels_not_divisible_by_groups_raises(self):
+        """in_channels not divisible by groups raises ValueError naming in_channels.
+
+        out_channels IS divisible (8 % 4 == 0) so the out_channels guard passes;
+        the failure must come from the in_channels divisibility check (6 % 4 != 0).
+        """
+        with self.assertRaises(ValueError) as ctx:
+            brainstate.nn.Conv2d(in_size=(8, 8, 6), out_channels=8, kernel_size=3, groups=4)
+        self.assertIn('in_channels', str(ctx.exception))
+
     def test_dimension_mismatch(self):
         """Test dimension mismatch detection."""
         conv = brainstate.nn.Conv2d(in_size=(32, 32, 3), out_channels=16, kernel_size=3)
@@ -694,6 +704,16 @@ class TestErrorHandlingConvTranspose(unittest.TestCase):
                 groups=4
             )
 
+    def test_in_channels_not_divisible_by_groups_raises(self):
+        """in_channels not divisible by groups raises ValueError naming in_channels.
+
+        out_channels IS divisible (8 % 4 == 0) so the out_channels guard passes;
+        the failure must come from the in_channels divisibility check (6 % 4 != 0).
+        """
+        with self.assertRaises(ValueError) as ctx:
+            brainstate.nn.ConvTranspose2d(in_size=(8, 8, 6), out_channels=8, kernel_size=3, groups=4)
+        self.assertIn('in_channels', str(ctx.exception))
+
     def test_dimension_mismatch(self):
         """Test that wrong input dimensions raise error."""
         conv_t = brainstate.nn.ConvTranspose2d(
@@ -931,6 +951,20 @@ class TestConvPadding(unittest.TestCase):
         """A padding of an unsupported type raises ValueError."""
         with self.assertRaises(ValueError):
             brainstate.nn.Conv2d(in_size=(16, 16, 3), out_channels=8, kernel_size=3, padding=1.5)
+
+    def test_padding_sequence_with_bad_element_type_raises(self):
+        """A padding *sequence* whose elements are neither int nor tuple raises ValueError.
+
+        ``padding`` enters the sequence branch (it is a tuple), but ``padding[0]``
+        is a float, so it is neither a flat-int spec nor a sequence-of-pairs spec.
+        This exercises the dedicated element-type error (distinct from the
+        top-level unsupported-type error) and reports the offending element type.
+        """
+        with self.assertRaises(ValueError) as ctx:
+            brainstate.nn.Conv2d(in_size=(16, 16, 3), out_channels=8, kernel_size=3, padding=(1.5, 2.5))
+        msg = str(ctx.exception)
+        self.assertIn('Tuple[int, int]', msg)
+        self.assertIn('float', msg)
 
 
 class TestConvWeightMask(unittest.TestCase):

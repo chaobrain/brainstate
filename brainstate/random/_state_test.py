@@ -1347,6 +1347,50 @@ class TestRandomStateAuditFixes(unittest.TestCase):
         self.assertEqual(jnp.asarray(out).shape, (5,))
         self.assertTrue(bool(jnp.all(jnp.isin(out, jnp.array([10, 20, 30, 40])))))
 
+    def test_choice_numeric_python_list_takes_jax_path(self):
+        """A *numeric* array-like that is neither an int nor a jax.Array/Quantity
+        (e.g. a plain Python list of numbers) passes the early non-numeric guard
+        but, being numeric, falls through to the normal jax.choice path and
+        returns a jax array (the documented numeric behaviour)."""
+        rs = RandomState(0)
+        out = rs.choice([10, 20, 30, 40], size=(5,))
+        # The jax path is taken: result is a numeric jax array, not a numpy gather.
+        self.assertIsInstance(out, jax.Array)
+        self.assertEqual(jnp.asarray(out).shape, (5,))
+        self.assertTrue(bool(jnp.all(jnp.isin(out, jnp.array([10, 20, 30, 40])))))
+
+    def test_choice_numeric_numpy_array_takes_jax_path(self):
+        """A numeric numpy array (not a jax.Array) also routes through the jax
+        choice path rather than the string/object numpy-gather branch."""
+        rs = RandomState(0)
+        out = rs.choice(np.array([1.0, 2.0, 3.0]), size=(4,))
+        self.assertIsInstance(out, jax.Array)
+        self.assertEqual(jnp.asarray(out).shape, (4,))
+        self.assertTrue(bool(jnp.all(jnp.isin(out, jnp.array([1.0, 2.0, 3.0])))))
+
+    # --- self_assign_multi_keys: non-integer n raises TypeError -----------------
+
+    def test_self_assign_multi_keys_non_integer_raises_typeerror(self):
+        """RandomState.self_assign_multi_keys rejects a non-integer n with a
+        TypeError (operator.index fails and is re-raised with a clear message),
+        leaving the state's key unchanged."""
+        rs = RandomState(42)
+        before = _key_data(rs.value)
+        for bad in (1.5, 'x', None, [1, 2]):
+            with self.subTest(n=bad):
+                with self.assertRaises(TypeError):
+                    rs.self_assign_multi_keys(bad)
+        # A rejected call must not have advanced/replaced the key.
+        np.testing.assert_array_equal(_key_data(rs.value), before)
+
+    def test_self_assign_multi_keys_typeerror_message(self):
+        """The TypeError from a non-integer n echoes the offending value."""
+        rs = RandomState(42)
+        with self.assertRaises(TypeError) as ctx:
+            rs.self_assign_multi_keys(1.5)
+        self.assertIn('integer', str(ctx.exception))
+        self.assertIn('1.5', str(ctx.exception))
+
     # --- L17: chisquare raises when df <= 0 -------------------------------------
 
     def test_chisquare_nonpositive_df_raises(self):

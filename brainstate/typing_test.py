@@ -510,6 +510,19 @@ class TestPyTreeTypes(unittest.TestCase):
         with self.assertRaises(ValueError):
             PyTree[float,]  # 1-tuple with trailing comma would be (float,)
 
+    def test_pytree_non_string_structure_raises(self):
+        """In the 2-tuple form, a non-string structure annotation raises ValueError.
+
+        ``PyTree[leaftype, struct]`` requires ``struct`` to be a string (it is later
+        ``.split()`` into structure names). A non-string second element (int, None,
+        a type, ...) must raise a clear ValueError rather than crashing downstream.
+        """
+        for bad_structure in (123, None, float, ["T"], object()):
+            with self.subTest(structure=bad_structure):
+                with self.assertRaises(ValueError) as ctx:
+                    PyTree[int, bad_structure]
+                self.assertIn("must be", str(ctx.exception))
+
     def test_a22_unhashable_leaf_raises_clear_typeerror(self):
         """Appendix item 22: an unhashable leaf type raises a clear TypeError,
         not a cryptic 'unhashable type' from inside lru_cache."""

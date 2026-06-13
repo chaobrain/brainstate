@@ -1623,5 +1623,42 @@ class TestAuditRegressions(unittest.TestCase):
         self.assertEqual(len(results), 8)
 
 
+class TestThreadLocalImportsSetApi(unittest.TestCase):
+    """The ``prefix_imports`` accumulator (`_ThreadLocalImports`) exposes a
+    set-like API. ``add``/``clear``/``__iter__``/``__len__`` are driven by code
+    generation, but ``discard`` and ``__contains__`` are part of the same public
+    surface and are exercised directly here."""
+
+    def setUp(self):
+        _ir_tocode.prefix_imports.clear()
+
+    def tearDown(self):
+        _ir_tocode.prefix_imports.clear()
+
+    def test_contains_reflects_membership(self):
+        """``in`` reports membership (``__contains__``)."""
+        pi = _ir_tocode.prefix_imports
+        pi.add('import foo')
+        self.assertIn('import foo', pi)
+        self.assertNotIn('import bar', pi)
+
+    def test_discard_removes_present_and_ignores_absent(self):
+        """``discard`` removes a present element and is a no-op for an absent one."""
+        pi = _ir_tocode.prefix_imports
+        pi.add('import foo')
+        pi.add('import bar')
+
+        pi.discard('import foo')
+        self.assertNotIn('import foo', pi)
+        self.assertIn('import bar', pi)
+        self.assertEqual(len(pi), 1)
+
+        # Discarding something not present must not raise and must not change
+        # the contents (set.discard semantics, unlike set.remove).
+        pi.discard('import missing')
+        self.assertEqual(len(pi), 1)
+        self.assertIn('import bar', pi)
+
+
 if __name__ == '__main__':
     unittest.main()

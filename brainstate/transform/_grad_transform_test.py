@@ -201,5 +201,37 @@ class TestHasAuxValidation(unittest.TestCase):
         self.assertEqual(aux['n'], 2)
 
 
+class TestNanCheckNonInexactLeaves(unittest.TestCase):
+    """``_check_nan_jit_compatible`` only inspects inexact (float/complex)
+    leaves. Integer leaves -- and leaves without a ``dtype`` -- take the False
+    side of the ``hasattr(leaf, 'dtype') and issubdtype(..., inexact)`` guard and
+    are skipped, so they can never (spuriously) report NaN/Inf."""
+
+    def test_integer_leaf_is_skipped(self):
+        from brainstate.transform._grad_transform import _check_nan_jit_compatible
+        # An all-integer pytree has no inexact leaf to test; the guard is False
+        # for every leaf, so the result is a clean False.
+        tree = {'a': jnp.array([1, 2, 3], dtype=jnp.int32),
+                'b': jnp.array([-4, 5], dtype=jnp.int64)}
+        self.assertFalse(bool(_check_nan_jit_compatible(tree)))
+
+    def test_mixed_int_and_float_only_checks_float(self):
+        from brainstate.transform._grad_transform import _check_nan_jit_compatible
+        # The integer leaf is skipped; the NaN in the float leaf is still found.
+        clean = {'i': jnp.array([7, 8], dtype=jnp.int32),
+                 'f': jnp.array([1.0, 2.0], dtype=jnp.float32)}
+        self.assertFalse(bool(_check_nan_jit_compatible(clean)))
+
+        with_nan = {'i': jnp.array([7, 8], dtype=jnp.int32),
+                    'f': jnp.array([1.0, float('nan')], dtype=jnp.float32)}
+        self.assertTrue(bool(_check_nan_jit_compatible(with_nan)))
+
+    def test_bool_leaf_is_skipped(self):
+        from brainstate.transform._grad_transform import _check_nan_jit_compatible
+        # Booleans are integral, not inexact: they are skipped, never flagged.
+        tree = {'mask': jnp.array([True, False, True])}
+        self.assertFalse(bool(_check_nan_jit_compatible(tree)))
+
+
 if __name__ == "__main__":
     unittest.main()

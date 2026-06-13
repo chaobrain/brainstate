@@ -227,6 +227,34 @@ class TestStateLeafEdgeMissingPath(unittest.TestCase):
         self.assertIn('definitely_missing', msg)
         self.assertIn('state mapping', msg)
 
+    def test_present_stateleafedge_path_resolves(self):
+        """A ``StateLeafEdge`` whose path *is* present resolves to that value.
+
+        This is the success counterpart to the missing-path case: the decoder's
+        ``StateLeafEdge`` branch looks up the path, finds it, and (for a
+        ``TreefyState`` value) materialises it back into a live ``State``.
+        """
+        from brainstate.graph import NodeSpec, NodeEdge, StateLeafEdge
+        from brainstate.util import NestedDict
+        from brainstate._state import State
+
+        template, _ = flatten(_Cell())
+        spec0 = template.node_specs[0]
+        spec = NodeSpec(
+            spec0.type, spec0.index, spec0.metadata,
+            (('w', StateLeafEdge(('present_key',))),),
+        )
+        gd = GraphDef(NodeEdge(spec0.index), (spec,))
+
+        # Provide the path with a TreefyState value -> decoder calls .to_state().
+        tref = brainstate.ParamState(jnp.arange(3.0)).to_state_ref()
+        self.assertIsInstance(tref, TreefyState)
+        rebuilt = unflatten(gd, NestedDict.from_flat({('present_key',): tref}))
+
+        self.assertIsInstance(rebuilt, _Cell)
+        self.assertIsInstance(rebuilt.w, State)
+        self.assertTrue(bool(jnp.allclose(rebuilt.w.value, jnp.arange(3.0))))
+
 
 class TestFormatPath(unittest.TestCase):
     """The ``_format_path`` helper used in error messages."""

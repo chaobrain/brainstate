@@ -904,6 +904,33 @@ class TestDotDict(unittest.TestCase):
         self.assertEqual(result.a, 1)
         self.assertEqual(result.b.c, 2)
 
+    def test_ror_operator_with_non_mapping_returns_notimplemented(self):
+        """``__ror__`` returns ``NotImplemented`` for a non-Mapping left operand.
+
+        This lets Python fall through to the other operand / raise ``TypeError``
+        rather than mis-handling a non-mapping. Exercises the guard at the top of
+        ``DotDict.__ror__``.
+        """
+        dd = DotDict({'a': 1})
+        self.assertIs(dd.__ror__(5), NotImplemented)
+        self.assertIs(dd.__ror__("not a mapping"), NotImplemented)
+        # As a consequence, ``non_mapping | dotdict`` raises TypeError.
+        with self.assertRaises(TypeError):
+            _ = 5 | dd
+
+    def test_ior_operator_with_non_mapping_returns_notimplemented(self):
+        """``__ior__`` returns ``NotImplemented`` for a non-Mapping right operand.
+
+        Exercises the guard at the top of ``DotDict.__ior__``; the original
+        DotDict must be left untouched.
+        """
+        dd = DotDict({'a': 1})
+        self.assertIs(dd.__ior__(5), NotImplemented)
+        self.assertEqual(dict(dd), {'a': 1})  # unchanged
+        # ``dotdict |= non_mapping`` therefore raises TypeError.
+        with self.assertRaises(TypeError):
+            dd |= 5
+
     def test_pickling(self):
         """Test pickling/unpickling."""
         dd1 = DotDict({'a': 1, 'b': {'c': 2}})
@@ -1098,6 +1125,18 @@ class TestUtilityFunctions(unittest.TestCase):
             flatten_dict({'a.b': 1, 'a': {'b': 2}})
         with self.assertRaises(ValueError):
             flatten_dict({'a': {'b': 2}, 'a.b': 1})
+
+    def test_flatten_dict_rejects_empty_subdict_key_collision(self):
+        """An *empty* sub-dict whose emitted key collides with an already-present
+        key must also raise, not silently overwrite.
+
+        Empty sub-dicts take a dedicated branch (they emit a ``{}`` placeholder so
+        flatten/unflatten round-trips). That branch must still honour the
+        duplicate-key guard: here a non-empty sibling ``'a'`` first emits ``'a.b'``,
+        then the empty sibling ``'a.b': {}`` would re-emit the same joined key.
+        """
+        with self.assertRaisesRegex(ValueError, "duplicate key 'a.b'"):
+            flatten_dict({'a': {'b': 1}, 'a.b': {}})
 
     def test_flatten_dict_rejects_non_string_nested_keys(self):
         """Regression (L25): non-string nested keys must raise, not coerce."""

@@ -460,6 +460,45 @@ class TestFunctionWrapping(unittest.TestCase):
         # __dict__ (copied before __name__) must also be preserved.
         self.assertEqual(result.custom_marker, "kept")
 
+    def test_wraps_tolerates_unsettable_wrapper_metadata(self):
+        """``wraps`` must not crash when *every* metadata copy fails.
+
+        Each metadata copy is wrapped in its own ``try/except`` so a wrapper that
+        rejects attribute assignment (``__slots__ = ()`` -> no ``__dict__`` and no
+        settable ``__name__``/``__doc__``/``__module__``/``__qualname__``/
+        ``__annotations__``) is returned unchanged rather than raising. The
+        wrapped object's name lookup also raises here, exercising the name
+        fallback path.
+        """
+        from functools import partial
+
+        class _NoName:
+            """A callable whose ``__name__`` lookup raises (not AttributeError)."""
+
+            @property
+            def __name__(self):
+                raise RuntimeError("name lookup boom")
+
+            def __call__(self, *args, **kwargs):
+                return None
+
+        # Wrap in a partial so ``fun_name`` recurses into ``_NoName`` (raising),
+        # while ``getattr(partial, "__name__", default)`` itself succeeds -> the
+        # name-fallback branch runs without re-raising.
+        wrapped = partial(_NoName())
+
+        class _Unsettable:
+            __slots__ = ()  # no __dict__; every attribute assignment raises
+
+            def __call__(self, *args, **kwargs):
+                return None
+
+        fun = _Unsettable()
+        # Must not raise despite every metadata copy failing.
+        result = compat.wraps(wrapped)(fun)
+        self.assertIs(result, fun)
+        self.assertTrue(callable(result))
+
 
 class TestEdgeCases(unittest.TestCase):
     """Test edge cases and boundary conditions."""

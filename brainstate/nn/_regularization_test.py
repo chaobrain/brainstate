@@ -389,6 +389,32 @@ class TestGroupLassoReg(unittest.TestCase):
         reg = GroupLassoReg(weight=1.0, group_size=2, fit_hyper=True)
         self.assertTrue(reg.fit_hyper)
 
+    def test_non_int_group_size_raises_typeerror(self):
+        """A non-integer ``group_size`` raises TypeError, not a later crash.
+
+        ``group_size`` is used as a divisor and reshape dimension, so it must be
+        an int. A float (even one with integer value) must be rejected up front
+        with a clear ``TypeError`` naming the offending type.
+        """
+        with self.assertRaises(TypeError) as ctx:
+            GroupLassoReg(weight=1.0, group_size=2.0)
+        self.assertIn('group_size', str(ctx.exception))
+        self.assertIn('int', str(ctx.exception))
+        with self.assertRaises(TypeError):
+            GroupLassoReg(weight=1.0, group_size='2')
+
+    def test_non_positive_group_size_raises_valueerror(self):
+        """A zero or negative ``group_size`` raises ValueError.
+
+        Zero would raise ``ZeroDivisionError`` and a negative value would
+        silently mis-group via Python modulo semantics, so both are rejected.
+        """
+        with self.assertRaises(ValueError) as ctx:
+            GroupLassoReg(weight=1.0, group_size=0)
+        self.assertIn('positive', str(ctx.exception))
+        with self.assertRaises(ValueError):
+            GroupLassoReg(weight=1.0, group_size=-3)
+
 
 class TestTotalVariationReg(unittest.TestCase):
     """Tests for Total Variation regularization."""

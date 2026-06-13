@@ -943,5 +943,134 @@ class TestCondLiteralOperand(unittest.TestCase):
         )
 
 
+@unittest.skipUnless(PYDOT, "pydot not installed")
+class TestDrawDotGraphDroppedAndDuplicateInvars(unittest.TestCase):
+    """draw_dot_graph's non-empty top-level invar loop must skip dropped vars
+    and dedup a repeated invar.
+
+    On the non-empty (>=1 eqn) path ``draw_dot_graph`` walks ``fn.invars`` to
+    declare green IN_ARG nodes. JAX's normal tracing never puts a ``DropVar`` or
+    a repeated invar at the top level, so the ``_is_dropped_var`` skip and the
+    ``node_id in seen`` dedup are reached by handing the public
+    ``draw_dot_graph`` entry a surgically-built ClosedJaxpr of that shape -- a
+    legitimate input that the loop must tolerate without fabricating spurious
+    nodes.
+    """
+
+    def _build_closed_jaxpr(self):
+        import jax.core as jc
+        from brainstate._compatible_import import ClosedJaxpr, DropVar
+
+        # Real ``x + 1.0`` jaxpr (one eqn -> non-empty path), then prepend a
+        # duplicate of the sole invar and append a dropped invar.
+        base = jax.make_jaxpr(lambda x: x + 1.0)(jnp.float32(1.0))
+        x = base.jaxpr.invars[0]
+        dropped = DropVar(jc.ShapedArray((), jnp.dtype('float32')))
+        new_jaxpr = base.jaxpr.replace(invars=[x, x, dropped])
+        return ClosedJaxpr(new_jaxpr, base.consts), x, dropped
+
+    def test_dropped_invar_skipped_and_duplicate_deduped(self):
+        from brainstate.transform import draw_dot_graph
+
+        cj, x, dropped = self._build_closed_jaxpr()
+        g = draw_dot_graph(cj, True, True)
+        self.assertIsNotNone(g)
+
+        # pydot strips the ``:aval`` port from node names, so compare on the
+        # port-stripped base (matching how draw_dot_graph keys ``f"_{var}"``).
+        names = [_base(nd.get_name()) for nd in _all_nodes(g)]
+
+        # The dropped invar (stringifies as ``_``) must NOT produce an input
+        # node: ``_is_dropped_var`` short-circuits the loop body (the ``continue``).
+        dropped_node_id = _base(f"_{dropped}")  # == "__"
+        self.assertNotIn(
+            dropped_node_id, names,
+            f"dropped invar should be skipped, but a node {dropped_node_id!r} "
+            f"was declared among {names}",
+        )
+
+        # The invar appears twice in ``fn.invars`` but the ``seen`` dedup means
+        # exactly one green input node is declared for it (the second pass hits
+        # the ``node_id in seen`` branch and adds nothing). The input node keeps
+        # the bare ``_{var}`` name; the eqn's *output* node (the ``x + 1.0``
+        # result) is a distinct var, so it does not inflate this count.
+        from collections import Counter
+        x_node_id = _base(f"_{x}")
+        counts = Counter(names)
+        self.assertEqual(
+            counts.get(x_node_id, 0), 1,
+            f"duplicate invar must be declared exactly once, got "
+            f"{counts.get(x_node_id, 0)} for {x_node_id!r} among {names}",
+        )
+
+        # No edge may reference an undeclared (phantom) source.
+        self.assertEqual(_undeclared_edge_sources(g), [])
+
+    def test_duplicate_invar_node_is_green_input(self):
+        from brainstate.transform import draw_dot_graph, _ir_visualize as viz
+
+        cj, x, _dropped = self._build_closed_jaxpr()
+        g = draw_dot_graph(cj, True, True)
+
+        # pydot strips the ``:aval`` port, so match on the port-stripped base.
+        x_node_id = _base(f"_{x}")
+        node = [nd for nd in _all_nodes(g) if _base(nd.get_name()) == x_node_id]
+        self.assertEqual(len(node), 1)
+        # The declared input carries IN_ARG (green) styling from get_arg_node.
+        self.assertEqual(node[0].get_color(), viz.IN_ARG_STYLING["color"])
+
+
+@unittest.skipUnless(PYDOT, "pydot not installed")
+class TestScanLiteralCarryInit(unittest.TestCase):
+    """A scan whose carry init is a Python literal exercises the
+    ``parent_is_literal`` branch in get_scan_arguments.
+
+    ``jax.lax.scan(body, 0.0, xs)`` lowers to a scan equation whose first invar
+    (the carry init) is a ``Literal``. When the scan body is expanded
+    (collapse_primitives=False), get_scan_arguments must materialise a dedicated
+    ``..._lit`` node for that literal (port-stripped so it does not collide with
+    the formal-parameter node) and wire it into the parameter node.
+    """
+
+    def _scan_fn(self):
+        def f(xs):
+            def body(c, e):
+                return c + e, c
+            final, ys = jax.lax.scan(body, 0.0, xs)  # 0.0 -> Literal carry init
+            return final
+        return f
+
+    def test_literal_carry_init_declares_lit_node(self):
+        from brainstate.transform import draw
+
+        g = draw(self._scan_fn(), collapse_primitives=False)(
+            jnp.float32([1., 2., 3.])
+        )
+        self.assertIsNotNone(g)
+
+        names = [nd.get_name() for nd in _all_nodes(g)]
+        lit_nodes = [n for n in names if n.endswith("_lit")]
+        self.assertTrue(
+            lit_nodes,
+            f"expected a scan literal carry-init node ending in '_lit', "
+            f"got node names {names}",
+        )
+        # The literal node feeds the formal carry parameter via a local edge:
+        # the ``_lit`` source must be a declared node (no phantom edge source).
+        self.assertEqual(_undeclared_edge_sources(g), [])
+
+    def test_literal_carry_init_lit_node_is_orange_literal(self):
+        from brainstate.transform import draw, _ir_visualize as viz
+
+        g = draw(self._scan_fn(), collapse_primitives=False)(
+            jnp.float32([1., 2., 3.])
+        )
+        lit_nodes = [nd for nd in _all_nodes(g)
+                     if nd.get_name().endswith("_lit")]
+        self.assertTrue(lit_nodes)
+        # get_arg_node was called with is_literal=True -> orange LITERAL styling.
+        self.assertEqual(lit_nodes[0].get_color(), viz.LITERAL_STYLING["color"])
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -576,3 +576,38 @@ class TestSeedGlobalStateEdgeCases(unittest.TestCase):
         after = np.random.get_state()
         self.assertTrue(bool(np.array_equal(before[1], after[1])))
         self.assertEqual(before[2], after[2])
+
+    # ------------------------------------------------------------------ #
+    # seed_context(None): auto-generate a concrete seed on entry          #
+    # ------------------------------------------------------------------ #
+
+    def test_seed_context_none_yields_usable_state_and_restores(self):
+        """seed_context(None) auto-generates a concrete seed on entry (so the
+        block has a usable, NumPy-seeding RNG state) yet still fully restores
+        both the JAX key and NumPy's global state on exit."""
+        brainstate.random.seed(7)
+        before_key = brainstate.random.get_key()
+        np.random.seed(555)
+        np_before = np.random.get_state()
+        with brainstate.random.seed_context(None):
+            drawn = brainstate.random.rand(3)
+            np_inside = float(np.random.rand())
+        # The context produced a usable JAX draw and a usable NumPy draw.
+        self.assertEqual(drawn.shape, (3,))
+        self.assertIsInstance(np_inside, float)
+        # Both backends are restored to their pre-context state on exit.
+        after_key = brainstate.random.get_key()
+        self.assertTrue(bool(jnp.array_equal(before_key, after_key)))
+        np_after = np.random.get_state()
+        self.assertTrue(bool(np.array_equal(np_before[1], np_after[1])))
+        self.assertEqual(np_before[2], np_after[2])
+
+    def test_seed_context_none_uses_fresh_seed_each_entry(self):
+        """seed_context(None) draws a fresh random seed on every entry (rather
+        than leaving the RNG unseeded), so two independent None-contexts almost
+        surely yield different draws."""
+        with brainstate.random.seed_context(None):
+            a = brainstate.random.rand(8)
+        with brainstate.random.seed_context(None):
+            b = brainstate.random.rand(8)
+        self.assertFalse(bool(jnp.allclose(a, b)))
