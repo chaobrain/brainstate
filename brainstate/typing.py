@@ -534,7 +534,10 @@ class _MetaPyTree(type):
 
             X.leaftype = leaftype
             X.structure = structure
-            name = str(_FakePyTree[leaftype])[:-1] + ', "' + structure + '"]'
+            # NB: subscript with `key[0]`, not the unpacked `leaftype` name —
+            # mypy rejects a bare variable in a type-subscript position
+            # ("Variable not valid as a type"), but accepts an index expression.
+            name = str(_FakePyTree[key[0]])[:-1] + ', "' + structure + '"]'
         else:
             name = str(_FakePyTree[key])
 
