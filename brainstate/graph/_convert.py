@@ -31,11 +31,10 @@ import jax
 
 from brainstate._state import State
 from brainstate.typing import Missing, PyTree, SeedOrKey, PathParts
-from brainstate.util import PyTreeNode, field, NestedDict as GraphStateMapping
+from brainstate.util import PyTreeNode, field, FlattedDict, NestedDict as GraphStateMapping
 from ._context import SplitContext, MergeContext, split_context, merge_context
 from ._graphdef import GraphDef
 from ._node import Node as GraphNode
-from ._operations import states
 from ._reftrack import RefMap
 from ._walk import iter_leaf as iter_graph, _is_graph_node
 
@@ -239,10 +238,11 @@ def graph_to_tree(
                     leaf = split_fn(ctx, keypath, leaf_prefix, leaf)
                 leaves_out.append(leaf)
 
-    # Build a dict mirroring RefMap's content via the public API, then extract
-    # State objects from it.  We must not access the private ._mapping attribute.
-    public_map = {id(k): (k, v) for k, v in index_ref.items()}
-    find_states = states(public_map)
+    # index_ref maps each visited object -> its global index; pull the States
+    # out directly instead of re-walking a synthetic pytree.
+    find_states = FlattedDict(
+        {(idx,): obj for obj, idx in index_ref.items() if isinstance(obj, State)}
+    )
     pytree_out = jax.tree.unflatten(treedef, leaves_out)
     return pytree_out, find_states
 
