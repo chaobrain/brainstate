@@ -133,6 +133,51 @@ NodeImpl = GraphNodeImpl | PyTreeNodeImpl
 _node_impl_for_type: dict[type, NodeImpl] = {}
 
 
+# ---------------------------------------------------------------------------
+# Value classification (type-keyed, cached)
+# ---------------------------------------------------------------------------
+# Kinds, ordered to match the historical encoder/kernel dispatch exactly:
+# a value is a graph node, else a pytree container, else a State, else a bare
+# TreefyState leaf, else an inline static. The order matters: TreefyState IS a
+# registered jax pytree, so it must resolve to PYTREE (not STATE_LEAF) to keep
+# the legacy behavior of encoding a bare TreefyState attribute as a PytreeEdge.
+GRAPH_NODE, PYTREE, STATE, STATE_LEAF, STATIC = range(5)
+
+_KIND_CACHE: dict[type, int] = {}
+
+
+def _compute_kind(t: type, x: Any) -> int:
+    if t in _node_impl_for_type:
+        return GRAPH_NODE
+    if not jax.tree_util.all_leaves((x,)):  # x (the instance) is needed only for the pytree check; all other branches are type-only
+        return PYTREE
+    if issubclass(t, State):
+        return STATE
+    if issubclass(t, TreefyState):
+        return STATE_LEAF
+    return STATIC
+
+
+def classify(x: Any) -> int:
+    """Classify ``x`` into one of GRAPH_NODE/PYTREE/STATE/STATE_LEAF/STATIC.
+
+    The result depends only on ``type(x)`` for the registered/container types
+    the engine encounters, so it is memoized per type. The cache is cleared by
+    :func:`register_graph_node_type`.
+    """
+    t = type(x)
+    k = _KIND_CACHE.get(t)
+    if k is None:
+        k = _compute_kind(t, x)
+        _KIND_CACHE[t] = k
+    return k
+
+
+def _clear_classification_cache() -> None:
+    """Drop all memoized classifications (internal; tests / dynamic registration)."""
+    _KIND_CACHE.clear()
+
+
 @set_module_as('brainstate.graph')
 def register_graph_node_type(
     type: type,
@@ -181,6 +226,7 @@ def register_graph_node_type(
         type=type, flatten=flatten, set_key=set_key,
         pop_key=pop_key, create_empty=create_empty, clear=clear,
     )
+    _KIND_CACHE.clear()
 
 
 def _get_node_impl(x: Any) -> NodeImpl:
