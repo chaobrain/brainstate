@@ -200,7 +200,7 @@ def _iter_edges(graphdef: GraphDef):
     while stack:
         e = stack.pop()
         yield e
-        if isinstance(e, PytreeEdge):
+        if type(e) is PytreeEdge:
             stack.extend(c for _, c in e.fields)
 
 
@@ -261,7 +261,7 @@ def unflatten(
 
     # Pass 0 — materialize States into index_ref (handles all sharing/back-refs).
     for e in _iter_edges(graphdef):
-        if isinstance(e, StateEdge) and e.path is not None and e.index not in index_ref:
+        if type(e) is StateEdge and e.path is not None and e.index not in index_ref:
             value = flat_states.get(e.path, _MISSING)
             if value is not _MISSING:
                 index_ref[e.index] = _materialize_state(value, e.index, index_ref_cache)
@@ -284,18 +284,19 @@ def unflatten(
         index_ref[spec.index] = shell
 
     def resolve(edge):
-        if isinstance(edge, StaticEdge):
+        et = type(edge)
+        if et is StaticEdge:
             return edge.value
-        if isinstance(edge, NodeEdge):
+        if et is NodeEdge:
             return index_ref[edge.index]
-        if isinstance(edge, StateEdge):
+        if et is StateEdge:
             if edge.index in index_ref:
                 return index_ref[edge.index]
             raise ValueError(
                 f"Expected key {_format_path(edge.path) if edge.path else edge.path!r} "
                 f"in the state mapping while rebuilding the graph."
             )
-        if isinstance(edge, StateLeafEdge):
+        if et is StateLeafEdge:
             value = flat_states.get(edge.path, _MISSING)
             if value is _MISSING:
                 raise ValueError(
@@ -303,7 +304,7 @@ def unflatten(
                     f"in the state mapping while rebuilding the graph."
                 )
             return value.to_state() if isinstance(value, TreefyState) else value
-        if isinstance(edge, PytreeEdge):
+        if et is PytreeEdge:
             items = tuple((k, resolve(c)) for k, c in edge.fields)
             return PYTREE_NODE_IMPL.unflatten(items, edge.metadata)
         raise TypeError(f"Unknown edge type: {type(edge)}")
