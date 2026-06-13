@@ -46,15 +46,17 @@ def _resolve_state_spec(state: State, table) -> PartitionSpec:
 
 
 def _augment_shard_state_error(exc, all_states, in_state_specs, local_arg_specs):
-    """Return a clearer message for the common undeclared-state shape mismatch.
+    """Return a clearer *exception* for the common undeclared-state mismatch.
 
     Undeclared states default to **replication** -- placed at their full, global
     shape on every shard -- while positional data is sharded into smaller
     per-shard slices. Combining the two inside ``fun`` (e.g. ``buffer.value +
     data``) raises an opaque broadcasting error that gives no hint about
     ``state_in_specs`` (audit #7). When the failure looks like a shape mismatch
-    and a replicated touched state coexists with sharded data, return an augmented
-    message; otherwise return ``None`` so the original error propagates unchanged.
+    and a replicated touched state coexists with sharded data, return a new
+    exception (same type as ``exc`` when it can be rebuilt from a single message,
+    else :class:`RuntimeError`) carrying an actionable message; otherwise return
+    ``None`` so the original error propagates unchanged.
     """
     msg = str(exc)
     lowered = msg.lower()
@@ -70,7 +72,7 @@ def _augment_shard_state_error(exc, all_states, in_state_specs, local_arg_specs)
     if not (replicated and sharded_data):
         return None
     kinds = ', '.join(sorted({type(st).__name__ for st in replicated}))
-    return (
+    hint = (
         f"{msg}\n\n"
         "This shape mismatch usually means an undeclared State is replicated "
         "(given its full, global shape on every shard) while the positional data "
@@ -81,6 +83,13 @@ def _augment_shard_state_error(exc, all_states, in_state_specs, local_arg_specs)
         "state_in_specs={the_state: P('x')}. "
         f"Replicated touched state kind(s): {kinds}."
     )
+    # Preserve the original exception type when it can be rebuilt from a single
+    # string; otherwise fall back to RuntimeError so we never crash while trying
+    # to produce a friendlier message.
+    try:
+        return type(exc)(hint)
+    except Exception:
+        return RuntimeError(hint)
 
 
 @set_module_as("brainstate.transform")
@@ -306,12 +315,8 @@ def shard_map(
                 st.restore_value(ov)
             # #7: turn the opaque broadcasting error from an undeclared
             # (replicated) state meeting sharded data into an actionable one.
-            hint = _augment_shard_state_error(e, all_states, in_state_specs, local_arg_specs)
-            if hint is not None:
-                try:
-                    new_exc = type(e)(hint)
-                except Exception:
-                    new_exc = RuntimeError(hint)
+            new_exc = _augment_shard_state_error(e, all_states, in_state_specs, local_arg_specs)
+            if new_exc is not None:
                 raise new_exc from e
             raise
 

@@ -486,6 +486,16 @@ class TestStaticArgnumsExcludedFromMapping(unittest.TestCase):
         out = sm(jnp.arange(3.), True)
         self.assertTrue(jnp.allclose(out, jnp.arange(3.) * 2.))
 
+    def test_tuple_in_axes_drops_static_entry(self):
+        # When in_axes is a per-argument tuple, the static position's entry is
+        # dropped so the remaining dynamic args keep their axes.
+        def f(x, y, flag):
+            return (x + y) * (2. if flag else 1.)
+
+        sm = StatefulMapping(f, in_axes=(0, 0, None), static_argnums=(2,))
+        out = sm(jnp.arange(3.), jnp.ones(3), True)
+        self.assertTrue(jnp.allclose(out, (jnp.arange(3.) + 1.) * 2.))
+
     def test_out_of_range_static_argnum_raises_value_error(self):
         # A clear ValueError (jit parity), not an opaque IndexError.
         sm = StatefulMapping(lambda x, flag: x, in_axes=0, static_argnums=(5,))

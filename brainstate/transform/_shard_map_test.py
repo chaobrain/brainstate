@@ -74,6 +74,46 @@ class TestShardMap(unittest.TestCase):
             f(jnp.arange(self.n * 2, dtype=jnp.float32))
         self.assertIn('state_in_specs', str(cm.exception))
 
+    # The error-augmenter is a pure function; unit-test it directly so its
+    # behavior is verified on any number of devices (the integration test above
+    # needs >= 2 devices and skips on single-device CI).
+    def test_augment_returns_actionable_exception_for_shape_mismatch(self):
+        from brainstate.transform._shard_map import _augment_shard_state_error
+        st = brainstate.State(jnp.zeros(4))
+        new_exc = _augment_shard_state_error(
+            ValueError("Incompatible shapes for broadcasting: (4,) and (2,)"),
+            [st], [P()], [P('x')],
+        )
+        self.assertIsInstance(new_exc, ValueError)        # original type preserved
+        self.assertIn('state_in_specs', str(new_exc))
+        self.assertIn('State', str(new_exc))              # replicated kind named
+
+    def test_augment_ignores_non_shape_errors(self):
+        from brainstate.transform._shard_map import _augment_shard_state_error
+        st = brainstate.State(jnp.zeros(4))
+        self.assertIsNone(_augment_shard_state_error(
+            ValueError("some unrelated runtime failure"), [st], [P()], [P('x')]))
+
+    def test_augment_ignores_when_no_sharded_data(self):
+        from brainstate.transform._shard_map import _augment_shard_state_error
+        st = brainstate.State(jnp.zeros(4))
+        # replicated state but every arg is replicated too -> not the diagnosed case
+        self.assertIsNone(_augment_shard_state_error(
+            ValueError("incompatible shapes"), [st], [P()], [P()]))
+
+    def test_augment_falls_back_to_runtimeerror_when_type_not_rebuildable(self):
+        from brainstate.transform._shard_map import _augment_shard_state_error
+
+        class WeirdError(Exception):
+            def __init__(self, a, b):  # cannot be rebuilt from a single string
+                super().__init__(a)
+
+        st = brainstate.State(jnp.zeros(4))
+        new_exc = _augment_shard_state_error(
+            WeirdError("incompatible shapes", "extra"), [st], [P()], [P('x')])
+        self.assertIsInstance(new_exc, RuntimeError)
+        self.assertIn('state_in_specs', str(new_exc))
+
     def test_no_state_function(self):
         def fun(data):
             return data + 1.0
