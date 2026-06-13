@@ -379,6 +379,97 @@ class TestAutoPromoteRMW(unittest.TestCase):
         self.assertEqual(b.value.shape, (B, N))
         self.assertTrue(jnp.allclose(b.value, jnp.full((B, N), 4.0)))
 
+    def test_rmw_dim_ne_batch_stable_across_warm_calls(self):
+        # #1: undeclared RMW whose leading dim (3) != batch (5). The first call
+        # scatters (3,) -> (5, 3); a warm (cached) call must NOT grow it again.
+        import warnings
+        w = brainstate.ShortTermState(jnp.zeros(3))
+
+        def f(x):
+            w.value = w.value + x
+            return w.value
+
+        mapped = brainstate.transform.vmap2(f)  # batch 5 != dim 3
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            mapped(jnp.arange(5.))
+            s1 = w.value.shape
+            self.assertEqual(s1, (5, 3))
+            mapped(jnp.arange(5.))             # warm call must not grow
+        self.assertEqual(w.value.shape, s1)    # was (5,3) -> (5,5,3) before the fix
+
+    def test_rmw_dim_ne_batch_warm_equals_cold(self):
+        # #1: a cached (warm) wrapper and a fresh (cold) wrapper must agree on the
+        # resulting shape across repeated calls (the "make warm == cold" fix).
+        import warnings
+
+        def run(warm):
+            w = brainstate.ShortTermState(jnp.zeros(3))
+
+            def f(x):
+                w.value = w.value + x
+                return w.value
+
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                if warm:
+                    m = brainstate.transform.vmap2(f)
+                    for _ in range(4):
+                        m(jnp.arange(5.))
+                else:
+                    for _ in range(4):
+                        brainstate.transform.vmap2(f)(jnp.arange(5.))
+            return w.value
+
+        warm_v, cold_v = run(warm=True), run(warm=False)
+        self.assertEqual(warm_v.shape, cold_v.shape)
+        self.assertTrue(jnp.allclose(warm_v, cold_v))
+
+    def test_auto_rmw_dim_mismatch_warns(self):
+        # #3: dim (3) != batch (5) on a genuinely-read (RMW) undeclared state is
+        # the surprising case -> a one-time UserWarning.
+        w = brainstate.ShortTermState(jnp.zeros(3))
+
+        def f(x):
+            w.value = w.value + x
+            return w.value
+
+        mapped = brainstate.transform.vmap2(f)
+        with self.assertWarns(UserWarning):
+            mapped(jnp.arange(5.))
+
+    def test_auto_rmw_dim_match_no_warning(self):
+        # #3: pre-shaped RMW (dim == batch) is the recommended pattern -> silent.
+        import warnings
+        w = brainstate.ShortTermState(jnp.zeros(4))
+
+        def f(x):
+            w.value = w.value + x
+            return w.value
+
+        mapped = brainstate.transform.vmap2(f)  # batch 4 == dim 4
+        with warnings.catch_warnings(record=True) as rec:
+            warnings.simplefilter("always")
+            mapped(jnp.ones(4))
+        self.assertEqual([r for r in rec if issubclass(r.category, UserWarning)], [])
+
+    def test_pure_output_dim_ne_batch_no_warning(self):
+        # #3: a pure-output (never-read) undeclared scatter is legitimate even
+        # when dim != batch -> silent (no false positive on correct code).
+        import warnings
+        w = brainstate.ShortTermState(jnp.zeros(3))
+
+        def f(x):
+            w.value = x * 2.0   # never reads w
+            return x
+
+        mapped = brainstate.transform.vmap2(f)
+        with warnings.catch_warnings(record=True) as rec:
+            warnings.simplefilter("always")
+            mapped(jnp.arange(5.))
+        self.assertEqual([r for r in rec if issubclass(r.category, UserWarning)], [])
+        self.assertEqual(w.value.shape, (5,))
+
 
 class TestStalePlanInvalidation(unittest.TestCase):
     """B3: a cached plan is invalidated when its States are recreated (GC'd).

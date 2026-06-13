@@ -45,6 +45,44 @@ def _resolve_state_spec(state: State, table) -> PartitionSpec:
     return table  # a single PartitionSpec applied to all states
 
 
+def _augment_shard_state_error(exc, all_states, in_state_specs, local_arg_specs):
+    """Return a clearer message for the common undeclared-state shape mismatch.
+
+    Undeclared states default to **replication** -- placed at their full, global
+    shape on every shard -- while positional data is sharded into smaller
+    per-shard slices. Combining the two inside ``fun`` (e.g. ``buffer.value +
+    data``) raises an opaque broadcasting error that gives no hint about
+    ``state_in_specs`` (audit #7). When the failure looks like a shape mismatch
+    and a replicated touched state coexists with sharded data, return an augmented
+    message; otherwise return ``None`` so the original error propagates unchanged.
+    """
+    msg = str(exc)
+    lowered = msg.lower()
+    looks_like_shape = (
+        'incompatible shapes' in lowered
+        or 'broadcast' in lowered
+        or ('shape' in lowered and 'mismatch' in lowered)
+    )
+    if not looks_like_shape:
+        return None
+    replicated = [st for st, sp in zip(all_states, in_state_specs) if sp == PartitionSpec()]
+    sharded_data = any(sp != PartitionSpec() for sp in local_arg_specs)
+    if not (replicated and sharded_data):
+        return None
+    kinds = ', '.join(sorted({type(st).__name__ for st in replicated}))
+    return (
+        f"{msg}\n\n"
+        "This shape mismatch usually means an undeclared State is replicated "
+        "(given its full, global shape on every shard) while the positional data "
+        "is sharded (a smaller per-shard slice), so combining them inside the "
+        "function fails. Undeclared states default to replication. If the state "
+        "should vary per shard, give it a matching partition via state_in_specs "
+        "(and state_out_specs for writes), e.g. "
+        "state_in_specs={the_state: P('x')}. "
+        f"Replicated touched state kind(s): {kinds}."
+    )
+
+
 @set_module_as("brainstate.transform")
 def shard_map(
     fun: Callable,
@@ -103,6 +141,17 @@ def shard_map(
     states once via :class:`StatefulFunction`, injects per-shard values with
     ``State.restore_value``, runs ``fun``, and restores every state afterward
     (writes to their new values, reads to their originals).
+
+    States are **replicated by default** -- a state not covered by
+    ``state_in_specs`` / ``state_out_specs`` is placed at its full, global shape on
+    every shard. Combining such a replicated state with *sharded* positional data
+    (a smaller per-shard slice) inside ``fun`` -- e.g. ``buffer.value + data`` --
+    raises a shape-mismatch error, because the operands have different per-shard
+    sizes. To keep a per-shard buffer, give the state a matching partition through
+    ``state_in_specs`` (and ``state_out_specs`` if it is written), as in the
+    per-shard buffer example above. Replicated states are appropriate for values
+    that are the same on every shard (scalars, shared parameters) or that are
+    reduced with a collective such as :func:`jax.lax.psum` before being written.
 
     Examples
     --------
@@ -251,10 +300,19 @@ def shard_map(
         sharded = jax_shard_map(pure, **sm_kwargs)
         try:
             out, write_vals = sharded(in_state_vals, sharded_args)
-        except Exception:
+        except Exception as e:
             # a failure mid-trace must not leave shard tracers in the states
             for st, ov in zip(all_states, orig_vals):
                 st.restore_value(ov)
+            # #7: turn the opaque broadcasting error from an undeclared
+            # (replicated) state meeting sharded data into an actionable one.
+            hint = _augment_shard_state_error(e, all_states, in_state_specs, local_arg_specs)
+            if hint is not None:
+                try:
+                    new_exc = type(e)(hint)
+                except Exception:
+                    new_exc = RuntimeError(hint)
+                raise new_exc from e
             raise
 
         # 6. Restore ALL states: writes -> new values, reads -> originals

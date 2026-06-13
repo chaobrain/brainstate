@@ -509,6 +509,24 @@ class TestVmapEdgeCases(unittest.TestCase):
         with self.assertRaises(BatchAxisError):
             fn(xs)
 
+    def test_undeclared_write_error_uses_vmap_vocabulary(self):
+        # #5: the legacy vmap API uses in_states/out_states, not the engine's
+        # state_out_axes / unexpected_out_state_mapping. The undeclared-write
+        # error must speak the caller's vocabulary, not engine internals.
+        state = bst.ShortTermState(jnp.zeros(3))
+
+        @vmap(in_axes=0)
+        def fn(x):
+            state.value = state.value + x   # batched write, not in out_states
+            return x
+
+        with self.assertRaises(BatchAxisError) as cm:
+            fn(jnp.arange(3.0))
+        msg = str(cm.exception)
+        self.assertIn('out_states', msg)
+        self.assertNotIn('state_out_axes', msg)
+        self.assertNotIn('unexpected_out_state_mapping', msg)
+
 
 class TestVmapNewStates(unittest.TestCase):
     """Test vmap_new_states functionality."""

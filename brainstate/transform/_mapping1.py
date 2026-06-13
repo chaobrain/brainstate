@@ -114,6 +114,10 @@ def _vmap_transform(
         mapping_fn=functools.partial(jax.vmap, spmd_axis_name=spmd_axis_name),
         unexpected_out_state_mapping='raise',
         name='vmap',
+        # #5: speak the legacy vmap vocabulary (in_states/out_states, no policy
+        # knob) in the undeclared-write error instead of engine internals.
+        out_decl_name='out_states',
+        out_decl_extra='',
     )
 
     @functools.wraps(f)

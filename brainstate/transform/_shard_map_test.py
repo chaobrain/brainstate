@@ -55,6 +55,25 @@ class TestShardMap(unittest.TestCase):
         self.assertTrue(jnp.allclose(out_state.value, data * 3.0))
         self.assertTrue(jnp.allclose(w.value, 3.0))  # replicated read state unchanged
 
+    def test_undeclared_pershard_write_error_points_to_state_in_specs(self):
+        # #7: a replicated (undeclared) state read+written together with sharded
+        # data fails with a cryptic broadcast shape error. The wrapper should
+        # augment it to point at state_in_specs / state_out_specs.
+        if self.n < 2:
+            self.skipTest("Requires at least 2 devices")
+        buffer = brainstate.State(jnp.zeros(self.n * 2))  # replicated by default
+
+        def accumulate(data):
+            buffer.value = buffer.value + data  # full (n*2,) + per-shard slice
+            return data
+
+        f = brainstate.transform.shard_map(
+            accumulate, self.mesh, in_specs=(P('x'),), out_specs=P('x'),
+        )
+        with self.assertRaises(Exception) as cm:
+            f(jnp.arange(self.n * 2, dtype=jnp.float32))
+        self.assertIn('state_in_specs', str(cm.exception))
+
     def test_no_state_function(self):
         def fun(data):
             return data + 1.0
