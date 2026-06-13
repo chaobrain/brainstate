@@ -268,5 +268,23 @@ class TestFormatPath(unittest.TestCase):
         self.assertEqual(_flatten._format_path(("a", "b", "c")), "a.b.c")
 
 
+class TestEncodeKinds(unittest.TestCase):
+    def test_bare_treefy_state_encodes_as_pytree(self):
+        import jax.numpy as jnp
+        import brainstate as bs
+        from brainstate import graph
+        from brainstate.graph import PytreeEdge
+
+        class Box(graph.Node):
+            def __init__(self, **kw):
+                for k, v in kw.items():
+                    setattr(self, k, v)
+
+        ts = bs.ParamState(jnp.ones(2)).to_state_ref()
+        gd, _ = graph.flatten(Box(ts=ts))
+        kinds = {k: type(e).__name__ for k, e in gd.node_specs[0].fields}
+        self.assertEqual(kinds['ts'], 'PytreeEdge')   # preserved legacy behavior
+
+
 if __name__ == "__main__":
     unittest.main()

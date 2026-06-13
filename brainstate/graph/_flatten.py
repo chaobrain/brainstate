@@ -36,8 +36,9 @@ from ._graphdef import (
 )
 from ._reftrack import RefMap
 from ._walk import (
-    _is_node, _is_graph_node, _is_state_leaf, _get_node_impl,
-    get_node_impl_for_type, PYTREE_NODE_IMPL,
+    _is_node, get_node_impl_for_type, PYTREE_NODE_IMPL,
+    classify, GRAPH_NODE, PYTREE, STATE, STATE_LEAF,
+    _node_impl_for_type,
 )
 
 __all__ = ['flatten', 'unflatten']
@@ -66,23 +67,25 @@ class _Encoder:
         self.mapping: dict[PathParts, Any] = {}
 
     def edge(self, path: PathParts, value: Any) -> Edge:
-        if _is_node(value):
-            if _is_graph_node(value):
-                if value in self.ref_index:
-                    return NodeEdge(self.ref_index[value])
-                index = len(self.ref_index)
-                self.ref_index[value] = index
-                impl = _get_node_impl(value)
-                items, metadata = impl.flatten(value)
-                fields = tuple((k, self.edge((*path, k), v)) for k, v in items)
-                self.specs.append(NodeSpec(impl.type, index, metadata, fields))
-                return NodeEdge(index)
-            impl = _get_node_impl(value)               # pytree (re-expanded)
+        kind = classify(value)
+
+        if kind == GRAPH_NODE:
+            if value in self.ref_index:
+                return NodeEdge(self.ref_index[value])
+            index = len(self.ref_index)
+            self.ref_index[value] = index
+            impl = _node_impl_for_type[type(value)]
             items, metadata = impl.flatten(value)
+            fields = tuple((k, self.edge((*path, k), v)) for k, v in items)
+            self.specs.append(NodeSpec(impl.type, index, metadata, fields))
+            return NodeEdge(index)
+
+        if kind == PYTREE:
+            items, metadata = PYTREE_NODE_IMPL.flatten(value)
             fields = tuple((k, self.edge((*path, k), v)) for k, v in items)
             return PytreeEdge(metadata, fields)
 
-        if isinstance(value, State):
+        if kind == STATE:
             if value in self.ref_index:
                 return StateEdge(self.ref_index[value], None, type(value))
             index = len(self.ref_index)
@@ -90,13 +93,11 @@ class _Encoder:
             self.mapping[path] = value.to_state_ref() if self.treefy_state else value
             return StateEdge(index, path, type(value))
 
-        if _is_state_leaf(value):                      # bare TreefyState
+        if kind == STATE_LEAF:                  # bare non-pytree TreefyState (rare)
             self.mapping[path] = value
             return StateLeafEdge(path)
 
-        # Any other value is an inline static field. It is kept as-is (matching
-        # the legacy engine); hashability is enforced lazily by ``GraphDef`` so
-        # that graphs with unhashable static attributes still split/merge.
+        # STATIC — kept as-is; hashability enforced lazily by GraphDef.
         return StaticEdge(value)
 
 
