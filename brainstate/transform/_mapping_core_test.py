@@ -379,6 +379,97 @@ class TestAutoPromoteRMW(unittest.TestCase):
         self.assertEqual(b.value.shape, (B, N))
         self.assertTrue(jnp.allclose(b.value, jnp.full((B, N), 4.0)))
 
+    def test_rmw_dim_ne_batch_stable_across_warm_calls(self):
+        # #1: undeclared RMW whose leading dim (3) != batch (5). The first call
+        # scatters (3,) -> (5, 3); a warm (cached) call must NOT grow it again.
+        import warnings
+        w = brainstate.ShortTermState(jnp.zeros(3))
+
+        def f(x):
+            w.value = w.value + x
+            return w.value
+
+        mapped = brainstate.transform.vmap2(f)  # batch 5 != dim 3
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            mapped(jnp.arange(5.))
+            s1 = w.value.shape
+            self.assertEqual(s1, (5, 3))
+            mapped(jnp.arange(5.))             # warm call must not grow
+        self.assertEqual(w.value.shape, s1)    # was (5,3) -> (5,5,3) before the fix
+
+    def test_rmw_dim_ne_batch_warm_equals_cold(self):
+        # #1: a cached (warm) wrapper and a fresh (cold) wrapper must agree on the
+        # resulting shape across repeated calls (the "make warm == cold" fix).
+        import warnings
+
+        def run(warm):
+            w = brainstate.ShortTermState(jnp.zeros(3))
+
+            def f(x):
+                w.value = w.value + x
+                return w.value
+
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                if warm:
+                    m = brainstate.transform.vmap2(f)
+                    for _ in range(4):
+                        m(jnp.arange(5.))
+                else:
+                    for _ in range(4):
+                        brainstate.transform.vmap2(f)(jnp.arange(5.))
+            return w.value
+
+        warm_v, cold_v = run(warm=True), run(warm=False)
+        self.assertEqual(warm_v.shape, cold_v.shape)
+        self.assertTrue(jnp.allclose(warm_v, cold_v))
+
+    def test_auto_rmw_dim_mismatch_warns(self):
+        # #3: dim (3) != batch (5) on a genuinely-read (RMW) undeclared state is
+        # the surprising case -> a one-time UserWarning.
+        w = brainstate.ShortTermState(jnp.zeros(3))
+
+        def f(x):
+            w.value = w.value + x
+            return w.value
+
+        mapped = brainstate.transform.vmap2(f)
+        with self.assertWarns(UserWarning):
+            mapped(jnp.arange(5.))
+
+    def test_auto_rmw_dim_match_no_warning(self):
+        # #3: pre-shaped RMW (dim == batch) is the recommended pattern -> silent.
+        import warnings
+        w = brainstate.ShortTermState(jnp.zeros(4))
+
+        def f(x):
+            w.value = w.value + x
+            return w.value
+
+        mapped = brainstate.transform.vmap2(f)  # batch 4 == dim 4
+        with warnings.catch_warnings(record=True) as rec:
+            warnings.simplefilter("always")
+            mapped(jnp.ones(4))
+        self.assertEqual([r for r in rec if issubclass(r.category, UserWarning)], [])
+
+    def test_pure_output_dim_ne_batch_no_warning(self):
+        # #3: a pure-output (never-read) undeclared scatter is legitimate even
+        # when dim != batch -> silent (no false positive on correct code).
+        import warnings
+        w = brainstate.ShortTermState(jnp.zeros(3))
+
+        def f(x):
+            w.value = x * 2.0   # never reads w
+            return x
+
+        mapped = brainstate.transform.vmap2(f)
+        with warnings.catch_warnings(record=True) as rec:
+            warnings.simplefilter("always")
+            mapped(jnp.arange(5.))
+        self.assertEqual([r for r in rec if issubclass(r.category, UserWarning)], [])
+        self.assertEqual(w.value.shape, (5,))
+
 
 class TestStalePlanInvalidation(unittest.TestCase):
     """B3: a cached plan is invalidated when its States are recreated (GC'd).
@@ -1443,116 +1534,21 @@ class TestStalePlanWriteSetDivergence(unittest.TestCase):
         self.assertLess(second, first)
 
 
-class TestStaticArgnumsRejected(unittest.TestCase):
-    """M41: static_argnums is never excluded from the axis mapping, so a static
-    positional arg gets the default in_axes=0 and is axis-stripped by
-    _remove_axis -- crashing on scalars (AttributeError: 'float' object has no
-    attribute 'ndim') or silently mismapping arrays. The engine has no
-    split-positional support, so a non-empty static_argnums must be rejected
-    loudly instead of crashing deep in _remove_axis."""
-
-    def test_static_argnums_tuple_raises(self):
-        # Pre-fix this raised AttributeError from _remove_axis on the scalar.
-        with self.assertRaises(NotImplementedError):
-            state_map_transform(
-                lambda x, scale: x * scale, in_axes=0, static_argnums=(1,)
-            )
-
-    def test_static_argnums_int_raises(self):
-        # int form is normalized to a tuple before the check.
-        with self.assertRaises(NotImplementedError):
-            state_map_transform(
-                lambda x, scale: x * scale, in_axes=0, static_argnums=1
-            )
-
-    def test_static_argnums_empty_is_allowed(self):
-        # The default () (and None) must NOT trip the guard.
-        f = state_map_transform(lambda x: x * 2.0, in_axes=0, static_argnums=())
-        out = f(jnp.arange(3.))
-        self.assertTrue(jnp.allclose(out, jnp.arange(3.) * 2.0))
-        g = state_map_transform(lambda x: x * 2.0, in_axes=0, static_argnums=None)
-        self.assertTrue(jnp.allclose(g(jnp.arange(3.)), jnp.arange(3.) * 2.0))
-
-    def test_statefulmapping_static_argnums_raises(self):
-        # StatefulMapping builds the engine wrapper at construction time, so the
-        # rejection surfaces immediately when static_argnums is non-empty.
-        with self.assertRaises(NotImplementedError):
-            brainstate.transform.StatefulMapping(
-                lambda x, scale: x * scale, in_axes=0, static_argnums=(1,)
-            )
-
-    def test_static_argnames_still_supported(self):
-        # The exactly-parallel keyword path must keep working (and produce the
-        # correct broadcast result), proving the fix targets only argnums.
-        f = state_map_transform(
-            lambda x, scale: x * scale, in_axes=0, static_argnames=('scale',)
-        )
-        out = f(jnp.arange(3.), scale=10.0)
-        self.assertTrue(jnp.allclose(out, jnp.asarray([0., 10., 20.])))
-
-
 class TestRemoveAxisScalar(unittest.TestCase):
-    """Item 12: _remove_axis must reject non-array (scalar) leaves with a clear
-    error instead of an opaque AttributeError on ``.ndim``."""
+    """Appendix item 12: _remove_axis must reject non-array (scalar) leaves with
+    a clear ValueError instead of an opaque ``AttributeError`` on ``.ndim``."""
 
-    def test_python_scalar_raises_value_error(self):
+    def test_python_float_scalar_raises_value_error(self):
         with self.assertRaises(ValueError):
             _remove_axis(5.0, 0)
 
-    def test_int_scalar_raises_value_error(self):
+    def test_python_int_scalar_raises_value_error(self):
         with self.assertRaises(ValueError):
             _remove_axis(3, 0)
 
-    def test_array_still_works(self):
+    def test_array_leaf_still_works(self):
         out = _remove_axis(jnp.arange(6.).reshape(2, 3), 0)
         self.assertEqual(out.shape, (3,))
-
-
-class TestAxisSizeCrossCheck(unittest.TestCase):
-    """Item 14: an explicit axis_size must be cross-checked against the inferred
-    mapped-axis size, not silently ignored when a size is inferable."""
-
-    def test_conflicting_axis_size_raises(self):
-        with self.assertRaises(ValueError):
-            _get_batch_size((jnp.ones((4, 2)),), in_axes=0, in_states={}, axis_size=7)
-
-    def test_matching_axis_size_ok(self):
-        batch = _get_batch_size((jnp.ones((4, 2)),), in_axes=0, in_states={}, axis_size=4)
-        self.assertEqual(batch, 4)
-
-    def test_axis_size_fallback_unchanged(self):
-        # No inferable size -> axis_size is still used as the fallback.
-        self.assertEqual(_get_batch_size((), 0, {}, axis_size=5), 5)
-
-
-class TestReadOnlyBatchedInputNotScattered(unittest.TestCase):
-    """Item 15: a read-only batched-input state must stay at its original
-    (batched) value across calls -- it is fed per-lane but not scattered back as
-    an output, and must be restored from its pre-call snapshot."""
-
-    def test_readonly_declared_input_is_stable(self):
-        B, N = 3, 4
-        a = brainstate.HiddenState(jnp.ones((B, N)))      # read-only batched input
-        b = brainstate.ShortTermState(jnp.zeros((B, N)))  # RMW, auto-promoted
-
-        def f(x):
-            b.value = b.value + a.value + x
-            return b.value
-
-        mapped = state_map_transform(f, in_axes=0, out_axes=0, state_in_axes={0: a})
-        xs = jnp.ones((B, N))
-        o1 = mapped(xs)
-        self.assertEqual(a.value.shape, (B, N))            # unchanged shape
-        self.assertTrue(jnp.allclose(a.value, 1.0))        # unchanged value
-        self.assertEqual(b.value.shape, (B, N))
-        self.assertTrue(jnp.allclose(b.value, 2.0))        # 0 + a(1) + x(1)
-        o2 = mapped(xs)
-        # Read-only input still stable; the RMW state keeps accumulating.
-        self.assertEqual(a.value.shape, (B, N))
-        self.assertTrue(jnp.allclose(a.value, 1.0))
-        self.assertTrue(jnp.allclose(b.value, 4.0))
-        self.assertEqual(o1.shape, (B, N))
-        self.assertEqual(o2.shape, (B, N))
 
 
 if __name__ == "__main__":

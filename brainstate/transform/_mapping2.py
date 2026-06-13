@@ -22,6 +22,7 @@ from collections.abc import Hashable, Iterable, Sequence
 from typing import Any, Callable, Dict, Optional, Tuple, Union, TypeVar
 
 import jax
+import jax.numpy as jnp
 
 from brainstate._compatible_import import Device
 from brainstate._state import State, catch_new_states, StateTraceStack, TRACE_CONTEXT
@@ -104,14 +105,28 @@ class StatefulMapping:
         same selector semantics as ``state_in_axes``.
     unexpected_out_state_mapping : {'auto', 'raise', 'warn', 'ignore'}, default 'auto'
         Policy for states written with a batched value but not covered by
-        ``state_out_axes``. ``'auto'`` scatters them at their detected axis,
-        ``'raise'`` raises a :class:`~brainstate._error.BatchAxisError`,
-        ``'warn'`` scatters them with a warning, and ``'ignore'`` scatters them
+        ``state_out_axes``. ``'auto'`` scatters them at their detected axis;
+        ``'raise'`` raises a :class:`~brainstate._error.BatchAxisError`;
+        ``'warn'`` scatters them with a warning; and ``'ignore'`` scatters them
         silently.
+
+        Under ``'auto'``, an undeclared state that is *read and written*
+        (read-modify-write) is handled specially: on each call, if its current
+        leading size along the detected axis already equals the mapped size it is
+        fed **per lane** (a per-lane RMW buffer) instead of being broadcast and
+        scattered. This decision is re-made every call from the live value, so a
+        cached (warm) call behaves identically to a fresh (cold) one. Because the
+        choice rests on a leading-size match, a state whose leading dimension
+        *coincidentally* equals the mapped size is treated as per-lane even if you
+        meant it as a shared, broadcast value -- declare it explicitly via
+        ``state_in_axes``/``state_out_axes`` to remove the ambiguity. When such an
+        RMW state's leading size does *not* match the mapped size it is scattered
+        (gaining a new leading axis) and a one-time :class:`UserWarning` is
+        emitted.
     static_argnums : int or iterable of int, default ()
-        Not supported by the state-mapping engine: a non-empty value raises
-        ``NotImplementedError``. Use ``static_argnames`` for keyword arguments,
-        or set ``in_axes=None`` for the positional slot you want broadcast.
+        Positional arguments treated as compile-time constants. The argument is
+        closed over (as in :func:`jax.jit`) and is neither traced nor mapped, so
+        its ``in_axes`` entry, if any, is ignored.
     static_argnames : str or iterable of str, default ()
         Keyword arguments treated as compile-time constants for caching.
     axis_env : sequence, optional
@@ -314,7 +329,13 @@ def vmap2(
     unexpected_out_state_mapping : {'auto', 'raise', 'warn', 'ignore'}, default 'auto'
         Policy for states written with a batched value but not declared in
         ``state_out_axes``. The default ``'auto'`` infers the output axis from
-        the detected batch dimension.
+        the detected batch dimension. For an undeclared *read-modify-write* state,
+        ``'auto'`` additionally feeds it per lane when its current leading size
+        matches the mapped size (re-checked every call, so warm and cold calls
+        agree), and warns once when it does not (the state is scattered, gaining a
+        new axis). See :class:`StatefulMapping` for the full description and how to
+        disambiguate a coincidental size match with
+        ``state_in_axes``/``state_out_axes``.
 
     Returns
     -------
@@ -581,6 +602,12 @@ def _validate_leading_lengths(xs) -> int:
     leaves = jax.tree.leaves(xs)
     if not leaves:
         raise ValueError("map requires at least one array input.")
+    for leaf in leaves:
+        if getattr(leaf, 'ndim', 1) == 0:
+            raise ValueError(
+                "map requires array inputs with a leading axis to map over; "
+                "got a 0-d (scalar) input."
+            )
     length = leaves[0].shape[0]
     for leaf in leaves:
         if leaf.shape[0] != length:
@@ -813,7 +840,9 @@ def _map_new_states(
     # --- main pass: create batched states under the mapping primitive ----- #
     state_box: Dict[Any, list] = {}
 
-    def init_fn(rng_keys):
+    def init_fn(rng_keys, _dummy=None):
+        # ``_dummy`` is an ignored mapped placeholder used only when there are no
+        # random states, so ``jax.pmap`` still has a mapped argument (#2).
         for rng, key in zip(rng_states, rng_keys):
             rng.restore_value(key)
         with catch_new_states() as catcher:
@@ -846,34 +875,29 @@ def _map_new_states(
 
     try:
         with catch_new_states(state_tag):
-            if behavior == 'pmap' and len(rng_states) == 0:
-                # H19: jax.pmap (unlike jax.vmap) has no axis_size-only
-                # broadcast and raises ``ValueError: pmap requires at least one
-                # argument with a mapped axis`` when every in_axes entry is
-                # None. When init draws no randomness ``rng_keys == []`` and the
-                # natural ``in_axes=(None,)`` triggers that error. Feed a
-                # throwaway mapped argument (in_axes=0) and discard it; keep
-                # ``init_fn``'s signature/closure over rng_keys unchanged. The
-                # ``out_axes`` is left untouched so NonBatchState replication
-                # (out axis None) is preserved.
-                init_fn2 = lambda rng_keys, _dummy: init_fn(rng_keys)
-                mapped = primitive(
-                    init_fn2,
-                    in_axes=(None, 0),
-                    out_axes=tuple(axes_order),
-                    axis_size=axis_size,
-                    axis_name=axis_name,
-                )
-                tuple_vals = mapped(rng_keys, jax.numpy.arange(axis_size))
-            else:
+            if len(rng_states):
                 mapped = primitive(
                     init_fn,
-                    in_axes=(0 if len(rng_states) else None,),
+                    in_axes=(0,),
                     out_axes=tuple(axes_order),
                     axis_size=axis_size,
                     axis_name=axis_name,
                 )
                 tuple_vals = mapped(rng_keys)
+            else:
+                # No random states: ``rng_keys`` is empty, so the only argument has
+                # no mapped axis. ``jax.vmap`` tolerates that (``axis_size`` supplies
+                # the extent), but ``jax.pmap`` requires at least one mapped
+                # argument. Feed a dummy iota of length ``axis_size`` that
+                # ``init_fn`` ignores, uniformly for both primitives (#2).
+                mapped = primitive(
+                    init_fn,
+                    in_axes=(None, 0),
+                    out_axes=tuple(axes_order),
+                    axis_size=axis_size,
+                    axis_name=axis_name,
+                )
+                tuple_vals = mapped(rng_keys, jnp.arange(axis_size))
     finally:
         # restore the global RNG once -- also on failure, so a crashed mapped
         # pass cannot leave key tracers in the random states

@@ -138,6 +138,12 @@ StateToAxis = Dict[State, int]
 
 _rand = None
 
+# Audit #3: states already warned about an undeclared 'auto' read-modify-write
+# whose leading dim does not match the batch size (so it is scattered, gaining an
+# axis). A WeakSet keeps the warning one-time-per-state without pinning the state
+# alive or leaking ids after garbage collection.
+_AUTO_RMW_SCATTER_WARNED: "weakref.WeakSet" = weakref.WeakSet()
+
 
 def _import_rand_state():
     global _rand
@@ -226,17 +232,9 @@ def _compile_stateful_function(
 ):
     """Strip mapped axes and build a per-signature cache key for a stateful fn.
 
-    Parameters
-    ----------
-    stateful_fn : StatefulFunction
-        The stateful function being mapped.
-    in_axes : tuple
-        A 2-tuple ``(state_in_axes, arg_in_axes)`` -- *not* a bare int. The first
-        element holds the per-state mapped axes and the second the per-argument
-        ``in_axes`` (an int, ``None``, or a tuple); both are unpacked below.
-    args : tuple
-        A 2-tuple ``(state_vals, args)`` of the current state values and the
-        positional arguments.
+    ``in_axes`` and ``args`` are each 2-tuples -- ``(state_in_axes, arg_in_axes)``
+    and ``(state_vals, args)`` respectively, unpacked below -- *not* a bare int /
+    flat tuple as an older annotation implied.
 
     .. note::
 
@@ -321,18 +319,19 @@ def _get_batch_size(
             )
         return axis_size
 
+    # When axis_size is given explicitly it must agree with the size inferred from
+    # arguments/states; otherwise the mapping primitive fails late with an opaque
+    # XLA buffer-size error and the RNG split is sized wrong (audit #4).
+    if axis_size is not None and axis_size not in set(batch_sizes):
+        raise ValueError(
+            f"axis_size={axis_size} conflicts with the mapped axis size(s) "
+            f"{sorted(set(batch_sizes))} inferred from arguments/states. Either "
+            f"omit axis_size or make it match the mapped inputs."
+        )
+
     # Ensure all batch sizes are consistent.
     if len(set(batch_sizes)) > 1:
         raise ValueError(f"Inconsistent batch sizes found: {set(batch_sizes)}")
-    # Cross-check an explicit ``axis_size`` against the inferred size instead of
-    # silently ignoring it. Previously ``axis_size`` was consulted only when no
-    # size could be inferred, so a wrong ``axis_size`` paired with batched inputs
-    # passed unnoticed (jax.vmap would later error, but far less clearly).
-    if axis_size is not None and axis_size != batch_sizes[0]:
-        raise ValueError(
-            f"Explicit axis_size={axis_size} does not match the mapped axis size "
-            f"{batch_sizes[0]} inferred from the batched inputs/states."
-        )
     return batch_sizes[0]
 
 
@@ -583,6 +582,74 @@ def _split_kwargs(kwargs, static_argnames):
     return dyn, static
 
 
+def _normalize_static_argnums(static_argnums, n_args):
+    """Resolve ``static_argnums`` to a frozenset of non-negative indices.
+
+    Negative indices are counted from the end (as in :func:`jax.jit`); an index
+    outside ``range(n_args)`` raises a clear :class:`ValueError` instead of the
+    opaque ``IndexError`` that would surface later when the argument is sliced.
+    """
+    resolved = set()
+    for i in static_argnums:
+        j = i + n_args if i < 0 else i
+        if not (0 <= j < n_args):
+            raise ValueError(
+                f"static_argnums={tuple(static_argnums)} refers to positional "
+                f"argument {i}, but the function was called with {n_args} "
+                f"positional argument(s)."
+            )
+        resolved.add(j)
+    return frozenset(resolved)
+
+
+def _close_static_argnums(f, in_axes, static_argnums, args):
+    """Bake the positional ``static_argnums`` into ``f`` (``jax.jit`` parity).
+
+    Static positional arguments are compile-time constants: they are neither
+    traced nor mapped. We drop them from the argument list handed to the mapping
+    primitive and close over them in a thin wrapper that re-inserts them at their
+    original positions -- mirroring how ``static_argnames`` keyword arguments are
+    already handled. This avoids asking the primitive to map a non-array constant
+    (which fails with ``'<type>' object has no attribute 'ndim'``).
+
+    Parameters
+    ----------
+    f : callable
+        The user function.
+    in_axes : int | None | tuple
+        Positional-argument batch-axis specification.
+    static_argnums : frozenset of int
+        Already-normalized (non-negative, in-range) static positional indices.
+    args : tuple
+        Full positional arguments for this call.
+
+    Returns
+    -------
+    tuple
+        ``(f_closed, dyn_args, dyn_in_axes)``. ``dyn_args`` excludes the static
+        positions; ``dyn_in_axes`` drops the matching entries when ``in_axes`` is
+        a per-argument tuple (an ``int`` / ``None`` axis is returned unchanged,
+        since it applies uniformly to whatever positional arguments remain).
+    """
+    if not static_argnums:
+        return f, args, in_axes
+    n = len(args)
+    static_vals = {i: args[i] for i in static_argnums}
+    dyn_args = tuple(a for i, a in enumerate(args) if i not in static_argnums)
+
+    @functools.wraps(f)
+    def f_closed(*dyn, **kwargs):
+        it = iter(dyn)
+        full = [static_vals[i] if i in static_vals else next(it) for i in range(n)]
+        return f(*full, **kwargs)
+
+    if isinstance(in_axes, tuple) and len(in_axes) == n:
+        dyn_in_axes = tuple(ax for i, ax in enumerate(in_axes) if i not in static_argnums)
+    else:
+        dyn_in_axes = in_axes
+    return f_closed, dyn_args, dyn_in_axes
+
+
 def _strip_kwargs(dyn_kwargs):
     """Remove the leading mapped axis from each dynamic kwarg.
 
@@ -651,15 +718,21 @@ class LiveStateMapPlan:
     oth_out_states : list of State
         Written states that are broadcast (not batched) on output and therefore
         restored from a single representative lane.
+    auto_in_candidate_ids : frozenset of int
+        Object ids of undeclared ``'auto'`` read-modify-write states whose
+        per-lane promotion is re-evaluated against the live value on every call
+        (audit #1). These states already live in :attr:`out_groups`; the ids are
+        matched there in :func:`_execute_plan`.
     """
 
-    __slots__ = ('in_groups', 'rng_states', 'out_groups', 'oth_out_states')
+    __slots__ = ('in_groups', 'rng_states', 'out_groups', 'oth_out_states', 'auto_in_candidate_ids')
 
-    def __init__(self, in_groups, rng_states, out_groups, oth_out_states):
+    def __init__(self, in_groups, rng_states, out_groups, oth_out_states, auto_in_candidate_ids=frozenset()):
         self.in_groups = in_groups
         self.rng_states = rng_states
         self.out_groups = out_groups
         self.oth_out_states = oth_out_states
+        self.auto_in_candidate_ids = frozenset(auto_in_candidate_ids)
 
 
 class StateMapPlan:
@@ -702,18 +775,23 @@ class StateMapPlan:
         restored from a single representative lane.
     """
 
-    __slots__ = ('in_groups', 'rng_states', 'out_groups', 'oth_out_states')
+    __slots__ = ('in_groups', 'rng_states', 'out_groups', 'oth_out_states', 'auto_in_candidate_ids')
 
-    def __init__(self, in_groups, rng_states, out_groups, oth_out_states):
+    def __init__(self, in_groups, rng_states, out_groups, oth_out_states, auto_in_candidate_ids=frozenset()):
         self.in_groups = [(axis, [weakref.ref(st) for st in states]) for axis, states in in_groups]
         self.rng_states = [weakref.ref(st) for st in rng_states]
         self.out_groups = [(axis, [weakref.ref(st) for st in states]) for axis, states in out_groups]
         self.oth_out_states = [weakref.ref(st) for st in oth_out_states]
+        # Plain ids (no weakref): these states are a subset of out_groups, whose
+        # weakrefs already gate staleness; on materialize the same live objects
+        # are dereferenced, so their ids still match.
+        self.auto_in_candidate_ids = frozenset(auto_in_candidate_ids)
 
     @classmethod
     def from_live(cls, live: 'LiveStateMapPlan') -> 'StateMapPlan':
         """Snapshot a :class:`LiveStateMapPlan` as a weakref-backed plan for caching."""
-        return cls(live.in_groups, live.rng_states, live.out_groups, live.oth_out_states)
+        return cls(live.in_groups, live.rng_states, live.out_groups, live.oth_out_states,
+                   live.auto_in_candidate_ids)
 
     def materialize(self) -> Optional['LiveStateMapPlan']:
         """Resolve all weakrefs into a strong-ref :class:`LiveStateMapPlan`.
@@ -752,7 +830,8 @@ class StateMapPlan:
         oth_out_states = deref(self.oth_out_states)
         if oth_out_states is None:
             return None
-        return LiveStateMapPlan(in_groups, rng_states, out_groups, oth_out_states)
+        return LiveStateMapPlan(in_groups, rng_states, out_groups, oth_out_states,
+                                self.auto_in_candidate_ids)
 
 
 def _probe_axis_size(args, in_axes, axis_size, kwargs=None):
@@ -768,6 +847,37 @@ def _probe_axis_size(args, in_axes, axis_size, kwargs=None):
         return int(_get_batch_size(args, in_axes, {}, axis_size, kwargs))
     except Exception:
         return 2
+
+
+class _ReadTrackingTrace(StateTraceStack):
+    """Probe trace that records *genuine* reads (value-getter accesses).
+
+    :attr:`StateTraceStack.been_writen` cannot tell a read-modify-write apart
+    from a pure write: :meth:`StateTraceStack.write_its_value` calls
+    :meth:`StateTraceStack.read_its_value` internally the first time it sees a
+    state, so every written state looks "read". This subclass flags the window in
+    which that internal read happens, so only reads triggered by the value getter
+    (``state.value``) are counted as genuine. :func:`_build_plan` uses the result
+    to classify an undeclared ``'auto'`` batched write as a per-lane
+    read-modify-write (promotable) versus a pure output (scatter only).
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.genuine_read_ids: set = set()
+        self._in_write_value = False
+
+    def read_its_value(self, state) -> None:
+        if not self._in_write_value:
+            self.genuine_read_ids.add(id(state))
+        super().read_its_value(state)
+
+    def write_its_value(self, state) -> None:
+        self._in_write_value = True
+        try:
+            super().write_its_value(state)
+        finally:
+            self._in_write_value = False
 
 
 def _probe_states(f, args, kwargs, in_predicates, in_axes, name,
@@ -790,6 +900,9 @@ def _probe_states(f, args, kwargs, in_predicates, in_axes, name,
         Random states encountered during the call.
     seen_in_ids : set[int]
         Object ids of states classified as batched inputs.
+    genuine_read_ids : set[int]
+        Object ids of states whose value getter was actually invoked (genuine
+        reads), used to tell read-modify-write states from pure writes.
 
     Notes
     -----
@@ -822,7 +935,7 @@ def _probe_states(f, args, kwargs, in_predicates, in_axes, name,
                 return jax.tree.map(lambda x: _deaxed_like(x, axis), state._value, is_leaf=u.math.is_quantity)
         return state._value
 
-    state_trace = StateTraceStack(name=name)
+    state_trace = _ReadTrackingTrace(name=name)
     state_trace.set_new_arg(hook)
     try:
         if axis_name is None:
@@ -839,7 +952,7 @@ def _probe_states(f, args, kwargs, in_predicates, in_axes, name,
             jax.make_jaxpr(_probe_body, axis_env=[(axis_name, probe_size)])(*stripped)
     finally:
         state_trace.recovery_original_values()
-    return state_trace, dict(dim_to_in_states), rng_states, seen_in_ids
+    return state_trace, dict(dim_to_in_states), rng_states, seen_in_ids, state_trace.genuine_read_ids
 
 
 def _detect_out_dims(f, args, kwargs, in_groups, rng_states, write_states,
@@ -911,11 +1024,19 @@ def _build_plan(
     in_predicates, out_predicates,
     in_axes, axis_size, axis_name,
     unexpected_out_state_mapping, name, static_argnames=(),
+    out_decl_name='state_out_axes',
+    out_decl_extra=" or set unexpected_out_state_mapping to 'auto', 'warn', or 'ignore'",
 ):
-    """Probe + discover + assemble a :class:`StateMapPlan`."""
+    """Probe + discover + assemble a :class:`StateMapPlan`.
+
+    ``out_decl_name`` / ``out_decl_extra`` let a caller phrase the undeclared-write
+    error in its own vocabulary -- the legacy ``vmap`` shim declares states via
+    ``out_states`` and has no policy knob, so it passes ``out_decl_name='out_states'``
+    and an empty ``out_decl_extra`` (audit #5).
+    """
     RandomState = _import_rand_state()
 
-    state_trace, dim_to_in_states, rng_states, seen_in_ids = _probe_states(
+    state_trace, dim_to_in_states, rng_states, seen_in_ids, genuine_read_ids = _probe_states(
         f, args, kwargs, in_predicates, in_axes, name,
         axis_name=axis_name, axis_size=axis_size, static_argnames=static_argnames,
     )
@@ -941,9 +1062,10 @@ def _build_plan(
     # assemble output groups in deterministic trace order
     out_axis_groups: Dict[int, List[State]] = defaultdict(list)
     oth_out_states: List[State] = []
-    # B1: undeclared read-modify-write states that are already per-lane along the
-    # detected axis are promoted to batched inputs (see the 'auto' branch below).
-    promoted_in_states: Dict[int, List[State]] = defaultdict(list)
+    # #1: ids of undeclared read-modify-write states whose per-lane promotion is
+    # decided at execution time against the live value (see the 'auto' branch and
+    # _execute_plan). Deferring the decision makes warm calls match cold calls.
+    auto_in_candidate_ids: set = set()
 
     def _match_out_axis(st):
         for axis, pred in out_predicates.items():
@@ -959,12 +1081,7 @@ def _build_plan(
         det = detected.get(id(st))
 
         if in_axis is not None:
-            # A batched input is scattered back as a batched output only when it
-            # is actually written by ``f`` or explicitly declared in
-            # ``state_out_axes``. A purely read-only batched input must NOT be
-            # added to the output groups: it is unchanged by the call, so
-            # collecting and re-stacking it is wasted work (and forces it to be a
-            # vmap output it never needed to be).
+            # batched input -> also a batched output at the same axis
             matched, out_axis = _match_out_axis(st)
             if matched and out_axis is not None and out_axis != in_axis:
                 st.raise_error_with_source_info(
@@ -973,8 +1090,7 @@ def _build_plan(
                         f"state_out_axes maps it to axis {out_axis}."
                     )
                 )
-            if is_write or matched:
-                out_axis_groups[in_axis].append(st)
+            out_axis_groups[in_axis].append(st)
             continue
 
         matched, out_axis = _match_out_axis(st)
@@ -995,8 +1111,7 @@ def _build_plan(
                 st.raise_error_with_source_info(
                     BatchAxisError(
                         f"State\n {st} \nwas written with a batched value on axis {det} but is "
-                        "not covered by state_out_axes. Declare it in state_out_axes or set "
-                        "unexpected_out_state_mapping to 'auto', 'warn', or 'ignore'."
+                        f"not covered by {out_decl_name}. Declare it in {out_decl_name}{out_decl_extra}."
                     )
                 )
             elif unexpected_out_state_mapping == 'warn':
@@ -1007,14 +1122,35 @@ def _build_plan(
                 )
                 out_axis_groups[det].append(st)
             elif unexpected_out_state_mapping == 'auto':
-                # B1: if the state's prior value is already sized like the batch
-                # along the detected axis, this is a read-modify-write input the
-                # user did not declare. Treat it as a batched input+output so its
-                # value stays stable across calls, instead of gaining an extra
-                # axis every call. Otherwise scatter it (a genuine batched output).
-                if _leaf_axis_size(st.value, det) == batch_size:
-                    promoted_in_states[det].append(st)
+                # #1: scatter the write at its detected axis. If the state is also
+                # genuinely read (read-modify-write), record it as a per-lane
+                # promotion candidate: _execute_plan re-checks, on every call,
+                # whether the live value is already batch-sized along this axis and
+                # if so feeds it per lane instead of broadcasting. Deferring this
+                # decision (instead of baking it into the cached plan) keeps warm
+                # calls in lock-step with cold calls, so the value no longer gains a
+                # new leading axis on every warm call.
                 out_axis_groups[det].append(st)
+                if id(st) in genuine_read_ids:
+                    auto_in_candidate_ids.add(id(st))
+                    # #3: when the live leading dim does not match the batch size,
+                    # the state is scattered (gaining an axis), which is rarely the
+                    # intent for a read-modify-write buffer. Surface the engine's
+                    # otherwise-silent choice once per state.
+                    cur = _leaf_axis_size(st.value, det)
+                    if cur != batch_size and st not in _AUTO_RMW_SCATTER_WARNED:
+                        _AUTO_RMW_SCATTER_WARNED.add(st)
+                        warnings.warn(
+                            f"State {st} is written with a batched value on axis {det} "
+                            f"under the 'auto' policy but is not declared in "
+                            f"state_in_axes/state_out_axes, and its current leading size "
+                            f"({cur}) does not match the mapped size ({batch_size}); it is "
+                            f"being scattered, which adds a new leading axis. If it is a "
+                            f"per-lane read-modify-write buffer, pre-shape it to the mapped "
+                            f"size or declare it via state_in_axes/state_out_axes to make "
+                            f"the intent explicit.",
+                            UserWarning,
+                        )
             elif unexpected_out_state_mapping == 'ignore':
                 out_axis_groups[det].append(st)
             else:
@@ -1026,21 +1162,12 @@ def _build_plan(
             # broadcast write -- restore from a single lane
             oth_out_states.append(st)
 
-    # B1: fold promoted read-modify-write states into the input groups so the
-    # engine feeds them per-lane on input and scatters them on output (exactly as
-    # if the user had declared them in state_in_axes/state_out_axes at this axis).
-    if promoted_in_states:
-        merged_in: Dict[int, List[State]] = defaultdict(list)
-        for axis, states in in_groups:
-            merged_in[axis].extend(states)
-        for axis, states in promoted_in_states.items():
-            merged_in[axis].extend(states)
-        in_groups = sorted(merged_in.items(), key=lambda kv: kv[0])
-
     out_groups = sorted(out_axis_groups.items(), key=lambda kv: kv[0])
     # Return a live (strong-ref) plan for immediate execution; the caller
-    # snapshots it as a weakref-backed StateMapPlan for the warm cache (B3).
-    return LiveStateMapPlan(in_groups, rng_states, out_groups, oth_out_states)
+    # snapshots it as a weakref-backed StateMapPlan for the warm cache (B3). The
+    # auto read-modify-write candidates are promoted per-call in _execute_plan.
+    return LiveStateMapPlan(in_groups, rng_states, out_groups, oth_out_states,
+                            frozenset(auto_in_candidate_ids))
 
 
 class _PlanStaleError(Exception):
@@ -1066,6 +1193,32 @@ def _execute_plan(plan: LiveStateMapPlan, f, args, kwargs, in_axes, out_axes,
     out_groups = plan.out_groups
     oth_out_states = plan.oth_out_states
 
+    # Batch size from declared inputs + args (before any per-call promotion).
+    batch_size = _get_batch_size(args, in_axes, dict(in_groups), axis_size, dyn_kwargs)
+
+    # #1: re-evaluate undeclared 'auto' read-modify-write promotion against the
+    # LIVE state value on every call so warm calls match cold calls. A candidate
+    # (already present in out_groups) whose current leading size equals the batch
+    # is fed per lane this call instead of broadcast; otherwise it is left to
+    # scatter. Promotion only folds in states already sized to the batch, so
+    # ``batch_size`` is unaffected and need not be recomputed.
+    if plan.auto_in_candidate_ids:
+        already_in = {id(st) for _, states in in_groups for st in states}
+        promote: Dict[int, List[State]] = defaultdict(list)
+        for axis, states in out_groups:
+            for st in states:
+                if (id(st) in plan.auto_in_candidate_ids
+                        and id(st) not in already_in
+                        and _leaf_axis_size(st.value, axis) == batch_size):
+                    promote[axis].append(st)
+        if promote:
+            merged: Dict[int, List[State]] = defaultdict(list)
+            for axis, states in in_groups:
+                merged[axis].extend(states)
+            for axis, states in promote.items():
+                merged[axis].extend(states)
+            in_groups = sorted(merged.items(), key=lambda kv: kv[0])
+
     in_group_axes = [axis for axis, _ in in_groups]
     if len(in_group_axes) == 0:
         in_group_axes = 0
@@ -1073,7 +1226,6 @@ def _execute_plan(plan: LiveStateMapPlan, f, args, kwargs, in_axes, out_axes,
     if len(out_group_axes) == 0:
         out_group_axes = 0
 
-    batch_size = _get_batch_size(args, in_axes, dict(in_groups), axis_size, dyn_kwargs)
     rng_keys, rng_backups = split_rng_keys(rng_states, batch_size)
 
     in_group_vals = [[st.value for st in states] for _, states in in_groups]
@@ -1145,24 +1297,12 @@ def _execute_plan(plan: LiveStateMapPlan, f, args, kwargs, in_axes, out_axes,
         raise
 
     # scatter batched output state values
-    out_group_ids = {id(st) for _, states in out_groups for st in states}
     for (axis, states), vals in zip(out_groups, out_group_vals):
         for st, v in zip(states, vals):
             st.restore_value(v)
     # restore broadcast output state values
     for st, v in zip(oth_out_states, oth_vals):
         st.restore_value(v)
-    # Restore read-only batched inputs from their pre-call snapshot. They are fed
-    # per-lane into ``fn_to_map`` (which leaves each state holding a single lane),
-    # but a read-only input is unchanged by the call and is deliberately NOT a
-    # vmap output, so without this its leaked per-lane value would replace the
-    # original batched value. (Written/declared inputs are in ``out_groups`` and
-    # were already scattered above; only the input-group states need this.)
-    snapshot_by_id = {id(st): val for st, val in snapshots}
-    for _, states in in_groups:
-        for st in states:
-            if id(st) not in out_group_ids and id(st) in snapshot_by_id:
-                st.restore_value(snapshot_by_id[id(st)])
     # restore the global RNG once (randomness consumed exactly once per call)
     for rng, key in zip(rng_states, rng_backups):
         rng.restore_value(key)
@@ -1184,6 +1324,8 @@ def state_map_transform(
     static_argnums=(),
     static_argnames=(),
     name: Optional[str] = None,
+    out_decl_name: str = 'state_out_axes',
+    out_decl_extra: str = " or set unexpected_out_state_mapping to 'auto', 'warn', or 'ignore'",
 ):
     """Build a state-aware mapped version of ``f``.
 
@@ -1211,14 +1353,13 @@ def state_map_transform(
     unexpected_out_state_mapping : {'auto', 'raise', 'warn', 'ignore'}
         Policy for states written with a batched value but not declared in
         ``state_out_axes``.
-    static_argnums : int or iterable
-        Not supported: a non-empty value raises ``NotImplementedError``. The
-        engine never excludes static positional slots from the axis mapping, so
-        accepting them would crash or silently mismap. Use ``static_argnames``
-        for keyword args, or ``in_axes=None`` for the positional slot.
-    static_argnames : str or iterable
-        Keyword arguments treated as compile-time constants when building the
-        per-signature cache key.
+    static_argnums, static_argnames : int/str or iterable
+        Positional/keyword arguments treated as compile-time constants
+        (``jax.jit`` parity). They key the per-signature plan cache and are
+        closed over -- neither traced nor mapped -- so a ``static_argnums``
+        position is excluded from ``in_axes`` mapping entirely (its ``in_axes``
+        entry, if any, is ignored). Negative ``static_argnums`` count from the
+        end; an out-of-range index raises :class:`ValueError`.
     name : str, optional
         Diagnostic name.
 
@@ -1227,30 +1368,6 @@ def state_map_transform(
     callable
         A wrapped function with the same calling convention as ``f``.
     """
-    # M41: ``static_argnums`` is threaded only into ``get_arg_cache_key`` for the
-    # plan cache key; it is never excluded from the per-argument axis mapping
-    # (``in_axes``/``_strip_args``/``_get_batch_size``). Static positional args
-    # are therefore treated like dynamic ones -- the default ``in_axes=0`` is
-    # applied and ``_remove_axis`` calls ``.ndim`` on them, which crashes on
-    # scalars (``AttributeError: 'float' object has no attribute 'ndim'``) or
-    # silently mismaps array statics over axis 0. The state-mapping engine has no
-    # split-positional support (and ``static_argnums`` is not exposed via
-    # vmap2/pmap2), so reject it explicitly rather than crashing deep in
-    # ``_remove_axis``. ``static_argnames`` is fully supported via
-    # ``_split_kwargs`` and remains available for keyword args.
-    if isinstance(static_argnums, int):
-        static_argnums = (static_argnums,)
-    elif static_argnums is None:
-        static_argnums = ()
-    else:
-        static_argnums = tuple(static_argnums)
-    if len(static_argnums) > 0:
-        raise NotImplementedError(
-            "static_argnums is not supported by the state-mapping engine; use "
-            "static_argnames for keyword arguments, or set in_axes=None for that "
-            "positional slot."
-        )
-
     in_predicates = normalize_state_axes(state_in_axes)
     out_predicates = normalize_state_axes(state_out_axes)
     mapping_kwargs = dict() if mapping_kwargs is None else mapping_kwargs
@@ -1269,7 +1386,14 @@ def state_map_transform(
                 "to the positional arguments passed to the function, but got "
                 f"{len(in_axes)} in_axes entries for {len(args)} positional arguments."
             )
-        cache_key = get_arg_cache_key(static_argnums, static_argnames, args, kwargs)
+        # #8: positional ``static_argnums`` are compile-time constants (jit
+        # parity). Normalize/validate the indices, key the cache on their values
+        # (via get_arg_cache_key), then close over them so they are neither
+        # traced nor mapped -- the engine below sees a function of only the
+        # remaining dynamic positional arguments.
+        static_nums = _normalize_static_argnums(static_argnums, len(args))
+        cache_key = get_arg_cache_key(static_nums, static_argnames, args, kwargs)
+        cf, cargs, caxes = _close_static_argnums(f, in_axes, static_nums, args)
         plan = cache.get(cache_key, None)
         # B3: a cached plan holds only weakrefs; materialize() returns None if
         # any of its states was garbage-collected (e.g. the caller rebuilt its
@@ -1278,16 +1402,17 @@ def state_map_transform(
         live = plan.materialize() if plan is not None else None
         if live is None:
             live = _build_plan(
-                f, args, kwargs,
+                cf, cargs, kwargs,
                 in_predicates, out_predicates,
-                in_axes, axis_size, axis_name,
+                caxes, axis_size, axis_name,
                 unexpected_out_state_mapping, name,
                 static_argnames=static_argnames,
+                out_decl_name=out_decl_name, out_decl_extra=out_decl_extra,
             )
             cache[cache_key] = StateMapPlan.from_live(live)
         try:
             return _execute_plan(
-                live, f, args, kwargs, in_axes, out_axes,
+                live, cf, cargs, kwargs, caxes, out_axes,
                 axis_size, axis_name, mapping_fn, mapping_kwargs,
                 static_argnames=static_argnames,
             )
@@ -1297,15 +1422,16 @@ def state_map_transform(
             # plan, re-probe, and retry exactly once. A second divergence
             # (write set changing within a single call) is surfaced as-is.
             live = _build_plan(
-                f, args, kwargs,
+                cf, cargs, kwargs,
                 in_predicates, out_predicates,
-                in_axes, axis_size, axis_name,
+                caxes, axis_size, axis_name,
                 unexpected_out_state_mapping, name,
                 static_argnames=static_argnames,
+                out_decl_name=out_decl_name, out_decl_extra=out_decl_extra,
             )
             cache[cache_key] = StateMapPlan.from_live(live)
             return _execute_plan(
-                live, f, args, kwargs, in_axes, out_axes,
+                live, cf, cargs, kwargs, caxes, out_axes,
                 axis_size, axis_name, mapping_fn, mapping_kwargs,
                 static_argnames=static_argnames,
             )

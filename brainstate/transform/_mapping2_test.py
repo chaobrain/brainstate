@@ -223,6 +223,18 @@ class TestPmapComposition(unittest.TestCase):
         self.assertEqual(m.w.value.shape, (self.n, 4))
         self.assertFalse(jnp.allclose(m.w.value[0], m.w.value[1]))
 
+    def test_pmap2_new_states_no_rng(self):
+        # #2: init that uses no RandomState must still work under pmap (jax.pmap
+        # requires at least one mapped argument; the engine feeds a dummy iota).
+        # This is the pmap2_new_states docstring example.
+        class ParallelCounter(brainstate.nn.Module):
+            def init_state(self):
+                self.count = brainstate.ShortTermState(jnp.zeros(()))
+
+        m = ParallelCounter()
+        pmap2_new_states(m, init_kwargs={}, axis_size=self.n)
+        self.assertEqual(m.count.value.shape, (self.n,))
+
 
 class TestIntegration(unittest.TestCase):
     """General integration scenarios."""
@@ -401,11 +413,9 @@ class TestStatefulMappingInit(unittest.TestCase):
     """Tests for StatefulMapping construction with non-default static args."""
 
     def test_static_argnums_int(self):
-        """M41: StatefulMapping rejects a non-empty static_argnums (the engine
-        never excludes static positional slots from the axis mapping, so it
-        would crash/mismap). The int form is normalized before the check."""
-        with self.assertRaises(NotImplementedError):
-            StatefulMapping(lambda x: x, static_argnums=2)
+        """StatefulMapping accepts an int for static_argnums and wraps it in a tuple."""
+        sm = StatefulMapping(lambda x: x, static_argnums=2)
+        self.assertEqual(sm.static_argnums, (2,))
 
     def test_static_argnames_list(self):
         """StatefulMapping accepts a list for static_argnames and converts to tuple."""
@@ -416,6 +426,81 @@ class TestStatefulMappingInit(unittest.TestCase):
         """StatefulMapping with static_argnums=None stores an empty tuple."""
         sm = StatefulMapping(lambda x: x, static_argnums=None)
         self.assertEqual(sm.static_argnums, ())
+
+
+class TestStaticArgnumsExcludedFromMapping(unittest.TestCase):
+    """Issue #8: a positional ``static_argnums`` arg must be closed over (jit
+    parity), not mapped -- mapping a non-array constant used to crash with
+    ``'bool' object has no attribute 'ndim'``."""
+
+    def test_bool_static_positional_does_not_crash(self):
+        # The documented repro: flag is a Python bool used in control flow.
+        sm = StatefulMapping(lambda x, flag: x * (2. if flag else 1.),
+                             in_axes=0, static_argnums=(1,))
+        out = sm(jnp.arange(3.), True)
+        self.assertTrue(jnp.allclose(out, jnp.arange(3.) * 2.))
+
+    def test_static_value_controls_branch(self):
+        # The static value is closed over per call: True and False select
+        # different Python branches (distinct cache keys, distinct plans).
+        f = lambda x, flag: x * (2. if flag else 1.)
+        sm = StatefulMapping(f, in_axes=0, static_argnums=(1,))
+        out_true = sm(jnp.arange(3.), True)
+        out_false = sm(jnp.arange(3.), False)
+        self.assertTrue(jnp.allclose(out_true, jnp.arange(3.) * 2.))
+        self.assertTrue(jnp.allclose(out_false, jnp.arange(3.) * 1.))
+
+    def test_matches_jax_jit_over_lanes(self):
+        # Static arg behaves like a compile-time constant: result equals the
+        # per-lane scalar computation.
+        def f(x, n):
+            acc = x
+            for _ in range(n):  # n must be a Python int (static)
+                acc = acc + x
+            return acc
+
+        sm = StatefulMapping(f, in_axes=0, static_argnums=(1,))
+        out = sm(jnp.arange(4.), 3)
+        self.assertTrue(jnp.allclose(out, jnp.arange(4.) * 4.))
+
+    def test_static_positional_with_state_write(self):
+        # Closing over the static arg must not disturb state side effects.
+        counter = brainstate.ShortTermState(jnp.zeros(3))
+
+        def f(x, scale):
+            counter.value = counter.value + x * scale
+            return x
+
+        sm = StatefulMapping(f, in_axes=0,
+                             state_in_axes={0: filter.OfType(brainstate.ShortTermState)},
+                             state_out_axes={0: filter.OfType(brainstate.ShortTermState)},
+                             static_argnums=(1,))
+        out = sm(jnp.ones(3), 5)
+        self.assertTrue(jnp.allclose(out, jnp.ones(3)))
+        self.assertTrue(jnp.allclose(counter.value, jnp.ones(3) * 5.))
+
+    def test_negative_static_argnum(self):
+        # Negative indices are normalized against the call's arg count.
+        sm = StatefulMapping(lambda x, flag: x * (2. if flag else 1.),
+                             in_axes=0, static_argnums=(-1,))
+        out = sm(jnp.arange(3.), True)
+        self.assertTrue(jnp.allclose(out, jnp.arange(3.) * 2.))
+
+    def test_tuple_in_axes_drops_static_entry(self):
+        # When in_axes is a per-argument tuple, the static position's entry is
+        # dropped so the remaining dynamic args keep their axes.
+        def f(x, y, flag):
+            return (x + y) * (2. if flag else 1.)
+
+        sm = StatefulMapping(f, in_axes=(0, 0, None), static_argnums=(2,))
+        out = sm(jnp.arange(3.), jnp.ones(3), True)
+        self.assertTrue(jnp.allclose(out, (jnp.arange(3.) + 1.) * 2.))
+
+    def test_out_of_range_static_argnum_raises_value_error(self):
+        # A clear ValueError (jit parity), not an opaque IndexError.
+        sm = StatefulMapping(lambda x, flag: x, in_axes=0, static_argnums=(5,))
+        with self.assertRaises(ValueError):
+            sm(jnp.arange(3.), True)
 
 
 class TestMap(unittest.TestCase):
@@ -525,6 +610,53 @@ class TestPmapIntegration(unittest.TestCase):
         updated = update(deltas)
         self.assertEqual(updated.shape, (device_count, 4))
         self.assertTrue(jnp.all(updated >= 1.0))
+
+
+class TestAxisSizeValidation(unittest.TestCase):
+    """#4: axis_size is validated against the inferred batch size."""
+
+    def test_axis_size_conflict_raises_no_rng(self):
+        @vmap2(in_axes=0, axis_size=5)
+        def f(x):
+            return x * 2
+
+        with self.assertRaises(ValueError) as cm:
+            f(jnp.arange(3.0))
+        msg = str(cm.exception)
+        self.assertIn('conflicts with the mapped', msg)
+        self.assertIn('5', msg)
+        self.assertIn('3', msg)
+
+    def test_axis_size_conflict_raises_with_rng(self):
+        # With an RNG draw the keys were previously split to the *inferred* size
+        # rather than axis_size; validation must catch the conflict first.
+        @vmap2(in_axes=0, axis_size=5)
+        def f(x):
+            return x + brainstate.random.randn()
+
+        with self.assertRaises(ValueError) as cm:
+            f(jnp.zeros(3))
+        msg = str(cm.exception)
+        self.assertIn('conflicts with the mapped', msg)
+        self.assertIn('5', msg)
+        self.assertIn('3', msg)
+
+    def test_axis_size_matching_ok(self):
+        @vmap2(in_axes=0, axis_size=3)
+        def f(x):
+            return x * 2
+
+        out = f(jnp.arange(3.0))
+        self.assertEqual(out.shape, (3,))
+
+    def test_axis_size_alone_with_broadcast_input_ok(self):
+        # No inferred size (all inputs broadcast) -> axis_size is used as-is.
+        @vmap2(in_axes=None, axis_size=4)
+        def f(x):
+            return x + brainstate.random.randn()
+
+        out = f(jnp.zeros(()))
+        self.assertEqual(out.shape, (4,))
 
 
 class TestMapValidation(unittest.TestCase):
@@ -690,6 +822,19 @@ class TestValidateLeadingLengths(unittest.TestCase):
         xs = jnp.arange(5.0)
         length = _validate_leading_lengths((xs, xs))
         self.assertEqual(length, 5)
+
+    def test_scalar_leaf_raises_value_error(self):
+        # #6: a 0-d (scalar) leaf has no leading axis to map over -> clear
+        # ValueError, not a cryptic IndexError from leaves[0].shape[0].
+        with self.assertRaises(ValueError) as cm:
+            _validate_leading_lengths((jnp.array(5.0),))
+        self.assertIn('0-d', str(cm.exception))
+
+    def test_map_scalar_input_raises_value_error(self):
+        # #6: the same through the public map() entry point.
+        with self.assertRaises(ValueError) as cm:
+            map(lambda x: x * 2, jnp.array(5.0))
+        self.assertIn('0-d', str(cm.exception))
 
 
 class TestPmap2Decorator(unittest.TestCase):
@@ -902,43 +1047,6 @@ class TestPmap2NewStates(unittest.TestCase):
         result = pmap2_new_states(m, {})
         self.assertIsInstance(result, dict)
         self.assertEqual(m.w.value.shape[0], jax.local_device_count())
-
-    @unittest.skipIf(jax.local_device_count() < 2, "Requires at least 2 devices")
-    def test_pmap2_new_states_deterministic_param(self):
-        """H19: pmap2_new_states must not crash when init draws no randomness.
-
-        ``jax.pmap`` (unlike ``jax.vmap``) requires at least one mapped
-        argument; with deterministic state init there are no RNG keys to map,
-        so the no-rng pmap branch must supply a throwaway mapped argument.
-        Pre-fix this raised ``ValueError: pmap requires at least one argument
-        with a mapped axis``.
-        """
-
-        class M(brainstate.nn.Module):
-            def init_all_states(self, **kw):
-                self.w = brainstate.ParamState(jnp.ones(3))
-
-        m = M()
-        n = jax.local_device_count()
-        result = pmap2_new_states(m, {}, axis_size=n)
-        self.assertIsInstance(result, dict)
-        # batched at axis 0 with size == number of devices
-        self.assertEqual(m.w.value.shape, (n, 3))
-        # each device receives the same deterministic init
-        self.assertTrue(jnp.allclose(m.w.value, jnp.ones((n, 3))))
-
-    @unittest.skipIf(jax.local_device_count() < 2, "Requires at least 2 devices")
-    def test_pmap2_new_states_deterministic_default_axis_size(self):
-        """H19: deterministic init with default axis_size (local_device_count)."""
-
-        class M(brainstate.nn.Module):
-            def init_all_states(self, **kw):
-                self.count = brainstate.ShortTermState(jnp.zeros(()))
-
-        m = M()
-        result = pmap2_new_states(m, {})
-        self.assertIsInstance(result, dict)
-        self.assertEqual(m.count.value.shape, (jax.local_device_count(),))
 
 
 class TestVmap2PytreeInAxes(unittest.TestCase):
