@@ -2013,3 +2013,129 @@ class TestUnhashableStaticArgs(unittest.TestCase):
         sf = brainstate.transform.StatefulFunction(f, static_argnums=(1,))
         with self.assertRaisesRegex(TypeError, '[Ss]tatic argument'):
             sf.make_jaxpr(jnp.zeros(3), jnp.zeros(3))
+
+
+class TestStaleCacheRecompileNJ2(unittest.TestCase):
+    """A stale compilation entry must be recompiled in place (atomic replace),
+    never exposed to concurrent readers as a transient hole, and dropped only
+    when the re-trace itself fails (audit NJ2)."""
+
+    def _make_sf_with_closure_state(self):
+        # The output depends on the argument ``x`` (which drives the cache key),
+        # while *staleness* is driven by a closure state whose aval we mutate
+        # without ever touching the arguments -> same key, stale entry.
+        state = brainstate.State(jnp.zeros(3))
+
+        def f(x):
+            state.value = state.value * 2.0  # tracked-state aval => staleness source
+            return x.sum()                   # arg-derived cache key
+
+        return brainstate.transform.StatefulFunction(f), state
+
+    def test_stale_entry_recompiled_in_place(self):
+        sf, state = self._make_sf_with_closure_state()
+        x = jnp.ones(3)
+        sf.make_jaxpr(x)
+        key = sf.get_arg_cache_key(x)
+        self.assertIn(key, sf._compilation_cache)
+        self.assertEqual(len(sf._compilation_cache), 1)
+
+        # Mutate the closure state's aval: the cached entry is now stale, but
+        # the arg-derived cache key is unchanged.
+        state.value = jnp.zeros(5)
+
+        # Recompiling with the same args hits the same key; NJ2 replaces the
+        # stale entry in place -- key stays present, size stays 1 (no duplicate).
+        sf.make_jaxpr(x)
+        self.assertIn(key, sf._compilation_cache)
+        self.assertEqual(len(sf._compilation_cache), 1)
+        # The replacement is fresh: it must no longer read as stale.
+        self.assertFalse(sf._compilation_is_stale(sf._compilation_cache.get(key)))
+
+    def test_stale_recompile_failure_drops_entry(self):
+        state = brainstate.State(jnp.zeros(3))
+        fail = {'on': False}
+
+        def f(x):
+            if fail['on']:
+                # Data-dependent Python control flow => a tracing error on the
+                # re-trace of an already-cached key.
+                if x[0] > 0:
+                    return x.sum()
+                return x.prod()
+            state.value = state.value * 2.0
+            return x.sum()
+
+        sf = brainstate.transform.StatefulFunction(f)
+        x = jnp.ones(3)
+        sf.make_jaxpr(x)
+        key = sf.get_arg_cache_key(x)
+        self.assertIn(key, sf._compilation_cache)
+
+        # Force staleness AND make the re-trace fail.
+        state.value = jnp.zeros(5)
+        fail['on'] = True
+        with self.assertRaises(Exception):
+            sf.make_jaxpr(x)
+        # NJ2: the known-stale entry is dropped, never silently reused.
+        self.assertNotIn(key, sf._compilation_cache)
+
+    def test_no_transient_hole_for_concurrent_reader(self):
+        # Pre-fix the stale entry was popped up front (inside the compile lock)
+        # before the slow re-trace, so a concurrent reader observed a hole and
+        # raised a spurious ValueError. Post-fix the old entry stays until the
+        # atomic replace, so the reader always sees a valid compilation.
+        import threading
+
+        state = brainstate.State(jnp.zeros(3))
+        arm = threading.Event()          # set right before triggering the recompile
+        mid_trace = threading.Event()    # set once the recompile is parked mid-trace
+        reader_done = threading.Event()  # set once the reader has finished
+
+        def f(x):
+            if arm.is_set():
+                mid_trace.set()
+                reader_done.wait(timeout=10)
+            state.value = state.value * 2.0
+            return x.sum()
+
+        sf = brainstate.transform.StatefulFunction(f)
+        x = jnp.ones(3)
+        sf.make_jaxpr(x)
+        key = sf.get_arg_cache_key(x)
+
+        # Make the entry stale so the next make_jaxpr re-traces under the lock.
+        state.value = jnp.zeros(5)
+
+        errors = []
+
+        def recompile():
+            try:
+                sf.make_jaxpr(x)
+            except Exception as e:  # pragma: no cover - surfaced via the list
+                errors.append(e)
+
+        arm.set()
+        t = threading.Thread(target=recompile)
+        t.start()
+        reader_error = None
+        try:
+            self.assertTrue(mid_trace.wait(timeout=10), 'recompile never reached trace')
+            try:
+                # Must observe the OLD-but-valid entry, not a transient hole.
+                self.assertIsNotNone(sf.get_jaxpr_by_cache(key))
+            except Exception as e:
+                reader_error = e
+        finally:
+            reader_done.set()
+            t.join(timeout=15)
+
+        self.assertEqual(errors, [])
+        self.assertIsNone(
+            reader_error,
+            f'concurrent reader saw a transient cache hole: {reader_error!r}',
+        )
+
+
+if __name__ == '__main__':
+    unittest.main()

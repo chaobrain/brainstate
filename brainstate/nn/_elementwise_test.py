@@ -850,6 +850,23 @@ class TestElementwiseAuditRegressions(parameterized.TestCase):
         out = m(x)
         self.assertEqual(out.shape, x.shape)
 
+    def test_hardtanh_rejects_inverted_range(self):
+        """L12: an inverted range must raise (explicit raise survives python -O)."""
+        with self.assertRaises(ValueError):
+            nn.Hardtanh(min_val=2.0, max_val=-2.0)
+
+    def test_hardtanh_rejects_equal_range(self):
+        """L12: an empty (equal) range must raise."""
+        with self.assertRaises(ValueError):
+            nn.Hardtanh(min_val=1.0, max_val=1.0)
+
+    def test_hardtanh_accepts_valid_range(self):
+        """L12: a normal range still constructs and runs."""
+        layer = nn.Hardtanh(-1.0, 1.0)
+        x = jnp.array([-2.0, 0.0, 2.0])
+        out = np.asarray(layer(x))
+        np.testing.assert_allclose(out, np.array([-1.0, 0.0, 1.0]), rtol=1e-6)
+
 
 if __name__ == '__main__':
     absltest.main()

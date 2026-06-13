@@ -1443,5 +1443,53 @@ class TestStalePlanWriteSetDivergence(unittest.TestCase):
         self.assertLess(second, first)
 
 
+class TestStaticArgnumsRejected(unittest.TestCase):
+    """M41: static_argnums is never excluded from the axis mapping, so a static
+    positional arg gets the default in_axes=0 and is axis-stripped by
+    _remove_axis -- crashing on scalars (AttributeError: 'float' object has no
+    attribute 'ndim') or silently mismapping arrays. The engine has no
+    split-positional support, so a non-empty static_argnums must be rejected
+    loudly instead of crashing deep in _remove_axis."""
+
+    def test_static_argnums_tuple_raises(self):
+        # Pre-fix this raised AttributeError from _remove_axis on the scalar.
+        with self.assertRaises(NotImplementedError):
+            state_map_transform(
+                lambda x, scale: x * scale, in_axes=0, static_argnums=(1,)
+            )
+
+    def test_static_argnums_int_raises(self):
+        # int form is normalized to a tuple before the check.
+        with self.assertRaises(NotImplementedError):
+            state_map_transform(
+                lambda x, scale: x * scale, in_axes=0, static_argnums=1
+            )
+
+    def test_static_argnums_empty_is_allowed(self):
+        # The default () (and None) must NOT trip the guard.
+        f = state_map_transform(lambda x: x * 2.0, in_axes=0, static_argnums=())
+        out = f(jnp.arange(3.))
+        self.assertTrue(jnp.allclose(out, jnp.arange(3.) * 2.0))
+        g = state_map_transform(lambda x: x * 2.0, in_axes=0, static_argnums=None)
+        self.assertTrue(jnp.allclose(g(jnp.arange(3.)), jnp.arange(3.) * 2.0))
+
+    def test_statefulmapping_static_argnums_raises(self):
+        # StatefulMapping builds the engine wrapper at construction time, so the
+        # rejection surfaces immediately when static_argnums is non-empty.
+        with self.assertRaises(NotImplementedError):
+            brainstate.transform.StatefulMapping(
+                lambda x, scale: x * scale, in_axes=0, static_argnums=(1,)
+            )
+
+    def test_static_argnames_still_supported(self):
+        # The exactly-parallel keyword path must keep working (and produce the
+        # correct broadcast result), proving the fix targets only argnums.
+        f = state_map_transform(
+            lambda x, scale: x * scale, in_axes=0, static_argnames=('scale',)
+        )
+        out = f(jnp.arange(3.), scale=10.0)
+        self.assertTrue(jnp.allclose(out, jnp.asarray([0., 10., 20.])))
+
+
 if __name__ == "__main__":
     unittest.main()

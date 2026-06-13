@@ -256,7 +256,8 @@ class Hardtanh(ElementWiseBlock):
         super().__init__()
         self.min_val = min_val
         self.max_val = max_val
-        assert self.max_val > self.min_val
+        if self.max_val <= self.min_val:
+            raise ValueError(f"max_val ({self.max_val}) must be greater than min_val ({self.min_val})")
 
     def __call__(self, x: ArrayLike) -> ArrayLike:
         return F.hard_tanh(x, self.min_val, self.max_val)

@@ -713,6 +713,80 @@ class TestDotDict(unittest.TestCase):
         self.assertIsInstance(dd2.b, DotDict)
         self.assertEqual(dd2.b.d.e, 3)
 
+    def test_namedtuple_values(self):
+        """Regression (H20): namedtuples must survive _hook and to_dict."""
+        from collections import namedtuple
+        Point = namedtuple('Point', ['x', 'y'])
+
+        # Construction must not raise on a namedtuple value.
+        dd = DotDict({'p': Point(1, 2)})
+        self.assertIsInstance(dd.p, Point)
+        self.assertEqual(dd.p, Point(1, 2))
+
+        # Direct item assignment goes through __setitem__ -> _hook.
+        dd['q'] = Point(3, 4)
+        self.assertIsInstance(dd.q, Point)
+        self.assertEqual(dd.q, Point(3, 4))
+
+        # Nested dicts inside a namedtuple are converted to DotDict.
+        dd2 = DotDict({'p': Point({'a': 1}, 2)})
+        self.assertIsInstance(dd2.p, Point)
+        self.assertIsInstance(dd2.p.x, DotDict)
+        self.assertEqual(dd2.p.x.a, 1)
+
+        # to_dict must mirror the same reconstruction (no TypeError, fields kept).
+        d = dd2.to_dict()
+        self.assertIsInstance(d['p'], Point)
+        self.assertNotIsInstance(d['p'].x, DotDict)
+        self.assertEqual(d['p'].x, {'a': 1})
+        self.assertEqual(d['p'].y, 2)
+
+        # Plain tuples and lists still round-trip.
+        dd3 = DotDict({'t': ({'a': 1},), 'l': [{'b': 2}]})
+        self.assertIsInstance(dd3.t, tuple)
+        self.assertNotIsInstance(dd3.t, Point)
+        self.assertIsInstance(dd3.t[0], DotDict)
+        self.assertIsInstance(dd3.l, list)
+        self.assertIsInstance(dd3.l[0], DotDict)
+        d3 = dd3.to_dict()
+        self.assertEqual(d3['t'], ({'a': 1},))
+        self.assertEqual(d3['l'], [{'b': 2}])
+
+    def test_update_accepts_iterable_of_pairs(self):
+        """Regression (M44): update must accept an iterable of (k, v) pairs."""
+        dd = DotDict({'a': 1})
+        dd.update([('b', 2)])
+        self.assertEqual(dict(dd), {'a': 1, 'b': 2})
+
+        # Recursive-merge path still produces nested DotDict from pairs.
+        dd2 = DotDict({'a': {'x': 1}})
+        dd2.update([('a', {'y': 2})])
+        self.assertIsInstance(dd2.a, DotDict)
+        self.assertEqual(dd2.a.x, 1)
+        self.assertEqual(dd2.a.y, 2)
+
+        # Generators (an iterable of pairs) are accepted too.
+        dd3 = DotDict()
+        dd3.update((k, v) for k, v in [('c', 3), ('d', 4)])
+        self.assertEqual(dict(dd3), {'c': 3, 'd': 4})
+
+        # Bad input raises a clear TypeError, not an opaque AttributeError.
+        with self.assertRaises(TypeError):
+            DotDict().update(123)
+
+    def test_parent_kwarg_no_longer_special(self):
+        """Regression (L26): __parent/__key are ordinary keys, not reserved."""
+        # Previously crashed inside __setitem__ with TypeError.
+        dd = DotDict(__parent=5, a=1)
+        self.assertEqual(set(dd.keys()), {'__parent', 'a'})
+        self.assertEqual(dd['__parent'], 5)
+        self.assertEqual(dd['a'], 1)
+
+        # Behaves identically regardless of the supplied value.
+        dd2 = DotDict(__parent='x', value=1)
+        self.assertEqual(set(dd2.keys()), {'__parent', 'value'})
+        self.assertEqual(dd2['__parent'], 'x')
+
     def test_update_method(self):
         """Test update with recursive merge."""
         dd = DotDict({'a': 1, 'b': {'c': 2, 'd': 3}})
@@ -924,6 +998,42 @@ class TestUtilityFunctions(unittest.TestCase):
         flattened = flatten_dict(original)
         unflattened = unflatten_dict(flattened)
         self.assertEqual(unflattened, original)
+
+    def test_flatten_dict_preserves_empty_subdicts(self):
+        """Regression (M43): empty sub-dicts must not be dropped on flatten."""
+        # Top-level empty dict.
+        self.assertEqual(flatten_dict({'a': 1, 'b': {}}), {'a': 1, 'b': {}})
+        # Entirely-empty content.
+        self.assertEqual(flatten_dict({'b': {}}), {'b': {}})
+
+        # Round-trip with empty sub-dicts at top level and nested.
+        for x in (
+            {'a': 1, 'b': {}},
+            {'b': {'c': {}}},
+            {'a': 1, 'b': {'c': {}, 'd': 2}},
+        ):
+            self.assertEqual(unflatten_dict(flatten_dict(x)), x)
+
+    def test_unflatten_dict_copies_dict_leaves(self):
+        """Regression (M43): dict leaf values must not alias the input."""
+        flat = {'b': {}}
+        out = unflatten_dict(flat)
+        out['b']['mutated'] = 1
+        self.assertEqual(flat, {'b': {}})  # input unchanged
+
+    def test_flatten_dict_rejects_key_collision(self):
+        """Regression (L25): colliding joined keys must raise, not silently drop."""
+        with self.assertRaises(ValueError):
+            flatten_dict({'a.b': 1, 'a': {'b': 2}})
+        with self.assertRaises(ValueError):
+            flatten_dict({'a': {'b': 2}, 'a.b': 1})
+
+    def test_flatten_dict_rejects_non_string_nested_keys(self):
+        """Regression (L25): non-string nested keys must raise, not coerce."""
+        with self.assertRaises(TypeError):
+            flatten_dict({1: 'a', 2: {3: 'b'}})
+        # A non-string top-level key (no nesting) is preserved verbatim.
+        self.assertEqual(flatten_dict({1: 'a', 2: 'b'}), {1: 'a', 2: 'b'})
 
     def test_is_instance_eval(self):
         """Test is_instance_eval function."""

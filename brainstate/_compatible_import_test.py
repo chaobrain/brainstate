@@ -91,10 +91,27 @@ class TestJAXVersionCompatibility(unittest.TestCase):
         result = compat.to_concrete_aval(arr)
         self.assertIsNotNone(result)
 
-        # # Test with scalar
-        # scalar = 42.0
-        # result = compat.to_concrete_aval(scalar)
-        # self.assertEqual(result, scalar)
+        # Test with scalar: a concrete (non-Tracer) input is converted to its
+        # abstract value via ``jax.typeof``; it is NOT returned unchanged.
+        scalar = 42.0
+        result = compat.to_concrete_aval(scalar)
+        self.assertNotIsInstance(result, compat.Tracer)
+        self.assertEqual(result, jax.typeof(scalar))
+
+    def test_to_concrete_aval_returns_tracer_for_traced_input(self):
+        """``to_concrete_aval`` returns the Tracer itself for a traced input."""
+        captured = {}
+
+        def fn(x):
+            captured['result'] = compat.to_concrete_aval(x)
+            captured['is_tracer'] = isinstance(captured['result'], compat.Tracer)
+            captured['is_same'] = captured['result'] is x
+            return x
+
+        # Trace ``fn`` so that ``x`` is a Tracer inside the call.
+        jax.make_jaxpr(fn)(jnp.array([1.0, 2.0, 3.0]))
+        self.assertTrue(captured['is_tracer'])
+        self.assertTrue(captured['is_same'])
 
 
 class TestUtilityFunctions(unittest.TestCase):

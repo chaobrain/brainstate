@@ -474,3 +474,49 @@ class TestCheckpointedScanLengthValidation(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, 'length'):
             brainstate.transform.checkpointed_scan(step, 0.0, jnp.zeros((0,)), length=0)
+
+
+class TestCheckpointedScanBaseValidation(unittest.TestCase):
+    """checkpointed_scan must validate ``base`` up front with a clear ValueError
+    instead of crashing inside ``math.log(length, base)`` (audit M38).
+
+    base=1 previously raised ``ZeroDivisionError`` (log base 1 divides by
+    ``math.log(1) == 0``) and base<=0 raised ``ValueError: math domain error``;
+    base=True (bool subclasses int and collapses to the broken base==1 path)
+    must also be rejected.
+    """
+
+    def test_base_one_raises_value_error(self):
+        def step(carry, x):
+            return carry + x, carry
+
+        with self.assertRaisesRegex(ValueError, 'base'):
+            brainstate.transform.checkpointed_scan(step, 0.0, jnp.arange(5.0), base=1)
+
+    def test_base_zero_raises_value_error(self):
+        def step(carry, x):
+            return carry + x, carry
+
+        with self.assertRaisesRegex(ValueError, 'base'):
+            brainstate.transform.checkpointed_scan(step, 0.0, jnp.arange(5.0), base=0)
+
+    def test_base_negative_raises_value_error(self):
+        def step(carry, x):
+            return carry + x, carry
+
+        with self.assertRaisesRegex(ValueError, 'base'):
+            brainstate.transform.checkpointed_scan(step, 0.0, jnp.arange(5.0), base=-2)
+
+    def test_base_true_raises_value_error(self):
+        def step(carry, x):
+            return carry + x, carry
+
+        with self.assertRaisesRegex(ValueError, 'base'):
+            brainstate.transform.checkpointed_scan(step, 0.0, jnp.arange(5.0), base=True)
+
+    def test_valid_base_still_runs(self):
+        def step(carry, x):
+            return carry + x, carry
+
+        carry, ys = brainstate.transform.checkpointed_scan(step, 0.0, jnp.arange(5.0), base=2)
+        self.assertEqual(float(carry), float(jnp.arange(5.0).sum()))

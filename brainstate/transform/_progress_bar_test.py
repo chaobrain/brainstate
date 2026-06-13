@@ -32,7 +32,7 @@ import jax.numpy as jnp
 import brainstate
 from brainstate.transform import ProgressBar
 from brainstate.transform import _progress_bar as _pbmod
-from brainstate.transform._progress_bar import _FallbackProgressBar
+from brainstate.transform._progress_bar import _FallbackProgressBar, ProgressBarRunner
 
 
 class _TTYStringIO(io.StringIO):
@@ -406,6 +406,67 @@ class TestProgressBarFreqValidation(unittest.TestCase):
     def test_positive_freq_accepted(self):
         pbar = ProgressBar(freq=2)
         self.assertEqual(pbar.print_freq, 2)
+
+
+class _CountingBar:
+    """A minimal fake bar that just accumulates ``update`` deltas, used to
+    measure the final bar position the runner drives it to."""
+
+    def __init__(self, *args, **kwargs):
+        self.n = 0
+
+    def update(self, delta):
+        self.n += delta
+
+    def set_description(self, *args, **kwargs):
+        pass
+
+    def close(self):
+        pass
+
+
+class TestProgressBarCountNoOvershoot(unittest.TestCase):
+    """``ProgressBar(count=K)`` over a loop of length ``n`` must finish at
+    exactly ``n`` (100%) and never overshoot, even when ``K`` does not divide
+    ``n`` (audit L24: the close remainder was ``n % count`` instead of
+    ``n % freq``)."""
+
+    def _final_position(self, n, count):
+        """Replicate the runner's __call__ dispatch with a counting bar and
+        return the final accumulated position."""
+        runner = ProgressBar(count=count).init(n)
+        bar = _CountingBar()
+        runner.tqdm_bars[0] = bar
+        freq = runner.print_freq
+        for iter_num in range(n):
+            if iter_num % freq == (freq - 1):
+                runner._update_tqdm({})
+            if iter_num == n - 1:
+                runner._close_tqdm({})
+        return bar.n
+
+    def test_count_not_dividing_n_reaches_exactly_n(self):
+        # Audit example: count=20, n=50 used to push the bar to 60/50.
+        self.assertEqual(self._final_position(50, 20), 50)
+        # Audit example: count=99, n=100 used to give 101/100.
+        self.assertEqual(self._final_position(100, 99), 100)
+
+    def test_sweep_no_overshoot_no_undershoot(self):
+        # Exhaustive-ish sweep: for every valid (n, count) the bar must end at
+        # exactly n -- never over, never under.
+        for n in range(2, 60):
+            for count in range(1, n + 1):
+                pos = self._final_position(n, count)
+                self.assertEqual(
+                    pos, n,
+                    msg=f"count={count}, n={n}: bar ended at {pos}, expected {n}",
+                )
+
+    def test_remainder_consistent_with_freq(self):
+        # The init-time remainder must be n % freq (matching the other branches).
+        runner = ProgressBar(count=20).init(50)
+        self.assertEqual(runner.print_freq, 2)
+        self.assertEqual(runner.remainder, 50 % runner.print_freq)
 
 
 if __name__ == "__main__":

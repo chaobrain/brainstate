@@ -401,9 +401,11 @@ class TestStatefulMappingInit(unittest.TestCase):
     """Tests for StatefulMapping construction with non-default static args."""
 
     def test_static_argnums_int(self):
-        """StatefulMapping accepts an int for static_argnums and wraps it in a tuple."""
-        sm = StatefulMapping(lambda x: x, static_argnums=2)
-        self.assertEqual(sm.static_argnums, (2,))
+        """M41: StatefulMapping rejects a non-empty static_argnums (the engine
+        never excludes static positional slots from the axis mapping, so it
+        would crash/mismap). The int form is normalized before the check."""
+        with self.assertRaises(NotImplementedError):
+            StatefulMapping(lambda x: x, static_argnums=2)
 
     def test_static_argnames_list(self):
         """StatefulMapping accepts a list for static_argnames and converts to tuple."""
@@ -900,6 +902,43 @@ class TestPmap2NewStates(unittest.TestCase):
         result = pmap2_new_states(m, {})
         self.assertIsInstance(result, dict)
         self.assertEqual(m.w.value.shape[0], jax.local_device_count())
+
+    @unittest.skipIf(jax.local_device_count() < 2, "Requires at least 2 devices")
+    def test_pmap2_new_states_deterministic_param(self):
+        """H19: pmap2_new_states must not crash when init draws no randomness.
+
+        ``jax.pmap`` (unlike ``jax.vmap``) requires at least one mapped
+        argument; with deterministic state init there are no RNG keys to map,
+        so the no-rng pmap branch must supply a throwaway mapped argument.
+        Pre-fix this raised ``ValueError: pmap requires at least one argument
+        with a mapped axis``.
+        """
+
+        class M(brainstate.nn.Module):
+            def init_all_states(self, **kw):
+                self.w = brainstate.ParamState(jnp.ones(3))
+
+        m = M()
+        n = jax.local_device_count()
+        result = pmap2_new_states(m, {}, axis_size=n)
+        self.assertIsInstance(result, dict)
+        # batched at axis 0 with size == number of devices
+        self.assertEqual(m.w.value.shape, (n, 3))
+        # each device receives the same deterministic init
+        self.assertTrue(jnp.allclose(m.w.value, jnp.ones((n, 3))))
+
+    @unittest.skipIf(jax.local_device_count() < 2, "Requires at least 2 devices")
+    def test_pmap2_new_states_deterministic_default_axis_size(self):
+        """H19: deterministic init with default axis_size (local_device_count)."""
+
+        class M(brainstate.nn.Module):
+            def init_all_states(self, **kw):
+                self.count = brainstate.ShortTermState(jnp.zeros(()))
+
+        m = M()
+        result = pmap2_new_states(m, {})
+        self.assertIsInstance(result, dict)
+        self.assertEqual(m.count.value.shape, (jax.local_device_count(),))
 
 
 class TestVmap2PytreeInAxes(unittest.TestCase):

@@ -313,6 +313,48 @@ class TestVjpArgnumsSemantics(unittest.TestCase):
         g = vjp_fn(1.0)
         self.assertTrue(jnp.allclose(g, 2.0 * x * y))   # d/dy sum(x*y**2)
 
+    def test_duplicate_argnums_raises(self):
+        """Aliasing/duplicate argnums must fail loudly (mirroring ``grad``),
+        not silently return a zeroed cotangent for the discarded input
+        (audit M42)."""
+        def f(x, y):
+            return jnp.sum(x * 10 + y * 100)
+
+        x = jnp.array([1.0, 1.0])
+        y = jnp.array([1.0, 1.0])
+
+        # literal duplicate
+        with self.assertRaises(ValueError):
+            brainstate.transform.vjp(f, x, y, argnums=(0, 0))
+        # positive/negative alias of the same argument (index 0 == -2)
+        with self.assertRaises(ValueError):
+            brainstate.transform.vjp(f, x, y, argnums=(0, -2))
+        # positive/negative alias of the same argument (index 1 == -1)
+        with self.assertRaises(ValueError):
+            brainstate.transform.vjp(f, x, y, argnums=(1, -1))
+        # duplicate embedded among distinct indices
+        with self.assertRaises(ValueError):
+            brainstate.transform.vjp(f, x, y, argnums=(0, 1, 0))
+
+    def test_distinct_argnums_still_correct(self):
+        """The duplicate guard must not disturb genuinely distinct argnums:
+        cotangents stay correct (no spurious zeroing)."""
+        def f(x, y):
+            return jnp.sum(x * 10 + y * 100)
+
+        x = jnp.array([1.0, 1.0])
+        y = jnp.array([1.0, 1.0])
+        out, vjp_fn = brainstate.transform.vjp(f, x, y, argnums=(0, 1))
+        gx, gy = vjp_fn(1.0)
+        self.assertTrue(jnp.allclose(gx, jnp.array([10.0, 10.0])))   # d/dx
+        self.assertTrue(jnp.allclose(gy, jnp.array([100.0, 100.0]))) # d/dy
+
+        # negative index normalizes to a distinct slot and stays correct.
+        out2, vjp_fn2 = brainstate.transform.vjp(f, x, y, argnums=(0, -1))
+        gx2, gy2 = vjp_fn2(1.0)
+        self.assertTrue(jnp.allclose(gx2, jnp.array([10.0, 10.0])))
+        self.assertTrue(jnp.allclose(gy2, jnp.array([100.0, 100.0])))
+
 
 class TestVjpComprehensive(unittest.TestCase):
     """Cover the documented use cases end to end."""

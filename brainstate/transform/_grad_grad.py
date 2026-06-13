@@ -336,13 +336,18 @@ def _fwd_grad(
 ) -> Callable:
     tangent_size = () if tangent_size is None else (tangent_size,)
     from brainstate.random._seed import split_key
+    from brainstate.random._impl import _format_key
 
     def wrapper(*args, **kwargs):
         f_partial, params = warp_grad_fn(fun, argnums, args, kwargs)
+        # ``key`` is advertised as ``SeedOrKey`` (int | array). ``jax.random.split``
+        # only accepts a typed/array PRNG key, so normalize any int / size-1
+        # integer-array seed through the canonical formatter before splitting.
+        k = split_key() if key is None else _format_key(key)
         v = jax.tree.map(
-            lambda x, k: jax.random.normal(k, tangent_size + x.shape, x.dtype),
+            lambda x, kk: jax.random.normal(kk, tangent_size + x.shape, x.dtype),
             params,
-            tree_random_split(split_key() if key is None else key, params)
+            tree_random_split(k, params)
         )
         if len(tangent_size) == 0:
             r = jax.jvp(f_partial, (params,), (v,), has_aux=has_aux)

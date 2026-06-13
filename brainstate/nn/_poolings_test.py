@@ -656,6 +656,30 @@ class TestMaxUnpool2d(parameterized.TestCase):
         # Check shape
         self.assertEqual(unpooled.shape, (1, 2, 2, 2))
 
+    def test_maxunpool2d_interleaved_channel_axis_roundtrip(self):
+        """Regression (H8): unpool handles a non-contiguous (interleaved) channel axis.
+
+        With ``channel_axis=2`` the layout is ``(N, H, C, W)``, so the spatial axes
+        (1 and 3) are *not* contiguous. The previous implementation assumed a single
+        contiguous spatial block and mislaid values; here a pool/unpool roundtrip must
+        recover the correct shape and the pooled maxima.
+        """
+        with seeded(11):
+            arr = brainstate.random.randn(1, 4, 2, 4)  # (N, H, C, W)
+
+        pool = nn.MaxPool2d(2, 2, channel_axis=2, return_indices=True)
+        pooled, indices = pool(arr)
+        # Spatial axes 1 (H: 4->2) and 3 (W: 4->2); channel axis 2 (size 2) untouched.
+        self.assertEqual(pooled.shape, (1, 2, 2, 2))
+
+        unpool = nn.MaxUnpool2d(2, 2, channel_axis=2)
+        unpooled = unpool(pooled, indices)
+
+        self.assertEqual(unpooled.shape, (1, 4, 2, 4))
+        # The non-zero entries of the reconstruction are exactly the pooled maxima.
+        assert_allclose(jnp.sum(unpooled), jnp.sum(pooled))
+        self.assertEqual(float(jnp.max(unpooled)), float(jnp.max(pooled)))
+
 
 class TestMaxUnpool3d(parameterized.TestCase):
     """Comprehensive tests for MaxUnpool3d."""
@@ -1044,6 +1068,30 @@ class TestFlattenInSizePaths(unittest.TestCase):
         assert_jit_equal(f, x)
         assert_grad_finite(lambda y: jnp.sum(f(y)), x)
 
+    def test_flatten_in_size_positive_end_axis_rebased(self):
+        """Regression (H7): a positive ``end_axis`` is rebased by the batch offset.
+
+        With ``in_size=(3, 4, 5)`` and a leading batch dim, ``Flatten(0, 1)`` should
+        flatten the *local* first two axes (3, 4) -> 12, leaving the batch and the
+        trailing 5 intact. Before the fix, ``end_axis`` was passed unrebased, so the
+        flattened span was wrong.
+        """
+        f = nn.Flatten(start_axis=0, end_axis=1, in_size=(3, 4, 5))
+        out = f(brainstate.random.randn(2, 3, 4, 5))
+        self.assertEqual(out.shape, (2, 12, 5))
+
+    def test_flatten_in_size_default_end_axis_unchanged(self):
+        """Regression (H7): a negative (default) ``end_axis`` still resolves correctly.
+
+        ``start_axis`` is relative to ``in_size=(3, 4, 5)``; with a leading batch dim
+        ``dim_diff == 1`` rebases ``start_axis=1`` to local axis 2 and ``end_axis=-1``
+        to the last axis, flattening (4, 5) -> 20 while leaving the batch and the
+        first in_size axis intact.
+        """
+        f = nn.Flatten(start_axis=1, in_size=(3, 4, 5))
+        out = f(brainstate.random.randn(2, 3, 4, 5))
+        self.assertEqual(out.shape, (2, 3, 20))
+
 
 class TestMaxPoolConstructorValidation(unittest.TestCase):
     """Cover the argument-validation branches in the ``_MaxPool`` base class."""
@@ -1197,6 +1245,26 @@ class TestAvgPoolExtra(unittest.TestCase):
         assert_jit_equal(pool, x)
         assert_grad_finite(lambda y: jnp.sum(pool(y)), x)
 
+    def test_avgpool_all_padding_window_is_nan_free(self):
+        """Regression (M15): a window that is entirely padding does not produce NaN.
+
+        With ``kernel_size=3``, ``stride=3`` and ``padding=3`` the border windows
+        consist solely of padding cells, so the valid-element count there is 0.
+        The naive ``pooled / window_counts`` divisor yields 0/0 = NaN; the NaN-safe
+        divisor (``jnp.maximum(window_counts, 1)``) must keep the output finite.
+        """
+        pool = nn.AvgPool1d(3, stride=3, padding=3, channel_axis=-1)
+        out = pool(brainstate.random.randn(1, 9, 2))
+        self.assertTrue(bool(jnp.all(jnp.isfinite(out))))
+
+    def test_avgpool_valid_padding_is_finite(self):
+        """Regression (M15): ordinary padded pooling stays finite and correct."""
+        pool = nn.AvgPool1d(3, stride=1, padding=1, channel_axis=-1)
+        out = pool(jnp.ones((1, 6, 2)))
+        self.assertTrue(bool(jnp.all(jnp.isfinite(out))))
+        # Constant ones input averages back to ones (padding cells are excluded).
+        assert_allclose(out, jnp.ones_like(out))
+
 
 class TestMaxUnpoolValidation(unittest.TestCase):
     """Cover the validation and output-shape branches of ``_MaxUnpool``."""
@@ -1319,6 +1387,18 @@ class TestLPPoolValidation(unittest.TestCase):
         with self.assertRaises(ValueError):
             nn.LPPool2d(norm_type=-1.0, kernel_size=2)
 
+    def test_nonfinite_norm_type_raises(self):
+        """Regression (M16): a non-finite ``norm_type`` (inf/nan) is rejected.
+
+        ``p = inf`` would correspond to max pooling only in the limit; the
+        implementation cannot evaluate it, so it must raise rather than silently
+        producing NaNs.
+        """
+        with self.assertRaises(ValueError):
+            nn.LPPool1d(float('inf'), kernel_size=2, stride=2, channel_axis=-1)
+        with self.assertRaises(ValueError):
+            nn.LPPool2d(float('nan'), kernel_size=2)
+
     def test_kernel_size_wrong_length_raises(self):
         """An LP kernel tuple of the wrong length is rejected."""
         with self.assertRaises(ValueError):
@@ -1408,6 +1488,17 @@ class TestLPPoolTransforms(unittest.TestCase):
         assert_jit_equal(pool, x)
         assert_grad_finite(lambda y: jnp.sum(pool(y)), x)
 
+    def test_lppool1d_grad_finite_at_all_zero_window(self):
+        """Regression (M17): the gradient is finite even when a window is all zeros.
+
+        At an all-zero window ``pooled_sum == 0`` and the naive ``sum ** (1/p)`` has an
+        infinite derivative, producing a NaN gradient. The double-``where`` guard must
+        keep the gradient finite (and zero) there.
+        """
+        pool = nn.LPPool1d(2.0, 2, stride=2, channel_axis=None)
+        grad = jax.grad(lambda x: jnp.sum(pool(x)))(jnp.zeros(4))
+        self.assertTrue(bool(jnp.all(jnp.isfinite(grad))))
+
     @pytest.mark.slow
     def test_lppool3d_grad_large_kernel(self):
         """LPPool3d gradients remain finite with a larger kernel."""
@@ -1458,6 +1549,23 @@ class TestAdaptivePoolValidation(unittest.TestCase):
         p = nn.AdaptiveAvgPool1d(5, channel_axis=None)
         out = p(brainstate.random.randn(2, 32))
         self.assertEqual(out.shape, (2, 5))
+
+    def test_adaptive_pool_target_larger_than_input_raises(self):
+        """Regression (H9): target size larger than the input raises ValueError.
+
+        Previously this hit ``num_block = size // target_size == 0`` and raised a
+        bare ``ZeroDivisionError`` from the reshape; it must now raise a clear
+        ``ValueError`` (upsampling is unsupported).
+        """
+        p = nn.AdaptiveAvgPool1d(5, channel_axis=-1)
+        with self.assertRaises(ValueError):
+            p(brainstate.random.randn(1, 3, 2))  # pooled axis size 3 < target 5
+
+    def test_adaptive_pool1d_target_larger_raises_directly(self):
+        """Regression (H9): the internal 1D helper raises ValueError, not ZeroDivisionError."""
+        from brainstate.nn._poolings import _adaptive_pool1d
+        with self.assertRaises(ValueError):
+            _adaptive_pool1d(brainstate.random.rand(3), 5, jnp.mean)
 
     def test_negative_channel_axis_forward(self):
         """Adaptive pooling resolves a negative channel axis."""

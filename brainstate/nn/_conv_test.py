@@ -879,9 +879,30 @@ class TestConvPadding(unittest.TestCase):
         self.assertEqual(conv.padding, ((2, 2), (2, 2)))
 
     def test_padding_tuple_of_int(self):
-        """A tuple of ints is treated as a (low, high) pair applied to every dimension."""
-        conv = brainstate.nn.Conv2d(in_size=(16, 16, 3), out_channels=8, kernel_size=3, padding=(1, 2))
-        self.assertEqual(conv.padding, ((1, 2), (1, 2)))
+        """A flat int tuple gives one symmetric pad per spatial dim (M11).
+
+        For Conv2d a length-2 tuple ``(1, 2)`` is one value per spatial axis:
+        axis 0 -> (1, 1), axis 1 -> (2, 2). This is NOT a single (low, high) pair
+        broadcast to every axis (the old, buggy behavior). For Conv1d, a length-2
+        tuple is unambiguously a single (low, high) pair for the one spatial axis.
+        """
+        # Conv2d: one symmetric pad per spatial dim.
+        conv2d = brainstate.nn.Conv2d(in_size=(16, 16, 3), out_channels=8, kernel_size=3, padding=(1, 2))
+        self.assertEqual(conv2d.padding, ((1, 1), (2, 2)))
+
+        # Conv3d: one symmetric pad per spatial dim.
+        conv3d = brainstate.nn.Conv3d(in_size=(16, 16, 16, 3), out_channels=8, kernel_size=3, padding=(1, 2, 3))
+        self.assertEqual(conv3d.padding, ((1, 1), (2, 2), (3, 3)))
+
+        # Conv1d: length-2 tuple is a single (low, high) pair for the one axis.
+        conv1d = brainstate.nn.Conv1d(in_size=(16, 3), out_channels=8, kernel_size=3, padding=(1, 2))
+        self.assertEqual(conv1d.padding, ((1, 2),))
+
+    def test_padding_int_tuple_wrong_length_raises(self):
+        """A flat int padding tuple of the wrong length raises ValueError (M11)."""
+        # Conv2d expects length 2; length 3 is invalid.
+        with self.assertRaises(ValueError):
+            brainstate.nn.Conv2d(in_size=(16, 16, 3), out_channels=8, kernel_size=3, padding=(1, 2, 3))
 
     def test_padding_sequence_of_tuples(self):
         """A full sequence of (low, high) tuples is preserved per dimension."""
@@ -1043,9 +1064,19 @@ class TestConvTransposePadding(unittest.TestCase):
         self.assertEqual(conv.padding_mode, 'explicit')
 
     def test_padding_tuple_of_int(self):
-        """A tuple of ints is applied per dimension."""
+        """A flat int tuple gives one symmetric pad per spatial dim (M11).
+
+        For ConvTranspose2d a length-2 tuple ``(1, 2)`` is one value per spatial
+        axis: axis 0 -> (1, 1), axis 1 -> (2, 2), not a single (low, high) pair
+        broadcast to every axis.
+        """
         conv = brainstate.nn.ConvTranspose2d(in_size=(8, 8, 16), out_channels=8, kernel_size=3, padding=(1, 2))
-        self.assertEqual(conv.padding, ((1, 2), (1, 2)))
+        self.assertEqual(conv.padding, ((1, 1), (2, 2)))
+
+    def test_padding_int_tuple_wrong_length_raises(self):
+        """A flat int padding tuple of the wrong length raises ValueError (M11)."""
+        with self.assertRaises(ValueError):
+            brainstate.nn.ConvTranspose2d(in_size=(8, 8, 16), out_channels=8, kernel_size=3, padding=(1, 2, 3))
 
     def test_padding_sequence_of_tuples(self):
         """A full sequence of (low, high) tuples is preserved."""

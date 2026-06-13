@@ -210,6 +210,24 @@ class AccuracyMetricTest(parameterized.TestCase):
         with self.assertRaises(ValueError):
             metric.update(logits=logits, labels=labels)
 
+    def test_accuracy_metric_accepts_small_int_dtypes(self):
+        """L13: AccuracyMetric must accept small integer label dtypes (uint8, int16)."""
+        logits = jnp.array([[0.1, 0.9], [0.8, 0.2], [0.3, 0.7]])
+        for dtype in (jnp.uint8, jnp.int16):
+            metric = bst.nn.AccuracyMetric()
+            labels = jnp.array([1, 0, 1], dtype=dtype)
+            metric.update(logits=logits, labels=labels)
+            self.assertAlmostEqual(float(metric.compute()), 1.0)
+
+    def test_accuracy_metric_rejects_non_integer_labels(self):
+        """L13: float and bool labels must be rejected with ValueError."""
+        logits = jnp.array([[0.1, 0.9], [0.8, 0.2], [0.3, 0.7]])
+        metric = bst.nn.AccuracyMetric()
+        with self.assertRaises(ValueError):
+            metric.update(logits=logits, labels=jnp.array([1.0, 0.0, 1.0], dtype=jnp.float32))
+        with self.assertRaises(ValueError):
+            metric.update(logits=logits, labels=jnp.array([True, False, True]))
+
     def test_accuracy_metric_module_attribute(self):
         """Test that AccuracyMetric has correct __module__ attribute."""
         self.assertEqual(bst.nn.AccuracyMetric.__module__, "brainstate.nn")
@@ -353,15 +371,35 @@ class F1ScoreMetricTest(parameterized.TestCase):
         # Precision=2/3, Recall=1.0, F1=2*(2/3*1)/(2/3+1)=0.8
         self.assertAlmostEqual(float(result), 0.8, places=5)
 
-    def test_f1_score_multiclass(self):
-        """Test multi-class F1 score."""
+    def test_f1_score_multiclass_macro_exact(self):
+        """H6: macro F1 must be the mean of PER-CLASS F1, not harmonic mean of aggregates."""
+        labels = jnp.array([0, 0, 0, 0, 0, 1, 1, 2, 2, 2])
+        preds = jnp.array([0, 0, 1, 2, 0, 1, 2, 2, 0, 1])
         metric = bst.nn.F1ScoreMetric(num_classes=3, average='macro')
-        predictions = jnp.array([0, 1, 2, 1, 0])
-        labels = jnp.array([0, 1, 1, 1, 2])
-        metric.update(predictions=predictions, labels=labels)
+        metric.update(predictions=preds, labels=labels)
         result = metric.compute()
-        self.assertGreaterEqual(float(result), 0.0)
-        self.assertLessEqual(float(result), 1.0)
+        # Per-class F1: [2/3, 0.4, 1/3] -> mean = 0.46667
+        self.assertAlmostEqual(float(result), 0.4667, places=3)
+
+    def test_f1_score_multiclass_weighted_exact(self):
+        """H6: weighted F1 must be support-weighted mean of PER-CLASS F1."""
+        labels = jnp.array([0, 0, 0, 0, 0, 1, 1, 2, 2, 2])
+        preds = jnp.array([0, 0, 1, 2, 0, 1, 2, 2, 0, 1])
+        metric = bst.nn.F1ScoreMetric(num_classes=3, average='weighted')
+        metric.update(predictions=preds, labels=labels)
+        result = metric.compute()
+        # Per-class F1: [2/3, 0.4, 1/3], support [5, 2, 3] -> 0.51333
+        self.assertAlmostEqual(float(result), 0.5133, places=3)
+
+    def test_f1_score_multiclass_two_class_macro_exact(self):
+        """H6: 2-class macro F1 exact value (per-class F1 averaging)."""
+        labels = jnp.array([0] * 100 + [1] * 100)
+        preds = jnp.array([0] + [1] * 99 + [1] * 100)
+        metric = bst.nn.F1ScoreMetric(num_classes=2, average='macro')
+        metric.update(predictions=preds, labels=labels)
+        result = metric.compute()
+        # Per-class F1: [0.0198, 0.6689] -> mean = 0.34435
+        self.assertAlmostEqual(float(result), 0.3443, places=3)
 
     def test_f1_score_reset(self):
         """Test reset functionality."""
@@ -440,6 +478,45 @@ class ConfusionMatrixTest(parameterized.TestCase):
         labels = jnp.array([0, 1, 3])  # 3 is out of range
         with self.assertRaises(ValueError):
             metric.update(predictions=predictions, labels=labels)
+
+    def test_confusion_matrix_under_jit(self):
+        """M12: update must not concretize under jit (no TracerBoolConversionError)."""
+        metric = bst.nn.ConfusionMatrix(num_classes=3)
+        predictions = jnp.array([0, 1, 2, 1, 0])
+        labels = jnp.array([0, 1, 1, 1, 2])
+
+        @bst.transform.jit
+        def do_update(preds, lbls):
+            metric.update(predictions=preds, labels=lbls)
+
+        do_update(predictions, labels)
+        result = metric.compute()
+        expected = jnp.array([[1, 0, 0], [0, 2, 1], [1, 0, 0]], dtype=jnp.int32)
+        self.assertTrue(jnp.all(result == expected))
+
+    def test_confusion_matrix_under_vmap(self):
+        """M12: update must not concretize under vmap (no TracerBoolConversionError)."""
+        metric = bst.nn.ConfusionMatrix(num_classes=3)
+        preds = jnp.array([[0, 1, 2, 1, 0], [2, 2, 1, 0, 0]])
+        labels = jnp.array([[0, 1, 1, 1, 2], [2, 1, 1, 0, 0]])
+
+        def do_update(p, l):
+            metric.update(predictions=p, labels=l)
+
+        fn = bst.transform.vmap(do_update, out_states={0: metric.matrix})
+        fn(preds, labels)
+        # Per-lane matrices are stacked on axis 0; their sum is the full matrix.
+        summed = jnp.sum(metric.matrix.value, axis=0)
+        expected = jnp.array([[3, 0, 0], [0, 3, 2], [1, 0, 1]], dtype=jnp.int32)
+        self.assertTrue(jnp.all(summed == expected))
+
+    def test_confusion_matrix_eager_out_of_range_still_raises(self):
+        """M12: eager (non-traced) out-of-range inputs must still raise ValueError."""
+        metric = bst.nn.ConfusionMatrix(num_classes=2)
+        with self.assertRaises(ValueError):
+            metric.update(predictions=jnp.array([0, 1, 2]), labels=jnp.array([0, 1, 1]))
+        with self.assertRaises(ValueError):
+            metric.update(predictions=jnp.array([0, 1, 1]), labels=jnp.array([0, 1, 3]))
 
     def test_confusion_matrix_module_attribute(self):
         """Test that ConfusionMatrix has correct __module__ attribute."""

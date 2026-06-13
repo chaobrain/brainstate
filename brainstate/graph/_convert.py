@@ -70,13 +70,20 @@ def check_consistent_aliasing(
     node_prefixes = RefMap() if node_prefixes is None else node_prefixes
 
     for path, value in iter_graph(node):
-        if _is_graph_node(value) or isinstance(value, State):
+        if isinstance(value, State):
+            value.check_valid_trace(
+                lambda: f'Trying to extract graph node from different trace level, got {value!r}'
+            )
+            if value in node_prefixes:
+                node_prefixes[value].append((path, prefix))
+            else:
+                node_prefixes[value] = [(path, prefix)]
+
+    from ._walk import iter_node  # already exported from _walk
+    for path, value in iter_node(node):
+        if _is_graph_node(value):
             if isinstance(value, GraphNode):
                 value.check_valid_context(
-                    lambda: f'Trying to extract graph node from different trace level, got {value!r}'
-                )
-            if isinstance(value, State):
-                value.check_valid_trace(
                     lambda: f'Trying to extract graph node from different trace level, got {value!r}'
                 )
             if value in node_prefixes:

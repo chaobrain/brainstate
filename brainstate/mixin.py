@@ -990,6 +990,23 @@ class Mode(Mixin):
         assert isinstance(other, Mode)
         return other.__class__ == self.__class__
 
+    def __hash__(self):
+        """
+        Return a hash for the mode based on its type.
+
+        Defining ``__eq__`` would otherwise set ``__hash__`` to ``None`` and make
+        every Mode instance unhashable. This implementation is consistent with the
+        type-based ``__eq__``: instances of the same class compare equal and hash
+        equal, so a Mode can be used as a dict key, set member, or JAX
+        ``static_argname``.
+
+        Returns
+        -------
+        int
+            The hash of the mode's class.
+        """
+        return hash(self.__class__)
+
     def is_a(self, mode: type):
         """
         Check whether the mode is exactly the desired mode type.

@@ -771,5 +771,227 @@ class NnxConvInputDilationTest(absltest.TestCase):
             interop.from_nnx(src, sample_input=(8, 8, 3))
 
 
+class BiasOnlyBatchNormTest(absltest.TestCase):
+    """H2/H5: bias-only BatchNorm (use_scale=False, use_bias=True) must keep its bias."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.nnx = pytest.importorskip('flax.nnx')
+        cls.nn = pytest.importorskip('flax.linen')
+
+    def test_bias_only_batchnorm_from_nnx(self):
+        nnx = self.nnx
+        x = brainstate.random.randn(4, 5, 3)
+        src = nnx.BatchNorm(3, use_scale=False, use_bias=True,
+                            use_running_average=True, rngs=nnx.Rngs(brainstate.random.split_key()))
+        src.bias[...] = brainstate.random.randn(3)
+        src.mean[...] = brainstate.random.randn(3)
+        src.var[...] = brainstate.random.rand(3) + 0.5
+        dst = interop.from_nnx(src, sample_input=(5, 3))
+        # bias must survive (affine present)
+        self.assertIsNotNone(dst.weight)
+        self.assertIn('bias', dst.weight.value)
+        self.assertNotIn('scale', dst.weight.value)
+        assert_close(src(x), bst_forward(dst, x), 'bias-only batchnorm nnx import')
+
+    def test_bias_only_batchnorm_from_linen(self):
+        nn = self.nn
+        x = brainstate.random.randn(4, 5, 3)
+        m = nn.BatchNorm(use_running_average=True, use_scale=False, use_bias=True)
+        v = m.init(_key(), jnp.ones((1, 5, 3)))
+        v = jax.tree_util.tree_map(
+            lambda a: brainstate.random.rand(*a.shape) + 0.5 if a.ndim == 1 else a, v)
+        dst = interop.from_linen(m, v, sample_input=(5, 3))
+        self.assertIsNotNone(dst.weight)
+        self.assertIn('bias', dst.weight.value)
+        self.assertNotIn('scale', dst.weight.value)
+        assert_close(m.apply(v, x), bst_forward(dst, x), 'bias-only batchnorm linen import')
+
+
+class TwoDBatchNormRoundTripTest(absltest.TestCase):
+    """H3: a BatchNorm over a 2-D (batch, features) input resolves to nd==0 (BatchNorm0d).
+
+    Pre-fix this raised ``KeyError(0)`` because the ``_BN_CLS`` map and the nnx/linen
+    registration pairs started at spatial-dim 1. It must round-trip through nnx and linen.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.nnx = pytest.importorskip('flax.nnx')
+        cls.nn = pytest.importorskip('flax.linen')
+
+    def test_2d_batchnorm_nnx_round_trip(self):
+        nnx = self.nnx
+        # (N, C) input -> nd == 0 -> BatchNorm0d
+        x = brainstate.random.randn(4, 3)
+        src = nnx.BatchNorm(3, use_running_average=True,
+                            rngs=nnx.Rngs(brainstate.random.split_key()))
+        src.scale[...] = brainstate.random.randn(3)
+        src.bias[...] = brainstate.random.randn(3)
+        src.mean[...] = brainstate.random.randn(3)
+        src.var[...] = brainstate.random.rand(3) + 0.5
+        dst = interop.from_nnx(src, sample_input=(3,))
+        self.assertIsInstance(dst, bnn.BatchNorm0d)
+        assert_close(src(x), bst_forward(dst, x), '2d batchnorm nnx import')
+        assert_close(src(x), interop.to_nnx(dst)(x), '2d batchnorm nnx export')
+
+    def test_2d_batchnorm_linen_round_trip(self):
+        nn = self.nn
+        x = brainstate.random.randn(4, 3)
+        m = nn.BatchNorm(use_running_average=True)
+        v = m.init(_key(), jnp.ones((1, 3)))
+        v = jax.tree_util.tree_map(
+            lambda a: brainstate.random.rand(*a.shape) + 0.5 if a.ndim == 1 else a, v)
+        dst = interop.from_linen(m, v, sample_input=(3,))
+        self.assertIsInstance(dst, bnn.BatchNorm0d)
+        assert_close(m.apply(v, x), bst_forward(dst, x), '2d batchnorm linen import')
+        m2, v2 = interop.to_linen(dst)
+        assert_close(m.apply(v, x), m2.apply(v2, x), '2d batchnorm linen export')
+
+
+class LinenGroupNormGroupSizeTest(absltest.TestCase):
+    """M8: linen GroupNorm with num_groups=None + group_size must not crash on int(None)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.nn = pytest.importorskip('flax.linen')
+
+    def test_groupnorm_group_size_only(self):
+        nn = self.nn
+        x = brainstate.random.randn(1, 12)
+        m = nn.GroupNorm(num_groups=None, group_size=4)
+        v = m.init(_key(), jnp.ones((1, 12)))
+        v = jax.tree_util.tree_map(lambda a: brainstate.random.randn(*a.shape)
+                                   if a.ndim else a, v)
+        dst = interop.from_linen(m, v)
+        # 12 channels / group_size 4 == 3 groups
+        self.assertEqual(int(dst.num_groups), 3)
+        assert_close(m.apply(v, x), bst_forward(dst, x), 'groupnorm group_size-only import')
+
+
+class EquinoxRmsNormBiasTest(absltest.TestCase):
+    """H4: equinox RMSNorm with a non-zero bias cannot be represented and must raise."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.eqx = pytest.importorskip('equinox')
+
+    def test_nonzero_bias_raises(self):
+        eqx = self.eqx
+        src = eqx.nn.RMSNorm(6, use_bias=True)
+        src = eqx.tree_at(lambda m: m.bias, src, brainstate.random.randn(6))
+        with self.assertRaises(ConversionError):
+            interop.from_equinox(src)
+
+    def test_zero_bias_still_converts(self):
+        eqx = self.eqx
+        x = brainstate.random.randn(4, 6)
+        # default RMSNorm has a zero (not None) bias; conversion must still succeed.
+        src = eqx.nn.RMSNorm(6)
+        src = eqx.tree_at(lambda m: m.weight, src, brainstate.random.randn(6))
+        dst = interop.from_equinox(src)
+        assert_close(jax.vmap(src)(x), bst_forward(dst, x), 'eqx zero-bias rmsnorm import')
+
+
+class NnxDtypePreservationTest(absltest.TestCase):
+    """M9: non-float32 weights must keep their dtype through from_nnx/to_nnx round-trips.
+
+    Sources are built directly with ``param_dtype`` so their weights carry a non-float32 dtype.
+    ``from_nnx`` must preserve it into the brainstate layer, and ``to_nnx`` must thread it back
+    into the rebuilt nnx layer (whose constructors otherwise default param_dtype to float32).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.nnx = pytest.importorskip('flax.nnx')
+
+    def _rngs(self):
+        return self.nnx.Rngs(brainstate.random.split_key())
+
+    def test_linear_bf16_round_trip(self):
+        nnx = self.nnx
+        dt = jnp.bfloat16
+        src = nnx.Linear(3, 5, param_dtype=dt, rngs=self._rngs())
+        dst = interop.from_nnx(src)
+        self.assertEqual(dst.weight.value['weight'].dtype, dt)
+        back = interop.to_nnx(dst)
+        self.assertEqual(back.kernel.value.dtype, dt)
+        self.assertEqual(back.bias.value.dtype, dt)
+
+    def test_conv_fp16_round_trip(self):
+        nnx = self.nnx
+        dt = jnp.float16
+        src = nnx.Conv(3, 4, (3, 3), param_dtype=dt, rngs=self._rngs())
+        dst = interop.from_nnx(src, sample_input=(8, 8, 3))
+        self.assertEqual(dst.weight.value['weight'].dtype, dt)
+        back = interop.to_nnx(dst)
+        self.assertEqual(back.kernel.value.dtype, dt)
+
+    def test_batchnorm_bf16_round_trip(self):
+        nnx = self.nnx
+        dt = jnp.bfloat16
+        # nnx forces running stats to float32 on construction; build the brainstate side with
+        # bf16 running stats explicitly so the export path is what must preserve the dtype.
+        layer = bnn.BatchNorm1d((5, 3), affine=True)
+        # Cast every stored array to bf16.
+        layer.weight.value = {k: v.astype(dt) for k, v in layer.weight.value.items()}
+        layer.running_mean.value = layer.running_mean.value.astype(dt)
+        layer.running_var.value = layer.running_var.value.astype(dt)
+        back = interop.to_nnx(layer)
+        self.assertEqual(back.scale.value.dtype, dt)
+        # running stats: nnx forces float32 on construction; the export must rebuild them.
+        self.assertEqual(back.mean.value.dtype, dt)
+        self.assertEqual(back.var.value.dtype, dt)
+
+    def test_lstm_bf16_round_trip(self):
+        nnx = self.nnx
+        dt = jnp.bfloat16
+        src = nnx.LSTMCell(3, 4, param_dtype=dt, rngs=self._rngs())
+        dst = interop.from_nnx(src)
+        self.assertEqual(dst.W.weight.value['weight'].dtype, dt)
+        back = interop.to_nnx(dst)
+        self.assertEqual(back.ii.kernel.value.dtype, dt)
+        self.assertEqual(back.hi.bias.value.dtype, dt)
+
+
+class DropoutEvalEquivalenceTest(absltest.TestCase):
+    """M10: exported Dropout must be deterministic (eval-equivalent), not stochastic."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.nnx = pytest.importorskip('flax.nnx')
+        cls.eqx = pytest.importorskip('equinox')
+
+    def test_to_nnx_dropout_deterministic(self):
+        nnx = self.nnx
+        x = brainstate.random.randn(4, 6)
+        src = bnn.Sequential(bnn.Linear(6, 6), bnn.Dropout(0.5), bnn.Linear(6, 6))
+        out = interop.to_nnx(src)
+        # Output-equivalent to brainstate eval-mode forward (deterministic Dropout = identity).
+        assert_close(bst_forward(src, x), out(x), 'to_nnx dropout eval-equivalent')
+
+    def test_to_equinox_dropout_inference(self):
+        eqx = self.eqx
+        x = brainstate.random.randn(4, 6)
+        src = bnn.Sequential(bnn.Linear(6, 6), bnn.Dropout(0.5), bnn.Linear(6, 6))
+        out = interop.to_equinox(src)
+        assert_close(bst_forward(src, x), jax.vmap(out)(x), 'to_equinox dropout eval-equivalent')
+
+
+class NnxConvChannelMismatchTest(absltest.TestCase):
+    """L8: from_nnx of a Conv with a sample_input channel count that mismatches the kernel."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.nnx = pytest.importorskip('flax.nnx')
+
+    def test_channel_mismatch_raises(self):
+        nnx = self.nnx
+        # kernel expects 3 input channels; sample_input declares 5 -> clear ConversionError.
+        src = nnx.Conv(3, 4, (3, 3), rngs=nnx.Rngs(0))
+        with self.assertRaises(ConversionError):
+            interop.from_nnx(src, sample_input=(8, 8, 5))
+
+
 if __name__ == '__main__':
     absltest.main()

@@ -273,6 +273,24 @@ class TestCondValidation(unittest.TestCase):
             self.assertEqual(brainstate.transform.cond(True, lambda: 1, lambda: 2), 1)
             self.assertEqual(brainstate.transform.cond(False, lambda: 1, lambda: 2), 2)
 
+    def test_vmap_traced_predicate_under_disable_jit(self):
+        """``vmap`` over ``cond`` with a traced predicate works under ``disable_jit``.
+
+        The eager fast-path must be gated on the *predicate* being concrete, not
+        on ``disable_jit`` alone; otherwise a traced ``pred`` from ``vmap`` would
+        reach ``if pred:`` and raise ``TracerBoolConversionError``.
+        """
+        def f(pred, x):
+            return brainstate.transform.cond(pred, lambda v: v + 1.0, lambda v: v - 1.0, x)
+
+        preds = jnp.array([True, False])
+        xs = jnp.array([10.0, 20.0])
+        with jax.disable_jit():
+            out = jax.vmap(f)(preds, xs)
+        # True -> +1, False -> -1, selected per element.
+        self.assertEqual(float(out[0]), 11.0)
+        self.assertEqual(float(out[1]), 19.0)
+
 
 class TestSwitchValidation(unittest.TestCase):
     """Argument validation and the disable-jit fast path for ``switch``."""
@@ -307,6 +325,26 @@ class TestSwitchValidation(unittest.TestCase):
         with jax.disable_jit():
             out = brainstate.transform.switch(1, [lambda x: x, lambda x: x + 100], 1.0)
             self.assertEqual(int(out), 101)
+
+    def test_vmap_traced_index_under_disable_jit(self):
+        """``vmap`` over ``switch`` with a traced index works under ``disable_jit``.
+
+        The eager fast-path must be gated on the *index* being concrete, not on
+        ``disable_jit`` alone; otherwise a traced ``index`` from ``vmap`` would
+        reach ``int(index)`` and raise a concretization error.
+        """
+        branches = [lambda x: x + 1.0, lambda x: x + 10.0, lambda x: x + 100.0]
+
+        def f(index, x):
+            return brainstate.transform.switch(index, branches, x)
+
+        indices = jnp.array([0, 1, 2])
+        xs = jnp.array([1.0, 1.0, 1.0])
+        with jax.disable_jit():
+            out = jax.vmap(f)(indices, xs)
+        self.assertEqual(float(out[0]), 2.0)
+        self.assertEqual(float(out[1]), 11.0)
+        self.assertEqual(float(out[2]), 101.0)
 
 
 class TestIfElseValidation(unittest.TestCase):

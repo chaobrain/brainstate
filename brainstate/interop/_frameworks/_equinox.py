@@ -124,6 +124,12 @@ def _layernorm_to_foreign(layer, ctx):
 def _rmsnorm_to_bst(m, ctx):
     scale = m.weight
     num = int(m.shape[0])
+    bias = getattr(m, 'bias', None)
+    if bias is not None and bool(u.math.any(bias != 0)):
+        raise ConversionError(
+            'equinox RMSNorm has a non-zero bias term, which brainstate RMSNorm (bias-free) '
+            'cannot represent; conversion would silently change the layer.'
+        )
     layer = C.build_rmsnorm((num,), scale is not None, float(m.eps))
     C.bst_set_norm(layer, 'scale', scale, None)
     return layer
@@ -170,7 +176,11 @@ def _dropout_to_bst(m, ctx):
 
 
 def _dropout_to_foreign(layer, ctx):
-    return eqx.nn.Dropout(1.0 - float(layer.prob))
+    # ``inference=True`` is baked in so the exported module (and any ``eqx.nn.Sequential``
+    # containing it) is directly applicable and output-equivalent to brainstate's eval-mode
+    # Dropout. Cross-framework RNG streams cannot be matched, so equivalence for Dropout is
+    # only defined in eval mode.
+    return eqx.nn.Dropout(1.0 - float(layer.prob), inference=True)
 
 
 # ---------------------------------------------------------------------------

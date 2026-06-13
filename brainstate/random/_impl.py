@@ -144,6 +144,11 @@ def von_mises_centered(
     else:
         raise ValueError(f"Unsupported dtype: {dtype}")
 
+    # Split off a dedicated key for the kappa<=0 uniform branch *before* the
+    # rejection loop so the uniform draw does not reuse (and thereby correlate
+    # with) the rejection-sampler keys.
+    uni_key, key = jr.split(key)
+
     r = 1.0 + jnp.sqrt(1.0 + 4.0 * concentration ** 2)
     rho = (r - jnp.sqrt(2.0 * r)) / (2.0 * concentration)
     s_exact = (1.0 + rho ** 2) / (2.0 * rho)
@@ -187,7 +192,17 @@ def von_mises_centered(
         init_val=(jnp.array(0), key, init_done, init_u, init_w),
     )
 
-    return jnp.sign(uu) * jnp.arccos(w)
+    samples = jnp.sign(uu) * jnp.arccos(w)
+
+    # For ``concentration <= 0`` the rejection-loop math is degenerate
+    # (``rho`` and ``s_approximate`` involve division by zero, producing NaN),
+    # so substitute a uniform draw on ``[-pi, pi]``. This matches numpy's
+    # treatment of ``kappa == 0`` as the uniform distribution and extends the
+    # limiting case to ``kappa < 0`` rather than poisoning the output with NaN.
+    # Both ``jnp.where`` operands are eagerly evaluated, so the NaN branch is
+    # cleanly masked out wherever the uniform branch is selected.
+    uniform = jr.uniform(uni_key, shape, dtype=concentration.dtype, minval=-jnp.pi, maxval=jnp.pi)
+    return jnp.where(concentration <= 0, uniform, samples)
 
 
 def _scatter_add_one(operand, indices, updates):

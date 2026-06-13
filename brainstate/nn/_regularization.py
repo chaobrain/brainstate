@@ -26,6 +26,7 @@ from abc import ABC, abstractmethod
 
 import brainstate
 import brainunit as u
+from jax.scipy.special import gammaln
 
 from ._module import Module
 from ._utils import get_size, get_value
@@ -1120,9 +1121,13 @@ class MaxNormReg(Regularization):
         # Sample from Gaussian and project to ball
         sample = brainstate.random.randn(*get_size(shape))
         norm = u.math.sqrt(u.math.sum(sample ** 2) + 1e-8)
-        # Scale to be within the ball
+        # Scale to be within the ball. The scale (max_val / norm * 0.5) already
+        # places the sample safely inside the ball of radius max_val, so it must
+        # be applied directly. Clamping it with ``minimum(scale, 1.0)`` wrongly
+        # capped the scale at 1.0 and prevented scaling *up* toward large
+        # max_value targets (e.g. max_value=100 collapsed the norm to ~1).
         scale = max_val / (norm + 1e-8) * 0.5  # 0.5 to be safely inside
-        return sample * u.math.minimum(scale, 1.0)
+        return sample * scale
 
     def reset_value(self) -> Data:
         """
@@ -1314,6 +1319,12 @@ class OrthogonalReg(Regularization):
             Orthogonality penalty.
         """
 
+        # 0-d (scalar) weight: there is no matrix to orthogonalize, so fall back
+        # to a scalar penalty driving |value| toward 1 (an orthogonal 1x1 matrix
+        # has |entry| == 1). This avoids an IndexError from value.shape[0].
+        if len(value.shape) == 0:
+            return self.weight * (u.math.abs(value) - 1.0) ** 2
+
         # Ensure 2D matrix
         if len(value.shape) == 1:
             # For 1D, reshape to column vector
@@ -1444,7 +1455,15 @@ class SpectralNormReg(Regularization):
 
     def _estimate_spectral_norm(self, W: Data) -> Data:
         """
-        Estimate spectral norm using power iteration.
+        Compute the spectral norm (largest singular value) of ``W``.
+
+        For 2-D matrices the spectral norm is obtained deterministically via the
+        SVD (``svd(W, compute_uv=False)[0]`` returns the largest singular value,
+        which equals ``jnp.linalg.norm(W, ord=2)``). This makes :meth:`loss`
+        deterministic and differentiable, rather than depending on a freshly
+        drawn random vector for power iteration. The ``n_power_iterations``
+        attribute is retained for API compatibility but is unused by the 2-D
+        path. The random draw is reserved for :meth:`sample_init` only.
 
         Parameters
         ----------
@@ -1454,27 +1473,20 @@ class SpectralNormReg(Regularization):
         Returns
         -------
         array_like
-            Estimated spectral norm.
+            Spectral norm.
         """
+        # 0-d (scalar) weight: spectral norm of a scalar is its absolute value.
+        if len(W.shape) == 0:
+            return u.math.abs(W)
         # Ensure 2D
         if len(W.shape) == 1:
             return u.math.sqrt(u.math.sum(W ** 2))
         elif len(W.shape) > 2:
             W = u.math.reshape(W, (W.shape[0], -1))
 
-        # Power iteration
-        v = brainstate.random.randn(W.shape[1])
-        v = v / (u.math.sqrt(u.math.sum(v ** 2)) + 1e-8)
-
-        for _ in range(self.n_power_iterations):
-            u_ = u.math.matmul(W, v)
-            u_ = u_ / (u.math.sqrt(u.math.sum(u_ ** 2)) + 1e-8)
-            v = u.math.matmul(W.T, u_)
-            v = v / (u.math.sqrt(u.math.sum(v ** 2)) + 1e-8)
-
-        # Spectral norm estimate
-        Wv = u.math.matmul(W, v)
-        sigma = u.math.sqrt(u.math.sum(Wv ** 2) + 1e-8)
+        # Largest singular value via SVD (deterministic, differentiable).
+        # svd returns singular values in descending order, so [0] is the largest.
+        sigma = u.math.linalg.svd(W, compute_uv=False)[0]
         return sigma
 
     def loss(self, value: Data) -> Data:
@@ -1551,9 +1563,15 @@ class StudentTReg(Regularization):
     Student's t-distribution, which has heavier tails than Gaussian:
 
     .. math::
-        L = \lambda \sum_i \log\left(1 + \frac{(x_i / s)^2}{\nu}\right)
+        L = \lambda \left[ \sum_i \frac{\nu + 1}{2}
+            \log\left(1 + \frac{(x_i / s)^2}{\nu}\right)
+            + N \left( \log s + \log\Gamma(\tfrac{\nu}{2})
+            + \tfrac{1}{2}\log(\nu\pi) - \log\Gamma(\tfrac{\nu+1}{2}) \right) \right]
 
-    where :math:`\nu` is the degrees of freedom and :math:`s` is the scale.
+    where :math:`\nu` is the degrees of freedom, :math:`s` is the scale, and
+    :math:`N` is the number of elements. The :math:`\log s` and
+    :math:`\Gamma`-based terms form the scale/df log-normalizer, which keeps the
+    loss bounded below when ``scale``/``df`` are trained (``fit_hyper=True``).
 
     Parameters
     ----------
@@ -1625,7 +1643,18 @@ class StudentTReg(Regularization):
         # Student-t negative-log-likelihood data term: 0.5*(df+1)*log(1 + z**2/df).
         # The (df+1)/2 factor is df-dependent; without it the penalty wrongly
         # vanishes as df -> infinity instead of approaching the Gaussian 0.5*z**2.
-        return self.weight * u.math.sum(0.5 * (df + 1.0) * u.math.log(1.0 + z ** 2 / df))
+        data_term = u.math.sum(0.5 * (df + 1.0) * u.math.log(1.0 + z ** 2 / df))
+        # Scale/df log-normalizer of the Student-t NLL. Per element this is
+        # log(scale) + gammaln(df/2) + 0.5*log(df*pi) - gammaln((df+1)/2); without
+        # it the loss is unbounded below as scale (or df) is fit, so a fit_hyper
+        # gradient loop on scale/df diverges to +/- inf instead of converging.
+        log_norm = value.size * (
+            u.math.log(scale)
+            + gammaln(df / 2.0)
+            + 0.5 * u.math.log(df * math.pi)
+            - gammaln((df + 1.0) / 2.0)
+        )
+        return self.weight * (data_term + log_norm)
 
     def sample_init(self, shape: Size) -> Data:
         """
@@ -1668,7 +1697,10 @@ class CauchyReg(Regularization):
     Cauchy distribution (Student's t with df=1), which has very heavy tails:
 
     .. math::
-        L = \lambda \sum_i \log\left(1 + (x_i / s)^2\right)
+        L = \lambda \left[ \sum_i \log\left(1 + (x_i / s)^2\right) + N \log s \right]
+
+    where :math:`N` is the number of elements and :math:`N \log s` is the scale
+    log-normalizer that keeps the loss bounded below when ``scale`` is trained.
 
     Parameters
     ----------
@@ -1729,7 +1761,12 @@ class CauchyReg(Regularization):
         scale = u.math.relu(get_value(self.scale)) + 1e-8
 
         z = value / scale
-        return self.weight * u.math.sum(u.math.log(1.0 + z ** 2))
+        # log(1 + z**2) is the data term; value.size*log(scale) is the scale
+        # log-normalizer of the Cauchy NLL. Without it, the loss decreases without
+        # bound as ``scale`` grows, so a fit_hyper gradient loop on scale diverges.
+        data_term = u.math.sum(u.math.log(1.0 + z ** 2))
+        log_norm = value.size * u.math.log(scale)
+        return self.weight * (data_term + log_norm)
 
     def sample_init(self, shape: Size) -> Data:
         """
@@ -1881,7 +1918,12 @@ class LogNormalReg(Regularization):
     log-normal distribution:
 
     .. math::
-        L = \lambda \sum_i \left(\frac{(\log x_i - \mu)^2}{2\sigma^2} + \log x_i\right)
+        L = \lambda \left[ \sum_i \left(\frac{(\log x_i - \mu)^2}{2\sigma^2}
+            + \log x_i\right) + N \log\sigma \right]
+
+    where :math:`N` is the number of elements and :math:`N \log\sigma` is the
+    scale log-normalizer that keeps the loss bounded below when ``sigma`` is
+    trained.
 
     Parameters
     ----------
@@ -1951,7 +1993,13 @@ class LogNormalReg(Regularization):
         # Ensure positive values
         x_pos = u.math.relu(value) + 1e-8
         log_x = u.math.log(x_pos)
-        return self.weight * u.math.sum((log_x - mu) ** 2 / (2 * sigma ** 2) + log_x)
+        # (log_x - mu)**2 / (2 sigma**2) + log_x is the data term; value.size*
+        # log(sigma) is the scale log-normalizer of the log-normal NLL. Without
+        # it the loss decreases without bound as ``sigma`` grows, so a fit_hyper
+        # gradient loop on sigma diverges.
+        data_term = u.math.sum((log_x - mu) ** 2 / (2 * sigma ** 2) + log_x)
+        log_norm = value.size * u.math.log(sigma)
+        return self.weight * (data_term + log_norm)
 
     def sample_init(self, shape: Size) -> Data:
         """
@@ -2096,7 +2144,12 @@ class GammaReg(Regularization):
     Gamma distribution:
 
     .. math::
-        L = -\lambda \sum_i \left((\alpha - 1) \log x_i - \beta x_i\right)
+        L = \lambda \left[ \sum_i \left(-(\alpha - 1) \log x_i + \beta x_i\right)
+            + N \left( -\alpha \log\beta + \log\Gamma(\alpha) \right) \right]
+
+    where :math:`N` is the number of elements. The
+    :math:`-\alpha \log\beta + \log\Gamma(\alpha)` term is the log-normalizer
+    that keeps the loss bounded below when ``alpha``/``beta`` are trained.
 
     Parameters
     ----------
@@ -2165,8 +2218,13 @@ class GammaReg(Regularization):
 
         # Ensure positive values
         x_pos = u.math.relu(value) + 1e-8
-        # Negative log-likelihood (ignoring constants)
-        return self.weight * u.math.sum(-(alpha - 1) * u.math.log(x_pos) + beta * x_pos)
+        # Data term: -(alpha-1)*log(x) + beta*x. The per-element log-normalizer of
+        # the Gamma NLL is -alpha*log(beta) + gammaln(alpha); without it the loss
+        # is unbounded below as alpha/beta are fit, so a fit_hyper gradient loop
+        # diverges instead of converging.
+        data_term = u.math.sum(-(alpha - 1) * u.math.log(x_pos) + beta * x_pos)
+        log_norm = value.size * (-alpha * u.math.log(beta) + gammaln(alpha))
+        return self.weight * (data_term + log_norm)
 
     def sample_init(self, shape: Size) -> Data:
         """
@@ -2211,7 +2269,13 @@ class BetaReg(Regularization):
     Beta distribution:
 
     .. math::
-        L = -\lambda \sum_i \left((a - 1) \log x_i + (b - 1) \log(1 - x_i)\right)
+        L = \lambda \left[ \sum_i \left(-(a - 1) \log x_i - (b - 1) \log(1 - x_i)\right)
+            + N \left( \log\Gamma(a) + \log\Gamma(b) - \log\Gamma(a + b) \right) \right]
+
+    where :math:`N` is the number of elements. The
+    :math:`\log B(a, b) = \log\Gamma(a) + \log\Gamma(b) - \log\Gamma(a + b)` term
+    is the log-normalizer that keeps the loss bounded below when ``a``/``b`` are
+    trained.
 
     Parameters
     ----------
@@ -2280,8 +2344,13 @@ class BetaReg(Regularization):
 
         # Clip to (0, 1) for numerical stability
         x_clip = u.math.clip(value, 1e-8, 1.0 - 1e-8)
-        # Negative log-likelihood (ignoring constants)
-        return self.weight * u.math.sum(-(a - 1) * u.math.log(x_clip) - (b - 1) * u.math.log(1 - x_clip))
+        # Data term: -(a-1)*log(x) - (b-1)*log(1-x). The per-element
+        # log-normalizer of the Beta NLL is log B(a, b) = gammaln(a) + gammaln(b)
+        # - gammaln(a+b); without it the loss is unbounded below as a/b are fit,
+        # so a fit_hyper gradient loop diverges instead of converging.
+        data_term = u.math.sum(-(a - 1) * u.math.log(x_clip) - (b - 1) * u.math.log(1 - x_clip))
+        log_norm = value.size * (gammaln(a) + gammaln(b) - gammaln(a + b))
+        return self.weight * (data_term + log_norm)
 
     def sample_init(self, shape: Size) -> Data:
         """
@@ -2324,7 +2393,10 @@ class HorseshoeReg(Regularization):
     log-penalty formulation:
 
     .. math::
-        L = \lambda \sum_i \log\left(1 + (x_i / \tau)^2\right)
+        L = \lambda \left[ \sum_i \log\left(1 + (x_i / \tau)^2\right) + N \log\tau \right]
+
+    where :math:`N` is the number of elements and :math:`N \log\tau` is the scale
+    log-normalizer that keeps the loss bounded below when ``tau`` is trained.
 
     Parameters
     ----------
@@ -2386,7 +2458,12 @@ class HorseshoeReg(Regularization):
         tau = u.math.relu(get_value(self.tau)) + 1e-8
 
         z = value / tau
-        return self.weight * u.math.sum(u.math.log(1.0 + z ** 2))
+        # log(1 + z**2) is the data term; value.size*log(tau) is the scale
+        # log-normalizer. Without it, the penalty decreases without bound as
+        # ``tau`` grows, so a fit_hyper gradient loop on tau diverges.
+        data_term = u.math.sum(u.math.log(1.0 + z ** 2))
+        log_norm = value.size * u.math.log(tau)
+        return self.weight * (data_term + log_norm)
 
     def sample_init(self, shape: Size) -> Data:
         """
@@ -2429,7 +2506,12 @@ class InverseGammaReg(Regularization):
     Inverse-Gamma distribution:
 
     .. math::
-        L = \lambda \sum_i \left((\alpha + 1) \log x_i + \frac{\beta}{x_i}\right)
+        L = \lambda \left[ \sum_i \left((\alpha + 1) \log x_i + \frac{\beta}{x_i}\right)
+            + N \left( -\alpha \log\beta + \log\Gamma(\alpha) \right) \right]
+
+    where :math:`N` is the number of elements. The
+    :math:`-\alpha \log\beta + \log\Gamma(\alpha)` term is the log-normalizer
+    that keeps the loss bounded below when ``alpha``/``beta`` are trained.
 
     Parameters
     ----------
@@ -2498,8 +2580,13 @@ class InverseGammaReg(Regularization):
 
         # Ensure positive values
         x_pos = u.math.relu(value) + 1e-8
-        # Negative log-likelihood (ignoring constants)
-        return self.weight * u.math.sum((alpha + 1) * u.math.log(x_pos) + beta / x_pos)
+        # Data term: (alpha+1)*log(x) + beta/x. The per-element log-normalizer of
+        # the Inverse-Gamma NLL is -alpha*log(beta) + gammaln(alpha); without it
+        # the loss is unbounded below as alpha/beta are fit, so a fit_hyper
+        # gradient loop diverges instead of converging.
+        data_term = u.math.sum((alpha + 1) * u.math.log(x_pos) + beta / x_pos)
+        log_norm = value.size * (-alpha * u.math.log(beta) + gammaln(alpha))
+        return self.weight * (data_term + log_norm)
 
     def sample_init(self, shape: Size) -> Data:
         """

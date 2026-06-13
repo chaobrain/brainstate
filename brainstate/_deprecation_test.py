@@ -2263,3 +2263,87 @@ class TestDeprecatedInit(unittest.TestCase):
 
             # Check that a deprecation warning was issued
             self.assertTrue(any(issubclass(warning.category, DeprecationWarning) for warning in w))
+
+
+class TestDunderAndInternalNameShortCircuit(unittest.TestCase):
+    """Regression tests: leading-underscore names must not be forwarded/warned (M2).
+
+    Probing tools (inspect/copy/pickle/IPython/pytest) routinely access dunder and
+    single-underscore attributes. These must raise a plain AttributeError without
+    emitting DeprecationWarnings, raising misleading "Available attributes" errors,
+    or causing copy.copy RecursionError.
+    """
+
+    def setUp(self):
+        """Reset warning filters before each test."""
+        warnings.resetwarnings()
+
+    def test_dunder_probe_emits_no_warning(self):
+        """hasattr for dunder/internal probes must not emit a DeprecationWarning."""
+        for proxy in (brainstate.functional, brainstate.augment, brainstate.compile):
+            with self.subTest(proxy=proxy.__name__):
+                with warnings.catch_warnings(record=True) as w:
+                    warnings.simplefilter("always")
+                    # Names probed by inspect/copy/IPython/pytest.
+                    self.assertFalse(hasattr(proxy, '__wrapped__'))
+                    self.assertFalse(hasattr(proxy, '__deepcopy__'))
+                    self.assertFalse(
+                        hasattr(proxy, '_ipython_canary_method_should_not_exist_')
+                    )
+
+                    dep_warnings = [
+                        warning for warning in w
+                        if issubclass(warning.category, DeprecationWarning)
+                    ]
+                    self.assertEqual(
+                        dep_warnings, [],
+                        f"Unexpected DeprecationWarning(s) for underscore probes: "
+                        f"{[str(x.message) for x in dep_warnings]}"
+                    )
+
+    def test_underscore_access_raises_plain_attribute_error(self):
+        """Accessing a missing underscore name raises AttributeError without the
+        misleading 'Available attributes' message used for public APIs."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            with self.assertRaises(AttributeError) as context:
+                _ = brainstate.augment.__wrapped__
+            # Should be the bare name, not the scoped-API guidance message.
+            self.assertNotIn('Available attributes', str(context.exception))
+
+    def test_copy_copy_does_not_recurse(self):
+        """copy.copy on a proxy must not raise RecursionError (M2)."""
+        import copy
+        for proxy in (brainstate.functional, brainstate.augment, brainstate.compile):
+            with self.subTest(proxy=proxy.__name__):
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    try:
+                        copy.copy(proxy)
+                    except RecursionError as e:
+                        self.fail(f"copy.copy raised RecursionError: {e}")
+
+    def test_public_api_access_still_warns_once_and_forwards(self):
+        """A normal public-API access still emits exactly one warning and forwards
+        the correct object (the short-circuit must not break real APIs)."""
+        proxy = brainstate.functional
+        # Clear cached warn-state so the access deterministically warns once,
+        # since these module-level proxies are shared singletons across tests.
+        proxy._warned_attrs.pop('relu', None)
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            func = proxy.relu
+
+            dep_warnings = [
+                warning for warning in w
+                if issubclass(warning.category, DeprecationWarning)
+                and 'brainstate.functional' in str(warning.message)
+            ]
+            self.assertEqual(len(dep_warnings), 1)
+        # Forwarding must still work.
+        self.assertTrue(callable(func))
+        self.assertIs(func, brainstate.nn.relu)
+
+
+if __name__ == '__main__':
+    unittest.main()

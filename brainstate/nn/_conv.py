@@ -291,7 +291,15 @@ class _BaseConv(Module):
             padding = tuple((padding, padding) for _ in range(self.num_spatial_dims))
         elif isinstance(padding, (tuple, list)):
             if isinstance(padding[0], int):
-                padding = (padding,) * self.num_spatial_dims
+                if self.num_spatial_dims == 1 and len(padding) == 2:
+                    padding = (tuple(padding),)
+                elif len(padding) == self.num_spatial_dims:
+                    padding = tuple((p, p) for p in padding)
+                else:
+                    raise ValueError(
+                        f"Integer padding tuple {padding} must have length "
+                        f"{self.num_spatial_dims} (one value per spatial dim)."
+                    )
             elif isinstance(padding[0], (tuple, list)):
                 if len(padding) == 1:
                     padding = tuple(padding) * self.num_spatial_dims
@@ -592,7 +600,7 @@ class Conv2d(_Conv):
         - 'SAME': output spatial size equals input size when stride=1
         - 'VALID': no padding, output size reduced by kernel size
         - int: same symmetric padding for all dimensions
-        - (pad_h, pad_w): different padding for each dimension
+        - (pad_h, pad_w[, pad_d]): symmetric padding per spatial dimension
         - [(pad_h_before, pad_h_after), (pad_w_before, pad_w_after)]: explicit padding
 
         Default: 'SAME'.
@@ -744,7 +752,7 @@ class Conv3d(_Conv):
         - 'SAME': output spatial size equals input size when stride=1
         - 'VALID': no padding, output size reduced by kernel size
         - int: same symmetric padding for all dimensions
-        - (pad_h, pad_w, pad_d): different padding for each dimension
+        - (pad_h, pad_w[, pad_d]): symmetric padding per spatial dimension
         - [(pad_h_before, pad_h_after), (pad_w_before, pad_w_after), (pad_d_before, pad_d_after)]: explicit padding
 
         Default: 'SAME'.
@@ -1143,7 +1151,7 @@ class ScaledWSConv2d(_ScaledWSConv):
         - 'SAME': output spatial size equals input size when stride=1
         - 'VALID': no padding, output size reduced by kernel size
         - int: same symmetric padding for all dimensions
-        - (pad_h, pad_w): different padding for each dimension
+        - (pad_h, pad_w[, pad_d]): symmetric padding per spatial dimension
         - [(pad_h_before, pad_h_after), (pad_w_before, pad_w_after)]: explicit padding
 
         Default: 'SAME'.
@@ -1322,7 +1330,7 @@ class ScaledWSConv3d(_ScaledWSConv):
         - 'SAME': output spatial size equals input size when stride=1
         - 'VALID': no padding, output size reduced by kernel size
         - int: same symmetric padding for all dimensions
-        - (pad_h, pad_w, pad_d): different padding for each dimension
+        - (pad_h, pad_w[, pad_d]): symmetric padding per spatial dimension
         - [(pad_h_before, pad_h_after), (pad_w_before, pad_w_after), (pad_d_before, pad_d_after)]: explicit padding
 
         Default: 'SAME'.
@@ -1479,7 +1487,6 @@ class _ConvTranspose(_BaseConv):
         kernel_size: Union[int, Tuple[int, ...]],
         stride: Union[int, Tuple[int, ...]] = 1,
         padding: Union[str, int, Tuple[int, int], Sequence[Tuple[int, int]]] = 'SAME',
-        lhs_dilation: Union[int, Tuple[int, ...]] = 1,
         rhs_dilation: Union[int, Tuple[int, ...]] = 1,
         groups: int = 1,
         w_init: Union[Callable, ArrayLike] = init.XavierNormal(),
@@ -1507,7 +1514,6 @@ class _ConvTranspose(_BaseConv):
         self.out_channels = out_channels
         self.stride = replicate(stride, self.num_spatial_dims, 'stride')
         self.kernel_size = replicate(kernel_size, self.num_spatial_dims, 'kernel_size')
-        self.lhs_dilation = replicate(lhs_dilation, self.num_spatial_dims, 'lhs_dilation')
         self.rhs_dilation = replicate(rhs_dilation, self.num_spatial_dims, 'rhs_dilation')
         self.groups = groups
         self.dimension_numbers = to_dimension_numbers(
@@ -1534,7 +1540,15 @@ class _ConvTranspose(_BaseConv):
         elif isinstance(padding, (tuple, list)):
             self.padding_mode = 'explicit'
             if isinstance(padding[0], int):
-                padding = (padding,) * self.num_spatial_dims
+                if self.num_spatial_dims == 1 and len(padding) == 2:
+                    padding = (tuple(padding),)
+                elif len(padding) == self.num_spatial_dims:
+                    padding = tuple((p, p) for p in padding)
+                else:
+                    raise ValueError(
+                        f"Integer padding tuple {padding} must have length "
+                        f"{self.num_spatial_dims} (one value per spatial dim)."
+                    )
             elif isinstance(padding[0], (tuple, list)):
                 if len(padding) == 1:
                     padding = tuple(padding) * self.num_spatial_dims
@@ -1662,9 +1676,6 @@ class ConvTranspose1d(_ConvTranspose):
         - (pad_before, pad_after): explicit padding for the sequence dimension
 
         Default: 'SAME'.
-    lhs_dilation : int or tuple of int, optional
-        The dilation factor for the input. For transposed convolution, this is typically
-        set equal to stride internally. Default: 1.
     rhs_dilation : int or tuple of int, optional
         The dilation factor for the kernel. Increases the receptive field without increasing
         parameters by inserting zeros between kernel elements. Default: 1.
@@ -1761,7 +1772,11 @@ class ConvTranspose1d(_ConvTranspose):
 
     - PyTorch uses channels-first by default; BrainState uses channels-last
     - Set `channel_first=True` for PyTorch-compatible format
-    - PyTorch's `output_padding` is handled through padding parameter
+    - Padding semantics differ from PyTorch. BrainState follows
+      ``jax.lax.conv_transpose``: explicit padding is *added* to the dilated
+      signal, so larger padding yields a *larger* output. This is the opposite
+      of PyTorch, where padding *subtracts* ``2 * padding`` from the output.
+      There is no ``output_padding`` parameter.
     """
     __module__ = 'brainstate.nn'
     num_spatial_dims: int = 1
@@ -1804,13 +1819,10 @@ class ConvTranspose2d(_ConvTranspose):
         - 'SAME': output size approximately equals input_size * stride
         - 'VALID': no padding, maximum output size
         - int: same symmetric padding for all dimensions
-        - (pad_h, pad_w): different padding for each dimension
+        - (pad_h, pad_w[, pad_d]): symmetric padding per spatial dimension
         - [(pad_h_before, pad_h_after), (pad_w_before, pad_w_after)]: explicit padding
 
         Default: 'SAME'.
-    lhs_dilation : int or tuple of int, optional
-        The dilation factor for the input. For transposed convolution, this is typically
-        set equal to stride internally. Default: 1.
     rhs_dilation : int or tuple of int, optional
         The dilation factor for the kernel. Increases the receptive field without increasing
         parameters by inserting zeros between kernel elements. Default: 1.
@@ -1921,7 +1933,11 @@ class ConvTranspose2d(_ConvTranspose):
     - PyTorch uses channels-first by default; BrainState uses channels-last
     - Set `channel_first=True` for PyTorch-compatible format
     - Kernel shape convention: PyTorch stores (C_in, C_out, H, W), BrainState uses (H, W, C_out, C_in)
-    - PyTorch's `output_padding` parameter controls output size; use padding parameter here
+    - Padding semantics differ from PyTorch. BrainState follows
+      ``jax.lax.conv_transpose``: explicit padding is *added* to the dilated
+      signal, so larger padding yields a *larger* output. This is the opposite
+      of PyTorch, where padding *subtracts* ``2 * padding`` from the output.
+      There is no ``output_padding`` parameter.
 
     **Tips:**
 
@@ -1969,13 +1985,10 @@ class ConvTranspose3d(_ConvTranspose):
         - 'SAME': output size approximately equals input_size * stride
         - 'VALID': no padding, maximum output size
         - int: same symmetric padding for all dimensions
-        - (pad_h, pad_w, pad_d): different padding for each dimension
+        - (pad_h, pad_w[, pad_d]): symmetric padding per spatial dimension
         - [(pad_h_before, pad_h_after), (pad_w_before, pad_w_after), (pad_d_before, pad_d_after)]: explicit
 
         Default: 'SAME'.
-    lhs_dilation : int or tuple of int, optional
-        The dilation factor for the input. For transposed convolution, this is typically
-        set equal to stride internally. Default: 1.
     rhs_dilation : int or tuple of int, optional
         The dilation factor for the kernel. Increases the receptive field without increasing
         parameters. Default: 1.
@@ -2089,7 +2102,11 @@ class ConvTranspose3d(_ConvTranspose):
     - PyTorch uses channels-first by default; BrainState uses channels-last
     - Set `channel_first=True` for PyTorch-compatible format
     - Kernel shape convention differs between frameworks
-    - PyTorch's `output_padding` parameter is handled through padding here
+    - Padding semantics differ from PyTorch. BrainState follows
+      ``jax.lax.conv_transpose``: explicit padding is *added* to the dilated
+      signal, so larger padding yields a *larger* output. This is the opposite
+      of PyTorch, where padding *subtracts* ``2 * padding`` from the output.
+      There is no ``output_padding`` parameter.
 
     **Tips:**
 

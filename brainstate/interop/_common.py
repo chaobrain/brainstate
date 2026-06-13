@@ -252,7 +252,7 @@ def bst_set_norm(layer, attr, scale, offset):
 
 # --- BatchNorm ------------------------------------------------------------
 
-_BN_CLS = {1: bnn.BatchNorm1d, 2: bnn.BatchNorm2d, 3: bnn.BatchNorm3d}
+_BN_CLS = {0: bnn.BatchNorm0d, 1: bnn.BatchNorm1d, 2: bnn.BatchNorm2d, 3: bnn.BatchNorm3d}
 
 
 def build_batchnorm(num_spatial_dims, in_size, epsilon, momentum, affine):

@@ -109,7 +109,9 @@ class StatefulMapping:
         ``'warn'`` scatters them with a warning, and ``'ignore'`` scatters them
         silently.
     static_argnums : int or iterable of int, default ()
-        Positional arguments treated as compile-time constants for caching.
+        Not supported by the state-mapping engine: a non-empty value raises
+        ``NotImplementedError``. Use ``static_argnames`` for keyword arguments,
+        or set ``in_axes=None`` for the positional slot you want broadcast.
     static_argnames : str or iterable of str, default ()
         Keyword arguments treated as compile-time constants for caching.
     axis_env : sequence, optional
@@ -844,14 +846,34 @@ def _map_new_states(
 
     try:
         with catch_new_states(state_tag):
-            mapped = primitive(
-                init_fn,
-                in_axes=(0 if len(rng_states) else None,),
-                out_axes=tuple(axes_order),
-                axis_size=axis_size,
-                axis_name=axis_name,
-            )
-            tuple_vals = mapped(rng_keys)
+            if behavior == 'pmap' and len(rng_states) == 0:
+                # H19: jax.pmap (unlike jax.vmap) has no axis_size-only
+                # broadcast and raises ``ValueError: pmap requires at least one
+                # argument with a mapped axis`` when every in_axes entry is
+                # None. When init draws no randomness ``rng_keys == []`` and the
+                # natural ``in_axes=(None,)`` triggers that error. Feed a
+                # throwaway mapped argument (in_axes=0) and discard it; keep
+                # ``init_fn``'s signature/closure over rng_keys unchanged. The
+                # ``out_axes`` is left untouched so NonBatchState replication
+                # (out axis None) is preserved.
+                init_fn2 = lambda rng_keys, _dummy: init_fn(rng_keys)
+                mapped = primitive(
+                    init_fn2,
+                    in_axes=(None, 0),
+                    out_axes=tuple(axes_order),
+                    axis_size=axis_size,
+                    axis_name=axis_name,
+                )
+                tuple_vals = mapped(rng_keys, jax.numpy.arange(axis_size))
+            else:
+                mapped = primitive(
+                    init_fn,
+                    in_axes=(0 if len(rng_states) else None,),
+                    out_axes=tuple(axes_order),
+                    axis_size=axis_size,
+                    axis_name=axis_name,
+                )
+                tuple_vals = mapped(rng_keys)
     finally:
         # restore the global RNG once -- also on failure, so a crashed mapped
         # pass cannot leave key tracers in the random states

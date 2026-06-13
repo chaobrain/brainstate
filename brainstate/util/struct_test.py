@@ -276,6 +276,59 @@ class TestPyTreeNode:
         grads = grad_fn(mlp)
         assert grads.layer1.weight.shape == mlp.layer1.weight.shape
 
+    def test_pytreenode_subclass_adds_new_field(self):
+        """Subclassing a PyTreeNode must not drop newly declared fields (H21)."""
+        import dataclasses as _dc
+
+        class Base(PyTreeNode):
+            a: jax.Array
+
+        class Derived(Base):
+            b: jax.Array = None
+
+        # The new field must be registered on the subclass.
+        field_names = [f.name for f in _dc.fields(Derived)]
+        assert field_names == ['a', 'b']
+
+        # Construction with the new field must succeed (used to raise TypeError).
+        obj = Derived(a=jnp.ones(3), b=jnp.zeros(2))
+        assert jnp.allclose(obj.a, jnp.ones(3))
+        assert jnp.allclose(obj.b, jnp.zeros(2))
+
+        # It must round-trip as a pytree with all leaves (a + b).
+        leaves, treedef = jax.tree_util.tree_flatten(obj)
+        assert len(leaves) == 2
+        rebuilt = jax.tree_util.tree_unflatten(treedef, leaves)
+        assert jnp.allclose(rebuilt.a, obj.a)
+        assert jnp.allclose(rebuilt.b, obj.b)
+
+    def test_dataclass_field_init_false(self):
+        """field(init=False) must not crash registration at class-definition time (M46)."""
+
+        # init=False with a default on a meta (non-pytree) field.
+        class WithDefault(PyTreeNode):
+            a: jax.Array
+            b: int = field(pytree_node=False, default=5, init=False)
+
+        obj = WithDefault(a=jnp.ones(3))
+        assert obj.b == 5
+        assert jnp.allclose(obj.a, jnp.ones(3))
+
+        # init=False assigned in __post_init__.
+        class WithPostInit(PyTreeNode):
+            a: jax.Array
+            doubled: jax.Array = field(init=False, default=None)
+
+            def __post_init__(self):
+                object.__setattr__(self, 'doubled', self.a * 2)
+
+        obj2 = WithPostInit(a=jnp.ones(3))
+        assert jnp.allclose(obj2.doubled, jnp.ones(3) * 2)
+
+        # The object still works under jax transformations.
+        leaves = jax.tree_util.tree_leaves(obj2)
+        assert len(leaves) >= 1
+
 
 class TestFrozenDict:
     """Test the FrozenDict class."""
@@ -812,6 +865,34 @@ class TestFrozenDictCoverage(unittest.TestCase):
         # equality against dict and FrozenDict
         self.assertEqual(fd, {'a': 1, 'b': 2})
         self.assertEqual(fd, FrozenDict({'a': 1, 'b': 2}))
+
+    def test_views_are_reusable(self):
+        """items()/keys()/values() must return re-iterable Views, not one-shot generators (M45)."""
+        from collections.abc import ItemsView, KeysView, ValuesView
+
+        fd = FrozenDict({'a': 1, 'b': 2})
+
+        items_view = fd.items()
+        keys_view = fd.keys()
+        values_view = fd.values()
+
+        # They must be Mapping views, not generators.
+        self.assertIsInstance(items_view, ItemsView)
+        self.assertIsInstance(keys_view, KeysView)
+        self.assertIsInstance(values_view, ValuesView)
+
+        # A captured view must be iterable more than once (a generator would be
+        # exhausted on the second pass and yield an empty list).
+        self.assertEqual(set(items_view), {('a', 1), ('b', 2)})
+        self.assertEqual(set(items_view), {('a', 1), ('b', 2)})
+        self.assertEqual(set(keys_view), {'a', 'b'})
+        self.assertEqual(set(keys_view), {'a', 'b'})
+        self.assertEqual(sorted(values_view), [1, 2])
+        self.assertEqual(sorted(values_view), [1, 2])
+
+        # Views support len() and set algebra.
+        self.assertEqual(len(items_view), 2)
+        self.assertEqual(items_view & {('a', 1)}, {('a', 1)})
 
 
 if __name__ == "__main__":

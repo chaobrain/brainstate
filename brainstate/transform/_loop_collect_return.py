@@ -443,6 +443,8 @@ def checkpointed_scan(
         return (new_write_states, new_carray), new_collect, i + 1
 
     # while_loop
+    if isinstance(base, bool) or not isinstance(base, int) or base < 2:
+        raise ValueError(f"base must be an integer >= 2, got {base!r}.")
     rounded_max_steps = base ** int(math.ceil(math.log(length, base)))
     (write_state_vals, carry), data2collection, _ = (
         _bounded_while_loop(

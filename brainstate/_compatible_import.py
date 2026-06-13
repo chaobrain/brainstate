@@ -418,10 +418,9 @@ def to_concrete_aval(aval):
         >>> concrete = to_concrete_aval(arr)
         # Returns the concrete array value
     """
-    aval = jax.typeof(aval)
     if isinstance(aval, Tracer):
-        return aval.to_concrete_value()
-    return aval
+        return aval
+    return jax.typeof(aval)
 
 
 def is_jit_primitive(eqn: JaxprEqn) -> bool:

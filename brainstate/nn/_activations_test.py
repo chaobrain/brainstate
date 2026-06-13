@@ -370,6 +370,25 @@ class TestActivationAuditRegressions(parameterized.TestCase):
             # Non-negative entries pass through unchanged.
             np.testing.assert_allclose(out[2:], np.array([0., 1., 2.]), rtol=1e-6)
 
+    def test_softmin_no_overflow_large_magnitude(self):
+        """C1: softmin must not overflow to NaN for moderate/large-magnitude inputs."""
+        # Pre-fix: exp(-x) overflows to +inf, division yields NaN.
+        out = brainstate.nn.softmin(jnp.array([-1000., -1001., -1002.]))
+        self.assertTrue(jnp.all(jnp.isfinite(out)))
+        np.testing.assert_allclose(float(out.sum()), 1.0, rtol=1e-6)
+        # float32 overflows for inputs around -90 as well.
+        out2 = brainstate.nn.softmin(jnp.array([-90., -89., -88.]))
+        self.assertTrue(jnp.all(jnp.isfinite(out2)))
+
+    def test_softmin_matches_softmax_of_negation(self):
+        """C1: softmin(x) must equal softmax(-x) for ordinary inputs."""
+        x = jnp.array([0., 1., 2.])
+        np.testing.assert_allclose(
+            np.asarray(brainstate.nn.softmin(x)),
+            np.asarray(brainstate.nn.softmax(-x)),
+            rtol=1e-6,
+        )
+
 
 if __name__ == '__main__':
     absltest.main()

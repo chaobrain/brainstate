@@ -922,10 +922,12 @@ class StatefulFunction(PrettyObject):
             compilation = self._compilation_cache.get(cache_key)
             if compilation is not None and not self._compilation_is_stale(compilation):
                 return self
-            # Drop the stale entry (if any) up front: even if recompilation
-            # fails below, a known-stale jaxpr must not be reused.
-            self._compilation_cache.pop(cache_key)
-
+            # NJ2: do NOT drop the stale entry up front. Leaving it in place during
+            # the (slow) re-trace means a concurrent reader using a get_*_by_cache()
+            # method observes the old-but-valid entry instead of a transient hole
+            # (which previously raised a spurious ValueError). On success we
+            # atomically replace it below; on failure we drop it in the except
+            # branch so a known-stale jaxpr is never reused.
             try:
                 # kwargs separation
                 static_kwargs, dyn_kwargs = {}, {}
@@ -982,12 +984,19 @@ class StatefulFunction(PrettyObject):
                     state_trace=state_trace,
                     state_avals=state_avals,
                 )
-                self._compilation_cache.set(cache_key, compilation)
+                # Atomically swap the (possibly stale) entry under the cache's own
+                # lock so a concurrent reader sees either the old or the new value,
+                # never a hole. Fall back to set() for the first compilation.
+                if cache_key in self._compilation_cache:
+                    self._compilation_cache.replace(cache_key, compilation)
+                else:
+                    self._compilation_cache.set(cache_key, compilation)
 
             except Exception:
-                # No partial cache entries to clean up since we only write
-                # to the cache on success (state_trace is in _result_holder,
-                # not in the cache).
+                # The re-trace failed: drop any stale entry now so a known-stale
+                # jaxpr is never reused (it was deliberately left in place during
+                # tracing to avoid a transient miss for concurrent readers). NJ2.
+                self._compilation_cache.pop(cache_key)
                 raise
 
         return self

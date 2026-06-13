@@ -22,7 +22,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from brainstate._compatible_import import to_concrete_aval, Tracer
+from brainstate._compatible_import import Tracer
 from brainstate._utils import set_module_as
 from brainstate.typing import ArrayLike
 from ._error_if import jit_error_if
@@ -111,7 +111,7 @@ def cond(pred: ArrayLike, true_fun: Callable, false_fun: Callable, *operands) ->
             raise TypeError("Pred type must be either boolean or number, got {}.".format(pred_dtype))
 
     # not jit
-    if jax.config.jax_disable_jit and not isinstance(to_concrete_aval(pred), Tracer):
+    if jax.config.jax_disable_jit and not isinstance(pred, Tracer):
         if pred:
             return true_fun(*operands)
         else:
@@ -222,7 +222,7 @@ def switch(index: ArrayLike, branches: Sequence[Callable], *operands) -> Any:
     index = jax.lax.clamp(lo, index, hi)
 
     # not jit
-    if jax.config.jax_disable_jit and not isinstance(to_concrete_aval(index), Tracer):
+    if jax.config.jax_disable_jit and not isinstance(index, Tracer):
         return branches[int(index)](*operands)
 
     # evaluate jaxpr

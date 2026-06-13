@@ -112,8 +112,7 @@ def softmin(x: ArrayLike, axis: int = -1) -> Union[jax.Array, u.Quantity]:
     jax.Array or Quantity
         Output array with the same shape as the input.
     """
-    unnormalized = u.math.exp(-x)
-    return unnormalized / unnormalized.sum(axis, keepdims=True)
+    return jax.nn.softmax(-x, axis=axis)
 
 
 def tanh_shrink(x: ArrayLike) -> Union[jax.Array, u.Quantity]:

@@ -167,8 +167,12 @@ def dataclass(cls: type[T] | None = None, **kwargs) -> type[T] | Any:
     if cls is None:
         return lambda cls_: dataclass(cls_, **kwargs)
 
-    # Check if already converted
-    if is_dataclass(cls):
+    # Check if THIS class was already converted (do not consult inherited marker).
+    # ``_brainstate_dataclass`` is a plain class attribute and is therefore
+    # inherited by subclasses; using ``is_dataclass(cls)`` here would early-return
+    # for any subclass and silently drop its newly declared fields. Inspect this
+    # class's own ``__dict__`` instead (mirroring Flax's ``'_flax_dataclass'`` check).
+    if '_brainstate_dataclass' in cls.__dict__:
         return cls
 
     # Default to frozen for immutability
@@ -182,6 +186,13 @@ def dataclass(cls: type[T] | None = None, **kwargs) -> type[T] | Any:
     meta_fields = []
 
     for field_info in dataclasses.fields(cls):
+        # Skip ``init=False`` fields: jax.tree_util.register_dataclass requires
+        # data_fields + meta_fields to be exactly the ``init=True`` fields, and the
+        # fallback ``unflatten_fn`` reconstructs via ``cls(**kwargs)`` which does not
+        # accept ``init=False`` names. Such fields are restored automatically by
+        # their default or ``__post_init__`` during construction.
+        if not field_info.init:
+            continue
         if field_info.metadata.get('pytree_node', True):
             pytree_fields.append(field_info.name)
         else:
@@ -463,13 +474,12 @@ class FrozenDict(Mapping[K, V], Generic[K, V]):
         """
         Return a view of the items.
 
-        Yields
-        ------
-        tuple
-            Key-value pairs from the dictionary.
+        Returns
+        -------
+        ItemsView
+            A view object of the dictionary's (key, value) pairs.
         """
-        for key in self._data:
-            yield (key, self[key])
+        return ItemsView(self)
 
     def get(self, key: K, default: V | None = None) -> V | None:
         """

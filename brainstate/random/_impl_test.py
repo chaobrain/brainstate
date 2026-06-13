@@ -106,6 +106,41 @@ class TestVonMisesCentered(unittest.TestCase):
         self.assertEqual(out.shape, (4,))
         self.assertEqual(out.dtype, jnp.float16)
 
+    def test_zero_concentration_is_finite_uniform(self):
+        """concentration==0 yields finite samples on [-pi, pi] (the uniform
+        limiting case), not all-NaN. Regression test for M24."""
+        out = _impl.von_mises_centered(self.key, 0.0, (1000,), dtype=jnp.float32)
+        self.assertEqual(out.shape, (1000,))
+        self.assertFalse(bool(jnp.any(jnp.isnan(out))))
+        self.assertTrue(bool(jnp.all(jnp.abs(out) <= jnp.pi + 1e-4)))
+        # Empirically approximately uniform on [-pi, pi]: mean near 0.
+        self.assertLess(float(jnp.abs(jnp.mean(out))), 0.2)
+
+    def test_negative_concentration_is_finite_uniform(self):
+        """concentration<0 also maps to the uniform limiting case (finite,
+        bounded), rather than producing NaN. Regression test for M24."""
+        out = _impl.von_mises_centered(self.key, -1.0, (256,), dtype=jnp.float32)
+        self.assertFalse(bool(jnp.any(jnp.isnan(out))))
+        self.assertTrue(bool(jnp.all(jnp.abs(out) <= jnp.pi + 1e-4)))
+
+    def test_mixed_zero_and_positive_concentration(self):
+        """A broadcast concentration mixing 0 with a positive value keeps the
+        positive entry finite and the zero entry finite (NaN does not leak
+        across the jnp.where mask). Regression test for M24."""
+        concentration = jnp.array([0.0, 2.0])
+        out = _impl.von_mises_centered(self.key, concentration, (2,), dtype=jnp.float32)
+        self.assertFalse(bool(jnp.any(jnp.isnan(out))))
+        self.assertTrue(bool(jnp.all(jnp.abs(out) <= jnp.pi + 1e-4)))
+
+    def test_public_vonmises_zero_kappa_not_nan(self):
+        """RandomState.vonmises(mu, 0.0) returns finite uniform angles instead
+        of all-NaN. End-to-end regression test for M24."""
+        rs = brainstate.random.RandomState(42)
+        out = rs.vonmises(0.0, 0.0, size=(10,))
+        out = jnp.asarray(out)
+        self.assertFalse(bool(jnp.any(jnp.isnan(out))))
+        self.assertTrue(bool(jnp.all(jnp.abs(out) <= jnp.pi + 1e-4)))
+
 
 class TestReshapeAndPromote(unittest.TestCase):
     """Validate the ``_reshape`` and ``_promote_shapes`` array utilities."""

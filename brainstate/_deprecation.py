@@ -118,6 +118,13 @@ class DeprecatedModule:
 
     def __getattr__(self, name):
         """Forward attribute access to replacement module with deprecation warning."""
+        # Short-circuit all leading-underscore names (dunders and single-underscore
+        # internals). These are probed routinely by inspect/copy/pickle/IPython/pytest
+        # and must not trigger deprecation warnings, misleading AttributeErrors, or
+        # copy.copy recursion. Forwarding them is never the intended public-API use.
+        if name.startswith('_'):
+            raise AttributeError(name)
+
         self._warn_deprecation(name)
 
         # Check if we have scoped APIs

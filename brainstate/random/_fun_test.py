@@ -972,3 +972,36 @@ class TestAuditRegressions(parameterized.TestCase):
         brainstate.random.seed(0)
         a = np.asarray(brainstate.random.chisquare(7.0, size=(100000,)))
         self.assertLess(abs(a.mean() - 7.0), 0.1)
+
+    # --- G: power() enforces the documented ``Raises ValueError if a <= 0`` -------
+
+    def test_power_nonpositive_a_raises(self):
+        """power(a<=0) raises, matching the documented numpy contract."""
+        brainstate.random.seed(0)
+        for bad in (0.0, -1.0):
+            with self.subTest(a=bad):
+                with self.assertRaises(Exception):
+                    np.asarray(brainstate.random.power(bad, 100))
+
+    def test_power_check_valid_false_skips_guard(self):
+        """power(check_valid=False) skips the a>0 guard."""
+        brainstate.random.seed(0)
+        out = brainstate.random.power(0.0, 100, check_valid=False)
+        self.assertTupleEqual(tuple(jnp.shape(out)), (100,))
+
+    def test_power_valid_a_unaffected(self):
+        """A valid positive ``a`` still samples within [0, 1]."""
+        brainstate.random.seed(0)
+        a = np.asarray(brainstate.random.power(2.0, 1000))
+        self.assertTupleEqual(a.shape, (1000,))
+        self.assertTrue((a >= 0).all() and (a <= 1).all())
+
+    # --- H: chisquare() enforces ``Raises ValueError when df <= 0`` (public API) --
+
+    def test_chisquare_nonpositive_df_raises(self):
+        """The public chisquare wrapper raises for df<=0."""
+        brainstate.random.seed(0)
+        for bad in (0.0, -2.0):
+            with self.subTest(df=bad):
+                with self.assertRaises(Exception):
+                    np.asarray(brainstate.random.chisquare(bad, 5))

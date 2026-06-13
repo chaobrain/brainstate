@@ -406,9 +406,15 @@ class ProgressBar(object):
         freq = self.print_freq
         count = self.print_count
         if count is not None:
-            freq, remainder = divmod(n, count)
+            freq = n // count
             if freq == 0:
                 raise ValueError(f"Count {count} is too large for n {n}.")
+            # The leftover added by ``_close_tqdm`` must be ``n % freq`` (the
+            # iterations not covered by the floor(n/freq) regular ``update(freq)``
+            # ticks), NOT ``n % count``. Using ``n % count`` overshoots the bar
+            # past 100% whenever ``count`` does not evenly divide ``n``. Match the
+            # other two branches, which correctly use ``n % freq``.
+            remainder = n % freq
         elif freq is None:
             if n > 20:
                 freq = int(n / 20)

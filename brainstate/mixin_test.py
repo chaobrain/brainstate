@@ -1102,5 +1102,50 @@ class TestMixinCoverage(unittest.TestCase):
             _ = brainstate.mixin.ThisNameDoesNotExist
 
 
+class TestModeHashable(unittest.TestCase):
+    """Regression tests for Mode hashability (L6).
+
+    Mode defines __eq__; without an explicit __hash__, Python sets
+    Mode.__hash__ = None, making every Mode/Training/Batching/JointMode instance
+    unhashable (unusable as a dict key, set member, or JAX static_argname).
+    """
+
+    def test_mode_is_hashable(self):
+        """hash() works on Mode and its subclasses."""
+        self.assertIsInstance(hash(brainstate.mixin.Mode()), int)
+        self.assertIsInstance(hash(brainstate.mixin.Training()), int)
+        self.assertIsInstance(hash(brainstate.mixin.Batching()), int)
+
+    def test_equal_modes_hash_equal(self):
+        """Modes that compare equal hash equal (consistent with type-based __eq__)."""
+        t1 = brainstate.mixin.Training()
+        t2 = brainstate.mixin.Training()
+        self.assertEqual(t1, t2)
+        self.assertEqual(hash(t1), hash(t2))
+
+    def test_different_modes_not_equal(self):
+        """Different mode types are not equal."""
+        self.assertNotEqual(brainstate.mixin.Training(), brainstate.mixin.Batching())
+
+    def test_mode_usable_as_dict_key(self):
+        """A Mode can be used as a dict key, with equal instances colliding."""
+        d = {brainstate.mixin.Training(): "train", brainstate.mixin.Batching(): "batch"}
+        self.assertEqual(d[brainstate.mixin.Training()], "train")
+        self.assertEqual(d[brainstate.mixin.Batching()], "batch")
+        self.assertEqual(len(d), 2)
+
+    def test_mode_usable_as_set_member(self):
+        """A Mode can be a set member; equal instances de-duplicate."""
+        s = {brainstate.mixin.Training(), brainstate.mixin.Training(), brainstate.mixin.Batching()}
+        self.assertEqual(len(s), 2)
+        self.assertIn(brainstate.mixin.Training(), s)
+        self.assertIn(brainstate.mixin.Batching(), s)
+
+    def test_joint_mode_is_hashable(self):
+        """JointMode (a Mode subclass) is also hashable."""
+        joint = brainstate.mixin.JointMode(brainstate.mixin.Training())
+        self.assertIsInstance(hash(joint), int)
+
+
 if __name__ == '__main__':
     unittest.main()

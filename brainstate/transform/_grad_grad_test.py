@@ -585,6 +585,33 @@ class TestForwardGrad(unittest.TestCase):
         self.assertEqual(leaf.shape, (2,))
         self.assertTrue(bool(jnp.all(jnp.isfinite(leaf))))
 
+    def test_fwd_grad_int_seed(self):
+        """A plain ``int`` seed (documented by ``SeedOrKey``) must be accepted
+        and normalized to a typed PRNG key, not crash in ``jax.random.split``
+        (audit M34)."""
+        w = brainstate.ParamState(jnp.array([1.0, 2.0, 3.0]))
+
+        g = brainstate.transform.fwd_grad(
+            lambda: jnp.sum(w.value ** 2), grad_states=w, key=0
+        )()
+        leaf = jax.tree.leaves(g)[0]
+        self.assertEqual(leaf.shape, (3,))
+        self.assertTrue(bool(jnp.all(jnp.isfinite(leaf))))
+
+    def test_fwd_grad_size1_array_seed(self):
+        """A size-1 integer array seed (e.g. ``np.array([42])``) must also be
+        accepted (audit M34: the naive ``ndim==0`` check would miss it)."""
+        import numpy as np
+
+        w = brainstate.ParamState(jnp.array([1.0, 2.0]))
+
+        g = brainstate.transform.fwd_grad(
+            lambda: jnp.sum(w.value ** 2), grad_states=w, key=np.array([42])
+        )()
+        leaf = jax.tree.leaves(g)[0]
+        self.assertEqual(leaf.shape, (2,))
+        self.assertTrue(bool(jnp.all(jnp.isfinite(leaf))))
+
 
 class TestArgnumsValidation(unittest.TestCase):
     """Negative or non-integer ``argnums`` must be rejected (audit H3).

@@ -63,6 +63,24 @@ def _randn_static_argnums(self, *dn, **kwargs):
     return tuple(range(len(dn) + 1))
 
 
+def _static(*intended):
+    """Build a ``static_argnums`` callable that clamps the intended static indices
+    to the positional arguments actually supplied.
+
+    ``size``/``dtype``/``check_valid``/... are declared static so they stay static
+    when passed positionally, but ``_fun.py`` and ordinary calls pass them as
+    keywords. brainstate's ``StatefulFunction`` raises if a static index exceeds the
+    number of positional args (unlike ``jax.jit``), so we intersect the intended
+    indices with the provided positional slots (``+1`` accounts for ``self``). Names
+    passed as keywords are still marked static via ``static_argnames``.
+    """
+
+    def fn(self, *args, **kwargs):
+        return tuple(i for i in intended if i < 1 + len(args))
+
+    return fn
+
+
 class RandomState(State):
     """RandomState that track the random generator state. """
 
@@ -190,7 +208,12 @@ class RandomState(State):
           ``(n,)``.
         """
         if n is not None:
-            assert isinstance(n, int) and n >= 1, f'n should be an integer greater than 1, but we got {n}'
+            try:
+                n = index(n)
+            except TypeError:
+                raise TypeError(f'n must be an integer, but got {n!r}')
+            if n < 1:
+                raise ValueError(f'n should be a positive integer, but got {n}')
 
         # Reading ``self.value`` materializes a lazy placeholder into a typed key.
         keys = jr.split(self.value, num=2 if n is None else n + 1)
@@ -210,6 +233,12 @@ class RandomState(State):
         """
         Self-assign multiple keys to the current random state.
         """
+        try:
+            n = index(n)
+        except TypeError:
+            raise TypeError(f'n must be an integer, but got {n!r}')
+        if n < 1:
+            raise ValueError(f'n should be a positive integer, but got {n}')
         if backup:
             keys = jr.split(self.value, n + 1)
             self.value = keys[0]
@@ -239,7 +268,7 @@ class RandomState(State):
 
     @named_scope(
         'brainstate/random',
-        static_argnums=(0, 3, 4),
+        static_argnums=_static(0, 3, 4),
         static_argnames=['dtype', 'size']
     )
     def randint(
@@ -270,7 +299,7 @@ class RandomState(State):
 
     @named_scope(
         'brainstate/random',
-        static_argnums=(0, 3, 5),
+        static_argnums=_static(0, 3, 5),
         static_argnames=['dtype', 'size']
     )
     def random_integers(
@@ -317,7 +346,7 @@ class RandomState(State):
 
     @named_scope(
         'brainstate/random',
-        static_argnums=(0, 1, 3),
+        static_argnums=_static(0, 1, 3),
         static_argnames=['dtype', 'size']
     )
     def random(
@@ -332,7 +361,7 @@ class RandomState(State):
 
     @named_scope(
         'brainstate/random',
-        static_argnums=(0, 1, 3),
+        static_argnums=_static(0, 1, 3),
         static_argnames=['dtype', 'size']
     )
     def random_sample(
@@ -346,7 +375,7 @@ class RandomState(State):
 
     @named_scope(
         'brainstate/random',
-        static_argnums=(0, 1, 3),
+        static_argnums=_static(0, 1, 3),
         static_argnames=['dtype', 'size']
     )
     def ranf(
@@ -358,7 +387,7 @@ class RandomState(State):
         r = self.random(size=size, key=key, dtype=dtype or environ.dftype())
         return r
 
-    @named_scope('brainstate/random', static_argnums=(0, 1, 3), static_argnames=['dtype', 'size'])
+    @named_scope('brainstate/random', static_argnums=_static(0, 1, 3), static_argnames=['dtype', 'size'])
     def sample(
         self,
         size: Optional[Size] = None,
@@ -370,7 +399,10 @@ class RandomState(State):
 
     @named_scope(
         'brainstate/random',
-        static_argnums=lambda self, a, *args, **kwargs: (0, 1, 2, 3) if isinstance(a, int) else (0, 2, 3),
+        static_argnums=lambda self, a, *args, **kwargs: tuple(
+            i for i in ((0, 1, 2, 3) if isinstance(a, int) else (0, 2, 3))
+            if i < 2 + len(args)  # +1 for self, +1 for the always-present ``a``
+        ),
         static_argnames=['size', 'replace']
     )
     def choice(
@@ -381,16 +413,32 @@ class RandomState(State):
         p=None,
         key: Optional[SeedOrKey] = None
     ):
-        a = _check_py_seq(a)
-        a, unit = u.split_mantissa_unit(a)
         p = _check_py_seq(p)
         key = self.__get_key(key)
+        # Non-numeric array-likes (string/object/bytes) cannot be represented as a
+        # JAX array, so ``_check_py_seq``/``split_mantissa_unit``/``jr.choice`` would
+        # raise. Detect them on the raw input *before* any jax coercion (JAX tracers
+        # and arrays are always numeric, so we never materialize a tracer here), then
+        # sample integer indices and gather from a plain numpy array.
+        if not isinstance(a, int) and not isinstance(a, (jax.Array, u.Quantity)):
+            arr = np.asarray(a)
+            if arr.dtype.kind not in 'biufc':
+                idx = jr.choice(
+                    key,
+                    a=np.arange(arr.shape[0]),
+                    shape=_size2shape(size),
+                    replace=replace,
+                    p=p,
+                )
+                return arr[np.asarray(idx)]
+        a = _check_py_seq(a)
+        a, unit = u.split_mantissa_unit(a)
         r = jr.choice(key, a=a, shape=_size2shape(size), replace=replace, p=p)
         return u.maybe_decimal(r * unit)
 
     @named_scope(
         'brainstate/random',
-        static_argnums=(0, 2, 3),
+        static_argnums=_static(0, 2, 3),
         static_argnames=['axis', 'independent']
     )
     def permutation(
@@ -406,7 +454,7 @@ class RandomState(State):
         r = jr.permutation(key, x, axis, independent=independent)
         return u.maybe_decimal(r * unit)
 
-    @named_scope('brainstate/random', static_argnums=(0, 2), static_argnames=['axis'])
+    @named_scope('brainstate/random', static_argnums=_static(0, 2), static_argnames=['axis'])
     def shuffle(
         self,
         x,
@@ -415,7 +463,7 @@ class RandomState(State):
     ):
         return self.permutation(x, axis=axis, key=key, independent=False)
 
-    @named_scope('brainstate/random', static_argnums=(0, 3, 5), static_argnames=['dtype', 'size'])
+    @named_scope('brainstate/random', static_argnums=_static(0, 3, 5), static_argnames=['dtype', 'size'])
     def beta(
         self,
         a,
@@ -432,7 +480,7 @@ class RandomState(State):
         r = jr.beta(key, a=a, b=b, shape=_size2shape(size), dtype=dtype or environ.dftype())
         return r
 
-    @named_scope('brainstate/random', static_argnums=(0, 2, 4), static_argnames=['dtype', 'size'])
+    @named_scope('brainstate/random', static_argnums=_static(0, 2, 4), static_argnames=['dtype', 'size'])
     def exponential(
         self,
         scale=None,
@@ -453,7 +501,7 @@ class RandomState(State):
             r = r * u.math.asarray(scale_m, dtype=dtype)
         return u.maybe_decimal(r * unit)
 
-    @named_scope('brainstate/random', static_argnums=(0, 3, 5), static_argnames=['dtype', 'size'])
+    @named_scope('brainstate/random', static_argnums=_static(0, 3, 5), static_argnames=['dtype', 'size'])
     def gamma(
         self,
         shape,
@@ -475,7 +523,7 @@ class RandomState(State):
             r = r * scale_m
         return u.maybe_decimal(r * unit)
 
-    @named_scope('brainstate/random', static_argnums=(0, 3, 5), static_argnames=['dtype', 'size'])
+    @named_scope('brainstate/random', static_argnums=_static(0, 3, 5), static_argnames=['dtype', 'size'])
     def gumbel(
         self,
         loc=None,
@@ -494,7 +542,7 @@ class RandomState(State):
         r = _loc_scale(loc, scale, jr.gumbel(key, shape=_size2shape(size), dtype=dtype or environ.dftype()))
         return u.maybe_decimal(r * unit)
 
-    @named_scope('brainstate/random', static_argnums=(0, 3, 5), static_argnames=['dtype', 'size'])
+    @named_scope('brainstate/random', static_argnums=_static(0, 3, 5), static_argnames=['dtype', 'size'])
     def laplace(
         self,
         loc=None,
@@ -513,7 +561,7 @@ class RandomState(State):
         r = _loc_scale(loc, scale, jr.laplace(key, shape=_size2shape(size), dtype=dtype or environ.dftype()))
         return u.maybe_decimal(r * unit)
 
-    @named_scope('brainstate/random', static_argnums=(0, 3, 5), static_argnames=['dtype', 'size'])
+    @named_scope('brainstate/random', static_argnums=_static(0, 3, 5), static_argnames=['dtype', 'size'])
     def logistic(
         self,
         loc=None,
@@ -532,7 +580,7 @@ class RandomState(State):
         r = _loc_scale(loc, scale, jr.logistic(key, shape=_size2shape(size), dtype=dtype or environ.dftype()))
         return u.maybe_decimal(r * unit)
 
-    @named_scope('brainstate/random', static_argnums=(0, 3, 5), static_argnames=['dtype', 'size'])
+    @named_scope('brainstate/random', static_argnums=_static(0, 3, 5), static_argnames=['dtype', 'size'])
     def normal(
         self,
         loc=None,
@@ -552,7 +600,7 @@ class RandomState(State):
         r = _loc_scale(loc, scale, jr.normal(key, shape=_size2shape(size), dtype=dtype))
         return u.maybe_decimal(r * unit)
 
-    @named_scope('brainstate/random', static_argnums=(0, 2, 4), static_argnames=['dtype', 'size'])
+    @named_scope('brainstate/random', static_argnums=_static(0, 2, 4), static_argnames=['dtype', 'size'])
     def pareto(
         self,
         a,
@@ -569,7 +617,7 @@ class RandomState(State):
         r = jr.pareto(key, b=a, shape=_size2shape(size), dtype=dtype)
         return r
 
-    @named_scope('brainstate/random', static_argnums=(0, 2, 4), static_argnames=['dtype', 'size'])
+    @named_scope('brainstate/random', static_argnums=_static(0, 2, 4), static_argnames=['dtype', 'size'])
     def poisson(
         self,
         lam=1.0,
@@ -585,7 +633,7 @@ class RandomState(State):
         r = jr.poisson(key, lam=lam, shape=_size2shape(size), dtype=dtype)
         return r
 
-    @named_scope('brainstate/random', static_argnums=(0, 1, 3), static_argnames=['dtype', 'size'])
+    @named_scope('brainstate/random', static_argnums=_static(0, 1, 3), static_argnames=['dtype', 'size'])
     def standard_cauchy(
         self,
         size: Optional[Size] = None,
@@ -597,7 +645,7 @@ class RandomState(State):
         r = jr.cauchy(key, shape=_size2shape(size), dtype=dtype)
         return r
 
-    @named_scope('brainstate/random', static_argnums=(0, 1, 3), static_argnames=['dtype', 'size'])
+    @named_scope('brainstate/random', static_argnums=_static(0, 1, 3), static_argnames=['dtype', 'size'])
     def standard_exponential(
         self,
         size: Optional[Size] = None,
@@ -609,7 +657,7 @@ class RandomState(State):
         r = jr.exponential(key, shape=_size2shape(size), dtype=dtype)
         return r
 
-    @named_scope('brainstate/random', static_argnums=(0, 2, 4), static_argnames=['dtype', 'size'])
+    @named_scope('brainstate/random', static_argnums=_static(0, 2, 4), static_argnames=['dtype', 'size'])
     def standard_gamma(
         self,
         shape,
@@ -625,7 +673,7 @@ class RandomState(State):
         r = jr.gamma(key, a=shape, shape=_size2shape(size), dtype=dtype)
         return r
 
-    @named_scope('brainstate/random', static_argnums=(0, 1, 3), static_argnames=['dtype', 'size'])
+    @named_scope('brainstate/random', static_argnums=_static(0, 1, 3), static_argnames=['dtype', 'size'])
     def standard_normal(
         self,
         size: Optional[Size] = None,
@@ -637,7 +685,7 @@ class RandomState(State):
         r = jr.normal(key, shape=_size2shape(size), dtype=dtype)
         return r
 
-    @named_scope('brainstate/random', static_argnums=(0, 2, 4), static_argnames=['dtype', 'size'])
+    @named_scope('brainstate/random', static_argnums=_static(0, 2, 4), static_argnames=['dtype', 'size'])
     def standard_t(
         self,
         df,
@@ -657,7 +705,7 @@ class RandomState(State):
 
     @named_scope(
         'brainstate/random',
-        static_argnums=(0, 3, 5),
+        static_argnums=_static(0, 3, 5),
         static_argnames=['dtype', 'size']
     )
     def uniform(
@@ -685,7 +733,7 @@ class RandomState(State):
 
     @named_scope(
         'brainstate/random',
-        static_argnums=(0, 3, 7, 8),
+        static_argnums=_static(0, 3, 7, 8),
         static_argnames=['dtype', 'size', 'check_valid'],
     )
     def truncated_normal(
@@ -773,7 +821,7 @@ class RandomState(State):
 
     @named_scope(
         'brainstate/random',
-        static_argnums=(0, 2, 4),
+        static_argnums=_static(0, 2, 4),
         static_argnames=['size', 'check_valid']
     )
     def bernoulli(
@@ -795,7 +843,7 @@ class RandomState(State):
 
     @named_scope(
         'brainstate/random',
-        static_argnums=(0, 3, 5),
+        static_argnums=_static(0, 3, 5),
         static_argnames=['dtype', 'size']
     )
     def lognormal(
@@ -825,7 +873,7 @@ class RandomState(State):
 
     @named_scope(
         'brainstate/random',
-        static_argnums=(0, 3, 5, 6),
+        static_argnums=_static(0, 3, 5, 6),
         static_argnames=['dtype', 'size', 'check_valid']
     )
     def binomial(
@@ -855,17 +903,21 @@ class RandomState(State):
 
     @named_scope(
         'brainstate/random',
-        static_argnums=(0, 2, 4),
-        static_argnames=['dtype', 'size']
+        static_argnums=_static(0, 2, 4, 5),
+        static_argnames=['dtype', 'size', 'check_valid']
     )
     def chisquare(
         self,
         df,
         size: Optional[Size] = None,
         key: Optional[SeedOrKey] = None,
-        dtype: DTypeLike = None
+        dtype: DTypeLike = None,
+        check_valid: bool = True
     ):
         df = _remove_unit_param('df', _check_py_seq(df))
+        if check_valid:
+            from brainstate.transform._error_if import jit_error_if
+            jit_error_if(jnp.any(jnp.asarray(df) <= 0), 'df must be > 0, but we got {df}', df=df)
         key = self.__get_key(key)
         dtype = dtype or environ.dftype()
         if size is None:
@@ -880,7 +932,7 @@ class RandomState(State):
 
     @named_scope(
         'brainstate/random',
-        static_argnums=(0, 2, 4),
+        static_argnums=_static(0, 2, 4),
         static_argnames=['dtype', 'size']
     )
     def dirichlet(
@@ -898,7 +950,7 @@ class RandomState(State):
 
     @named_scope(
         'brainstate/random',
-        static_argnums=(0, 2, 4),
+        static_argnums=_static(0, 2, 4),
         static_argnames=['dtype', 'size']
     )
     def geometric(
@@ -922,11 +974,13 @@ class RandomState(State):
         return u.math.asarray(r, dtype=dtype or environ.ditype())
 
     def _check_p2(self, p):
-        raise ValueError(f'We require `sum(pvals[:-1]) <= 1`. But we got {p}')
+        raise ValueError(
+            f'We require `sum(pvals[..., :-1], axis=-1) <= 1` for every distribution. But we got {p}'
+        )
 
     @named_scope(
         'brainstate/random',
-        static_argnums=(0, 3, 5, 6),
+        static_argnums=_static(0, 3, 5, 6),
         static_argnames=['dtype', 'size', 'check_valid']
     )
     def multinomial(
@@ -943,7 +997,7 @@ class RandomState(State):
         pvals = _remove_unit_param('pvals', _check_py_seq(pvals))
         if check_valid:
             from brainstate.transform._error_if import jit_error_if
-            jit_error_if(jnp.sum(pvals[:-1]) > 1., self._check_p2, pvals)
+            jit_error_if(jnp.any(jnp.sum(pvals[..., :-1], axis=-1) > 1.), self._check_p2, pvals)
         if isinstance(n, Tracer):
             raise ValueError("The total count parameter `n` should not be a jax abstract array.")
         size = _size2shape(size)
@@ -955,7 +1009,7 @@ class RandomState(State):
 
     @named_scope(
         'brainstate/random',
-        static_argnums=(0, 3, 4, 6),
+        static_argnums=_static(0, 3, 4, 6),
         static_argnames=['dtype', 'size', 'method']
     )
     def multivariate_normal(
@@ -973,8 +1027,12 @@ class RandomState(State):
         mean = u.math.asarray(_check_py_seq(mean), dtype=dtype)
         cov = u.math.asarray(_check_py_seq(cov), dtype=dtype)
         if isinstance(mean, u.Quantity):
-            assert isinstance(cov, u.Quantity), 'cov must carry a unit when mean does.'
-            assert mean.unit ** 2 == cov.unit, 'cov unit must equal mean unit squared.'
+            if not isinstance(cov, u.Quantity):
+                raise u.UnitMismatchError('cov must carry a unit when mean does; '
+                                          f'got mean.unit={mean.unit} but a unitless cov.')
+            if mean.unit ** 2 != cov.unit:
+                raise u.UnitMismatchError('cov unit must equal mean unit squared; '
+                                          f'expected {mean.unit ** 2}, got {cov.unit}.')
         # Capture the output unit *before* stripping the mantissa from ``mean``.
         unit = mean.unit if isinstance(mean, u.Quantity) else u.UNITLESS
         mean = mean.mantissa if isinstance(mean, u.Quantity) else mean
@@ -1009,7 +1067,7 @@ class RandomState(State):
 
     @named_scope(
         'brainstate/random',
-        static_argnums=(0, 2, 4),
+        static_argnums=_static(0, 2, 4),
         static_argnames=['dtype', 'size']
     )
     def rayleigh(
@@ -1030,7 +1088,7 @@ class RandomState(State):
 
     @named_scope(
         'brainstate/random',
-        static_argnums=(0, 4, 6),
+        static_argnums=_static(0, 4, 6),
         static_argnames=['dtype', 'size']
     )
     def triangular(
@@ -1086,7 +1144,7 @@ class RandomState(State):
 
     @named_scope(
         'brainstate/random',
-        static_argnums=(0, 3, 5),
+        static_argnums=_static(0, 3, 5),
         static_argnames=['dtype', 'size']
     )
     def vonmises(
@@ -1115,7 +1173,7 @@ class RandomState(State):
 
     @named_scope(
         'brainstate/random',
-        static_argnums=(0, 2, 4),
+        static_argnums=_static(0, 2, 4),
         static_argnames=['dtype', 'size']
     )
     def weibull(
@@ -1140,7 +1198,7 @@ class RandomState(State):
 
     @named_scope(
         'brainstate/random',
-        static_argnums=(0, 3, 5),
+        static_argnums=_static(0, 3, 5),
         static_argnames=['dtype', 'size']
     )
     def weibull_min(
@@ -1172,7 +1230,7 @@ class RandomState(State):
 
     @named_scope(
         'brainstate/random',
-        static_argnums=(0, 1, 3),
+        static_argnums=_static(0, 1, 3),
         static_argnames=['dtype', 'size']
     )
     def maxwell(
@@ -1190,7 +1248,7 @@ class RandomState(State):
 
     @named_scope(
         'brainstate/random',
-        static_argnums=(0, 3, 5),
+        static_argnums=_static(0, 3, 5),
         static_argnames=['dtype', 'size']
     )
     def negative_binomial(
@@ -1217,7 +1275,7 @@ class RandomState(State):
 
     @named_scope(
         'brainstate/random',
-        static_argnums=(0, 3, 5),
+        static_argnums=_static(0, 3, 5),
         static_argnames=['dtype', 'size']
     )
     def wald(
@@ -1236,8 +1294,13 @@ class RandomState(State):
         if size is None:
             size = lax.broadcast_shapes(u.math.shape(mean), u.math.shape(scale))
         size = _size2shape(size)
-        sampled_chi2 = jnp.square(self.randn(*size))
-        sampled_uniform = self.uniform(size=size, key=key, dtype=dtype)
+        # Derive two independent sub-keys from the (already normalized) key so both
+        # draws are reproducible in the supplied key and neither consumes the global
+        # RNG stream. Threading dtype keeps the chi-square draw consistent with the
+        # uniform draw (e.g. float16).
+        k_chi2, k_uni = jr.split(key, 2)
+        sampled_chi2 = jnp.square(self.randn(*size, key=k_chi2, dtype=dtype))
+        sampled_uniform = self.uniform(size=size, key=k_uni, dtype=dtype)
         # Wikipedia defines an intermediate x with the formula
         #   x = loc + loc ** 2 * y / (2 * conc) - loc / (2 * conc) * sqrt(4 * loc * conc * y + loc ** 2 * y ** 2)
         # where y ~ N(0, 1)**2 (sampled_chi2 above) and conc is the concentration.
@@ -1269,7 +1332,7 @@ class RandomState(State):
                         jnp.square(mean) / sampled)
         return u.maybe_decimal(res * unit)
 
-    @named_scope('brainstate/random', static_argnums=(0, 2, 4), static_argnames=['dtype', 'size'])
+    @named_scope('brainstate/random', static_argnums=_static(0, 2, 4), static_argnames=['dtype', 'size'])
     def t(
         self,
         df,
@@ -1295,7 +1358,7 @@ class RandomState(State):
         r = n * jnp.sqrt(half_df / g)
         return r
 
-    @named_scope('brainstate/random', static_argnums=(0, 1, 2, 4), static_argnames=['n', 'dtype', 'size'])
+    @named_scope('brainstate/random', static_argnums=_static(0, 1, 2, 4), static_argnames=['n', 'dtype', 'size'])
     def orthogonal(
         self,
         n: int,
@@ -1314,7 +1377,7 @@ class RandomState(State):
         r = q * jnp.expand_dims(d / abs(d), -2)
         return r
 
-    @named_scope('brainstate/random', static_argnums=(0, 3, 5), static_argnames=['dtype', 'size'])
+    @named_scope('brainstate/random', static_argnums=_static(0, 3, 5), static_argnames=['dtype', 'size'])
     def noncentral_chisquare(
         self,
         df,
@@ -1341,7 +1404,7 @@ class RandomState(State):
         r = jnp.where(cond, chi2 + n * n, chi2)
         return r
 
-    @named_scope('brainstate/random', static_argnums=(0, 2, 4), static_argnames=['dtype', 'size'])
+    @named_scope('brainstate/random', static_argnums=_static(0, 2, 4), static_argnames=['dtype', 'size'])
     def loggamma(
         self,
         a,
@@ -1357,7 +1420,7 @@ class RandomState(State):
         r = jr.loggamma(key, a, shape=_size2shape(size), dtype=dtype)
         return r
 
-    @named_scope('brainstate/random', static_argnums=(0, 2, 3), static_argnames=['dtype', 'size', 'axis'])
+    @named_scope('brainstate/random', static_argnums=_static(0, 2, 3), static_argnames=['dtype', 'size', 'axis'])
     def categorical(
         self,
         logits,
@@ -1373,7 +1436,7 @@ class RandomState(State):
         r = jr.categorical(key, logits, axis=axis, shape=_size2shape(size))
         return r
 
-    @named_scope('brainstate/random', static_argnums=(0, 2, 4), static_argnames=['dtype', 'size'])
+    @named_scope('brainstate/random', static_argnums=_static(0, 2, 4), static_argnames=['dtype', 'size'])
     def zipf(
         self,
         a,
@@ -1392,15 +1455,19 @@ class RandomState(State):
         )
         return r
 
-    @named_scope('brainstate/random', static_argnums=(0, 2, 4), static_argnames=['dtype', 'size'])
+    @named_scope('brainstate/random', static_argnums=_static(0, 2, 4, 5), static_argnames=['dtype', 'size', 'check_valid'])
     def power(
         self,
         a,
         size: Optional[Size] = None,
         key: Optional[SeedOrKey] = None,
-        dtype: DTypeLike = None
+        dtype: DTypeLike = None,
+        check_valid: bool = True
     ):
         a = _remove_unit_param('a', _check_py_seq(a))
+        if check_valid:
+            from brainstate.transform._error_if import jit_error_if
+            jit_error_if(jnp.any(jnp.asarray(a) <= 0), 'Parameter a must be > 0, but we got {a}', a=a)
         if size is None:
             size = u.math.shape(a)
         size = _size2shape(size)
@@ -1412,7 +1479,7 @@ class RandomState(State):
         )
         return r
 
-    @named_scope('brainstate/random', static_argnums=(0, 3, 5), static_argnames=['dtype', 'size'])
+    @named_scope('brainstate/random', static_argnums=_static(0, 3, 5), static_argnames=['dtype', 'size'])
     def f(
         self,
         dfnum,
@@ -1435,7 +1502,7 @@ class RandomState(State):
         )
         return r
 
-    @named_scope('brainstate/random', static_argnums=(0, 4, 6), static_argnames=['dtype', 'size'])
+    @named_scope('brainstate/random', static_argnums=_static(0, 4, 6), static_argnames=['dtype', 'size'])
     def hypergeometric(
         self,
         ngood,
@@ -1465,7 +1532,7 @@ class RandomState(State):
         )
         return r
 
-    @named_scope('brainstate/random', static_argnums=(0, 2, 4), static_argnames=['dtype', 'size'])
+    @named_scope('brainstate/random', static_argnums=_static(0, 2, 4), static_argnames=['dtype', 'size'])
     def logseries(
         self,
         p,
@@ -1485,7 +1552,7 @@ class RandomState(State):
         )
         return r
 
-    @named_scope('brainstate/random', static_argnums=(0, 4, 6), static_argnames=['dtype', 'size'])
+    @named_scope('brainstate/random', static_argnums=_static(0, 4, 6), static_argnames=['dtype', 'size'])
     def noncentral_f(
         self,
         dfnum,
@@ -1516,7 +1583,7 @@ class RandomState(State):
     # PyTorch compatibility #
     # --------------------- #
 
-    @named_scope('brainstate/random', static_argnums=(0, 2), static_argnames=['dtype'])
+    @named_scope('brainstate/random', static_argnums=_static(0, 2), static_argnames=['dtype'])
     def rand_like(
         self,
         input,
@@ -1539,9 +1606,10 @@ class RandomState(State):
         -------
         The random data.
         """
+        dtype = dtype if dtype is not None else u.math.get_dtype(input)
         return self.random(u.math.shape(input), key=key).astype(dtype)
 
-    @named_scope('brainstate/random', static_argnums=(0, 2), static_argnames=['dtype'])
+    @named_scope('brainstate/random', static_argnums=_static(0, 2), static_argnames=['dtype'])
     def randn_like(
         self,
         input,
@@ -1564,9 +1632,10 @@ class RandomState(State):
         -------
         The random data.
         """
+        dtype = dtype if dtype is not None else u.math.get_dtype(input)
         return self.randn(*u.math.shape(input), key=key).astype(dtype)
 
-    @named_scope('brainstate/random', static_argnums=(0, 4), static_argnames=['dtype'])
+    @named_scope('brainstate/random', static_argnums=_static(0, 4), static_argnames=['dtype'])
     def randint_like(
         self,
         input,
@@ -1579,7 +1648,11 @@ class RandomState(State):
             # ``max`` (the Python builtin) raises on multi-dimensional arrays; use an
             # array reduction so any-rank templates work.
             high = u.math.max(input)
-        return self.randint(low, high, size=u.math.shape(input), dtype=dtype, key=key)
+        # Default to the template's dtype when ``dtype`` is None (PyTorch contract).
+        # ``self.randint`` only accepts integer dtypes, so sample with its default
+        # integer dtype and cast afterward (``out_dtype`` may be a float template).
+        out_dtype = dtype if dtype is not None else u.math.get_dtype(input)
+        return self.randint(low, high, size=u.math.shape(input), key=key).astype(out_dtype)
 
 
 # default random generator

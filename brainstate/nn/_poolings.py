@@ -98,16 +98,15 @@ class Flatten(Module):
     def update(self, x):
         if self._in_size is None:
             start_axis = self.start_axis if self.start_axis >= 0 else x.ndim + self.start_axis
+            end_axis = self.end_axis if self.end_axis >= 0 else x.ndim + self.end_axis
         else:
             assert x.ndim >= len(self.in_size), 'Input tensor has fewer dimensions than the expected shape.'
             dim_diff = x.ndim - len(self.in_size)
             if self.in_size != x.shape[dim_diff:]:
                 raise ValueError(f'Input tensor has shape {x.shape}, but expected shape {self.in_size}.')
-            if self.start_axis >= 0:
-                start_axis = self.start_axis + dim_diff
-            else:
-                start_axis = x.ndim + self.start_axis
-        return u.math.flatten(x, start_axis, self.end_axis)
+            start_axis = self.start_axis + dim_diff if self.start_axis >= 0 else x.ndim + self.start_axis
+            end_axis = self.end_axis + dim_diff if self.end_axis >= 0 else x.ndim + self.end_axis
+        return u.math.flatten(x, start_axis, end_axis)
 
 
 class Unflatten(Module):
@@ -356,7 +355,7 @@ class _AvgPool(_MaxPool):
                                                   window_strides=stride,
                                                   padding=padding)
             assert pooled.shape == window_counts.shape
-            return pooled / window_counts
+            return pooled / jnp.maximum(window_counts, 1)
 
 
 class MaxPool1d(_MaxPool):
@@ -723,12 +722,12 @@ class _MaxUnpool(Module):
             raise ValueError(f'Expected input with >= {x_dim} dimensions, but got {x.ndim}.')
 
         # Natural output shape: the layout the stored ``indices`` are flat positions in.
+        spatial_axes = self._get_spatial_axes(x.ndim)
         spatial_dims = self._get_spatial_dims(x.shape)
         natural_spatial_shape = self._compute_output_shape(spatial_dims, None)
         natural_shape = list(x.shape)
-        spatial_start = self._get_spatial_start_idx(x.ndim)
         for i, size in enumerate(natural_spatial_shape):
-            natural_shape[spatial_start + i] = size
+            natural_shape[spatial_axes[i]] = size
         natural_shape = tuple(natural_shape)
 
         # Determine the requested output shape.
@@ -746,13 +745,13 @@ class _MaxUnpool(Module):
                         raise ValueError(f"output_size must have {self.pool_dim} spatial dimensions, got {len(output_size)}")
                     output_shape = list(x.shape)
                     for i, size in enumerate(output_size):
-                        output_shape[spatial_start + i] = size
+                        output_shape[spatial_axes[i]] = size
                     output_shape = tuple(output_shape)
             else:
                 # Single integer provided, use for all spatial dims
                 output_shape = list(x.shape)
                 for i in range(self.pool_dim):
-                    output_shape[spatial_start + i] = output_size
+                    output_shape[spatial_axes[i]] = output_size
                 output_shape = tuple(output_shape)
 
         # Flatten values and the stored within-natural-layout indices.
@@ -799,16 +798,19 @@ class _MaxUnpool(Module):
             all_dims.pop(channel_axis)
             return tuple(shape[i] for i in all_dims[-self.pool_dim:])
 
-    def _get_spatial_start_idx(self, ndim):
-        """Get the starting index of spatial dimensions."""
+    def _get_spatial_axes(self, ndim):
+        """Get the ordered spatial axis indices.
+
+        Unlike a single start index, this returns the explicit list of spatial
+        axes so that an interleaved ``channel_axis`` (e.g. ``(N, H, C, W)``) is
+        handled correctly: the spatial dimensions need not be contiguous.
+        """
         if self.channel_axis is None:
-            return ndim - self.pool_dim
-        else:
-            channel_axis = self.channel_axis if self.channel_axis >= 0 else ndim + self.channel_axis
-            if channel_axis < ndim - self.pool_dim:
-                return ndim - self.pool_dim
-            else:
-                return ndim - self.pool_dim - 1
+            return list(range(ndim))[-self.pool_dim:]
+        ca = self.channel_axis if self.channel_axis >= 0 else ndim + self.channel_axis
+        all_dims = list(range(ndim))
+        all_dims.pop(ca)
+        return all_dims[-self.pool_dim:]
 
     def update(self, x, indices, output_size=None):
         """Forward pass of MaxUnpool1d.
@@ -1341,8 +1343,8 @@ class _LPPool(Module):
     ):
         super().__init__(name=name)
 
-        if norm_type <= 0:
-            raise ValueError(f"norm_type must be positive, got {norm_type}")
+        if not (norm_type > 0) or not np.isfinite(norm_type):
+            raise ValueError(f"norm_type must be a positive finite number, got {norm_type}")
         self.norm_type = norm_type
         self.pool_dim = pool_dim
 
@@ -1438,11 +1440,15 @@ class _LPPool(Module):
             padding=padding
         )
 
-        # Step 3: Take p-th root and multiply by normalization factor
-        # The normalization factor is (1/N)^(1/p) where N is the window size
-        window_size = np.prod([w for i, w in enumerate(self.kernel_size)])
-        norm_factor = window_size ** (-1.0 / self.norm_type)
-        result = norm_factor * (pooled_sum ** (1.0 / self.norm_type))
+        # Step 3: Take p-th root and multiply by normalization factor.
+        # The normalization factor is (1/N)^(1/p) where N is the window size.
+        # Use a double-``where`` so the power is never evaluated at 0, which would
+        # otherwise produce a NaN gradient (0 ** (1/p) has an infinite derivative).
+        inv_p = 1.0 / self.norm_type
+        window_size = np.prod([w for w in self.kernel_size])
+        norm_factor = window_size ** (-inv_p)
+        safe_sum = jnp.where(pooled_sum > 0, pooled_sum, 1.0)
+        result = norm_factor * jnp.where(pooled_sum > 0, safe_sum ** inv_p, 0.0)
 
         return result
 
@@ -1473,7 +1479,8 @@ class LPPool1d(_LPPool):
     where :math:`N` is the number of elements in the window
     (:math:`N = \prod_i \text{kernel\_size}[i]`).
 
-    - At :math:`p = \infty`, one gets max pooling
+    - As :math:`p \to \infty`, the result approaches max pooling (the limit;
+      :math:`p = \infty` itself is not supported -- ``norm_type`` must be finite)
     - At :math:`p = 1`, one gets average pooling (with absolute values)
     - At :math:`p = 2`, one gets root mean square (RMS) pooling
 
@@ -1557,7 +1564,8 @@ class LPPool2d(_LPPool):
     where :math:`N` is the number of elements in the window
     (:math:`N = \prod_i \text{kernel\_size}[i]`).
 
-    - At :math:`p = \infty`, one gets max pooling
+    - As :math:`p \to \infty`, the result approaches max pooling (the limit;
+      :math:`p = \infty` itself is not supported -- ``norm_type`` must be finite)
     - At :math:`p = 1`, one gets average pooling (with absolute values)
     - At :math:`p = 2`, one gets root mean square (RMS) pooling
 
@@ -1646,7 +1654,8 @@ class LPPool3d(_LPPool):
     where :math:`N` is the number of elements in the window
     (:math:`N = \prod_i \text{kernel\_size}[i]`).
 
-    - At :math:`p = \infty`, one gets max pooling
+    - As :math:`p \to \infty`, the result approaches max pooling (the limit;
+      :math:`p = \infty` itself is not supported -- ``norm_type`` must be finite)
     - At :math:`p = 1`, one gets average pooling (with absolute values)
     - At :math:`p = 2`, one gets root mean square (RMS) pooling
 
@@ -1744,6 +1753,13 @@ def _adaptive_pool1d(x, target_size: int, operation: Callable):
     A JAX array of shape `(target_size, )`.
     """
     size = jnp.size(x)
+    if target_size < 1:
+        raise ValueError(f"target_size must be >= 1, got {target_size}")
+    if size < target_size:
+        raise ValueError(
+            f"target_size ({target_size}) must be <= input size ({size}); "
+            f"upsampling is not supported"
+        )
     num_head_arrays = size % target_size
     num_block = size // target_size
     if num_head_arrays != 0:
@@ -1853,7 +1869,8 @@ class _AdaptivePool(Module):
 class AdaptiveAvgPool1d(_AdaptivePool):
     r"""Applies a 1D adaptive average pooling over an input signal composed of several input planes.
 
-    The output size is :math:`L_{out}`, for any input size.
+    The output size is :math:`L_{out}`, which must be no larger than the input size
+    along the pooled axis (downsampling only; upsampling is not supported).
     The number of output features is equal to the number of input planes.
 
     Adaptive pooling automatically computes the kernel size and stride to achieve the desired
@@ -1887,11 +1904,11 @@ class AdaptiveAvgPool1d(_AdaptivePool):
         >>> output = m(input)
         >>> output.shape
         (1, 5, 8)
-        >>> # Can handle variable input sizes
+        >>> # Handles variable input sizes, as long as they are >= the target size
         >>> input2 = brainstate.random.randn(1, 32, 8)
         >>> output2 = m(input2)
         >>> output2.shape
-        (1, 5, 8)  # Same output size regardless of input size
+        (1, 5, 8)  # Same output size for any input size >= the target
 
     See Also
     --------
@@ -1920,7 +1937,9 @@ class AdaptiveAvgPool1d(_AdaptivePool):
 class AdaptiveAvgPool2d(_AdaptivePool):
     r"""Applies a 2D adaptive average pooling over an input signal composed of several input planes.
 
-    The output is of size :math:`H_{out} \times W_{out}`, for any input size.
+    The output is of size :math:`H_{out} \times W_{out}`, each of which must be no
+    larger than the corresponding input size (downsampling only; upsampling is not
+    supported).
     The number of output features is equal to the number of input planes.
 
     Adaptive pooling automatically computes the kernel size and stride to achieve the desired
@@ -1996,7 +2015,9 @@ class AdaptiveAvgPool2d(_AdaptivePool):
 class AdaptiveAvgPool3d(_AdaptivePool):
     r"""Applies a 3D adaptive average pooling over an input signal composed of several input planes.
 
-    The output is of size :math:`D_{out} \times H_{out} \times W_{out}`, for any input size.
+    The output is of size :math:`D_{out} \times H_{out} \times W_{out}`, each of which
+    must be no larger than the corresponding input size (downsampling only; upsampling
+    is not supported).
     The number of output features is equal to the number of input planes.
 
     Adaptive pooling automatically computes the kernel size and stride to achieve the desired
@@ -2072,7 +2093,8 @@ class AdaptiveAvgPool3d(_AdaptivePool):
 class AdaptiveMaxPool1d(_AdaptivePool):
     r"""Applies a 1D adaptive max pooling over an input signal composed of several input planes.
 
-    The output size is :math:`L_{out}`, for any input size.
+    The output size is :math:`L_{out}`, which must be no larger than the input size
+    along the pooled axis (downsampling only; upsampling is not supported).
     The number of output features is equal to the number of input planes.
 
     Adaptive pooling automatically computes the kernel size and stride to achieve the desired
@@ -2106,11 +2128,11 @@ class AdaptiveMaxPool1d(_AdaptivePool):
         >>> output = m(input)
         >>> output.shape
         (1, 5, 8)
-        >>> # Can handle variable input sizes
+        >>> # Handles variable input sizes, as long as they are >= the target size
         >>> input2 = brainstate.random.randn(1, 32, 8)
         >>> output2 = m(input2)
         >>> output2.shape
-        (1, 5, 8)  # Same output size regardless of input size
+        (1, 5, 8)  # Same output size for any input size >= the target
 
     See Also
     --------
@@ -2139,7 +2161,9 @@ class AdaptiveMaxPool1d(_AdaptivePool):
 class AdaptiveMaxPool2d(_AdaptivePool):
     r"""Applies a 2D adaptive max pooling over an input signal composed of several input planes.
 
-    The output is of size :math:`H_{out} \times W_{out}`, for any input size.
+    The output is of size :math:`H_{out} \times W_{out}`, each of which must be no
+    larger than the corresponding input size (downsampling only; upsampling is not
+    supported).
     The number of output features is equal to the number of input planes.
 
     Adaptive pooling automatically computes the kernel size and stride to achieve the desired
@@ -2215,7 +2239,9 @@ class AdaptiveMaxPool2d(_AdaptivePool):
 class AdaptiveMaxPool3d(_AdaptivePool):
     r"""Applies a 3D adaptive max pooling over an input signal composed of several input planes.
 
-    The output is of size :math:`D_{out} \times H_{out} \times W_{out}`, for any input size.
+    The output is of size :math:`D_{out} \times H_{out} \times W_{out}`, each of which
+    must be no larger than the corresponding input size (downsampling only; upsampling
+    is not supported).
     The number of output features is equal to the number of input planes.
 
     Adaptive pooling automatically computes the kernel size and stride to achieve the desired

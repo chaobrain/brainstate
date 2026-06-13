@@ -349,10 +349,10 @@ class TestHiddenGroupState(unittest.TestCase):
         value = np.random.randn(10, 10, 3)
         state = brainstate.HiddenGroupState(value)
 
-        with self.assertRaises(AssertionError):
+        with self.assertRaises(IndexError):
             state.get_value(5)  # Out of range
 
-        with self.assertRaises(AssertionError):
+        with self.assertRaises(KeyError):
             state.get_value('invalid')  # Invalid name
 
     def test_hidden_group_state_set_value_dict(self):
@@ -391,7 +391,7 @@ class TestHiddenGroupState(unittest.TestCase):
         value = np.random.randn(10, 10, 3)
         state = brainstate.HiddenGroupState(value)
 
-        with self.assertRaises(AssertionError):
+        with self.assertRaises(ValueError):
             state.set_value({0: np.ones((5, 5))})  # Wrong shape
 
     def test_hidden_group_state_name2index(self):
@@ -2335,7 +2335,7 @@ class TestStateDictManagerCoverage(unittest.TestCase):
 
     def test_add_unique_value_rejects_non_state(self):
         """add_unique_value validates the element via _check_elem and rejects non-States."""
-        with self.assertRaises(AssertionError):
+        with self.assertRaises(TypeError):
             self.mgr.add_unique_value('bad', 123)
 
     def test_add_unique_value_accepts_state(self):
@@ -2362,7 +2362,7 @@ class TestStateDictManagerCoverage(unittest.TestCase):
 
     def test_assign_values_requires_dict(self):
         """assign_values rejects non-dict arguments."""
-        with self.assertRaises(AssertionError):
+        with self.assertRaises(TypeError):
             self.mgr.assign_values([('short', jnp.ones((2,)))])
 
     def test_split_values_by_type(self):
@@ -2595,3 +2595,135 @@ class TestNewStateCatcherGetByTag(unittest.TestCase):
         with brainstate.catch_new_states('mytag') as catcher:
             brainstate.State(jnp.zeros(1))
         self.assertEqual(len(catcher.get_by_tag('other')), 0)
+
+
+class TestStateAuditRegressions(unittest.TestCase):
+    """Regression tests for the _state.py audit fixes (M3-M6, L1-L5)."""
+
+    # --- M3 / M6: set_value works on numpy-backed values ---
+    def test_m6_hidden_group_state_numpy_set_value(self):
+        s = brainstate.HiddenGroupState(np.random.randn(4, 3))
+        self.assertIsInstance(s.value, np.ndarray)  # stored as numpy
+        s.set_value({0: np.ones((4,))})  # must NOT raise AttributeError on .at
+        self.assertIsInstance(s.value, jax.Array)
+        np.testing.assert_allclose(np.asarray(s.get_value(0)), np.ones((4,)))
+
+    def test_m3_hidden_tree_state_numpy_quantity_set_value(self):
+        t = brainstate.HiddenTreeState({'v': np.ones((4, 3)) * u.mV,
+                                        'i': np.ones((4, 3)) * u.mA})
+        t.set_value({'v': np.ones((4, 3)) * 2.0 * u.mV})
+        got = t.get_value('v')
+        self.assertEqual(u.get_unit(got), u.mV)
+        np.testing.assert_allclose(np.asarray(u.get_magnitude(got)), np.full((4, 3), 2.0))
+
+    def test_m6_hidden_tree_state_stored_as_jax(self):
+        t = brainstate.HiddenTreeState({'v': np.ones((4, 3)) * u.mV})
+        self.assertIsInstance(t.value, jax.Array)
+
+    # --- M4: out-of-range integer index rejected, not silently dropped ---
+    def test_m4_hidden_group_state_out_of_range_raises(self):
+        s = brainstate.HiddenGroupState(jnp.zeros((4, 3)))
+        with self.assertRaises(ValueError):
+            s.set_value({10: jnp.ones((4,))})
+        with self.assertRaises(ValueError):
+            s.set_value({-1: jnp.ones((4,))})
+
+    def test_m4_hidden_tree_state_out_of_range_raises(self):
+        t = brainstate.HiddenTreeState({'v': jnp.ones((4, 3)), 'i': jnp.ones((4, 3))})
+        with self.assertRaises(ValueError):
+            t.set_value({5: jnp.ones((4, 3))})
+
+    # --- L5: validation raises concrete exceptions (survive python -O) ---
+    def test_l5_set_value_non_dict_raises_typeerror(self):
+        s = brainstate.HiddenGroupState(jnp.zeros((4, 3)))
+        with self.assertRaises(TypeError):
+            s.set_value(123)
+
+    def test_l5_get_value_negative_out_of_range_raises(self):
+        s = brainstate.HiddenGroupState(jnp.zeros((4, 3)))
+        with self.assertRaises(IndexError):
+            s.get_value(-99)
+
+    def test_l5_state_dict_manager_assign_values_non_dict(self):
+        mgr = brainstate.StateDictManager()
+        with self.assertRaises(TypeError):
+            mgr.assign_values(123)
+
+    # --- L1: copy() keeps _been_writen = False (not absent) ---
+    def test_l1_copy_preserves_been_writen(self):
+        c = brainstate.ParamState(jnp.ones(3)).copy()
+        self.assertIs(c._been_writen, False)
+        self.assertIs(c.to_state_ref().to_state()._been_writen, False)
+
+    def test_l1_class_default_been_writen(self):
+        # even a bare object.__new__ instance can read the flag
+        obj = object.__new__(brainstate.ParamState)
+        self.assertIs(obj._been_writen, False)
+
+    # --- L2: construct etrace states under jax-tracer checking ---
+    def test_l2_construct_under_tracer_check(self):
+        with brainstate.check_state_jax_tracer():
+            brainstate.HiddenGroupState(np.random.randn(4, 3))
+            brainstate.HiddenTreeState({'v': np.ones((4, 3)) * u.mV})
+
+    # --- L3: list/tuple tag normalized to a set; add_tag works ---
+    def test_l3_list_tag_normalized(self):
+        s = brainstate.ShortTermState(jnp.zeros(3), tag=['a', 'b'])
+        self.assertEqual(s.tag, {'a', 'b'})
+        s.add_tag('c')
+        self.assertEqual(s.tag, {'a', 'b', 'c'})
+
+    def test_l3_tag_via_catch_new_states(self):
+        with brainstate.catch_new_states('caught'):
+            s = brainstate.ShortTermState(jnp.zeros(3), tag=['a', 'b'])
+        self.assertIn('caught', s.tag)
+
+    # --- M5: TreefyState treedef excludes identity-compared metadata ---
+    def test_m5_identical_states_same_treedef(self):
+        p1 = brainstate.ParamState(jnp.ones(3))
+        p2 = brainstate.ParamState(jnp.zeros(3))
+        self.assertEqual(jax.tree_util.tree_structure(p1.to_state_ref()),
+                         jax.tree_util.tree_structure(p2.to_state_ref()))
+
+    def test_m5_tree_map_over_two_states(self):
+        p1 = brainstate.ParamState(jnp.ones(3))
+        p2 = brainstate.ParamState(jnp.full((3,), 2.0))
+        r = jax.tree.map(lambda a, b: a + b, p1.to_state_ref(), p2.to_state_ref())
+        np.testing.assert_allclose(np.asarray(r.value), np.full(3, 3.0))
+
+    def test_m5_rebuilt_ref_has_source_info_and_hooks(self):
+        p = brainstate.ParamState(jnp.ones(3))
+        rebuilt = jax.tree.map(lambda x: x, p.to_state_ref())
+        st = rebuilt.to_state()  # must not raise AttributeError on _source_info
+        self.assertTrue(hasattr(st, '_source_info'))
+        self.assertTrue(hasattr(st, '_hooks_manager'))
+
+    def test_m5_jit_traces_once_for_identical_models(self):
+        calls = {'n': 0}
+
+        @jax.jit
+        def f(ref):
+            calls['n'] += 1
+            return ref
+
+        f(brainstate.ParamState(jnp.ones(3)).to_state_ref())
+        f(brainstate.ParamState(jnp.zeros(3)).to_state_ref())
+        self.assertEqual(calls['n'], 1)  # no recompile for structurally-identical refs
+
+    # --- L4: merge propagates _originals_released ---
+    def test_l4_merge_propagates_originals_released(self):
+        from brainstate._state import StateTraceStack
+        a = StateTraceStack()
+        b = StateTraceStack()
+        b._originals_released = True
+        merged = StateTraceStack().merge(a, b)
+        self.assertTrue(merged._originals_released)
+
+    def test_l4_merge_all_live_stays_false(self):
+        from brainstate._state import StateTraceStack
+        merged = StateTraceStack().merge(StateTraceStack(), StateTraceStack())
+        self.assertFalse(merged._originals_released)
+
+
+if __name__ == '__main__':
+    unittest.main()

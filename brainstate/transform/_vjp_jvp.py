@@ -259,6 +259,21 @@ def vjp(
                     f"argnums {i} is out of range for a function called with "
                     f"{n_primals} positional argument(s)."
                 )
+        # Normalize negative indices so ``diff_primals`` (built below) and the
+        # ``_pure`` reconstruction loop operate in a single, unambiguous index
+        # space. Then reject aliasing duplicates: when the same positional
+        # argument appears twice (literal ``(0, 0)`` or a positive/negative
+        # alias like ``(0, -2)``), the reconstruction loop ``full[i] = ...``
+        # writes both traced inputs into the same slot, so the last write wins
+        # and ``jax.vjp`` silently returns a zero cotangent for the discarded
+        # input. Fail loudly instead, mirroring ``grad``'s contract.
+        argnums_t = tuple(i % n_primals for i in argnums_t)
+        if len(set(argnums_t)) != len(argnums_t):
+            raise ValueError(
+                "argnums contains duplicate (or aliasing positive/negative) "
+                "indices: each positional argument may be differentiated at "
+                "most once."
+            )
         diff_args = True
 
     if not diff_args and not has_states:

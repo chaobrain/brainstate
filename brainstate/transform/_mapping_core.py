@@ -1163,9 +1163,14 @@ def state_map_transform(
     unexpected_out_state_mapping : {'auto', 'raise', 'warn', 'ignore'}
         Policy for states written with a batched value but not declared in
         ``state_out_axes``.
-    static_argnums, static_argnames : int/str or iterable
-        Positional/keyword arguments treated as compile-time constants when
-        building the per-signature cache key.
+    static_argnums : int or iterable
+        Not supported: a non-empty value raises ``NotImplementedError``. The
+        engine never excludes static positional slots from the axis mapping, so
+        accepting them would crash or silently mismap. Use ``static_argnames``
+        for keyword args, or ``in_axes=None`` for the positional slot.
+    static_argnames : str or iterable
+        Keyword arguments treated as compile-time constants when building the
+        per-signature cache key.
     name : str, optional
         Diagnostic name.
 
@@ -1174,6 +1179,30 @@ def state_map_transform(
     callable
         A wrapped function with the same calling convention as ``f``.
     """
+    # M41: ``static_argnums`` is threaded only into ``get_arg_cache_key`` for the
+    # plan cache key; it is never excluded from the per-argument axis mapping
+    # (``in_axes``/``_strip_args``/``_get_batch_size``). Static positional args
+    # are therefore treated like dynamic ones -- the default ``in_axes=0`` is
+    # applied and ``_remove_axis`` calls ``.ndim`` on them, which crashes on
+    # scalars (``AttributeError: 'float' object has no attribute 'ndim'``) or
+    # silently mismaps array statics over axis 0. The state-mapping engine has no
+    # split-positional support (and ``static_argnums`` is not exposed via
+    # vmap2/pmap2), so reject it explicitly rather than crashing deep in
+    # ``_remove_axis``. ``static_argnames`` is fully supported via
+    # ``_split_kwargs`` and remains available for keyword args.
+    if isinstance(static_argnums, int):
+        static_argnums = (static_argnums,)
+    elif static_argnums is None:
+        static_argnums = ()
+    else:
+        static_argnums = tuple(static_argnums)
+    if len(static_argnums) > 0:
+        raise NotImplementedError(
+            "static_argnums is not supported by the state-mapping engine; use "
+            "static_argnames for keyword arguments, or set in_axes=None for that "
+            "positional slot."
+        )
+
     in_predicates = normalize_state_axes(state_in_axes)
     out_predicates = normalize_state_axes(state_out_axes)
     mapping_kwargs = dict() if mapping_kwargs is None else mapping_kwargs

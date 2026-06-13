@@ -409,7 +409,7 @@ class SigmoidT(Transform):
         """
         log_width = jnp.log(u.get_mantissa(self.width))
         log_s = jax.nn.log_sigmoid(x) + jax.nn.log_sigmoid(-x)
-        return jnp.sum(log_width + log_s, axis=-1)
+        return jnp.sum(log_width + log_s, axis=-1) if jnp.ndim(x) > 0 else jnp.sum(log_width + log_s)
 
 
 class SoftplusT(Transform):
@@ -539,7 +539,7 @@ class SoftplusT(Transform):
         For softplus: d/dx[log(1 + exp(x))] = sigmoid(x)
         log|det J| = sum(log(sigmoid(x))) = sum(x - softplus(x))
         """
-        return jnp.sum(jax.nn.log_sigmoid(x), axis=-1)
+        return jnp.sum(jax.nn.log_sigmoid(x), axis=-1) if jnp.ndim(x) > 0 else jnp.sum(jax.nn.log_sigmoid(x))
 
 
 class NegSoftplusT(SoftplusT):
@@ -704,7 +704,7 @@ class LogT(Transform):
 
     def log_abs_det_jacobian(self, x: ArrayLike, y: ArrayLike) -> Array:
         """For exp transform: d/dx[exp(x)] = exp(x), so log|det J| = sum(x)."""
-        return jnp.sum(x, axis=-1)
+        return jnp.sum(x, axis=-1) if jnp.ndim(x) > 0 else jnp.sum(x)
 
 
 class ExpT(Transform):
@@ -741,7 +741,7 @@ class ExpT(Transform):
 
     def log_abs_det_jacobian(self, x: ArrayLike, y: ArrayLike) -> Array:
         """For exp transform: d/dx[exp(x)] = exp(x), so log|det J| = sum(x)."""
-        return jnp.sum(x, axis=-1)
+        return jnp.sum(x, axis=-1) if jnp.ndim(x) > 0 else jnp.sum(x)
 
 
 class TanhT(Transform):
@@ -1238,10 +1238,10 @@ class MaskedT(Transform):
     """
     __module__ = 'brainstate.nn'
 
-    def __init__(self, mask: ArrayLike, transform: Transform) -> None:
+    def __init__(self, mask: ArrayLike, transform: Transform, safe_value: ArrayLike = 1.0) -> None:
         """
         Initialize the masked transformation.
-        
+
         Parameters
         ----------
         mask : array_like of bool
@@ -1249,7 +1249,15 @@ class MaskedT(Transform):
             Must be broadcastable with the input arrays.
         transform : Transform
             The transformation to apply to elements where mask is True.
-            
+        safe_value : array_like, optional
+            Placeholder value substituted into the masked-out positions before
+            the inner transform is evaluated, by default 1.0. This implements the
+            "double where" trick: because :func:`jax.numpy.where` evaluates the
+            inner transform over the *whole* array, masked-out entries could feed
+            invalid inputs (e.g. negatives into a square root) into the transform
+            and produce ``NaN`` gradients even though those outputs are discarded.
+            ``safe_value`` must lie in the transform's valid domain.
+
         Raises
         ------
         TypeError
@@ -1258,6 +1266,7 @@ class MaskedT(Transform):
         super().__init__()
         self.mask = mask
         self.transform = transform
+        self.safe_value = safe_value
 
     def __repr__(self) -> str:
         return f"MaskedT(mask=..., transform={repr(self.transform)})"
@@ -1280,9 +1289,13 @@ class MaskedT(Transform):
         Notes
         -----
         Uses element-wise conditional logic to apply transformation only
-        where mask is True.
+        where mask is True. The "double where" trick substitutes
+        ``self.safe_value`` into masked-out positions before evaluating the
+        inner transform so its gradient stays finite even where the original
+        input would be outside the transform's domain.
         """
-        return u.math.where(self.mask, self.transform.forward(x), x)
+        safe_x = u.math.where(self.mask, x, self.safe_value)
+        return u.math.where(self.mask, self.transform.forward(safe_x), x)
 
     def inverse(self, y: ArrayLike) -> Array:
         """
@@ -1302,9 +1315,12 @@ class MaskedT(Transform):
         Notes
         -----
         Applies inverse transformation only to elements where mask is True,
-        maintaining consistency with the forward operation.
+        maintaining consistency with the forward operation. Uses the same
+        "double where" trick as :meth:`forward` so the inner transform's
+        gradient stays finite at masked-out positions.
         """
-        return u.math.where(self.mask, self.transform.inverse(y), y)
+        safe_y = u.math.where(self.mask, y, self.safe_value)
+        return u.math.where(self.mask, self.transform.inverse(safe_y), y)
 
 
 class ReluT(Transform):
@@ -1383,7 +1399,7 @@ class PositiveT(Transform):
 
     def log_abs_det_jacobian(self, x: ArrayLike, y: ArrayLike) -> Array:
         """For exp transform: d/dx[exp(x)] = exp(x), so log|det J| = sum(x)."""
-        return jnp.sum(x, axis=-1)
+        return jnp.sum(x, axis=-1) if jnp.ndim(x) > 0 else jnp.sum(x)
 
 
 class NegativeT(Transform):
@@ -1680,14 +1696,27 @@ class SimplexT(Transform):
         return jnp.concatenate([y_head, y_tail], axis=-1)
 
     def inverse(self, y: ArrayLike) -> Array:
-        """Transform simplex back to unconstrained domain."""
+        """Transform simplex back to unconstrained domain.
+
+        Notes
+        -----
+        The inverse is well-defined on the *open* simplex (the interior, where
+        every component is strictly positive). Inputs touching a vertex or face
+        (a component equal to ``0`` or ``1``) would otherwise map a stick-breaking
+        ratio to ``0`` or ``1`` and produce ``+/-inf`` from the logit. To keep the
+        result finite the ratio is clamped into ``[eps, 1 - eps]`` with a
+        dtype-aware ``eps`` before the logit, which also removes the asymmetric
+        bias of the previous one-sided ``+ 1e-8`` denominator nudge.
+        """
         y_head = y[..., :-1]
         # Compute cumulative sum from left
         cumsum = jnp.cumsum(y_head, axis=-1)
         # remaining = 1 - cumsum + current = probability still available
         remaining = 1 - cumsum + y_head
-        # z_i = y_i / remaining
-        z = y_head / (remaining + 1e-8)
+        # z_i = y_i / remaining, clamped into (0, 1) with a dtype-aware eps so the
+        # logit stays finite on the simplex boundary (open-simplex domain).
+        eps = jnp.finfo(y.dtype).eps  # ~1e-7 float32
+        z = jnp.clip(y_head / (remaining + eps), eps, 1.0 - eps)
         return jax.scipy.special.logit(z)
 
 

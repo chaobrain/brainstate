@@ -361,8 +361,8 @@ def _graph_update_dynamic(node, state) -> None:
                 raise ValueError(
                     f'Cannot set key {key!r} on immutable node of type {type(node).__name__}'
                 )
-            if isinstance(value, State):
-                value = value.to_state_ref()
+            if isinstance(value, TreefyState):
+                value = value.to_state()
             impl.set_key(node, key, value)
             continue
         current_value = node_dict[key]
@@ -370,6 +370,12 @@ def _graph_update_dynamic(node, state) -> None:
             if _is_state_leaf(value):
                 raise ValueError(f'Expected a subgraph for {key!r}, but got: {value!r}')
             _graph_update_dynamic(current_value, value)
+        elif isinstance(value, State):
+            if not isinstance(current_value, State):
+                raise ValueError(
+                    f'Trying to update a non-State attribute {key!r} with a State: {value!r}'
+                )
+            current_value.update_from_ref(value.to_state_ref())
         elif isinstance(value, TreefyState):
             if not isinstance(current_value, State):
                 raise ValueError(

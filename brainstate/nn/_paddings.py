@@ -109,10 +109,10 @@ class ReflectionPad1d(Module):
         >>> import brainstate as brainstate
         >>> import jax.numpy as jnp
         >>> pad = brainstate.nn.ReflectionPad1d(2)
-        >>> input = jnp.array([[[1, 2, 3, 4, 5]]])
+        >>> input = jnp.ones((1, 5, 3))   # (batch=1, length=5, channels=3)
         >>> output = pad(input)
         >>> print(output.shape)
-        (1, 9, 1)
+        (1, 9, 3)
     """
 
     def __init__(
@@ -157,7 +157,13 @@ class ReflectionPad2d(Module):
 
         - int: same padding for all sides
         - Sequence[int] of length 2: (height_pad, width_pad)
-        - Sequence[int] of length 4: (left, right, top, bottom)
+        - Sequence[int] of length 4: (height_before, height_after, width_before, width_after)
+
+        .. note::
+            For the length-4 form, the first pair pads the first spatial axis
+            (height) and the second pair pads the second spatial axis (width).
+            This order is the REVERSE of ``torch.nn.*Pad2d``, which lists the
+            last spatial axis (width) first as ``(left, right, top, bottom)``.
     in_size : Size, optional
         The input size.
     name : str, optional
@@ -218,7 +224,13 @@ class ReflectionPad3d(Module):
 
         - int: same padding for all sides
         - Sequence[int] of length 3: (depth_pad, height_pad, width_pad)
-        - Sequence[int] of length 6: (left, right, top, bottom, front, back)
+        - Sequence[int] of length 6: (depth_before, depth_after, height_before, height_after, width_before, width_after)
+
+        .. note::
+            For the length-6 form, the pairs pad the spatial axes in order
+            (depth, then height, then width). This order is the REVERSE of
+            ``torch.nn.*Pad3d``, which lists the last spatial axis (width)
+            first as ``(left, right, top, bottom, front, back)``.
     in_size : Size, optional
         The input size.
     name : str, optional
@@ -295,10 +307,10 @@ class ReplicationPad1d(Module):
         >>> import brainstate as brainstate
         >>> import jax.numpy as jnp
         >>> pad = brainstate.nn.ReplicationPad1d(2)
-        >>> input = jnp.array([[[1, 2, 3, 4, 5]]])
+        >>> input = jnp.ones((1, 5, 3))   # (batch=1, length=5, channels=3)
         >>> output = pad(input)
         >>> print(output.shape)
-        (1, 9, 1)
+        (1, 9, 3)
     """
 
     def __init__(
@@ -343,7 +355,13 @@ class ReplicationPad2d(Module):
 
         - int: same padding for all sides
         - Sequence[int] of length 2: (height_pad, width_pad)
-        - Sequence[int] of length 4: (left, right, top, bottom)
+        - Sequence[int] of length 4: (height_before, height_after, width_before, width_after)
+
+        .. note::
+            For the length-4 form, the first pair pads the first spatial axis
+            (height) and the second pair pads the second spatial axis (width).
+            This order is the REVERSE of ``torch.nn.*Pad2d``, which lists the
+            last spatial axis (width) first as ``(left, right, top, bottom)``.
     in_size : Size, optional
         The input size.
     name : str, optional
@@ -404,7 +422,13 @@ class ReplicationPad3d(Module):
 
         - int: same padding for all sides
         - Sequence[int] of length 3: (depth_pad, height_pad, width_pad)
-        - Sequence[int] of length 6: (left, right, top, bottom, front, back)
+        - Sequence[int] of length 6: (depth_before, depth_after, height_before, height_after, width_before, width_after)
+
+        .. note::
+            For the length-6 form, the pairs pad the spatial axes in order
+            (depth, then height, then width). This order is the REVERSE of
+            ``torch.nn.*Pad3d``, which lists the last spatial axis (width)
+            first as ``(left, right, top, bottom, front, back)``.
     in_size : Size, optional
         The input size.
     name : str, optional
@@ -481,10 +505,10 @@ class ZeroPad1d(Module):
         >>> import brainstate as brainstate
         >>> import jax.numpy as jnp
         >>> pad = brainstate.nn.ZeroPad1d(2)
-        >>> input = jnp.array([[[1, 2, 3, 4, 5]]])
+        >>> input = jnp.ones((1, 5, 3))   # (batch=1, length=5, channels=3)
         >>> output = pad(input)
         >>> print(output.shape)
-        (1, 9, 1)
+        (1, 9, 3)
     """
 
     def __init__(
@@ -529,7 +553,13 @@ class ZeroPad2d(Module):
 
         - int: same padding for all sides
         - Sequence[int] of length 2: (height_pad, width_pad)
-        - Sequence[int] of length 4: (left, right, top, bottom)
+        - Sequence[int] of length 4: (height_before, height_after, width_before, width_after)
+
+        .. note::
+            For the length-4 form, the first pair pads the first spatial axis
+            (height) and the second pair pads the second spatial axis (width).
+            This order is the REVERSE of ``torch.nn.*Pad2d``, which lists the
+            last spatial axis (width) first as ``(left, right, top, bottom)``.
     in_size : Size, optional
         The input size.
     name : str, optional
@@ -590,7 +620,13 @@ class ZeroPad3d(Module):
 
         - int: same padding for all sides
         - Sequence[int] of length 3: (depth_pad, height_pad, width_pad)
-        - Sequence[int] of length 6: (left, right, top, bottom, front, back)
+        - Sequence[int] of length 6: (depth_before, depth_after, height_before, height_after, width_before, width_after)
+
+        .. note::
+            For the length-6 form, the pairs pad the spatial axes in order
+            (depth, then height, then width). This order is the REVERSE of
+            ``torch.nn.*Pad3d``, which lists the last spatial axis (width)
+            first as ``(left, right, top, bottom, front, back)``.
     in_size : Size, optional
         The input size.
     name : str, optional
@@ -669,10 +705,10 @@ class ConstantPad1d(Module):
         >>> import brainstate as brainstate
         >>> import jax.numpy as jnp
         >>> pad = brainstate.nn.ConstantPad1d(2, value=3.5)
-        >>> input = jnp.array([[[1, 2, 3, 4, 5]]])
+        >>> input = jnp.ones((1, 5, 3))   # (batch=1, length=5, channels=3)
         >>> output = pad(input)
         >>> print(output.shape)
-        (1, 9, 1)
+        (1, 9, 3)
     """
 
     def __init__(
@@ -719,7 +755,13 @@ class ConstantPad2d(Module):
 
         - int: same padding for all sides
         - Sequence[int] of length 2: (height_pad, width_pad)
-        - Sequence[int] of length 4: (left, right, top, bottom)
+        - Sequence[int] of length 4: (height_before, height_after, width_before, width_after)
+
+        .. note::
+            For the length-4 form, the first pair pads the first spatial axis
+            (height) and the second pair pads the second spatial axis (width).
+            This order is the REVERSE of ``torch.nn.*Pad2d``, which lists the
+            last spatial axis (width) first as ``(left, right, top, bottom)``.
     value : float, optional
         The constant value to use for padding. Default is 0.
     in_size : Size, optional
@@ -784,7 +826,13 @@ class ConstantPad3d(Module):
 
         - int: same padding for all sides
         - Sequence[int] of length 3: (depth_pad, height_pad, width_pad)
-        - Sequence[int] of length 6: (left, right, top, bottom, front, back)
+        - Sequence[int] of length 6: (depth_before, depth_after, height_before, height_after, width_before, width_after)
+
+        .. note::
+            For the length-6 form, the pairs pad the spatial axes in order
+            (depth, then height, then width). This order is the REVERSE of
+            ``torch.nn.*Pad3d``, which lists the last spatial axis (width)
+            first as ``(left, right, top, bottom, front, back)``.
     value : float, optional
         The constant value to use for padding. Default is 0.
     in_size : Size, optional
@@ -865,10 +913,10 @@ class CircularPad1d(Module):
         >>> import brainstate as brainstate
         >>> import jax.numpy as jnp
         >>> pad = brainstate.nn.CircularPad1d(2)
-        >>> input = jnp.array([[[1, 2, 3, 4, 5]]])
+        >>> input = jnp.ones((1, 5, 3))   # (batch=1, length=5, channels=3)
         >>> output = pad(input)
         >>> print(output.shape)
-        (1, 9, 1)
+        (1, 9, 3)
     """
 
     def __init__(
@@ -913,7 +961,13 @@ class CircularPad2d(Module):
 
         - int: same padding for all sides
         - Sequence[int] of length 2: (height_pad, width_pad)
-        - Sequence[int] of length 4: (left, right, top, bottom)
+        - Sequence[int] of length 4: (height_before, height_after, width_before, width_after)
+
+        .. note::
+            For the length-4 form, the first pair pads the first spatial axis
+            (height) and the second pair pads the second spatial axis (width).
+            This order is the REVERSE of ``torch.nn.*Pad2d``, which lists the
+            last spatial axis (width) first as ``(left, right, top, bottom)``.
     in_size : Size, optional
         The input size.
     name : str, optional
@@ -974,7 +1028,13 @@ class CircularPad3d(Module):
 
         - int: same padding for all sides
         - Sequence[int] of length 3: (depth_pad, height_pad, width_pad)
-        - Sequence[int] of length 6: (left, right, top, bottom, front, back)
+        - Sequence[int] of length 6: (depth_before, depth_after, height_before, height_after, width_before, width_after)
+
+        .. note::
+            For the length-6 form, the pairs pad the spatial axes in order
+            (depth, then height, then width). This order is the REVERSE of
+            ``torch.nn.*Pad3d``, which lists the last spatial axis (width)
+            first as ``(left, right, top, bottom, front, back)``.
     in_size : Size, optional
         The input size.
     name : str, optional

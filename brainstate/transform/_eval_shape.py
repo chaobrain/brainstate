@@ -124,7 +124,13 @@ def eval_shape(
         return out_tree
 
     # One abstract trace via the canonical stateful wrapper.
-    stateful_fn = StatefulFunction(_wrapped, name='eval_shape')
+    # ``return_only_write=False`` makes ``get_out_shapes`` carry a proper
+    # ``jax.ShapeDtypeStruct`` for EVERY state the function touches (read or
+    # write), aligned 1:1 with ``state_trace.states``. With the default
+    # (write-only) the read-only slots come back as ``None``, which would map
+    # read-only states to ``None`` in ``state_shape_map`` and break the
+    # documented ``State -> ShapeDtypeStruct`` contract.
+    stateful_fn = StatefulFunction(_wrapped, name='eval_shape', return_only_write=False)
     try:
         stateful_fn.make_jaxpr(*g_args, **g_kwargs)
         out_shapes, state_shapes = stateful_fn.get_out_shapes(*g_args, **g_kwargs)

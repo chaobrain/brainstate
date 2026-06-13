@@ -168,6 +168,36 @@ class TestAliasingChecks(unittest.TestCase):
         tree, _ = graph_to_tree([shared, shared], prefix=[0, 1], check_aliasing=False)
         self.assertIsNotNone(tree)
 
+    def test_inconsistent_stateless_shared_node_raises(self):
+        """A *state-free* shared node with conflicting prefixes still raises.
+
+        Regression (L7): ``check_consistent_aliasing`` only iterated
+        ``iter_leaf`` (which yields leaf States, never graph nodes), so the
+        graph-node aliasing branch was dead. A stateless shared node therefore
+        recorded no prefixes and inconsistent aliasing went undetected. The
+        added ``iter_node`` pass must catch it.
+        """
+
+        class Empty(brainstate.graph.Node):
+            """A graph node carrying no ``State`` leaves at all."""
+
+            def __init__(self):
+                self.name = 'x'
+
+        shared = Empty()
+        with self.assertRaises(ValueError):
+            graph_to_tree([shared, shared], prefix=[0, 1])
+
+    def test_consistent_stateless_shared_node_ok(self):
+        """A consistently-prefixed *state-free* shared node does not raise."""
+
+        class Empty(brainstate.graph.Node):
+            def __init__(self):
+                self.name = 'x'
+
+        shared = Empty()
+        graph_to_tree([shared, shared], prefix=0)  # should not raise
+
 
 class TestConvertHelpers(unittest.TestCase):
     """Internal helpers used by the conversion routines."""
