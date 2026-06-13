@@ -68,17 +68,18 @@ def _is_node_leaf(x: Any) -> TypeGuard[State]:
 
 def _is_pytree_node(x: Any) -> bool:
     """Return whether ``x`` is a (non-leaf) JAX pytree container."""
-    return not jax.tree_util.all_leaves((x,))
+    return classify(x) == PYTREE
 
 
 def _is_graph_node(x: Any) -> bool:
     """Return whether ``type(x)`` is a registered mutable graph-node type."""
-    return type(x) in _node_impl_for_type
+    return classify(x) == GRAPH_NODE
 
 
 def _is_node(x: Any) -> bool:
     """Return whether ``x`` is a container the engine descends into."""
-    return _is_graph_node(x) or _is_pytree_node(x)
+    k = classify(x)
+    return k == GRAPH_NODE or k == PYTREE
 
 
 def _is_node_type(x: type) -> bool:
