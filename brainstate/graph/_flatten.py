@@ -83,6 +83,21 @@ class _Encoder:
         if kind == PYTREE:
             items, metadata = PYTREE_NODE_IMPL.flatten(value)
             fields = tuple((k, self.edge((*path, k), v)) for k, v in items)
+            # Exclude identity-hashable objects (e.g. TreefyState): they hash()
+            # successfully but may wrap live JAX arrays and carry no value-equality
+            # guarantee, so collapsing them would bake a live array into the static
+            # IR. The hash() try/except below does NOT catch these (identity hash
+            # never raises) — this clause is the only thing that blocks them.
+            if (
+                all(type(e) is StaticEdge for _, e in fields)
+                and type(value).__hash__ is not object.__hash__
+            ):
+                try:
+                    hash(value)
+                except TypeError:
+                    pass               # unhashable container -> keep the PytreeEdge
+                else:
+                    return StaticEdge(value)
             return PytreeEdge(metadata, fields)
 
         if kind == STATE:
