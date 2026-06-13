@@ -32,7 +32,7 @@ import jax.numpy as jnp
 import brainstate
 from brainstate.transform import ProgressBar
 from brainstate.transform import _progress_bar as _pbmod
-from brainstate.transform._progress_bar import _FallbackProgressBar
+from brainstate.transform._progress_bar import _FallbackProgressBar, ProgressBarRunner
 
 
 class _TTYStringIO(io.StringIO):
@@ -105,9 +105,28 @@ class TestProgressBarConstruction(unittest.TestCase):
         self.assertEqual(pbar.desc[0], "step {i}")
 
     def test_desc_tuple_requires_callable(self):
-        """A ``desc`` tuple whose second element is not callable raises."""
-        with self.assertRaises(AssertionError):
+        """A ``desc`` tuple whose second element is not callable raises.
+
+        Uses a real ``TypeError`` (not ``AssertionError``) so the validation
+        survives ``python -O`` (audit Tier C).
+        """
+        with self.assertRaises(TypeError):
             ProgressBar(desc=("step {i}", "not-callable"))
+
+    def test_desc_tuple_first_must_be_string(self):
+        """A ``desc`` tuple whose first element is not a string raises TypeError."""
+        with self.assertRaises(TypeError):
+            ProgressBar(desc=(123, lambda d: d))
+
+    def test_desc_must_be_str_or_sequence(self):
+        """A ``desc`` that is neither a string nor a tuple/list raises TypeError."""
+        with self.assertRaises(TypeError):
+            ProgressBar(desc=123)
+
+    def test_desc_tuple_wrong_length_raises(self):
+        """A ``desc`` tuple without exactly two elements raises ValueError."""
+        with self.assertRaises(ValueError):
+            ProgressBar(desc=("only-one",))
 
 
 class TestProgressBarInitFrequency(unittest.TestCase):
@@ -406,6 +425,161 @@ class TestProgressBarFreqValidation(unittest.TestCase):
     def test_positive_freq_accepted(self):
         pbar = ProgressBar(freq=2)
         self.assertEqual(pbar.print_freq, 2)
+
+
+class _CountingBar:
+    """A minimal fake bar that just accumulates ``update`` deltas, used to
+    measure the final bar position the runner drives it to."""
+
+    def __init__(self, *args, **kwargs):
+        self.n = 0
+
+    def update(self, delta):
+        self.n += delta
+
+    def set_description(self, *args, **kwargs):
+        pass
+
+    def close(self):
+        pass
+
+
+class TestProgressBarCountNoOvershoot(unittest.TestCase):
+    """``ProgressBar(count=K)`` over a loop of length ``n`` must finish at
+    exactly ``n`` (100%) and never overshoot, even when ``K`` does not divide
+    ``n`` (audit L24: the close remainder was ``n % count`` instead of
+    ``n % freq``)."""
+
+    def _final_position(self, n, count):
+        """Replicate the runner's __call__ dispatch with a counting bar and
+        return the final accumulated position."""
+        runner = ProgressBar(count=count).init(n)
+        bar = _CountingBar()
+        runner.tqdm_bars[0] = bar
+        freq = runner.print_freq
+        for iter_num in range(n):
+            if iter_num % freq == (freq - 1):
+                runner._update_tqdm({})
+            if iter_num == n - 1:
+                runner._close_tqdm({})
+        return bar.n
+
+    def test_count_not_dividing_n_reaches_exactly_n(self):
+        # Audit example: count=20, n=50 used to push the bar to 60/50.
+        self.assertEqual(self._final_position(50, 20), 50)
+        # Audit example: count=99, n=100 used to give 101/100.
+        self.assertEqual(self._final_position(100, 99), 100)
+
+    def test_sweep_no_overshoot_no_undershoot(self):
+        # Exhaustive-ish sweep: for every valid (n, count) the bar must end at
+        # exactly n -- never over, never under.
+        for n in range(2, 60):
+            for count in range(1, n + 1):
+                pos = self._final_position(n, count)
+                self.assertEqual(
+                    pos, n,
+                    msg=f"count={count}, n={n}: bar ended at {pos}, expected {n}",
+                )
+
+    def test_remainder_consistent_with_freq(self):
+        # The init-time remainder must be n % freq (matching the other branches).
+        runner = ProgressBar(count=20).init(50)
+        self.assertEqual(runner.print_freq, 2)
+        self.assertEqual(runner.remainder, 50 % runner.print_freq)
+
+
+class TestCheckpointedScanNoPostCloseUpdate(unittest.TestCase):
+    """``checkpointed_scan`` drives its bar through ``_bounded_while_loop``,
+    whose skip path advances the counter PAST ``n - 1`` after the loop is done.
+    ``ProgressBarRunner.__call__`` must guard the update on ``iter_num < n`` so
+    those post-completion calls never fire ``update()`` after ``close()`` and
+    push the bar past 100% (audit item 18)."""
+
+    def _run_and_collect(self, n, base, freq):
+        created = []
+
+        class _RecordingBar:
+            def __init__(self, *args, **kwargs):
+                self.n = 0
+                self.closed = False
+                self.updates_after_close = 0
+                created.append(self)
+
+            def update(self, delta):
+                if self.closed:
+                    self.updates_after_close += 1
+                self.n += delta
+
+            def set_description(self, *args, **kwargs):
+                pass
+
+            def close(self):
+                self.closed = True
+
+        with mock.patch.object(_pbmod, "tqdm_installed", False):
+            with mock.patch.object(_pbmod, "_FallbackProgressBar", _RecordingBar):
+                def step(c, x):
+                    return c + x, c + x
+
+                _, ys = brainstate.transform.checkpointed_scan(
+                    step, 0.0, jnp.arange(float(n)), base=base,
+                    pbar=ProgressBar(freq=freq),
+                )
+                ys.block_until_ready()
+        return created
+
+    def test_no_post_close_update_and_exact_position(self):
+        # base=2 forces several skip-call counter bumps past n-1.
+        n = 5
+        created = self._run_and_collect(n, base=2, freq=1)
+        self.assertTrue(created, "expected the runner to create a progress bar")
+        bar = created[0]
+        # No update() may land after close()...
+        self.assertEqual(bar.updates_after_close, 0)
+        # ...and the bar must end at exactly n (never past 100%).
+        self.assertEqual(bar.n, n)
+
+    def test_no_overshoot_various_lengths(self):
+        for n in (3, 4, 7, 8, 16):
+            created = self._run_and_collect(n, base=2, freq=1)
+            self.assertTrue(created)
+            bar = created[0]
+            self.assertEqual(bar.updates_after_close, 0, msg=f"n={n}")
+            self.assertEqual(bar.n, n, msg=f"n={n}")
+
+
+class TestProgressBarRunnerDescReturnValidation(unittest.TestCase):
+    """``ProgressBarRunner.__call__`` validates the user desc callback's return.
+
+    A ``(fmt, fn)`` desc whose ``fn`` returns a non-dict would otherwise reach
+    ``str.format(**data)`` and fail cryptically. The runner raises a clear
+    ``TypeError`` (a real exception, not an ``assert`` stripped under ``python
+    -O``) before dispatching the ``jax.lax.cond``."""
+
+    def test_non_dict_desc_return_raises_type_error(self):
+        """A desc callback returning a non-dict raises TypeError naming the type."""
+        def bad_fmt(data):
+            return "not-a-dict"  # callable (passes construction) but wrong return
+
+        runner = ProgressBar(freq=2, desc=("iter {i}", bad_fmt)).init(10)
+        with self.assertRaises(TypeError) as ctx:
+            runner(0)
+        msg = str(ctx.exception)
+        self.assertIn("must return a dict", msg)
+        # The error reports the offending return type.
+        self.assertIn("str", msg)
+
+    def test_dict_desc_return_does_not_raise_type_error(self):
+        """A desc callback returning a dict passes the validation guard.
+
+        ``__call__`` proceeds into ``jax.lax.cond``; we only assert that the
+        non-dict guard does not trip for a well-behaved callback."""
+        def good_fmt(data):
+            return {"i": data["i"]}
+
+        runner = ProgressBar(freq=2, desc=("iter {i}", good_fmt)).init(10)
+        # Must not raise TypeError from the desc-return guard.
+        runner(0)
 
 
 if __name__ == "__main__":

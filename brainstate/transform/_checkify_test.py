@@ -143,3 +143,78 @@ class TestFailedCheckifyRestoresStates(unittest.TestCase):
             checked(jnp.asarray(3.0))
         self.assertFalse(isinstance(s.value, jax.core.Tracer))
         self.assertEqual(float(s.value), 0.0)
+
+
+class TestCheckifyRawTransformGuard(unittest.TestCase):
+    """A checkify-wrapped function that WRITES a State must not silently leak a
+    tracer into the global State when composed under a *raw* JAX transform
+    (jax.jit/vmap/...). It must raise TraceContextError instead, and the same
+    code under brainstate.transform.jit must succeed and update the state
+    (audit M32)."""
+
+    def test_raw_jit_state_write_raises(self):
+        from brainstate._state import TraceContextError
+
+        s = brainstate.State(jnp.asarray(1.0))
+
+        def f(x):
+            s.value = s.value + x
+            return s.value
+
+        @jax.jit
+        def run(x):
+            return brainstate.transform.checkify(f)(x)[1]
+
+        with self.assertRaises(TraceContextError):
+            run(jnp.asarray(2.0))
+        # The global state must not have been poisoned with a dead tracer.
+        self.assertFalse(isinstance(s.value, jax.core.Tracer))
+
+    def test_raw_vmap_state_write_raises(self):
+        from brainstate._state import TraceContextError
+
+        s = brainstate.State(jnp.asarray(0.0))
+
+        def f(x):
+            s.value = s.value + x
+            return s.value
+
+        def run(x):
+            return brainstate.transform.checkify(f)(x)[1]
+
+        with self.assertRaises(TraceContextError):
+            jax.vmap(run)(jnp.arange(3.0))
+        self.assertFalse(isinstance(s.value, jax.core.Tracer))
+
+    def test_brainstate_jit_state_write_succeeds(self):
+        s = brainstate.State(jnp.asarray(1.0))
+
+        def f(x):
+            s.value = s.value + x
+            return s.value
+
+        @brainstate.transform.jit
+        def run(x):
+            return brainstate.transform.checkify(f)(x)[1]
+
+        out = run(jnp.asarray(2.0))
+        self.assertFalse(isinstance(s.value, jax.core.Tracer))
+        self.assertEqual(float(s.value), 3.0)
+        self.assertEqual(float(out), 3.0)
+
+    def test_raw_jit_read_only_state_still_ok(self):
+        # A checkify-wrapped function that only READS a state composes fine under
+        # raw jax.jit: read-only states are restored to their concrete originals,
+        # so the guard does not spuriously fire.
+        s = brainstate.State(jnp.asarray(5.0))
+
+        def f(x):
+            return s.value + x
+
+        @jax.jit
+        def run(x):
+            return brainstate.transform.checkify(f)(x)[1]
+
+        out = run(jnp.asarray(2.0))
+        self.assertEqual(float(out), 7.0)
+        self.assertEqual(float(s.value), 5.0)

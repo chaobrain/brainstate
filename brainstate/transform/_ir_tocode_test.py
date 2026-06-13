@@ -616,6 +616,28 @@ class TestControlFlowHandlers(unittest.TestCase):
         _roundtrip_check(self, f, jnp.float32(0.0), jnp.float32(1.0),
                          jnp.float32([1., 2., 3.]))
 
+    def test_scan_name_collision_with_namer(self):
+        """The scan wrapper's carry/x/final_carry/ys names must not collide
+        with variable-namer output.
+
+        The base-26 namer can emit ``x`` (index 23) and ``ys`` (index 642).
+        With enough preceding variables a carry var is named ``x`` and, with a
+        hardcoded ``x`` lambda arg, the inner unpacking ``..., x, ... = (carry, x)``
+        silently rebinds the carry from the xs slice. This drives the namer past
+        ``x`` and uses an asymmetric body so any such collision changes results.
+        """
+        def f(init, xs):
+            a = init
+            for _ in range(20):  # advance the namer toward index 23 ('x')
+                a = a + 1.0
+            def body(carry, x):
+                c0, c1 = carry
+                # asymmetric: c1 must survive untouched by the xs slice ``x``
+                return (c0 + x, c1 * 2.0), c1
+            (f0, f1), ys = jax.lax.scan(body, (a, jnp.float32(1.0)), xs)
+            return f0, f1, ys
+        _roundtrip_check(self, f, jnp.float32(0.0), jnp.float32([1., 2., 3., 4.]))
+
     def test_scan_zero_carry(self):
         """scan with zero carry (map-like) exercises the num_carry==0 branch."""
         def f(xs):
@@ -969,9 +991,27 @@ class TestAstifyValueBranches(unittest.TestCase):
             _ir_tocode.prefix_imports.clear()
 
     def test_enum_value(self):
-        """An enum value emits ``ClassName.MEMBER`` attribute access."""
-        node = _ir_tocode._astify_value(_Color.GREEN)
-        self.assertEqual(_unparse(node), '_Color.GREEN')
+        """An enum value emits a fully-qualified, importable reference.
+
+        Regression for H18: the old code emitted a bare ``ClassName.MEMBER``
+        with no import, which raises ``NameError`` in the generated namespace.
+        The fix emits ``<module>.<qualname>.MEMBER`` and records ``import
+        <module>`` in ``prefix_imports``.
+        """
+        _ir_tocode.prefix_imports.clear()
+        try:
+            node = _ir_tocode._astify_value(_Color.GREEN)
+            src = _unparse(node)
+            module = _Color.__module__
+            self.assertEqual(src, f'{module}._Color.GREEN')
+            self.assertIn(f'import {module}', list(_ir_tocode.prefix_imports))
+            # The emitted reference must actually resolve to the enum member.
+            self.assertIs(eval(src, {module.split('.')[0]: __import__(module)
+                                     if '.' not in module
+                                     else __import__(module.split('.')[0])}),
+                          _Color.GREEN)
+        finally:
+            _ir_tocode.prefix_imports.clear()
 
     def test_nested_tuple_value(self):
         """Nested tuples/lists/None/str recurse to a tuple literal."""
@@ -997,10 +1037,22 @@ class TestAstifyValueBranches(unittest.TestCase):
         self.assertEqual(eval(_unparse(node)), 2.5)
 
     def test_astify_array_scalar_nonstandard_dtype(self):
-        """A 0-d uint8 array wraps the constant in its dtype call."""
-        node = _ir_tocode._astify_array(np.uint8(5))
-        src = _unparse(node)
-        self.assertIn("dtype('uint8')", src)
+        """A 0-d unlisted-dtype scalar emits ``jax.numpy.array(v, dtype=...)``.
+
+        Regression for H17: the old code emitted ``dtype('uint8')(5)``, calling a
+        non-callable DType instance (``TypeError`` at runtime). The fix wraps the
+        value in ``jax.numpy.array(..., dtype=...)``, which evaluates correctly
+        and preserves ndim==0 and the exact dtype for every unlisted dtype.
+        """
+        for dt in ('uint8', 'uint16', 'uint32', 'int8', 'int16', 'complex64'):
+            node = _ir_tocode._astify_array(np.asarray(5, dtype=np.dtype(dt)))
+            src = _unparse(node)
+            self.assertIn('jax.numpy.array', src)
+            self.assertIn(f"dtype('{dt}')", src)
+            out = eval(src, {'jax': jax, 'jnp': jnp, 'np': np})
+            self.assertEqual(np.asarray(out).ndim, 0)
+            self.assertEqual(np.asarray(out).dtype, np.dtype(dt))
+            self.assertEqual(int(np.asarray(out).real), 5)
 
     def test_astify_array_multidim(self):
         """A multi-dimensional array emits ``jax.numpy.array([...], dtype=...)``."""
@@ -1108,7 +1160,23 @@ class TestHelperContainers(unittest.TestCase):
         self.assertEqual(len(m), 1)
         self.assertIn('IdentityMap', repr(m))
         self.assertIn('IdentityMap', str(m))
-        self.assertIn('y', list(m))
+        # __iter__ must yield KEYS (the Mapping contract), not values: the
+        # remaining key ``b`` is iterated, and its value is reachable via [].
+        self.assertEqual(list(m), [b])
+        self.assertEqual(m[b], 'y')
+
+    def test_identity_map_mapping_contract(self):
+        """keys()/values()/items()/dict() honor the Mapping contract."""
+        m = _ir_tocode.IdentityMap()
+        a, b = [1], [2]
+        m[a] = 'x'
+        m[b] = 'y'
+        # keys() yields the actual key objects (by identity)
+        self.assertEqual(list(m.keys()), [a, b])
+        # values() yields the stored values, items() the (key, value) pairs.
+        # These previously raised KeyError because __iter__ yielded values.
+        self.assertEqual(list(m.values()), ['x', 'y'])
+        self.assertEqual(list(m.items()), [(a, 'x'), (b, 'y')])
 
     def test_identity_map_init_mapping(self):
         """The constructor accepts an initial mapping (exercises update)."""
@@ -1330,6 +1398,266 @@ class TestBoxedScalarLiteralRegression(unittest.TestCase):
         self.assertIsInstance(node, ast.Constant)
         self.assertEqual(node.value, 5)
         self.assertIs(type(node.value), int)
+
+
+class TestAuditRegressions(unittest.TestCase):
+    """Regression tests for the audit fixes H15-H18, M35, M36."""
+
+    def test_h15_keyword_variable_names_compile(self):
+        """>=214 SSA names no longer collide with Python keywords (H15).
+
+        The base-26 naming scheme produces 'if'/'in'/'is'/'or'/'def'/... at
+        specific counter values; without disambiguation the generated source
+        contains ``if = ie + 1.0`` (SyntaxError).
+        """
+        def f(x):
+            for _ in range(230):
+                x = x + 1.0
+            return x
+
+        # Both public entry points exercise the same naming path.
+        for src in (
+            jaxpr_to_python_code(jax.make_jaxpr(f)(jnp.float32(0.0)).jaxpr),
+            fn_to_python_code(f, jnp.float32(0.0)),
+        ):
+            # Must compile (pre-fix this raised SyntaxError) ...
+            compile(src, '<generated>', 'exec')
+            # ... and the function must actually run to the right answer.
+            gen = _exec_generated(src, 'f')
+            got = gen(jnp.float32(0.0))
+            self.assertTrue(np.allclose(np.asarray(got), np.asarray(f(jnp.float32(0.0)))))
+
+    def test_h15_no_bare_keyword_assignment_target(self):
+        """No generated assignment target is a bare Python keyword (H15)."""
+        def f(x):
+            for _ in range(400):
+                x = x + 1.0
+            return x
+
+        src = fn_to_python_code(f, jnp.float32(0.0))
+        kws = set(__import__('keyword').kwlist)
+        for line in src.splitlines():
+            stripped = line.strip()
+            if ' = ' in stripped:
+                target = stripped.split(' = ', 1)[0].strip()
+                self.assertNotIn(target, kws,
+                                 f"bare keyword used as assignment target: {line!r}")
+
+    def test_h15_keyword_names_unique(self):
+        """Disambiguated keyword names stay unique (no '_'-suffix collision)."""
+        st = _ir_tocode.SourcerorState()
+
+        class V:
+            pass
+        vs = [V() for _ in range(500)]
+        names = [st.str_name(v) for v in vs]
+        self.assertEqual(len(set(names)), len(names))
+        # At least one keyword was disambiguated with a trailing underscore.
+        self.assertTrue(any(n.endswith('_') for n in names))
+
+    def test_h16_round_half_to_even(self):
+        """jnp.round/around preserve banker's rounding through codegen (H16)."""
+        def fround(x):
+            return jnp.round(x)
+
+        def faround(x):
+            return jnp.around(x)
+
+        for fn in (fround, faround):
+            for inp in (jnp.float32([0.5, 1.5, 2.5, 3.5]),
+                        jnp.float32([-0.5, -1.5, -2.5])):
+                _roundtrip_check(self, fn, inp)
+                # The generated source must forward the rounding method.
+                src = fn_to_python_code(fn, inp)
+                self.assertIn('RoundingMethod', src)
+
+    def test_h17_zero_d_unlisted_dtype_roundtrips(self):
+        """0-d literals of unlisted dtypes execute and keep their dtype (H17)."""
+        for dt in (jnp.uint8, jnp.uint16, jnp.uint32, jnp.int8, jnp.int16,
+                   jnp.complex64):
+            def f(x, _dt=dt):
+                return x + jnp.asarray(3, dtype=_dt)
+
+            inp = jnp.ones((3,), dtype=dt)
+            # Pre-fix this generated ``dtype('uint16')(3)`` -> TypeError on exec.
+            _roundtrip_check(self, f, inp)
+            src = fn_to_python_code(f, inp)
+            self.assertIn('jax.numpy.array', src)
+
+    def test_h18_precision_enum_param_roundtrips(self):
+        """A lax.Precision enum param round-trips and imports cleanly (H18)."""
+        def f(a, b):
+            return jax.lax.dot_general(
+                a, b, (((1,), (0,)), ((), ())),
+                precision=jax.lax.Precision.HIGHEST,
+            )
+
+        a = jnp.ones((2, 3), dtype=jnp.float32)
+        b = jnp.ones((3, 4), dtype=jnp.float32)
+        # Pre-fix the generated code referenced a bare ``Precision`` -> NameError.
+        _roundtrip_check(self, f, a, b)
+        src = fn_to_python_code(f, a, b)
+        # An import line for the enum's module must be prepended.
+        self.assertTrue(any(line.startswith('import ')
+                            for line in src.splitlines()),
+                        f"no import emitted for enum param:\n{src}")
+        # No bare ``Precision.HIGHEST`` (unqualified) survives in the body.
+        self.assertNotIn(' Precision.HIGHEST', src)
+
+    def test_h18_nested_enum_reference_importable(self):
+        """A nested enum (dotted __qualname__) emits an importable reference (H18)."""
+        class Outer:
+            class Mode(enum.Enum):
+                A = 1
+                B = 2
+
+        _ir_tocode.prefix_imports.clear()
+        try:
+            node = _ir_tocode._astify_value(Outer.Mode.B)
+            src = _unparse(node)
+            module = Outer.Mode.__module__
+            # The reference is module + dotted qualname + member (no broken
+            # ``from m import Outer.Mode``).
+            self.assertEqual(src, f'{module}.{Outer.Mode.__qualname__}.B')
+            self.assertIn(f'import {module}', list(_ir_tocode.prefix_imports))
+        finally:
+            _ir_tocode.prefix_imports.clear()
+
+    def test_m35_lambda_with_pytree_arg_compiles(self):
+        """A lambda taking a pytree arg yields a valid ``def`` name (M35)."""
+        g = lambda d: d['a'] + d['b']
+        arg = {'a': jnp.float32(1.0), 'b': jnp.float32(2.0)}
+        src = fn_to_python_code(g, arg)
+        # Pre-fix the wrapper def was ``def <lambda>(...)`` -> SyntaxError.
+        compile(src, '<generated>', 'exec')
+        self.assertIn('def generated_function', src)
+        self.assertNotIn('def <lambda>', src)
+        ns = {'jax': jax, 'jnp': jnp, 'np': np}
+        exec(src, ns)
+        self.assertTrue(np.allclose(np.asarray(ns['generated_function'](arg)), 3.0))
+
+    def test_m35_partial_with_pytree_arg_compiles(self):
+        """A functools.partial (no __name__) + pytree arg compiles (M35)."""
+        import functools
+        p = functools.partial(lambda d: d['a'] * d['b'])
+        arg = {'a': jnp.float32(3.0), 'b': jnp.float32(4.0)}
+        src = fn_to_python_code(p, arg)
+        compile(src, '<generated>', 'exec')
+        self.assertIn('def generated_function', src)
+        ns = {'jax': jax, 'jnp': jnp, 'np': np}
+        exec(src, ns)
+        self.assertTrue(np.allclose(np.asarray(ns['generated_function'](arg)), 12.0))
+
+    def test_m36_prefix_imports_thread_local(self):
+        """prefix_imports is isolated per thread (M36)."""
+        import threading
+
+        errors = []
+        barrier = threading.Barrier(6)
+
+        def worker(tag):
+            try:
+                _ir_tocode.prefix_imports.clear()
+                _ir_tocode.prefix_imports.add(f'import pkg_{tag}')
+                # Rendezvous so every thread has populated its set before any
+                # thread reads back -- a shared global would be corrupted here.
+                barrier.wait(timeout=5)
+                self.assertEqual(set(_ir_tocode.prefix_imports),
+                                 {f'import pkg_{tag}'})
+            except Exception as exc:  # pragma: no cover - surfaced via errors
+                errors.append(exc)
+
+        threads = [threading.Thread(target=worker, args=(i,)) for i in range(6)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        self.assertEqual(errors, [])
+
+    def test_m36_concurrent_codegen_preserves_imports(self):
+        """Concurrent generation of import-bearing code keeps the import (M36).
+
+        The enum path (H18) deterministically adds ``import <module>`` to
+        ``prefix_imports`` during generation. With a shared module-global set,
+        one thread clearing the set on entry would drop another thread's
+        in-flight import, emitting source that references the enum module
+        without importing it (``NameError``). Each thread must keep its own
+        import.
+        """
+        import threading
+
+        # dot_general with an explicit Precision enum forces an import to be
+        # accumulated mid-generation on every call.
+        def f(a, b):
+            return jax.lax.dot_general(
+                a, b, (((1,), (0,)), ((), ())),
+                precision=jax.lax.Precision.HIGHEST,
+            )
+
+        a = jnp.ones((2, 3), dtype=jnp.float32)
+        b = jnp.ones((3, 4), dtype=jnp.float32)
+        results = []
+        errors = []
+        start = threading.Barrier(8)
+
+        def worker():
+            try:
+                start.wait(timeout=5)
+                src = fn_to_python_code(f, a, b)
+                # The generated module must compile, carry an import line, and
+                # run -- i.e. its import was not clobbered by a sibling thread.
+                self.assertTrue(any(line.startswith('import ')
+                                    for line in src.splitlines()),
+                                f"import dropped under concurrency:\n{src}")
+                _exec_generated(src, 'f')(a, b)
+                results.append(src)
+            except Exception as exc:  # pragma: no cover - surfaced via errors
+                errors.append(exc)
+
+        threads = [threading.Thread(target=worker) for _ in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        self.assertEqual(errors, [])
+        self.assertEqual(len(results), 8)
+
+
+class TestThreadLocalImportsSetApi(unittest.TestCase):
+    """The ``prefix_imports`` accumulator (`_ThreadLocalImports`) exposes a
+    set-like API. ``add``/``clear``/``__iter__``/``__len__`` are driven by code
+    generation, but ``discard`` and ``__contains__`` are part of the same public
+    surface and are exercised directly here."""
+
+    def setUp(self):
+        _ir_tocode.prefix_imports.clear()
+
+    def tearDown(self):
+        _ir_tocode.prefix_imports.clear()
+
+    def test_contains_reflects_membership(self):
+        """``in`` reports membership (``__contains__``)."""
+        pi = _ir_tocode.prefix_imports
+        pi.add('import foo')
+        self.assertIn('import foo', pi)
+        self.assertNotIn('import bar', pi)
+
+    def test_discard_removes_present_and_ignores_absent(self):
+        """``discard`` removes a present element and is a no-op for an absent one."""
+        pi = _ir_tocode.prefix_imports
+        pi.add('import foo')
+        pi.add('import bar')
+
+        pi.discard('import foo')
+        self.assertNotIn('import foo', pi)
+        self.assertIn('import bar', pi)
+        self.assertEqual(len(pi), 1)
+
+        # Discarding something not present must not raise and must not change
+        # the contents (set.discard semantics, unlike set.remove).
+        pi.discard('import missing')
+        self.assertEqual(len(pi), 1)
+        self.assertIn('import bar', pi)
 
 
 if __name__ == '__main__':

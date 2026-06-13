@@ -40,7 +40,14 @@ def _err_jit_false_branch(args, kwargs):
 
 def _error_msg(msg, *arg, **kwargs):
     if len(arg):
-        msg = msg % arg
+        # Positional args historically use %-formatting (e.g. "value is %d").
+        # Brace-style positional messages (e.g. "bad value {}") are also natural,
+        # so fall back to str.format when %-formatting does not apply, instead of
+        # raising an opaque "not all arguments converted" TypeError.
+        try:
+            msg = msg % arg
+        except (TypeError, ValueError):
+            msg = msg.format(*arg)
     if len(kwargs):
         msg = msg.format(**kwargs)
     raise ValueError(msg)

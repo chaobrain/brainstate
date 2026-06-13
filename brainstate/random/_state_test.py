@@ -157,12 +157,34 @@ class TestRandomStateKeyManagement(unittest.TestCase):
                     self.assertFalse(np.array_equal(key, other_key))
 
     def test_split_key_invalid_n(self):
-        """Test split_key with invalid n raises error."""
-        with self.assertRaises(AssertionError):
+        """Test split_key with invalid n raises a (-O-proof) ValueError."""
+        with self.assertRaises(ValueError):
             self.rs.split_key(0)
 
-        with self.assertRaises(AssertionError):
+        with self.assertRaises(ValueError):
             self.rs.split_key(-1)
+
+    def test_split_key_accepts_numpy_int(self):
+        """split_key accepts numpy integer scalars (operator.index), not just int."""
+        keys = self.rs.split_key(np.int64(3))
+        self.assertEqual(len(keys), 3)
+
+    def test_split_key_non_integer_raises_typeerror(self):
+        """split_key rejects a non-integer n with TypeError (e.g. a float)."""
+        with self.assertRaises(TypeError):
+            self.rs.split_key(1.5)
+
+    def test_self_assign_multi_keys_invalid_n(self):
+        """self_assign_multi_keys validates n with a real (-O-proof) ValueError."""
+        with self.assertRaises(ValueError):
+            self.rs.self_assign_multi_keys(0)
+        with self.assertRaises(ValueError):
+            self.rs.self_assign_multi_keys(-2)
+
+    def test_self_assign_multi_keys_accepts_numpy_int(self):
+        """self_assign_multi_keys accepts numpy integer scalars."""
+        self.rs.self_assign_multi_keys(np.int64(3), backup=False)
+        self.assertEqual(self.rs.value.shape, (3,))
 
     def test_backup_restore_key(self):
         """Test backup and restore functionality."""
@@ -784,16 +806,14 @@ class TestRandomStateMisc(unittest.TestCase):
             self.rs.restore_key()
 
     def test_split_key_with_backup(self):
-        """split_key(backup=True) records the post-split key as the restore point."""
-        # split_key advances the internal key to keys[0] and *then* backs it up,
-        # so the backed-up value is the advanced key, not the pre-split key.
+        """split_key(backup=True) records the pre-split key as the restore point."""
+        # split_key backs up the current key *before* advancing, so restore_key
+        # rewinds to the original pre-split key (the documented contract).
+        pre_split = _key_data(self.rs.value)
         self.rs.split_key(backup=True)
-        post_split = _key_data(self.rs.value)
-        # Advance again, then restore back to the post-split key.
-        self.rs.split_key()
-        self.assertFalse(np.array_equal(_key_data(self.rs.value), post_split))
+        self.assertFalse(np.array_equal(_key_data(self.rs.value), pre_split))
         self.rs.restore_key()
-        np.testing.assert_array_equal(_key_data(self.rs.value), post_split)
+        np.testing.assert_array_equal(_key_data(self.rs.value), pre_split)
 
 
 class TestRandomStateMoreDistributions(unittest.TestCase):
@@ -1164,6 +1184,337 @@ class TestRandomStateEdgeCases(unittest.TestCase):
         """standard_t honours an explicit size argument."""
         rs = RandomState(9)
         self.assertEqual(rs.standard_t(3.0, size=(3,)).shape, (3,))
+
+
+class TestRandomStateAuditFixes(unittest.TestCase):
+    """Regression tests for the brainstate.random audit fixes."""
+
+    def setUp(self):
+        TRACE_CONTEXT.state_stack.append(StateTraceStack())
+
+    def tearDown(self):
+        TRACE_CONTEXT.state_stack.pop()
+
+    # --- H12 / M29: wald threads the explicit key into BOTH draws ---------------
+
+    def test_wald_same_key_is_reproducible(self):
+        """wald(...) with the same explicit key twice yields identical samples."""
+        rs = RandomState(123)
+        key = formalize_key(42)
+        a = rs.wald(3.0, 2.0, size=4, key=key)
+        b = rs.wald(3.0, 2.0, size=4, key=key)
+        np.testing.assert_array_equal(np.asarray(a), np.asarray(b))
+
+    def test_wald_different_keys_differ(self):
+        """wald(...) with different explicit keys yields different samples."""
+        rs = RandomState(123)
+        a = rs.wald(3.0, 2.0, size=4, key=formalize_key(42))
+        b = rs.wald(3.0, 2.0, size=4, key=formalize_key(7))
+        self.assertFalse(bool(jnp.allclose(jnp.asarray(a), jnp.asarray(b))))
+
+    def test_wald_explicit_key_does_not_mutate_state(self):
+        """Passing an explicit key to wald leaves the instance key unchanged."""
+        rs = RandomState(123)
+        before = _key_data(rs.value)
+        rs.wald(3.0, 2.0, size=4, key=formalize_key(42))
+        np.testing.assert_array_equal(_key_data(rs.value), before)
+
+    def test_wald_seed_independent_of_global_state(self):
+        """wald with a fixed key is deterministic regardless of ambient RNG state."""
+        key = formalize_key(42)
+        rs1 = RandomState(123)
+        rs2 = RandomState(999)
+        np.testing.assert_array_equal(
+            np.asarray(rs1.wald(3.0, 2.0, size=4, key=key)),
+            np.asarray(rs2.wald(3.0, 2.0, size=4, key=key)),
+        )
+
+    def test_wald_honors_dtype_end_to_end(self):
+        """wald respects an explicit float16 dtype on the chi-square draw too."""
+        rs = RandomState(0)
+        out = rs.wald(3.0, 2.0, size=4, dtype=jnp.float16)
+        self.assertEqual(jnp.asarray(out).dtype, jnp.float16)
+
+    # --- H13: multinomial validates the simplex along the last axis -------------
+
+    def test_multinomial_batched_pvals_valid(self):
+        """Batched (B, K) pvals summing to 1 per row no longer falsely raise."""
+        rs = RandomState(0)
+        pvals = jnp.array([[0.5, 0.4, 0.1]] * 3)
+        out = rs.multinomial(jnp.array([10, 10, 10]), pvals)
+        self.assertEqual(out.shape, (3, 3))
+        np.testing.assert_array_equal(np.asarray(out).sum(axis=-1), 10)
+
+    def test_multinomial_batched_invalid_row_raises(self):
+        """A batched pvals with a row whose leading sum exceeds 1 still raises."""
+        rs = RandomState(0)
+        pvals = jnp.array([[0.6, 0.6, 0.5], [0.5, 0.4, 0.1], [0.5, 0.4, 0.1]])
+        with self.assertRaises(Exception):
+            np.asarray(rs.multinomial(jnp.array([10, 10, 10]), pvals))
+
+    def test_multinomial_1d_invalid_still_raises(self):
+        """The 1-D simplex check is preserved (leading sum > 1 rejected)."""
+        rs = RandomState(0)
+        with self.assertRaises(Exception):
+            np.asarray(rs.multinomial(10, jnp.array([0.6, 0.6, 0.5])))
+
+    # --- M28: *_like preserve the template dtype when dtype is None -------------
+
+    def test_rand_like_preserves_input_dtype(self):
+        """rand_like with dtype=None preserves the template's float dtype."""
+        rs = RandomState(0)
+        for dt in (jnp.float16, jnp.bfloat16, jnp.float32):
+            with self.subTest(dtype=dt):
+                self.assertEqual(rs.rand_like(jnp.ones(3, dtype=dt)).dtype, dt)
+
+    def test_randn_like_preserves_input_dtype(self):
+        """randn_like with dtype=None preserves the template's float dtype."""
+        rs = RandomState(0)
+        for dt in (jnp.float16, jnp.bfloat16, jnp.float32):
+            with self.subTest(dtype=dt):
+                self.assertEqual(rs.randn_like(jnp.ones(3, dtype=dt)).dtype, dt)
+
+    def test_randint_like_preserves_integer_dtype(self):
+        """randint_like with dtype=None preserves the template's integer dtype."""
+        rs = RandomState(0)
+        for dt in (jnp.int8, jnp.int16, jnp.int32):
+            with self.subTest(dtype=dt):
+                out = rs.randint_like(jnp.arange(5, dtype=dt), 0, 3)
+                self.assertEqual(out.dtype, dt)
+
+    def test_randint_like_float_template_preserved(self):
+        """randint_like preserves a float template dtype (ints sampled, then cast)."""
+        rs = RandomState(0)
+        out = rs.randint_like(jnp.ones(4, dtype=jnp.float32), 0, 3)
+        self.assertEqual(out.dtype, jnp.float32)
+
+    def test_like_explicit_dtype_still_honored(self):
+        """An explicit dtype still overrides the template dtype for *_like."""
+        rs = RandomState(0)
+        self.assertEqual(rs.rand_like(jnp.ones(3, dtype=jnp.float16), dtype=jnp.float32).dtype,
+                         jnp.float32)
+
+    # --- M30: the full API runs under environ ir_compilation=True ---------------
+
+    def test_api_runs_under_ir_compilation(self):
+        """Public random methods no longer break under ir_compilation=True."""
+        rs = RandomState(0)
+        calls = {
+            'randint': lambda: rs.randint(0, 10, size=(3,)),
+            'random_integers': lambda: rs.random_integers(1, 6, size=(3,)),
+            'random': lambda: rs.random(size=(3,)),
+            'uniform': lambda: rs.uniform(0.0, 1.0, size=(3,)),
+            'normal': lambda: rs.normal(0.0, 1.0, size=(3,)),
+            'choice_int': lambda: rs.choice(5, size=(3,)),
+            'choice_arr': lambda: rs.choice(jnp.arange(5), size=(3,)),
+            'poisson': lambda: rs.poisson(3.0, size=(3,)),
+            'bernoulli': lambda: rs.bernoulli(0.5, size=(3,)),
+            'beta': lambda: rs.beta(2.0, 3.0, size=(3,)),
+            'gamma': lambda: rs.gamma(2.0, size=(3,)),
+            'exponential': lambda: rs.exponential(1.0, size=(3,)),
+            'truncated_normal': lambda: rs.truncated_normal(-1.0, 1.0, size=(3,)),
+            'rand': lambda: rs.rand(3),
+            'randn': lambda: rs.randn(3),
+            'wald': lambda: rs.wald(1.0, 2.0, size=(3,)),
+            'power': lambda: rs.power(2.0, size=(3,)),
+            'chisquare': lambda: rs.chisquare(3.0, size=(3,)),
+            'dirichlet': lambda: rs.dirichlet(jnp.array([1.0, 2.0, 3.0]), size=(2,)),
+            'rayleigh': lambda: rs.rayleigh(1.0, size=(3,)),
+            'triangular': lambda: rs.triangular(-1.0, 0.0, 1.0, size=(3,)),
+            'categorical': lambda: rs.categorical(jnp.zeros((3, 5))),
+        }
+        with brainstate.environ.context(ir_compilation=True):
+            for name, fn in calls.items():
+                with self.subTest(distribution=name):
+                    self.assertTrue(bool(jnp.all(jnp.isfinite(jnp.asarray(fn()).astype(float)))))
+
+    # --- L16: choice supports string/object array-likes -------------------------
+
+    def test_choice_string_array(self):
+        """choice over a string array returns string samples (the documented case)."""
+        rs = RandomState(0)
+        out = rs.choice(['pooh', 'rabbit', 'piglet', 'Christopher'], 5,
+                        p=[0.5, 0.1, 0.1, 0.3])
+        arr = np.asarray(out)
+        self.assertEqual(arr.dtype.kind, 'U')
+        self.assertEqual(arr.shape, (5,))
+        self.assertTrue(set(arr.tolist()).issubset({'pooh', 'rabbit', 'piglet', 'Christopher'}))
+
+    def test_choice_numeric_unaffected(self):
+        """The numeric choice path is unchanged (returns a jax array)."""
+        rs = RandomState(0)
+        out = rs.choice(jnp.array([10, 20, 30, 40]), size=(5,))
+        self.assertEqual(jnp.asarray(out).shape, (5,))
+        self.assertTrue(bool(jnp.all(jnp.isin(out, jnp.array([10, 20, 30, 40])))))
+
+    def test_choice_numeric_python_list_takes_jax_path(self):
+        """A *numeric* array-like that is neither an int nor a jax.Array/Quantity
+        (e.g. a plain Python list of numbers) passes the early non-numeric guard
+        but, being numeric, falls through to the normal jax.choice path and
+        returns a jax array (the documented numeric behaviour)."""
+        rs = RandomState(0)
+        out = rs.choice([10, 20, 30, 40], size=(5,))
+        # The jax path is taken: result is a numeric jax array, not a numpy gather.
+        self.assertIsInstance(out, jax.Array)
+        self.assertEqual(jnp.asarray(out).shape, (5,))
+        self.assertTrue(bool(jnp.all(jnp.isin(out, jnp.array([10, 20, 30, 40])))))
+
+    def test_choice_numeric_numpy_array_takes_jax_path(self):
+        """A numeric numpy array (not a jax.Array) also routes through the jax
+        choice path rather than the string/object numpy-gather branch."""
+        rs = RandomState(0)
+        out = rs.choice(np.array([1.0, 2.0, 3.0]), size=(4,))
+        self.assertIsInstance(out, jax.Array)
+        self.assertEqual(jnp.asarray(out).shape, (4,))
+        self.assertTrue(bool(jnp.all(jnp.isin(out, jnp.array([1.0, 2.0, 3.0])))))
+
+    # --- self_assign_multi_keys: non-integer n raises TypeError -----------------
+
+    def test_self_assign_multi_keys_non_integer_raises_typeerror(self):
+        """RandomState.self_assign_multi_keys rejects a non-integer n with a
+        TypeError (operator.index fails and is re-raised with a clear message),
+        leaving the state's key unchanged."""
+        rs = RandomState(42)
+        before = _key_data(rs.value)
+        for bad in (1.5, 'x', None, [1, 2]):
+            with self.subTest(n=bad):
+                with self.assertRaises(TypeError):
+                    rs.self_assign_multi_keys(bad)
+        # A rejected call must not have advanced/replaced the key.
+        np.testing.assert_array_equal(_key_data(rs.value), before)
+
+    def test_self_assign_multi_keys_typeerror_message(self):
+        """The TypeError from a non-integer n echoes the offending value."""
+        rs = RandomState(42)
+        with self.assertRaises(TypeError) as ctx:
+            rs.self_assign_multi_keys(1.5)
+        self.assertIn('integer', str(ctx.exception))
+        self.assertIn('1.5', str(ctx.exception))
+
+    # --- L17: chisquare raises when df <= 0 -------------------------------------
+
+    def test_chisquare_nonpositive_df_raises(self):
+        """chisquare(df<=0) raises (documented Raises ValueError contract)."""
+        rs = RandomState(0)
+        for bad in (0.0, -2.0):
+            with self.subTest(df=bad):
+                with self.assertRaises(Exception):
+                    np.asarray(rs.chisquare(bad, 5))
+
+    def test_chisquare_check_valid_false_skips_guard(self):
+        """chisquare(check_valid=False) skips the df>0 guard."""
+        rs = RandomState(0)
+        out = rs.chisquare(0.0, 5, check_valid=False)
+        self.assertEqual(jnp.asarray(out).shape, (5,))
+
+    def test_chisquare_valid_df_unaffected(self):
+        """A valid df still samples normally."""
+        rs = RandomState(0)
+        self.assertEqual(jnp.asarray(rs.chisquare(3.0, 5)).shape, (5,))
+
+    # --- Audit item 8: geometric validates p in (0, 1] --------------------------
+
+    def test_geometric_invalid_p_raises(self):
+        """geometric(p) with p<=0 or p>1 raises (NumPy raises; previously p=0
+        silently returned the int-overflow sentinel)."""
+        rs = RandomState(0)
+        for bad in (0.0, -0.5, 1.5):
+            with self.subTest(p=bad):
+                with self.assertRaises(Exception):
+                    np.asarray(rs.geometric(bad))
+
+    def test_geometric_valid_p_unaffected(self):
+        """A valid p still samples positive integers."""
+        rs = RandomState(0)
+        out = np.asarray(rs.geometric(0.5, size=(50,)))
+        self.assertEqual(out.shape, (50,))
+        self.assertTrue((out >= 1).all())
+
+    # --- Audit item 3: zipf validates a > 1 -------------------------------------
+
+    def test_zipf_invalid_a_raises(self):
+        """zipf(a) with a<=1 raises (NumPy raises 'a <= 1 or a is NaN';
+        previously it silently collapsed to all-ones)."""
+        rs = RandomState(0)
+        for bad in (1.0, 0.5, -1.0):
+            with self.subTest(a=bad):
+                with self.assertRaises(Exception):
+                    np.asarray(rs.zipf(bad, size=(3,)))
+
+    def test_zipf_valid_a_unaffected(self):
+        """A valid a > 1 still samples positive integers."""
+        rs = RandomState(0)
+        out = np.asarray(rs.zipf(2.0, size=(20,)))
+        self.assertEqual(out.shape, (20,))
+        self.assertTrue((out >= 1).all())
+
+    # --- Audit item 9: rayleigh(scale=None) no longer crashes -------------------
+
+    def test_rayleigh_scale_none(self):
+        """rayleigh(scale=None) treats the missing scale as unit scale instead of
+        crashing on ``x * None``."""
+        rs = RandomState(0)
+        out = np.asarray(rs.rayleigh(None, size=(4,)))
+        self.assertEqual(out.shape, (4,))
+        self.assertTrue((out >= 0).all())
+
+    def test_rayleigh_scale_none_matches_unit_scale(self):
+        """scale=None is equivalent to scale=1.0 for the same key."""
+        rs = RandomState(0)
+        key = formalize_key(7)
+        none_out = np.asarray(rs.rayleigh(None, size=(4,), key=key))
+        one_out = np.asarray(rs.rayleigh(1.0, size=(4,), key=key))
+        np.testing.assert_allclose(none_out, one_out)
+
+    # --- Audit item 10: triangular validates left <= mode <= right --------------
+
+    def test_triangular_invalid_bounds_raises(self):
+        """triangular rejects mode>right, left>mode, and left>=right (NumPy
+        raises; previously these silently sampled the wrong distribution)."""
+        rs = RandomState(0)
+        for left, mode, right in [(0.0, 2.0, 1.0), (0.0, -1.0, 1.0), (1.0, 0.5, 1.0)]:
+            with self.subTest(left=left, mode=mode, right=right):
+                with self.assertRaises(Exception):
+                    np.asarray(rs.triangular(left, mode, right, size=(4,)))
+
+    def test_triangular_valid_bounds_unaffected(self):
+        """Valid bounds still produce samples within [left, right]."""
+        rs = RandomState(0)
+        out = np.asarray(rs.triangular(-1.0, 0.0, 1.0, size=(200,)))
+        self.assertTrue((out >= -1.0).all() and (out <= 1.0).all())
+
+    # --- Audit item 5: _numpy_keys draws from the full uint32 range --------------
+
+    def test_numpy_keys_uses_full_uint32_range(self):
+        """_numpy_keys no longer caps seeds at 10000 (which invited collisions)."""
+        rs = RandomState(0)
+        keys = rs._numpy_keys(20000)
+        self.assertEqual(keys.dtype, np.uint32)
+        # With the old [0, 10000) range this maximum could never exceed 9999.
+        self.assertGreater(int(keys.max()), 10000)
+
+    # --- Audit item 4: split_key RMW is serialized under threads (defensive) ----
+
+    def test_split_key_threadsafe_no_duplicate_keys(self):
+        """Concurrent split_key calls on a shared state never hand out the same
+        key (the read-modify-write is lock-guarded). Defensive: scheduling makes
+        a pre-fix failure likely but not strictly deterministic."""
+        import threading
+        rs = RandomState(0)
+        results = []
+        lock = threading.Lock()
+
+        def worker():
+            k = rs.split_key()
+            with lock:
+                results.append(tuple(_key_data(k).tolist()))
+
+        threads = [threading.Thread(target=worker) for _ in range(16)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        self.assertEqual(len(results), len(set(results)))
 
 
 if __name__ == '__main__':

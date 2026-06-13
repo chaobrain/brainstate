@@ -22,6 +22,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from brainstate._compatible_import import Tracer
 from brainstate._state import LongTermState
 
 __all__ = [
@@ -495,10 +496,9 @@ class AccuracyMetric(AverageMetric):
             raise ValueError(
                 f'Expected logits.ndim==labels.ndim+1, got {logits.ndim} and {labels.ndim}'
             )
-        elif labels.dtype in (jnp.int64, np.int32, np.int64):
-            labels = jnp.astype(labels, jnp.int32)
-        elif labels.dtype != jnp.int32:
-            raise ValueError(f'Expected labels.dtype==jnp.int32, got {labels.dtype}')
+        elif not jnp.issubdtype(labels.dtype, jnp.integer):
+            raise ValueError(f'Expected integer labels.dtype, got {labels.dtype}')
+        labels = jnp.astype(labels, jnp.int32)
 
         super().update(values=(logits.argmax(axis=-1) == labels))
 
@@ -858,14 +858,33 @@ class F1ScoreMetric(Metric):
         jax.Array
             The F1 score value(s). Returns 0 when both precision and recall are 0.
         """
-        precision = self.precision_metric.compute()
-        recall = self.recall_metric.compute()
-        denominator = precision + recall
-        return jnp.where(
-            denominator > 0,
-            2 * precision * recall / denominator,
-            jnp.float32(0.0)
-        )
+        nc = self.precision_metric.num_classes
+        avg = self.precision_metric.average
+        if nc is None:
+            p = self.precision_metric.compute()
+            r = self.recall_metric.compute()
+            denom = p + r
+            return jnp.where(denom > 0, 2 * p * r / denom, jnp.float32(0.0))
+        if avg == 'micro':
+            p = self.precision_metric.compute()
+            r = self.recall_metric.compute()
+            denom = p + r
+            return jnp.where(denom > 0, 2 * p * r / denom, jnp.float32(0.0))
+        tp = self.precision_metric.true_positives.value
+        fp = self.precision_metric.false_positives.value
+        fn = self.recall_metric.false_negatives.value
+        support = self.precision_metric.support.value  # TP + FN per class
+        p_den = tp + fp
+        p_c = jnp.where(p_den > 0, tp / p_den, jnp.zeros_like(p_den, dtype=jnp.float32))
+        r_den = tp + fn
+        r_c = jnp.where(r_den > 0, tp / r_den, jnp.zeros_like(r_den, dtype=jnp.float32))
+        f_den = p_c + r_c
+        f1_c = jnp.where(f_den > 0, 2 * p_c * r_c / f_den, jnp.zeros_like(f_den, dtype=jnp.float32))
+        if avg == 'macro':
+            return jnp.mean(f1_c)
+        else:  # 'weighted'
+            total = jnp.sum(support)
+            return jnp.where(total > 0, jnp.sum(f1_c * support) / total, jnp.float32(0.0))
 
 
 class ConfusionMatrix(Metric):
@@ -938,10 +957,11 @@ class ConfusionMatrix(Metric):
         predictions = jnp.asarray(predictions, dtype=jnp.int32).flatten()
         labels = jnp.asarray(labels, dtype=jnp.int32).flatten()
 
-        if jnp.any((predictions < 0) | (predictions >= self.num_classes)):
-            raise ValueError(f"Predictions contain values outside [0, {self.num_classes})")
-        if jnp.any((labels < 0) | (labels >= self.num_classes)):
-            raise ValueError(f"Labels contain values outside [0, {self.num_classes})")
+        if not (isinstance(predictions, Tracer) or isinstance(labels, Tracer)):
+            if jnp.any((predictions < 0) | (predictions >= self.num_classes)):
+                raise ValueError(f"Predictions contain values outside [0, {self.num_classes})")
+            if jnp.any((labels < 0) | (labels >= self.num_classes)):
+                raise ValueError(f"Labels contain values outside [0, {self.num_classes})")
 
         for true_label in range(self.num_classes):
             for pred_label in range(self.num_classes):
@@ -1008,13 +1028,17 @@ class MultiMetric(Metric):
     All keyword arguments passed to ``update`` are forwarded to all underlying metrics.
     Each metric will extract the arguments it needs based on its implementation.
 
-    Reserved method names ('reset', 'update', 'compute') cannot be used as metric names.
+    Reserved names ('reset', 'update', 'compute', '_metric_names') cannot be used as
+    metric names.
     """
     __module__ = "brainstate.nn"
 
     def __init__(self, **metrics):
-        # Validate that no reserved names are used
-        reserved_names = {'reset', 'update', 'compute'}
+        # Validate that no reserved names are used. This includes the public method
+        # names *and* the internal ``_metric_names`` bookkeeping attribute, which
+        # would otherwise be silently overwritten by a metric of the same name and
+        # break ``reset``/``update``/``compute``.
+        reserved_names = {'reset', 'update', 'compute', '_metric_names'}
         for metric_name in metrics.keys():
             if metric_name in reserved_names:
                 raise ValueError(

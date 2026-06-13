@@ -217,7 +217,9 @@ Components
 type
     Filter by type, e.g., `float`, `jax.Array`.
 str
-    Filter by string matching in path keys.
+    Filter by tag: matches objects whose ``tag`` attribute equals the string
+    (converted to a :class:`~brainstate.util.filter.WithTag` filter), not by
+    path-key matching.
 Predicate
     Custom function for complex filtering logic.
 bool
@@ -234,7 +236,7 @@ Examples
     >>> # Filter by type
     >>> float_filter: FilterLiteral = float
     >>>
-    >>> # Filter by string pattern
+    >>> # Filter by tag (matches objects whose ``tag`` attribute == "weight")
     >>> weight_filter: FilterLiteral = "weight"
     >>>
     >>> # Custom predicate filter
@@ -439,57 +441,108 @@ class _MetaPyTree(type):
     # isn't allowed.
     # Likewise we can't do types.new_class("PyTree", (Generic[_T],), {}) because that
     # has __module__ "types", e.g. we get types.PyTree[int].
-    @functools.lru_cache(maxsize=None)
     def __getitem__(cls, item: Any) -> Any:
+        # Validate/normalise *before* hitting the cache. The cached builder is
+        # keyed on a hashable, whitespace-normalised key so that (a) an
+        # unhashable leaf type produces a clear error instead of a cryptic
+        # ``TypeError: unhashable type`` raised from inside ``lru_cache``, and
+        # (b) whitespace-variant structures (``"S T"`` vs ``"S  T"``) collapse to
+        # the same class rather than distinct, non-equal ones.
         if isinstance(item, tuple):
-            if len(item) == 2:
-
-                # PyTree is a runtime-built metaclass instance used purely for
-                # annotation magic; it cannot be expressed as a static base class.
-                class X(PyTree):  # type: ignore[valid-type, misc]
-                    leaftype = item[0]
-                    structure = item[1].strip()
-
-                if not isinstance(X.structure, str):
-                    raise ValueError(
-                        "The structure annotation `struct` in "
-                        "`brainstate.typing.PyTree[leaftype, struct]` must be be a string, "
-                        f"e.g. `brainstate.typing.PyTree[leaftype, 'T']`. Got '{X.structure}'."
-                    )
-                pieces = X.structure.split()
-                if len(pieces) == 0:
-                    raise ValueError(
-                        "The string `struct` in `brainstate.typing.PyTree[leaftype, struct]` "
-                        "cannot be the empty string."
-                    )
-                for piece_index, piece in enumerate(pieces):
-                    if (piece_index == 0) or (piece_index == len(pieces) - 1):
-                        if piece == "...":
-                            continue
-                    if not piece.isidentifier():
-                        raise ValueError(
-                            "The string `struct` in "
-                            "`brainstate.typing.PyTree[leaftype, struct]` must be be a "
-                            "whitespace-separated sequence of identifiers, e.g. "
-                            "`brainstate.typing.PyTree[leaftype, 'T']` or "
-                            "`brainstate.typing.PyTree[leaftype, 'foo bar']`.\n"
-                            "(Here, 'identifier' is used in the same sense as in "
-                            "regular Python, i.e. a valid variable name.)\n"
-                            f"Got piece '{piece}' in overall structure '{X.structure}'."
-                        )
-                name = str(_FakePyTree[item[0]])[:-1] + ', "' + item[1].strip() + '"]'
-            else:
+            if len(item) != 2:
                 raise ValueError(
                     "The subscript `foo` in `brainstate.typing.PyTree[foo]` must either be a "
                     "leaf type, e.g. `PyTree[int]`, or a 2-tuple of leaf and "
                     "structure, e.g. `PyTree[int, 'T']`. Received a tuple of length "
                     f"{len(item)}."
                 )
+            leaftype, structure = item
+            if not isinstance(structure, str):
+                raise ValueError(
+                    "The structure annotation `struct` in "
+                    "`brainstate.typing.PyTree[leaftype, struct]` must be be a string, "
+                    f"e.g. `brainstate.typing.PyTree[leaftype, 'T']`. Got '{structure}'."
+                )
+            pieces = structure.split()
+            if len(pieces) == 0:
+                raise ValueError(
+                    "The string `struct` in `brainstate.typing.PyTree[leaftype, struct]` "
+                    "cannot be the empty string."
+                )
+            # An ellipsis is permitted only as a single leading OR single
+            # trailing marker, and at least one named identifier must remain.
+            # Reject "..."/"... ..." (no identifiers) and "... T ..." (ellipsis
+            # at both ends) and any ellipsis in the interior.
+            non_ellipsis = [p for p in pieces if p != "..."]
+            if len(non_ellipsis) == 0:
+                raise ValueError(
+                    "The string `struct` in `brainstate.typing.PyTree[leaftype, struct]` "
+                    "must contain at least one structure name; an ellipsis-only "
+                    f"structure such as '{structure}' is not allowed."
+                )
+            # At most one ellipsis, and only as a single leading or trailing
+            # marker. This rejects "... T ..." (both ends), "S ... T" (interior)
+            # and any structure with more than one ellipsis.
+            if pieces.count("...") > 1 or any(
+                p == "..." and i not in (0, len(pieces) - 1)
+                for i, p in enumerate(pieces)
+            ):
+                raise ValueError(
+                    "An ellipsis '...' in "
+                    "`brainstate.typing.PyTree[leaftype, struct]` may appear only "
+                    "as a single leading or single trailing marker (e.g. '... T' "
+                    "or 'T ...'), not in the interior nor at both ends.\n"
+                    f"Got structure '{structure}'."
+                )
+            for piece_index, piece in enumerate(pieces):
+                if piece == "...":
+                    continue
+                if not piece.isidentifier():
+                    raise ValueError(
+                        "The string `struct` in "
+                        "`brainstate.typing.PyTree[leaftype, struct]` must be be a "
+                        "whitespace-separated sequence of identifiers, e.g. "
+                        "`brainstate.typing.PyTree[leaftype, 'T']` or "
+                        "`brainstate.typing.PyTree[leaftype, 'foo bar']`.\n"
+                        "(Here, 'identifier' is used in the same sense as in "
+                        "regular Python, i.e. a valid variable name.)\n"
+                        f"Got piece '{piece}' in overall structure '{structure}'."
+                    )
+            # Normalise whitespace so equivalent structures share one class.
+            normalized = " ".join(pieces)
+            key = (leaftype, normalized)
         else:
-            name = str(_FakePyTree[item])
+            leaftype = item
+            key = item
+
+        if not isinstance(leaftype, Hashable):
+            raise TypeError(
+                "The leaf type in `brainstate.typing.PyTree[leaftype]` must be hashable; "
+                f"got an unhashable {type(leaftype).__name__}."
+            )
+        return cls._build(key)
+
+    @functools.lru_cache(maxsize=None)
+    def _build(cls, key: Any) -> Any:
+        if isinstance(key, tuple):
+            leaftype, structure = key
+
+            # PyTree is a runtime-built metaclass instance used purely for
+            # annotation magic; it cannot be expressed as a static base class.
+            class X(PyTree):  # type: ignore[valid-type, misc]
+                pass
+
+            X.leaftype = leaftype
+            X.structure = structure
+            # NB: subscript with `key[0]`, not the unpacked `leaftype` name —
+            # mypy rejects a bare variable in a type-subscript position
+            # ("Variable not valid as a type"), but accepts an index expression.
+            name = str(_FakePyTree[key[0]])[:-1] + ', "' + structure + '"]'
+        else:
+            name = str(_FakePyTree[key])
 
             class X(PyTree):  # type: ignore[no-redef, valid-type, misc]
-                leaftype = item
+                leaftype = key
                 structure = None
 
         X.__name__ = name

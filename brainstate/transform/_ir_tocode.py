@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import ast
 import enum
+import keyword
+import threading
 import warnings
 from collections.abc import MutableMapping, MutableSet
 from contextlib import contextmanager
@@ -90,6 +92,11 @@ class IdentityMap(MutableMapping):
     """
 
     def __init__(self, iterable=None):
+        # Map id(key) -> (key, value). The original key object is retained so
+        # that ``__iter__`` can yield keys (the Mapping contract), which the
+        # mixin methods ``keys``/``values``/``items``/``__eq__`` and ``dict(m)``
+        # all rely on. Storing only ``id(key) -> value`` made ``__iter__`` yield
+        # values, silently breaking every one of those.
         self._data = {}
         if iterable is not None:
             self.update(iterable)
@@ -98,25 +105,25 @@ class IdentityMap(MutableMapping):
         return id(key) in self._data
 
     def __getitem__(self, key):
-        return self._data[id(key)]
+        return self._data[id(key)][1]
 
     def __setitem__(self, key, value):
-        self._data[id(key)] = value
+        self._data[id(key)] = (key, value)
 
     def __delitem__(self, key):
         del self._data[id(key)]
 
     def __iter__(self):
-        return iter(self._data.values())
+        return iter(key for key, _ in self._data.values())
 
     def __len__(self):
         return len(self._data)
 
     def __repr__(self):
-        return f"IdentityMap({list(repr(x) for x in self._data.values())})"
+        return f"IdentityMap({dict((repr(k), repr(v)) for k, v in self._data.values())})"
 
     def __str__(self):
-        return f"IdentityMap({list(str(x) for x in self._data.values())})"
+        return f"IdentityMap({dict((str(k), str(v)) for k, v in self._data.values())})"
 
 
 @dataclass
@@ -145,6 +152,16 @@ class SourcerorState:
 
             name = name[::-1]
 
+            # The base-26 scheme can land on Python (soft) keywords -- e.g.
+            # index 213 -> 'if', 221 -> 'in', 2137 -> 'def' -- which would emit
+            # invalid source such as ``if = ie + 1.0``. Suffix an underscore to
+            # disambiguate. This is collision-safe: no generated name contains
+            # '_', so ``name + '_'`` cannot clash with another generated name.
+            # The adjusted value is what gets cached, so the fast-path above
+            # stays stable.
+            if keyword.iskeyword(name) or keyword.issoftkeyword(name):
+                name = name + '_'
+
             self._var_names[var] = name
 
             return name
@@ -154,7 +171,46 @@ class SourcerorState:
         return f"{prefix}_{self._skolem_count}"
 
 
-prefix_imports = set()
+class _ThreadLocalImports(threading.local):
+    """Thread-local accumulator for the ``import`` lines a generation needs.
+
+    ``prefix_imports`` used to be a single module-global ``set``. Because both
+    public entry points clear it on enter/exit and handlers mutate it during
+    generation, concurrent code generation in two threads could corrupt each
+    other's output (one thread clearing the set mid-generation in another,
+    dropping a required import and producing source with a ``NameError``).
+
+    Subclassing ``threading.local`` (matching the codebase's established
+    ``ThreadLocalStack`` idiom) gives each thread its own backing ``set`` while
+    keeping the set-like API (``add``/``clear``/``in``/``len``/iteration) that
+    the rest of the module -- and existing callers/tests -- rely on.
+    """
+
+    def __init__(self):
+        # ``threading.local.__init__`` runs once per thread the first time the
+        # instance is touched from that thread, giving each thread a fresh set.
+        self._data = set()
+
+    def add(self, value):
+        self._data.add(value)
+
+    def discard(self, value):
+        self._data.discard(value)
+
+    def clear(self):
+        self._data.clear()
+
+    def __contains__(self, value):
+        return value in self._data
+
+    def __iter__(self):
+        return iter(self._data)
+
+    def __len__(self):
+        return len(self._data)
+
+
+prefix_imports = _ThreadLocalImports()
 
 
 @contextmanager
@@ -389,13 +445,46 @@ def _call_noparams(fn_name: str):
 for _name in (
     'sin', 'cos', 'tan', 'tanh', 'sinh', 'cosh', 'asin', 'acos', 'atan',
     'exp', 'exp2', 'log', 'log1p', 'expm1', 'sqrt', 'rsqrt', 'cbrt',
-    'abs', 'sign', 'floor', 'ceil', 'round', 'erf', 'erfc', 'erf_inv',
+    'abs', 'sign', 'floor', 'ceil', 'erf', 'erfc', 'erf_inv',
     'is_finite', 'logistic', 'square', 'reciprocal', 'not',
     'pow', 'rem', 'atan2', 'nextafter', 'and', 'or', 'xor',
     'shift_left', 'shift_right_logical', 'shift_right_arithmetic',
 ):
     if _name not in prim_to_python:
         register_prim_handler(_name, _call_noparams(f'jax.lax.{_name}'))
+
+
+def _round_handler(state, eqn):
+    """Handle the ``round`` primitive, forwarding its ``rounding_method``.
+
+    ``jax.lax.round`` defaults to ``RoundingMethod.AWAY_FROM_ZERO`` while
+    ``jnp.round``/``jnp.around`` lower with ``RoundingMethod.TO_NEAREST_EVEN``
+    (banker's rounding). Dropping the param (as the generic ``_call_noparams``
+    loop did) silently changes results on every half-integer. We emit the
+    method as a fully-qualified, namespace-resolvable
+    ``jax.lax.RoundingMethod(<int>)`` so it works in the generated namespace
+    (which only has jax/jnp/np) and is robust across JAX versions (reconstruct
+    by value rather than by member name).
+    """
+    invars = [_astify_atom(state, v) for v in eqn.invars]
+    outvars = _astify_outvars(state, eqn.outvars)
+    rm = eqn.params['rounding_method']  # a jax.lax.RoundingMethod enum
+    method_ast = ast.Call(
+        func=ast.Name(id='jax.lax.RoundingMethod', ctx=ast.Load()),
+        args=[ast.Constant(value=int(rm))],
+        keywords=[],
+    )
+    return ast.Assign(
+        outvars,
+        ast.Call(
+            func=ast.Name(id='jax.lax.round', ctx=ast.Load()),
+            args=invars + [method_ast],
+            keywords=[],
+        ),
+    )
+
+
+register_prim_handler('round', _round_handler)
 
 
 def _integer_pow_handler(state, eqn):
@@ -501,8 +590,14 @@ def _maybe_wrap_fn_for_leaves(node, f, num_args):
     if len(node.args.args) == num_args:
         return node
 
+    # Reuse the inner def's already-sanitized name (``node.name``) rather than
+    # re-reading the raw ``f.__name__``: a lambda would otherwise yield the
+    # invalid ``def <lambda>(*args, **kwargs):``, and callables lacking
+    # ``__name__`` (e.g. functools.partial) would raise AttributeError. The
+    # caller (fn_to_python_code) already sanitized this name to a valid
+    # identifier (falling back to 'generated_function').
     wrapped_node = ast.FunctionDef(
-        name=f.__name__,
+        name=node.name,
         args=ast.arguments(
             args=[],
             vararg=ast.arg(arg="args", annotation=None),
@@ -864,11 +959,21 @@ def _astify_array(value):
         return ast.Constant(value=value.item())
 
     if value.ndim == 0:
+        # ``_astify_value(dtype)`` returns a ``jax.numpy.dtype('...')`` instance
+        # for dtypes outside the named set (uint8/16/32/64, int8/16, complex*),
+        # and a DType instance is NOT callable -- ``dtype('uint16')(3)`` raises
+        # ``TypeError`` at runtime. Emit ``jax.numpy.array(value, dtype=...)``
+        # instead (mirroring the multi-element branch below); this preserves
+        # ndim==0 and the exact dtype and works for every dtype.
         dtype_value = _astify_value(value.dtype)
         return ast.Call(
-            dtype_value,
+            func=ast.Attribute(
+                value=ast.Name(id='jax.numpy', ctx=ast.Load()),
+                attr='array',
+                ctx=ast.Load(),
+            ),
             args=[ast.Constant(value=value.item())],
-            keywords=[],
+            keywords=[ast.keyword(arg='dtype', value=dtype_value)],
         )
 
     values = value.tolist()
@@ -946,11 +1051,20 @@ def _astify_value(value):
         prefix_imports.add('from jax._src.sharding_impls import UNSPECIFIED')
         return ast.Name(id='UNSPECIFIED', ctx=ast.Load())
     elif isinstance(value, enum.Enum):
-        return ast.Attribute(
-            value=ast.Name(id=value.__class__.__qualname__, ctx=ast.Load()),
-            attr=value.name,
-            ctx=ast.Load()
-        )
+        # Emit a fully-qualified, importable reference and register the import,
+        # mirroring the UNSPECIFIED branch. A bare ``ClassName.MEMBER`` has no
+        # binding in the generated namespace (only jax/jnp/np) and raises
+        # ``NameError``. Build ``module.qualname.MEMBER`` as a chained
+        # Attribute, which also handles nested enums whose ``__qualname__``
+        # contains dots (``from m import Outer.Inner`` is not valid syntax).
+        cls = value.__class__
+        module = cls.__module__
+        qualname = cls.__qualname__  # may contain dots for nested enums
+        prefix_imports.add(f'import {module}')
+        node = ast.Name(id=module.split('.')[0], ctx=ast.Load())
+        for part in module.split('.')[1:] + qualname.split('.') + [value.name]:
+            node = ast.Attribute(value=node, attr=part, ctx=ast.Load())
+        return node
 
     else:
         warnings.warn(f"Unknown value type {type(value)}")
@@ -1020,8 +1134,18 @@ def _astify_scan(state, eqn):
         # fn_name = lambda carry, xs: fn_name(*carry, *xs)
         # jax.lax.scan(fn_name, (carries...), (xs...))
 
+        # The wrapper's parameter/result names must not collide with the
+        # variable namer's output. ``str_name`` emits base-26 names (``a``..``z``,
+        # ``ba``..) which CAN land on ``carry``/``x``/``ys`` (e.g. ``x`` is index
+        # 23, ``ys`` index 642): a hardcoded ``carry``/``x`` lambda arg then
+        # shadows a same-named carry var, and a hardcoded ``final_carry``/``ys``
+        # output clobbers a same-named outer var. ``skolem`` names contain an
+        # ``_<count>`` suffix that no base-26 name has, so they are collision-free.
+        carry_name = state.skolem('carry')
+        x_name = state.skolem('x')
+
         modified_signature = ast.arguments(
-            args=[ast.arg(arg='carry'), ast.arg(arg='x')],
+            args=[ast.arg(arg=carry_name), ast.arg(arg=x_name)],
             vararg=None,
             kwonlyargs=[],
             kw_defaults=[],
@@ -1034,8 +1158,8 @@ def _astify_scan(state, eqn):
             targets=[ast.Tuple(elts=[ast.Name(a.arg) for a in fn_ast.args.args],
                                ctx=ast.Store())],
             value=ast.Tuple(
-                elts=[maybe_untuple_vars(ast.Name(id='carry', ctx=ast.Load()), num_carry != 1),
-                      maybe_untuple_vars(ast.Name(id='x', ctx=ast.Load()), len(xs) != 1)]
+                elts=[maybe_untuple_vars(ast.Name(id=carry_name, ctx=ast.Load()), num_carry != 1),
+                      maybe_untuple_vars(ast.Name(id=x_name, ctx=ast.Load()), len(xs) != 1)]
             )
         )
 
@@ -1070,12 +1194,17 @@ def _astify_scan(state, eqn):
 
         stmts.append(fn_ast)
 
+        # Collision-free temporaries for the scan's (final_carry, ys) result
+        # (see the note above on ``carry``/``x``).
+        final_carry_name = state.skolem('final_carry')
+        ys_name = state.skolem('ys')
+
         scan_call = ast.Assign(
             # targets=_astify_outvars(eqn.outvars),
             targets=[
                 ast.Tuple(
-                    elts=[ast.Name(id='final_carry', ctx=ast.Store()),
-                          ast.Name(id='ys', ctx=ast.Store())],
+                    elts=[ast.Name(id=final_carry_name, ctx=ast.Store()),
+                          ast.Name(id=ys_name, ctx=ast.Store())],
                     ctx=ast.Store()
                 )
             ],
@@ -1094,7 +1223,7 @@ def _astify_scan(state, eqn):
         if num_carry > 0:
             assign_carry = ast.Assign(
                 targets=_astify_outvars(state, eqn.outvars[:num_carry]),
-                value=ast.Name(id='final_carry', ctx=ast.Load())
+                value=ast.Name(id=final_carry_name, ctx=ast.Load())
             )
 
             stmts.append(assign_carry)
@@ -1102,7 +1231,7 @@ def _astify_scan(state, eqn):
         if num_carry < len(eqn.outvars):
             assign_ys = ast.Assign(
                 targets=_astify_outvars(state, eqn.outvars[num_carry:]),
-                value=ast.Name(id='ys', ctx=ast.Load())
+                value=ast.Name(id=ys_name, ctx=ast.Load())
             )
 
             stmts.append(assign_ys)

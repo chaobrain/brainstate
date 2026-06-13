@@ -1107,3 +1107,88 @@ class TestReprAttributeBranches(unittest.TestCase):
         out = pretty_repr_object(Bare())
         self.assertIn('x', out)
         self.assertIn('items_list', out)
+
+
+class TestAuditRegressions(unittest.TestCase):
+    """Regression tests for audit issues L27, L28, L29."""
+
+    def test_flat_mapping_is_leaf_none(self):
+        # L27: ``is_leaf=None`` must select the default behaviour (the
+        # ``Optional`` hint advertises this) instead of crashing with
+        # ``TypeError: 'NoneType' object is not callable``.
+        nested = {'a': {'b': 1}}
+        result = flat_mapping(nested, is_leaf=None)
+        self.assertEqual(result, flat_mapping(nested))
+        self.assertEqual(dict(result), {('a', 'b'): 1})
+
+    def test_from_nest_accepts_iterable_of_pairs(self):
+        # L28: the type hint advertises an Iterable of (key, value) pairs.
+        # ``from_nest`` must convert it (mirroring ``from_flat``) instead of
+        # silently corrupting under ``python -O`` to ``{(): [('a', 1)]}``.
+        from_iter = FlattedDict.from_nest([('a', 1), ('b', {'c': 2})])
+        from_dict = FlattedDict.from_nest({'a': 1, 'b': {'c': 2}})
+        self.assertEqual(from_iter, from_dict)
+        self.assertEqual(dict(from_iter), {('a',): 1, ('b', 'c'): 2})
+
+    def test_flat_mapping_rejects_non_mapping(self):
+        # L29: validation must raise (not assert) so it survives ``python -O``.
+        with self.assertRaises(TypeError):
+            flat_mapping([('a', 1)])
+
+    def test_nest_mapping_rejects_non_mapping(self):
+        # L29: nest_mapping validation must raise TypeError.
+        with self.assertRaises(TypeError):
+            nest_mapping([('a', 1)])
+
+    def test_flatted_dict_sub_rejects_non_flatted(self):
+        # L29: FlattedDict - <non-FlattedDict> must raise TypeError instead of
+        # silently returning a wrong diff under ``python -O``.
+        fd = FlattedDict({('a',): 1, ('b',): 2})
+        with self.assertRaises(TypeError):
+            _ = fd - {('a',): 1}
+
+    def test_flatted_dict_or_rejects_non_flatted(self):
+        # L29: FlattedDict | <non-FlattedDict> must raise TypeError.
+        fd = FlattedDict({('a',): 1})
+        with self.assertRaises(TypeError):
+            _ = fd | {('b',): 2}
+
+    def test_nested_dict_sub_rejects_non_nested(self):
+        # L29: NestedDict - <non-NestedDict> must raise TypeError.
+        nd = NestedDict({'a': 1, 'b': 2})
+        with self.assertRaises(TypeError):
+            _ = nd - {'a': 1}
+
+    def test_nested_dict_or_rejects_non_nested(self):
+        # L29: NestedDict | <non-NestedDict> must raise TypeError.
+        nd = NestedDict({'a': 1})
+        with self.assertRaises(TypeError):
+            _ = nd | {'b': 2}
+
+    def test_to_pure_dict_preserves_empty_subdicts(self):
+        # to_pure_dict must keep empty nested mappings (its docstring promises the
+        # "same nested structure"). The default flatten drops empty mappings, so
+        # without keep_empty_nodes=True a key like 'empty' silently disappears.
+        nested = NestedDict({'a': {'b': 1, 'c': 2}, 'empty': {}, 'deep': {'x': {}, 'y': 5}})
+        pure = nested.to_pure_dict()
+
+        expected = {'a': {'b': 1, 'c': 2}, 'empty': {}, 'deep': {'x': {}, 'y': 5}}
+        self.assertEqual(pure, expected)
+        self.assertIn('empty', pure)
+        self.assertEqual(pure['empty'], {})
+        self.assertEqual(pure['deep']['x'], {})
+
+        # the result must be pure ``dict`` all the way down (no NestedDict wrappers)
+        def _all_plain_dict(d):
+            if isinstance(d, dict):
+                self.assertIs(type(d), dict)
+                for v in d.values():
+                    _all_plain_dict(v)
+
+        _all_plain_dict(pure)
+
+    def test_to_pure_dict_root_empty(self):
+        # An entirely empty NestedDict round-trips to an empty plain dict.
+        pure = NestedDict({}).to_pure_dict()
+        self.assertEqual(pure, {})
+        self.assertIs(type(pure), dict)

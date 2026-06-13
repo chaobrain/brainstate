@@ -161,6 +161,56 @@ class TestWalkRegistry(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'State is not a node'):
             _get_node_impl(brainstate.ParamState(1))
 
+    def test_get_node_impl_for_type_unregistered_raises_descriptive(self):
+        """An unregistered type yields a descriptive ``ValueError``, not a bare
+        ``KeyError`` exposing only the type repr."""
+        from brainstate.graph._walk import get_node_impl_for_type
+
+        class _NeverRegistered:
+            pass
+
+        with self.assertRaises(ValueError) as ctx:
+            get_node_impl_for_type(_NeverRegistered)
+        msg = str(ctx.exception)
+        self.assertIn('Unknown graph node type', msg)
+        self.assertIn('register_graph_node_type', msg)
+
+    def test_key_path_to_key_unhashable_message(self):
+        """The invalid-key error names *hashability* (the property actually
+        required/checked), not the misleading 'hashable or comparable'."""
+        from brainstate.graph._walk import _key_path_to_key
+
+        bad = jax.tree_util.DictKey(key=['unhashable', 'list'])
+        with self.assertRaises(ValueError) as ctx:
+            _key_path_to_key(bad)
+        msg = str(ctx.exception)
+        self.assertIn('Invalid key', msg)
+        self.assertIn('hashable', msg)
+        # The old wording claimed comparability was also checked; it never was.
+        self.assertNotIn('comparable', msg)
+
+    def test_node_dict_rejects_duplicate_child_keys(self):
+        """``node_dict`` must not silently collapse duplicate child keys (which
+        ``dict(items)`` would do); it raises so the data loss is visible."""
+        from brainstate.graph._walk import register_graph_node_type, _get_node_impl
+
+        class _DupNode:
+            pass
+
+        # A flatten that violates the unique-key contract by returning 'x' twice.
+        register_graph_node_type(
+            _DupNode,
+            flatten=lambda n: ((('x', 1), ('x', 2)), (_DupNode,)),
+            set_key=lambda n, k, v: None,
+            pop_key=lambda n, k: None,
+            create_empty=lambda meta: _DupNode(),
+            clear=lambda n: None,
+        )
+        impl = _get_node_impl(_DupNode())
+        with self.assertRaises(ValueError) as ctx:
+            impl.node_dict(_DupNode())
+        self.assertIn('Duplicate child keys', str(ctx.exception))
+
     def test_static_is_pytree_leaf(self):
         from brainstate.graph._walk import Static
         s = Static({'k': 'v'})

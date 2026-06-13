@@ -336,7 +336,7 @@ class State(Generic[A], PrettyObject):
     _hooks_manager: HookManager
     _name: Optional[str]
     _value: PyTree
-    _been_writen: bool  # useful in `unflatten` and `flatten` graph processing
+    _been_writen: bool = False  # useful in `unflatten` and `flatten` graph processing
     tag: Optional[Set[str]]
 
     def __init__(
@@ -369,8 +369,8 @@ class State(Generic[A], PrettyObject):
             sets up internal attributes, and records the state initialization.
         """
         tag = metadata.pop('tag', None)
-        if isinstance(tag, str):
-            tag = set([tag])
+        if tag is not None:
+            tag = {tag} if isinstance(tag, str) else set(tag)
 
         # avoid using self._setattr to avoid the check
         vars(self)['_trace_state'] = StateJaxTracer()
@@ -401,8 +401,18 @@ class State(Generic[A], PrettyObject):
         # record the state initialization
         record_state_init(self)
 
-        # Execute init hooks
-        self._execute_init_hooks(value, metadata)
+        # Execute init hooks.
+        # Only user-facing metadata is exposed to hooks: the internal
+        # bookkeeping fields (the value itself, the trace level, the source
+        # info, the hook manager and the written flag) are stripped so that
+        # ``ctx.init_metadata`` carries just ``_name``/``tag`` and any custom
+        # keyword arguments the user supplied. The value is already passed as
+        # the dedicated ``value`` argument, so duplicating it here is needless.
+        init_metadata = {
+            k: v for k, v in metadata.items()
+            if k not in ('_value', '_level', '_source_info', '_hooks_manager', '_been_writen')
+        }
+        self._execute_init_hooks(value, init_metadata)
 
     if not TYPE_CHECKING:
         def __setattr__(self, name: str, value: Any) -> None:
@@ -754,7 +764,12 @@ class State(Generic[A], PrettyObject):
         attributes['_level'] = TRACE_CONTEXT.get_trace_stack_level()
         attributes['_trace_state'] = StateJaxTracer()
         attributes['_source_info'] = source_info_util.current()
-        attributes.pop('_been_writen', None)
+        attributes['_been_writen'] = False
+        # Give the copy its own hook manager. ``vars(self).copy()`` is a shallow
+        # copy, so without this the original and the copy would share the same
+        # HookManager instance: registering/removing a hook on one would silently
+        # mutate the other. Hooks are per-state behaviour and must not alias.
+        attributes['_hooks_manager'] = HookManager()
         # update the metadata
         vars(obj).update(attributes)
         return obj
@@ -820,6 +835,10 @@ class State(Generic[A], PrettyObject):
             This method uses jax.tree.leaves to flatten any nested structure in the state value,
             and jax.numpy.size to compute the size of each leaf node.
         """
+        # A state poisoned by a dead trace has no meaningful element count; the
+        # sentinel would otherwise be treated as a single leaf and report ``1``.
+        # Raise the same descriptive error a normal read would.
+        self._check_invalidated()
         sizes = [jax.numpy.size(val) for val in jax.tree.leaves(self._value)]
         return sum(sizes)
 
@@ -843,17 +862,29 @@ class State(Generic[A], PrettyObject):
         trace_state = self._trace_state
         level = self._level
         source_info = self._source_info
+        # keep our own hook manager: hooks are per-state behaviour and adopting
+        # ``other``'s manager would alias it between the two states (a hook
+        # registered on one would fire on the other). ``other``'s manager stays
+        # with ``other``.
+        hooks_manager = self._hooks_manager
 
         # copy other metadata
         other_vars = vars(other).copy()
         del other_vars['_trace_state']
         del other_vars['_level']
         del other_vars['_source_info']
+        other_vars.pop('_hooks_manager', None)
 
         # update the metadata
         vars_dict = vars(self)
         vars_dict.clear()
-        vars_dict.update(other_vars, _trace_state=trace_state, _level=level, _source_info=source_info)
+        vars_dict.update(
+            other_vars,
+            _trace_state=trace_state,
+            _level=level,
+            _source_info=source_info,
+            _hooks_manager=hooks_manager,
+        )
 
     # Hook execution methods
 
@@ -1350,8 +1381,11 @@ class HiddenGroupState(HiddenState):
 
     def __init__(self, value: ArrayLike, **kwargs):
         value, name2index = self._check_value(value)
-        self.name2index = name2index
+        # NOTE: create `_trace_state` (in the super().__init__) BEFORE assigning
+        # structural attributes, otherwise the trace-guarded ``__setattr__`` reads
+        # a not-yet-existing ``_trace_state`` when jax-tracer checking is enabled.
         ShortTermState.__init__(self, value, **kwargs)
+        self._setattr_no_check('name2index', name2index)
 
     @property
     def varshape(self) -> Tuple[int, ...]:
@@ -1442,12 +1476,18 @@ class HiddenGroupState(HiddenState):
         The value of the hidden state.
         """
         if isinstance(item, int):
-            assert item < self.value.shape[-1], (f'Index {item} out of range. '
-                                                 f'The maximum index is {self.value.shape[-1] - 1}.')
+            if item >= self.value.shape[-1] or item < -self.value.shape[-1]:
+                raise IndexError(
+                    f'Index {item} out of range. '
+                    f'The maximum index is {self.value.shape[-1] - 1}.'
+                )
             return self.value[..., item]
         elif isinstance(item, str):
-            assert item in self.name2index, (f'Hidden state name {item} not found. '
-                                             f'Please check the hidden state names.')
+            if item not in self.name2index:
+                raise KeyError(
+                    f'Hidden state name {item} not found. '
+                    f'Please check the hidden state names.'
+                )
             index = self.name2index[item]
             return self.value[..., index]
         else:
@@ -1480,27 +1520,46 @@ class HiddenGroupState(HiddenState):
         """
         if isinstance(val, (tuple, list)):
             val = {i: v for i, v in enumerate(val)}
-        assert isinstance(val, dict), (
-            f'Currently, {self.__class__.__name__}.set_value() only supports '
-            f'dictionary of hidden states. But we got {type(val)}.'
-        )
+        if not isinstance(val, dict):
+            raise TypeError(
+                f'Currently, {self.__class__.__name__}.set_value() only supports '
+                f'dictionary of hidden states. But we got {type(val)}.'
+            )
         indices = []
         values = []
         for k, v in val.items():
             if isinstance(k, str):
                 k = self.name2index[k]
-            assert isinstance(k, int), (
-                f'Key {k} should be int or str. '
-                f'But we got {type(k)}.'
-            )
-            assert v.shape == self.varshape, (
-                f'The shape of the hidden state should be {self.varshape}. '
-                f'But we got {v.shape}.'
-            )
+            if not isinstance(k, int):
+                raise TypeError(
+                    f'Key {k} should be int or str. '
+                    f'But we got {type(k)}.'
+                )
+            if not (0 <= k < self.num_state):
+                raise ValueError(
+                    f'Index {k} out of range. '
+                    f'The number of hidden states is {self.num_state}.'
+                )
+            if v.shape != self.varshape:
+                raise ValueError(
+                    f'The shape of the hidden state should be {self.varshape}. '
+                    f'But we got {v.shape}.'
+                )
             indices.append(k)
             values.append(v)
         values = u.math.stack(values, axis=-1)
-        self.value = self.value.at[..., indices].set(values)
+        # Coerce the stored value's magnitude to a JAX array so the ``.at[...]``
+        # scatter works even when the state was constructed from numpy (which is
+        # explicitly accepted by ``_check_value``). brainunit's ``u.math`` has no
+        # scatter helper, so strip the unit, update the JAX magnitude, re-attach.
+        val_arr = self.value
+        unit = u.get_unit(val_arr)
+        mag = jax.numpy.asarray(u.get_magnitude(val_arr))
+        if unit.dim.is_dimensionless:
+            new_mag = jax.numpy.asarray(u.get_magnitude(values))
+        else:
+            new_mag = jax.numpy.asarray(u.Quantity(values).to(unit).mantissa)
+        self.value = u.maybe_decimal(u.Quantity(mag.at[..., indices].set(new_mag), unit=unit))
 
 
 class HiddenTreeState(HiddenGroupState):
@@ -1613,11 +1672,14 @@ class HiddenTreeState(HiddenGroupState):
         **kwargs
     ):
         value, name2unit, name2index = self._check_value(value)
-        self.name2unit: Dict[str, u.Unit] = name2unit
-        self.name2index: Dict[str, int] = name2index
-        self.index2unit: Dict[int, u.Unit] = {i: v for i, v in enumerate(name2unit.values())}
-        self.index2name: Dict[int, str] = {v: k for k, v in name2index.items()}
+        # Create `_trace_state` (via super().__init__) BEFORE assigning structural
+        # attributes, so the trace-guarded `__setattr__` doesn't read a missing
+        # `_trace_state` when jax-tracer checking is enabled (see L2).
         ShortTermState.__init__(self, value, **kwargs)
+        self._setattr_no_check('name2unit', name2unit)
+        self._setattr_no_check('name2index', name2index)
+        self._setattr_no_check('index2unit', {i: v for i, v in enumerate(name2unit.values())})
+        self._setattr_no_check('index2name', {v: k for k, v in name2index.items()})
 
     @property
     def varshape(self) -> Tuple[int, ...]:
@@ -1631,10 +1693,12 @@ class HiddenTreeState(HiddenGroupState):
         """
         The number of hidden states.
         """
-        assert self.value.shape[-1] == len(self.name2index), (
-            f'The number of hidden states '
-            f'is not equal to the number of hidden state names.'
-        )
+        if self.value.shape[-1] != len(self.name2index):
+            raise ValueError(
+                f'The number of hidden states ({self.value.shape[-1]}) '
+                f'is not equal to the number of hidden state names '
+                f'({len(self.name2index)}).'
+            )
         return self.value.shape[-1]
 
     def _check_value(
@@ -1672,10 +1736,11 @@ class HiddenTreeState(HiddenGroupState):
         """
         if isinstance(value, (tuple, list)):
             value = {str(i): v for i, v in enumerate(value)}
-        assert isinstance(value, dict), (
-            f'Currently, {self.__class__.__name__} only supports '
-            f'dictionary/sequence of hidden states. But we got {type(value)}.'
-        )
+        if not isinstance(value, dict):
+            raise TypeError(
+                f'Currently, {self.__class__.__name__} only supports '
+                f'dictionary/sequence of hidden states. But we got {type(value)}.'
+            )
         shapes = []
         for k, v in value.items():
             if not isinstance(v, (np.ndarray, jax.Array, u.Quantity)):
@@ -1694,7 +1759,10 @@ class HiddenTreeState(HiddenGroupState):
             )
         name2unit = {k: u.get_unit(v) for k, v in value.items()}
         name2index = {k: i for i, k in enumerate(value.keys())}
-        value = u.math.stack([u.get_magnitude(v) for v in value.values()], axis=-1)
+        # Force a JAX array (not numpy): the single-array storage invariant the JIT
+        # machinery relies on must hold even for numpy-backed inputs (M6), otherwise
+        # ``set_value``'s ``.at[...]`` scatter would crash on a numpy ``value``.
+        value = jax.numpy.asarray(u.math.stack([u.get_magnitude(v) for v in value.values()], axis=-1))
         return value, name2unit, name2index
 
     def get_value(self, item: str | int) -> ArrayLike:
@@ -1709,12 +1777,20 @@ class HiddenTreeState(HiddenGroupState):
             - If str, the name of the hidden state.
         """
         if isinstance(item, int):
-            assert item < self.value.shape[-1], (f'Index {item} out of range. '
-                                                 f'The maximum index is {self.value.shape[-1] - 1}.')
+            if item >= self.value.shape[-1] or item < -self.value.shape[-1]:
+                raise IndexError(
+                    f'Index {item} out of range. '
+                    f'The maximum index is {self.value.shape[-1] - 1}.'
+                )
+            if item < 0:
+                item += self.value.shape[-1]
             val = self.value[..., item]
         elif isinstance(item, str):
-            assert item in self.name2index, (f'Hidden state name {item} not found. '
-                                             f'Please check the hidden state names.')
+            if item not in self.name2index:
+                raise KeyError(
+                    f'Hidden state name {item} not found. '
+                    f'Please check the hidden state names.'
+                )
             item = self.name2index[item]
             val = self.value[..., item]
         else:
@@ -1751,17 +1827,31 @@ class HiddenTreeState(HiddenGroupState):
         """
         if isinstance(val, (tuple, list)):
             val = {i: v for i, v in enumerate(val)}
-        assert isinstance(val, dict), (f'Currently, {self.__class__.__name__}.set_value() only supports '
-                                       f'dictionary of hidden states. But we got {type(val)}.')
+        if not isinstance(val, dict):
+            raise TypeError(
+                f'Currently, {self.__class__.__name__}.set_value() only supports '
+                f'dictionary of hidden states. But we got {type(val)}.'
+            )
         indices = []
         values = []
         for index, v in val.items():
             if isinstance(index, str):
                 index = self.name2index[index]
-            assert isinstance(index, int), (f'Key {index} should be int or str. '
-                                            f'But we got {type(index)}.')
-            assert v.shape == self.varshape, (f'The shape of the hidden state should be {self.varshape}. '
-                                              f'But we got {v.shape}.')
+            if not isinstance(index, int):
+                raise TypeError(
+                    f'Key {index} should be int or str. '
+                    f'But we got {type(index)}.'
+                )
+            if not (0 <= index < self.num_state):
+                raise ValueError(
+                    f'Index {index} out of range. '
+                    f'The number of hidden states is {self.num_state}.'
+                )
+            if v.shape != self.varshape:
+                raise ValueError(
+                    f'The shape of the hidden state should be {self.varshape}. '
+                    f'But we got {v.shape}.'
+                )
             indices.append(index)
             values.append(u.Quantity(v).to(self.index2unit[index]).mantissa)
         if len(indices) == 0:
@@ -1774,7 +1864,9 @@ class HiddenTreeState(HiddenGroupState):
         else:
             indices = np.asarray(indices)
             values = u.math.stack(values, axis=-1)
-        self.value = self.value.at[..., indices].set(values)
+        # `values` are dimensionless mantissas (units stripped above), so coerce the
+        # stored value to a JAX array to support `.at[...]` even if it was numpy (M3/M6).
+        self.value = jax.numpy.asarray(self.value).at[..., indices].set(values)
 
 
 class ParamState(LongTermState):
@@ -1897,7 +1989,8 @@ class StateDictManager(DictManager):
         Assign the value for each element according to the given ``data``.
         """
         for arg in args:
-            assert isinstance(arg, dict), 'Must be an instance of dict.'
+            if not isinstance(arg, dict):
+                raise TypeError('Must be an instance of dict.')
             for k, v in arg.items():
                 self._set_elem(k, v)
 
@@ -1934,7 +2027,8 @@ class StateDictManager(DictManager):
         return {k: v.value for k, v in self.items()}
 
     def _check_elem(self, elem):
-        assert isinstance(elem, State), f'must be instance of {State}'
+        if not isinstance(elem, State):
+            raise TypeError(f'must be instance of {State}')
 
     def _set_elem(self, key: Any, value: Any) -> None:
         self[key].value = value
@@ -2036,7 +2130,18 @@ class StateTraceStack(Generic[A]):
         return self
 
     def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
-        TRACE_CONTEXT.state_stack.pop()
+        # Only pop ourselves. A plain unconditional ``pop()`` corrupts an
+        # unrelated stack if these context managers are entered/exited out of
+        # LIFO order, or if ``__exit__`` runs twice. Verify the top is ``self``
+        # before removing it.
+        stack = TRACE_CONTEXT.state_stack
+        if not stack or stack[-1] is not self:
+            raise RuntimeError(
+                f"{type(self).__name__} is being exited out of order: it is not "
+                f"on top of the trace stack. State trace contexts must be exited "
+                f"in the reverse order they were entered (last-in, first-out)."
+            )
+        stack.pop()
         # print('pop', [s.name for s in TRACE_CONTEXT.state_stack])
 
     def read_its_value(self, state: State) -> None:
@@ -2247,6 +2352,12 @@ class StateTraceStack(Generic[A]):
                     self.been_writen.append(False)
                 if been_writen:
                     self.write_its_value(st)
+        # L4: propagate the released-originals invariant from every merged source so a
+        # later recovery_original_values() correctly raises instead of silently writing
+        # abstract avals back into real states.
+        self._originals_released = self._originals_released or any(
+            getattr(t, '_originals_released', False) for t in traces
+        )
         return self
 
     def get_read_states(self, replace_writen: bool = False) -> Tuple[State, ...]:
@@ -2587,8 +2698,19 @@ class TreefyState(Generic[A], PrettyObject):
         return metadata
 
 
+# M5: identity-compared, non-value-identifying metadata that must NOT enter the static
+# pytree aux. `_source_info` (a SourceInfo wrapping a traceback) and `_hooks_manager`
+# (a HookManager holding an RLock/weakrefs) use identity-based __eq__/__hash__, so
+# baking them into the treedef makes two logically-identical TreefyStates compare
+# unequal — causing spurious JIT recompilation and `jax.tree.map` "Mismatch custom
+# node data" errors. They are re-minted with fresh defaults on unflatten.
+_AUX_EXCLUDE = ('_source_info', '_hooks_manager')
+
+
 def _state_ref_flatten(x: TreefyState[Any], *, with_keys: bool):
-    metadata = tuple(x.get_metadata().items())
+    metadata = tuple(
+        (k, v) for k, v in x.get_metadata().items() if k not in _AUX_EXCLUDE
+    )
     if with_keys:
         node = (jax.tree_util.GetAttrKey('value'), x.value)
     else:
@@ -2600,7 +2722,12 @@ def _state_ref_unflatten(
     static: Tuple[type[State[A]], Tuple[Tuple[str, Any], ...]],
     children: Tuple[A],
 ) -> TreefyState[A]:
-    return TreefyState(type=static[0], value=children[0], **dict(static[1]))
+    # Re-mint the diagnostics/hooks dropped from the aux so the rebuilt TreefyState
+    # (and any State produced via to_state()/update_from_ref()) stays complete.
+    meta = dict(static[1])
+    meta.setdefault('_source_info', source_info_util.current())
+    meta.setdefault('_hooks_manager', HookManager())
+    return TreefyState(type=static[0], value=children[0], **meta)
 
 
 jax.tree_util.register_pytree_with_keys(

@@ -303,6 +303,14 @@ class WithTag:
 
     tag: str
 
+    def __post_init__(self):
+        # The type hint and docstring promise a ``str`` tag. Enforce it: a non-str
+        # (e.g. a list) would otherwise be accepted silently and then break the
+        # frozen-dataclass auto-generated ``__hash__`` (``unhashable type``),
+        # making the filter unusable in sets/dict keys or inside ``Any``/``All``.
+        if not isinstance(self.tag, str):
+            raise TypeError(f"WithTag 'tag' must be a str, got {type(self.tag).__name__}.")
+
     def __call__(self, path: PathParts, x: typing.Any) -> bool:
         """
         Check if the object has a matching tag.
@@ -654,9 +662,17 @@ class Any:
         Returns
         -------
         int
-            The hash value of the predicates tuple.
+            The hash value of the predicates tuple, or a type-based fallback when
+            a wrapped predicate is unhashable (so the filter stays hashable and
+            consistent with ``__eq__``).
         """
-        return hash(self.predicates)
+        try:
+            return hash(self.predicates)
+        except TypeError:
+            # A user-supplied predicate may be unhashable; fall back to a stable,
+            # type-based hash. This keeps ``Any`` usable in sets/dict keys and
+            # preserves the eq/hash invariant (equal filters share this fallback).
+            return hash(Any)
 
 
 class All:
@@ -737,9 +753,17 @@ class All:
         Returns
         -------
         int
-            The hash value of the predicates tuple.
+            The hash value of the predicates tuple, or a type-based fallback when
+            a wrapped predicate is unhashable (so the filter stays hashable and
+            consistent with ``__eq__``).
         """
-        return hash(self.predicates)
+        try:
+            return hash(self.predicates)
+        except TypeError:
+            # A user-supplied predicate may be unhashable; fall back to a stable,
+            # type-based hash. This keeps ``All`` usable in sets/dict keys and
+            # preserves the eq/hash invariant (equal filters share this fallback).
+            return hash(All)
 
 
 class Not:
@@ -818,9 +842,17 @@ class Not:
         Returns
         -------
         int
-            The hash value of the predicate.
+            The hash value of the wrapped predicate, or a type-based fallback when
+            that predicate is unhashable (so the filter stays hashable and
+            consistent with ``__eq__``).
         """
-        return hash(self.predicate)
+        try:
+            return hash(self.predicate)
+        except TypeError:
+            # A user-supplied predicate may be unhashable; fall back to a stable,
+            # type-based hash. This keeps ``Not`` usable in sets/dict keys and
+            # preserves the eq/hash invariant (equal filters share this fallback).
+            return hash(Not)
 
 
 class Everything:

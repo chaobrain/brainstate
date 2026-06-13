@@ -144,10 +144,11 @@ class TestReflectionPad2d(unittest.TestCase):
 
     def test_reflection_pad2d_asymmetric(self):
         """Test ReflectionPad2d with asymmetric padding."""
-        pad = brainstate.nn.ReflectionPad2d([1, 2, 3, 4])  # left, right, top, bottom
+        # Length-4 padding is (height_before, height_after, width_before, width_after).
+        pad = brainstate.nn.ReflectionPad2d([1, 2, 3, 4])
         x = jnp.ones((2, 5, 5, 3))
         output = pad(x)
-        # For 2D: first pair is height (top/bottom), second is width (left/right)
+        # First pair pads height (first spatial axis), second pair pads width.
         # Height: 5+1+2=8, Width: 5+3+4=12
         self.assertEqual(output.shape, (2, 8, 12, 3))
 
@@ -825,6 +826,131 @@ class TestPaddingInSize(unittest.TestCase):
         """ReflectionPad2d computes out_size from an unbatched in_size."""
         pad = brainstate.nn.ReflectionPad2d(1, in_size=(4, 4, 3))
         self.assertEqual(pad.out_size, (6, 6, 3))
+
+
+class TestPaddingDocstringShapes(unittest.TestCase):
+    """Regression: the 1D docstring Examples must report the real output shape (M13).
+
+    Every 1D padding class documents a (batch=1, length=5, channels=3) input
+    yielding (1, 9, 3) under the implemented channels-last convention. The old
+    examples claimed (1, 9, 1) for a (1, 1, 5) input, which actually produces
+    (1, 5, 5). These tests pin the documented shape against actual output.
+    """
+
+    def test_reflection_pad1d_docstring_shape(self):
+        pad = brainstate.nn.ReflectionPad1d(2)
+        x = jnp.ones((1, 5, 3))  # (batch=1, length=5, channels=3)
+        self.assertEqual(pad(x).shape, (1, 9, 3))
+
+    def test_replication_pad1d_docstring_shape(self):
+        pad = brainstate.nn.ReplicationPad1d(2)
+        x = jnp.ones((1, 5, 3))
+        self.assertEqual(pad(x).shape, (1, 9, 3))
+
+    def test_zero_pad1d_docstring_shape(self):
+        pad = brainstate.nn.ZeroPad1d(2)
+        x = jnp.ones((1, 5, 3))
+        self.assertEqual(pad(x).shape, (1, 9, 3))
+
+    def test_constant_pad1d_docstring_shape(self):
+        pad = brainstate.nn.ConstantPad1d(2, value=3.5)
+        x = jnp.ones((1, 5, 3))
+        self.assertEqual(pad(x).shape, (1, 9, 3))
+
+    def test_circular_pad1d_docstring_shape(self):
+        pad = brainstate.nn.CircularPad1d(2)
+        x = jnp.ones((1, 5, 3))
+        self.assertEqual(pad(x).shape, (1, 9, 3))
+
+    def test_old_docstring_input_does_not_yield_old_shape(self):
+        """The original (1, 1, 5) input yields (1, 5, 5), never the old (1, 9, 1)."""
+        pad = brainstate.nn.ZeroPad1d(2)
+        x = jnp.array([[[1, 2, 3, 4, 5]]])  # shape (1, 1, 5)
+        self.assertEqual(pad(x).shape, (1, 5, 5))
+
+
+class TestPaddingSpatialOrder(unittest.TestCase):
+    """Regression: length-4/6 padding pads spatial axes first-to-last (M14).
+
+    The docstrings label the length-4 form (height_before, height_after,
+    width_before, width_after) and the length-6 form
+    (depth_before, depth_after, height_before, height_after,
+    width_before, width_after). These tests distinguish the spatial axes by
+    VALUE (not just shape), pinning that the FIRST pair pads the FIRST spatial
+    axis -- the reverse of PyTorch's (left, right, top, bottom) order.
+    """
+
+    def test_constant_pad2d_first_pair_pads_height(self):
+        """ConstantPad2d((1,0,0,0)) grows height at the front; width is untouched."""
+        x = jnp.arange(1, 7, dtype=jnp.float32).reshape(1, 2, 3, 1)  # (b, H=2, W=3, c)
+        out = brainstate.nn.ConstantPad2d([1, 0, 0, 0], value=-9.0)(x)
+        # Height 2 -> 3 (one new row before), width 3 unchanged.
+        self.assertEqual(out.shape, (1, 3, 3, 1))
+        # The newly added first row is the pad value across the full width.
+        np.testing.assert_array_equal(out[0, 0, :, 0], -9.0 * jnp.ones(3))
+        # The original first row is preserved at the next height index.
+        np.testing.assert_array_equal(out[0, 1, :, 0], x[0, 0, :, 0])
+
+    def test_constant_pad2d_second_pair_pads_width(self):
+        """ConstantPad2d((0,0,1,0)) grows width at the front; height is untouched."""
+        x = jnp.arange(1, 7, dtype=jnp.float32).reshape(1, 2, 3, 1)  # (b, H=2, W=3, c)
+        out = brainstate.nn.ConstantPad2d([0, 0, 1, 0], value=-9.0)(x)
+        # Width 3 -> 4 (one new column before), height 2 unchanged.
+        self.assertEqual(out.shape, (1, 2, 4, 1))
+        # The newly added first column is the pad value across the full height.
+        np.testing.assert_array_equal(out[0, :, 0, 0], -9.0 * jnp.ones(2))
+        # The original first column is preserved at the next width index.
+        np.testing.assert_array_equal(out[0, :, 1, 0], x[0, :, 0, 0])
+
+    def test_constant_pad3d_first_pair_pads_depth(self):
+        """ConstantPad3d((1,0,0,0,0,0)) grows depth at the front; H/W untouched."""
+        x = jnp.arange(1, 9, dtype=jnp.float32).reshape(1, 2, 2, 2, 1)  # (b, D, H, W, c)
+        out = brainstate.nn.ConstantPad3d([1, 0, 0, 0, 0, 0], value=-7.0)(x)
+        # Depth 2 -> 3 (one new slab before), height and width unchanged.
+        self.assertEqual(out.shape, (1, 3, 2, 2, 1))
+        # The newly added first depth slab is entirely the pad value.
+        np.testing.assert_array_equal(out[0, 0, :, :, 0], -7.0 * jnp.ones((2, 2)))
+        # The original first depth slab is preserved at the next depth index.
+        np.testing.assert_array_equal(out[0, 1, :, :, 0], x[0, 0, :, :, 0])
+
+    def test_constant_pad3d_last_pair_pads_width(self):
+        """ConstantPad3d((0,0,0,0,1,0)) grows width at the front; D/H untouched."""
+        x = jnp.arange(1, 9, dtype=jnp.float32).reshape(1, 2, 2, 2, 1)  # (b, D, H, W, c)
+        out = brainstate.nn.ConstantPad3d([0, 0, 0, 0, 1, 0], value=-7.0)(x)
+        # Width 2 -> 3 (one new column before), depth and height unchanged.
+        self.assertEqual(out.shape, (1, 2, 2, 3, 1))
+        # The newly added first width column is entirely the pad value.
+        np.testing.assert_array_equal(out[0, :, :, 0, 0], -7.0 * jnp.ones((2, 2)))
+        # The original first width column is preserved at the next width index.
+        np.testing.assert_array_equal(out[0, :, :, 1, 0], x[0, :, :, 0, 0])
+
+
+class TestFormatPaddingScalarTypes(unittest.TestCase):
+    """Regression: _format_padding must accept numpy/JAX integer scalars (P1)."""
+
+    def test_numpy_int_scalar_is_int_form(self):
+        # np.int64 is not a Python ``int``; previously this fell through to
+        # ``list(padding)`` and raised "object is not iterable".
+        self.assertEqual(_format_padding(np.int64(2), 1), [(2, 2)])
+        self.assertEqual(_format_padding(np.int32(3), 2), [(3, 3), (3, 3)])
+
+    def test_jax_int_scalar_is_int_form(self):
+        self.assertEqual(_format_padding(jnp.array(2), 1), [(2, 2)])
+
+    def test_numpy_0d_array_is_int_form(self):
+        self.assertEqual(_format_padding(np.array(4), 3), [(4, 4), (4, 4), (4, 4)])
+
+    def test_numpy_int_scalar_in_layer(self):
+        # End-to-end: a numpy-int padding should build and run a pad layer.
+        pad = brainstate.nn.ZeroPad1d(np.int64(2))
+        x = jnp.ones((1, 5, 3))
+        self.assertEqual(pad(x).shape, (1, 9, 3))
+
+    def test_python_and_sequence_forms_unchanged(self):
+        self.assertEqual(_format_padding(2, 1), [(2, 2)])
+        self.assertEqual(_format_padding([2, 3], 2), [(2, 2), (3, 3)])
+        with self.assertRaises(ValueError):
+            _format_padding([1, 2, 3], 1)
 
 
 if __name__ == '__main__':

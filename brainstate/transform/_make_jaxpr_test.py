@@ -2013,3 +2013,244 @@ class TestUnhashableStaticArgs(unittest.TestCase):
         sf = brainstate.transform.StatefulFunction(f, static_argnums=(1,))
         with self.assertRaisesRegex(TypeError, '[Ss]tatic argument'):
             sf.make_jaxpr(jnp.zeros(3), jnp.zeros(3))
+
+
+class TestStaleCacheRecompileNJ2(unittest.TestCase):
+    """A stale compilation entry must be recompiled in place (atomic replace),
+    never exposed to concurrent readers as a transient hole, and dropped only
+    when the re-trace itself fails (audit NJ2)."""
+
+    def _make_sf_with_closure_state(self):
+        # The output depends on the argument ``x`` (which drives the cache key),
+        # while *staleness* is driven by a closure state whose aval we mutate
+        # without ever touching the arguments -> same key, stale entry.
+        state = brainstate.State(jnp.zeros(3))
+
+        def f(x):
+            state.value = state.value * 2.0  # tracked-state aval => staleness source
+            return x.sum()                   # arg-derived cache key
+
+        return brainstate.transform.StatefulFunction(f), state
+
+    def test_stale_entry_recompiled_in_place(self):
+        sf, state = self._make_sf_with_closure_state()
+        x = jnp.ones(3)
+        sf.make_jaxpr(x)
+        key = sf.get_arg_cache_key(x)
+        self.assertIn(key, sf._compilation_cache)
+        self.assertEqual(len(sf._compilation_cache), 1)
+
+        # Mutate the closure state's aval: the cached entry is now stale, but
+        # the arg-derived cache key is unchanged.
+        state.value = jnp.zeros(5)
+
+        # Recompiling with the same args hits the same key; NJ2 replaces the
+        # stale entry in place -- key stays present, size stays 1 (no duplicate).
+        sf.make_jaxpr(x)
+        self.assertIn(key, sf._compilation_cache)
+        self.assertEqual(len(sf._compilation_cache), 1)
+        # The replacement is fresh: it must no longer read as stale.
+        self.assertFalse(sf._compilation_is_stale(sf._compilation_cache.get(key)))
+
+    def test_stale_recompile_failure_drops_entry(self):
+        state = brainstate.State(jnp.zeros(3))
+        fail = {'on': False}
+
+        def f(x):
+            if fail['on']:
+                # Data-dependent Python control flow => a tracing error on the
+                # re-trace of an already-cached key.
+                if x[0] > 0:
+                    return x.sum()
+                return x.prod()
+            state.value = state.value * 2.0
+            return x.sum()
+
+        sf = brainstate.transform.StatefulFunction(f)
+        x = jnp.ones(3)
+        sf.make_jaxpr(x)
+        key = sf.get_arg_cache_key(x)
+        self.assertIn(key, sf._compilation_cache)
+
+        # Force staleness AND make the re-trace fail.
+        state.value = jnp.zeros(5)
+        fail['on'] = True
+        with self.assertRaises(Exception):
+            sf.make_jaxpr(x)
+        # NJ2: the known-stale entry is dropped, never silently reused.
+        self.assertNotIn(key, sf._compilation_cache)
+
+    def test_no_transient_hole_for_concurrent_reader(self):
+        # Pre-fix the stale entry was popped up front (inside the compile lock)
+        # before the slow re-trace, so a concurrent reader observed a hole and
+        # raised a spurious ValueError. Post-fix the old entry stays until the
+        # atomic replace, so the reader always sees a valid compilation.
+        import threading
+
+        state = brainstate.State(jnp.zeros(3))
+        arm = threading.Event()          # set right before triggering the recompile
+        mid_trace = threading.Event()    # set once the recompile is parked mid-trace
+        reader_done = threading.Event()  # set once the reader has finished
+
+        def f(x):
+            if arm.is_set():
+                mid_trace.set()
+                reader_done.wait(timeout=10)
+            state.value = state.value * 2.0
+            return x.sum()
+
+        sf = brainstate.transform.StatefulFunction(f)
+        x = jnp.ones(3)
+        sf.make_jaxpr(x)
+        key = sf.get_arg_cache_key(x)
+
+        # Make the entry stale so the next make_jaxpr re-traces under the lock.
+        state.value = jnp.zeros(5)
+
+        errors = []
+
+        def recompile():
+            try:
+                sf.make_jaxpr(x)
+            except Exception as e:  # pragma: no cover - surfaced via the list
+                errors.append(e)
+
+        arm.set()
+        t = threading.Thread(target=recompile)
+        t.start()
+        reader_error = None
+        try:
+            self.assertTrue(mid_trace.wait(timeout=10), 'recompile never reached trace')
+            try:
+                # Must observe the OLD-but-valid entry, not a transient hole.
+                self.assertIsNotNone(sf.get_jaxpr_by_cache(key))
+            except Exception as e:
+                reader_error = e
+        finally:
+            reader_done.set()
+            t.join(timeout=15)
+
+        self.assertEqual(errors, [])
+        self.assertIsNone(
+            reader_error,
+            f'concurrent reader saw a transient cache hole: {reader_error!r}',
+        )
+
+
+class TestAuditFixes(unittest.TestCase):
+    """Regression tests for the make_jaxpr audit items 7-11."""
+
+    def test_get_arg_cache_key_fn_to_check_none_on_args(self):
+        """Item 7: ``fn_to_check=None`` must skip the positional-arg State check
+        (mirroring the kwargs branch) instead of calling ``None``."""
+        from brainstate.transform._make_jaxpr import get_arg_cache_key
+        # Must not raise ``TypeError: 'NoneType' object is not callable``.
+        key = get_arg_cache_key((), (), (jnp.array([1.0, 2.0]),), {}, fn_to_check=None)
+        self.assertIsNotNone(key)
+
+    def test_weak_type_change_is_not_stale(self):
+        """Item 8: a weak_type-only change (same shape/dtype) must not be treated
+        as a stale compilation and force a recompile."""
+        st = brainstate.State(jnp.float32(1.0))  # strong-typed scalar
+
+        def f(x):
+            st.value = st.value + x
+            return st.value
+
+        sf = brainstate.transform.StatefulFunction(f)
+        sf.make_jaxpr(jnp.float32(2.0))
+        cache_key = sf.get_arg_cache_key(jnp.float32(2.0))
+        compilation = sf._get_compilation(cache_key)
+        # Replace the state with a weak-typed python scalar (same shape/dtype).
+        st.value = 5.0
+        self.assertFalse(sf._compilation_is_stale(compilation))
+
+    def test_shape_change_is_stale(self):
+        """Item 8 guard: a genuine shape change must still be detected."""
+        st = brainstate.State(jnp.zeros(3))
+
+        def f(x):
+            st.value = st.value + x
+            return st.value
+
+        sf = brainstate.transform.StatefulFunction(f)
+        sf.make_jaxpr(jnp.zeros(3))
+        cache_key = sf.get_arg_cache_key(jnp.zeros(3))
+        compilation = sf._get_compilation(cache_key)
+        st.value = jnp.zeros(5)  # different shape
+        self.assertTrue(sf._compilation_is_stale(compilation))
+
+    def test_static_argnums_out_of_range_kwargs_only(self):
+        """Item 9: an out-of-range ``static_argnums`` must raise even when the
+        function is invoked with keyword arguments only (empty ``args``)."""
+        def f(x, n=2):
+            return x ** n
+
+        sf = brainstate.transform.StatefulFunction(f, static_argnums=(0,))
+        with pytest.raises(ValueError, match="static_argnums contains index 0"):
+            sf.make_jaxpr(x=jnp.array([1.0, 2.0]), n=3)
+
+    def test_jaxpr_call_none_state_value(self):
+        """Item 10: a correct-length ``state_vals`` with a ``None`` entry must
+        raise a clear ValueError, not a cryptic eval_jaxpr/foreach error."""
+        st = brainstate.State(jnp.array([1.0, 2.0]))
+
+        def f(x):
+            st.value = st.value + x
+            return st.value.sum()
+
+        sf = brainstate.transform.StatefulFunction(f)
+        x = jnp.array([1.0, 2.0])
+        sf.make_jaxpr(x)
+        with pytest.raises(ValueError, match="None at index"):
+            sf.jaxpr_call([None], x)
+
+    def test_validate_state_shapes_unit_mismatch_raises_value_error(self):
+        """Item 11: ``_validate_state_shapes`` must raise ValueError (not
+        UnitMismatchError) when a Quantity state's units change."""
+        try:
+            import brainunit as u
+        except ImportError:
+            self.skipTest("brainunit not available")
+
+        sv = brainstate.State(u.Quantity(jnp.array([1.0, 2.0]), unit=u.mV))
+
+        def g(x):
+            sv.value = sv.value + x
+            return sv.value
+
+        sf = brainstate.transform.StatefulFunction(g)
+        xq = u.Quantity(jnp.array([1.0, 2.0]), unit=u.mV)
+        sf.make_jaxpr(xq)
+        cache_key = sf.get_arg_cache_key(xq)
+        # Change to an incompatible unit (mV -> mA).
+        sv.value = u.Quantity(jnp.array([1.0, 2.0]), unit=u.mA)
+        with pytest.raises(ValueError, match="shape/dtype mismatch"):
+            sf._validate_state_shapes(cache_key)
+
+    def test_validate_state_shapes_unchanged_returns_none(self):
+        """``_validate_state_shapes`` returns without raising when every tracked
+        state still matches the shape/dtype it was compiled with (the
+        no-mismatch branch).
+
+        The companion test above covers the mismatch->ValueError branch; here
+        the state value is left untouched between compilation and validation, so
+        the per-state comparison finds no mismatch for any state and the method
+        completes normally (returning ``None``)."""
+        sv = brainstate.State(jnp.array([1.0, 2.0, 3.0]))
+
+        def g(x):
+            sv.value = sv.value + x
+            return sv.value.sum()
+
+        sf = brainstate.transform.StatefulFunction(g)
+        x = jnp.array([1.0, 2.0, 3.0])
+        sf.make_jaxpr(x)
+        cache_key = sf.get_arg_cache_key(x)
+
+        # Shapes/dtypes are unchanged -> no mismatch -> no exception.
+        self.assertIsNone(sf._validate_state_shapes(cache_key))
+
+
+if __name__ == '__main__':
+    unittest.main()

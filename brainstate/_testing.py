@@ -152,14 +152,20 @@ def assert_vmap_equal(
     *batched_args,
     rtol: float = DEFAULT_RTOL,
     atol: float = DEFAULT_ATOL,
+    **kwargs,
 ) -> Any:
     """Assert ``vmap(fn)`` over axis 0 matches an explicit Python loop.
 
     Every positional argument is mapped over its leading axis (``in_axes=0``).
+    Any keyword arguments are passed through to ``fn`` unchanged (i.e. not
+    mapped) in both the vmapped and the looped calls, so callers can supply
+    static configuration the same way they do for ``assert_jit_equal``.
     """
-    vmapped = brainstate.transform.vmap(fn, in_axes=0)(*batched_args)
+    vmapped = brainstate.transform.vmap(
+        lambda *a: fn(*a, **kwargs), in_axes=0
+    )(*batched_args)
     n = u.math.shape(batched_args[0])[0]
-    looped = [fn(*[jnp.take(a, i, axis=0) for a in batched_args]) for i in range(n)]
+    looped = [fn(*[jnp.take(a, i, axis=0) for a in batched_args], **kwargs) for i in range(n)]
     stacked = jax.tree.map(lambda *xs: jnp.stack(xs), *looped)
     _assert_tree_allclose(vmapped, stacked, rtol=rtol, atol=atol)
     return vmapped
@@ -187,7 +193,7 @@ def assert_transform_compatible(
     if "grad" in transforms:
         assert_grad_finite(fn, *args, argnums=grad_argnums, **kwargs)
     if "vmap" in transforms:
-        assert_vmap_equal(fn, *args, rtol=rtol, atol=atol)
+        assert_vmap_equal(fn, *args, rtol=rtol, atol=atol, **kwargs)
     return True
 
 

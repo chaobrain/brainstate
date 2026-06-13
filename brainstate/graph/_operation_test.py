@@ -475,6 +475,13 @@ class TestGraphOperation(unittest.TestCase):
         assert params is not None
         assert others is not None
 
+        # The (filter, rest) partition must be a complete, non-overlapping cover
+        # of all states (no leakage into spurious extra buckets). This locks the
+        # behaviour after the redundant trailing-Everything predicate was removed
+        # from ``states`` / ``nodes``.
+        self.assertEqual(len(params) + len(others), len(all_states))
+        self.assertTrue(all(isinstance(v, brainstate.ParamState) for v in params.values()))
+
     def test_split_merge_split_round_trip(self):
         # Regression: a state reconstructed by ``treefy_merge`` must be
         # splittable again. ``State.to_state_ref`` strips ``_trace_state`` when
@@ -1126,6 +1133,90 @@ class TestUpdateStates(unittest.TestCase):
         leaf = brainstate.ParamState(jnp.ones(())).to_state_ref()
         with self.assertRaises(ValueError):
             brainstate.graph.update_states(Outer(), brainstate.util.NestedDict({'sub': leaf}))
+
+    def test_update_readds_popped_states_as_live_states(self):
+        """Re-adding popped raw ``State``s grafts *live* States, not dead refs.
+
+        Regression (H1): the new-key branch of ``_graph_update_dynamic`` wrongly
+        converted a raw ``State`` to a ``TreefyState`` via ``to_state_ref()`` (and
+        stored ``TreefyState`` values as-is). The grafted attribute then looked
+        present (``hasattr`` true) but was a dead ``TreefyState`` invisible to
+        ``states()`` / ``treefy_split``. The states must come back live.
+        """
+        net = _Net()
+        popped = brainstate.graph.pop_states(net, brainstate.ParamState)
+        # ``pop_states`` emits raw States, and the keys were removed, so this
+        # exercises the new-key branch with raw ``State`` values.
+        brainstate.graph.update_states(net, popped)
+
+        self.assertIsInstance(net.w, brainstate.State)
+        self.assertIsInstance(net.b, brainstate.State)
+        # Live again: visible to both ``states`` and ``treefy_split``.
+        self.assertEqual(len(brainstate.graph.states(net)), 2)
+        self.assertEqual(len(brainstate.graph.treefy_split(net)[1].to_flat()), 2)
+
+    def test_graft_treefy_states_under_new_key_materializes_live(self):
+        """Grafting ``TreefyState``s under absent keys materializes live States.
+
+        Regression (H1): a ``TreefyState`` value in the new-key branch was stored
+        verbatim (a dead ref). It must be materialized to a live ``State`` via
+        ``to_state()`` so it is visible to ``states()``.
+        """
+        net = _Net()
+        treefy = brainstate.graph.treefy_states(net)
+        # Values are ``TreefyState`` objects.
+        self.assertTrue(all(
+            isinstance(v, brainstate.TreefyState) for v in treefy.to_flat().values()
+        ))
+        brainstate.graph.pop_states(net, brainstate.ParamState)  # remove the keys
+        self.assertFalse(hasattr(net, 'w'))
+
+        brainstate.graph.update_states(net, treefy)  # graft under now-absent keys
+        self.assertIsInstance(net.w, brainstate.State)
+        self.assertNotIsInstance(net.w, brainstate.TreefyState)
+        self.assertEqual(len(brainstate.graph.states(net)), 2)
+
+    def test_update_existing_key_with_raw_state(self):
+        """A raw ``State`` value at an *existing* key updates it in place.
+
+        Regression (M7): a raw ``State`` at an existing key fell through every
+        ``elif`` to the ``else`` and raised ``ValueError('Unsupported update
+        type')`` -- even though ``pop_states`` emits raw States and the new-key
+        branch accepts them. It must instead update the live State's value.
+        """
+        src = _Net()
+        src.w.value = jnp.full((2,), 7.0)
+        src.b.value = jnp.full((2,), 9.0)
+        popped = brainstate.graph.pop_states(src, brainstate.ParamState)  # raw States
+
+        tgt = _Net()  # keys are STILL present on the target
+        brainstate.graph.update_states(tgt, popped)
+
+        self.assertTrue(bool(jnp.allclose(tgt.w.value, jnp.full((2,), 7.0))))
+        self.assertTrue(bool(jnp.allclose(tgt.b.value, jnp.full((2,), 9.0))))
+        # The leaf is still a live ParamState and both remain visible.
+        params = brainstate.graph.states(tgt, brainstate.ParamState)
+        self.assertEqual(len(params), 2)
+        self.assertTrue(all(isinstance(v, brainstate.ParamState) for v in params.values()))
+        self.assertEqual(len(brainstate.graph.states(tgt)), 2)
+
+    def test_update_existing_key_with_non_state_raw_value_raises(self):
+        """A raw ``State`` aimed at a non-State attribute still raises.
+
+        The M7 branch must reject grafting a ``State`` onto an attribute whose
+        current value is not a ``State``.
+        """
+
+        class Mixed(brainstate.graph.Node):
+            def __init__(self):
+                self.w = brainstate.ParamState(jnp.ones((2,)))
+                self.tag = 'plain'  # not a State
+
+        node = Mixed()
+        with self.assertRaises(ValueError):
+            brainstate.graph.update_states(
+                node, brainstate.util.NestedDict({'tag': brainstate.ParamState(jnp.zeros((2,)))})
+            )
 
 
 class TestCloneAndGraphdef(unittest.TestCase):

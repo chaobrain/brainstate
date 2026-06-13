@@ -19,8 +19,28 @@ import unittest
 
 import brainstate
 import brainunit as u
+import jax
 import jax.numpy as jnp
 import numpy as np
+
+
+def _fit_scalar_hyper(make_reg, value, init, steps=300, lr=0.05):
+    """Gradient-descent on a single scalar hyperparameter.
+
+    ``make_reg(h)`` must build a fresh regularizer whose trainable scale/shape
+    hyperparameter is set to ``h``; the loss is taken from that regularizer's
+    ``loss(value)``. Returns ``(final_h, final_loss)``. Used to verify that the
+    distribution log-normalizer keeps the loss bounded below, so descent
+    converges to a finite interior optimum instead of diverging to +/- inf.
+    """
+    def loss_of(h):
+        return make_reg(h).loss(value)
+
+    h = jnp.asarray(init, dtype=brainstate.environ.dftype())
+    grad_fn = jax.grad(loss_of)
+    for _ in range(steps):
+        h = h - lr * grad_fn(h)
+    return float(h), float(loss_of(h))
 
 from brainstate.nn import (
     ChainedReg,
@@ -369,6 +389,32 @@ class TestGroupLassoReg(unittest.TestCase):
         reg = GroupLassoReg(weight=1.0, group_size=2, fit_hyper=True)
         self.assertTrue(reg.fit_hyper)
 
+    def test_non_int_group_size_raises_typeerror(self):
+        """A non-integer ``group_size`` raises TypeError, not a later crash.
+
+        ``group_size`` is used as a divisor and reshape dimension, so it must be
+        an int. A float (even one with integer value) must be rejected up front
+        with a clear ``TypeError`` naming the offending type.
+        """
+        with self.assertRaises(TypeError) as ctx:
+            GroupLassoReg(weight=1.0, group_size=2.0)
+        self.assertIn('group_size', str(ctx.exception))
+        self.assertIn('int', str(ctx.exception))
+        with self.assertRaises(TypeError):
+            GroupLassoReg(weight=1.0, group_size='2')
+
+    def test_non_positive_group_size_raises_valueerror(self):
+        """A zero or negative ``group_size`` raises ValueError.
+
+        Zero would raise ``ZeroDivisionError`` and a negative value would
+        silently mis-group via Python modulo semantics, so both are rejected.
+        """
+        with self.assertRaises(ValueError) as ctx:
+            GroupLassoReg(weight=1.0, group_size=0)
+        self.assertIn('positive', str(ctx.exception))
+        with self.assertRaises(ValueError):
+            GroupLassoReg(weight=1.0, group_size=-3)
+
 
 class TestTotalVariationReg(unittest.TestCase):
     """Tests for Total Variation regularization."""
@@ -444,6 +490,17 @@ class TestMaxNormReg(unittest.TestCase):
         sample = reg.sample_init((100,))
         norm = jnp.sqrt(jnp.sum(sample ** 2))
         self.assertLessEqual(float(norm), 2.0 + 1e-5)
+
+    def test_sample_init_scales_up_to_large_max_value(self):
+        """sample_init must scale toward large max_value, not cap at ~1 (bug M19)."""
+        # A single scalar sample has |sample| as its norm; the projection target
+        # is max_value * 0.5. With max_value=100 the resulting norm must be ~50,
+        # not ~1 (which the old ``minimum(scale, 1.0)`` cap produced).
+        brainstate.random.seed(0)
+        reg = MaxNormReg(weight=1.0, max_value=100.0)
+        sample = reg.sample_init(shape=(1,))
+        norm = float(jnp.sqrt(jnp.sum(sample ** 2)))
+        np.testing.assert_allclose(norm, 50.0, rtol=1e-4)
 
     def test_reset_value(self):
         """Test reset_value returns zero."""
@@ -530,6 +587,17 @@ class TestOrthogonalReg(unittest.TestCase):
             sample = reg.sample_init((n,))
             self.assertEqual(sample.shape, (n,))
 
+    def test_loss_scalar_weight_no_indexerror(self):
+        """0-d (scalar) value must not raise IndexError and stays finite (bug L14)."""
+        reg = OrthogonalReg(weight=1.0)
+        # |1.0| == 1 -> an orthogonal 1x1 matrix -> zero penalty.
+        loss_one = reg.loss(jnp.array(1.0))
+        np.testing.assert_allclose(float(loss_one), 0.0, atol=1e-6)
+        self.assertTrue(np.isfinite(float(loss_one)))
+        # weight * (|value| - 1)**2 = 2 * (3 - 1)**2 = 8.
+        reg2 = OrthogonalReg(weight=2.0)
+        np.testing.assert_allclose(float(reg2.loss(jnp.array(3.0))), 8.0, rtol=1e-6)
+
     def test_reset_value(self):
         """Test reset_value returns zero."""
         reg = OrthogonalReg(weight=1.0)
@@ -559,6 +627,48 @@ class TestSpectralNormReg(unittest.TestCase):
         loss = reg.loss(W)
         # (3 - 1)^2 = 4
         np.testing.assert_allclose(loss, 4.0, rtol=0.1)
+
+    def test_loss_deterministic_2d(self):
+        """2-D loss must be deterministic across calls (bugs H10, M20).
+
+        Uses the DEFAULT n_power_iterations; the old power-iteration path drew a
+        fresh random vector per call, making loss/grad non-deterministic.
+        """
+        reg = SpectralNormReg(weight=1.0, max_value=1.0)  # default n_power_iterations
+        W = jnp.diag(jnp.array([2.0, 0.5]))
+        losses = [float(reg.loss(W)) for _ in range(5)]
+        # All identical across repeated calls.
+        for l in losses[1:]:
+            self.assertEqual(l, losses[0])
+        # Equals the analytic top-singular-value penalty:
+        # sigma = 2 (largest singular value of diag([2, 0.5])); max_val = 1 + 1e-8;
+        # loss = weight * relu(sigma - max_val)**2.
+        max_val = 1.0 + 1e-8
+        expected = (2.0 - max_val) ** 2
+        np.testing.assert_allclose(losses[0], expected, rtol=1e-5)
+
+    def test_grad_stable_2d(self):
+        """jax.grad of the 2-D loss must be stable across calls (bugs H10, M20)."""
+        reg = SpectralNormReg(weight=1.0, max_value=1.0)  # default n_power_iterations
+        W = jnp.diag(jnp.array([2.0, 0.5]))
+        grad_fn = jax.grad(lambda w: reg.loss(w))
+        g1 = grad_fn(W)
+        g2 = grad_fn(W)
+        np.testing.assert_array_equal(np.asarray(g1), np.asarray(g2))
+        self.assertTrue(np.all(np.isfinite(np.asarray(g1))))
+
+    def test_loss_scalar_weight_no_indexerror(self):
+        """0-d (scalar) value must not raise IndexError (bug L14)."""
+        reg = SpectralNormReg(weight=1.0, max_value=1.0)
+        # Spectral norm of a scalar is its absolute value.
+        np.testing.assert_allclose(
+            float(reg._estimate_spectral_norm(jnp.array(3.0))), 3.0, rtol=1e-6
+        )
+        # loss must run without raising and be finite.
+        loss = reg.loss(jnp.array(3.0))
+        self.assertTrue(np.isfinite(float(loss)))
+        # sigma = 3, max_val = 1 + 1e-8 -> weight * relu(3 - max_val)**2 ~ 4.
+        np.testing.assert_allclose(float(loss), (3.0 - (1.0 + 1e-8)) ** 2, rtol=1e-5)
 
     def test_sample_init_shape(self):
         """Test sample_init returns correct shape."""
@@ -631,37 +741,60 @@ class TestStudentTReg(unittest.TestCase):
     """Tests for Student's t-distribution regularization."""
 
     def test_basic_loss(self):
-        """Test Student-t loss computation."""
+        """Test Student-t loss computation at x=0 (data term vanishes)."""
+        from scipy.special import gammaln as sp_gammaln
         reg = StudentTReg(weight=1.0, df=3.0, scale=1.0)
         value = jnp.array([0.0])
         loss = reg.loss(value)
-        # At x=0, loss = log(1 + 0) = 0
-        np.testing.assert_allclose(loss, 0.0, atol=1e-5)
+        # At x=0 the data term log(1 + 0) = 0, so the loss equals the scale/df
+        # log-normalizer: log(scale) + gammaln(df/2) + 0.5*log(df*pi)
+        #                 - gammaln((df+1)/2).
+        df = 3.0
+        expected = (
+            np.log(1.0)
+            + sp_gammaln(df / 2.0)
+            + 0.5 * np.log(df * np.pi)
+            - sp_gammaln((df + 1.0) / 2.0)
+        )
+        np.testing.assert_allclose(float(loss), expected, rtol=1e-5)
 
     def test_nll_factor_df3(self):
         """Per-element penalty must include the (df+1)/2 factor (bug R1)."""
+        from scipy.special import gammaln as sp_gammaln
         reg = StudentTReg(weight=1.0, df=3.0, scale=1.0)
         value = jnp.array([2.0])
         loss = reg.loss(value)
         # Correct Student-t NLL data term: 0.5*(df+1)*log(1 + z**2/df)
         # df=3, z=2 -> 0.5*4*log(1 + 4/3) = 2*log(7/3) ~ 1.6946
-        expected = 0.5 * (3.0 + 1.0) * np.log(1.0 + 4.0 / 3.0)
+        df = 3.0
+        data_term = 0.5 * (df + 1.0) * np.log(1.0 + 4.0 / 3.0)
+        # Plus the scale/df log-normalizer (bug M18).
+        log_norm = (
+            np.log(1.0)
+            + sp_gammaln(df / 2.0)
+            + 0.5 * np.log(df * np.pi)
+            - sp_gammaln((df + 1.0) / 2.0)
+        )
+        expected = data_term + log_norm
         np.testing.assert_allclose(float(loss), expected, rtol=1e-5)
-        # And it must NOT equal the unfactored value ~0.847
+        # The data term must NOT equal the unfactored value ~0.847.
         unfactored = np.log(1.0 + 4.0 / 3.0)
-        self.assertGreater(float(loss), unfactored * 1.5)
+        self.assertGreater(data_term, unfactored * 1.5)
 
     def test_gaussian_limit_large_df(self):
-        """As df -> infinity the penalty approaches the Gaussian 0.5*z**2 (bug R1)."""
+        """As df -> infinity the full NLL approaches the Gaussian NLL (bugs R1, M18)."""
         # Use float64 so the assertion exercises the math, not float32 rounding
-        # of log(1 + 4e-6). Under float32 the value is ~2.027 (a precision
-        # artifact); the limit itself is correct.
+        # of log(1 + 4e-6). Under float32 the value is a precision artifact; the
+        # limit itself is correct.
         with brainstate.environ.context(precision=64):
             reg = StudentTReg(weight=1.0, df=1e6, scale=1.0)
             value = jnp.asarray([2.0], dtype=brainstate.environ.dftype())
             loss = reg.loss(value)
-        gaussian_limit = 0.5 * 2.0 ** 2  # 2.0
-        np.testing.assert_allclose(float(loss), gaussian_limit, rtol=1e-3)
+        # With the scale/df log-normalizer included, the full Student-t NLL
+        # converges to the Gaussian NLL = 0.5*z**2 + 0.5*log(2*pi) + log(scale),
+        # not to the bare 0.5*z**2 data term.
+        gaussian_nll = 0.5 * 2.0 ** 2 + 0.5 * np.log(2.0 * np.pi) + np.log(1.0)
+        np.testing.assert_allclose(float(loss), gaussian_nll, rtol=1e-3)
 
     def test_loss_increases_with_distance(self):
         """Test that loss increases with distance from zero."""
@@ -700,6 +833,21 @@ class TestStudentTReg(unittest.TestCase):
         """Test that fit_hyper=True is stored correctly."""
         reg = StudentTReg(weight=1.0, df=3.0, scale=1.0, fit_hyper=True)
         self.assertTrue(reg.fit_hyper)
+
+    def test_fit_scale_converges(self):
+        """Fitting the scale converges to a finite interior value (bug M18).
+
+        Without the scale log-normalizer the loss decreases without bound as
+        scale grows, so gradient descent diverges.
+        """
+        value = jnp.array([0.5, -0.3, 0.8, 1.2, -0.6])
+        final_scale, final_loss = _fit_scalar_hyper(
+            lambda h: StudentTReg(weight=1.0, df=3.0, scale=h), value, init=2.0
+        )
+        self.assertTrue(np.isfinite(final_scale))
+        self.assertTrue(np.isfinite(final_loss))
+        self.assertGreater(final_scale, 1e-3)  # interior, not collapsed/diverged
+        self.assertLess(final_scale, 1e3)
 
     def test_inherits_from_module(self):
         """Test StudentTReg inherits from brainstate.nn.Module."""
@@ -742,6 +890,17 @@ class TestCauchyReg(unittest.TestCase):
         """Test that fit_hyper=True is stored correctly."""
         reg = CauchyReg(weight=1.0, scale=1.0, fit_hyper=True)
         self.assertTrue(reg.fit_hyper)
+
+    def test_fit_scale_converges(self):
+        """Fitting the scale converges to a finite interior value (bug M18)."""
+        value = jnp.array([0.5, -0.3, 0.8, 1.2, -0.6])
+        final_scale, final_loss = _fit_scalar_hyper(
+            lambda h: CauchyReg(weight=1.0, scale=h), value, init=2.0
+        )
+        self.assertTrue(np.isfinite(final_scale))
+        self.assertTrue(np.isfinite(final_loss))
+        self.assertGreater(final_scale, 1e-3)
+        self.assertLess(final_scale, 1e3)
 
     def test_inherits_from_module(self):
         """Test CauchyReg inherits from brainstate.nn.Module."""
@@ -839,6 +998,17 @@ class TestLogNormalReg(unittest.TestCase):
         reg = LogNormalReg(weight=1.0, mu=0.0, sigma=1.0, fit_hyper=True)
         self.assertTrue(reg.fit_hyper)
 
+    def test_fit_sigma_converges(self):
+        """Fitting sigma converges to a finite interior value (bug M18)."""
+        value = jnp.array([0.5, 1.0, 2.0, 1.5, 0.8])
+        final_sigma, final_loss = _fit_scalar_hyper(
+            lambda h: LogNormalReg(weight=1.0, mu=0.0, sigma=h), value, init=2.0
+        )
+        self.assertTrue(np.isfinite(final_sigma))
+        self.assertTrue(np.isfinite(final_loss))
+        self.assertGreater(final_sigma, 1e-3)
+        self.assertLess(final_sigma, 1e3)
+
     def test_inherits_from_module(self):
         """Test LogNormalReg inherits from brainstate.nn.Module."""
         reg = LogNormalReg(weight=1.0, mu=0.0, sigma=1.0)
@@ -928,6 +1098,28 @@ class TestGammaReg(unittest.TestCase):
         reg = GammaReg(weight=1.0, alpha=2.0, beta=1.0, fit_hyper=True)
         self.assertTrue(reg.fit_hyper)
 
+    def test_fit_beta_converges(self):
+        """Fitting beta converges to a finite interior value (bug M21)."""
+        value = jnp.array([0.5, 1.0, 2.0, 1.5, 0.8])
+        final_beta, final_loss = _fit_scalar_hyper(
+            lambda h: GammaReg(weight=1.0, alpha=2.0, beta=h), value, init=2.0
+        )
+        self.assertTrue(np.isfinite(final_beta))
+        self.assertTrue(np.isfinite(final_loss))
+        self.assertGreater(final_beta, 1e-3)
+        self.assertLess(final_beta, 1e3)
+
+    def test_fit_alpha_converges(self):
+        """Fitting alpha converges to a finite interior value (bug M21)."""
+        value = jnp.array([0.5, 1.0, 2.0, 1.5, 0.8])
+        final_alpha, final_loss = _fit_scalar_hyper(
+            lambda h: GammaReg(weight=1.0, alpha=h, beta=1.0), value, init=3.0
+        )
+        self.assertTrue(np.isfinite(final_alpha))
+        self.assertTrue(np.isfinite(final_loss))
+        self.assertGreater(final_alpha, 1e-3)
+        self.assertLess(final_alpha, 1e3)
+
     def test_inherits_from_module(self):
         """Test GammaReg inherits from brainstate.nn.Module."""
         reg = GammaReg(weight=1.0, alpha=2.0, beta=1.0)
@@ -968,6 +1160,17 @@ class TestBetaReg(unittest.TestCase):
         """Test that fit_hyper=True is stored correctly."""
         reg = BetaReg(weight=1.0, a=2.0, b=2.0, fit_hyper=True)
         self.assertTrue(reg.fit_hyper)
+
+    def test_fit_a_converges(self):
+        """Fitting shape parameter a converges to a finite interior value (bug M21)."""
+        value = jnp.array([0.3, 0.5, 0.7, 0.4, 0.6])
+        final_a, final_loss = _fit_scalar_hyper(
+            lambda h: BetaReg(weight=1.0, a=h, b=2.0), value, init=3.0
+        )
+        self.assertTrue(np.isfinite(final_a))
+        self.assertTrue(np.isfinite(final_loss))
+        self.assertGreater(final_a, 1e-3)
+        self.assertLess(final_a, 1e3)
 
     def test_inherits_from_module(self):
         """Test BetaReg inherits from brainstate.nn.Module."""
@@ -1012,6 +1215,17 @@ class TestHorseshoeReg(unittest.TestCase):
         reg = HorseshoeReg(weight=1.0, tau=1.0, fit_hyper=True)
         self.assertTrue(reg.fit_hyper)
 
+    def test_fit_tau_converges(self):
+        """Fitting tau converges to a finite interior value (bug M18)."""
+        value = jnp.array([0.5, -0.3, 0.8, 1.2, -0.6])
+        final_tau, final_loss = _fit_scalar_hyper(
+            lambda h: HorseshoeReg(weight=1.0, tau=h), value, init=2.0
+        )
+        self.assertTrue(np.isfinite(final_tau))
+        self.assertTrue(np.isfinite(final_loss))
+        self.assertGreater(final_tau, 1e-3)
+        self.assertLess(final_tau, 1e3)
+
     def test_inherits_from_module(self):
         """Test HorseshoeReg inherits from brainstate.nn.Module."""
         reg = HorseshoeReg(weight=1.0, tau=1.0)
@@ -1052,6 +1266,17 @@ class TestInverseGammaReg(unittest.TestCase):
         """Test that fit_hyper=True is stored correctly."""
         reg = InverseGammaReg(weight=1.0, alpha=2.0, beta=1.0, fit_hyper=True)
         self.assertTrue(reg.fit_hyper)
+
+    def test_fit_beta_converges(self):
+        """Fitting beta converges to a finite interior value (bug M21)."""
+        value = jnp.array([0.5, 1.0, 2.0, 1.5, 0.8])
+        final_beta, final_loss = _fit_scalar_hyper(
+            lambda h: InverseGammaReg(weight=1.0, alpha=2.0, beta=h), value, init=2.0
+        )
+        self.assertTrue(np.isfinite(final_beta))
+        self.assertTrue(np.isfinite(final_loss))
+        self.assertGreater(final_beta, 1e-3)
+        self.assertLess(final_beta, 1e3)
 
     def test_inherits_from_module(self):
         """Test InverseGammaReg inherits from brainstate.nn.Module."""
@@ -1296,6 +1521,68 @@ class TestChainedReg(unittest.TestCase):
         value = jnp.array([0.5, -0.5])
         expected = reg1.loss(value) + reg2.loss(value) + reg3.loss(value)
         np.testing.assert_allclose(chained.loss(value), expected, rtol=1e-5)
+
+
+class TestRegularizationAuditRegressions(unittest.TestCase):
+    """Regression tests for regularization audit findings (R9-R13)."""
+
+    def test_weight_is_not_paramstate_even_with_fit_hyper(self):
+        # R9: docstrings used to claim ``weight`` becomes trainable; it never
+        # does. Verify ``weight`` stays a plain (non-ParamState) constant.
+        for reg in (L1Reg(weight=0.1, fit_hyper=True),
+                    L2Reg(weight=0.1, fit_hyper=True),
+                    GaussianReg(mean=0.0, std=1.0, weight=0.1, fit_hyper=True)):
+            self.assertNotIsInstance(reg.weight, brainstate.ParamState)
+
+    def test_l2_sample_init_negative_weight_is_finite(self):
+        # R10: sample_init divided by sqrt(weight) without relu -> NaN for a
+        # negative weight. It must now be finite (matching loss()'s relu clamp).
+        s = L2Reg(weight=-1.0).sample_init((8,))
+        self.assertTrue(bool(jnp.all(jnp.isfinite(s))))
+
+    def test_huber_grouplasso_tv_sample_init_negative_weight_finite(self):
+        for reg in (HuberReg(weight=-1.0),
+                    GroupLassoReg(weight=-1.0, group_size=2),
+                    TotalVariationReg(weight=-1.0)):
+            s = reg.sample_init((6,))
+            self.assertTrue(bool(jnp.all(jnp.isfinite(s))), msg=type(reg).__name__)
+
+    def test_grouplasso_zero_group_size_rejected(self):
+        # R11: group_size=0 previously raised ZeroDivisionError inside loss().
+        with self.assertRaises(ValueError):
+            GroupLassoReg(weight=1.0, group_size=0)
+
+    def test_grouplasso_negative_group_size_rejected(self):
+        # R11: a negative group_size silently mis-grouped via Python modulo.
+        with self.assertRaises(ValueError):
+            GroupLassoReg(weight=1.0, group_size=-2)
+
+    def test_totalvariation_invalid_order_rejected(self):
+        # R12: any order != 1 was silently treated as order 2.
+        with self.assertRaises(ValueError):
+            TotalVariationReg(weight=1.0, order=3)
+        with self.assertRaises(ValueError):
+            TotalVariationReg(weight=1.0, order=0)
+        # Valid orders still accepted.
+        self.assertEqual(TotalVariationReg(order=1).order, 1)
+        self.assertEqual(TotalVariationReg(order=2).order, 2)
+
+    def test_spectralnorm_sample_init_targets_full_max_value(self):
+        # R13: sample_init multiplied by an extra 0.5, so samples sat at half the
+        # requested spectral norm. The estimated norm must now be ~max_value.
+        reg = SpectralNormReg(weight=1.0, max_value=4.0)
+        sample = reg.sample_init((8, 8))
+        sigma = float(reg._estimate_spectral_norm(sample))
+        # Power-iteration estimate -> generous tolerance, but it must clearly be
+        # near 4.0 rather than the old ~2.0.
+        self.assertGreater(sigma, 3.0)
+        np.testing.assert_allclose(sigma, 4.0, rtol=0.2)
+
+    def test_spectralnorm_sample_init_1d_targets_full_max_value(self):
+        reg = SpectralNormReg(weight=1.0, max_value=4.0)
+        sample = reg.sample_init((16,))
+        norm = float(jnp.sqrt(jnp.sum(sample ** 2)))
+        np.testing.assert_allclose(norm, 4.0, rtol=1e-3)
 
 
 if __name__ == '__main__':

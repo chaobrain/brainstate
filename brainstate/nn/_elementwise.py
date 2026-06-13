@@ -81,10 +81,20 @@ class Threshold(ElementWiseBlock):
         self.value = value
 
     def __call__(self, x: ArrayLike) -> ArrayLike:
-        dtype = u.math.get_dtype(x)
-        return jnp.where(x > jnp.asarray(self.threshold, dtype=dtype),
-                         x,
-                         jnp.asarray(self.value, dtype=dtype))
+        # ``x`` may be a plain array or a :class:`~brainunit.Quantity` (both are part
+        # of the ``ArrayLike`` contract). Work on the mantissa so the comparison does
+        # not raise a unit-mismatch error, then reattach the unit. ``threshold`` and
+        # ``value`` are interpreted in the same unit as ``x`` (mirroring ``hard_tanh``).
+        x = u.Quantity(x)
+        unit = x.unit
+        mantissa = x.mantissa
+        dtype = mantissa.dtype
+        threshold = u.Quantity(self.threshold).to(unit).mantissa
+        value = u.Quantity(self.value).to(unit).mantissa
+        out = jnp.where(mantissa > jnp.asarray(threshold, dtype=dtype),
+                        mantissa,
+                        jnp.asarray(value, dtype=dtype))
+        return u.maybe_decimal(out * unit)
 
     def __repr__(self):
         return f'{self.__class__.__name__}(threshold={self.threshold}, value={self.value})'
@@ -201,9 +211,6 @@ class RReLU(ElementWiseBlock):
     def __call__(self, x: ArrayLike) -> ArrayLike:
         return F.rrelu(x, self.lower, self.upper)
 
-    def extra_repr(self):
-        return f'{self.__class__.__name__}(lower={self.lower}, upper={self.upper})'
-
 
 class Hardtanh(ElementWiseBlock):
     r"""Applies the HardTanh function element-wise.
@@ -256,13 +263,11 @@ class Hardtanh(ElementWiseBlock):
         super().__init__()
         self.min_val = min_val
         self.max_val = max_val
-        assert self.max_val > self.min_val
+        if self.max_val <= self.min_val:
+            raise ValueError(f"max_val ({self.max_val}) must be greater than min_val ({self.min_val})")
 
     def __call__(self, x: ArrayLike) -> ArrayLike:
         return F.hard_tanh(x, self.min_val, self.max_val)
-
-    def extra_repr(self) -> str:
-        return f'{self.__class__.__name__}(min_val={self.min_val}, max_val={self.max_val})'
 
 
 class ReLU6(Hardtanh):
@@ -537,9 +542,6 @@ class ELU(ElementWiseBlock):
     def __call__(self, x: ArrayLike) -> ArrayLike:
         return F.elu(x, self.alpha)
 
-    def extra_repr(self) -> str:
-        return f'{self.__class__.__name__}(alpha={self.alpha})'
-
 
 class CELU(ElementWiseBlock):
     r"""Applies the element-wise function.
@@ -584,9 +586,6 @@ class CELU(ElementWiseBlock):
 
     def __call__(self, x: ArrayLike) -> ArrayLike:
         return F.celu(x, self.alpha)
-
-    def extra_repr(self) -> str:
-        return f'{self.__class__.__name__}(alpha={self.alpha})'
 
 
 class SELU(ElementWiseBlock):

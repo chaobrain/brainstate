@@ -104,6 +104,36 @@ class TestHook(unittest.TestCase):
         h.enabled = False
         self.assertIn("disabled", repr(h))
 
+    def test_sequential_ids_unique(self):
+        """Sequentially constructed hooks get distinct ids."""
+        hooks = [Hook(callback=lambda ctx: None) for _ in range(50)]
+        ids = [h.hook_id for h in hooks]
+        self.assertEqual(len(set(ids)), len(ids))
+
+    def test_a12_concurrent_construction_unique_ids(self):
+        """Concurrent Hook construction never assigns duplicate ids (atomic counter)."""
+        import threading
+
+        hooks = []
+        lock = threading.Lock()
+        start = threading.Barrier(8)
+
+        def worker():
+            start.wait()  # maximise contention on the id counter
+            local = [Hook(callback=lambda ctx: None) for _ in range(100)]
+            with lock:
+                hooks.extend(local)
+
+        threads = [threading.Thread(target=worker) for _ in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        ids = [h.hook_id for h in hooks]
+        self.assertEqual(len(hooks), 800)
+        self.assertEqual(len(set(ids)), len(ids), "duplicate hook_id assigned under concurrency")
+
 
 class TestHookHandle(unittest.TestCase):
     """Validate HookHandle enable/disable/remove lifecycle via a real State."""

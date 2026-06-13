@@ -222,17 +222,17 @@ class TestMultivariateNormalUnits(unittest.TestCase):
         self.assertNotIsInstance(out, u.Quantity)
 
     def test_plain_cov_with_unit_mean_raises(self):
-        """A dimensional mean with a plain ``cov`` is rejected."""
+        """A dimensional mean with a plain ``cov`` is rejected (-O-proof)."""
         mean = jnp.array([0.0, 1.0]) * u.mV
         cov = jnp.array([[1.0, 0.0], [0.0, 1.0]])
-        with self.assertRaises(AssertionError):
+        with self.assertRaises(u.UnitMismatchError):
             _rng().multivariate_normal(mean, cov, size=(5,))
 
     def test_cov_wrong_unit_power_raises(self):
         """``cov`` must be the *square* of the mean's unit (mV, not mV**2 → error)."""
         mean = jnp.array([0.0, 1.0]) * u.mV
         cov = jnp.array([[1.0, 0.0], [0.0, 1.0]]) * u.mV
-        with self.assertRaises(AssertionError):
+        with self.assertRaises(u.UnitMismatchError):
             _rng().multivariate_normal(mean, cov, size=(5,))
 
 

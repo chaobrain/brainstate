@@ -53,7 +53,11 @@ def _check_nan_jit_compatible(values) -> jax.Array:
     leaves = jax.tree.leaves(values)
     has_bad = jnp.array(False)
     for leaf in leaves:
-        if hasattr(leaf, 'dtype') and jnp.issubdtype(leaf.dtype, jnp.floating):
+        # ``jnp.inexact`` covers both real (floating) and complex
+        # (complexfloating) dtypes, so NaN/Inf in holomorphic/complex gradients
+        # is detected too. ``jnp.isnan``/``jnp.isinf`` flag a complex value when
+        # either its real or imaginary component is NaN/Inf.
+        if hasattr(leaf, 'dtype') and jnp.issubdtype(leaf.dtype, jnp.inexact):
             has_bad = has_bad | jnp.any(jnp.isnan(leaf) | jnp.isinf(leaf))
     return has_bad
 
@@ -388,7 +392,13 @@ class GradientTransform(PrettyRepr):
         # >>> # 2. example of return multiple data
         # >>> return scalar_loss, (data1, data2, ...)
         write_state_vals, outs = self._call_target(grad_vals, other_vals, *args, **kwargs)
-        assert isinstance(outs, (tuple, list))
+        if not isinstance(outs, (tuple, list)):
+            raise TypeError(
+                "When has_aux=True, the differentiated function must return a "
+                "(loss, aux) pair (a tuple or list), but got a return value of "
+                f"type {type(outs).__name__}. Return the auxiliary data alongside "
+                "the loss, e.g. `return loss, aux`."
+            )
         return outs[0], (outs, write_state_vals)
 
     def _fun_without_aux(self, grad_vals: Dict, other_vals: Dict, *args, **kwargs):

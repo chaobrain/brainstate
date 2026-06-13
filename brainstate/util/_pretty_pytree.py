@@ -204,7 +204,10 @@ def flat_mapping(
     Empty mappings are ignored by default and will not be restored by
     :func:`nest_mapping` unless ``keep_empty_nodes=True``.
     """
-    assert isinstance(xs, abc.Mapping), f'expected Mapping; got {type(xs).__qualname__}'
+    if not isinstance(xs, abc.Mapping):
+        raise TypeError(f'expected Mapping; got {type(xs).__qualname__}')
+    if is_leaf is None:
+        is_leaf = _default_leaf
 
     if sep is None:
         def _key(path: Tuple[Any, ...]) -> Union[Tuple[Any, ...], str]:
@@ -275,7 +278,8 @@ def nest_mapping(
     --------
     flat_mapping : The inverse operation that flattens a nested mapping.
     """
-    assert isinstance(xs, abc.Mapping), f'expected Mapping; got {type(xs).__qualname__}'
+    if not isinstance(xs, abc.Mapping):
+        raise TypeError(f'expected Mapping; got {type(xs).__qualname__}')
     result: Dict[Any, Any] = {}
     for path, value in xs.items():
         if sep is not None:
@@ -643,14 +647,16 @@ class NestedDict(PrettyDict):
     def __or__(self, other: 'NestedDict') -> 'NestedDict':
         if not other:
             return self
-        assert isinstance(other, NestedDict), f'expected NestedDict; got {type(other).__qualname__}'
+        if not isinstance(other, NestedDict):
+            raise TypeError(f'expected NestedDict; got {type(other).__qualname__}')
         return NestedDict.merge(self, other)
 
     def __sub__(self, other: 'NestedDict') -> 'NestedDict':
         if not other:
             return self
 
-        assert isinstance(other, NestedDict), f'expected NestedDict; got {type(other).__qualname__}'
+        if not isinstance(other, NestedDict):
+            raise TypeError(f'expected NestedDict; got {type(other).__qualname__}')
         self_flat = self.to_flat()
         other_flat = other.to_flat()
         diff = {k: v for k, v in self_flat.items() if k not in other_flat}
@@ -798,7 +804,11 @@ class NestedDict(PrettyDict):
             >>> type(pure)
             <class 'dict'>
         """
-        flat_values = {k: x for k, x in self.to_flat().items()}
+        # ``keep_empty_nodes=True`` so that empty nested mappings (e.g. ``{'a': {}}``)
+        # survive the flatten/nest round-trip; the default would silently drop them,
+        # contradicting this method's "same nested structure" contract. ``nest_mapping``
+        # restores the empty-node sentinel back to an empty ``dict``.
+        flat_values = flat_mapping(self, keep_empty_nodes=True)
         return nest_mapping(flat_values).to_dict()
 
     def replace_by_pure_dict(
@@ -932,13 +942,15 @@ class FlattedDict(PrettyDict):
     def __or__(self, other: 'FlattedDict') -> 'FlattedDict':
         if not other:
             return self
-        assert isinstance(other, FlattedDict), f'expected NestedDict; got {type(other).__qualname__}'
+        if not isinstance(other, FlattedDict):
+            raise TypeError(f'expected FlattedDict; got {type(other).__qualname__}')
         return FlattedDict.merge(self, other)
 
     def __sub__(self, other: 'FlattedDict') -> 'FlattedDict':
         if not other:
             return self
-        assert isinstance(other, FlattedDict), f'expected NestedDict; got {type(other).__qualname__}'
+        if not isinstance(other, FlattedDict):
+            raise TypeError(f'expected FlattedDict; got {type(other).__qualname__}')
         diff = {k: v for k, v in self.items() if k not in other}
         return FlattedDict(diff)
 
@@ -954,21 +966,21 @@ class FlattedDict(PrettyDict):
 
     @classmethod
     def from_nest(
-        cls, nested_dict: abc.Mapping[PathParts, V] | Iterable[tuple[PathParts, V]],
+        cls, nested_dict: abc.Mapping[Any, V] | Iterable[tuple[Any, V]],
     ) -> 'FlattedDict':
         """
-        Create a :class:`NestedDict` from a flat mapping.
+        Create a :class:`FlattedDict` from a nested mapping.
 
         Parameters
         ----------
         nested_dict
-            The flat mapping.
+            The nested mapping.
 
         Returns
         -------
-        The :class:`NestedDict`.
+        The :class:`FlattedDict`.
         """
-        return flat_mapping(nested_dict)
+        return flat_mapping(dict(nested_dict))
 
     def split(  # type: ignore[misc]
         self,

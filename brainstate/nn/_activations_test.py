@@ -18,6 +18,7 @@
 import itertools
 from functools import partial
 
+import brainunit as u
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -369,6 +370,63 @@ class TestActivationAuditRegressions(parameterized.TestCase):
             self.assertEqual(out.shape, (5,))
             # Non-negative entries pass through unchanged.
             np.testing.assert_allclose(out[2:], np.array([0., 1., 2.]), rtol=1e-6)
+
+    def test_softmin_no_overflow_large_magnitude(self):
+        """C1: softmin must not overflow to NaN for moderate/large-magnitude inputs."""
+        # Pre-fix: exp(-x) overflows to +inf, division yields NaN.
+        out = brainstate.nn.softmin(jnp.array([-1000., -1001., -1002.]))
+        self.assertTrue(jnp.all(jnp.isfinite(out)))
+        np.testing.assert_allclose(float(out.sum()), 1.0, rtol=1e-6)
+        # float32 overflows for inputs around -90 as well.
+        out2 = brainstate.nn.softmin(jnp.array([-90., -89., -88.]))
+        self.assertTrue(jnp.all(jnp.isfinite(out2)))
+
+    def test_softmin_matches_softmax_of_negation(self):
+        """C1: softmin(x) must equal softmax(-x) for ordinary inputs."""
+        x = jnp.array([0., 1., 2.])
+        np.testing.assert_allclose(
+            np.asarray(brainstate.nn.softmin(x)),
+            np.asarray(brainstate.nn.softmax(-x)),
+            rtol=1e-6,
+        )
+
+    def test_softmin_accepts_tuple_axis(self):
+        """Item 1: softmin accepts a tuple ``axis`` (matching ``softmax``)."""
+        x = brainstate.random.randn(2, 3, 4)
+        out = brainstate.nn.softmin(x, axis=(1, 2))
+        self.assertEqual(out.shape, x.shape)
+        # Each slice over the reduced axes sums to 1.
+        np.testing.assert_allclose(np.asarray(out.sum(axis=(1, 2))), np.ones(2), rtol=1e-5)
+        # Matches softmax(-x) over the same axes.
+        np.testing.assert_allclose(
+            np.asarray(out),
+            np.asarray(brainstate.nn.softmax(-x, axis=(1, 2))),
+            rtol=1e-6,
+        )
+
+    @parameterized.parameters(brainstate.nn.soft_shrink, brainstate.nn.hard_shrink)
+    def test_shrink_preserves_integer_dtype(self, fn):
+        """Item 2: integer inputs are not force-promoted to float by a ``0.`` literal.
+
+        With an integer ``lambd`` the result of the shrink stays integer; pre-fix the
+        ``u.Quantity(0., ...)`` zero-branch unconditionally promoted to float32.
+        """
+        x = jnp.array([-2, -1, 0, 1, 2], dtype=jnp.int32)
+        out = fn(x, lambd=1)
+        self.assertEqual(out.dtype, jnp.int32)
+
+    def test_hard_shrink_integer_values_correct(self):
+        """Item 2: hard_shrink on integers returns the exact integer selection."""
+        x = jnp.array([-3, -1, 0, 1, 3], dtype=jnp.int32)
+        out = np.asarray(brainstate.nn.hard_shrink(x, lambd=1))
+        # |x| <= 1 -> 0, else x unchanged.
+        np.testing.assert_array_equal(out, np.array([-3, 0, 0, 0, 3], dtype=np.int32))
+
+    def test_shrink_float_dtype_unchanged(self):
+        """Item 2: float inputs still return float (no regression)."""
+        x = jnp.array([-2., -0.3, 0.0, 0.4, 2.], dtype=jnp.float32)
+        self.assertEqual(brainstate.nn.soft_shrink(x).dtype, jnp.float32)
+        self.assertEqual(brainstate.nn.hard_shrink(x).dtype, jnp.float32)
 
 
 if __name__ == '__main__':

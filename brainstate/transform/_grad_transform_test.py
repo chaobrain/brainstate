@@ -165,6 +165,73 @@ class TestGradientTransformDebugNaN(unittest.TestCase):
         grads = gt()
         self.assertTrue(bool(jnp.allclose(grads, jnp.array([6.0, 8.0]))))
 
+    def test_nan_check_detects_complex(self):
+        """The JIT-compatible NaN check must flag NaN in complex gradients."""
+        from brainstate.transform._grad_transform import _check_nan_jit_compatible
+        clean = jnp.array([1.0 + 2.0j], dtype=jnp.complex64)
+        nan_real = jnp.array([complex(float('nan'), 1.0)], dtype=jnp.complex64)
+        nan_imag = jnp.array([complex(1.0, float('nan'))], dtype=jnp.complex64)
+        self.assertFalse(bool(_check_nan_jit_compatible(clean)))
+        self.assertTrue(bool(_check_nan_jit_compatible(nan_real)))
+        self.assertTrue(bool(_check_nan_jit_compatible(nan_imag)))
+
+
+class TestHasAuxValidation(unittest.TestCase):
+    """``has_aux=True`` requires the function to return a (loss, aux) pair."""
+
+    def test_non_tuple_aux_return_raises_type_error(self):
+        """A non-(tuple/list) return under has_aux=True raises a clear TypeError,
+        not a bare assertion stripped under ``python -O``."""
+
+        def f(x):
+            return jnp.sum(x ** 2)  # forgot to return aux
+
+        with self.assertRaises(TypeError) as ctx:
+            brainstate.transform.grad(f, has_aux=True)(jnp.ones((3,)))
+        self.assertIn('has_aux', str(ctx.exception))
+
+    def test_tuple_aux_return_ok(self):
+        """A proper (loss, aux) pair works under has_aux=True."""
+
+        def f(x):
+            return jnp.sum(x ** 2), {'n': x.shape[0]}
+
+        grads, aux = brainstate.transform.grad(f, has_aux=True)(jnp.ones((2,)))
+        self.assertTrue(bool(jnp.allclose(grads, 2.0 * jnp.ones((2,)))))
+        self.assertEqual(aux['n'], 2)
+
+
+class TestNanCheckNonInexactLeaves(unittest.TestCase):
+    """``_check_nan_jit_compatible`` only inspects inexact (float/complex)
+    leaves. Integer leaves -- and leaves without a ``dtype`` -- take the False
+    side of the ``hasattr(leaf, 'dtype') and issubdtype(..., inexact)`` guard and
+    are skipped, so they can never (spuriously) report NaN/Inf."""
+
+    def test_integer_leaf_is_skipped(self):
+        from brainstate.transform._grad_transform import _check_nan_jit_compatible
+        # An all-integer pytree has no inexact leaf to test; the guard is False
+        # for every leaf, so the result is a clean False.
+        tree = {'a': jnp.array([1, 2, 3], dtype=jnp.int32),
+                'b': jnp.array([-4, 5], dtype=jnp.int64)}
+        self.assertFalse(bool(_check_nan_jit_compatible(tree)))
+
+    def test_mixed_int_and_float_only_checks_float(self):
+        from brainstate.transform._grad_transform import _check_nan_jit_compatible
+        # The integer leaf is skipped; the NaN in the float leaf is still found.
+        clean = {'i': jnp.array([7, 8], dtype=jnp.int32),
+                 'f': jnp.array([1.0, 2.0], dtype=jnp.float32)}
+        self.assertFalse(bool(_check_nan_jit_compatible(clean)))
+
+        with_nan = {'i': jnp.array([7, 8], dtype=jnp.int32),
+                    'f': jnp.array([1.0, float('nan')], dtype=jnp.float32)}
+        self.assertTrue(bool(_check_nan_jit_compatible(with_nan)))
+
+    def test_bool_leaf_is_skipped(self):
+        from brainstate.transform._grad_transform import _check_nan_jit_compatible
+        # Booleans are integral, not inexact: they are skipped, never flagged.
+        tree = {'mask': jnp.array([True, False, True])}
+        self.assertFalse(bool(_check_nan_jit_compatible(tree)))
+
 
 if __name__ == "__main__":
     unittest.main()

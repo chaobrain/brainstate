@@ -91,10 +91,27 @@ class TestJAXVersionCompatibility(unittest.TestCase):
         result = compat.to_concrete_aval(arr)
         self.assertIsNotNone(result)
 
-        # # Test with scalar
-        # scalar = 42.0
-        # result = compat.to_concrete_aval(scalar)
-        # self.assertEqual(result, scalar)
+        # Test with scalar: a concrete (non-Tracer) input is converted to its
+        # abstract value via ``jax.typeof``; it is NOT returned unchanged.
+        scalar = 42.0
+        result = compat.to_concrete_aval(scalar)
+        self.assertNotIsInstance(result, compat.Tracer)
+        self.assertEqual(result, jax.typeof(scalar))
+
+    def test_to_concrete_aval_returns_tracer_for_traced_input(self):
+        """``to_concrete_aval`` returns the Tracer itself for a traced input."""
+        captured = {}
+
+        def fn(x):
+            captured['result'] = compat.to_concrete_aval(x)
+            captured['is_tracer'] = isinstance(captured['result'], compat.Tracer)
+            captured['is_same'] = captured['result'] is x
+            return x
+
+        # Trace ``fn`` so that ``x`` is a Tracer inside the call.
+        jax.make_jaxpr(fn)(jnp.array([1.0, 2.0, 3.0]))
+        self.assertTrue(captured['is_tracer'])
+        self.assertTrue(captured['is_same'])
 
 
 class TestUtilityFunctions(unittest.TestCase):
@@ -406,6 +423,81 @@ class TestFunctionWrapping(unittest.TestCase):
 
         # Should handle missing attributes without crashing
         self.assertTrue(callable(wrapper))
+
+    def test_a1_partial_failure_does_not_drop_remaining_metadata(self):
+        """Appendix item 1: a failure copying one attribute must not abort the
+        rest. With a single shared try/except, a read-only ``__name__`` on the
+        wrapper aborted ``__doc__``/``__qualname__``/``__wrapped__`` too."""
+
+        def original():
+            """Original doc."""
+            pass
+
+        original.custom_marker = "kept"
+
+        class FunkyWrapper:
+            """A callable whose ``__name__`` cannot be assigned."""
+            __doc__ = None  # settable on the instance
+
+            def __init__(self):
+                self.__dict__ = {}
+
+            def __call__(self):
+                pass
+
+            # __name__ assignment raises -> the early-failing attribute
+            def __setattr__(self, key, value):
+                if key == "__name__":
+                    raise AttributeError("read-only __name__")
+                object.__setattr__(self, key, value)
+
+        fun = FunkyWrapper()
+        result = compat.wraps(original)(fun)
+
+        # __name__ copy failed, but the later attributes must still be applied.
+        self.assertEqual(result.__doc__, "Original doc.")
+        self.assertIs(result.__wrapped__, original)
+        # __dict__ (copied before __name__) must also be preserved.
+        self.assertEqual(result.custom_marker, "kept")
+
+    def test_wraps_tolerates_unsettable_wrapper_metadata(self):
+        """``wraps`` must not crash when *every* metadata copy fails.
+
+        Each metadata copy is wrapped in its own ``try/except`` so a wrapper that
+        rejects attribute assignment (``__slots__ = ()`` -> no ``__dict__`` and no
+        settable ``__name__``/``__doc__``/``__module__``/``__qualname__``/
+        ``__annotations__``) is returned unchanged rather than raising. The
+        wrapped object's name lookup also raises here, exercising the name
+        fallback path.
+        """
+        from functools import partial
+
+        class _NoName:
+            """A callable whose ``__name__`` lookup raises (not AttributeError)."""
+
+            @property
+            def __name__(self):
+                raise RuntimeError("name lookup boom")
+
+            def __call__(self, *args, **kwargs):
+                return None
+
+        # Wrap in a partial so ``fun_name`` recurses into ``_NoName`` (raising),
+        # while ``getattr(partial, "__name__", default)`` itself succeeds -> the
+        # name-fallback branch runs without re-raising.
+        wrapped = partial(_NoName())
+
+        class _Unsettable:
+            __slots__ = ()  # no __dict__; every attribute assignment raises
+
+            def __call__(self, *args, **kwargs):
+                return None
+
+        fun = _Unsettable()
+        # Must not raise despite every metadata copy failing.
+        result = compat.wraps(wrapped)(fun)
+        self.assertIs(result, fun)
+        self.assertTrue(callable(result))
 
 
 class TestEdgeCases(unittest.TestCase):

@@ -164,6 +164,13 @@ class TestParamDesc(unittest.TestCase):
         with self.assertRaises(AttributeError):
             desc.identifier = "new"
 
+    def test_a19_identifier_setter_annotation_not_misleading(self):
+        """Appendix item 19: the always-raising identifier setter should not
+        advertise a misleading `value: ArrayLike` parameter type."""
+        from typing import Any
+        prop = brainstate.mixin.ParamDescriber.__dict__['identifier']
+        self.assertEqual(prop.fset.__annotations__.get('value'), Any)
+
     def test_param_describer_class_getitem(self):
         """Test ParamDescriber[Class] notation."""
 
@@ -212,6 +219,24 @@ class TestHashableDict(unittest.TestCase):
         d = brainstate.mixin.HashableDict({"x": 10})
         cache = {d: "result"}
         self.assertEqual(cache[d], "result")
+
+    def test_a18_mixed_unorderable_keys_hashable(self):
+        """Appendix item 18: mixed unorderable key types must still hash.
+
+        sorted() over {1: ..., 'x': ...} raised TypeError comparing int and str.
+        """
+        d = brainstate.mixin.HashableDict({1: "a", "x": "b", 2.0: "c"})
+        h = hash(d)  # must not raise
+        self.assertIsInstance(h, int)
+        # usable as a dict key too
+        cache = {d: "ok"}
+        self.assertEqual(cache[d], "ok")
+
+    def test_a18_mixed_keys_order_independent(self):
+        """Equal dicts with mixed keys hash equally regardless of order."""
+        d1 = brainstate.mixin.HashableDict({1: "a", "x": "b"})
+        d2 = brainstate.mixin.HashableDict({"x": "b", 1: "a"})
+        self.assertEqual(hash(d1), hash(d2))
 
 
 class TestJointTypes(unittest.TestCase):
@@ -291,6 +316,23 @@ class TestJointTypes(unittest.TestCase):
         # Should handle duplicates gracefully
         JointA = brainstate.mixin.JointTypes(A, A, A)
         self.assertEqual(JointA, A)
+
+    def test_a20_calling_joint_alias_raises(self):
+        """Appendix item 20: calling a JointTypes alias must raise, not silently
+        build a bare object()."""
+
+        class A:
+            pass
+
+        class B:
+            pass
+
+        Combined = brainstate.mixin.JointTypes(A, B)
+        with self.assertRaises(TypeError):
+            Combined()
+        # subscript form too
+        with self.assertRaises(TypeError):
+            brainstate.mixin.JointTypes[A, B]()
 
 
 class TestOneOfTypes(unittest.TestCase):
@@ -1100,6 +1142,51 @@ class TestMixinCoverage(unittest.TestCase):
         """Accessing an unknown attribute on the mixin module raises AttributeError."""
         with self.assertRaises(AttributeError):
             _ = brainstate.mixin.ThisNameDoesNotExist
+
+
+class TestModeHashable(unittest.TestCase):
+    """Regression tests for Mode hashability (L6).
+
+    Mode defines __eq__; without an explicit __hash__, Python sets
+    Mode.__hash__ = None, making every Mode/Training/Batching/JointMode instance
+    unhashable (unusable as a dict key, set member, or JAX static_argname).
+    """
+
+    def test_mode_is_hashable(self):
+        """hash() works on Mode and its subclasses."""
+        self.assertIsInstance(hash(brainstate.mixin.Mode()), int)
+        self.assertIsInstance(hash(brainstate.mixin.Training()), int)
+        self.assertIsInstance(hash(brainstate.mixin.Batching()), int)
+
+    def test_equal_modes_hash_equal(self):
+        """Modes that compare equal hash equal (consistent with type-based __eq__)."""
+        t1 = brainstate.mixin.Training()
+        t2 = brainstate.mixin.Training()
+        self.assertEqual(t1, t2)
+        self.assertEqual(hash(t1), hash(t2))
+
+    def test_different_modes_not_equal(self):
+        """Different mode types are not equal."""
+        self.assertNotEqual(brainstate.mixin.Training(), brainstate.mixin.Batching())
+
+    def test_mode_usable_as_dict_key(self):
+        """A Mode can be used as a dict key, with equal instances colliding."""
+        d = {brainstate.mixin.Training(): "train", brainstate.mixin.Batching(): "batch"}
+        self.assertEqual(d[brainstate.mixin.Training()], "train")
+        self.assertEqual(d[brainstate.mixin.Batching()], "batch")
+        self.assertEqual(len(d), 2)
+
+    def test_mode_usable_as_set_member(self):
+        """A Mode can be a set member; equal instances de-duplicate."""
+        s = {brainstate.mixin.Training(), brainstate.mixin.Training(), brainstate.mixin.Batching()}
+        self.assertEqual(len(s), 2)
+        self.assertIn(brainstate.mixin.Training(), s)
+        self.assertIn(brainstate.mixin.Batching(), s)
+
+    def test_joint_mode_is_hashable(self):
+        """JointMode (a Mode subclass) is also hashable."""
+        joint = brainstate.mixin.JointMode(brainstate.mixin.Training())
+        self.assertIsInstance(hash(joint), int)
 
 
 if __name__ == '__main__':

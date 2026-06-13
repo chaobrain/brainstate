@@ -189,6 +189,24 @@ class TestWithTagFilter(unittest.TestCase):
         self.assertTrue(filter_tag(['some', 'path'], obj))
         self.assertTrue(filter_tag(['another', 'nested', 'path'], obj))
 
+    def test_non_str_tag_rejected(self):
+        """Reject non-str tags so the type hint/docstring hold and hashing works.
+
+        A non-str (e.g. an unhashable list) would otherwise be accepted silently
+        and then break the frozen-dataclass ``__hash__``.
+        """
+        for bad in (['a', 'b'], {'a'}, 5, None, ('a',)):
+            with self.assertRaises(TypeError):
+                WithTag(bad)
+
+    def test_hashable(self):
+        """A str-tagged WithTag is hashable and usable in sets/dict keys."""
+        f1 = WithTag('trainable')
+        f2 = WithTag('trainable')
+        self.assertEqual(hash(f1), hash(f2))
+        self.assertEqual(len({f1, f2}), 1)
+        self.assertEqual({f1: 'v'}[f2], 'v')
+
 
 class TestPathContainsFilter(unittest.TestCase):
     """Test cases for PathContains filter."""
@@ -921,6 +939,54 @@ class TestIntegrationScenarios(unittest.TestCase):
         # Case 4: In excluded path without override - should not match
         regular_obj = MockTaggedObject('regular')
         self.assertFalse(filter_deep(['excluded'], regular_obj))  # Excluded without override
+
+
+class _UnhashablePredicate:
+    """A callable predicate that is deliberately unhashable."""
+    __hash__ = None
+
+    def __call__(self, path, x) -> bool:
+        return True
+
+
+class TestUnhashablePredicateHashing(unittest.TestCase):
+    """Any/All/Not must stay hashable even when wrapping an unhashable predicate.
+
+    These composite filters define both ``__eq__`` and ``__hash__`` (claiming to be
+    hashable). Previously ``hash(...)`` raised ``TypeError`` whenever a wrapped
+    predicate was unhashable, breaking that contract and any set/dict usage.
+    """
+
+    def test_any_hashable_with_unhashable_predicate(self):
+        f = Any(_UnhashablePredicate())
+        self.assertEqual(hash(f), hash(Any))  # stable type-based fallback
+        self.assertEqual(len({f}), 1)  # usable in a set
+
+    def test_all_hashable_with_unhashable_predicate(self):
+        f = All(_UnhashablePredicate())
+        self.assertEqual(hash(f), hash(All))
+        self.assertEqual(len({f}), 1)
+
+    def test_not_hashable_with_unhashable_predicate(self):
+        f = Not(_UnhashablePredicate())
+        self.assertEqual(hash(f), hash(Not))
+        self.assertEqual(len({f}), 1)
+
+    def test_hashable_predicates_still_use_precise_hash(self):
+        """The fallback must not regress the normal (hashable) path."""
+        self.assertEqual(hash(Any('t1', 't2')), hash(Any('t1', 't2')))
+        self.assertEqual(hash(All('t1', 't2')), hash(All('t1', 't2')))
+        self.assertEqual(hash(Not('t1')), hash(Not('t1')))
+        # distinct hashable filters generally differ from the type-fallback value
+        self.assertNotEqual(hash(Any('t1', 't2')), hash(Any))
+
+    def test_eq_hash_invariant_for_equal_filters(self):
+        """Equal composite filters share a hash even with unhashable predicates."""
+        shared = _UnhashablePredicate()
+        a1 = Any(shared)
+        a2 = Any(shared)
+        self.assertEqual(a1, a2)
+        self.assertEqual(hash(a1), hash(a2))
 
 
 if __name__ == '__main__':

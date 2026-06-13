@@ -74,6 +74,31 @@ class TestTransformHelpers(unittest.TestCase):
         """Umbrella helper runs jit by default."""
         _testing.assert_transform_compatible(lambda x: x + 1.0, jnp.ones((4, 8)))
 
+    def test_a14_vmap_equal_forwards_kwargs(self):
+        """assert_vmap_equal forwards keyword arguments to fn (not mapped)."""
+
+        def fn(r, *, scale=1.0):
+            return r.sum() * scale
+
+        # With the bug, scale was dropped on the vmap branch and the helper
+        # would compute with scale=1.0 internally; here both vmapped and looped
+        # calls must see scale=3.0, so they agree.
+        _testing.assert_vmap_equal(fn, jnp.arange(12.0).reshape(4, 3), scale=3.0)
+
+    def test_a14_transform_compatible_vmap_forwards_kwargs(self):
+        """assert_transform_compatible passes **kwargs to the vmap branch."""
+        seen = {}
+
+        def fn(x, *, bias=0.0):
+            seen["bias"] = bias
+            return x + bias
+
+        _testing.assert_transform_compatible(
+            fn, jnp.ones((4, 8)), transforms=("vmap",), bias=2.5
+        )
+        # The kwarg actually reached fn rather than being silently dropped.
+        self.assertEqual(seen["bias"], 2.5)
+
 
 class TestPytreeRoundtrip(unittest.TestCase):
     """Validate pytree flatten/unflatten roundtrip helper."""

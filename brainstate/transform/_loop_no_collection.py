@@ -137,7 +137,7 @@ def while_loop(
             while cond_fun(val):
                 val = body_fun(val)
             return val
-        except jax.core.ConcretizationTypeError:
+        except jax.errors.ConcretizationTypeError:
             # Can't run this while_loop in Python (e.g. because there's a vmap
             # transformation on it), so we fall back to the primitive version.
             pass
@@ -253,6 +253,8 @@ def bounded_while_loop(
     # checking
     if not isinstance(max_steps, int) or max_steps < 0:
         raise ValueError("max_steps must be a non-negative integer")
+    if isinstance(base, bool) or not isinstance(base, int) or base < 2:
+        raise ValueError(f"base must be an integer >= 2, got {base!r}.")
     init_val = jax.tree.map(jax.numpy.asarray, init_val)
     if max_steps == 0:
         return init_val

@@ -70,13 +70,20 @@ def check_consistent_aliasing(
     node_prefixes = RefMap() if node_prefixes is None else node_prefixes
 
     for path, value in iter_graph(node):
-        if _is_graph_node(value) or isinstance(value, State):
+        if isinstance(value, State):
+            value.check_valid_trace(
+                lambda: f'Trying to extract graph node from different trace level, got {value!r}'
+            )
+            if value in node_prefixes:
+                node_prefixes[value].append((path, prefix))
+            else:
+                node_prefixes[value] = [(path, prefix)]
+
+    from ._walk import iter_node  # already exported from _walk
+    for path, value in iter_node(node):
+        if _is_graph_node(value):
             if isinstance(value, GraphNode):
                 value.check_valid_context(
-                    lambda: f'Trying to extract graph node from different trace level, got {value!r}'
-                )
-            if isinstance(value, State):
-                value.check_valid_trace(
                     lambda: f'Trying to extract graph node from different trace level, got {value!r}'
                 )
             if value in node_prefixes:
@@ -212,7 +219,12 @@ def graph_to_tree(
     leaf_prefixes = broadcast_prefix(prefix, may_have_graph_nodes, prefix_is_leaf=lambda x: x is None)
     leaf_keys, treedef = jax.tree_util.tree_flatten_with_path(may_have_graph_nodes)
 
-    assert len(leaf_keys) == len(leaf_prefixes)
+    if len(leaf_keys) != len(leaf_prefixes):
+        raise ValueError(
+            f"Mismatched number of leaves ({len(leaf_keys)}) and broadcast prefixes "
+            f"({len(leaf_prefixes)}); the `prefix` is not a valid prefix tree of "
+            f"`may_have_graph_nodes`."
+        )
 
     with split_context() as (ctx, index_ref):
         leaves_out = []
@@ -294,7 +306,11 @@ def tree_to_graph(
     _prefix_is_leaf = lambda x: x is None or is_leaf(x)
     leaf_prefixes = broadcast_prefix(prefix, tree, prefix_is_leaf=_prefix_is_leaf, tree_is_leaf=is_leaf)
     leaf_keys, treedef = jax.tree_util.tree_flatten_with_path(tree, is_leaf=is_leaf)
-    assert len(leaf_keys) == len(leaf_prefixes), "Mismatched number of keys and prefixes"
+    if len(leaf_keys) != len(leaf_prefixes):
+        raise ValueError(
+            f"Mismatched number of leaves ({len(leaf_keys)}) and broadcast prefixes "
+            f"({len(leaf_prefixes)}); the `prefix` is not a valid prefix tree of `tree`."
+        )
 
     with merge_context() as (ctx, index_ref):
         leaves_out = []

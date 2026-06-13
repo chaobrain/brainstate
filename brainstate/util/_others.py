@@ -93,12 +93,17 @@ def split_total(
     >>> split_total(100, 1.5)  # Raises ValueError
     ValueError: 'fraction' value cannot be greater than 1.
     """
-    if not isinstance(total, int):
+    # ``bool`` is a subclass of ``int``; reject it explicitly so that a boolean
+    # is never silently treated as 0/1 (which would also leak a ``bool`` into the
+    # ``int`` return value).
+    if isinstance(total, bool) or not isinstance(total, int):
         raise TypeError(f"'total' must be an integer, got {type(total).__name__}.")
     if total <= 0:
         raise ValueError(f"'total' must be a positive integer, got {total}.")
 
-    if isinstance(fraction, float):
+    if isinstance(fraction, bool):
+        raise TypeError(f"'fraction' must be an integer or float, got {type(fraction).__name__}.")
+    elif isinstance(fraction, float):
         if fraction < 0:
             raise ValueError(f"'fraction' value cannot be negative, got {fraction}.")
         if fraction > 1:
@@ -600,13 +605,21 @@ def clear_buffer_memory(
     >>> clear_buffer_memory(compilation=True)  # Also clear compilation cache
     """
     if array:
-        try:
-            from brainstate._compatible_import import get_backend
-            backend = get_backend(platform)
-            for buf in backend.live_buffers():
+        from brainstate._compatible_import import get_backend
+        # Acquiring the backend and listing live buffers are setup steps: if they
+        # fail (e.g. an unknown platform, or a JAX version without ``live_buffers``)
+        # surface the error to the caller instead of hiding a real misconfiguration.
+        backend = get_backend(platform)
+        live_buffers = backend.live_buffers()
+        # Individual buffer deletions, on the other hand, are best-effort: a single
+        # buffer that cannot be freed should not abort the whole cleanup loop. Warn
+        # per failure (rather than swallowing every error under one message) so the
+        # cause stays visible.
+        for buf in live_buffers:
+            try:
                 buf.delete()
-        except Exception as e:
-            warnings.warn(f"Failed to clear buffers: {e}", RuntimeWarning)
+            except Exception as e:
+                warnings.warn(f"Failed to delete buffer {buf!r}: {e}", RuntimeWarning)
 
     if compilation:
         jax.clear_caches()
@@ -650,10 +663,6 @@ class DotDict(dict, MutableMapping[str, Any]):
         **kwargs
             Keyword arguments become key-value pairs.
         """
-        # Handle parent reference for nested updates
-        object.__setattr__(self, '__parent', kwargs.pop('__parent', None))
-        object.__setattr__(self, '__key', kwargs.pop('__key', None))
-
         # Process positional arguments
         for arg in args:
             if not arg:
@@ -685,25 +694,19 @@ class DotDict(dict, MutableMapping[str, Any]):
         self[name] = value
 
     def __setitem__(self, name: str, value: Any) -> None:
-        """Set item and update parent if nested."""
-        value = self._hook(value)
-        super().__setitem__(name, value)
-        try:
-            parent = object.__getattribute__(self, '__parent')
-            key = object.__getattribute__(self, '__key')
-            if parent is not None:
-                parent[key] = self
-                object.__delattr__(self, '__parent')
-                object.__delattr__(self, '__key')
-        except AttributeError:
-            pass
+        """Set item, converting nested mappings/sequences to DotDict."""
+        super().__setitem__(name, self._hook(value))
 
     @classmethod
     def _hook(cls, item: Any) -> Any:
         """Convert nested dicts to DotDict."""
         if isinstance(item, dict) and not isinstance(item, cls):
             return cls(item)
-        elif isinstance(item, (list, tuple)):
+        elif isinstance(item, tuple):
+            hooked = tuple(cls._hook(elem) for elem in item)
+            # namedtuples take positional fields, not a single iterable
+            return type(item)(*hooked) if hasattr(item, '_fields') else type(item)(hooked)
+        elif isinstance(item, list):
             return type(item)(cls._hook(elem) for elem in item)
         return item
 
@@ -759,10 +762,15 @@ class DotDict(dict, MutableMapping[str, Any]):
             if isinstance(value, DotDict):
                 result[key] = value.to_dict()
             elif isinstance(value, (list, tuple)):
-                result[key] = type(value)(
-                    item.to_dict() if isinstance(item, DotDict) else item
-                    for item in value
-                )
+                converted = [it.to_dict() if isinstance(it, DotDict) else it for it in value]
+                if isinstance(value, tuple):
+                    # namedtuples take positional fields, not a single iterable
+                    if hasattr(value, '_fields'):
+                        result[key] = type(value)(*converted)
+                    else:
+                        result[key] = type(value)(tuple(converted))
+                else:
+                    result[key] = type(value)(converted)
             else:
                 result[key] = value
         return result
@@ -802,8 +810,13 @@ class DotDict(dict, MutableMapping[str, Any]):
         else:
             other = {}
 
-        if hasattr(other, 'items'):
-            other = dict(other.items())
+        try:
+            # accept mappings and iterables of (key, value) pairs, like builtin dict.update
+            other = dict(other)
+        except (TypeError, ValueError) as e:
+            raise TypeError(
+                f"update expected a mapping or iterable of key/value pairs, got {type(other).__name__}"
+            ) from e
         other.update(kwargs)
 
         for k, v in other.items():
@@ -822,6 +835,40 @@ class DotDict(dict, MutableMapping[str, Any]):
         if key not in self:
             self[key] = default
         return self[key]
+
+    def __or__(self, other: Mapping[str, Any]) -> 'DotDict':
+        """Combine with another mapping using ``|``, preserving the DotDict type.
+
+        Unlike ``dict.__or__`` (which would return a plain ``dict``), this keeps
+        the result a :class:`DotDict` and recursively hooks nested mappings.
+        """
+        if not isinstance(other, Mapping):
+            return NotImplemented
+        new_dict = self.__class__(self)
+        new_dict.update(other)
+        return new_dict
+
+    def __ror__(self, other: Mapping[str, Any]) -> 'DotDict':
+        """Right-hand ``|`` so ``mapping | dotdict`` yields a hooked DotDict.
+
+        Note: ``dict.__or__`` already accepts ``DotDict`` operands, so a plain
+        ``dict`` on the left handles the operation itself and this is only reached
+        for non-``dict`` mappings.
+        """
+        if not isinstance(other, Mapping):
+            return NotImplemented
+        # ``other`` may be any Mapping (not just a dict); normalise via ``dict()``
+        # so DotDict.__init__ takes its dict branch instead of mis-iterating keys.
+        new_dict = self.__class__(dict(other))
+        new_dict.update(self)
+        return new_dict
+
+    def __ior__(self, other: Mapping[str, Any]) -> 'DotDict':
+        """In-place ``|=`` that routes through the hook-aware ``update``."""
+        if not isinstance(other, Mapping):
+            return NotImplemented
+        self.update(other)
+        return self
 
     def __getstate__(self) -> Dict[str, Any]:
         """Get state for pickling."""
@@ -916,14 +963,31 @@ def flatten_dict(
     """
     if not isinstance(d, dict):
         raise TypeError(f"d must be a dict, got {type(d).__name__}.")
-    items = []
+    items = {}
     for k, v in d.items():
+        if parent_key and not isinstance(k, str):
+            # nested keys must be joinable with the string separator; coercing
+            # non-str keys silently breaks round-tripping via unflatten_dict
+            raise TypeError(
+                f"flatten_dict requires string keys for nested levels, got {type(k).__name__} key {k!r}."
+            )
         new_key = f"{parent_key}{sep}{k}" if parent_key else k
         if isinstance(v, dict):
-            items.extend(flatten_dict(v, new_key, sep=sep).items())
+            if v:
+                for nk, nv in flatten_dict(v, new_key, sep=sep).items():
+                    if nk in items:
+                        raise ValueError(f"flatten_dict produced duplicate key {nk!r}.")
+                    items[nk] = nv
+            else:
+                # emit a key for an empty mapping so flatten/unflatten round-trips
+                if new_key in items:
+                    raise ValueError(f"flatten_dict produced duplicate key {new_key!r}.")
+                items[new_key] = {}
         else:
-            items.append((new_key, v))
-    return dict(items)
+            if new_key in items:
+                raise ValueError(f"flatten_dict produced duplicate key {new_key!r}.")
+            items[new_key] = v
+    return items
 
 
 @set_module_as('brainstate.util')
@@ -971,7 +1035,8 @@ def unflatten_dict(
 
         if parts[-1] in current and isinstance(current[parts[-1]], dict):
             raise ValueError(f"Cannot overwrite mapping at key {key!r} with a scalar value.")
-        current[parts[-1]] = value
+        # copy dict leaf values to avoid shared-mutable aliasing with the input
+        current[parts[-1]] = dict(value) if isinstance(value, dict) else value
 
     return result
 

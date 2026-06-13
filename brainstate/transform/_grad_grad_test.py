@@ -585,6 +585,80 @@ class TestForwardGrad(unittest.TestCase):
         self.assertEqual(leaf.shape, (2,))
         self.assertTrue(bool(jnp.all(jnp.isfinite(leaf))))
 
+    def test_fwd_grad_int_seed(self):
+        """A plain ``int`` seed (documented by ``SeedOrKey``) must be accepted
+        and normalized to a typed PRNG key, not crash in ``jax.random.split``
+        (audit M34)."""
+        w = brainstate.ParamState(jnp.array([1.0, 2.0, 3.0]))
+
+        g = brainstate.transform.fwd_grad(
+            lambda: jnp.sum(w.value ** 2), grad_states=w, key=0
+        )()
+        leaf = jax.tree.leaves(g)[0]
+        self.assertEqual(leaf.shape, (3,))
+        self.assertTrue(bool(jnp.all(jnp.isfinite(leaf))))
+
+    def test_fwd_grad_size1_array_seed(self):
+        """A size-1 integer array seed (e.g. ``np.array([42])``) must also be
+        accepted (audit M34: the naive ``ndim==0`` check would miss it)."""
+        import numpy as np
+
+        w = brainstate.ParamState(jnp.array([1.0, 2.0]))
+
+        g = brainstate.transform.fwd_grad(
+            lambda: jnp.sum(w.value ** 2), grad_states=w, key=np.array([42])
+        )()
+        leaf = jax.tree.leaves(g)[0]
+        self.assertEqual(leaf.shape, (2,))
+        self.assertTrue(bool(jnp.all(jnp.isfinite(leaf))))
+
+    def test_fwd_grad_integer_param_raises_clear_error(self):
+        """Integer-dtype params are not differentiable; raise a clear error
+        rather than the opaque ``dtype argument to normal`` from jax.random."""
+        key = brainstate.random.split_key()
+        g = brainstate.transform.fwd_grad(
+            lambda x: jnp.sum(x.astype(jnp.float32) ** 2), key=key
+        )
+        with self.assertRaises(TypeError) as ctx:
+            g(jnp.array([2, 3], dtype=jnp.int32))
+        msg = str(ctx.exception)
+        self.assertNotIn('dtype argument to', msg)
+        self.assertIn('inexact', msg.lower())
+
+    def test_fwd_grad_nonscalar_output_single_direction_raises(self):
+        """A non-scalar function output makes the single-direction estimator
+        ill-defined; raise instead of silently broadcasting (or crashing on a
+        shape mismatch when output and param shapes happen to differ)."""
+        key = brainstate.random.split_key()
+        g = brainstate.transform.fwd_grad(
+            lambda x: jnp.array([x[0] ** 2, x[1] ** 3, x[0] * x[1]]), key=key
+        )
+        with self.assertRaises(ValueError) as ctx:
+            g(jnp.array([2.0, 3.0]))
+        self.assertIn('scalar', str(ctx.exception).lower())
+
+    def test_fwd_grad_nonscalar_output_same_shape_raises(self):
+        """Even when output and param shapes coincide (silent wrong result
+        previously), a non-scalar output must raise."""
+        key = brainstate.random.split_key()
+        g = brainstate.transform.fwd_grad(
+            lambda x: jnp.array([x[0] ** 2, x[1] ** 3]), key=key
+        )
+        with self.assertRaises(ValueError) as ctx:
+            g(jnp.array([2.0, 3.0]))
+        self.assertIn('scalar', str(ctx.exception).lower())
+
+    def test_fwd_grad_nonscalar_output_averaged_raises(self):
+        """The ``tangent_size`` (averaged) path must also reject non-scalar output."""
+        key = brainstate.random.split_key()
+        g = brainstate.transform.fwd_grad(
+            lambda x: jnp.array([x[0] ** 2, x[1] ** 3, x[0] * x[1]]),
+            tangent_size=4, key=key,
+        )
+        with self.assertRaises(ValueError) as ctx:
+            g(jnp.array([2.0, 3.0]))
+        self.assertIn('scalar', str(ctx.exception).lower())
+
 
 class TestArgnumsValidation(unittest.TestCase):
     """Negative or non-integer ``argnums`` must be rejected (audit H3).

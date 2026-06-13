@@ -63,6 +63,15 @@ class StateJaxTracer(PrettyRepr):
     def __eq__(self, other):
         return isinstance(other, StateJaxTracer) and self._jax_trace == other._jax_trace
 
+    def __hash__(self):
+        # Defining ``__eq__`` resets ``__hash__`` to ``None`` (making instances
+        # unhashable); restore it so tracers can live in sets/dict keys. The
+        # captured JAX trace (``OpaqueTraceState``) supports ``==`` but is itself
+        # unhashable, so we cannot derive the hash from it. Use a constant, type
+        # based hash: this keeps the eq/hash invariant (equal tracers hash equal)
+        # while accepting that distinct traces collide -- correctness over spread.
+        return hash(StateJaxTracer)
+
     def __pretty_repr__(self):
         yield PrettyType(f'{type(self).__name__}')
         yield PrettyAttr('jax_trace', self._jax_trace)

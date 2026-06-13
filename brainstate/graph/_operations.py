@@ -203,11 +203,11 @@ def states(
     """
     num_filters = len(filters)
     if num_filters == 0:
-        filters = (..., ...)
+        filters = (...,)
     else:
         filters = (*filters, ...)
     gen = _states_generator(node, allowed_hierarchy=allowed_hierarchy)
-    flat_states = _split_flatted(gen, (*filters, ...))
+    flat_states = _split_flatted(gen, filters)
     state_maps = tuple(FlattedDict(flat) for flat in flat_states)
     return state_maps[0] if num_filters < 2 else state_maps[:num_filters]
 
@@ -236,11 +236,11 @@ def nodes(
     """
     num_filters = len(filters)
     if num_filters == 0:
-        filters = (..., ...)
+        filters = (...,)
     else:
         filters = (*filters, ...)
     gen = iter_node(node, allowed_hierarchy=allowed_hierarchy)
-    flat_nodes = _split_flatted(gen, (*filters, ...))
+    flat_nodes = _split_flatted(gen, filters)
     node_maps = tuple(FlattedDict(flat) for flat in flat_nodes)
     return node_maps[0] if num_filters < 2 else node_maps[:num_filters]
 
@@ -361,8 +361,8 @@ def _graph_update_dynamic(node, state) -> None:
                 raise ValueError(
                     f'Cannot set key {key!r} on immutable node of type {type(node).__name__}'
                 )
-            if isinstance(value, State):
-                value = value.to_state_ref()
+            if isinstance(value, TreefyState):
+                value = value.to_state()
             impl.set_key(node, key, value)
             continue
         current_value = node_dict[key]
@@ -370,6 +370,12 @@ def _graph_update_dynamic(node, state) -> None:
             if _is_state_leaf(value):
                 raise ValueError(f'Expected a subgraph for {key!r}, but got: {value!r}')
             _graph_update_dynamic(current_value, value)
+        elif isinstance(value, State):
+            if not isinstance(current_value, State):
+                raise ValueError(
+                    f'Trying to update a non-State attribute {key!r} with a State: {value!r}'
+                )
+            current_value.update_from_ref(value.to_state_ref())
         elif isinstance(value, TreefyState):
             if not isinstance(current_value, State):
                 raise ValueError(

@@ -92,6 +92,54 @@ def _count_nodes(graph):
     return total
 
 
+def _all_nodes(graph):
+    """Recursively collect every pydot.Node in a graph/subgraph."""
+    nodes = list(graph.get_nodes())
+    for sub in graph.get_subgraphs():
+        nodes += _all_nodes(sub)
+    return nodes
+
+
+def _all_edges(graph):
+    """Recursively collect every pydot.Edge in a graph/subgraph."""
+    edges = list(graph.get_edges())
+    for sub in graph.get_subgraphs():
+        edges += _all_edges(sub)
+    return edges
+
+
+def _all_subgraphs(graph):
+    """Recursively collect every pydot.Subgraph below ``graph``."""
+    out = []
+    for sub in graph.get_subgraphs():
+        out.append(sub)
+        out += _all_subgraphs(sub)
+    return out
+
+
+def _base(name):
+    """Port-stripped node name (pydot treats ':' as a port separator)."""
+    return str(name).split(":")[0]
+
+
+def _declared_node_bases(graph):
+    """Set of port-stripped names of all declared nodes."""
+    return {_base(nd.get_name()) for nd in _all_nodes(graph)}
+
+
+def _undeclared_edge_sources(graph):
+    """Edge-source base ids that are not declared as nodes anywhere.
+
+    A non-empty result means an edge references a phantom node that graphviz
+    would fabricate with default styling -- the signature of the literal /
+    boundary-node bugs.
+    """
+    declared = _declared_node_bases(graph)
+    return sorted(
+        {_base(e.get_source()) for e in _all_edges(graph)} - declared
+    )
+
+
 @unittest.skipUnless(PYDOT, "pydot not installed")
 class TestVisualizeTopLevel(unittest.TestCase):
     def test_empty_jaxpr_does_not_crash(self):
@@ -327,6 +375,25 @@ class TestExpandPjitPrimitive(unittest.TestCase):
         jpr = jax.make_jaxpr(f)(jnp.float32(1.0))
         graph, *_ = viz.expand_pjit_primitive(jpr.jaxpr, "", 0, False, True, "g")
         self.assertIsNotNone(graph)
+
+    def test_expand_pjit_primitive_no_phantom_parent_edges(self):
+        """The standalone pjit expansion must not return parent-linking edges or
+        nodes keyed off its own vars: it has no enclosing equation, so such edges
+        point at non-existent ``{parent_id}_{var}`` nodes (audit item 4)."""
+        import brainstate.transform._ir_visualize as viz
+
+        def f(x):
+            return jnp.sin(x) * 2.0
+
+        jpr = jax.make_jaxpr(f)(jnp.float32(1.0))
+        graph, arg_edges, out_nodes, out_edges, n = viz.expand_pjit_primitive(
+            jpr.jaxpr, "parent", 0, False, True, "g"
+        )
+        self.assertIsNotNone(graph)
+        # No phantom parent linkage.
+        self.assertEqual(list(arg_edges), [])
+        self.assertEqual(list(out_nodes), [])
+        self.assertEqual(list(out_edges), [])
 
 
 @unittest.skipUnless(PYDOT, "pydot not installed")
@@ -624,6 +691,385 @@ class TestDrawDotGraphEmpty(unittest.TestCase):
         jpr = jax.make_jaxpr(lambda x: x)(jnp.float32(1.0))
         g = draw_dot_graph(jpr, True, True)
         self.assertIsNotNone(g)
+
+
+@unittest.skipUnless(PYDOT, "pydot not installed")
+class TestLiteralCallArgument(unittest.TestCase):
+    """Regression for M37: a literal passed into an inlinable call.
+
+    ``get_arguments`` used to test ``isinstance(var, Literal)`` on the callee's
+    *formal* parameter (never a literal) and unconditionally draw an edge from
+    ``{parent}_{Literal(...)}`` -- a node that is never created -- dropping the
+    literal value and leaving a dangling edge to a phantom node.
+    """
+
+    def test_literal_call_argument_node_and_no_dangling_edge(self):
+        from brainstate.transform import draw
+
+        @jax.jit
+        def inner(a, b):
+            return a + b
+
+        def f(x):
+            return inner(x, 3.0)  # 3.0 is a Literal passed positionally
+
+        g = draw(f, collapse_primitives=False)(jnp.float32(1.0))
+
+        # The literal value must be rendered as a declared node (orange literal
+        # box), not lost. Pre-fix no node anywhere carried the literal.
+        literal_nodes = [
+            nd for nd in _all_nodes(g)
+            if nd.get_label() and "Literal(3.0)" in str(nd.get_label())
+        ]
+        self.assertEqual(
+            len(literal_nodes), 1,
+            f"expected exactly one declared Literal(3.0) node, got "
+            f"{[nd.get_name() for nd in literal_nodes]}",
+        )
+
+        # No edge may reference an undeclared source. Pre-fix the edge
+        # ``_Literal(3.0) -> inner_0_<var>`` had a phantom source.
+        self.assertEqual(_undeclared_edge_sources(g), [])
+
+        # The literal node feeds the formal-parameter node via a *local* edge
+        # (inside the argument cluster); its declared name keeps the ``_lit``
+        # marker (pre-fix the ``:aval`` port stripped it, colliding with the
+        # parameter node).
+        lit_name = literal_nodes[0].get_name()
+        self.assertTrue(
+            lit_name.endswith("_lit"),
+            f"literal node name should end with '_lit', got {lit_name!r}",
+        )
+
+
+@unittest.skipUnless(PYDOT, "pydot not installed")
+class TestTopLevelBoundaryNodes(unittest.TestCase):
+    """Regression for L19: top-level input/output boundary nodes.
+
+    On the non-empty-jaxpr path ``draw_dot_graph`` used to create no node for
+    the function's input arguments (they were only referenced as edge sources)
+    and rendered the final outputs with blue VAR styling rather than red OUT
+    styling.
+    """
+
+    def test_input_node_declared_and_styled(self):
+        from brainstate.transform import draw, _ir_visualize as viz
+
+        def f(x):
+            return x + 1.0  # one top-level eqn -> non-empty path
+
+        g = draw(f)(jnp.float32(1.0))
+
+        # Every edge source must be a declared node. Pre-fix the top-level
+        # input ``_Var(x)`` was referenced by the add's in-edge but never
+        # declared, so graphviz fabricated a phantom node.
+        self.assertEqual(_undeclared_edge_sources(g), [])
+
+        # The input argument is declared with green IN_ARG styling.
+        green = viz.IN_ARG_STYLING["color"]
+        red = viz.OUT_ARG_STYLING["color"]
+        colors = {nd.get_color() for nd in _all_nodes(g)}
+        self.assertIn(green, colors, "expected a green top-level input node")
+        # The final output is styled as an output (red), not a plain VAR.
+        self.assertIn(red, colors, "expected a red top-level output node")
+
+    def test_multi_equation_no_undeclared_sources(self):
+        from brainstate.transform import draw
+
+        def f(x):
+            a = x + 1.0
+            b = x * 2.0
+            return a + b
+
+        g = draw(f)(jnp.float32(1.0))
+        self.assertEqual(_undeclared_edge_sources(g), [])
+
+    def test_input_returned_verbatim_recoloured(self):
+        """An input that is also an output is recoloured red (no duplicate)."""
+        from brainstate.transform import draw, _ir_visualize as viz
+
+        def f(x, y):
+            # x + 1.0 is an eqn (non-empty path); y is returned verbatim and is
+            # therefore both an input and an output with no producing eqn.
+            return x + 1.0, y
+
+        g = draw(f)(jnp.float32(1.0), jnp.float32(2.0))
+
+        # No phantom sources and no duplicate declaration for the verbatim var.
+        self.assertEqual(_undeclared_edge_sources(g), [])
+        from collections import Counter
+        name_counts = Counter(nd.get_name() for nd in _all_nodes(g))
+        dups = {k: c for k, c in name_counts.items() if c > 1}
+        self.assertEqual(dups, {}, f"unexpected duplicate nodes: {dups}")
+        # The verbatim-returned input ends up red (OUT styling).
+        red = viz.OUT_ARG_STYLING["color"]
+        self.assertIn(red, {nd.get_color() for nd in _all_nodes(g)})
+
+
+@unittest.skipUnless(PYDOT, "pydot not installed")
+class TestScanBodyOutputDedup(unittest.TestCase):
+    """Regression for L20: scan body output-dedup + duplicate scan nodes.
+
+    The dedup filter compared an unstripped key set (``...:float32[]``) against
+    pydot's port-stripped node names, so it never matched and scan output nodes
+    were declared twice.
+    """
+
+    def test_no_duplicate_scan_nodes(self):
+        from brainstate.transform import draw
+        from collections import Counter
+
+        def f(x):
+            def body(c, _):
+                return c + 1.0, c  # carry returned verbatim -> exercises _out path
+            final, ys = jax.lax.scan(body, x, None, length=3)
+            return final
+
+        g = draw(f, collapse_primitives=False)(jnp.float32(0.0))
+
+        scan_names = [
+            nd.get_name() for nd in _all_nodes(g)
+            if nd.get_name().startswith("scan_")
+        ]
+        dups = {k: c for k, c in Counter(scan_names).items() if c > 1}
+        self.assertEqual(
+            dups, {},
+            f"scan_* node names must be unique, got duplicates: {dups}",
+        )
+
+    def test_no_self_loop_edges(self):
+        """The ``_out`` id-edge must connect distinct endpoints, not self-loop."""
+        from brainstate.transform import draw
+
+        def f(x):
+            def body(c, _):
+                return c + 1.0, c
+            final, ys = jax.lax.scan(body, x, None, length=3)
+            return final
+
+        g = draw(f, collapse_primitives=False)(jnp.float32(0.0))
+        self_loops = [
+            (e.get_source(), e.get_destination())
+            for e in _all_edges(g)
+            if _base(e.get_source()) == _base(e.get_destination())
+        ]
+        self.assertEqual(self_loops, [], f"unexpected self-loop edges: {self_loops}")
+
+
+@unittest.skipUnless(PYDOT, "pydot not installed")
+class TestScanArgumentClusterLabels(unittest.TestCase):
+    """Regression for L21: scan argument subgraphs mislabel consts/carry.
+
+    The const-holding cluster was labeled 'init' and the carry-holding cluster
+    'consts' -- swapped relative to JAX's [consts, carry, xs] invar order.
+    """
+
+    def test_const_and_carry_clusters_labelled_correctly(self):
+        from brainstate.transform import draw
+
+        def f(x, w):
+            def body(c, inp):
+                return c + w * inp, c  # w is a scan const, c is the carry
+            final, ys = jax.lax.scan(body, x, jnp.float32([1., 2., 3.]))
+            return final, ys
+
+        g = draw(f, collapse_primitives=False)(jnp.float32(0.0), jnp.float32(2.0))
+
+        # The argument-side const cluster id ends in '_const'; the carry cluster
+        # keeps the historical '_init' id (the '_carry' id is taken by the scan
+        # output cluster). Distinguish them by id, then assert their labels.
+        const_label = None
+        carry_label = None
+        for s in _all_subgraphs(g):
+            name = s.get_name() or ""
+            if name == "cluster_scan_0_const":
+                const_label = s.get_label()
+            elif name == "cluster_scan_0_init":
+                carry_label = s.get_label()
+
+        self.assertEqual(
+            const_label, "consts",
+            "the cluster holding the scan consts must be labeled 'consts'",
+        )
+        self.assertEqual(
+            carry_label, "carry",
+            "the cluster holding the scan carry must be labeled 'carry'",
+        )
+
+
+@unittest.skipUnless(PYDOT, "pydot not installed")
+class TestCondLiteralOperand(unittest.TestCase):
+    """Regression for L22: literal non-predicate operand to ``cond``.
+
+    ``get_conditional`` unconditionally drew a parent edge for every operand,
+    so a literal operand produced an edge from ``{parent}_{Literal(...)}`` -- a
+    node that is never declared -- fabricating a phantom node.
+    """
+
+    def _cond_fn(self):
+        def f(pred, x):
+            return jax.lax.cond(
+                pred, lambda a, b: a + b, lambda a, b: a - b, x, 5.0
+            )
+        return f
+
+    def test_no_phantom_literal_source_collapsed(self):
+        from brainstate.transform import draw
+        g = draw(self._cond_fn(), collapse_primitives=True)(True, jnp.float32(1.0))
+        self._check(g)
+
+    def test_no_phantom_literal_source_expanded(self):
+        from brainstate.transform import draw
+        g = draw(self._cond_fn(), collapse_primitives=False)(True, jnp.float32(1.0))
+        self._check(g)
+
+    def _check(self, g):
+        # No undeclared literal edge source (the phantom). Pre-fix there was an
+        # edge ``_Literal(5.0) -> _cond_..._Literal(5.0)`` with no source node.
+        undeclared = _undeclared_edge_sources(g)
+        literal_phantoms = [s for s in undeclared if "Literal" in s]
+        self.assertEqual(
+            literal_phantoms, [],
+            f"literal operand left a phantom edge source: {literal_phantoms}",
+        )
+        # The literal destination node IS declared (orange literal box).
+        declared_literal = [
+            nd for nd in _all_nodes(g)
+            if "Literal(5.0)" in nd.get_name()
+        ]
+        self.assertTrue(
+            declared_literal,
+            "expected a declared cond literal destination node",
+        )
+
+
+@unittest.skipUnless(PYDOT, "pydot not installed")
+class TestDrawDotGraphDroppedAndDuplicateInvars(unittest.TestCase):
+    """draw_dot_graph's non-empty top-level invar loop must skip dropped vars
+    and dedup a repeated invar.
+
+    On the non-empty (>=1 eqn) path ``draw_dot_graph`` walks ``fn.invars`` to
+    declare green IN_ARG nodes. JAX's normal tracing never puts a ``DropVar`` or
+    a repeated invar at the top level, so the ``_is_dropped_var`` skip and the
+    ``node_id in seen`` dedup are reached by handing the public
+    ``draw_dot_graph`` entry a surgically-built ClosedJaxpr of that shape -- a
+    legitimate input that the loop must tolerate without fabricating spurious
+    nodes.
+    """
+
+    def _build_closed_jaxpr(self):
+        import jax.core as jc
+        from brainstate._compatible_import import ClosedJaxpr, DropVar
+
+        # Real ``x + 1.0`` jaxpr (one eqn -> non-empty path), then prepend a
+        # duplicate of the sole invar and append a dropped invar.
+        base = jax.make_jaxpr(lambda x: x + 1.0)(jnp.float32(1.0))
+        x = base.jaxpr.invars[0]
+        dropped = DropVar(jc.ShapedArray((), jnp.dtype('float32')))
+        new_jaxpr = base.jaxpr.replace(invars=[x, x, dropped])
+        return ClosedJaxpr(new_jaxpr, base.consts), x, dropped
+
+    def test_dropped_invar_skipped_and_duplicate_deduped(self):
+        from brainstate.transform import draw_dot_graph
+
+        cj, x, dropped = self._build_closed_jaxpr()
+        g = draw_dot_graph(cj, True, True)
+        self.assertIsNotNone(g)
+
+        # pydot strips the ``:aval`` port from node names, so compare on the
+        # port-stripped base (matching how draw_dot_graph keys ``f"_{var}"``).
+        names = [_base(nd.get_name()) for nd in _all_nodes(g)]
+
+        # The dropped invar (stringifies as ``_``) must NOT produce an input
+        # node: ``_is_dropped_var`` short-circuits the loop body (the ``continue``).
+        dropped_node_id = _base(f"_{dropped}")  # == "__"
+        self.assertNotIn(
+            dropped_node_id, names,
+            f"dropped invar should be skipped, but a node {dropped_node_id!r} "
+            f"was declared among {names}",
+        )
+
+        # The invar appears twice in ``fn.invars`` but the ``seen`` dedup means
+        # exactly one green input node is declared for it (the second pass hits
+        # the ``node_id in seen`` branch and adds nothing). The input node keeps
+        # the bare ``_{var}`` name; the eqn's *output* node (the ``x + 1.0``
+        # result) is a distinct var, so it does not inflate this count.
+        from collections import Counter
+        x_node_id = _base(f"_{x}")
+        counts = Counter(names)
+        self.assertEqual(
+            counts.get(x_node_id, 0), 1,
+            f"duplicate invar must be declared exactly once, got "
+            f"{counts.get(x_node_id, 0)} for {x_node_id!r} among {names}",
+        )
+
+        # No edge may reference an undeclared (phantom) source.
+        self.assertEqual(_undeclared_edge_sources(g), [])
+
+    def test_duplicate_invar_node_is_green_input(self):
+        from brainstate.transform import draw_dot_graph, _ir_visualize as viz
+
+        cj, x, _dropped = self._build_closed_jaxpr()
+        g = draw_dot_graph(cj, True, True)
+
+        # pydot strips the ``:aval`` port, so match on the port-stripped base.
+        x_node_id = _base(f"_{x}")
+        node = [nd for nd in _all_nodes(g) if _base(nd.get_name()) == x_node_id]
+        self.assertEqual(len(node), 1)
+        # The declared input carries IN_ARG (green) styling from get_arg_node.
+        self.assertEqual(node[0].get_color(), viz.IN_ARG_STYLING["color"])
+
+
+@unittest.skipUnless(PYDOT, "pydot not installed")
+class TestScanLiteralCarryInit(unittest.TestCase):
+    """A scan whose carry init is a Python literal exercises the
+    ``parent_is_literal`` branch in get_scan_arguments.
+
+    ``jax.lax.scan(body, 0.0, xs)`` lowers to a scan equation whose first invar
+    (the carry init) is a ``Literal``. When the scan body is expanded
+    (collapse_primitives=False), get_scan_arguments must materialise a dedicated
+    ``..._lit`` node for that literal (port-stripped so it does not collide with
+    the formal-parameter node) and wire it into the parameter node.
+    """
+
+    def _scan_fn(self):
+        def f(xs):
+            def body(c, e):
+                return c + e, c
+            final, ys = jax.lax.scan(body, 0.0, xs)  # 0.0 -> Literal carry init
+            return final
+        return f
+
+    def test_literal_carry_init_declares_lit_node(self):
+        from brainstate.transform import draw
+
+        g = draw(self._scan_fn(), collapse_primitives=False)(
+            jnp.float32([1., 2., 3.])
+        )
+        self.assertIsNotNone(g)
+
+        names = [nd.get_name() for nd in _all_nodes(g)]
+        lit_nodes = [n for n in names if n.endswith("_lit")]
+        self.assertTrue(
+            lit_nodes,
+            f"expected a scan literal carry-init node ending in '_lit', "
+            f"got node names {names}",
+        )
+        # The literal node feeds the formal carry parameter via a local edge:
+        # the ``_lit`` source must be a declared node (no phantom edge source).
+        self.assertEqual(_undeclared_edge_sources(g), [])
+
+    def test_literal_carry_init_lit_node_is_orange_literal(self):
+        from brainstate.transform import draw, _ir_visualize as viz
+
+        g = draw(self._scan_fn(), collapse_primitives=False)(
+            jnp.float32([1., 2., 3.])
+        )
+        lit_nodes = [nd for nd in _all_nodes(g)
+                     if nd.get_name().endswith("_lit")]
+        self.assertTrue(lit_nodes)
+        # get_arg_node was called with is_literal=True -> orange LITERAL styling.
+        self.assertEqual(lit_nodes[0].get_color(), viz.LITERAL_STYLING["color"])
 
 
 if __name__ == '__main__':

@@ -1534,5 +1534,22 @@ class TestStalePlanWriteSetDivergence(unittest.TestCase):
         self.assertLess(second, first)
 
 
+class TestRemoveAxisScalar(unittest.TestCase):
+    """Appendix item 12: _remove_axis must reject non-array (scalar) leaves with
+    a clear ValueError instead of an opaque ``AttributeError`` on ``.ndim``."""
+
+    def test_python_float_scalar_raises_value_error(self):
+        with self.assertRaises(ValueError):
+            _remove_axis(5.0, 0)
+
+    def test_python_int_scalar_raises_value_error(self):
+        with self.assertRaises(ValueError):
+            _remove_axis(3, 0)
+
+    def test_array_leaf_still_works(self):
+        out = _remove_axis(jnp.arange(6.).reshape(2, 3), 0)
+        self.assertEqual(out.shape, (3,))
+
+
 if __name__ == "__main__":
     unittest.main()

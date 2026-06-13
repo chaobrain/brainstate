@@ -1415,5 +1415,41 @@ class TestEnvironContextCoverage(unittest.TestCase):
         self.assertEqual(brainstate.environ.get('boom_key', env=self.env), 'base')
 
 
+class TestEnvironAuditAppendix(unittest.TestCase):
+    """Appendix items 15 & 17 for environ.py."""
+
+    def test_a15_reset_custom_env_clears_locks(self):
+        """reset(env=custom) must also clear the per-key locks defaultdict."""
+        env = bst.environ.EnvironmentState()
+        bst.environ.set(some_key='v', env=env)
+        # Touch get() so a per-key lock is materialised in the defaultdict.
+        bst.environ.get('some_key', env=env)
+        self.assertGreater(len(env.locks), 0)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            bst.environ.reset(env=env)
+        self.assertEqual(len(env.locks), 0)
+
+    def test_a17_tolerance_dtype_honours_env_precision(self):
+        """tolerance(env=...) returns a dtype matching the env precision even
+        when JAX's global x64 flag is off (the default)."""
+        env64 = bst.environ.EnvironmentState()
+        bst.environ.set(precision=64, env=env64)
+        tol = bst.environ.tolerance(env=env64)
+        self.assertEqual(tol.dtype, np.float64)
+        self.assertAlmostEqual(float(tol), 1e-12, places=14)
+
+        env32 = bst.environ.EnvironmentState()
+        bst.environ.set(precision=32, env=env32)
+        tol32 = bst.environ.tolerance(env=env32)
+        self.assertEqual(tol32.dtype, np.float32)
+        self.assertAlmostEqual(float(tol32), 1e-5, places=7)
+
+        env16 = bst.environ.EnvironmentState()
+        bst.environ.set(precision=16, env=env16)
+        tol16 = bst.environ.tolerance(env=env16)
+        self.assertEqual(tol16.dtype, np.float16)
+
+
 if __name__ == '__main__':
     unittest.main()

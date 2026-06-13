@@ -295,7 +295,12 @@ def unflatten(
                 f"in the state mapping while rebuilding the graph."
             )
         if isinstance(edge, StateLeafEdge):
-            value = flat_states[edge.path]
+            value = flat_states.get(edge.path, _MISSING)
+            if value is _MISSING:
+                raise ValueError(
+                    f"Expected key {_format_path(edge.path)} "
+                    f"in the state mapping while rebuilding the graph."
+                )
             return value.to_state() if isinstance(value, TreefyState) else value
         if isinstance(edge, PytreeEdge):
             items = tuple((k, resolve(c)) for k, c in edge.fields)

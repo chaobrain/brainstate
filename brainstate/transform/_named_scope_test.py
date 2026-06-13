@@ -609,6 +609,41 @@ class TestIrCompilationPath(unittest.TestCase):
         self.assertTrue(jnp.allclose(out, jnp.array([12.0, 27.0])))
 
 
+class TestBoundMethodUnderIrCompilation(unittest.TestCase):
+    """A ``named_scope``-decorated bound method works under
+    ``ir_compilation=True`` when the instance (index 0) is marked static, and
+    fails loudly otherwise -- pinning the documented method convention
+    (audit L23)."""
+
+    def test_method_with_static_self_under_ir_compilation(self):
+        class MyModule:
+            def __init__(self, scale):
+                self.scale = scale
+
+            @named_scope(name='compute', static_argnums=0)
+            def compute(self, x):
+                return x * self.scale
+
+        with bst.environ.context(ir_compilation=True):
+            out = MyModule(3.0).compute(jnp.array(2.0))
+        self.assertTrue(jnp.allclose(out, jnp.array(6.0)))
+
+    def test_method_without_static_self_raises(self):
+        # Omitting index 0 makes ``self`` a dynamic JIT arg, which cannot be
+        # abstractified -- this must raise, pinning the convention.
+        class MyModule:
+            def __init__(self, scale):
+                self.scale = scale
+
+            @named_scope(name='compute')
+            def compute(self, x):
+                return x * self.scale
+
+        with bst.environ.context(ir_compilation=True):
+            with self.assertRaises(Exception):
+                MyModule(3.0).compute(jnp.array(2.0))
+
+
 class TestNamedScopeJitCache(unittest.TestCase):
     """``fn_to_call`` must reuse the jit-compiled function across calls with
     the same static configuration instead of rebuilding a fresh ``jit()``

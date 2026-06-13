@@ -2206,7 +2206,8 @@ def chisquare(
     df: ArrayLike,
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
-    dtype: Optional[DTypeLike] = None
+    dtype: Optional[DTypeLike] = None,
+    check_valid: bool = True
 ) -> jax.Array:
     r"""
     Draw samples from a chi-square distribution.
@@ -2276,7 +2277,7 @@ def chisquare(
         >>> print(samples.shape)  # (4,)
         >>> print((samples >= 0).all())  # True (chi-square is always non-negative)
     """
-    return DEFAULT.chisquare(df, size=size, key=key, dtype=dtype)
+    return DEFAULT.chisquare(df, size=size, key=key, dtype=dtype, check_valid=check_valid)
 
 
 @set_module_as('brainstate.random')
@@ -3175,7 +3176,8 @@ def power(
     a: ArrayLike,
     size: Optional[Size] = None,
     key: Optional[SeedOrKey] = None,
-    dtype: Optional[DTypeLike] = None
+    dtype: Optional[DTypeLike] = None,
+    check_valid: bool = True
 ) -> jax.Array:
     r"""
     Draws samples in [0, 1] from a power distribution with positive
@@ -3272,7 +3274,7 @@ def power(
     >>> plt.plot(xx,powpdf,'r-')  # doctest: +SKIP
     >>> plt.title('inverse of stats.pareto(5)')
     """
-    return DEFAULT.power(a, size=size, key=key, dtype=dtype)
+    return DEFAULT.power(a, size=size, key=key, dtype=dtype, check_valid=check_valid)
 
 
 @set_module_as('brainstate.random')

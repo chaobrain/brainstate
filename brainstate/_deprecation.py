@@ -118,6 +118,13 @@ class DeprecatedModule:
 
     def __getattr__(self, name):
         """Forward attribute access to replacement module with deprecation warning."""
+        # Short-circuit all leading-underscore names (dunders and single-underscore
+        # internals). These are probed routinely by inspect/copy/pickle/IPython/pytest
+        # and must not trigger deprecation warnings, misleading AttributeErrors, or
+        # copy.copy recursion. Forwarding them is never the intended public-API use.
+        if name.startswith('_'):
+            raise AttributeError(name)
+
         self._warn_deprecation(name)
 
         # Check if we have scoped APIs
@@ -137,13 +144,14 @@ class DeprecatedModule:
                             return getattr(module, name)
                         else:
                             # For other module paths, use standard import
-                            module_parts = source.split('.')
                             module = __import__(source, fromlist=[name])
                             return getattr(module, name)
                     except (ImportError, AttributeError) as e:
-                        # Fallback to replacement module
+                        # Fallback to replacement module. Use the property so a
+                        # string ``_replacement_module`` is lazily imported first;
+                        # the raw attribute may still be an unresolved module path.
                         try:
-                            return getattr(self._replacement_module, name)
+                            return getattr(self.replacement_module, name)
                         except AttributeError:
                             raise AttributeError(
                                 f"Module '{self._deprecated_name}' has no attribute '{name}'. "
@@ -155,8 +163,9 @@ class DeprecatedModule:
                     try:
                         return getattr(source, name)
                     except AttributeError:
-                        # Fallback to replacement module
-                        return getattr(self._replacement_module, name)
+                        # Fallback to replacement module. Use the property so a
+                        # string ``_replacement_module`` is resolved lazily.
+                        return getattr(self.replacement_module, name)
             else:
                 # Attribute not in scoped APIs
                 available_apis = ', '.join(self.__all__ or [])

@@ -189,11 +189,20 @@ def _flatten_in_out_states(
 def _remove_axis(x, axis: int):
     if not isinstance(axis, int):
         raise TypeError(f"Expected the mapped axis to be an integer, but got {type(axis)}.")
+    # A non-array (scalar) leaf has no ``ndim``/``shape``; touching them yields an
+    # opaque ``AttributeError``. Report which leaf cannot carry a mapped axis.
+    ndim = getattr(x, 'ndim', None)
+    if ndim is None:
+        raise ValueError(
+            f"Cannot map axis {axis} over a non-array leaf of type "
+            f"{type(x).__name__}: it has no array dimensions. Mapped inputs and "
+            f"states must be arrays; use a None axis to broadcast scalars."
+        )
     if axis < 0:
-        axis += x.ndim
-    if axis < 0 or axis >= x.ndim:
+        axis += ndim
+    if axis < 0 or axis >= ndim:
         raise ValueError(f"Mapped axis {axis} is out of bounds for array of shape {x.shape}.")
-    return x[tuple(slice(None, None, None) if i != axis else 0 for i in range(x.ndim))]
+    return x[tuple(slice(None, None, None) if i != axis else 0 for i in range(ndim))]
 
 
 def _deaxed_like(x, axis: int):
@@ -218,10 +227,14 @@ def _deaxed_like(x, axis: int):
 
 def _compile_stateful_function(
     stateful_fn: StatefulFunction,
-    in_axes: int | Tuple[int, ...],
-    args: Tuple
+    in_axes: Tuple[Any, int | None | Tuple],
+    args: Tuple[Any, Tuple],
 ):
     """Strip mapped axes and build a per-signature cache key for a stateful fn.
+
+    ``in_axes`` and ``args`` are each 2-tuples -- ``(state_in_axes, arg_in_axes)``
+    and ``(state_vals, args)`` respectively, unpacked below -- *not* a bare int /
+    flat tuple as an older annotation implied.
 
     .. note::
 

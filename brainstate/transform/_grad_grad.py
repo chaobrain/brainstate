@@ -336,13 +336,33 @@ def _fwd_grad(
 ) -> Callable:
     tangent_size = () if tangent_size is None else (tangent_size,)
     from brainstate.random._seed import split_key
+    from brainstate.random._impl import _format_key
 
     def wrapper(*args, **kwargs):
         f_partial, params = warp_grad_fn(fun, argnums, args, kwargs)
+        # ``key`` is advertised as ``SeedOrKey`` (int | array). ``jax.random.split``
+        # only accepts a typed/array PRNG key, so normalize any int / size-1
+        # integer-array seed through the canonical formatter before splitting.
+        k = split_key() if key is None else _format_key(key)
+
+        def _sample_tangent(x, kk):
+            # ``jax.random.normal`` only accepts inexact (float/complex) dtypes.
+            # Forward-mode gradients w.r.t. an integer/bool parameter are
+            # mathematically undefined (their tangent space is ``float0``), so
+            # raise a clear, actionable error instead of the opaque
+            # "dtype argument to `normal` must be a float or complex dtype".
+            if not jnp.issubdtype(x.dtype, jnp.inexact):
+                raise TypeError(
+                    f"fwd_grad requires differentiable (inexact) parameters, but "
+                    f"got a parameter with dtype {x.dtype}. Cast integer/boolean "
+                    f"parameters to a floating dtype before differentiating."
+                )
+            return jax.random.normal(kk, tangent_size + x.shape, x.dtype)
+
         v = jax.tree.map(
-            lambda x, k: jax.random.normal(k, tangent_size + x.shape, x.dtype),
+            _sample_tangent,
             params,
-            tree_random_split(split_key() if key is None else key, params)
+            tree_random_split(k, params)
         )
         if len(tangent_size) == 0:
             r = jax.jvp(f_partial, (params,), (v,), has_aux=has_aux)
@@ -350,6 +370,16 @@ def _fwd_grad(
                 loss_value, drct_drv, aux = r
             else:
                 loss_value, drct_drv = r
+            # The single-direction estimator ``v * (J . v)`` is only valid for a
+            # scalar function output: a non-scalar ``drct_drv`` would broadcast
+            # against the tangent leaves and yield a wrong result (or crash on a
+            # shape mismatch). Reject it explicitly.
+            if jnp.ndim(drct_drv) != 0:
+                raise ValueError(
+                    f"fwd_grad only supports scalar-output functions, but the "
+                    f"function output has shape {jnp.shape(drct_drv)}. Use vector_grad "
+                    f"or jacfwd/jacrev for non-scalar outputs."
+                )
             if drct_der_clip is not None:
                 drct_drv = jnp.clip(drct_drv, -drct_der_clip, drct_der_clip)
             grads = jax.tree.map(lambda v_leaf: v_leaf * drct_drv, v)
@@ -361,6 +391,15 @@ def _fwd_grad(
                 aux = jax.tree.map(lambda x: x[0], aux)
             else:
                 loss_value, drct_drv = r
+            # ``drct_drv`` carries a leading sample axis of length ``tangent_size``;
+            # per sample it must be scalar (scalar function output), otherwise the
+            # averaged estimator broadcasts incorrectly.
+            if jnp.ndim(drct_drv) != 1:
+                raise ValueError(
+                    f"fwd_grad only supports scalar-output functions, but the "
+                    f"function output has shape {jnp.shape(drct_drv)[1:]}. Use vector_grad "
+                    f"or jacfwd/jacrev for non-scalar outputs."
+                )
             loss_value = loss_value[0]
             if drct_der_clip is not None:
                 drct_drv = jnp.clip(drct_drv, -drct_der_clip, drct_der_clip)
@@ -421,53 +460,63 @@ def fwd_grad(
     return_value : bool, default False
         Whether to return the loss value.
     has_aux : bool, optional
-        Indicates whether ``fun`` returns a pair where the
+        Indicates whether ``func`` returns a pair where the
         first element is considered the output of the mathematical function to be
         differentiated and the second element is auxiliary data.
-    unit_aware : bool, default False
-        Whether to return the gradient in the unit-aware mode.
-    check_states : bool, default True
-        Whether to check that all grad_states are found in the function.
+    tangent_size : int, optional
+        Number of random tangent directions to average over. ``None`` (the
+        default) uses a single random direction; a positive integer averages the
+        estimator over that many directions.
+    drct_der_clip : float, optional
+        If given, clip each directional derivative to ``[-drct_der_clip,
+        drct_der_clip]`` before forming the gradient estimate.
+    key : int or jax.Array, optional
+        Seed or PRNG key controlling the random tangent directions. When ``None``
+        a key is drawn from the global RNG state.
 
     Returns
     -------
     GradientTransform or callable
-        The vector gradient function.
+        The forward-mode gradient function. The wrapped function must return a
+        scalar (use :func:`vector_grad`, :func:`jacfwd`, or :func:`jacrev` for
+        non-scalar outputs).
+
+    Notes
+    -----
+    ``fwd_grad`` is a stochastic forward-mode estimator: it draws random tangent
+    directions and combines them with the directional derivative, so successive
+    calls with different keys yield different estimates of the same gradient.
 
     Examples
     --------
-    Basic vector gradient computation:
+    Basic forward-mode gradient estimation of a scalar function:
 
     .. code-block:: python
 
         >>> import brainstate
         >>> import jax.numpy as jnp
         >>>
-        >>> # Vector-valued function
+        >>> # Scalar-valued function
         >>> def f(x):
-        ...     return jnp.array([x[0]**2, x[1]**3, x[0]*x[1]])
+        ...     return jnp.sum(x ** 2)
         >>>
-        >>> vector_grad_f = brainstate.transform.vector_grad(f)
+        >>> fwd_grad_f = brainstate.transform.fwd_grad(f, key=0)
         >>> x = jnp.array([2.0, 3.0])
-        >>> gradients = vector_grad_f(x)  # Shape: (3, 2)
+        >>> gradients = fwd_grad_f(x)  # Estimate of [4.0, 6.0]
 
     With states:
 
     .. code-block:: python
 
-        >>> params = brainstate.State(jnp.array([1.0, 2.0]))
+        >>> params = brainstate.ParamState(jnp.array([1.0, 2.0]))
         >>>
-        >>> def model(x):
-        ...     return jnp.array([
-        ...         x * params.value[0],
-        ...         x**2 * params.value[1]
-        ...     ])
+        >>> def model():
+        ...     return jnp.sum(params.value ** 2)
         >>>
-        >>> vector_grad_fn = brainstate.transform.vector_grad(
-        ...     model, grad_states=[params]
+        >>> fwd_grad_fn = brainstate.transform.fwd_grad(
+        ...     model, grad_states=[params], key=0
         ... )
-        >>> x = 3.0
-        >>> param_grads = vector_grad_fn(x)
+        >>> param_grads = fwd_grad_fn()
     """
 
     if isinstance(func, Missing):

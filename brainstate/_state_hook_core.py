@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import threading
 import weakref
 from typing import Any, Callable, Optional, TYPE_CHECKING
 
@@ -84,6 +85,11 @@ class Hook:
     """
 
     _id_counter = 0
+    # Guards the read-modify-write of ``_id_counter`` below. Without it, two
+    # threads constructing hooks concurrently can read the same counter value
+    # and be assigned duplicate ``hook_id``s (and duplicate default names),
+    # breaking the stable ordering used by ``__lt__``.
+    _id_lock = threading.Lock()
 
     def __init__(
         self,
@@ -108,13 +114,18 @@ class Hook:
         if not callable(callback):
             raise HookRegistrationError(f"Hook callback must be callable, got {type(callback)}")
 
+        # Atomically reserve a unique id so concurrent constructions never
+        # collide on hook_id or the default name.
+        with Hook._id_lock:
+            hook_id = Hook._id_counter
+            Hook._id_counter += 1
+
         self.callback = callback
         self.priority = priority
-        self.name = name or f"hook_{Hook._id_counter}"
+        self.name = name or f"hook_{hook_id}"
         self.enabled = enabled
         self._error_count = 0
-        self.hook_id = Hook._id_counter
-        Hook._id_counter += 1
+        self.hook_id = hook_id
 
     def execute(self, context: HookContext) -> Optional[Any]:
         """Execute the hook callback with the given context.

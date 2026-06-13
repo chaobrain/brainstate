@@ -261,6 +261,25 @@ if pydot_is_installed:
                     seen.add(node_id)
             return g
 
+        # Declare the top-level function's input arguments as green IN_ARG nodes.
+        # On this (non-empty) path the equations only ever *consume* the top-level
+        # invars -- they are referenced as edge sources ``f"_{var}"`` but never
+        # produced -- so without this loop graphviz would fabricate bare,
+        # default-styled phantom nodes for them. pydot strips the ``:aval`` port,
+        # so the node name ``_{var}`` matches what those edges reference. Created
+        # *before* the eqn loop so that a verbatim-returned input (which has no
+        # producing eqn) exists as a node and can be recoloured to OUT styling
+        # below, matching the empty-jaxpr path's dedup-to-green precedence.
+        seen = set()
+        for var in list(fn.invars):
+            if _is_dropped_var(var):
+                continue
+            node_id = f"_{var}"
+            if node_id not in seen:
+                g.add_node(get_arg_node(node_id, var, show_avals,
+                                        isinstance(var, Literal)))
+                seen.add(node_id)
+
         # Expand *every* top-level equation, not just the first one. The
         # original implementation indexed ``fn.eqns[0]`` and silently dropped
         # the rest whenever the top-level jaxpr held more than one equation.
@@ -279,6 +298,22 @@ if pydot_is_installed:
                 g.add_node(node)
             for edge in out_edges:
                 g.add_edge(edge)
+
+        # Style the top-level outputs as outputs (red), consistent with the
+        # empty-jaxpr path. The producing equation already added a blue VAR node
+        # named ``_{var}`` (port-stripped) for each non-literal/non-dropped
+        # outvar, so rather than declaring a *duplicate* red node with the same
+        # name (which graphviz would merge ambiguously) we recolour the existing
+        # node in place. An input returned verbatim has no producing eqn; its
+        # green node was created above and is likewise recoloured here.
+        out_names = set(
+            f"_{var}".split(":")[0]
+            for var in fn.outvars
+            if not isinstance(var, (Literal, DropVar))
+        )
+        for name in out_names:
+            for nd in g.get_node(name):
+                nd.set_color(OUT_ARG_STYLING["color"])
 
         return g
 
@@ -357,7 +392,13 @@ if pydot_is_installed:
             cond_arguments.add_node(
                 get_arg_node(arg_id, arg, show_avals, is_literal)
             )
-            in_edges.append(pydot.Edge(f"{parent_id}_{arg}", arg_id))
+            # Only wire a parent edge for non-literal operands. A literal operand
+            # is rendered as the standalone destination node created above; adding
+            # an edge from ``{parent_id}_{Literal(...)}`` would reference a node
+            # that is never declared, producing a phantom default node. Mirrors
+            # the ``if not is_literal`` guard in ``get_arguments``.
+            if not is_literal:
+                in_edges.append(pydot.Edge(f"{parent_id}_{arg}", arg_id))
 
         cond_graph.add_subgraph(cond_arguments)
 
@@ -410,10 +451,14 @@ if pydot_is_installed:
                     branch_label = (
                         eqn.params["name"] if "name" in eqn.params else eqn.primitive.name
                     )
-                    no_literal_inputs = any(
-                        [isinstance(a, Literal) for a in branch.jaxpr.invars]
-                    )
-                    collapse_branch = no_literal_inputs or collapse_primitives
+                    # A single-equation branch is collapsed exactly when
+                    # ``collapse_primitives`` asks for it. (A previous
+                    # ``no_literal_inputs = any(isinstance(a, Literal) for a in
+                    # branch.jaxpr.invars)`` term was both misnamed -- it computed
+                    # "has a literal input" -- and inert: ``jaxpr.invars`` are
+                    # binder ``Var``s, never ``Literal``, so it was always False
+                    # and never actually forced a collapse.)
+                    collapse_branch = collapse_primitives
                     if collapse_branch:
                         branch_label = f"branch {i}: {branch_label}"
                     else:
@@ -762,7 +807,17 @@ if pydot_is_installed:
             **GRAPH_STYLING,
         )
 
-        argument_nodes, argument_edges = get_arguments(
+        # ``expand_pjit_primitive`` renders ``jaxpr`` as a self-contained graph
+        # with no enclosing equation, so there are no real parent operands to map
+        # the formal parameters/results onto. We therefore pass the jaxpr's own
+        # ``invars``/``outvars`` as the "parent" vars purely to build the inner
+        # argument/output nodes, then DISCARD the parent-linking edges/nodes
+        # ``get_arguments``/``get_outputs`` return: those point at
+        # ``{parent_id}_{var}`` source/sink nodes that do not exist (the parent
+        # has its own variable names), producing phantom default nodes. The live
+        # ``expand_non_primitive`` path avoids this by passing the enclosing
+        # ``eqn.invars``/``eqn.outvars`` instead.
+        argument_nodes, _phantom_arg_edges = get_arguments(
             graph_id,
             parent_id,
             jaxpr.constvars,
@@ -787,7 +842,7 @@ if pydot_is_installed:
             for edge in out_edges:
                 graph.add_edge(edge)
 
-        output_nodes, out_edges, out_nodes, id_edges = get_outputs(
+        output_nodes, _phantom_out_edges, _phantom_out_nodes, id_edges = get_outputs(
             graph_id,
             parent_id,
             jaxpr.invars,
@@ -800,7 +855,9 @@ if pydot_is_installed:
         for edge in id_edges:
             graph.add_edge(edge)
 
-        return graph, argument_edges, out_nodes, out_edges, n
+        # No real parent: return empty parent-linking edge/node lists rather than
+        # the phantom ones keyed off this jaxpr's own vars.
+        return graph, [], [], [], n
 
 
     def get_scan(
@@ -832,7 +889,15 @@ if pydot_is_installed:
         )
         graph.add_subgraph(argument_nodes)
 
-        out_var_keys = set(f"{graph_id}_{v}" for v in eqn.params["jaxpr"].jaxpr.outvars)
+        # ``str(Var)`` includes the aval (e.g. ``Var(id=N):float32[]``), but pydot
+        # treats ':' as a port separator and stores ``node.get_name()`` without it.
+        # Strip the aval here so the dedup keys compare equal to the port-stripped
+        # node names below; otherwise the guard never matches and scan body
+        # outputs that ``get_scan_outputs`` recreates get added twice.
+        out_var_keys = set(
+            (f"{graph_id}_{v}").split(":")[0]
+            for v in eqn.params["jaxpr"].jaxpr.outvars
+        )
         eqns = eqn.params["jaxpr"].jaxpr.eqns
 
         body_graph_id = f"cluster_{graph_id}_body"
@@ -881,7 +946,10 @@ if pydot_is_installed:
                 for edge in in_edges:
                     graph.add_edge(edge)
                 for node in out_nodes:
-                    if not node.get_name() in out_var_keys:
+                    # ``node.get_name()`` is already port-stripped by pydot;
+                    # ``.split(":")[0]`` is harmless/defensive and keeps both
+                    # sides of the comparison in the same (port-stripped) form.
+                    if node.get_name().split(":")[0] not in out_var_keys:
                         body_graph.add_node(node)
                 for edge in out_edges:
                     graph.add_edge(edge)
@@ -1359,9 +1427,30 @@ if pydot_is_installed:
             if _is_dropped_var(var):
                 continue
             arg_id = f"{graph_id}_{var}"
-            is_literal = isinstance(var, Literal)
-            argument_nodes.add_node(get_arg_node(arg_id, var, show_avals, is_literal))
-            if not is_literal:
+            # ``var`` is the callee's *formal* parameter (graph_invars); these are
+            # plain ``Var`` binders, never ``Literal``. The argument that can
+            # actually be a literal is ``p_var`` (the parent/caller invar). Keep
+            # ``var_is_literal`` purely for node styling, and key the parent edge
+            # off ``p_var``'s literal-ness so we never reference an undeclared
+            # ``{parent_id}_{Literal(...)}`` source node. Mirrors
+            # ``get_scan_arguments``.
+            var_is_literal = isinstance(var, Literal)
+            parent_is_literal = isinstance(p_var, Literal)
+            argument_nodes.add_node(get_arg_node(arg_id, var, show_avals, var_is_literal))
+            if parent_is_literal:
+                # Create the literal source node locally inside the argument
+                # cluster (keyed by the inner var, so unique per parameter) and
+                # wire it to the formal-parameter node, instead of pointing at a
+                # phantom ``{parent_id}_{Literal(...)}`` node that never exists.
+                # The ``_lit`` suffix must come *before* any ``:aval`` port:
+                # ``str(var)`` embeds the aval (e.g. ``Var(id=N):float32[]``) and
+                # pydot drops everything after ':', so ``f"{arg_id}_lit"`` would
+                # strip back to the formal-parameter node's name and collide with
+                # it. Strip the aval first so the literal node is distinct.
+                literal_id = f"{arg_id.split(':')[0]}_lit"
+                argument_nodes.add_node(get_arg_node(literal_id, p_var, show_avals, True))
+                argument_nodes.add_edge(pydot.Edge(literal_id, arg_id))
+            else:
                 argument_edges.append(pydot.Edge(f"{parent_id}_{p_var}", arg_id))
 
         return argument_nodes, argument_edges
@@ -1407,11 +1496,20 @@ if pydot_is_installed:
         argument_nodes = pydot.Subgraph(
             f"cluster_{graph_id}_args", rank="min", **ARG_SUBGRAPH_STYLING
         )
+        # JAX scan invars are ordered [consts..., carry..., xs...] (see the
+        # ``i < n_const`` / ``i < n_carry + n_const`` dispatch below), so the
+        # subgraph collecting the first ``n_const`` invars holds the loop
+        # constants and the next ``n_carry`` invars hold the carry. Label each
+        # group by its actual contents (previously the two labels were swapped,
+        # so consts rendered as "init" and the carry as "consts"). The carry
+        # group keeps its ``_init`` subgraph id: the ``_carry`` id is already
+        # used by the scan *output* carry subgraph (see ``get_scan_outputs``), so
+        # reusing it here would collide.
         const_nodes = pydot.Subgraph(
-            f"cluster_{graph_id}_const", rank="same", label="init", style="dotted"
+            f"cluster_{graph_id}_const", rank="same", label="consts", style="dotted"
         )
         carry_nodes = pydot.Subgraph(
-            f"cluster_{graph_id}_init", rank="same", label="consts", style="dotted"
+            f"cluster_{graph_id}_init", rank="same", label="carry", style="dotted"
         )
         iterate_nodes = pydot.Subgraph(
             f"cluster_{graph_id}_iter", rank="same", label="iterate", style="dotted"
@@ -1429,7 +1527,10 @@ if pydot_is_installed:
             is_literal = var_is_literal or parent_is_literal
 
             if parent_is_literal:
-                literal_id = f"{arg_id}_lit"
+                # Strip the ``:aval`` port before appending ``_lit`` so the
+                # literal node does not collide with the formal-parameter node
+                # (pydot drops everything after ':' in a node name).
+                literal_id = f"{arg_id.split(':')[0]}_lit"
                 argument_nodes.add_node(get_arg_node(literal_id, p_var, show_avals, True))
                 argument_nodes.add_edge(pydot.Edge(literal_id, arg_id))
 
@@ -1510,8 +1611,15 @@ if pydot_is_installed:
 
         for var, p_var in zip(graph_outvars, parent_outvars):
             if str(var) in in_var_set:
-                arg_id = f"{graph_id}_{var}_out"
-                id_edges.append(pydot.Edge(f"{graph_id}_{var}", arg_id))
+                # An output that is also an input (a function returning one of its
+                # arguments) gets a distinct ``_out`` node. ``str(var)`` embeds the
+                # ``:aval`` port and pydot drops everything after ':', so append
+                # ``_out`` to the *port-stripped* base -- otherwise it is stripped,
+                # the ``_out`` node collides with the input/var node of the same
+                # name, and the id-edge degenerates into a self-loop.
+                base = f"{graph_id}_{var}".split(":")[0]
+                arg_id = f"{base}_out"
+                id_edges.append(pydot.Edge(base, arg_id))
             else:
                 arg_id = f"{graph_id}_{var}"
             out_graph.add_node(get_out_node(arg_id, var, show_avals))
@@ -1590,8 +1698,16 @@ if pydot_is_installed:
 
         for i, (var, p_var) in enumerate(zip(graph_outvars, parent_outvars)):
             if str(var) in in_var_set:
-                arg_id = f"{graph_id}_{var}_out"
-                id_edges.append(pydot.Edge(f"{graph_id}_{var}", arg_id))
+                # A scan output that is also an input (e.g. a carry returned
+                # verbatim) gets a distinct ``_out`` node so it does not collide
+                # with the argument node of the same var. ``str(var)`` embeds the
+                # ``:aval`` port and pydot drops everything after ':', so the
+                # ``_out`` suffix must be appended to the *port-stripped* base;
+                # otherwise it is stripped away, the output node collides with the
+                # input node, and the id-edge degenerates into a self-loop.
+                base = f"{graph_id}_{var}".split(":")[0]
+                arg_id = f"{base}_out"
+                id_edges.append(pydot.Edge(base, arg_id))
             else:
                 arg_id = f"{graph_id}_{var}"
             if i < n_carry:

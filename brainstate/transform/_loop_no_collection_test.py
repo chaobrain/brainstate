@@ -245,3 +245,64 @@ class TestBoundedWhileLoopSemantics(TestCase):
 
         self.assertEqual(float(f(1.0)), 8.0)
         self.assertEqual(float(jax.grad(f)(1.0)), 8.0)
+
+
+class TestWhileLoopDisableJitVmap(TestCase):
+    """Under ``jax.disable_jit()`` the Python fast path cannot concretize a
+    vmapped predicate; the except clause must fall through to the primitive
+    ``lax.while_loop`` instead of crashing (audit M39).
+
+    The except previously referenced ``jax.core.ConcretizationTypeError``,
+    which does not exist (``jax.core`` has no such attribute), so evaluating
+    the handler raised ``AttributeError`` and masked the intended fallback.
+    """
+
+    def test_vmap_under_disable_jit_returns_correct_result(self):
+        cond = lambda v: jnp.all(v < 3)
+        body = lambda v: v + 1
+        run = lambda init: brainstate.transform.while_loop(cond, body, init)
+        with jax.disable_jit():
+            out = jax.vmap(run)(jnp.array([0, 1, 2]))
+        self.assertTrue(bool(jnp.array_equal(out, jnp.array([3, 3, 3]))))
+
+
+class TestBoundedWhileLoopBaseValidation(TestCase):
+    """bounded_while_loop must validate ``base`` up front with a clear
+    ValueError instead of crashing inside ``math.log(max_steps, base)``
+    (audit M40).
+
+    base=1 previously raised ``ZeroDivisionError`` (log base 1 divides by
+    ``math.log(1) == 0``) and base<=0 raised ``ValueError: math domain
+    error``; base=True must also be rejected (bool subclasses int and
+    collapses to the broken base==1 path).
+    """
+
+    def test_base_one_raises_value_error(self):
+        with self.assertRaisesRegex(ValueError, 'base'):
+            brainstate.transform.bounded_while_loop(
+                lambda v: v < 3, lambda v: v + 1, jnp.asarray(0), max_steps=10, base=1
+            )
+
+    def test_base_zero_raises_value_error(self):
+        with self.assertRaisesRegex(ValueError, 'base'):
+            brainstate.transform.bounded_while_loop(
+                lambda v: v < 3, lambda v: v + 1, jnp.asarray(0), max_steps=10, base=0
+            )
+
+    def test_base_negative_raises_value_error(self):
+        with self.assertRaisesRegex(ValueError, 'base'):
+            brainstate.transform.bounded_while_loop(
+                lambda v: v < 3, lambda v: v + 1, jnp.asarray(0), max_steps=10, base=-2
+            )
+
+    def test_base_true_raises_value_error(self):
+        with self.assertRaisesRegex(ValueError, 'base'):
+            brainstate.transform.bounded_while_loop(
+                lambda v: v < 3, lambda v: v + 1, jnp.asarray(0), max_steps=10, base=True
+            )
+
+    def test_valid_base_still_runs(self):
+        out = brainstate.transform.bounded_while_loop(
+            lambda v: v < 3, lambda v: v + 1, jnp.asarray(0), max_steps=10, base=2
+        )
+        self.assertEqual(int(out), 3)

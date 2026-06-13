@@ -180,7 +180,10 @@ def _groupnorm_to_bst(node, ctx):
         raise ConversionError(
             "Cannot determine feature count for linen GroupNorm with no affine parameters."
         )
-    layer = C.build_groupnorm((num,), int(node.module.num_groups),
+    ng = node.module.num_groups
+    if ng is None:
+        ng = num // int(node.module.group_size)
+    layer = C.build_groupnorm((num,), int(ng),
                               scale is not None, bias is not None, float(node.module.epsilon))
     C.bst_set_norm(layer, 'weight', scale, bias)
     return layer
@@ -278,7 +281,7 @@ def _batchnorm_to_bst(node, ctx):
     var = bs['var']
     in_size = ctx.require_size('BatchNorm')
     nd = len(in_size) - 1
-    affine = scale is not None
+    affine = (scale is not None) or (bias is not None)
     layer = C.build_batchnorm(nd, in_size, float(node.module.epsilon),
                               float(node.module.momentum), affine)
 
@@ -431,6 +434,7 @@ def _register():
         (bnn.Conv1d, nn.Conv, _conv_to_bst, _conv_to_foreign),
         (bnn.Conv2d, nn.Conv, _conv_to_bst, _conv_to_foreign),
         (bnn.Conv3d, nn.Conv, _conv_to_bst, _conv_to_foreign),
+        (bnn.BatchNorm0d, nn.BatchNorm, _batchnorm_to_bst, _batchnorm_to_foreign),
         (bnn.BatchNorm1d, nn.BatchNorm, _batchnorm_to_bst, _batchnorm_to_foreign),
         (bnn.BatchNorm2d, nn.BatchNorm, _batchnorm_to_bst, _batchnorm_to_foreign),
         (bnn.BatchNorm3d, nn.BatchNorm, _batchnorm_to_bst, _batchnorm_to_foreign),

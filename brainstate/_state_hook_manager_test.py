@@ -459,6 +459,27 @@ class TestHookManagerCoverage(TestCase):
             mgr.execute_read_hooks(1, self.ref)
         self.assertFalse(mgr.has_hooks('read'))
 
+    # --- A13: has_hooks(invalid) is not state-dependent ---
+    def test_a13_has_hooks_invalid_type_raises_when_empty(self):
+        """An invalid hook type raises ValueError even with no hooks registered."""
+        mgr = HookManager()
+        with self.assertRaises(ValueError):
+            mgr.has_hooks('bogus')
+
+    def test_a13_has_hooks_invalid_type_raises_when_nonempty(self):
+        """An invalid hook type raises ValueError when hooks are registered too."""
+        mgr = HookManager()
+        mgr.register_hook('read', lambda ctx: None)
+        with self.assertRaises(ValueError):
+            mgr.has_hooks('bogus')
+
+    def test_a13_has_hooks_valid_types_ok(self):
+        """Valid hook types and None never raise."""
+        mgr = HookManager()
+        self.assertFalse(mgr.has_hooks())
+        for t in ('read', 'write_before', 'write_after', 'restore', 'init'):
+            self.assertFalse(mgr.has_hooks(t))
+
 
 if __name__ == '__main__':
     import unittest

@@ -26,6 +26,7 @@ from abc import ABC, abstractmethod
 
 import brainstate
 import brainunit as u
+from jax.scipy.special import gammaln
 
 from ._module import Module
 from ._utils import get_size, get_value
@@ -154,15 +155,17 @@ class ChainedReg(Regularization):
         Overall regularization weight (lambda) that scales the combined loss.
         Default is 1.0.
     fit_hyper : bool, optional
-        Whether to optimize weight as a trainable parameter.
+        Stored on the instance and forwarded to component regularizations that
+        support trainable shape hyperparameters. The overall ``weight`` of the
+        chain itself is always a fixed constant and is never made trainable.
         Default is ``False``.
 
     Attributes
     ----------
     regularizations : tuple of Regularization
         The regularizations being combined.
-    weight : array_like or ParamState
-        Regularization weight (trainable if ``fit_hyper=True``).
+    weight : array_like
+        Fixed regularization weight (a constant, never trainable).
 
     Examples
     --------
@@ -282,7 +285,8 @@ class GaussianReg(Regularization):
     weight : float, optional
         Regularization weight (lambda). Default is 1.0.
     fit_hyper : bool, optional
-        Whether to optimize mean, precision, and weight as trainable parameters.
+        Whether to optimize ``mean`` and ``precision`` as trainable parameters.
+        The ``weight`` is always a fixed constant and is never made trainable.
         Default is ``False``.
 
     Attributes
@@ -291,8 +295,8 @@ class GaussianReg(Regularization):
         Prior mean (trainable if ``fit_hyper=True``).
     precision : array_like or ParamState
         Prior precision (trainable if ``fit_hyper=True``).
-    weight : array_like or ParamState
-        Regularization weight (trainable if ``fit_hyper=True``).
+    weight : array_like
+        Fixed regularization weight (a constant, never trainable).
 
     Examples
     --------
@@ -391,13 +395,14 @@ class L1Reg(Regularization):
     weight : float, optional
         Regularization weight (lambda). Default is 1.0.
     fit_hyper : bool, optional
-        Whether to optimize weight as a trainable parameter.
+        Stored on the instance for API consistency. ``L1Reg`` has no trainable
+        shape hyperparameters, so ``weight`` is always a fixed constant.
         Default is ``False``.
 
     Attributes
     ----------
-    weight : array_like or ParamState
-        Regularization weight (trainable if ``fit_hyper=True``).
+    weight : array_like
+        Fixed regularization weight (a constant, never trainable).
 
     Examples
     --------
@@ -487,13 +492,14 @@ class L2Reg(Regularization):
     weight : float, optional
         Regularization weight (lambda). Default is 1.0.
     fit_hyper : bool, optional
-        Whether to optimize weight as a trainable parameter.
+        Stored on the instance for API consistency. ``L2Reg`` has no trainable
+        shape hyperparameters, so ``weight`` is always a fixed constant.
         Default is ``False``.
 
     Attributes
     ----------
-    weight : array_like or ParamState
-        Regularization weight (trainable if ``fit_hyper=True``).
+    weight : array_like
+        Fixed regularization weight (a constant, never trainable).
 
     Examples
     --------
@@ -551,8 +557,10 @@ class L2Reg(Regularization):
         array_like
             Sample from N(0, 1/weight).
         """
-        # L2 prior corresponds to Gaussian with zero mean
-        std = 1.0 / u.math.sqrt(self.weight + 1e-8)
+        # L2 prior corresponds to Gaussian with zero mean. Clamp the weight with
+        # ``relu`` (matching ``loss``) before the sqrt so a negative weight yields
+        # a finite (large-variance) std instead of NaN.
+        std = 1.0 / u.math.sqrt(brainstate.nn.relu(get_value(self.weight)) + 1e-8)
         return std * brainstate.random.randn(*get_size(shape))
 
     def reset_value(self) -> Data:
@@ -588,8 +596,9 @@ class ElasticNetReg(Regularization):
         Mixing ratio between L1 and L2 (0 = pure L2, 1 = pure L1).
         Default is 0.5.
     fit_hyper : bool, optional
-        Whether to optimize weights as trainable parameters.
-        Default is ``False``.
+        Whether to optimize the mixing ratio ``alpha`` as a trainable parameter.
+        The ``l1_weight`` and ``l2_weight`` are always fixed constants and are
+        never made trainable. Default is ``False``.
 
     Examples
     --------
@@ -780,8 +789,10 @@ class HuberReg(Regularization):
         array_like
             Sample approximately from Huber prior (using Gaussian).
         """
-        # Approximate with Gaussian for simplicity
-        std = 1.0 / u.math.sqrt(self.weight)
+        # Approximate with Gaussian for simplicity. Clamp the weight with ``relu``
+        # (matching ``loss``) and add an epsilon so a non-positive weight yields a
+        # finite std instead of NaN/inf.
+        std = 1.0 / u.math.sqrt(brainstate.nn.relu(get_value(self.weight)) + 1e-8)
         return std * brainstate.random.randn(*get_size(shape))
 
     def reset_value(self) -> Data:
@@ -843,6 +854,15 @@ class GroupLassoReg(Regularization):
     ):
         super().__init__(fit_hyper)
 
+        # ``group_size`` is used as a divisor (``n % group_size``) and reshape
+        # dimension, so it must be a positive integer. A value of 0 raises
+        # ZeroDivisionError and a negative value silently mis-groups via Python's
+        # modulo semantics; reject both up front.
+        if not isinstance(group_size, int):
+            raise TypeError(f"group_size must be an int, but got {type(group_size)}.")
+        if group_size <= 0:
+            raise ValueError(f"group_size must be a positive integer, but got {group_size}.")
+
         weight_t = u.math.asarray(weight, dtype=brainstate.environ.dftype())
         self.weight = weight_t
         self.group_size = group_size
@@ -902,7 +922,9 @@ class GroupLassoReg(Regularization):
         array_like
             Sample (using Gaussian approximation).
         """
-        std = 1.0 / u.math.sqrt(self.weight)
+        # Clamp the weight with ``relu`` (matching ``loss``) and add an epsilon so
+        # a non-positive weight yields a finite std instead of NaN/inf.
+        std = 1.0 / u.math.sqrt(brainstate.nn.relu(get_value(self.weight)) + 1e-8)
         return std * brainstate.random.randn(*get_size(shape))
 
     def reset_value(self) -> Data:
@@ -966,6 +988,12 @@ class TotalVariationReg(Regularization):
     ):
         super().__init__(fit_hyper)
 
+        # Only first- and second-order finite differences are implemented; any
+        # other value was previously silently treated as order 2. Reject it so a
+        # typo (e.g. ``order=3``) does not produce a misleading result.
+        if order not in (1, 2):
+            raise ValueError(f"order must be 1 or 2, but got {order}.")
+
         weight_t = u.math.asarray(weight, dtype=brainstate.environ.dftype())
         self.weight = weight_t
         self.order = order
@@ -1011,7 +1039,9 @@ class TotalVariationReg(Regularization):
         array_like
             Smooth sample using cumulative sum of noise.
         """
-        std = 1.0 / u.math.sqrt(self.weight)
+        # Clamp the weight with ``relu`` (matching ``loss``) and add an epsilon so
+        # a non-positive weight yields a finite std instead of NaN/inf.
+        std = 1.0 / u.math.sqrt(brainstate.nn.relu(get_value(self.weight)) + 1e-8)
         # Generate smooth samples using cumulative sum
         noise = std * brainstate.random.randn(*get_size(shape))
         return u.math.cumsum(noise.flatten()).reshape(get_size(shape)) / u.math.sqrt(
@@ -1120,9 +1150,13 @@ class MaxNormReg(Regularization):
         # Sample from Gaussian and project to ball
         sample = brainstate.random.randn(*get_size(shape))
         norm = u.math.sqrt(u.math.sum(sample ** 2) + 1e-8)
-        # Scale to be within the ball
+        # Scale to be within the ball. The scale (max_val / norm * 0.5) already
+        # places the sample safely inside the ball of radius max_val, so it must
+        # be applied directly. Clamping it with ``minimum(scale, 1.0)`` wrongly
+        # capped the scale at 1.0 and prevented scaling *up* toward large
+        # max_value targets (e.g. max_value=100 collapsed the norm to ~1).
         scale = max_val / (norm + 1e-8) * 0.5  # 0.5 to be safely inside
-        return sample * u.math.minimum(scale, 1.0)
+        return sample * scale
 
     def reset_value(self) -> Data:
         """
@@ -1173,6 +1207,11 @@ class EntropyReg(Regularization):
     -----
     Entropy regularization is useful in attention mechanisms and
     reinforcement learning to encourage exploration.
+
+    The softmax is computed over **all** elements flattened together (one global
+    distribution), not per-row. For a ``(batch, K)`` input this yields a single
+    ``batch * K``-way distribution rather than ``batch`` independent ``K``-way
+    ones, so the per-element wording above only matches a 1-D input.
     """
 
     __module__ = 'brainstate.nn'
@@ -1314,6 +1353,12 @@ class OrthogonalReg(Regularization):
             Orthogonality penalty.
         """
 
+        # 0-d (scalar) weight: there is no matrix to orthogonalize, so fall back
+        # to a scalar penalty driving |value| toward 1 (an orthogonal 1x1 matrix
+        # has |entry| == 1). This avoids an IndexError from value.shape[0].
+        if len(value.shape) == 0:
+            return self.weight * (u.math.abs(value) - 1.0) ** 2
+
         # Ensure 2D matrix
         if len(value.shape) == 1:
             # For 1D, reshape to column vector
@@ -1444,7 +1489,15 @@ class SpectralNormReg(Regularization):
 
     def _estimate_spectral_norm(self, W: Data) -> Data:
         """
-        Estimate spectral norm using power iteration.
+        Compute the spectral norm (largest singular value) of ``W``.
+
+        For 2-D matrices the spectral norm is obtained deterministically via the
+        SVD (``svd(W, compute_uv=False)[0]`` returns the largest singular value,
+        which equals ``jnp.linalg.norm(W, ord=2)``). This makes :meth:`loss`
+        deterministic and differentiable, rather than depending on a freshly
+        drawn random vector for power iteration. The ``n_power_iterations``
+        attribute is retained for API compatibility but is unused by the 2-D
+        path. The random draw is reserved for :meth:`sample_init` only.
 
         Parameters
         ----------
@@ -1454,27 +1507,20 @@ class SpectralNormReg(Regularization):
         Returns
         -------
         array_like
-            Estimated spectral norm.
+            Spectral norm.
         """
+        # 0-d (scalar) weight: spectral norm of a scalar is its absolute value.
+        if len(W.shape) == 0:
+            return u.math.abs(W)
         # Ensure 2D
         if len(W.shape) == 1:
             return u.math.sqrt(u.math.sum(W ** 2))
         elif len(W.shape) > 2:
             W = u.math.reshape(W, (W.shape[0], -1))
 
-        # Power iteration
-        v = brainstate.random.randn(W.shape[1])
-        v = v / (u.math.sqrt(u.math.sum(v ** 2)) + 1e-8)
-
-        for _ in range(self.n_power_iterations):
-            u_ = u.math.matmul(W, v)
-            u_ = u_ / (u.math.sqrt(u.math.sum(u_ ** 2)) + 1e-8)
-            v = u.math.matmul(W.T, u_)
-            v = v / (u.math.sqrt(u.math.sum(v ** 2)) + 1e-8)
-
-        # Spectral norm estimate
-        Wv = u.math.matmul(W, v)
-        sigma = u.math.sqrt(u.math.sum(Wv ** 2) + 1e-8)
+        # Largest singular value via SVD (deterministic, differentiable).
+        # svd returns singular values in descending order, so [0] is the largest.
+        sigma = u.math.linalg.svd(W, compute_uv=False)[0]
         return sigma
 
     def loss(self, value: Data) -> Data:
@@ -1517,14 +1563,17 @@ class SpectralNormReg(Regularization):
 
         sample = brainstate.random.randn(*shape_tuple)
 
-        # Scale by max_value / estimated_norm
+        # Rescale the sample so its (estimated) spectral norm matches the requested
+        # ``max_value`` -- i.e. it sits right at the constraint boundary that
+        # ``loss`` penalises. The previous extra ``* 0.5`` factor systematically
+        # produced samples at only half the requested spectral norm.
         if len(shape_tuple) >= 2:
             sigma = self._estimate_spectral_norm(sample)
-            scale = max_val / (sigma + 1e-8) * 0.5
+            scale = max_val / (sigma + 1e-8)
             return sample * scale
         else:
             norm = u.math.sqrt(u.math.sum(sample ** 2) + 1e-8)
-            return sample * max_val / (norm + 1e-8) * 0.5
+            return sample * max_val / (norm + 1e-8)
 
     def reset_value(self) -> Data:
         """
@@ -1551,9 +1600,15 @@ class StudentTReg(Regularization):
     Student's t-distribution, which has heavier tails than Gaussian:
 
     .. math::
-        L = \lambda \sum_i \log\left(1 + \frac{(x_i / s)^2}{\nu}\right)
+        L = \lambda \left[ \sum_i \frac{\nu + 1}{2}
+            \log\left(1 + \frac{(x_i / s)^2}{\nu}\right)
+            + N \left( \log s + \log\Gamma(\tfrac{\nu}{2})
+            + \tfrac{1}{2}\log(\nu\pi) - \log\Gamma(\tfrac{\nu+1}{2}) \right) \right]
 
-    where :math:`\nu` is the degrees of freedom and :math:`s` is the scale.
+    where :math:`\nu` is the degrees of freedom, :math:`s` is the scale, and
+    :math:`N` is the number of elements. The :math:`\log s` and
+    :math:`\Gamma`-based terms form the scale/df log-normalizer, which keeps the
+    loss bounded below when ``scale``/``df`` are trained (``fit_hyper=True``).
 
     Parameters
     ----------
@@ -1625,7 +1680,18 @@ class StudentTReg(Regularization):
         # Student-t negative-log-likelihood data term: 0.5*(df+1)*log(1 + z**2/df).
         # The (df+1)/2 factor is df-dependent; without it the penalty wrongly
         # vanishes as df -> infinity instead of approaching the Gaussian 0.5*z**2.
-        return self.weight * u.math.sum(0.5 * (df + 1.0) * u.math.log(1.0 + z ** 2 / df))
+        data_term = u.math.sum(0.5 * (df + 1.0) * u.math.log(1.0 + z ** 2 / df))
+        # Scale/df log-normalizer of the Student-t NLL. Per element this is
+        # log(scale) + gammaln(df/2) + 0.5*log(df*pi) - gammaln((df+1)/2); without
+        # it the loss is unbounded below as scale (or df) is fit, so a fit_hyper
+        # gradient loop on scale/df diverges to +/- inf instead of converging.
+        log_norm = value.size * (
+            u.math.log(scale)
+            + gammaln(df / 2.0)
+            + 0.5 * u.math.log(df * math.pi)
+            - gammaln((df + 1.0) / 2.0)
+        )
+        return self.weight * (data_term + log_norm)
 
     def sample_init(self, shape: Size) -> Data:
         """
@@ -1668,7 +1734,10 @@ class CauchyReg(Regularization):
     Cauchy distribution (Student's t with df=1), which has very heavy tails:
 
     .. math::
-        L = \lambda \sum_i \log\left(1 + (x_i / s)^2\right)
+        L = \lambda \left[ \sum_i \log\left(1 + (x_i / s)^2\right) + N \log s \right]
+
+    where :math:`N` is the number of elements and :math:`N \log s` is the scale
+    log-normalizer that keeps the loss bounded below when ``scale`` is trained.
 
     Parameters
     ----------
@@ -1729,7 +1798,12 @@ class CauchyReg(Regularization):
         scale = u.math.relu(get_value(self.scale)) + 1e-8
 
         z = value / scale
-        return self.weight * u.math.sum(u.math.log(1.0 + z ** 2))
+        # log(1 + z**2) is the data term; value.size*log(scale) is the scale
+        # log-normalizer of the Cauchy NLL. Without it, the loss decreases without
+        # bound as ``scale`` grows, so a fit_hyper gradient loop on scale diverges.
+        data_term = u.math.sum(u.math.log(1.0 + z ** 2))
+        log_norm = value.size * u.math.log(scale)
+        return self.weight * (data_term + log_norm)
 
     def sample_init(self, shape: Size) -> Data:
         """
@@ -1881,7 +1955,12 @@ class LogNormalReg(Regularization):
     log-normal distribution:
 
     .. math::
-        L = \lambda \sum_i \left(\frac{(\log x_i - \mu)^2}{2\sigma^2} + \log x_i\right)
+        L = \lambda \left[ \sum_i \left(\frac{(\log x_i - \mu)^2}{2\sigma^2}
+            + \log x_i\right) + N \log\sigma \right]
+
+    where :math:`N` is the number of elements and :math:`N \log\sigma` is the
+    scale log-normalizer that keeps the loss bounded below when ``sigma`` is
+    trained.
 
     Parameters
     ----------
@@ -1951,7 +2030,13 @@ class LogNormalReg(Regularization):
         # Ensure positive values
         x_pos = u.math.relu(value) + 1e-8
         log_x = u.math.log(x_pos)
-        return self.weight * u.math.sum((log_x - mu) ** 2 / (2 * sigma ** 2) + log_x)
+        # (log_x - mu)**2 / (2 sigma**2) + log_x is the data term; value.size*
+        # log(sigma) is the scale log-normalizer of the log-normal NLL. Without
+        # it the loss decreases without bound as ``sigma`` grows, so a fit_hyper
+        # gradient loop on sigma diverges.
+        data_term = u.math.sum((log_x - mu) ** 2 / (2 * sigma ** 2) + log_x)
+        log_norm = value.size * u.math.log(sigma)
+        return self.weight * (data_term + log_norm)
 
     def sample_init(self, shape: Size) -> Data:
         """
@@ -2096,7 +2181,12 @@ class GammaReg(Regularization):
     Gamma distribution:
 
     .. math::
-        L = -\lambda \sum_i \left((\alpha - 1) \log x_i - \beta x_i\right)
+        L = \lambda \left[ \sum_i \left(-(\alpha - 1) \log x_i + \beta x_i\right)
+            + N \left( -\alpha \log\beta + \log\Gamma(\alpha) \right) \right]
+
+    where :math:`N` is the number of elements. The
+    :math:`-\alpha \log\beta + \log\Gamma(\alpha)` term is the log-normalizer
+    that keeps the loss bounded below when ``alpha``/``beta`` are trained.
 
     Parameters
     ----------
@@ -2165,8 +2255,13 @@ class GammaReg(Regularization):
 
         # Ensure positive values
         x_pos = u.math.relu(value) + 1e-8
-        # Negative log-likelihood (ignoring constants)
-        return self.weight * u.math.sum(-(alpha - 1) * u.math.log(x_pos) + beta * x_pos)
+        # Data term: -(alpha-1)*log(x) + beta*x. The per-element log-normalizer of
+        # the Gamma NLL is -alpha*log(beta) + gammaln(alpha); without it the loss
+        # is unbounded below as alpha/beta are fit, so a fit_hyper gradient loop
+        # diverges instead of converging.
+        data_term = u.math.sum(-(alpha - 1) * u.math.log(x_pos) + beta * x_pos)
+        log_norm = value.size * (-alpha * u.math.log(beta) + gammaln(alpha))
+        return self.weight * (data_term + log_norm)
 
     def sample_init(self, shape: Size) -> Data:
         """
@@ -2211,7 +2306,13 @@ class BetaReg(Regularization):
     Beta distribution:
 
     .. math::
-        L = -\lambda \sum_i \left((a - 1) \log x_i + (b - 1) \log(1 - x_i)\right)
+        L = \lambda \left[ \sum_i \left(-(a - 1) \log x_i - (b - 1) \log(1 - x_i)\right)
+            + N \left( \log\Gamma(a) + \log\Gamma(b) - \log\Gamma(a + b) \right) \right]
+
+    where :math:`N` is the number of elements. The
+    :math:`\log B(a, b) = \log\Gamma(a) + \log\Gamma(b) - \log\Gamma(a + b)` term
+    is the log-normalizer that keeps the loss bounded below when ``a``/``b`` are
+    trained.
 
     Parameters
     ----------
@@ -2280,8 +2381,13 @@ class BetaReg(Regularization):
 
         # Clip to (0, 1) for numerical stability
         x_clip = u.math.clip(value, 1e-8, 1.0 - 1e-8)
-        # Negative log-likelihood (ignoring constants)
-        return self.weight * u.math.sum(-(a - 1) * u.math.log(x_clip) - (b - 1) * u.math.log(1 - x_clip))
+        # Data term: -(a-1)*log(x) - (b-1)*log(1-x). The per-element
+        # log-normalizer of the Beta NLL is log B(a, b) = gammaln(a) + gammaln(b)
+        # - gammaln(a+b); without it the loss is unbounded below as a/b are fit,
+        # so a fit_hyper gradient loop diverges instead of converging.
+        data_term = u.math.sum(-(a - 1) * u.math.log(x_clip) - (b - 1) * u.math.log(1 - x_clip))
+        log_norm = value.size * (gammaln(a) + gammaln(b) - gammaln(a + b))
+        return self.weight * (data_term + log_norm)
 
     def sample_init(self, shape: Size) -> Data:
         """
@@ -2324,7 +2430,10 @@ class HorseshoeReg(Regularization):
     log-penalty formulation:
 
     .. math::
-        L = \lambda \sum_i \log\left(1 + (x_i / \tau)^2\right)
+        L = \lambda \left[ \sum_i \log\left(1 + (x_i / \tau)^2\right) + N \log\tau \right]
+
+    where :math:`N` is the number of elements and :math:`N \log\tau` is the scale
+    log-normalizer that keeps the loss bounded below when ``tau`` is trained.
 
     Parameters
     ----------
@@ -2386,7 +2495,12 @@ class HorseshoeReg(Regularization):
         tau = u.math.relu(get_value(self.tau)) + 1e-8
 
         z = value / tau
-        return self.weight * u.math.sum(u.math.log(1.0 + z ** 2))
+        # log(1 + z**2) is the data term; value.size*log(tau) is the scale
+        # log-normalizer. Without it, the penalty decreases without bound as
+        # ``tau`` grows, so a fit_hyper gradient loop on tau diverges.
+        data_term = u.math.sum(u.math.log(1.0 + z ** 2))
+        log_norm = value.size * u.math.log(tau)
+        return self.weight * (data_term + log_norm)
 
     def sample_init(self, shape: Size) -> Data:
         """
@@ -2429,7 +2543,12 @@ class InverseGammaReg(Regularization):
     Inverse-Gamma distribution:
 
     .. math::
-        L = \lambda \sum_i \left((\alpha + 1) \log x_i + \frac{\beta}{x_i}\right)
+        L = \lambda \left[ \sum_i \left((\alpha + 1) \log x_i + \frac{\beta}{x_i}\right)
+            + N \left( -\alpha \log\beta + \log\Gamma(\alpha) \right) \right]
+
+    where :math:`N` is the number of elements. The
+    :math:`-\alpha \log\beta + \log\Gamma(\alpha)` term is the log-normalizer
+    that keeps the loss bounded below when ``alpha``/``beta`` are trained.
 
     Parameters
     ----------
@@ -2498,8 +2617,13 @@ class InverseGammaReg(Regularization):
 
         # Ensure positive values
         x_pos = u.math.relu(value) + 1e-8
-        # Negative log-likelihood (ignoring constants)
-        return self.weight * u.math.sum((alpha + 1) * u.math.log(x_pos) + beta / x_pos)
+        # Data term: (alpha+1)*log(x) + beta/x. The per-element log-normalizer of
+        # the Inverse-Gamma NLL is -alpha*log(beta) + gammaln(alpha); without it
+        # the loss is unbounded below as alpha/beta are fit, so a fit_hyper
+        # gradient loop diverges instead of converging.
+        data_term = u.math.sum((alpha + 1) * u.math.log(x_pos) + beta / x_pos)
+        log_norm = value.size * (-alpha * u.math.log(beta) + gammaln(alpha))
+        return self.weight * (data_term + log_norm)
 
     def sample_init(self, shape: Size) -> Data:
         """
@@ -2819,6 +2943,10 @@ class DirichletReg(Regularization):
     Dirichlet prior is appropriate for attention weights, mixture proportions,
     and other probability simplexes. alpha=1 is uniform, alpha<1 encourages
     sparsity, alpha>1 encourages uniformity.
+
+    The softmax/simplex is formed over **all** elements flattened together (one
+    global simplex), not per-row: a ``(batch, K)`` input becomes a single
+    ``batch * K``-way simplex rather than ``batch`` independent ``K``-way ones.
     """
 
     __module__ = 'brainstate.nn'

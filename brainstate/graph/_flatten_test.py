@@ -199,6 +199,63 @@ class TestIndexRefCacheEdgeCases(unittest.TestCase):
         self.assertTrue(bool(jnp.allclose(out.w.value, jnp.ones((2,)))))
 
 
+class TestStateLeafEdgeMissingPath(unittest.TestCase):
+    """A ``StateLeafEdge`` whose path is absent from the mapping must raise a
+    friendly ``ValueError`` (mirroring ``StateEdge``), not a bare ``KeyError``.
+
+    ``StateLeafEdge`` is a public, exported IR type, so a hand-built or
+    deserialized ``GraphDef`` can reference a path missing from the supplied
+    state mapping. The decoder used a bare ``flat_states[path]`` lookup there.
+    """
+
+    def test_missing_stateleafedge_path_raises_valueerror(self):
+        from brainstate.graph import NodeSpec, NodeEdge, StateLeafEdge
+        from brainstate.util import NestedDict
+
+        # Borrow a valid node spec, then point its single field at a missing path.
+        template, _ = flatten(_Cell())
+        spec0 = template.node_specs[0]
+        spec = NodeSpec(
+            spec0.type, spec0.index, spec0.metadata,
+            (('w', StateLeafEdge(('definitely_missing',))),),
+        )
+        gd = GraphDef(NodeEdge(spec0.index), (spec,))
+
+        with self.assertRaises(ValueError) as ctx:
+            unflatten(gd, NestedDict.from_flat({}))
+        msg = str(ctx.exception)
+        self.assertIn('definitely_missing', msg)
+        self.assertIn('state mapping', msg)
+
+    def test_present_stateleafedge_path_resolves(self):
+        """A ``StateLeafEdge`` whose path *is* present resolves to that value.
+
+        This is the success counterpart to the missing-path case: the decoder's
+        ``StateLeafEdge`` branch looks up the path, finds it, and (for a
+        ``TreefyState`` value) materialises it back into a live ``State``.
+        """
+        from brainstate.graph import NodeSpec, NodeEdge, StateLeafEdge
+        from brainstate.util import NestedDict
+        from brainstate._state import State
+
+        template, _ = flatten(_Cell())
+        spec0 = template.node_specs[0]
+        spec = NodeSpec(
+            spec0.type, spec0.index, spec0.metadata,
+            (('w', StateLeafEdge(('present_key',))),),
+        )
+        gd = GraphDef(NodeEdge(spec0.index), (spec,))
+
+        # Provide the path with a TreefyState value -> decoder calls .to_state().
+        tref = brainstate.ParamState(jnp.arange(3.0)).to_state_ref()
+        self.assertIsInstance(tref, TreefyState)
+        rebuilt = unflatten(gd, NestedDict.from_flat({('present_key',): tref}))
+
+        self.assertIsInstance(rebuilt, _Cell)
+        self.assertIsInstance(rebuilt.w, State)
+        self.assertTrue(bool(jnp.allclose(rebuilt.w.value, jnp.arange(3.0))))
+
+
 class TestFormatPath(unittest.TestCase):
     """The ``_format_path`` helper used in error messages."""
 

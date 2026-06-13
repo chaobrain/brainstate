@@ -17,6 +17,7 @@ import unittest
 from absl.testing import absltest
 from absl.testing import parameterized
 
+import brainunit as u
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -849,6 +850,57 @@ class TestElementwiseAuditRegressions(parameterized.TestCase):
         x = brainstate.random.randn(2, 4, 3)  # channel-last, C=3
         out = m(x)
         self.assertEqual(out.shape, x.shape)
+
+    def test_hardtanh_rejects_inverted_range(self):
+        """L12: an inverted range must raise (explicit raise survives python -O)."""
+        with self.assertRaises(ValueError):
+            nn.Hardtanh(min_val=2.0, max_val=-2.0)
+
+    def test_hardtanh_rejects_equal_range(self):
+        """L12: an empty (equal) range must raise."""
+        with self.assertRaises(ValueError):
+            nn.Hardtanh(min_val=1.0, max_val=1.0)
+
+    def test_hardtanh_accepts_valid_range(self):
+        """L12: a normal range still constructs and runs."""
+        layer = nn.Hardtanh(-1.0, 1.0)
+        x = jnp.array([-2.0, 0.0, 2.0])
+        out = np.asarray(layer(x))
+        np.testing.assert_allclose(out, np.array([-1.0, 0.0, 1.0]), rtol=1e-6)
+
+    def test_threshold_plain_array_unchanged(self):
+        """Item 6: plain (dimensionless) arrays keep their dtype and values."""
+        layer = nn.Threshold(threshold=0.1, value=0.0)
+        x = jnp.array([0.05, 0.2, 0.5], dtype=jnp.float32)
+        out = layer(x)
+        self.assertEqual(out.dtype, jnp.float32)
+        np.testing.assert_allclose(np.asarray(out), np.array([0.0, 0.2, 0.5]), rtol=1e-6)
+
+    def test_threshold_accepts_quantity(self):
+        """Item 6: Quantity inputs (part of the ArrayLike contract) must not raise.
+
+        Pre-fix this raised ``UnitMismatchError`` because the threshold/value were
+        compared as dimensionless against a unitful input.
+        """
+        layer = nn.Threshold(threshold=0.1 * u.mV, value=0.0 * u.mV)
+        x = jnp.array([0.05, 0.2, 0.5], dtype=jnp.float32) * u.mV
+        out = layer(x)
+        self.assertIsInstance(out, u.Quantity)
+        self.assertEqual(out.unit, u.mV)
+        np.testing.assert_allclose(np.asarray(out.mantissa), np.array([0.0, 0.2, 0.5]), rtol=1e-6)
+
+    @parameterized.parameters(nn.RReLU, nn.Hardtanh, nn.ELU, nn.CELU)
+    def test_extra_repr_removed_repr_still_works(self, cls):
+        """Item 7: the dead ``extra_repr`` methods are gone, but ``repr`` still works.
+
+        The repr machinery is ``__pretty_repr__``-based; ``extra_repr`` was never
+        invoked and only duplicated the class name.
+        """
+        self.assertFalse(hasattr(cls, 'extra_repr'))
+        text = repr(cls())
+        self.assertIn(cls.__name__, text)
+        # The class name must appear exactly once (extra_repr would have doubled it).
+        self.assertEqual(text.count(cls.__name__), 1)
 
 
 if __name__ == '__main__':

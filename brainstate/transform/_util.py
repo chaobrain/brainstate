@@ -321,7 +321,12 @@ def warp_grad_fn(
             new_args[argnums] = dyn_args
             return fn(*new_args, **kwargs)
 
-        assert argnums < len(args), f"argnum {argnums} is out of range {len(args)}"
+        # ``argnums`` is user-supplied (it comes from the public grad transforms),
+        # so validate its bound with a real exception. An ``assert`` is stripped
+        # under ``python -O``, degrading this into a bare ``IndexError`` from
+        # ``args[argnums]`` with no context.
+        if argnums >= len(args):
+            raise IndexError(f"argnum {argnums} is out of range {len(args)}")
         return new_fn, args[argnums]
 
     else:
@@ -337,7 +342,9 @@ def warp_grad_fn(
         argnums = (argnums,) if isinstance(argnums, int) else tuple(argnums)
         params = []
         for i in argnums:
-            assert i < len(args), f"argnum {i} is out of range {len(args)}"
+            # See above: user-supplied index, validate with a real exception.
+            if i >= len(args):
+                raise IndexError(f"argnum {i} is out of range {len(args)}")
             params.append(args[i])
         return new_fn, params
 

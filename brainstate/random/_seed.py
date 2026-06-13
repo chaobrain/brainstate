@@ -60,7 +60,7 @@ import numpy as np
 
 from brainstate._utils import set_module_as
 from brainstate.typing import SeedOrKey
-from ._impl import _format_key, _is_typed_key
+from ._impl import _format_key
 from ._state import RandomState, DEFAULT
 
 __all__ = [
@@ -582,9 +582,13 @@ def seed(seed_or_key: Optional[SeedOrKey] = None) -> None:
     seed_or_key
         The seed or key to set. Can be:
         - None: Generates a random seed automatically
-        - int: An integer seed (0 to 2^32-1)
+        - int: An integer seed. Any Python integer is accepted; it is reduced
+          modulo ``2**32`` for NumPy (matching JAX, which reduces an integer
+          seed to its low 32 bits), so values outside ``[0, 2**32-1]`` (e.g.
+          ``hash(...)``, ``time.time_ns()`` or negative values) are valid.
         - JAX PRNG key: A JAX random key array
-        If None, a random seed is generated using NumPy's random generator.
+        If None, a random seed is generated without disturbing NumPy's global
+        random state.
 
     Raises
     ------
@@ -629,11 +633,16 @@ def seed(seed_or_key: Optional[SeedOrKey] = None) -> None:
     -----
         - This function affects the global random state used by all BrainState
           random functions and NumPy's global random state.
-        - When using automatic seeding (seed_or_key=None), NumPy's seed is not
-          set to maintain its current state.
+        - When using automatic seeding (seed_or_key=None), NumPy's global random
+          state is left untouched: the auto-key is drawn from an independent
+          ``numpy.random.default_rng`` Generator, so the current state is
+          maintained.
         - JAX compilation is handled automatically with compile-time evaluation.
-        - For JAX keys, only the first element is used to seed NumPy to maintain
-          compatibility between the two random systems.
+        - The input is first normalized to a typed JAX key; the first element of
+          that key's raw ``uint32[2]`` data is then used to seed NumPy, keeping
+          the two random systems consistent. Because the JAX key is validated
+          before any NumPy mutation, an invalid input raises without leaving the
+          JAX and NumPy states out of sync.
 
     See Also
     --------
@@ -644,31 +653,53 @@ def seed(seed_or_key: Optional[SeedOrKey] = None) -> None:
 
     """
     with jax.ensure_compile_time_eval():
-        _set_numpy_seed = True
         if seed_or_key is None:
-            seed_or_key = np.random.randint(0, 100000)
-            _set_numpy_seed = False
+            # Automatic seeding: draw a full uint32[2] key from a *fresh*
+            # ``default_rng`` Generator so the legacy global ``np.random`` state
+            # is left untouched (honoring the docstring's "maintain its current
+            # state") and the full 2**32 entropy range is used (matching
+            # ``RandomState.seed(None)`` rather than a reduced range).
+            seed_or_key = np.random.default_rng().integers(0, 2 ** 32, size=2, dtype=np.uint32)
+            DEFAULT.seed(seed_or_key)
+            return
 
-        # numpy random seed
-        if _set_numpy_seed:
-            try:
-                if isinstance(seed_or_key, int):
-                    np.random.seed(seed_or_key)
-                elif _is_typed_key(seed_or_key):  # typed JAX key (scalar): use its raw data
-                    np.random.seed(int(jax.random.key_data(seed_or_key)[0]))
-                elif np.size(seed_or_key) == 1:  # scalar seed array
-                    np.random.seed(int(np.asarray(seed_or_key)))
-                elif np.size(seed_or_key) == 2:  # legacy uint32[2] key
-                    np.random.seed(int(np.asarray(seed_or_key)[0]))
-                else:
-                    raise ValueError(f"seed_or_key should be an integer or a tuple of two integers.")
-            except (jax.errors.TracerArrayConversionError,
-                    jax.errors.ConcretizationTypeError):
-                # Inside a jit trace the key is abstract; skip NumPy seeding.
-                pass
+        # Normalize a NumPy integer scalar (e.g. ``np.int64(...)``) to a Python
+        # int so it follows the int-seed path below (``_format_key`` itself only
+        # accepts python ints, typed keys, or uint32[2] arrays).
+        if isinstance(seed_or_key, np.integer):
+            seed_or_key = int(seed_or_key)
 
-    # jax random seed
-    DEFAULT.seed(seed_or_key)
+        # Validate/normalize the JAX key *first* so that, on invalid input, no
+        # global state is mutated. ``_format_key`` raises TypeError/ValueError
+        # for anything that is not an int, a typed key, or a uint32[2] array,
+        # which is strictly stricter than the NumPy-seeding step below; doing it
+        # first eliminates the partial-mutation window (NumPy seeded, JAX not).
+        key = _format_key(seed_or_key)
+
+        # Set the JAX state from the validated key.
+        DEFAULT.set_key(key)
+
+        # Seed NumPy. ``np.random.seed`` only accepts [0, 2**32-1]; reduce the
+        # value modulo 2**32 (matching JAX, which reduces an integer seed to its
+        # low 32 bits) so out-of-range / negative ints no longer raise.
+        #
+        #   * For an integer seed ``v`` we seed NumPy with ``v % 2**32`` -- this
+        #     equals the low word of ``jax.random.key(v)`` so the two systems
+        #     stay consistent, and it preserves the historical NumPy stream for
+        #     in-range ints (``np.random.seed(v) == np.random.seed(v % 2**32)``).
+        #   * For a typed / legacy ``uint32[2]`` key we seed NumPy from the first
+        #     raw word of the key data, matching the documented "first element of
+        #     the key is used to seed NumPy" behavior.
+        try:
+            if isinstance(seed_or_key, int):
+                np_seed = seed_or_key % (2 ** 32)
+            else:
+                np_seed = int(jax.random.key_data(key)[0]) % (2 ** 32)
+            np.random.seed(np_seed)
+        except (jax.errors.TracerArrayConversionError,
+                jax.errors.ConcretizationTypeError):
+            # Inside a jit trace the key is abstract; skip NumPy seeding.
+            pass
 
 
 @contextmanager
@@ -753,7 +784,9 @@ def seed_context(seed_or_key: SeedOrKey) -> Iterator[None]:
     Notes
     -----
         - The context manager saves and restores the complete JAX random state
-        - NumPy's random state is also temporarily modified during the context
+        - NumPy's global random state is also seeded on entry and fully restored
+          on exit (via ``numpy.random.get_state``/``set_state``), so NumPy-backed
+          randomness inside the block is reproducible and leaves no side effect
         - Nested contexts work correctly - each level restores its own state
         - Exception safety is guaranteed - random state is restored even if
           exceptions occur within the context
@@ -768,12 +801,24 @@ def seed_context(seed_or_key: SeedOrKey) -> Iterator[None]:
     clone_rng : Create independent random states
 
     """
-    # get the old random key
+    # Snapshot BOTH the JAX key and the full NumPy generator state so the
+    # documented "affects both JAX and NumPy" contract holds and both are
+    # restored on exit. We restore the NumPy state with ``set_state`` (not a
+    # re-seed) because seeding on entry advances NumPy's position; re-seeding
+    # could not reproduce a mid-stream Mersenne-Twister state.
     old_jrand_key = DEFAULT.value
+    old_np_state = np.random.get_state()
     try:
-        # set the seed of jax random state
-        DEFAULT.seed(seed_or_key)
+        # Seed both the JAX key and NumPy via the module-level ``seed`` so the
+        # two systems stay consistent. ``seed(None)`` deliberately leaves
+        # NumPy's state untouched, so feed it a concrete key in that case to
+        # honor the documented NumPy-seeding behavior of this context manager.
+        if seed_or_key is None:
+            seed(int(np.random.default_rng().integers(0, 2 ** 32)))
+        else:
+            seed(seed_or_key)
         yield
     finally:
-        # restore the random state
+        # restore both the JAX key and the full NumPy MT state
         DEFAULT.seed(old_jrand_key)
+        np.random.set_state(old_np_state)

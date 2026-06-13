@@ -20,7 +20,7 @@ from typing import Any, Callable
 
 from jax.experimental import checkify as _cfy
 
-from brainstate._state import StateTraceStack
+from brainstate._state import StateTraceStack, TRACE_CONTEXT
 from brainstate._utils import set_module_as
 from brainstate.typing import ArrayLike
 from ._make_jaxpr import StatefulFunction
@@ -194,9 +194,43 @@ def checkify(fun: Callable, errors: Any = user_checks) -> Callable:
 
         # 4. Restore ALL states: writes -> new values, reads -> originals
         #    (prevents tracers leaking into the global State objects).
+        #
+        #    ``restore_value`` deliberately bypasses the tracer-write guard that
+        #    the ``value`` setter enforces. That is safe for read-only states
+        #    (their originals are concrete) and for write-backs performed while a
+        #    brainstate trace is active (the tracers die with that trace). But
+        #    when ``checkify(fun)(...)`` is composed under a *raw* JAX transform
+        #    (jax.jit/vmap/grad/...) and no brainstate trace is active, the
+        #    written values are tracers of that outer trace; restoring them via
+        #    ``restore_value`` would silently store a dead tracer in the global
+        #    State. Route those write-backs through the ``value`` setter so the
+        #    standard guard fires with a descriptive TraceContextError, steering
+        #    users to brainstate.transform.jit/vmap/grad/scan instead.
+        guard_active = not TRACE_CONTEXT.state_stack
         wv_by_id = {id(st): v for st, v in zip(write_states, write_vals)}
-        for st, ov in zip(all_states, orig_vals):
-            st.restore_value(wv_by_id[id(st)] if id(st) in wv_by_id else ov)
+        try:
+            for st, ov in zip(all_states, orig_vals):
+                if id(st) in wv_by_id:
+                    wv = wv_by_id[id(st)]
+                    if guard_active:
+                        # No brainstate trace active: write the value through the
+                        # ``value`` setter so its tracer-write guard runs. The
+                        # setter only rejects tracers whose owning trace differs
+                        # from the current one (raw jax.jit/vmap/grad composition);
+                        # states created inside the current trace are exempted
+                        # there and so restore harmlessly.
+                        st.value = wv
+                    else:
+                        st.restore_value(wv)
+                else:
+                    st.restore_value(ov)
+        except Exception:
+            # The guard fired (raw-transform composition). Roll every state back
+            # to its concrete original so the loud TraceContextError is raised
+            # WITHOUT leaving a dead tracer behind in any global State.
+            for st, ov in zip(all_states, orig_vals):
+                st.restore_value(ov)
+            raise
 
         return err, out
 

@@ -15,6 +15,7 @@
 import unittest
 
 import brainunit as u
+import jax
 import jax.numpy as jnp
 import numpy as np
 
@@ -517,6 +518,116 @@ class TestTransformAuditRegressions(unittest.TestCase):
         ladj = t.log_abs_det_jacobian(x, None)
         self.assertTrue(np.all(np.isfinite(np.asarray(ladj))))
         np.testing.assert_allclose(np.asarray(ladj), 2 * np.log(2.0), rtol=1e-6)
+
+    def test_masked_forward_grad_finite_through_masked_positions(self):
+        # H11: jnp.where evaluates the inner transform over the WHOLE array, so a
+        # masked-out entry could feed an invalid value (here -1.0 into a sqrt) into
+        # the transform and yield NaN gradients. The double-where fix substitutes a
+        # safe value, keeping the gradient finite everywhere.
+        def loss(x):
+            return MaskedT(jnp.array([True, False]), PowerT(0.5)).forward(x).sum()
+
+        g = jax.grad(loss)(jnp.array([4.0, -1.0]))
+        self.assertTrue(np.all(np.isfinite(np.asarray(g))))
+
+    def test_masked_inverse_grad_finite_through_masked_positions(self):
+        # H11: analogous to forward, but for inverse. PowerT(2.0).inverse computes a
+        # square root, so a masked-out -1.0 would produce a NaN gradient without the
+        # double-where guard.
+        def loss(y):
+            return MaskedT(jnp.array([True, False]), PowerT(2.0)).inverse(y).sum()
+
+        g = jax.grad(loss)(jnp.array([4.0, -1.0]))
+        self.assertTrue(np.all(np.isfinite(np.asarray(g))))
+
+    def test_log_abs_det_jacobian_scalar_input(self):
+        # M22: jnp.sum(expr, axis=-1) raises on a 0-d (scalar) array. Each
+        # element-wise transform's log_abs_det_jacobian must return a finite scalar
+        # of shape () for a 0-d input.
+        x = jnp.array(1.5)
+        transforms = [
+            SigmoidT(0.0, 1.0),
+            SoftplusT(0.0),
+            LogT(0.0),
+            ExpT(0.0),
+            PositiveT(),
+        ]
+        for t in transforms:
+            ladj = t.log_abs_det_jacobian(x, t.forward(x))
+            self.assertEqual(np.shape(ladj), (), msg=f"{t!r} should give scalar shape")
+            self.assertTrue(np.isfinite(np.asarray(ladj)), msg=f"{t!r} should be finite")
+
+    def test_chain_log_abs_det_jacobian_scalar_input(self):
+        # M22: a chain of element-wise transforms must also work on a scalar input.
+        t = ChainT(SigmoidT(0.0, 1.0), AffineT(2.0, 0.0))
+        x = jnp.array(0.3)
+        ladj = t.log_abs_det_jacobian(x, t.forward(x))
+        self.assertEqual(np.shape(ladj), ())
+        self.assertTrue(np.isfinite(np.asarray(ladj)))
+
+    def test_log_abs_det_jacobian_batched_unchanged(self):
+        # M22: the scalar guard must not alter batched (1-d) behaviour.
+        x = jnp.array([0.0, 1.0, 2.0])
+        np.testing.assert_allclose(
+            np.asarray(ExpT(0.0).log_abs_det_jacobian(x, None)), np.sum(np.asarray(x)), rtol=1e-6
+        )
+        np.testing.assert_allclose(
+            np.asarray(PositiveT().log_abs_det_jacobian(x, None)), np.sum(np.asarray(x)), rtol=1e-6
+        )
+
+    def test_simplex_inverse_at_vertex_finite(self):
+        # M23: at a simplex vertex a stick-breaking ratio hits 0 or 1, and the old
+        # one-sided "+ 1e-8" denominator nudge let the logit overflow to +/-inf. The
+        # clamp into [eps, 1 - eps] must keep the inverse finite on the boundary.
+        x = SimplexT().inverse(jnp.array([1.0, 0.0, 0.0, 0.0]))
+        self.assertTrue(np.all(np.isfinite(np.asarray(x))))
+
+    def test_simplex_roundtrip_interior(self):
+        # M23: on the open simplex (interior) inverse(forward(x)) must still
+        # round-trip for moderate x after the clamp change.
+        t = SimplexT()
+        x = jnp.array([0.5, -0.5, 1.0])
+        xr = t.inverse(t.forward(x))
+        np.testing.assert_allclose(np.asarray(xr), np.asarray(x), atol=1e-4)
+
+
+class TestTransformAuditRegressions2(unittest.TestCase):
+    """Regression tests for transform audit findings (T15-T17)."""
+
+    def test_softplus_float_lower_returns_plain_array(self):
+        # T15: a plain-float ``lower`` must not yield a dimensionless Quantity.
+        y = SoftplusT(2.0).forward(jnp.array([0.0, 1.0]))
+        self.assertNotIsInstance(y, u.Quantity)
+
+    def test_negsoftplus_float_upper_returns_plain_array(self):
+        y = NegSoftplusT(0.0).forward(jnp.array([0.0, 1.0]))
+        self.assertNotIsInstance(y, u.Quantity)
+
+    def test_softplus_unit_lower_still_carries_unit(self):
+        # The fix must not strip a genuine physical unit.
+        y = SoftplusT(2.0 * u.mV).forward(jnp.array([0.0]))
+        self.assertIsInstance(y, u.Quantity)
+        self.assertEqual(u.get_unit(y), u.get_unit(1.0 * u.mV))
+
+    def test_clip_inverse_reclips_out_of_range(self):
+        # T16: the docstring claimed inverse raises NotImplementedError, but it
+        # re-clips. Confirm the documented (and tested) re-clip behavior: an
+        # out-of-range value is projected onto the nearest bound.
+        t = ClipT(lower=0.0, upper=1.0)
+        np.testing.assert_allclose(np.asarray(t.inverse(jnp.array([2.0, -1.0]))),
+                                   np.array([1.0, 0.0]), rtol=1e-6)
+
+    def test_scaledsigmoid_rejects_nonpositive_beta(self):
+        # T17: beta=0 collapses forward and makes inverse divide by zero.
+        for bad in (0.0, -1.0):
+            with self.assertRaises(ValueError):
+                ScaledSigmoidT(0.0, 1.0, beta=bad)
+
+    def test_scaledsigmoid_valid_beta_roundtrips(self):
+        t = ScaledSigmoidT(0.0, 1.0, beta=2.0)
+        y = jnp.array([0.3, 0.6])
+        np.testing.assert_allclose(np.asarray(t.forward(t.inverse(y))),
+                                   np.asarray(y), atol=1e-5)
 
 
 if __name__ == '__main__':

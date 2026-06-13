@@ -60,6 +60,19 @@ def _split4(arr, axis=-1):
     return list(u.math.split(arr, 4, axis=axis))
 
 
+def _param_dtype(*arrays):
+    """Return the dtype of the first non-None array, or float32 if all are None.
+
+    Used to thread the source brainstate weight dtype into nnx export constructors, whose
+    ``param_dtype`` otherwise defaults to float32 and would silently downcast bf16/fp16 weights.
+    """
+    import jax.numpy as jnp
+    for a in arrays:
+        if a is not None:
+            return a.dtype
+    return jnp.float32
+
+
 # ---------------------------------------------------------------------------
 # Linear
 # ---------------------------------------------------------------------------
@@ -74,7 +87,8 @@ def _linear_to_bst(m, ctx):
 
 def _linear_to_foreign(layer, ctx):
     w, b = C.bst_get_linear(layer)
-    m = nnx.Linear(w.shape[0], w.shape[1], use_bias=b is not None, rngs=_rngs(ctx))
+    m = nnx.Linear(w.shape[0], w.shape[1], use_bias=b is not None,
+                   dtype=w.dtype, param_dtype=w.dtype, rngs=_rngs(ctx))
     _set(m.kernel, w)
     if b is not None:
         _set(m.bias, b)
@@ -94,7 +108,8 @@ def _embed_to_bst(m, ctx):
 
 def _embed_to_foreign(layer, ctx):
     table = C.bst_get_embedding(layer)
-    m = nnx.Embed(table.shape[0], table.shape[1], rngs=_rngs(ctx))
+    m = nnx.Embed(table.shape[0], table.shape[1],
+                  dtype=table.dtype, param_dtype=table.dtype, rngs=_rngs(ctx))
     _set(m.embedding, table)
     return m
 
@@ -115,8 +130,10 @@ def _layernorm_to_bst(m, ctx):
 def _layernorm_to_foreign(layer, ctx):
     scale, offset = C.bst_get_norm(layer, 'weight', has_offset=True)
     num = int(layer.in_size[-1])
+    pdt = _param_dtype(scale, offset)
     m = nnx.LayerNorm(num, epsilon=float(layer.epsilon),
-                      use_scale=scale is not None, use_bias=offset is not None, rngs=_rngs(ctx))
+                      use_scale=scale is not None, use_bias=offset is not None,
+                      param_dtype=pdt, rngs=_rngs(ctx))
     if scale is not None:
         _set(m.scale, scale)
     if offset is not None:
@@ -135,8 +152,9 @@ def _rmsnorm_to_bst(m, ctx):
 def _rmsnorm_to_foreign(layer, ctx):
     scale, _ = C.bst_get_norm(layer, 'scale', has_offset=False)
     num = int(layer.in_size[-1])
+    pdt = _param_dtype(scale)
     m = nnx.RMSNorm(num, epsilon=float(layer.epsilon),
-                     use_scale=scale is not None, rngs=_rngs(ctx))
+                     use_scale=scale is not None, param_dtype=pdt, rngs=_rngs(ctx))
     if scale is not None:
         _set(m.scale, scale)
     return m
@@ -155,8 +173,10 @@ def _groupnorm_to_bst(m, ctx):
 def _groupnorm_to_foreign(layer, ctx):
     scale, offset = C.bst_get_norm(layer, 'weight', has_offset=True)
     num = int(layer.in_size[-1])
+    pdt = _param_dtype(scale, offset)
     m = nnx.GroupNorm(num, num_groups=int(layer.num_groups), epsilon=float(layer.epsilon),
-                      use_scale=scale is not None, use_bias=offset is not None, rngs=_rngs(ctx))
+                      use_scale=scale is not None, use_bias=offset is not None,
+                      param_dtype=pdt, rngs=_rngs(ctx))
     if scale is not None:
         _set(m.scale, scale)
     if offset is not None:
@@ -173,7 +193,11 @@ def _dropout_to_bst(m, ctx):
 
 
 def _dropout_to_foreign(layer, ctx):
-    return nnx.Dropout(1.0 - float(layer.prob), rngs=_rngs(ctx))
+    # ``deterministic=True`` is baked in so the exported module (and any ``nnx.Sequential``
+    # containing it) is directly applicable and output-equivalent to brainstate's eval-mode
+    # Dropout. Cross-framework RNG streams cannot be matched, so equivalence for Dropout is
+    # only defined in eval mode.
+    return nnx.Dropout(1.0 - float(layer.prob), deterministic=True, rngs=_rngs(ctx))
 
 
 # ---------------------------------------------------------------------------
@@ -209,6 +233,14 @@ def _conv_to_bst(m, ctx):
     in_size = ctx.require_size('Conv')
     has_bias = m.bias is not None
     groups = int(getattr(m, 'feature_group_count', 1))
+    expected_in = int(w.shape[-2]) * groups
+    if int(in_size[-1]) != expected_in:
+        raise ConversionError(
+            f"nnx Conv kernel expects {expected_in} input channels "
+            f"(kernel in//groups={int(w.shape[-2])} * feature_group_count={groups}), but the "
+            f"resolved `sample_input` has {int(in_size[-1])} channels in its last (channel) "
+            f"axis. Pass a `sample_input` whose channel count matches the layer's kernel."
+        )
     layer = C.build_conv(
         nd, in_size, out_channels, kernel_size,
         stride=getattr(m, 'strides', 1) or 1,
@@ -233,6 +265,7 @@ def _conv_to_foreign(layer, ctx):
         input_dilation=tuple(layer.lhs_dilation),
         feature_group_count=layer.groups,
         use_bias=b is not None,
+        dtype=w.dtype, param_dtype=w.dtype,
         rngs=_rngs(ctx),
     )
     _set(m.kernel, w)
@@ -260,7 +293,7 @@ def _batchnorm_to_bst(m, ctx):
     var = _get(m.var)
     in_size = ctx.require_size('BatchNorm')
     nd = len(in_size) - 1
-    affine = scale is not None
+    affine = (scale is not None) or (bias is not None)
     layer = C.build_batchnorm(nd, in_size, float(m.epsilon), float(m.momentum), affine)
     C.bst_set_batchnorm(
         layer,
@@ -273,20 +306,32 @@ def _batchnorm_to_bst(m, ctx):
 
 
 def _batchnorm_to_foreign(layer, ctx):
+    import jax.numpy as jnp
     scale, offset, mean, var = C.bst_get_batchnorm(layer)
     num = (scale if scale is not None else mean).shape[-1]
+    src_dtype = (scale if scale is not None else mean).dtype
     # ``use_running_average=True`` so the exported layer normalizes with the transferred running
     # statistics by default, matching brainstate's eval-mode forward (the only mode in which
     # BatchNorm output is framework-equivalent). Flip it for training.
     m = nnx.BatchNorm(num, momentum=float(layer.momentum), epsilon=float(layer.epsilon),
                       use_scale=scale is not None, use_bias=offset is not None,
-                      use_running_average=True, rngs=_rngs(ctx))
+                      use_running_average=True,
+                      dtype=src_dtype, param_dtype=src_dtype, rngs=_rngs(ctx))
     if scale is not None:
         _set(m.scale, _bn_reshape_to_foreign(scale))
     if offset is not None:
         _set(m.bias, _bn_reshape_to_foreign(offset))
-    _set(m.mean, _bn_reshape_to_foreign(mean))
-    _set(m.var, _bn_reshape_to_foreign(var))
+    new_mean = _bn_reshape_to_foreign(mean)
+    new_var = _bn_reshape_to_foreign(var)
+    _set(m.mean, new_mean)
+    _set(m.var, new_var)
+    # nnx forces running stats (BatchStat) to float32 on construction; ``_set`` may not preserve
+    # a non-float32 source dtype. Rebuild the BatchStat Variables so the running statistics keep
+    # the source dtype (otherwise bf16/fp16 weights silently round-trip as float32).
+    if _get(m.mean).dtype != mean.dtype:
+        m.mean = nnx.BatchStat(jnp.asarray(new_mean, dtype=mean.dtype))
+    if _get(m.var).dtype != var.dtype:
+        m.var = nnx.BatchStat(jnp.asarray(new_var, dtype=var.dtype))
     return m
 
 
@@ -302,7 +347,7 @@ def _lstm_to_foreign(layer, ctx):
     ii, ig, if_, io = _split4(Wi)                # brainstate order i,g,f,o
     hi, hg, hf, ho = _split4(Wh)
     bi, bg, bf, bo = _split4(bias)
-    m = nnx.LSTMCell(num_in, h, rngs=_rngs(ctx))
+    m = nnx.LSTMCell(num_in, h, dtype=W.dtype, param_dtype=W.dtype, rngs=_rngs(ctx))
     _set(m.ii.kernel, ii); _set(m.if_.kernel, if_); _set(m.ig.kernel, ig); _set(m.io.kernel, io)
     _set(m.hi.kernel, hi); _set(m.hf.kernel, hf); _set(m.hg.kernel, hg); _set(m.ho.kernel, ho)
     _set(m.hi.bias, bi); _set(m.hf.bias, bf + 1.0); _set(m.hg.bias, bg); _set(m.ho.bias, bo)
@@ -365,6 +410,7 @@ def _register():
         (bnn.Conv1d, nnx.Conv, _conv_to_bst, _conv_to_foreign),
         (bnn.Conv2d, nnx.Conv, _conv_to_bst, _conv_to_foreign),
         (bnn.Conv3d, nnx.Conv, _conv_to_bst, _conv_to_foreign),
+        (bnn.BatchNorm0d, nnx.BatchNorm, _batchnorm_to_bst, _batchnorm_to_foreign),
         (bnn.BatchNorm1d, nnx.BatchNorm, _batchnorm_to_bst, _batchnorm_to_foreign),
         (bnn.BatchNorm2d, nnx.BatchNorm, _batchnorm_to_bst, _batchnorm_to_foreign),
         (bnn.BatchNorm3d, nnx.BatchNorm, _batchnorm_to_bst, _batchnorm_to_foreign),

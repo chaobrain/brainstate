@@ -134,6 +134,22 @@ class TransformQuantityTest(absltest.TestCase):
         y = tf.forward(x)
         self.assertTrue(u.get_unit(y) == u.get_unit(x))
 
+    def test_add_scalar_preserves_units(self):
+        # The constant must adopt x's unit so a united bias (e.g. the LSTM
+        # forget-gate +1) folds in correctly instead of raising UnitMismatchError.
+        x = brainstate.random.randn(5) * u.mV
+        tf = AddScalar(1.0)
+        y = tf.forward(x)
+        self.assertTrue(u.get_unit(y) == u.get_unit(x))
+        # forward adds the constant in x's unit ...
+        np.testing.assert_allclose(np.asarray(u.get_mantissa(y)),
+                                   np.asarray(u.get_mantissa(x)) + 1.0, rtol=1e-6)
+        # ... and inverse(forward(x)) round-trips exactly (unit and value).
+        z = tf.inverse(y)
+        self.assertTrue(u.get_unit(z) == u.get_unit(x))
+        np.testing.assert_allclose(np.asarray(u.get_mantissa(z)),
+                                   np.asarray(u.get_mantissa(x)), rtol=1e-6)
+
 
 if __name__ == '__main__':
     absltest.main()

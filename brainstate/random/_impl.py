@@ -92,9 +92,13 @@ def multinomial(
     if jnp.ndim(n) > 0:
         mask = _promote_shapes(jnp.arange(n_max) < jnp.expand_dims(n, -1), shape=shape + (n_max,))[0]
         mask = jnp.moveaxis(mask, -1, 0).astype(indices.dtype)
+        # ``excess`` must share ``indices``'s integer dtype: subtracting a
+        # float-typed ``excess`` (the previous ``jnp.zeros`` default) would promote
+        # the returned counts to floating point, violating the integer-counts
+        # contract for array-valued ``n``.
         excess = jnp.concatenate(
-            [jnp.expand_dims(n_max - n, -1),
-             jnp.zeros(u.math.shape(n) + (p.shape[-1] - 1,))],
+            [jnp.expand_dims((n_max - n).astype(indices.dtype), -1),
+             jnp.zeros(u.math.shape(n) + (p.shape[-1] - 1,), dtype=indices.dtype)],
             -1
         )
     else:
@@ -144,6 +148,11 @@ def von_mises_centered(
     else:
         raise ValueError(f"Unsupported dtype: {dtype}")
 
+    # Split off a dedicated key for the kappa<=0 uniform branch *before* the
+    # rejection loop so the uniform draw does not reuse (and thereby correlate
+    # with) the rejection-sampler keys.
+    uni_key, key = jr.split(key)
+
     r = 1.0 + jnp.sqrt(1.0 + 4.0 * concentration ** 2)
     rho = (r - jnp.sqrt(2.0 * r)) / (2.0 * concentration)
     s_exact = (1.0 + rho ** 2) / (2.0 * rho)
@@ -187,7 +196,17 @@ def von_mises_centered(
         init_val=(jnp.array(0), key, init_done, init_u, init_w),
     )
 
-    return jnp.sign(uu) * jnp.arccos(w)
+    samples = jnp.sign(uu) * jnp.arccos(w)
+
+    # For ``concentration <= 0`` the rejection-loop math is degenerate
+    # (``rho`` and ``s_approximate`` involve division by zero, producing NaN),
+    # so substitute a uniform draw on ``[-pi, pi]``. This matches numpy's
+    # treatment of ``kappa == 0`` as the uniform distribution and extends the
+    # limiting case to ``kappa < 0`` rather than poisoning the output with NaN.
+    # Both ``jnp.where`` operands are eagerly evaluated, so the NaN branch is
+    # cleanly masked out wherever the uniform branch is selected.
+    uniform = jr.uniform(uni_key, shape, dtype=concentration.dtype, minval=-jnp.pi, maxval=jnp.pi)
+    return jnp.where(concentration <= 0, uniform, samples)
 
 
 def _scatter_add_one(operand, indices, updates):

@@ -296,10 +296,24 @@ class TestErrorHandling(unittest.TestCase):
             conv(x_wrong)
 
     def test_invalid_groups(self):
-        """Test that invalid group configurations raise errors."""
-        with self.assertRaises(AssertionError):
+        """Test that invalid group configurations raise errors.
+
+        Validation of user-supplied constructor arguments must raise ``ValueError``
+        (which survives ``python -O``), not ``AssertionError``.
+        """
+        with self.assertRaises(ValueError):
             # out_channels not divisible by groups
             conv = brainstate.nn.Conv2d(in_size=(32, 32, 16), out_channels=30, kernel_size=3, groups=4)
+
+    def test_in_channels_not_divisible_by_groups_raises(self):
+        """in_channels not divisible by groups raises ValueError naming in_channels.
+
+        out_channels IS divisible (8 % 4 == 0) so the out_channels guard passes;
+        the failure must come from the in_channels divisibility check (6 % 4 != 0).
+        """
+        with self.assertRaises(ValueError) as ctx:
+            brainstate.nn.Conv2d(in_size=(8, 8, 6), out_channels=8, kernel_size=3, groups=4)
+        self.assertIn('in_channels', str(ctx.exception))
 
     def test_dimension_mismatch(self):
         """Test dimension mismatch detection."""
@@ -677,14 +691,28 @@ class TestErrorHandlingConvTranspose(unittest.TestCase):
     """Test error handling for transposed convolutions."""
 
     def test_invalid_groups(self):
-        """Test that invalid groups raises assertion error."""
-        with self.assertRaises(AssertionError):
+        """Test that invalid groups raises a ValueError.
+
+        Validation of user-supplied constructor arguments must raise ``ValueError``
+        (which survives ``python -O``), not ``AssertionError``.
+        """
+        with self.assertRaises(ValueError):
             brainstate.nn.ConvTranspose2d(
                 in_size=(16, 16, 32),
                 out_channels=15,  # Not divisible by groups
                 kernel_size=3,
                 groups=4
             )
+
+    def test_in_channels_not_divisible_by_groups_raises(self):
+        """in_channels not divisible by groups raises ValueError naming in_channels.
+
+        out_channels IS divisible (8 % 4 == 0) so the out_channels guard passes;
+        the failure must come from the in_channels divisibility check (6 % 4 != 0).
+        """
+        with self.assertRaises(ValueError) as ctx:
+            brainstate.nn.ConvTranspose2d(in_size=(8, 8, 6), out_channels=8, kernel_size=3, groups=4)
+        self.assertIn('in_channels', str(ctx.exception))
 
     def test_dimension_mismatch(self):
         """Test that wrong input dimensions raise error."""
@@ -879,9 +907,30 @@ class TestConvPadding(unittest.TestCase):
         self.assertEqual(conv.padding, ((2, 2), (2, 2)))
 
     def test_padding_tuple_of_int(self):
-        """A tuple of ints is treated as a (low, high) pair applied to every dimension."""
-        conv = brainstate.nn.Conv2d(in_size=(16, 16, 3), out_channels=8, kernel_size=3, padding=(1, 2))
-        self.assertEqual(conv.padding, ((1, 2), (1, 2)))
+        """A flat int tuple gives one symmetric pad per spatial dim (M11).
+
+        For Conv2d a length-2 tuple ``(1, 2)`` is one value per spatial axis:
+        axis 0 -> (1, 1), axis 1 -> (2, 2). This is NOT a single (low, high) pair
+        broadcast to every axis (the old, buggy behavior). For Conv1d, a length-2
+        tuple is unambiguously a single (low, high) pair for the one spatial axis.
+        """
+        # Conv2d: one symmetric pad per spatial dim.
+        conv2d = brainstate.nn.Conv2d(in_size=(16, 16, 3), out_channels=8, kernel_size=3, padding=(1, 2))
+        self.assertEqual(conv2d.padding, ((1, 1), (2, 2)))
+
+        # Conv3d: one symmetric pad per spatial dim.
+        conv3d = brainstate.nn.Conv3d(in_size=(16, 16, 16, 3), out_channels=8, kernel_size=3, padding=(1, 2, 3))
+        self.assertEqual(conv3d.padding, ((1, 1), (2, 2), (3, 3)))
+
+        # Conv1d: length-2 tuple is a single (low, high) pair for the one axis.
+        conv1d = brainstate.nn.Conv1d(in_size=(16, 3), out_channels=8, kernel_size=3, padding=(1, 2))
+        self.assertEqual(conv1d.padding, ((1, 2),))
+
+    def test_padding_int_tuple_wrong_length_raises(self):
+        """A flat int padding tuple of the wrong length raises ValueError (M11)."""
+        # Conv2d expects length 2; length 3 is invalid.
+        with self.assertRaises(ValueError):
+            brainstate.nn.Conv2d(in_size=(16, 16, 3), out_channels=8, kernel_size=3, padding=(1, 2, 3))
 
     def test_padding_sequence_of_tuples(self):
         """A full sequence of (low, high) tuples is preserved per dimension."""
@@ -902,6 +951,20 @@ class TestConvPadding(unittest.TestCase):
         """A padding of an unsupported type raises ValueError."""
         with self.assertRaises(ValueError):
             brainstate.nn.Conv2d(in_size=(16, 16, 3), out_channels=8, kernel_size=3, padding=1.5)
+
+    def test_padding_sequence_with_bad_element_type_raises(self):
+        """A padding *sequence* whose elements are neither int nor tuple raises ValueError.
+
+        ``padding`` enters the sequence branch (it is a tuple), but ``padding[0]``
+        is a float, so it is neither a flat-int spec nor a sequence-of-pairs spec.
+        This exercises the dedicated element-type error (distinct from the
+        top-level unsupported-type error) and reports the offending element type.
+        """
+        with self.assertRaises(ValueError) as ctx:
+            brainstate.nn.Conv2d(in_size=(16, 16, 3), out_channels=8, kernel_size=3, padding=(1.5, 2.5))
+        msg = str(ctx.exception)
+        self.assertIn('Tuple[int, int]', msg)
+        self.assertIn('float', msg)
 
 
 class TestConvWeightMask(unittest.TestCase):
@@ -1043,9 +1106,19 @@ class TestConvTransposePadding(unittest.TestCase):
         self.assertEqual(conv.padding_mode, 'explicit')
 
     def test_padding_tuple_of_int(self):
-        """A tuple of ints is applied per dimension."""
+        """A flat int tuple gives one symmetric pad per spatial dim (M11).
+
+        For ConvTranspose2d a length-2 tuple ``(1, 2)`` is one value per spatial
+        axis: axis 0 -> (1, 1), axis 1 -> (2, 2), not a single (low, high) pair
+        broadcast to every axis.
+        """
         conv = brainstate.nn.ConvTranspose2d(in_size=(8, 8, 16), out_channels=8, kernel_size=3, padding=(1, 2))
-        self.assertEqual(conv.padding, ((1, 2), (1, 2)))
+        self.assertEqual(conv.padding, ((1, 1), (2, 2)))
+
+    def test_padding_int_tuple_wrong_length_raises(self):
+        """A flat int padding tuple of the wrong length raises ValueError (M11)."""
+        with self.assertRaises(ValueError):
+            brainstate.nn.ConvTranspose2d(in_size=(8, 8, 16), out_channels=8, kernel_size=3, padding=(1, 2, 3))
 
     def test_padding_sequence_of_tuples(self):
         """A full sequence of (low, high) tuples is preserved."""
@@ -1278,3 +1351,71 @@ class TestConvTransposeShapeVsJax(unittest.TestCase):
                     w_ref = jnp.ones((k, 3, 2))
                     y_ref = self._jax_reference(jnp.ones((1, 7, 2)), w_ref, s, padding)
                     self.assertEqual(conv.out_size, y_ref.shape[1:])
+
+
+class TestConvValidationAuditRegressions(unittest.TestCase):
+    """Regression tests for nn-audit items 3/4/5 (conv input validation).
+
+    Items 3 & 5: runtime input validation used ``assert``, which is stripped under
+    ``python -O``. These must raise ``ValueError`` (a subclass-checked exception that
+    survives ``-O``), never ``AssertionError``.
+
+    Item 4: padding parsing raised a cryptic ``IndexError`` on an empty sequence and a
+    bare ``raise ValueError`` with no message.
+    """
+
+    def test_in_size_wrong_length_raises_valueerror(self):
+        """Item 3: in_size length mismatch raises ValueError, not (stripped) assert."""
+        with self.assertRaises(ValueError):
+            brainstate.nn.Conv2d(in_size=(8, 3), out_channels=4, kernel_size=3)  # needs 3 entries
+        with self.assertRaises(ValueError):
+            brainstate.nn.ConvTranspose2d(in_size=(8, 3), out_channels=4, kernel_size=3)
+
+    def test_groups_not_divisible_raises_valueerror(self):
+        """Item 3: non-divisible channels/groups raises ValueError, not assert."""
+        with self.assertRaises(ValueError):
+            brainstate.nn.Conv2d(in_size=(8, 8, 4), out_channels=5, kernel_size=3, groups=2)
+        with self.assertRaises(ValueError):
+            brainstate.nn.ConvTranspose2d(in_size=(8, 8, 4), out_channels=5, kernel_size=3, groups=2)
+
+    def test_invalid_string_padding_raises_valueerror(self):
+        """Item 3: an unknown padding-mode string raises ValueError, not assert."""
+        with self.assertRaises(ValueError):
+            brainstate.nn.Conv2d(in_size=(8, 8, 3), out_channels=4, kernel_size=3, padding='FULL')
+        with self.assertRaises(ValueError):
+            brainstate.nn.ConvTranspose2d(in_size=(8, 8, 3), out_channels=4, kernel_size=3, padding='FULL')
+
+    def test_empty_padding_sequence_raises_valueerror_not_indexerror(self):
+        """Item 4: an empty padding sequence raises a clear ValueError (was IndexError)."""
+        with self.assertRaises(ValueError):
+            brainstate.nn.Conv2d(in_size=(8, 8, 3), out_channels=4, kernel_size=3, padding=[])
+        with self.assertRaises(ValueError):
+            brainstate.nn.ConvTranspose2d(in_size=(8, 8, 3), out_channels=4, kernel_size=3, padding=[])
+
+    def test_invalid_padding_type_has_message(self):
+        """Item 4: the bare ``raise ValueError`` now carries an explanatory message."""
+        with self.assertRaises(ValueError) as ctx:
+            brainstate.nn.Conv2d(in_size=(8, 8, 3), out_channels=4, kernel_size=3, padding=3.5)
+        self.assertTrue(str(ctx.exception))  # non-empty message
+
+    def test_validation_not_assertion(self):
+        """Items 3/5: the raised exception is ValueError, not AssertionError.
+
+        (``AssertionError`` would be silently removed by ``python -O``.)
+        """
+        for bad in (
+            lambda: brainstate.nn.Conv2d(in_size=(8, 3), out_channels=4, kernel_size=3),
+            lambda: brainstate.nn.Conv2d(in_size=(8, 8, 4), out_channels=5, kernel_size=3, groups=2),
+            lambda: brainstate.nn.Conv2d(in_size=(8, 8, 3), out_channels=4, kernel_size=3, padding='FULL'),
+        ):
+            with self.assertRaises(ValueError):
+                bad()
+            self.assertNotIsInstance(self._capture(bad), AssertionError)
+
+    @staticmethod
+    def _capture(fn):
+        try:
+            fn()
+        except Exception as e:  # noqa: BLE001
+            return e
+        return None

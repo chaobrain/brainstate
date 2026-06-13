@@ -133,7 +133,13 @@ def named_scope(
     ``static_argnums``/``static_argnames`` may also be callables that compute the
     static configuration from the actual call arguments.
 
-    The decorated function supports being used as a class bound method.
+    The decorated function supports being used as a class bound method. When
+    used on a method, the instance is passed as the first positional argument
+    (index 0). Under ``ir_compilation=True`` that argument is JIT-traced, so the
+    instance (index 0) must be included in ``static_argnums`` to be treated as a
+    static/closed-over value (mirroring the convention used elsewhere in
+    brainstate, e.g. ``RandomState``); otherwise JIT tries to abstractify the
+    instance and fails.
 
     Parameters
     ----------
@@ -170,13 +176,14 @@ def named_scope(
     ... def scaled_power(x, n, scale):
     ...     return (x ** n) * scale  # n and scale are static
 
-    As a class method:
+    As a class method (the instance at index 0 must be marked static so it is
+    not JIT-abstractified under ``ir_compilation=True``):
 
     >>> class MyModule:
     ...     def __init__(self, scale):
     ...         self.scale = scale
     ...
-    ...     @named_scope(name='compute')
+    ...     @named_scope(name='compute', static_argnums=0)
     ...     def compute(self, x):
     ...         return x * self.scale
     """

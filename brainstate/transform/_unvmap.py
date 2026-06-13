@@ -39,8 +39,10 @@ def unvmap(x: ArrayLike, op: str = 'any') -> Any:
 
     Parameters
     ----------
-    x : Any
-        Value produced inside a :func:`jax.vmap`-transformed function.
+    x : ArrayLike
+        A single array value produced inside a :func:`jax.vmap`-transformed
+        function. The reductions bind a JAX primitive and accept only one array;
+        pytrees are not supported.
     op : {'all', 'any', 'none', 'max'}, default='any'
         Reduction to apply across the vmapped axis. ``'none'`` returns ``x`` without
         reduction, while ``'max'`` computes the maximum element.
@@ -88,8 +90,10 @@ def unvmap_all(x):
 
     Parameters
     ----------
-    x : Any
-        Input array or pytree produced under :func:`jax.vmap`.
+    x : ArrayLike
+        A single input array produced under :func:`jax.vmap`. This is bound to a
+        JAX primitive (``Primitive.bind``), which accepts only one array value;
+        pytrees are not supported.
 
     Returns
     -------
@@ -141,8 +145,10 @@ def unvmap_any(x):
 
     Parameters
     ----------
-    x : Any
-        Input array or pytree produced under :func:`jax.vmap`.
+    x : ArrayLike
+        A single input array produced under :func:`jax.vmap`. This is bound to a
+        JAX primitive (``Primitive.bind``), which accepts only one array value;
+        pytrees are not supported.
 
     Returns
     -------
@@ -194,8 +200,10 @@ def unvmap_max(x):
 
     Parameters
     ----------
-    x : Any
-        Input array or pytree produced under :func:`jax.vmap`.
+    x : ArrayLike
+        A single input array produced under :func:`jax.vmap`. This is bound to a
+        JAX primitive (``Primitive.bind``), which accepts only one array value;
+        pytrees are not supported.
 
     Returns
     -------

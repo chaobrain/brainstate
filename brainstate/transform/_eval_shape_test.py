@@ -178,3 +178,39 @@ class TestFailedEvalShapeUnwindsNewStates:
         assert st.stack_level == 0
         st.value = jnp.ones(3)
         assert bool(jnp.allclose(st.value, jnp.ones(3)))
+
+
+class TestEvalShapeReadOnlyStateShapes:
+    """``eval_shape(return_state_shapes=True)`` must return a real
+    ``jax.ShapeDtypeStruct`` for read-only states too, not ``None`` (audit
+    M33)."""
+
+    def test_read_only_state_gets_shapedtypestruct(self):
+        s_read = brainstate.State(jnp.ones(3))
+        s_write = brainstate.State(jnp.zeros(4))
+
+        def f(x):
+            a = s_read.value
+            s_write.value = s_write.value + 1.
+            return a.sum() + x
+
+        sm, out = brainstate.transform.eval_shape(
+            f, jnp.ones(()), return_state_shapes=True
+        )
+        assert isinstance(sm[s_read], jax.ShapeDtypeStruct)
+        assert sm[s_read].shape == (3,)
+        assert isinstance(sm[s_write], jax.ShapeDtypeStruct)
+        assert sm[s_write].shape == (4,)
+
+    def test_pure_read_only_state(self):
+        # A state that is ONLY read (never written) still maps to a shape.
+        s_read = brainstate.State(jnp.ones((2, 5)))
+
+        def f(x):
+            return s_read.value.sum() + x
+
+        sm, out = brainstate.transform.eval_shape(
+            f, jnp.ones(()), return_state_shapes=True
+        )
+        assert isinstance(sm[s_read], jax.ShapeDtypeStruct)
+        assert sm[s_read].shape == (2, 5)

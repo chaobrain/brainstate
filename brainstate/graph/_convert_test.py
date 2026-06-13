@@ -168,6 +168,77 @@ class TestAliasingChecks(unittest.TestCase):
         tree, _ = graph_to_tree([shared, shared], prefix=[0, 1], check_aliasing=False)
         self.assertIsNotNone(tree)
 
+    def test_inconsistent_stateless_shared_node_raises(self):
+        """A *state-free* shared node with conflicting prefixes still raises.
+
+        Regression (L7): ``check_consistent_aliasing`` only iterated
+        ``iter_leaf`` (which yields leaf States, never graph nodes), so the
+        graph-node aliasing branch was dead. A stateless shared node therefore
+        recorded no prefixes and inconsistent aliasing went undetected. The
+        added ``iter_node`` pass must catch it.
+        """
+
+        class Empty(brainstate.graph.Node):
+            """A graph node carrying no ``State`` leaves at all."""
+
+            def __init__(self):
+                self.name = 'x'
+
+        shared = Empty()
+        with self.assertRaises(ValueError):
+            graph_to_tree([shared, shared], prefix=[0, 1])
+
+    def test_consistent_stateless_shared_node_ok(self):
+        """A consistently-prefixed *state-free* shared node does not raise."""
+
+        class Empty(brainstate.graph.Node):
+            def __init__(self):
+                self.name = 'x'
+
+        shared = Empty()
+        graph_to_tree([shared, shared], prefix=0)  # should not raise
+
+    def test_nested_graph_node_walked_and_recorded(self):
+        """The ``iter_node`` pass descends into *nested* graph nodes too.
+
+        ``check_consistent_aliasing`` walks every graph node reachable from a
+        leaf (the leaf node and each nested graph-node child). A single node that
+        holds an inner graph node must split without raising; the walk visits both
+        the outer and the inner node.
+        """
+
+        class Inner(brainstate.graph.Node):
+            def __init__(self):
+                self.w = brainstate.ParamState(jnp.ones((2,)))
+
+        class Outer(brainstate.graph.Node):
+            def __init__(self, inner):
+                self.inner = inner  # a nested graph node
+
+        tree, _ = graph_to_tree(Outer(Inner()), prefix=0)
+        self.assertIsNotNone(tree)
+
+    def test_shared_nested_graph_node_inconsistent_prefix_raises(self):
+        """A *nested* graph node shared across slots with conflicting prefixes
+        is detected by the per-node aliasing walk and raises ``ValueError``.
+
+        The inner node is reachable only by descending into each outer node, so
+        catching the conflict proves the walk records prefixes for nested nodes,
+        not just the top-level leaf node.
+        """
+
+        class Inner(brainstate.graph.Node):
+            def __init__(self):
+                self.w = brainstate.ParamState(jnp.ones((2,)))
+
+        class Outer(brainstate.graph.Node):
+            def __init__(self, inner):
+                self.inner = inner
+
+        inner = Inner()
+        with self.assertRaises(ValueError):
+            graph_to_tree([Outer(inner), Outer(inner)], prefix=[0, 1])
+
 
 class TestConvertHelpers(unittest.TestCase):
     """Internal helpers used by the conversion routines."""
@@ -184,6 +255,40 @@ class TestConvertHelpers(unittest.TestCase):
         self.assertIs(cls, RandomState)
         # Second call returns the cached class.
         self.assertIs(_convert._get_rand_state(), RandomState)
+
+
+class TestLeafPrefixParityValidation(unittest.TestCase):
+    """The leaf/prefix length-parity guard must hold even under ``python -O``.
+
+    The check was historically an ``assert``, which is stripped when Python runs
+    optimized; a length mismatch would then silently truncate-``zip`` leaves and
+    prefixes (a wrong result) instead of raising. These tests force a mismatch
+    and require the *explicit* parity ``ValueError`` (identified by its message),
+    so they fail if the guard reverts to a stripped ``assert``.
+    """
+
+    def test_graph_to_tree_mismatched_prefixes_raise(self):
+        node = _Linear(2, 3)
+        original = _convert.broadcast_prefix
+        # Force a prefix list one element longer than the flattened leaves so the
+        # explicit guard (not a downstream pytree error) is the one that fires.
+        _convert.broadcast_prefix = lambda *a, **k: original(*a, **k) + [None]
+        try:
+            with self.assertRaisesRegex(ValueError, 'Mismatched number of leaves'):
+                graph_to_tree(node)
+        finally:
+            _convert.broadcast_prefix = original
+
+    def test_tree_to_graph_mismatched_prefixes_raise(self):
+        node = _Linear(2, 3)
+        tree, _ = graph_to_tree(node)
+        original = _convert.broadcast_prefix
+        _convert.broadcast_prefix = lambda *a, **k: original(*a, **k) + [None]
+        try:
+            with self.assertRaisesRegex(ValueError, 'Mismatched number of leaves'):
+                tree_to_graph(tree)
+        finally:
+            _convert.broadcast_prefix = original
 
 
 if __name__ == "__main__":

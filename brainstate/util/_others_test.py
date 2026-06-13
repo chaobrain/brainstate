@@ -110,6 +110,30 @@ class TestSplitTotal(unittest.TestCase):
             split_total(100, 150)
         self.assertIn("cannot be greater than total", str(ctx.exception))
 
+    def test_bool_rejected(self):
+        """Reject bool arguments so they are never treated as 0/1 or leak into the int return.
+
+        ``bool`` is a subclass of ``int``; without an explicit guard
+        ``split_total(100, True)`` would return ``True`` and ``split_total(True, 0.5)``
+        would silently treat the total as ``1``.
+        """
+        # bool fraction must raise (would otherwise be int 0/1 and return a bool)
+        for frac in (True, False):
+            with self.assertRaises(TypeError) as ctx:
+                split_total(100, frac)
+            self.assertIn("must be an integer or float", str(ctx.exception))
+
+        # bool total must raise (would otherwise pass the int check as 0/1)
+        for tot in (True, False):
+            with self.assertRaises(TypeError) as ctx:
+                split_total(tot, 0.5)
+            self.assertIn("must be an integer", str(ctx.exception))
+
+    def test_return_type_is_strict_int(self):
+        """Return a strict ``int`` (never a ``bool``) for all valid inputs."""
+        for r in (split_total(100, 0.5), split_total(100, 25), split_total(100, 100), split_total(100, 0)):
+            self.assertIs(type(r), int)
+
 
 class TestNameContext(unittest.TestCase):
     """Test cases for NameContext and get_unique_name."""
@@ -713,6 +737,80 @@ class TestDotDict(unittest.TestCase):
         self.assertIsInstance(dd2.b, DotDict)
         self.assertEqual(dd2.b.d.e, 3)
 
+    def test_namedtuple_values(self):
+        """Regression (H20): namedtuples must survive _hook and to_dict."""
+        from collections import namedtuple
+        Point = namedtuple('Point', ['x', 'y'])
+
+        # Construction must not raise on a namedtuple value.
+        dd = DotDict({'p': Point(1, 2)})
+        self.assertIsInstance(dd.p, Point)
+        self.assertEqual(dd.p, Point(1, 2))
+
+        # Direct item assignment goes through __setitem__ -> _hook.
+        dd['q'] = Point(3, 4)
+        self.assertIsInstance(dd.q, Point)
+        self.assertEqual(dd.q, Point(3, 4))
+
+        # Nested dicts inside a namedtuple are converted to DotDict.
+        dd2 = DotDict({'p': Point({'a': 1}, 2)})
+        self.assertIsInstance(dd2.p, Point)
+        self.assertIsInstance(dd2.p.x, DotDict)
+        self.assertEqual(dd2.p.x.a, 1)
+
+        # to_dict must mirror the same reconstruction (no TypeError, fields kept).
+        d = dd2.to_dict()
+        self.assertIsInstance(d['p'], Point)
+        self.assertNotIsInstance(d['p'].x, DotDict)
+        self.assertEqual(d['p'].x, {'a': 1})
+        self.assertEqual(d['p'].y, 2)
+
+        # Plain tuples and lists still round-trip.
+        dd3 = DotDict({'t': ({'a': 1},), 'l': [{'b': 2}]})
+        self.assertIsInstance(dd3.t, tuple)
+        self.assertNotIsInstance(dd3.t, Point)
+        self.assertIsInstance(dd3.t[0], DotDict)
+        self.assertIsInstance(dd3.l, list)
+        self.assertIsInstance(dd3.l[0], DotDict)
+        d3 = dd3.to_dict()
+        self.assertEqual(d3['t'], ({'a': 1},))
+        self.assertEqual(d3['l'], [{'b': 2}])
+
+    def test_update_accepts_iterable_of_pairs(self):
+        """Regression (M44): update must accept an iterable of (k, v) pairs."""
+        dd = DotDict({'a': 1})
+        dd.update([('b', 2)])
+        self.assertEqual(dict(dd), {'a': 1, 'b': 2})
+
+        # Recursive-merge path still produces nested DotDict from pairs.
+        dd2 = DotDict({'a': {'x': 1}})
+        dd2.update([('a', {'y': 2})])
+        self.assertIsInstance(dd2.a, DotDict)
+        self.assertEqual(dd2.a.x, 1)
+        self.assertEqual(dd2.a.y, 2)
+
+        # Generators (an iterable of pairs) are accepted too.
+        dd3 = DotDict()
+        dd3.update((k, v) for k, v in [('c', 3), ('d', 4)])
+        self.assertEqual(dict(dd3), {'c': 3, 'd': 4})
+
+        # Bad input raises a clear TypeError, not an opaque AttributeError.
+        with self.assertRaises(TypeError):
+            DotDict().update(123)
+
+    def test_parent_kwarg_no_longer_special(self):
+        """Regression (L26): __parent/__key are ordinary keys, not reserved."""
+        # Previously crashed inside __setitem__ with TypeError.
+        dd = DotDict(__parent=5, a=1)
+        self.assertEqual(set(dd.keys()), {'__parent', 'a'})
+        self.assertEqual(dd['__parent'], 5)
+        self.assertEqual(dd['a'], 1)
+
+        # Behaves identically regardless of the supplied value.
+        dd2 = DotDict(__parent='x', value=1)
+        self.assertEqual(set(dd2.keys()), {'__parent', 'value'})
+        self.assertEqual(dd2['__parent'], 'x')
+
     def test_update_method(self):
         """Test update with recursive merge."""
         dd = DotDict({'a': 1, 'b': {'c': 2, 'd': 3}})
@@ -758,6 +856,80 @@ class TestDotDict(unittest.TestCase):
         result = dd.setdefault('nested', {'value': 3})
         self.assertIsInstance(result, DotDict)
         self.assertEqual(result.value, 3)
+
+    def test_or_operator_preserves_type_and_hooks(self):
+        """``DotDict | dict`` returns a DotDict and recursively hooks nested dicts.
+
+        Without explicit ``__or__`` this delegates to ``dict.__or__`` and returns a
+        plain ``dict`` (losing both the type and the nested-conversion hook).
+        """
+        dd = DotDict({'a': 1})
+        result = dd | {'b': {'c': 2}}
+        self.assertIsInstance(result, DotDict)
+        self.assertIsInstance(result['b'], DotDict)
+        self.assertEqual(result.b.c, 2)
+        # original is unchanged
+        self.assertNotIn('b', dd)
+        # non-mapping right operand is not handled
+        self.assertEqual(dd.__or__(123), NotImplemented)
+
+    def test_ior_operator_preserves_type_and_hooks(self):
+        """``DotDict |= dict`` updates in place via the hook-aware ``update``."""
+        dd = DotDict({'a': 1})
+        dd |= {'b': {'c': 2}}
+        self.assertIsInstance(dd, DotDict)
+        self.assertIsInstance(dd['b'], DotDict)
+        self.assertEqual(dd.b.c, 2)
+
+    def test_ror_operator_with_generic_mapping(self):
+        """``mapping | DotDict`` (non-dict left operand) yields a hooked DotDict."""
+        import collections.abc as abc
+
+        class ReadOnlyMapping(abc.Mapping):
+            def __init__(self, data):
+                self._data = dict(data)
+
+            def __getitem__(self, key):
+                return self._data[key]
+
+            def __iter__(self):
+                return iter(self._data)
+
+            def __len__(self):
+                return len(self._data)
+
+        result = ReadOnlyMapping({'b': {'c': 2}}) | DotDict({'a': 1})
+        self.assertIsInstance(result, DotDict)
+        self.assertIsInstance(result['b'], DotDict)
+        self.assertEqual(result.a, 1)
+        self.assertEqual(result.b.c, 2)
+
+    def test_ror_operator_with_non_mapping_returns_notimplemented(self):
+        """``__ror__`` returns ``NotImplemented`` for a non-Mapping left operand.
+
+        This lets Python fall through to the other operand / raise ``TypeError``
+        rather than mis-handling a non-mapping. Exercises the guard at the top of
+        ``DotDict.__ror__``.
+        """
+        dd = DotDict({'a': 1})
+        self.assertIs(dd.__ror__(5), NotImplemented)
+        self.assertIs(dd.__ror__("not a mapping"), NotImplemented)
+        # As a consequence, ``non_mapping | dotdict`` raises TypeError.
+        with self.assertRaises(TypeError):
+            _ = 5 | dd
+
+    def test_ior_operator_with_non_mapping_returns_notimplemented(self):
+        """``__ior__`` returns ``NotImplemented`` for a non-Mapping right operand.
+
+        Exercises the guard at the top of ``DotDict.__ior__``; the original
+        DotDict must be left untouched.
+        """
+        dd = DotDict({'a': 1})
+        self.assertIs(dd.__ior__(5), NotImplemented)
+        self.assertEqual(dict(dd), {'a': 1})  # unchanged
+        # ``dotdict |= non_mapping`` therefore raises TypeError.
+        with self.assertRaises(TypeError):
+            dd |= 5
 
     def test_pickling(self):
         """Test pickling/unpickling."""
@@ -925,6 +1097,54 @@ class TestUtilityFunctions(unittest.TestCase):
         unflattened = unflatten_dict(flattened)
         self.assertEqual(unflattened, original)
 
+    def test_flatten_dict_preserves_empty_subdicts(self):
+        """Regression (M43): empty sub-dicts must not be dropped on flatten."""
+        # Top-level empty dict.
+        self.assertEqual(flatten_dict({'a': 1, 'b': {}}), {'a': 1, 'b': {}})
+        # Entirely-empty content.
+        self.assertEqual(flatten_dict({'b': {}}), {'b': {}})
+
+        # Round-trip with empty sub-dicts at top level and nested.
+        for x in (
+            {'a': 1, 'b': {}},
+            {'b': {'c': {}}},
+            {'a': 1, 'b': {'c': {}, 'd': 2}},
+        ):
+            self.assertEqual(unflatten_dict(flatten_dict(x)), x)
+
+    def test_unflatten_dict_copies_dict_leaves(self):
+        """Regression (M43): dict leaf values must not alias the input."""
+        flat = {'b': {}}
+        out = unflatten_dict(flat)
+        out['b']['mutated'] = 1
+        self.assertEqual(flat, {'b': {}})  # input unchanged
+
+    def test_flatten_dict_rejects_key_collision(self):
+        """Regression (L25): colliding joined keys must raise, not silently drop."""
+        with self.assertRaises(ValueError):
+            flatten_dict({'a.b': 1, 'a': {'b': 2}})
+        with self.assertRaises(ValueError):
+            flatten_dict({'a': {'b': 2}, 'a.b': 1})
+
+    def test_flatten_dict_rejects_empty_subdict_key_collision(self):
+        """An *empty* sub-dict whose emitted key collides with an already-present
+        key must also raise, not silently overwrite.
+
+        Empty sub-dicts take a dedicated branch (they emit a ``{}`` placeholder so
+        flatten/unflatten round-trips). That branch must still honour the
+        duplicate-key guard: here a non-empty sibling ``'a'`` first emits ``'a.b'``,
+        then the empty sibling ``'a.b': {}`` would re-emit the same joined key.
+        """
+        with self.assertRaisesRegex(ValueError, "duplicate key 'a.b'"):
+            flatten_dict({'a': {'b': 1}, 'a.b': {}})
+
+    def test_flatten_dict_rejects_non_string_nested_keys(self):
+        """Regression (L25): non-string nested keys must raise, not coerce."""
+        with self.assertRaises(TypeError):
+            flatten_dict({1: 'a', 2: {3: 'b'}})
+        # A non-string top-level key (no nesting) is preserved verbatim.
+        self.assertEqual(flatten_dict({1: 'a', 2: 'b'}), {1: 'a', 2: 'b'})
+
     def test_is_instance_eval(self):
         """Test is_instance_eval function."""
         # Single type
@@ -1017,6 +1237,69 @@ class TestJaxIntegration(unittest.TestCase):
             doubled['dict_manager']['a'],
             jnp.array([2, 4])
         ))
+
+
+class TestClearBufferMemory(unittest.TestCase):
+    """Test cases for clear_buffer_memory error handling (item 3)."""
+
+    def test_runs_without_error_when_buffers_delete_cleanly(self):
+        """Complete normally when every live buffer deletes cleanly (happy path).
+
+        Mocks the backend instead of clearing the real one: a real
+        ``clear_buffer_memory()`` deletes JAX's process-global device buffers,
+        including the ordered-effect runtime token that ``jit_error_if`` relies
+        on. Tearing that down corrupts unrelated tests later in the same process
+        (``BlockHostUntilReady() called on deleted or donated buffer``). The real
+        deletion loop and its error handling are covered by the mocked tests below.
+        """
+        buf1, buf2 = MagicMock(), MagicMock()
+        backend = MagicMock()
+        backend.live_buffers.return_value = [buf1, buf2]
+        with patch("brainstate._compatible_import.get_backend", return_value=backend):
+            clear_buffer_memory()  # should not raise
+        buf1.delete.assert_called_once()
+        buf2.delete.assert_called_once()
+
+    def test_per_buffer_delete_failure_warns_and_continues(self):
+        """Warn per failing buffer deletion but still delete the others.
+
+        Previously every error was swallowed under a single warning; now each
+        ``delete()`` failure is isolated so one bad buffer cannot abort the loop.
+        """
+        good = MagicMock()
+        bad = MagicMock()
+        bad.delete.side_effect = RuntimeError("cannot free")
+        another = MagicMock()
+        backend = MagicMock()
+        backend.live_buffers.return_value = [good, bad, another]
+
+        with patch("brainstate._compatible_import.get_backend", return_value=backend):
+            with self.assertWarns(RuntimeWarning):
+                clear_buffer_memory()
+
+        # the failing buffer did not prevent the others from being deleted
+        good.delete.assert_called_once()
+        another.delete.assert_called_once()
+
+    def test_backend_acquisition_error_is_not_swallowed(self):
+        """Surface setup errors (e.g. unknown platform) instead of hiding them.
+
+        The old implementation caught *all* exceptions, masking a genuine
+        misconfiguration; backend acquisition failures should now propagate.
+        """
+        with patch(
+            "brainstate._compatible_import.get_backend",
+            side_effect=RuntimeError("unknown platform"),
+        ):
+            with self.assertRaises(RuntimeError):
+                clear_buffer_memory(platform="definitely_not_a_platform")
+
+    def test_array_false_skips_buffer_clearing(self):
+        """Skip buffer clearing entirely when ``array=False``."""
+        backend = MagicMock()
+        with patch("brainstate._compatible_import.get_backend", return_value=backend) as gb:
+            clear_buffer_memory(array=False)
+        gb.assert_not_called()
 
 
 if __name__ == '__main__':

@@ -656,6 +656,30 @@ class TestMaxUnpool2d(parameterized.TestCase):
         # Check shape
         self.assertEqual(unpooled.shape, (1, 2, 2, 2))
 
+    def test_maxunpool2d_interleaved_channel_axis_roundtrip(self):
+        """Regression (H8): unpool handles a non-contiguous (interleaved) channel axis.
+
+        With ``channel_axis=2`` the layout is ``(N, H, C, W)``, so the spatial axes
+        (1 and 3) are *not* contiguous. The previous implementation assumed a single
+        contiguous spatial block and mislaid values; here a pool/unpool roundtrip must
+        recover the correct shape and the pooled maxima.
+        """
+        with seeded(11):
+            arr = brainstate.random.randn(1, 4, 2, 4)  # (N, H, C, W)
+
+        pool = nn.MaxPool2d(2, 2, channel_axis=2, return_indices=True)
+        pooled, indices = pool(arr)
+        # Spatial axes 1 (H: 4->2) and 3 (W: 4->2); channel axis 2 (size 2) untouched.
+        self.assertEqual(pooled.shape, (1, 2, 2, 2))
+
+        unpool = nn.MaxUnpool2d(2, 2, channel_axis=2)
+        unpooled = unpool(pooled, indices)
+
+        self.assertEqual(unpooled.shape, (1, 4, 2, 4))
+        # The non-zero entries of the reconstruction are exactly the pooled maxima.
+        assert_allclose(jnp.sum(unpooled), jnp.sum(pooled))
+        self.assertEqual(float(jnp.max(unpooled)), float(jnp.max(pooled)))
+
 
 class TestMaxUnpool3d(parameterized.TestCase):
     """Comprehensive tests for MaxUnpool3d."""
@@ -1044,6 +1068,30 @@ class TestFlattenInSizePaths(unittest.TestCase):
         assert_jit_equal(f, x)
         assert_grad_finite(lambda y: jnp.sum(f(y)), x)
 
+    def test_flatten_in_size_positive_end_axis_rebased(self):
+        """Regression (H7): a positive ``end_axis`` is rebased by the batch offset.
+
+        With ``in_size=(3, 4, 5)`` and a leading batch dim, ``Flatten(0, 1)`` should
+        flatten the *local* first two axes (3, 4) -> 12, leaving the batch and the
+        trailing 5 intact. Before the fix, ``end_axis`` was passed unrebased, so the
+        flattened span was wrong.
+        """
+        f = nn.Flatten(start_axis=0, end_axis=1, in_size=(3, 4, 5))
+        out = f(brainstate.random.randn(2, 3, 4, 5))
+        self.assertEqual(out.shape, (2, 12, 5))
+
+    def test_flatten_in_size_default_end_axis_unchanged(self):
+        """Regression (H7): a negative (default) ``end_axis`` still resolves correctly.
+
+        ``start_axis`` is relative to ``in_size=(3, 4, 5)``; with a leading batch dim
+        ``dim_diff == 1`` rebases ``start_axis=1`` to local axis 2 and ``end_axis=-1``
+        to the last axis, flattening (4, 5) -> 20 while leaving the batch and the
+        first in_size axis intact.
+        """
+        f = nn.Flatten(start_axis=1, in_size=(3, 4, 5))
+        out = f(brainstate.random.randn(2, 3, 4, 5))
+        self.assertEqual(out.shape, (2, 3, 20))
+
 
 class TestMaxPoolConstructorValidation(unittest.TestCase):
     """Cover the argument-validation branches in the ``_MaxPool`` base class."""
@@ -1197,6 +1245,26 @@ class TestAvgPoolExtra(unittest.TestCase):
         assert_jit_equal(pool, x)
         assert_grad_finite(lambda y: jnp.sum(pool(y)), x)
 
+    def test_avgpool_all_padding_window_is_nan_free(self):
+        """Regression (M15): a window that is entirely padding does not produce NaN.
+
+        With ``kernel_size=3``, ``stride=3`` and ``padding=3`` the border windows
+        consist solely of padding cells, so the valid-element count there is 0.
+        The naive ``pooled / window_counts`` divisor yields 0/0 = NaN; the NaN-safe
+        divisor (``jnp.maximum(window_counts, 1)``) must keep the output finite.
+        """
+        pool = nn.AvgPool1d(3, stride=3, padding=3, channel_axis=-1)
+        out = pool(brainstate.random.randn(1, 9, 2))
+        self.assertTrue(bool(jnp.all(jnp.isfinite(out))))
+
+    def test_avgpool_valid_padding_is_finite(self):
+        """Regression (M15): ordinary padded pooling stays finite and correct."""
+        pool = nn.AvgPool1d(3, stride=1, padding=1, channel_axis=-1)
+        out = pool(jnp.ones((1, 6, 2)))
+        self.assertTrue(bool(jnp.all(jnp.isfinite(out))))
+        # Constant ones input averages back to ones (padding cells are excluded).
+        assert_allclose(out, jnp.ones_like(out))
+
 
 class TestMaxUnpoolValidation(unittest.TestCase):
     """Cover the validation and output-shape branches of ``_MaxUnpool``."""
@@ -1319,6 +1387,18 @@ class TestLPPoolValidation(unittest.TestCase):
         with self.assertRaises(ValueError):
             nn.LPPool2d(norm_type=-1.0, kernel_size=2)
 
+    def test_nonfinite_norm_type_raises(self):
+        """Regression (M16): a non-finite ``norm_type`` (inf/nan) is rejected.
+
+        ``p = inf`` would correspond to max pooling only in the limit; the
+        implementation cannot evaluate it, so it must raise rather than silently
+        producing NaNs.
+        """
+        with self.assertRaises(ValueError):
+            nn.LPPool1d(float('inf'), kernel_size=2, stride=2, channel_axis=-1)
+        with self.assertRaises(ValueError):
+            nn.LPPool2d(float('nan'), kernel_size=2)
+
     def test_kernel_size_wrong_length_raises(self):
         """An LP kernel tuple of the wrong length is rejected."""
         with self.assertRaises(ValueError):
@@ -1408,6 +1488,17 @@ class TestLPPoolTransforms(unittest.TestCase):
         assert_jit_equal(pool, x)
         assert_grad_finite(lambda y: jnp.sum(pool(y)), x)
 
+    def test_lppool1d_grad_finite_at_all_zero_window(self):
+        """Regression (M17): the gradient is finite even when a window is all zeros.
+
+        At an all-zero window ``pooled_sum == 0`` and the naive ``sum ** (1/p)`` has an
+        infinite derivative, producing a NaN gradient. The double-``where`` guard must
+        keep the gradient finite (and zero) there.
+        """
+        pool = nn.LPPool1d(2.0, 2, stride=2, channel_axis=None)
+        grad = jax.grad(lambda x: jnp.sum(pool(x)))(jnp.zeros(4))
+        self.assertTrue(bool(jnp.all(jnp.isfinite(grad))))
+
     @pytest.mark.slow
     def test_lppool3d_grad_large_kernel(self):
         """LPPool3d gradients remain finite with a larger kernel."""
@@ -1458,6 +1549,23 @@ class TestAdaptivePoolValidation(unittest.TestCase):
         p = nn.AdaptiveAvgPool1d(5, channel_axis=None)
         out = p(brainstate.random.randn(2, 32))
         self.assertEqual(out.shape, (2, 5))
+
+    def test_adaptive_pool_target_larger_than_input_raises(self):
+        """Regression (H9): target size larger than the input raises ValueError.
+
+        Previously this hit ``num_block = size // target_size == 0`` and raised a
+        bare ``ZeroDivisionError`` from the reshape; it must now raise a clear
+        ``ValueError`` (upsampling is unsupported).
+        """
+        p = nn.AdaptiveAvgPool1d(5, channel_axis=-1)
+        with self.assertRaises(ValueError):
+            p(brainstate.random.randn(1, 3, 2))  # pooled axis size 3 < target 5
+
+    def test_adaptive_pool1d_target_larger_raises_directly(self):
+        """Regression (H9): the internal 1D helper raises ValueError, not ZeroDivisionError."""
+        from brainstate.nn._poolings import _adaptive_pool1d
+        with self.assertRaises(ValueError):
+            _adaptive_pool1d(brainstate.random.rand(3), 5, jnp.mean)
 
     def test_negative_channel_axis_forward(self):
         """Adaptive pooling resolves a negative channel axis."""
@@ -1524,6 +1632,182 @@ class TestAdaptivePoolTransforms(unittest.TestCase):
         with seeded(9):
             x = brainstate.random.randn(1, 8, 8, 8, 2)
         assert_grad_finite(lambda y: jnp.sum(pool(y)), x)
+
+
+class TestPoolingAuditRegressions(unittest.TestCase):
+    """Regression tests for pooling audit findings (P3-P8)."""
+
+    def test_maxpool_stride_length_error_reports_stride_len(self):
+        # P4: the stride-length error must mention the stride length, not the
+        # kernel length. With kernel len 2 and stride len 3 the message must
+        # report 3.
+        with self.assertRaises(ValueError) as ctx:
+            nn.MaxPool2d(kernel_size=(2, 2), stride=(2, 2, 2))
+        self.assertIn("got 3", str(ctx.exception))
+
+    def test_maxpool_bad_kernel_element_raises_not_assert(self):
+        # P3: non-int kernel elements must raise (TypeError), not rely on
+        # ``assert`` (which is stripped under ``python -O``).
+        with self.assertRaises(TypeError):
+            nn.MaxPool2d(kernel_size=(2.0, 2))
+
+    def test_maxpool_bad_channel_axis_raises_not_assert(self):
+        # P3: a bad channel_axis must raise TypeError, not assert.
+        with self.assertRaises(TypeError):
+            nn.MaxPool2d(kernel_size=2, channel_axis=1.5)
+
+    def test_lppool_bad_stride_element_raises_not_assert(self):
+        # P3/P5: _LPPool must validate via raise, not assert.
+        with self.assertRaises(TypeError):
+            nn.LPPool2d(norm_type=2, kernel_size=2, stride=(2.0, 2))
+
+    def test_adaptivepool_rejects_str_target_size(self):
+        # P6: a str target_size must be rejected (str is a Sequence).
+        with self.assertRaises(TypeError):
+            nn.AdaptiveAvgPool1d(target_size="ab")
+
+    def test_adaptivepool_rejects_nonpositive_target_size(self):
+        # P6: non-positive target sizes must be rejected.
+        with self.assertRaises(ValueError):
+            nn.AdaptiveAvgPool1d(target_size=0)
+        with self.assertRaises(ValueError):
+            nn.AdaptiveAvgPool2d(target_size=(2, -1))
+
+    def test_adaptivepool_channel_axis_zero_preserves_channels(self):
+        # P7/P8: channel_axis=0 must skip the channel axis when pooling. Input
+        # (C=3, L=4) -> (C=3, L=2); previously ``if channel_axis:`` was falsy for
+        # 0 and the channel axis was incorrectly pooled.
+        pool = nn.AdaptiveAvgPool1d(target_size=2, channel_axis=0)
+        x = jnp.arange(12.0).reshape(3, 4)
+        y = pool(x)
+        self.assertEqual(y.shape, (3, 2))
+        # Each channel row is the mean over its two adaptive windows.
+        expected = jnp.stack([
+            jnp.array([(x[c, 0] + x[c, 1]) / 2, (x[c, 2] + x[c, 3]) / 2])
+            for c in range(3)
+        ])
+        np.testing.assert_allclose(np.asarray(y), np.asarray(expected), rtol=1e-6)
+
+
+class TestPoolingSequenceBranchValidation(unittest.TestCase):
+    """Cover the ``Sequence``-but-not-``tuple``/``list`` and non-int-element
+    validation branches across the pooling base classes.
+
+    These branches fire for an argument that *is* a ``collections.abc.Sequence``
+    (so it passes the ``isinstance(x, Sequence)`` guard) yet is neither a tuple
+    nor a list -- e.g. a ``range`` object -- and for tuple/list arguments whose
+    elements are not all ints. The existing tests only exercise the outer
+    ``else`` (non-int, non-sequence) branch, so these complete the matrix.
+    """
+
+    # ------------------------------------------------------------------ _MaxPool
+
+    def test_maxpool_kernel_size_sequence_not_tuple_raises(self):
+        """A ``range`` kernel_size (a Sequence, not a tuple/list) is rejected."""
+        with self.assertRaisesRegex(TypeError, 'kernel_size should be a tuple'):
+            nn.MaxPool2d(range(2))
+
+    def test_maxpool_stride_sequence_not_tuple_raises(self):
+        """A ``range`` stride (a Sequence, not a tuple/list) is rejected."""
+        with self.assertRaisesRegex(TypeError, 'stride should be a tuple'):
+            nn.MaxPool2d(2, stride=range(2))
+
+    def test_maxpool_stride_non_int_elements_raises(self):
+        """A stride tuple containing a non-int element is rejected."""
+        with self.assertRaisesRegex(TypeError, 'stride should be a tuple of ints'):
+            nn.MaxPool2d(2, stride=(2.0, 2))
+
+    def test_maxpool_padding_tuple_sequence_wrong_length_raises(self):
+        """A sequence of ``(lo, hi)`` padding pairs of the wrong length is rejected.
+
+        Each entry is a valid 2-tuple, so validation falls through to the final
+        length check, which must reject a length that is neither 1 nor ``pool_dim``.
+        """
+        with self.assertRaisesRegex(ValueError, 'padding should has the length of 2'):
+            nn.MaxPool2d(2, padding=[(1, 1), (1, 1), (1, 1)])
+
+    # ---------------------------------------------------------------- _MaxUnpool
+
+    def test_maxunpool_kernel_size_sequence_not_tuple_raises(self):
+        """A ``range`` unpool kernel_size is rejected."""
+        with self.assertRaisesRegex(TypeError, 'kernel_size should be a tuple'):
+            nn.MaxUnpool2d(range(2))
+
+    def test_maxunpool_kernel_size_non_int_elements_raises(self):
+        """An unpool kernel tuple with a non-int element is rejected."""
+        with self.assertRaisesRegex(TypeError, 'kernel_size should be a tuple of ints'):
+            nn.MaxUnpool2d((2.0, 2))
+
+    def test_maxunpool_stride_sequence_not_tuple_raises(self):
+        """A ``range`` unpool stride is rejected."""
+        with self.assertRaisesRegex(TypeError, 'stride should be a tuple'):
+            nn.MaxUnpool2d(2, stride=range(2))
+
+    def test_maxunpool_stride_non_int_elements_raises(self):
+        """An unpool stride tuple with a non-int element is rejected."""
+        with self.assertRaisesRegex(TypeError, 'stride should be a tuple of ints'):
+            nn.MaxUnpool2d(2, stride=(2.0, 2))
+
+    def test_maxunpool_channel_axis_non_int_raises(self):
+        """A non-int, non-None unpool ``channel_axis`` is rejected."""
+        with self.assertRaisesRegex(TypeError, 'channel_axis should be an int'):
+            nn.MaxUnpool2d(2, channel_axis=1.5)
+
+    # ------------------------------------------------------------------- _LPPool
+
+    def test_lppool_kernel_size_sequence_not_tuple_raises(self):
+        """A ``range`` LP kernel_size is rejected."""
+        with self.assertRaisesRegex(TypeError, 'kernel_size should be a tuple'):
+            nn.LPPool2d(2, range(2))
+
+    def test_lppool_kernel_size_non_int_elements_raises(self):
+        """An LP kernel tuple with a non-int element is rejected."""
+        with self.assertRaisesRegex(TypeError, 'kernel_size should be a tuple of ints'):
+            nn.LPPool2d(2, (2.0, 2))
+
+    def test_lppool_stride_sequence_not_tuple_raises(self):
+        """A ``range`` LP stride is rejected."""
+        with self.assertRaisesRegex(TypeError, 'stride should be a tuple'):
+            nn.LPPool2d(2, 2, stride=range(2))
+
+    def test_lppool_padding_tuple_sequence_wrong_length_raises(self):
+        """A sequence of LP padding pairs of the wrong length is rejected."""
+        with self.assertRaisesRegex(ValueError, 'padding should has the length of 2'):
+            nn.LPPool2d(2, 2, padding=[(1, 1), (1, 1), (1, 1)])
+
+    def test_lppool_channel_axis_non_int_raises(self):
+        """A non-int, non-None LP ``channel_axis`` is rejected."""
+        with self.assertRaisesRegex(TypeError, 'channel_axis should be an int'):
+            nn.LPPool2d(2, 2, channel_axis=1.5)
+
+
+class TestAdaptivePoolHelperValidation(unittest.TestCase):
+    """Cover the lower-bound and element-type guards of adaptive pooling."""
+
+    def test_adaptive_pool1d_target_size_below_one_raises(self):
+        """The 1D helper rejects ``target_size < 1`` before any reshape.
+
+        This guard sits ahead of the ``size < target_size`` check, so it is only
+        reachable by calling the helper directly with a non-positive target (the
+        public layers reject ``target_size <= 0`` earlier in their constructor).
+        """
+        from brainstate.nn._poolings import _adaptive_pool1d
+        with self.assertRaisesRegex(ValueError, 'target_size must be >= 1'):
+            _adaptive_pool1d(jnp.arange(4.0), 0, jnp.mean)
+        with self.assertRaisesRegex(ValueError, 'target_size must be >= 1'):
+            _adaptive_pool1d(jnp.arange(4.0), -3, jnp.mean)
+
+    def test_adaptive_pool_target_size_non_int_entry_raises(self):
+        """A target-size tuple with a non-int, non-None entry is rejected.
+
+        This is distinct from the non-positive-entry case (``(2, -1)``): here the
+        offending entry is a float, so the ``isinstance(t, int)`` guard fires with
+        a ``TypeError`` rather than the value-range ``ValueError``.
+        """
+        with self.assertRaisesRegex(TypeError, 'target_size.*entries must be ints or None'):
+            nn.AdaptiveAvgPool2d((2, 2.5))
+        with self.assertRaisesRegex(TypeError, 'target_size.*entries must be ints or None'):
+            nn.AdaptiveMaxPool2d((2, 2.5))
 
 
 if __name__ == '__main__':
