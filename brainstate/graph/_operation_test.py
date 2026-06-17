@@ -246,7 +246,7 @@ class TestGraphUtils(absltest.TestCase):
         assert node2.bar.weight is node2.baz.weight
 
     def test_tied_weights_example_with_braintools(self):
-        braintools = pytest.importorskip('braintools')
+        braintools = pytest.importorskip('braintools', exc_type=ImportError)
 
         class LinearTranspose(brainstate.nn.Module):
             def __init__(self, dout: int, din: int) -> None:
