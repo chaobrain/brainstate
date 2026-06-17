@@ -471,7 +471,7 @@ class TestCountParameters(unittest.TestCase):
 
     def test_count_matches_param_numel(self):
         """The returned total equals the sum of ParamState element counts."""
-        pytest.importorskip("prettytable")
+        pytest.importorskip("prettytable", exc_type=ImportError)
         model = brainstate.nn.Linear(4, 3)
         total = brainstate.nn.count_parameters(model)
         # weight (4x3) + bias (3) = 15.
@@ -479,7 +479,7 @@ class TestCountParameters(unittest.TestCase):
 
     def test_return_table_returns_pair(self):
         """``return_table=True`` returns a ``(table, total)`` pair."""
-        prettytable = pytest.importorskip("prettytable")
+        prettytable = pytest.importorskip("prettytable", exc_type=ImportError)
         model = brainstate.nn.Linear(4, 3)
         table, total = brainstate.nn.count_parameters(model, return_table=True)
         self.assertIsInstance(table, prettytable.PrettyTable)
@@ -548,7 +548,7 @@ class TestNNPackageGetattr(unittest.TestCase):
 
     def test_deprecated_name_forwards_to_brainpy(self):
         """A name in ``_DEPRECATED_NAMES`` is forwarded to ``brainpy.state`` with a warning."""
-        brainpy = pytest.importorskip("brainpy")
+        brainpy = pytest.importorskip("brainpy", exc_type=ImportError)
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             obj = brainstate.nn.IF
