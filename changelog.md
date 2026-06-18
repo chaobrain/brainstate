@@ -1,6 +1,22 @@
 # Release Notes
 
 
+## Version 0.5.1 (2026-06-18)
+
+A compatibility patch release for JAX 0.10.2. JAX 0.10 removed the long-standing `jax.interpreters.batching.not_mapped` sentinel — the "not batched" marker that a primitive's batching rule returns to declare an unmapped output — collapsing it to plain `None` (`NotMapped = type(None)`). The custom `unvmap` primitives in `brainstate.transform` still referenced the removed attribute, so every `vmap` that crossed one of them raised `AttributeError`. This release restores compatibility while preserving support for the full `jax>=0.7.0` range. No public APIs are added, removed, or renamed.
+
+### Bug Fixes
+
+#### `brainstate.transform` (#222)
+
+- **JAX 0.10.2 `vmap` regression**: the `unvmap` primitives (`unvmap_all`, `unvmap_any`, `unvmap_max`, and the internal `no_vmap`) returned `jax.interpreters.batching.not_mapped` from their batching rules. JAX 0.10 deleted that attribute — the "not batched" sentinel is now simply `None` — so any `vmap`-traced path that reached these primitives failed with `AttributeError: module 'jax.interpreters.batching' has no attribute 'not_mapped'`. The affected public surface includes `ifelse`, `error_if` / `jit_error_if`, `bounded_while_loop`'s per-lane exit, and `unvmap` itself. The sentinel is now resolved once, version-agnostically, via `getattr(batching, 'not_mapped', None)`: it yields the real object on older JAX and `None` on 0.10+, which is exactly what the new batching machinery expects. Eight previously-failing regression tests now pass.
+
+### Quality
+
+- Full test suite: **5312 passed, 23 skipped** on JAX 0.10.2 (the eight `vmap`-related failures are resolved, with no regressions).
+- Compatibility preserved across the supported JAX range (`>=0.7.0`); the fix relies only on stable, public-facing batching behavior.
+
+
 ## Version 0.5.0 (2026-06-14)
 
 A repository-wide correctness release. Following the `brainstate.transform` audit that shipped in 0.4.x, this cycle extended the same expert-audit discipline to nearly every remaining module — `random`, `graph`, `interop`, `nn`, `util`, the `vmap` / `pmap` / `shard_map` mapping engine, and the `exp_euler` integrator — and then closed out a single consolidated cross-module audit (`dev/issues.md`) covering one critical, twenty-one high, forty-six medium, and twenty-nine low findings, plus a long appendix of unverified items. Every fix ships with a behavioral regression test (several previously-skipped "known bug" tests are now un-skipped and passing), and the suite is green across the full CI JAX matrix (0.7.0, 0.8.0, 0.9.0, and latest). The release also lands a graph-layer performance pass. No public APIs are removed or renamed; the only behavioral changes are previously-silent wrong-result or invalid-input paths that now fail loudly with descriptive errors.

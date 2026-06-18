@@ -31,6 +31,12 @@ __all__ = [
     "unvmap",
 ]
 
+# jax >= 0.10 removed `batching.not_mapped`; the "not batched" sentinel returned
+# from a primitive's batching rule is now simply `None` (NotMapped = type(None)).
+# Older jax versions expose it as the `batching.not_mapped` attribute. Resolve it
+# once here so the batching rules below work across all supported jax versions.
+not_mapped = getattr(batching, 'not_mapped', None)
+
 
 @set_module_as('brainstate.transform')
 def unvmap(x: ArrayLike, op: str = 'any') -> Any:
@@ -123,7 +129,7 @@ def _unvmap_all_abstract_eval(x):
 
 def _unvmap_all_batch(x, batch_axes):
     (x,) = x
-    return unvmap_all(x), batching.not_mapped
+    return unvmap_all(x), not_mapped
 
 
 unvmap_all_p.def_impl(_unvmap_all_impl)
@@ -178,7 +184,7 @@ def _unvmap_any_abstract_eval(x):
 
 def _unvmap_any_batch(x, batch_axes):
     (x,) = x
-    return unvmap_any(x), batching.not_mapped
+    return unvmap_any(x), not_mapped
 
 
 unvmap_any_p.def_impl(_unvmap_any_impl)
@@ -233,7 +239,7 @@ def _unvmap_max_abstract_eval(x):
 
 def _unvmap_max_batch(x, batch_axes):
     (x,) = x
-    return unvmap_max(x), batching.not_mapped
+    return unvmap_max(x), not_mapped
 
 
 unvmap_max_p.def_impl(_unvmap_max_impl)
@@ -259,7 +265,7 @@ def _without_vmap_abs(x):
 
 def _without_vmap_batch(x, batch_axes):
     (x,) = x
-    return _without_vmap(x), batching.not_mapped
+    return _without_vmap(x), not_mapped
 
 
 _no_vmap_prim = Primitive('no_vmap')
