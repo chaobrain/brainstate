@@ -1,6 +1,43 @@
 # Release Notes
 
 
+## Version 0.5.2 (2026-06-26)
+
+A small, additive feature release for `brainstate.transform`. It exposes `in_new_state_probe()`, a public predicate that lets state-bound, one-shot consumers cooperate with the eager discovery probe that `vmap_new_states` / `vmap2_new_states` / `pmap2_new_states` run to enumerate the random states a function creates before the real mapped pass. No public APIs are removed or renamed, and behavior is unchanged for code that does not call the new helper.
+
+### New Features
+
+#### `brainstate.transform.in_new_state_probe()` (#225)
+
+`vmap_new_states`, `vmap2_new_states`, and `pmap2_new_states` execute the wrapped function an extra *eager probe* pass to discover the states it creates before the real mapped pass. The probe's `State` value mutations are rolled back, and the states it creates are discarded in favour of the ones produced by the mapped pass (which are correctly tagged and batched). For ordinary, idempotent initialisation this is invisible.
+
+`in_new_state_probe()` returns `True` while that probe is running. Code that performs a **one-shot, stateful side effect bound to the created state objects** — for example a graph compiler that caches a computation keyed on freshly-initialised states — can now check this flag and defer the work to the real mapped pass, so the cache binds to the real mapped states rather than the throwaway probe states:
+
+```python
+import brainstate
+
+class MyAlgorithm:
+    def compile_graph(self, *args):
+        # the probe runs this once against throwaway states; defer the
+        # real, one-shot compilation to the mapped pass
+        if brainstate.transform.in_new_state_probe():
+            return
+        if not self._compiled:
+            self._build_graph(*args)
+            self._compiled = True
+```
+
+The marker is implemented as a thread-local depth counter, so it composes correctly under nested `*_new_states` calls and is reset cleanly even when the probe raises.
+
+### Quality
+
+- **28 new regression tests** across `_mapping1`, `_mapping2`, and `_mapping_core`:
+  - *Complex state-from-state scenarios*: dependency chains (`a → b → c`), deep five-level chains rooted at a random draw, batched-from-`NonBatchState`, two-RNG sums, broadcast-plus-random, and `out_axes` / `state_out_axes` placement (including nested modules and a realistic MLP ensemble).
+  - *Failure boundaries*: `NonBatchState`-from-batched-value, random `NonBatchState`, data-dependent shape, and `axis_size` conflict — including verification that the RNG is restored after an error.
+  - *The `in_new_state_probe` guard itself*: a one-shot consumer binds to the throwaway probe state without the guard and to the real mapped state with it; plus unit tests for the probe depth counter (default, set/restore, nested composability, reset after exception).
+- Patch coverage: `_mapping1` 100%, `_mapping2` 99%, `_mapping_core` 98%; the new `in_new_state_probe` path is fully covered.
+
+
 ## Version 0.5.1 (2026-06-18)
 
 A compatibility patch release for JAX 0.10.2. JAX 0.10 removed the long-standing `jax.interpreters.batching.not_mapped` sentinel — the "not batched" marker that a primitive's batching rule returns to declare an unmapped output — collapsing it to plain `None` (`NotMapped = type(None)`). The custom `unvmap` primitives in `brainstate.transform` still referenced the removed attribute, so every `vmap` that crossed one of them raised `AttributeError`. This release restores compatibility while preserving support for the full `jax>=0.7.0` range. No public APIs are added, removed, or renamed.
