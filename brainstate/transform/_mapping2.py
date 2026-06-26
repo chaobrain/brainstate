@@ -36,6 +36,7 @@ from ._mapping_core import (
     state_map_transform,
     unwind_new_state_levels,
     _import_rand_state,
+    _new_state_probe,
     # New-state output-axis resolver (shared home is _mapping_core). Re-exported
     # from this module so existing imports keep working, e.g.
     # ``from brainstate.transform._mapping2 import INIT_NO_BATCHING`` in nn._delay.
@@ -827,8 +828,13 @@ def _map_new_states(
 
     probe_trace.set_new_arg(probe_hook)
     try:
-        with probe_trace:
-            module.init_all_states(**init_kwargs)
+        # ``_new_state_probe`` marks this as the discovery pass: the states
+        # created here are thrown away, so one-shot consumers (e.g. graph
+        # compilers keyed off the created state objects) can defer to the real
+        # mapped pass via ``in_new_state_probe()``.
+        with _new_state_probe():
+            with probe_trace:
+                module.init_all_states(**init_kwargs)
     finally:
         probe_trace.recovery_original_values()
     # B7: defensive de-dup, preserving order. The ``probe_hook`` fires at most

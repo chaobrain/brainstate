@@ -52,7 +52,7 @@ import brainstate
 import brainstate.random
 from brainstate._state import NonBatchState
 from brainstate.transform import StatefulMapping, vmap2, vmap_new_states, pmap2, map
-from brainstate.transform import vmap2_new_states, pmap2_new_states
+from brainstate.transform import vmap2_new_states, pmap2_new_states, in_new_state_probe
 from brainstate.transform._mapping2 import (
     _ensure_tuple, _batch_and_remainder, _validate_leading_lengths,
     _build_new_state_resolver,
@@ -1243,3 +1243,249 @@ class TestFailedNewStatesMappingRestoresRng(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             brainstate.transform.vmap2_new_states(stub, {}, axis_size=4)
         self.assertFalse(isinstance(brainstate.random.DEFAULT.value, jax.core.Tracer))
+
+
+class TestVmap2NewStatesFromOtherStates(unittest.TestCase):
+    """Complex ``vmap2_new_states`` scenarios where a module's ``init_state``
+    creates states *from the values of other states it just created*."""
+
+    def test_module_weight_then_bias_from_weight(self):
+        """A bias initialized from the freshly-created weight's column means.
+
+        Both are batched on axis 0; the per-lane bias must equal the per-lane
+        weight's mean, proving the dependency was captured inside each lane (not
+        leaked across lanes).
+        """
+        brainstate.random.seed(0)
+
+        class M(brainstate.nn.Module):
+            def init_state(self, **kw):
+                self.w = brainstate.ParamState(brainstate.random.randn(4, 3))
+                self.b = brainstate.ParamState(self.w.value.mean(axis=0))  # from w
+
+        m = M()
+        vmap2_new_states(m, {}, axis_size=5)
+        self.assertEqual(m.w.value.shape, (5, 4, 3))
+        self.assertEqual(m.b.value.shape, (5, 3))
+        # per-lane bias == per-lane weight column means
+        self.assertTrue(jnp.allclose(m.b.value, m.w.value.mean(axis=1)))
+        # lanes are independently seeded
+        self.assertFalse(jnp.allclose(m.w.value[0], m.w.value[1]))
+
+    def test_module_chain_three_states(self):
+        """A three-link p -> q -> r dependency chain inside ``init_state``."""
+        brainstate.random.seed(1)
+
+        class M(brainstate.nn.Module):
+            def init_state(self, **kw):
+                self.p = brainstate.ParamState(brainstate.random.randn(3))
+                self.q = brainstate.ShortTermState(self.p.value * 2.0)
+                self.r = brainstate.ShortTermState(self.q.value + self.p.value)
+
+        m = M()
+        vmap2_new_states(m, {}, axis_size=4)
+        for st in (m.p, m.q, m.r):
+            self.assertEqual(st.value.shape, (4, 3))
+        self.assertTrue(jnp.allclose(m.q.value, m.p.value * 2.0))
+        self.assertTrue(jnp.allclose(m.r.value, m.p.value * 3.0))
+
+    def test_state_out_axes_routes_derived_to_axis1(self):
+        """A derived ShortTermState routed to output axis 1 via ``state_out_axes``."""
+        brainstate.random.seed(0)
+
+        class M(brainstate.nn.Module):
+            def init_state(self, **kw):
+                self.w = brainstate.ParamState(brainstate.random.randn(3))
+                self.d = brainstate.ShortTermState(self.w.value * 2.0)  # from w
+
+        m = M()
+        vmap2_new_states(
+            m, {}, axis_size=5,
+            state_out_axes={1: filter.OfType(brainstate.ShortTermState)},
+        )
+        self.assertEqual(m.w.value.shape, (5, 3))   # batched on axis 0
+        self.assertEqual(m.d.value.shape, (3, 5))   # batched on axis 1
+        # consistency across the transposed axis
+        self.assertTrue(jnp.allclose(m.d.value, (m.w.value * 2.0).T))
+
+    def test_nested_parent_child_modules(self):
+        """Two child modules each create an independent random param."""
+        brainstate.random.seed(0)
+
+        class Child(brainstate.nn.Module):
+            def init_state(self, **kw):
+                self.p = brainstate.ParamState(brainstate.random.randn(2))
+
+        class Parent(brainstate.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.c1 = Child()
+                self.c2 = Child()
+
+        p = Parent()
+        vmap2_new_states(p, {}, axis_size=4)
+        self.assertEqual(p.c1.p.value.shape, (4, 2))
+        self.assertEqual(p.c2.p.value.shape, (4, 2))
+        # independent draws -> the two children differ
+        self.assertFalse(jnp.allclose(p.c1.p.value, p.c2.p.value))
+
+    def test_realistic_mlp_ensemble(self):
+        """A realistic MLP whose ``init_state`` derives one param from another,
+        vectorized into an ensemble of independently-initialized members.
+
+        ``b1`` is derived from ``w1`` (state-from-state), ``scale`` is a shared
+        replicated normalization constant (NonBatchState). After
+        ``vmap2_new_states`` the ensemble runs a batched forward pass and every
+        member must produce a distinct output.
+        """
+        brainstate.random.seed(0)
+
+        class MLP(brainstate.nn.Module):
+            def __init__(self, n_in, n_hid, n_out):
+                super().__init__()
+                self.n_in, self.n_hid, self.n_out = n_in, n_hid, n_out
+
+            def init_state(self, **kw):
+                self.w1 = brainstate.ParamState(
+                    brainstate.random.randn(self.n_in, self.n_hid) / jnp.sqrt(self.n_in)
+                )
+                # bias derived from the weight's column means (state-from-state)
+                self.b1 = brainstate.ParamState(self.w1.value.mean(axis=0))
+                self.w2 = brainstate.ParamState(
+                    brainstate.random.randn(self.n_hid, self.n_out) / jnp.sqrt(self.n_hid)
+                )
+                # shared replicated normalization constant (not batched)
+                self.scale = NonBatchState(jnp.array(1.0))
+
+        K, n_in, n_hid, n_out = 6, 4, 8, 3
+        m = MLP(n_in, n_hid, n_out)
+        vmap2_new_states(m, {}, axis_size=K)
+
+        self.assertEqual(m.w1.value.shape, (K, n_in, n_hid))
+        self.assertEqual(m.b1.value.shape, (K, n_hid))
+        self.assertEqual(m.w2.value.shape, (K, n_hid, n_out))
+        self.assertEqual(m.scale.value.shape, ())             # replicated, un-batched
+        self.assertTrue(jnp.allclose(m.b1.value, m.w1.value.mean(axis=1)))
+        self.assertFalse(jnp.allclose(m.w1.value[0], m.w1.value[1]))
+
+        # ensemble forward over the batched weights for one shared input
+        x = jnp.ones((n_in,))
+        h = jnp.tanh(jnp.einsum('i,kih->kh', x, m.w1.value) + m.b1.value)
+        y = jnp.einsum('kh,kho->ko', h, m.w2.value) * m.scale.value
+        self.assertEqual(y.shape, (K, n_out))
+        self.assertFalse(jnp.allclose(y[0], y[1]))            # members differ
+
+
+class TestVmap2NewStatesFailureCases(unittest.TestCase):
+    """Boundary / failure behavior of ``vmap2_new_states``."""
+
+    def test_nonbatch_state_from_batched_value_raises(self):
+        """A NonBatchState whose value depends on a batched state is a
+        contradiction (axis None vs batched) and must raise; the RNG must be
+        restored."""
+        brainstate.random.seed(0)
+
+        class M(brainstate.nn.Module):
+            def init_state(self, **kw):
+                self.w = brainstate.ParamState(brainstate.random.randn(3))  # batched
+                self.nb = NonBatchState(self.w.value * 2.0)                  # batch-dependent
+
+        with self.assertRaises(ValueError):
+            vmap2_new_states(M(), {}, axis_size=4)
+        self.assertFalse(isinstance(brainstate.random.DEFAULT.value, jax.core.Tracer))
+
+    def test_data_dependent_state_shape_raises(self):
+        """A state whose shape depends on a per-lane (traced) value cannot be
+        created under the mapped pass.
+
+        The eager probe runs with *concrete* random values, so ``int(...)``
+        succeeds there (``abs(...) + 1`` keeps the probe shape valid). Under the
+        mapped ``jax.vmap`` pass the weight is a per-lane tracer, so the same
+        ``int(...)`` concretization raises.
+        """
+        brainstate.random.seed(0)
+
+        class M(brainstate.nn.Module):
+            def init_state(self, **kw):
+                self.w = brainstate.ParamState(brainstate.random.randn(3))
+                # shape derived from a traced value; +1 keeps the probe shape >= 1
+                n = int(jnp.abs(self.w.value).sum()) + 1
+                self.extra = brainstate.ParamState(jnp.zeros(n))
+
+        with self.assertRaises(jax.errors.ConcretizationTypeError):
+            vmap2_new_states(M(), {}, axis_size=4)
+
+
+class TestInNewStateProbe(unittest.TestCase):
+    """``in_new_state_probe()`` lets one-shot, state-bound side effects defer to
+    the real mapped pass instead of binding to the throwaway probe states."""
+
+    def test_probe_false_outside(self):
+        """Outside any ``*_new_states`` transform the probe flag is False."""
+        self.assertFalse(in_new_state_probe())
+
+    def test_probe_true_only_during_discovery(self):
+        """The flag is True during the discovery probe and False during the
+        mapped pass, and resets afterwards."""
+        brainstate.random.seed(0)
+        flags = []
+
+        class M(brainstate.nn.Module):
+            def init_state(self, **kw):
+                flags.append(in_new_state_probe())
+                self.w = brainstate.ParamState(brainstate.random.randn(3))
+
+        self.assertFalse(in_new_state_probe())          # before
+        vmap2_new_states(M(), {}, axis_size=4)
+        self.assertFalse(in_new_state_probe())          # after
+        # init ran twice: probe (True) then mapped pass (False)
+        self.assertEqual(flags, [True, False])
+
+    def test_one_shot_consumer_without_guard_binds_probe_state(self):
+        """Documents the failure mode: a one-shot graph cached on first init
+        binds to the throwaway *probe* state, not the real mapped state."""
+        brainstate.random.seed(0)
+
+        class Algo(brainstate.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self._graph = None
+
+            def init_state(self, **kw):
+                self.w = brainstate.ParamState(brainstate.random.randn(3))
+                if self._graph is None:                 # one-shot, NO guard
+                    w = self.w
+                    self._graph = lambda: w.value.shape
+
+        a = Algo()
+        vmap2_new_states(a, {}, axis_size=6)
+        # the real state is batched ...
+        self.assertEqual(a.w.value.shape, (6, 3))
+        # ... but the cached graph captured the un-batched throwaway probe state
+        self.assertEqual(a._graph(), (3,))
+        self.assertNotEqual(a._graph(), a.w.value.shape)
+
+    def test_one_shot_consumer_with_guard_binds_mapped_state(self):
+        """With the ``in_new_state_probe()`` guard the one-shot graph defers to
+        the mapped pass and binds to the real (batched) state."""
+        brainstate.random.seed(0)
+
+        class Algo(brainstate.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self._graph = None
+
+            def init_state(self, **kw):
+                self.w = brainstate.ParamState(brainstate.random.randn(3))
+                if in_new_state_probe():                # defer during discovery
+                    return
+                if self._graph is None:
+                    w = self.w
+                    self._graph = lambda: w.value.shape
+
+        a = Algo()
+        vmap2_new_states(a, {}, axis_size=6)
+        self.assertEqual(a.w.value.shape, (6, 3))
+        # cached graph now binds to the real mapped state
+        self.assertEqual(a._graph(), (6, 3))
+        self.assertEqual(a._graph(), a.w.value.shape)

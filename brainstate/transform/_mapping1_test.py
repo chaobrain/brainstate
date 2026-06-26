@@ -58,6 +58,7 @@ from brainstate.transform._mapping_core import (
 )
 from brainstate._state import NonBatchState
 from brainstate._error import BatchAxisError
+from brainstate.util.filter import OfType
 
 
 class TestFlattenInOutStates(unittest.TestCase):
@@ -925,3 +926,253 @@ class TestFailedVmapNewStatesRestoresRng(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             bst.transform.vmap_new_states(f, axis_size=4)()
         self.assertFalse(isinstance(bst.random.DEFAULT.value, jax.core.Tracer))
+
+
+class TestVmapNewStatesFromOtherStates(unittest.TestCase):
+    """Complex ``vmap_new_states`` scenarios where new states are *created from
+    the values of other new states* (dependency chains, random -> derived, and
+    replicated -> batched mixes)."""
+
+    def test_dependent_chain_abc(self):
+        """A new state initialized from a previously-created state's value.
+
+        ``a`` is batched from the mapped input, ``b`` is built from ``a.value``,
+        and ``c`` from both ``b`` and ``a``. Every link must carry the batch
+        axis and the exact arithmetic must hold.
+        """
+        captured = {}
+
+        @vmap_new_states(in_axes=0, axis_size=5)
+        def fn(x):
+            a = bst.ShortTermState(x)                  # batched from input
+            b = bst.ParamState(a.value * 2.0 + 1.0)    # b created from a.value
+            c = bst.ShortTermState(b.value - a.value)  # c from b and a
+            captured['a'] = a
+            captured['b'] = b
+            captured['c'] = c
+            return c.value
+
+        xs = jnp.arange(5.0)
+        out = fn(xs)
+        # c == (2a + 1) - a == a + 1 == x + 1
+        self.assertEqual(out.shape, (5,))
+        self.assertTrue(jnp.allclose(out, xs + 1.0))
+        self.assertEqual(captured['a'].value.shape, (5,))
+        self.assertEqual(captured['b'].value.shape, (5,))
+        self.assertEqual(captured['c'].value.shape, (5,))
+        self.assertTrue(jnp.allclose(captured['b'].value, xs * 2.0 + 1.0))
+
+    def test_deep_chain_with_random(self):
+        """A 5-level chain rooted at a random draw stays internally consistent.
+
+        Each lane is seeded with its own split key, so lanes differ, yet the
+        deterministic chain identity (recomputed from the captured batched root)
+        must hold exactly for every lane.
+        """
+        bst.random.seed(0)
+        captured = {}
+
+        @vmap_new_states(axis_size=4)
+        def fn():
+            s0 = bst.ParamState(bst.random.randn(3))   # random root, per-lane
+            s1 = bst.ShortTermState(s0.value + 1.0)
+            s2 = bst.ShortTermState(s1.value * s0.value)
+            s3 = bst.ShortTermState(jnp.tanh(s2.value))
+            s4 = bst.ShortTermState(s3.value - s1.value)
+            captured['s0'] = s0
+            captured['s4'] = s4
+            return s4.value
+
+        out = fn()
+        self.assertEqual(out.shape, (4, 3))
+        # lanes are independently seeded -> distinct
+        self.assertFalse(jnp.allclose(out[0], out[1]))
+        # chain identity recomputed from the batched root
+        s0 = captured['s0'].value
+        expected = jnp.tanh((s0 + 1.0) * s0) - (s0 + 1.0)
+        self.assertTrue(jnp.allclose(out, expected))
+
+    def test_batched_state_from_nonbatch_value(self):
+        """A batched state derived from a *replicated* NonBatchState value.
+
+        The shared base stays un-batched (axis None), while the per-lane state
+        built from ``base.sum()`` gains the batch axis. The shared base value is
+        broadcast identically into every lane.
+        """
+        captured = {}
+
+        @vmap_new_states(in_axes=0, axis_size=3)
+        def fn(x):
+            base = NonBatchState(jnp.array([1.0, 2.0, 3.0]))   # replicated
+            per = bst.ShortTermState(base.value.sum() + x)     # batched (6 + x)
+            captured['base'] = base
+            captured['per'] = per
+            return per.value
+
+        out = fn(jnp.arange(3.0))
+        self.assertEqual(captured['base'].value.shape, (3,))    # un-batched
+        self.assertEqual(captured['per'].value.shape, (3,))     # batched
+        self.assertTrue(jnp.allclose(captured['base'].value, jnp.array([1.0, 2.0, 3.0])))
+        self.assertTrue(jnp.allclose(out, 6.0 + jnp.arange(3.0)))
+
+    def test_random_init_then_derived_distinct(self):
+        """A derived state tracks its random parent and stays per-lane distinct."""
+        bst.random.seed(1)
+        captured = {}
+
+        @vmap_new_states(axis_size=4)
+        def fn():
+            w = bst.ParamState(bst.random.randn(3))
+            scaled = bst.ShortTermState(w.value * 10.0)
+            captured['w'] = w
+            captured['scaled'] = scaled
+            return scaled.value
+
+        out = fn()
+        self.assertEqual(out.shape, (4, 3))
+        self.assertTrue(jnp.allclose(out, captured['w'].value * 10.0))
+        self.assertFalse(jnp.allclose(out[0], out[1]))
+
+    def test_two_random_states_derived_sum(self):
+        """Two independent RandomStates both split per lane; the derived sum holds."""
+        rng1 = bst.random.RandomState(1)
+        rng2 = bst.random.RandomState(2)
+
+        @vmap_new_states(axis_size=5)
+        def fn():
+            a = bst.ParamState(rng1.randn(3))
+            b = bst.ParamState(rng2.randn(3))
+            c = bst.ShortTermState(a.value + b.value)
+            return c.value, a.value, b.value
+
+        c, a, b = fn()
+        self.assertEqual(c.shape, (5, 3))
+        self.assertTrue(jnp.allclose(c, a + b))
+        self.assertFalse(jnp.allclose(c[0], c[1]))
+
+    def test_broadcast_input_plus_random_derived(self):
+        """A broadcast (in_axes=None) input combined with a per-lane random draw."""
+        bst.random.seed(7)
+
+        @vmap_new_states(in_axes=None, axis_size=4)
+        def fn(c):
+            a = bst.ParamState(bst.random.randn(3) + c)   # c broadcast, noise per-lane
+            return a.value
+
+        out = fn(jnp.array(10.0))
+        self.assertEqual(out.shape, (4, 3))
+        # centered around the broadcast constant, but distinct per lane
+        self.assertFalse(jnp.allclose(out[0], out[1]))
+        self.assertTrue(jnp.all(jnp.abs(out - 10.0) < 6.0))
+
+    def test_out_axes_nonzero_with_dependent_state(self):
+        """out_axes=1 relocates the mapped axis of a value built from a new state."""
+
+        @vmap_new_states(in_axes=0, out_axes=1, axis_size=3)
+        def fn(x):
+            a = bst.ShortTermState(x)
+            b = bst.ShortTermState(jnp.stack([a.value, a.value * 2.0]))  # (2,) per lane
+            return b.value
+
+        out = fn(jnp.arange(3.0))
+        self.assertEqual(out.shape, (2, 3))   # mapped axis placed at position 1
+        self.assertTrue(jnp.allclose(out[0], jnp.arange(3.0)))
+        self.assertTrue(jnp.allclose(out[1], jnp.arange(3.0) * 2.0))
+
+
+class TestVmapNewStatesFailureCases(unittest.TestCase):
+    """Boundary / failure behavior of ``vmap_new_states`` -- misuse must raise a
+    clear error and must not leave a key tracer in the global random state."""
+
+    def test_nonbatch_state_from_batched_value_raises(self):
+        """A NonBatchState (replicated, axis None) whose value depends on the
+        batched axis is a contradiction and must raise.
+
+        The global RNG must also be restored even though the failure happens
+        mid-trace inside the mapped pass.
+        """
+        bst.random.seed(0)
+
+        @vmap_new_states(in_axes=0, axis_size=4)
+        def fn(x):
+            r = bst.ShortTermState(bst.random.randn(3))   # forces an rng split
+            a = bst.ShortTermState(x)                     # batched
+            NonBatchState(a.value * 2.0)                  # replicated but batch-dependent
+            return x
+
+        with self.assertRaises(ValueError):
+            fn(jnp.arange(4.0))
+        self.assertFalse(isinstance(bst.random.DEFAULT.value, jax.core.Tracer))
+
+    def test_random_initialized_nonbatch_state_raises(self):
+        """A NonBatchState initialized from a per-lane random draw cannot be
+        replicated on axis None and must raise."""
+        bst.random.seed(0)
+
+        @vmap_new_states(axis_size=4)
+        def fn():
+            NonBatchState(bst.random.randn(3))   # per-lane value, axis None -> contradiction
+            return jnp.zeros(())
+
+        with self.assertRaises(ValueError):
+            fn()
+        self.assertFalse(isinstance(bst.random.DEFAULT.value, jax.core.Tracer))
+
+    def test_data_dependent_state_shape_raises(self):
+        """A new state whose shape depends on a traced value cannot be created."""
+
+        @vmap_new_states(in_axes=0, axis_size=4)
+        def fn(x):
+            a = bst.ShortTermState(x)
+            n = int(a.value)                       # concretize a tracer -> error
+            return bst.ShortTermState(jnp.zeros(n)).value.sum()
+
+        with self.assertRaises(jax.errors.ConcretizationTypeError):
+            fn(jnp.arange(1.0, 5.0))
+
+    def test_axis_size_conflicts_with_input_raises(self):
+        """An explicit axis_size that disagrees with the mapped input length raises."""
+
+        @vmap_new_states(in_axes=0, axis_size=5)
+        def fn(x):
+            return bst.ShortTermState(x * 2.0).value
+
+        with self.assertRaises(ValueError) as cm:
+            fn(jnp.arange(3.0))
+        msg = str(cm.exception)
+        self.assertIn('conflicts', msg)
+        self.assertIn('5', msg)
+        self.assertIn('3', msg)
+
+    def test_state_to_exclude_with_derived_state(self):
+        """Regression: a derived (batched) state built from an *excluded*
+        replicated state still maps correctly."""
+
+        @vmap_new_states(in_axes=0, axis_size=4,
+                         state_to_exclude=OfType(NonBatchState))
+        def fn(x):
+            base = NonBatchState(jnp.ones(2))                  # excluded from batching
+            per = bst.ShortTermState(base.value.sum() + x)     # 2 + x, batched
+            return per.value
+
+        out = fn(jnp.arange(4.0))
+        self.assertEqual(out.shape, (4,))
+        self.assertTrue(jnp.allclose(out, 2.0 + jnp.arange(4.0)))
+
+    def test_non_idempotent_random_draw_count(self):
+        """Regression: an extra random draw on the mapped pass (the source of
+        truth) still produces independent, well-shaped per-lane values."""
+        bst.random.seed(0)
+        state = {'n': 0}
+
+        @vmap_new_states(axis_size=4)
+        def fn():
+            state['n'] += 1
+            v = bst.random.randn(3)
+            if state['n'] >= 2:           # mapped pass draws an extra time
+                v = v + bst.random.randn(3)
+            return bst.ParamState(v).value
+
+        out = fn()
+        self.assertEqual(out.shape, (4, 3))
+        self.assertFalse(jnp.allclose(out[0], out[1]))

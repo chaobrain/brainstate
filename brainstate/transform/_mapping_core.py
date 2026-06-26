@@ -85,6 +85,7 @@ Caveats
 """
 
 import functools
+import threading
 import warnings
 import weakref
 from collections import defaultdict
@@ -120,6 +121,8 @@ __all__ = [
     # Phase 3 -- rng + stack level
     'split_rng_keys',
     'unwind_new_state_levels',
+    # New-state discovery probe context
+    'in_new_state_probe',
     # Phase 3b -- new-state output-axis resolver
     'INIT_NO_BATCHING',
     '_build_new_state_resolver',
@@ -151,6 +154,99 @@ def _import_rand_state():
         from brainstate.random import RandomState
         _rand = RandomState
     return _rand
+
+
+# ============================================================================ #
+# New-state discovery probe context
+# ============================================================================ #
+#
+# ``vmap_new_states`` / ``vmap2_new_states`` / ``pmap2_new_states`` execute the
+# wrapped function an extra *eager probe* pass to enumerate the random states it
+# touches, so each mapped lane can be seeded with an independently split key
+# (see the ``probe_hook`` in ``_mapping1._vmap_new_states_transform`` and
+# ``_mapping2._map_new_states``). The probe's :class:`~brainstate.State` *value*
+# mutations are rolled back via ``StateTraceStack.recovery_original_values``, but
+# the function body still runs once, and the State objects it creates are
+# discarded in favour of the ones created by the real mapped pass.
+#
+# Ordinary, idempotent initialisation needs no awareness of this. But a consumer
+# that performs a *one-shot, stateful side effect bound to the created state
+# objects* -- most notably compiling and caching a computation graph over the
+# freshly-initialised states -- would otherwise bind that cache to the throwaway
+# probe states (left untagged and un-batched) instead of the real mapped states,
+# producing downstream batching errors. ``in_new_state_probe()`` lets such code
+# detect the probe and defer its one-shot work to the real mapped pass.
+#
+# A thread-local *depth* counter (rather than a bool) keeps nested ``*_new_states``
+# transforms composable.
+
+_NEW_STATE_PROBE_TLS = threading.local()
+
+
+def _new_state_probe_depth() -> int:
+    return getattr(_NEW_STATE_PROBE_TLS, 'depth', 0)
+
+
+class _new_state_probe:
+    """Internal context manager marking the eager new-state discovery probe.
+
+    Wrapped around the probe execution of the user function in
+    ``vmap_new_states`` / ``vmap2_new_states`` / ``pmap2_new_states`` so that
+    :func:`in_new_state_probe` reports ``True`` for code running inside it.
+    """
+    __slots__ = ()
+
+    def __enter__(self):
+        _NEW_STATE_PROBE_TLS.depth = _new_state_probe_depth() + 1
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        _NEW_STATE_PROBE_TLS.depth = _new_state_probe_depth() - 1
+        return False
+
+
+def in_new_state_probe() -> bool:
+    """Whether the caller is running inside a ``*_new_states`` discovery probe.
+
+    :func:`brainstate.transform.vmap_new_states`,
+    :func:`~brainstate.transform.vmap2_new_states` and
+    :func:`~brainstate.transform.pmap2_new_states` execute the wrapped function
+    an extra *eager probe* pass to enumerate the random states it touches before
+    the real mapped pass. The probe's :class:`~brainstate.State` *value*
+    mutations are rolled back, but the function body still runs, and the states
+    it creates are discarded in favour of the ones created by the real mapped
+    pass.
+
+    Code that performs a **one-shot, stateful side effect bound to the created
+    state objects** -- for example compiling and caching a computation graph over
+    freshly-initialised states -- should skip or defer that work while this
+    returns ``True``, so the cache binds to the real mapped states (correctly
+    tagged and batched) rather than the throwaway probe states. Ordinary,
+    idempotent initialisation needs no special handling.
+
+    Returns
+    -------
+    bool
+        ``True`` if currently inside a new-state discovery probe, ``False``
+        otherwise.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        import brainstate
+
+        class MyAlgorithm:
+            def compile_graph(self, *args):
+                # the probe runs this once against throwaway states; defer the
+                # real, one-shot compilation to the mapped pass
+                if brainstate.transform.in_new_state_probe():
+                    return
+                if not self._compiled:
+                    self._build_graph(*args)
+                    self._compiled = True
+    """
+    return _new_state_probe_depth() > 0
 
 
 # ============================================================================ #
