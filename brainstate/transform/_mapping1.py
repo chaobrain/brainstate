@@ -40,6 +40,7 @@ from ._mapping_core import (  # noqa: E402
     unwind_new_state_levels,
     _build_new_state_resolver,
     _resolve_new_state_axis,
+    _new_state_probe,
 )
 
 __all__ = [
@@ -305,9 +306,14 @@ def _vmap_new_states_transform(
 
         probe_trace.set_new_arg(probe_hook)
         try:
-            with catch_new_states(state_to_exclude=state_to_exclude):
-                with probe_trace:
-                    fun(*stripped)
+            # ``_new_state_probe`` marks this as the discovery pass: the states
+            # created here are thrown away, so one-shot consumers (e.g. graph
+            # compilers keyed off the created state objects) can defer to the
+            # real mapped pass via ``in_new_state_probe()``.
+            with _new_state_probe():
+                with catch_new_states(state_to_exclude=state_to_exclude):
+                    with probe_trace:
+                        fun(*stripped)
         finally:
             probe_trace.recovery_original_values()
         # B7: defensive de-dup. The ``new_arg`` hook fires at most once per

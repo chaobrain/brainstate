@@ -37,6 +37,9 @@ from brainstate.transform._mapping_core import (
     unwind_new_state_levels,
     leaf_batch_dim,
     state_map_transform,
+    in_new_state_probe,
+    _new_state_probe,
+    _new_state_probe_depth,
 )
 from brainstate.util import filter
 
@@ -1549,6 +1552,49 @@ class TestRemoveAxisScalar(unittest.TestCase):
     def test_array_leaf_still_works(self):
         out = _remove_axis(jnp.arange(6.).reshape(2, 3), 0)
         self.assertEqual(out.shape, (3,))
+
+
+class TestNewStateProbeContext(unittest.TestCase):
+    """Unit tests for the ``_new_state_probe`` discovery-probe context manager
+    and its public query ``in_new_state_probe``."""
+
+    def test_depth_false_by_default(self):
+        """Outside any probe the depth is 0 and the query is False."""
+        self.assertEqual(_new_state_probe_depth(), 0)
+        self.assertFalse(in_new_state_probe())
+
+    def test_probe_sets_and_restores(self):
+        """Entering the probe reports True; exiting restores False."""
+        self.assertFalse(in_new_state_probe())
+        with _new_state_probe():
+            self.assertTrue(in_new_state_probe())
+            self.assertEqual(_new_state_probe_depth(), 1)
+        self.assertFalse(in_new_state_probe())
+        self.assertEqual(_new_state_probe_depth(), 0)
+
+    def test_nested_probe_depth_composes(self):
+        """Nested probes use a depth counter so the query stays True until the
+        outermost context exits (keeps nested ``*_new_states`` composable)."""
+        with _new_state_probe():
+            self.assertEqual(_new_state_probe_depth(), 1)
+            with _new_state_probe():
+                self.assertEqual(_new_state_probe_depth(), 2)
+                self.assertTrue(in_new_state_probe())
+            # inner exit: still inside the outer probe
+            self.assertEqual(_new_state_probe_depth(), 1)
+            self.assertTrue(in_new_state_probe())
+        self.assertEqual(_new_state_probe_depth(), 0)
+        self.assertFalse(in_new_state_probe())
+
+    def test_depth_resets_after_exception(self):
+        """An exception raised inside the probe still restores the depth (the
+        decrement lives in ``__exit__``)."""
+        with self.assertRaises(RuntimeError):
+            with _new_state_probe():
+                self.assertTrue(in_new_state_probe())
+                raise RuntimeError('boom')
+        self.assertEqual(_new_state_probe_depth(), 0)
+        self.assertFalse(in_new_state_probe())
 
 
 if __name__ == "__main__":
