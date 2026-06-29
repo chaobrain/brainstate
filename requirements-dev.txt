@@ -2,7 +2,7 @@
 optax
 tqdm
 numba
-braintools>=0.1.9
+braintools>=0.3.0
 braincell
 matplotlib
 brainpy-state
