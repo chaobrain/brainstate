@@ -1,4 +1,4 @@
-Dropout Layers
+Dropout layers
 ==============
 
 .. currentmodule:: brainstate.nn

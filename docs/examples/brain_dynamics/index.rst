@@ -1,4 +1,4 @@
-Brain Dynamics
+Brain dynamics
 ==============
 
 Complete brain-modeling applications.

@@ -8,22 +8,28 @@ difference is which JAX backend is pulled in.
 ::::{tab-set}
 
 :::{tab-item} CPU
+
 ```bash
 pip install -U brainstate[cpu]
 ```
+
 :::
 
 :::{tab-item} GPU (CUDA)
+
 ```bash
 pip install -U brainstate[cuda12]   # CUDA 12
 pip install -U brainstate[cuda13]   # CUDA 13
 ```
+
 :::
 
 :::{tab-item} TPU
+
 ```bash
 pip install -U brainstate[tpu]
 ```
+
 :::
 
 ::::
@@ -73,4 +79,4 @@ reinstall with the matching CUDA extra above.
 ## Next steps
 
 - [Quickstart](quickstart.ipynb) — train a model end to end in a few minutes.
-- [Thinking in BrainState](thinking_in_brainstate.md) — the mental model for the rest of the docs.
+- [Thinking in brainstate](thinking_in_brainstate.md) — the mental model for the rest of the docs.

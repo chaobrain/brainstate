@@ -1,4 +1,4 @@
-# Thinking in BrainState
+# Thinking in brainstate
 
 If you have written JAX or PyTorch, most of BrainState will feel familiar — but the pieces fit
 together in a particular way. Three nouns carry the whole framework: **State**, **Module**, and

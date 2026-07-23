@@ -1,4 +1,4 @@
-JIT Compilation
+JIT compilation
 ===============
 
 .. currentmodule:: brainstate.transform

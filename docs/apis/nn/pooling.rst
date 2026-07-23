@@ -1,4 +1,4 @@
-Pooling and Reshaping
+Pooling and reshaping
 =====================
 
 .. currentmodule:: brainstate.nn

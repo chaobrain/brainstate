@@ -1,4 +1,4 @@
-Gradient Computations
+Gradient computations
 =====================
 
 .. currentmodule:: brainstate.transform
@@ -8,7 +8,7 @@ Hessians. These functions extend JAX's autodiff capabilities with support for st
 computations, making them ideal for training neural networks and optimizing complex
 dynamical systems.
 
-Gradient Transformations
+Gradient transformations
 ------------------------
 
 .. autosummary::
@@ -18,7 +18,7 @@ Gradient Transformations
    vector_grad
    fwd_grad
 
-Vector-Jacobian and Jacobian-Vector Products
+Vector-Jacobian and Jacobian-Vector products
 --------------------------------------------
 
 .. autosummary::
@@ -38,7 +38,7 @@ Jacobian and Hessian
    jacobian
    hessian
 
-Base Classes
+Base classes
 ------------
 
 .. autosummary::

@@ -1,4 +1,4 @@
-Dynamics and Simulation
+Dynamics and simulation
 =======================
 
 .. currentmodule:: brainstate.nn
@@ -7,7 +7,7 @@ Primitives for building dynamical systems and time-evolving neural models:
 differential-equation base classes, prefetch/delay utilities, ring-buffer delays,
 collective operations over module hierarchies, and numerical integration.
 
-Dynamics Base Class
+Dynamics base class
 -------------------
 
 ``Dynamics`` provides the foundation for differential equation-based models and
@@ -30,7 +30,7 @@ outputs are received during a simulation step.
    receive_update_input
    not_receive_update_input
 
-Dynamics Utilities
+Dynamics utilities
 ------------------
 
 Utilities for managing temporal dynamics, prefetching, and delayed outputs in
@@ -53,7 +53,7 @@ asynchronous signal processing in recurrent and spiking neural networks.
 
    init_maybe_prefetch
 
-Delay Utilities
+Delay utilities
 ---------------
 
 Temporal delay buffers and state management for neural dynamics with synaptic delays.
@@ -71,7 +71,7 @@ neural modeling. ``InterpolationRegistry`` manages interpolation methods for del
    StateWithDelay
    InterpolationRegistry
 
-Collective Operations
+Collective operations
 ---------------------
 
 Batch operations for managing states and function calls across module hierarchies.
@@ -92,7 +92,7 @@ and state management in complex neural architectures.
    vmap_reset_all_states
    assign_state_values
 
-Numerical Integration
+Numerical integration
 ---------------------
 
 Numerical integration methods for solving ordinary differential equations (ODEs)

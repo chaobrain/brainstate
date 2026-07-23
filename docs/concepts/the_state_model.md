@@ -1,4 +1,4 @@
-# The State Model
+# The state model
 
 A {class}`~brainstate.State` is a typed, mutable container for a value. The value is read through
 the `.value` property and replaced by assigning to it:
@@ -33,13 +33,14 @@ reshape.
 {class}`~brainstate.HiddenState`, {class}`~brainstate.BatchState`, and others. They share the same
 read/write machinery. What differs is *meaning*, and that meaning is used as a **filter key**.
 
-| Type | Conventional role |
-|---|---|
-| `ParamState` | Trainable parameters — what an optimizer updates and `grad` differentiates. |
-| `HiddenState` | Dynamical/recurrent state — membrane voltages, hidden activations, anything that evolves over time. |
-| `ShortTermState` | Transient values that live for a single step, such as synaptic currents. |
-| `LongTermState` | Persistent buffers that accumulate across steps, such as running normalization statistics. |
-| `BatchState` | Values whose leading axis is a batch dimension. |
+
+| Type             | Conventional role                                                                                    |
+| ---------------- | ---------------------------------------------------------------------------------------------------- |
+| `ParamState`     | Trainable parameters — what an optimizer updates and`grad` differentiates.                          |
+| `HiddenState`    | Dynamical/recurrent state — membrane voltages, hidden activations, anything that evolves over time. |
+| `ShortTermState` | Transient values that live for a single step, such as synaptic currents.                             |
+| `LongTermState`  | Persistent buffers that accumulate across steps, such as running normalization statistics.           |
+| `BatchState`     | Values whose leading axis is a batch dimension.                                                      |
 
 Selecting states by type is the central idiom of the framework. `model.states(ParamState)`
 returns just the trainable parameters; differentiating with respect to that collection is how a

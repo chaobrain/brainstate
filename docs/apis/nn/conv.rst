@@ -1,4 +1,4 @@
-Convolutional Layers
+Convolutional layers
 ====================
 
 .. currentmodule:: brainstate.nn

@@ -1,4 +1,4 @@
-Event-based Connectivity
+Event-based connectivity
 ========================
 
 .. currentmodule:: brainstate.nn

@@ -1,4 +1,4 @@
-Base Module Classes
+Base module classes
 ===================
 
 .. currentmodule:: brainstate.nn
@@ -17,7 +17,7 @@ of modules for feedforward architectures.
    ElementWiseBlock
    Sequential
 
-Common Wrappers
+Common wrappers
 ---------------
 
 Utility wrappers for context management and vectorization. ``EnvironContext`` manages

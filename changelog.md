@@ -1,5 +1,4 @@
-# Release Notes
-
+# Release notes
 
 ## Version 0.5.2 (2026-06-26)
 
@@ -37,7 +36,6 @@ The marker is implemented as a thread-local depth counter, so it composes correc
   - *The `in_new_state_probe` guard itself*: a one-shot consumer binds to the throwaway probe state without the guard and to the real mapped state with it; plus unit tests for the probe depth counter (default, set/restore, nested composability, reset after exception).
 - Patch coverage: `_mapping1` 100%, `_mapping2` 99%, `_mapping_core` 98%; the new `in_new_state_probe` path is fully covered.
 
-
 ## Version 0.5.1 (2026-06-18)
 
 A compatibility patch release for JAX 0.10.2. JAX 0.10 removed the long-standing `jax.interpreters.batching.not_mapped` sentinel — the "not batched" marker that a primitive's batching rule returns to declare an unmapped output — collapsing it to plain `None` (`NotMapped = type(None)`). The custom `unvmap` primitives in `brainstate.transform` still referenced the removed attribute, so every `vmap` that crossed one of them raised `AttributeError`. This release restores compatibility while preserving support for the full `jax>=0.7.0` range. No public APIs are added, removed, or renamed.
@@ -52,7 +50,6 @@ A compatibility patch release for JAX 0.10.2. JAX 0.10 removed the long-standing
 
 - Full test suite: **5312 passed, 23 skipped** on JAX 0.10.2 (the eight `vmap`-related failures are resolved, with no regressions).
 - Compatibility preserved across the supported JAX range (`>=0.7.0`); the fix relies only on stable, public-facing batching behavior.
-
 
 ## Version 0.5.0 (2026-06-14)
 
@@ -127,7 +124,6 @@ Runtime validation that previously relied on `assert` — and was therefore stri
 - Full test suite: **5296 passed, 23 skipped**; `mypy` clean; patch coverage 100% (lines) for the cross-module audit and 98% for the mapping-engine fixes (#216, #217).
 - Verified green on the complete CI JAX matrix: 0.7.0, 0.8.0, 0.9.0, and latest.
 
-
 ## Version 0.4.2 (2026-06-10)
 
 A correctness-hardening patch release for `brainstate.transform`. A JAX-expert audit of the state-based transformation layer — `jit`, `grad` / `vector_grad` / `jacobian` / `hessian`, `cond` / `switch` / `ifelse`, the bounded and collecting loops, the state-aware mapping engine, `shard_map`, `checkify`, `named_scope`, and `checkpoint` — surfaced a family of stale-cache, tracer-leak, and silent-misbehavior bugs. This release fixes every reproduced issue and tightens argument validation so that previously silent wrong-result paths now fail loudly. The minimum supported JAX is raised to 0.7.0. Each fix ships with a regression test verified to fail before and pass after the change (#207, #208).
@@ -161,7 +157,6 @@ The following paths previously produced silently wrong results or accepted inval
 
 - **Minimum JAX raised to `>=0.7.0`** (previously `>=0.6.0`) across all `pyproject.toml` extras (`cpu`, `cuda12`, `cuda13`, `tpu`, `testing`) and `requirements.txt` (#208).
 
-
 ## Version 0.4.1 (2026-06-09)
 
 A focused patch release that hardens the shared state-aware mapping engine behind `vmap` / `pmap` / `map` (and their module-level `*2` variants) against a set of correctness edge cases surfaced by a JAX-expert audit, alongside a routine CI and developer-dependency refresh. No public APIs change.
@@ -185,7 +180,6 @@ A focused patch release that hardens the shared state-aware mapping engine behin
 - Bumped `codecov/codecov-action` from v5 to v7 (#199, #202).
 - Bumped `actions/cache` from v4 to v5 (#200).
 - Refreshed development dependencies (`braintools`, `mypy`) in `requirements-dev.txt` (#201).
-
 
 ## Version 0.4.0 (2026-06-01)
 
@@ -275,7 +269,6 @@ test capturing the repro):
 - `nn` event fixed-probability connectivity with `efferent_target='pre'` can crash (and, with `afferent_ratio < 1`, abort) inside the `brainevent` CSC path.
 - State filtering with the documented `{filter: axis}` mapping form raises `TypeError`.
 
-
 ## Version 0.3.0
 
 This release delivers on-device NaN debugging, a unified compilation cache, simplified JAX compatibility, and major internal cleanup — with a net reduction of ~1,800 lines of code. It raises the minimum requirements to Python 3.11 and JAX 0.6.0.
@@ -343,7 +336,6 @@ This release delivers on-device NaN debugging, a unified compilation cache, simp
 - Bumped `actions/upload-artifact` from v6 to v7.
 - Bumped `actions/download-artifact` from v7 to v8.
 
-
 ## Version 0.2.10
 
 This release introduces a comprehensive NaN debugging system for gradient computations, refactors the module mapping API for improved clarity, and adds graph context utilities for advanced state management.
@@ -353,19 +345,20 @@ This release introduces a comprehensive NaN debugging system for gradient comput
 #### NaN Debugging System
 
 - **JIT-Compatible NaN/Inf Debugging**: New debugging utilities for identifying NaN and Inf values during gradient computations
+
   - `debug_nan`: Analyze a function for NaN/Inf values with detailed reporting
   - `debug_nan_if`: Conditional NaN debugging with predicate-based activation
   - Full JIT compatibility for seamless integration into compiled workflows
   - Support for debugging NaN in `while` and `scan` primitives
   - Detailed analysis output including variable names, shapes, and affected indices
-
 - **Gradient Function Integration**: Added `debug_nan` parameter to gradient transformation functions
+
   - `grad`: Enable NaN debugging during gradient computation
   - `vector_grad`: NaN debugging for vectorized gradients
   - `jacobian` and `jacobian_reverse`: NaN debugging for Jacobian computations
   - `hessian`: NaN debugging for Hessian computations
-
 - **Breakpoint Utility**: New `breakpoint` function for conditional debugging
+
   - Wraps `jax.debug.breakpoint` with predicate support
   - Only triggers when the specified condition is True
 
@@ -374,10 +367,10 @@ This release introduces a comprehensive NaN debugging system for gradient comput
 #### Module System
 
 - **Renamed `ModuleMapper` to `Map`**: Simplified naming for the vectorized module wrapper
+
   - `Map` provides vectorized (`vmap2`) and parallel (`pmap2`) mapping over modules
   - `ModuleMapper` retained as a deprecated alias for backward compatibility
   - Internal `_ModuleMapperCalling` renamed to `_MapCaller` for consistency
-
 - **Enhanced `Map.map()` Method**: Now accepts callable functions for flexible mapping operations
 
 ### Bug Fixes
@@ -392,7 +385,6 @@ This release introduces a comprehensive NaN debugging system for gradient comput
 - Removed deprecated `_mapping3.py` module and associated tests
 - Streamlined module exports in `__init__.py` files
 
-
 ## Version 0.2.9
 
 This release introduces a powerful state hook system for advanced state management, refactors neural network modules with enhanced parameter handling, and improves delay mechanisms with frequency-controlled updates.
@@ -402,14 +394,15 @@ This release introduces a powerful state hook system for advanced state manageme
 #### State Hook System
 
 - **Global Hook Infrastructure**: Comprehensive hook system for intercepting state operations
+
   - `register_read_hook`: Register hooks that execute when state values are read
   - `register_write_hook`: Register hooks that execute when state values are written
   - `register_restore_hook`: Register hooks that execute when state values are restored
   - `HookManager`: Thread-safe manager for organizing and executing hooks with priority support
   - `HookContext`: Context manager for scoped hook registration and execution
   - Enables advanced use cases: logging, debugging, value transformation, validation
-
 - **Enhanced State Class**: Improved state management with hook integration
+
   - Automatic hook execution on read/write operations
   - Better cache key handling for improved performance
   - Enhanced thread safety and context management
@@ -420,17 +413,18 @@ This release introduces a powerful state hook system for advanced state manageme
 #### Parameter Management (`brainstate.nn.Param` and `brainstate.nn.Const`)
 
 - **Renamed Classes**: Simplified naming convention
+
   - `ParaM` → `Param`: Trainable parameter wrapper
   - `ConstM` → `Const`: Non-trainable constant wrapper
-
 - **Enhanced Caching System**: Improved parameter precomputation and caching
+
   - `param_precompute` context manager for efficient parameter transformation caching
   - `cache()` method for retrieving cached parameter values
   - Support for custom precompute functions
   - Automatic cache invalidation and management
   - 391 comprehensive tests for caching behavior
-
 - **Hierarchical Parameter Data** (`brainstate.nn.HiData`): New module for structured parameter organization
+
   - `define_param_data()` method for declaring hierarchical parameter structures
   - Support for nested parameter groups
   - Improved parameter surgery and manipulation
@@ -439,12 +433,13 @@ This release introduces a powerful state hook system for advanced state manageme
 #### Module System Enhancements
 
 - **ModuleMapper**: New helper for vectorized module operations (formerly `Vmap2Module`)
+
   - Simplified API for applying `vmap2` to module methods
   - Automatic state management for vectorized operations
   - Consistent interface with `Vmap2ModuleCaller`
   - Comprehensive documentation with usage examples
-
 - **Enhanced Module Methods**:
+
   - `parameters()`: Iterate over all parameters in the module hierarchy
   - `named_parameters()`: Iterate over parameters with their qualified names
   - `children()`: Access direct child modules
@@ -455,13 +450,14 @@ This release introduces a powerful state hook system for advanced state manageme
 #### Delay Mechanisms
 
 - **Frequency-Controlled Updates**: Enhanced `Delay` class with flexible update strategies
+
   - `update_every` parameter: Control how often delay buffers are updated
   - Support for integer steps (update every N steps)
   - Support for time-based updates with physical units (e.g., `1*ms`)
   - Automatic handling of unit conversions and validation
   - Comprehensive tests covering various update strategies
-
 - **Unified Delay Implementation**: Refactored delay mechanism
+
   - Ring buffer implementation for efficient historical value storage
   - Support for linear interpolation
   - Better handling of multi-dimensional inputs
@@ -470,13 +466,14 @@ This release introduces a powerful state hook system for advanced state manageme
 #### Regularization
 
 - **Comprehensive Regularization Module** (`brainstate.nn._regularization`, 2840 lines):
+
   - Complete suite of regularization techniques
   - L1, L2, and elastic net regularization
   - Dropout variants
   - Weight decay and other parameter constraints
   - 1261 tests for regularization functionality
-
 - **Transform Module** (`brainstate.nn._transform`, 1661 lines):
+
   - Advanced parameter transformations
   - Quantization support
   - Normalization techniques
@@ -488,13 +485,14 @@ This release introduces a powerful state hook system for advanced state manageme
 #### Vectorization and Parallelization
 
 - **Mapping Function Refactoring**: Reorganized mapping implementations
+
   - Renamed `_mapping.py` → `_mapping2.py` (primary `vmap2` implementation)
   - Renamed `_mapping_old.py` → `_mapping1.py` (legacy `vmap` implementation)
   - Added `_mapping3.py`: New `pmap2` implementation for parallelization
   - `vmap2_new_states`: Helper for creating new states in vectorized operations
   - Relaxed return type requirements for more flexible mapping functions
-
 - **Enhanced Documentation**: Updated tutorials and API documentation
+
   - Comprehensive `vmap2` tutorial with practical examples
   - Enhanced parallelization documentation for `pmap2`
   - Updated state management guides
@@ -513,22 +511,24 @@ This release introduces a powerful state hook system for advanced state manageme
 #### Utility Functions
 
 - **Dataclass Support**: Added `is_dataclass` utility function in `brainstate.util.struct`
+
   - Robust dataclass type checking
   - Better handling of dataclass-based structures
-
 - **Tracer Utilities**: New `_tracers.py` module for JAX tracer handling
+
   - `current_jax_trace()`: Get current JAX trace context with version compatibility
   - Helper functions for working with JAX abstract values
 
 ### Graph Operations
 
 - **Context Management** (`brainstate.graph._context`):
+
   - New context management system for graph operations (119 lines)
   - `TraceContextError`: Specialized error class for tracing issues
   - Enhanced state tracking during graph construction
   - 64 tests for context management
-
 - **Conversion Utilities** (`brainstate.graph._convert`):
+
   - New conversion utilities for graph operations (278 lines)
   - Better handling of graph transformations
   - Improved node conversion logic
@@ -544,12 +544,13 @@ This release introduces a powerful state hook system for advanced state manageme
 ### Documentation
 
 - **Comprehensive API Documentation**: Expanded documentation across all modules
+
   - `brainstate.rst`: Reorganized with improved structure (21 lines removed, refactored into submodules)
   - `environ.rst`: Added 48 lines of documentation for environment state and keys
   - `nn.rst`: Added 222 lines documenting neural network components
   - `transform.rst`: Added 132 lines for gradient transformations and mapping functions
-
 - **Tutorial Updates**:
+
   - Updated vectorization tutorial to reflect `vmap` → `vmap2` transition
   - Enhanced examples with `ModuleMapper` usage
   - Improved state management examples
@@ -557,17 +558,18 @@ This release introduces a powerful state hook system for advanced state manageme
 ### Breaking Changes
 
 - **Renamed Functions and Classes**:
+
   - `ParaM` → `Param`
   - `ConstM` → `Const`
   - `vmap` → `vmap2` (old `vmap` preserved in `_mapping1.py` for compatibility)
   - `pmap` → `pmap2`
   - `_param_data` → `_hidata`
-
 - **Parameter Naming Standardization**:
+
   - `fit_par` → `fit` across all modules
   - `brainscale` → `braintrace` in example files
-
 - **Method Signature Changes**:
+
   - `init_all_states()` now accepts additional keyword arguments
   - `param_precompute()` signature updated to support caching and custom functions
   - Module initialization methods enhanced with keyword argument support
@@ -588,7 +590,6 @@ This release introduces a powerful state hook system for advanced state manageme
 - Streamlined module exports in `__all__` definitions
 - Better separation of concerns in module organization
 
-
 ## Version 0.2.8
 
 This release ensures compatibility with JAX 0.8.2+ and removes the experimental module that was superseded by upstream changes.
@@ -608,7 +609,6 @@ This release ensures compatibility with JAX 0.8.2+ and removes the experimental 
 ### Improvements
 
 - **Debug mode support**: Added `debug_call` method to `StatefulFunction` for proper execution when `jax.config.jax_disable_jit` is enabled. This improves debugging workflows by allowing stateful functions to execute without JIT compilation.
-
 - **Lazy loading optimization**: `RandomState` import in the `_mapping` module is now lazily loaded via `_import_rand_state()`, improving initial import performance and reducing circular dependency issues.
 
 ### Internal Changes
@@ -647,7 +647,6 @@ BrainState 0.2.7 modernizes the experimental compilation stack, deepens the tran
 - Hardened caching, randomness, and initialization logic by fixing `get_arg_cache_key`, removing stale decorator parameters, validating truncated normal draws, and correcting the exported version metadata.
 - Declared Python 3.14 support and cleaned up compiler import ordering to keep linting noise low.
 
-
 ## Version 0.2.6
 
 This release focuses on the experimental export pipeline and device-aware execution adapters.
@@ -662,7 +661,6 @@ This release focuses on the experimental export pipeline and device-aware execut
 - Introduced the thread-safe `BoundedCache` utility and integrated it with compiler wrappers to safely reuse traced graphs, alongside `_make_jaxpr` updates that enforce argument checks and improve cache key generation.
 - Updated tutorials and examples to the streamlined naming scheme and refreshed device implementation docs for the new wrapper entry points.
 
-
 ## Version 0.2.5
 
 Version 0.2.5 concentrates on intermediate-representation (IR) optimization quality.
@@ -671,7 +669,6 @@ Version 0.2.5 concentrates on intermediate-representation (IR) optimization qual
 
 - Added `_ir_optim_v2`, a comprehensive optimizer that ships constant folding, dead-code elimination, common subexpression elimination, copy propagation, and algebraic simplification passes backed by identity-aware set semantics.
 - Updated the transform exports and accompanying tests to exercise the new optimizer while pruning unused configuration knobs from the earlier implementation.
-
 
 ## Version 0.2.4
 
@@ -692,17 +689,18 @@ This release introduces the new `ArrayParam` state type for parameter arrays wit
 #### Experimental BPU Backend Export (`brainstate.experimental.gdiist_bpu`)
 
 - **BPU Backend Export Support**: Complete infrastructure for exporting models to GDiist BPU hardware backend (727 lines)
+
   - `export.py`: Main export API with `to_bpu()` function for model conversion
   - `parser.py`: Operation parser that analyzes JAXPR to identify operations and connections (305 lines)
   - `data.py`: Data structures and analysis utilities for operation representation (215 lines)
-
 - **Operation Parser Features**:
+
   - Automatic detection of operations from JAXPR equations using brainevent primitives
   - Data flow analysis to identify connections between operations
   - Support for various operation types: slice, add, multiply, and more
   - Detailed analysis output showing equations, inputs, outputs, and connections
-
 - **Analysis and Debugging Tools**:
+
   - `display_analysis_results()`: Comprehensive visualization of parsed operations
   - Shows operation details including equation count, variable mappings, and connections
   - Displays connection information with producer/consumer operations and variable details
@@ -713,16 +711,17 @@ This release introduces the new `ArrayParam` state type for parameter arrays wit
 #### JAXPR Optimization Improvements
 
 - **Enhanced Constant Folding**:
+
   - Better handling of literal values in constant folding optimization
   - Improved detection and elimination of redundant literal operations
   - More efficient constant propagation through computation graphs
-
 - **Identity Equation Optimization**:
+
   - Optimized handling of `Literal` outputs to avoid unnecessary bridging equations
   - Improved identity equation creation for interface preservation
   - Better handling of edge cases in optimization passes
-
 - **Error Handling**:
+
   - Added fallback source info utility for better error messages
   - Fixed potential NoneType errors in equation handling
   - Improved validation of optimization results
@@ -734,8 +733,6 @@ This release introduces the new `ArrayParam` state type for parameter arrays wit
   - More thorough validation of state behavior
   - Enhanced test readability and maintainability
 
-
-
 ## Version 0.2.3
 
 This release introduces powerful IR (Intermediate Representation) optimization capabilities for JAX computation graphs, comprehensive state management refactoring for vectorized mapping operations, and extensive testing infrastructure improvements.
@@ -745,14 +742,15 @@ This release introduces powerful IR (Intermediate Representation) optimization c
 #### IR Optimization (`brainstate.transform._ir_optim`)
 
 - **Intermediate Representation Optimization Module** (876 lines): Complete suite of compiler-level optimizations for JAX computation graphs
+
   - `constant_fold`: Evaluates constant expressions at compile time, reducing runtime computation
   - `dead_code_elimination`: Removes equations whose outputs are unused, reducing computation overhead
   - `common_subexpression_elimination`: Identifies and reuses results of identical computations
   - `copy_propagation`: Eliminates unnecessary copy operations by propagating original variables
   - `algebraic_simplification`: Applies algebraic identities (x+0=x, x*1=x, x-x=0, etc.)
   - `optimize_jaxpr`: Orchestrates multiple optimization passes with configurable iteration and verbose mode
-
 - **IdentitySet Class**: Custom set implementation using object identity (`id()`) instead of equality
+
   - Enables proper handling of JAX variables and Literals in optimization passes
   - Implements `MutableSet` interface with full collection protocol support
   - Essential for tracking variable usage without relying on equality comparisons
@@ -760,17 +758,18 @@ This release introduces powerful IR (Intermediate Representation) optimization c
 #### Optimization Features
 
 - **Interface Preservation**: All optimizations preserve function input/output variables (invars/outvars)
+
   - Identity equations automatically added when needed to maintain correct interfaces
   - Uses `convert_element_type` primitive with matching dtypes as identity operation
   - Ensures optimized functions remain drop-in replacements
-
 - **Optimization Pipeline**: Configurable multi-pass optimization with convergence detection
+
   - Customizable optimization sequence via `optimizations` parameter
   - Automatic convergence detection when no more reductions possible
   - Maximum iteration control with `max_iterations` parameter
   - Verbose mode with detailed statistics and progress tracking
-
 - **JAX Integration**: Full support for JAX primitives and special cases
+
   - Blacklist for primitives that shouldn't be folded (broadcast_in_dim, broadcast)
   - Proper handling of `closed_call` and `scan` primitives
   - Support for both Jaxpr and ClosedJaxpr inputs
@@ -778,11 +777,12 @@ This release introduces powerful IR (Intermediate Representation) optimization c
 #### State Management Refactoring (`brainstate.transform._mapping`)
 
 - **Renamed vmap to vmap2**: Major refactoring of vectorized mapping implementation (647 lines)
+
   - Enhanced state management with improved axis tracking
   - Better error messages and validation
   - Streamlined state value restoration logic
-
 - **Old vmap Implementation Preserved** (`_mapping_old.py`, 579 lines): Legacy vmap with explicit state management
+
   - Exports original `vmap` and `vmap_new_states` functions
   - Maintains backward compatibility for existing code
   - Specialized for stateful functions with explicit state parameters
@@ -792,12 +792,13 @@ This release introduces powerful IR (Intermediate Representation) optimization c
 #### API Documentation
 
 - **transform.rst**: Added comprehensive IR Optimization section (24 lines)
+
   - Detailed module description explaining compiler optimizations
   - All 6 optimization functions documented with autosummary
   - Clear explanation of benefits: reduced computation overhead, improved runtime performance
   - Positioned between Compilation Tools and Gradient Computations sections
-
 - **NumPy-style Docstrings**: All optimization functions include:
+
   - Comprehensive parameter descriptions with types and defaults
   - Detailed return value documentation
   - Notes sections explaining preservation of function interfaces
@@ -810,18 +811,19 @@ This release introduces powerful IR (Intermediate Representation) optimization c
 #### Optimization Pipeline
 
 - **Progress Tracking**: Verbose mode shows equation count changes after each optimization
+
   - Displays initial, intermediate, and final equation counts
   - Shows reduction statistics with percentages
   - Indicates convergence detection
   - Reports iteration counts
-
 - **Validation**: Runtime checks ensure optimization correctness
+
   - Verifies input variables unchanged after optimization
   - Validates output variables preserved
   - Raises clear errors if interface violated
   - Checks for valid optimization names
-
 - **Flexibility**: Customizable optimization sequences
+
   - Apply all optimizations in recommended order (default)
   - Select specific optimizations only
   - Control iteration limits
@@ -830,11 +832,12 @@ This release introduces powerful IR (Intermediate Representation) optimization c
 #### JAX Integration
 
 - **JaxprEqn Construction**: Proper handling of required `ctx` parameter
+
   - Uses `JaxprEqnContext(None, True)` for identity equations
   - Ensures compatibility with JAX internal API
   - Maintains proper equation structure
-
 - **Primitive Handling**: Special cases for JAX primitives
+
   - Blacklist for primitives that shouldn't be optimized
   - Proper parameter extraction and validation
   - Support for effects and source_info fields
@@ -852,10 +855,11 @@ This release introduces powerful IR (Intermediate Representation) optimization c
 #### Transform Module
 
 - **Renamed Files**:
+
   - `vmap` → `vmap2` in `_mapping.py`
   - Preserved original `vmap` in `_mapping_old.py` for compatibility
-
 - **Module Exports**: Updated `__init__.py` to export both old and new vmap implementations
+
   - `vmap` from `_mapping_old.py` (legacy)
   - `vmap2` from `_mapping.py` (new)
   - `vmap_new_states` from both modules
@@ -869,12 +873,13 @@ This release focuses on enhancing hidden state management for recurrent neural n
 #### Hidden State Classes
 
 - **HiddenGroupState**: New class for managing multiple hidden states within a single array
+
   - Stores multiple states in the last dimension of a single array
   - Provides `get_value()` and `set_value()` methods for accessing individual states by index or name
   - Optimized for LSTM-style architectures with multiple hidden components (h, c)
   - Includes `name2index` mapping for convenient state access
-
 - **HiddenTreeState**: New class for managing multiple hidden states with different physical units
+
   - Supports PyTree structure (dict or sequence) of hidden states
   - Preserves physical units (e.g., voltage, current, conductance) via `brainunit` integration
   - Provides `name2unit` and `index2unit` mappings for unit tracking
@@ -893,31 +898,33 @@ This release focuses on enhancing hidden state management for recurrent neural n
 #### State Classes
 
 - **HiddenState**: Enhanced documentation and type checking
+
   - Restricted to `numpy.ndarray`, `jax.Array`, and `brainunit.Quantity` types only
   - Added comprehensive docstrings with examples
   - Clarified equivalence to `brainstate.HiddenState` for online learning
   - Improved error messages for invalid input types
-
 - **BatchState**: Now properly exported in the public API
+
   - Available via `brainstate.BatchState`
   - Enhanced documentation for batch data management
 
 #### Documentation
 
 - **API Reference**: Completely reorganized `brainstate.rst` documentation
+
   - Organized into 6 major sections: Core State Classes, State Management, State Utilities, Error Handling, and Submodules
   - Added detailed descriptions for each section and subsection
   - Included comprehensive bullet-point summaries for all APIs
   - Enhanced deprecation warnings with clear migration paths
   - Added module-level descriptions for all submodules
-
 - **State Classes**: Enhanced documentation for all state types
+
   - Added detailed use case descriptions
   - Included practical examples for each state type
   - Clarified semantic distinctions between state types
   - Documented integration with JAX transformations
-
 - **JAX Transformations**: Improved documentation for stateful transforms
+
   - Enhanced docstrings for `jit`, `grad`, `vmap`, `scan`, and other transforms
   - Added examples showing state management patterns
   - Documented state tracing behavior
@@ -926,16 +933,17 @@ This release focuses on enhancing hidden state management for recurrent neural n
 #### Transform System
 
 - **Enhanced State Finding**: New `_find_state.py` module for automatic state discovery
+
   - Improved state detection in nested structures
   - Better handling of state dependencies
   - Enhanced error messages for state-related issues
-
 - **StatefulFunction**: Major enhancements to `make_jaxpr` functionality
+
   - Improved Jaxpr generation for stateful computations
   - Better handling of state read/write tracking
   - Enhanced debugging support
-
 - **Mapping Transformations**: Significant refactoring of `vmap` and `pmap`
+
   - Improved state management across vectorized operations
   - Better handling of state broadcasting
   - Enhanced error reporting for mapping operations
@@ -943,12 +951,13 @@ This release focuses on enhancing hidden state management for recurrent neural n
 #### Random Number Generation
 
 - **Module Reorganization**: Complete refactoring of random module structure
+
   - Renamed `_rand_funs.py` to `_fun.py`
   - Renamed `_rand_seed.py` to `_seed.py`
   - Renamed `_rand_state.py` to `_state.py`
   - Extracted distribution implementations to new `_impl.py` module (691 lines)
-
 - **Improved Random State**: Enhanced `RandomState` class with better state management
+
   - Simplified implementation (reduced from 534 to ~300 lines)
   - Better integration with JAX's random number generation
   - Improved thread safety and state isolation
@@ -978,48 +987,48 @@ This release focuses on enhancing hidden state management for recurrent neural n
 - Improved error handling in hidden state value validation
 - Enhanced type checking for hidden state initialization
 
-
 ### Documentation
 
 #### Tutorial Reorganization
 
 - **Basics Tutorials**: Complete rewrite and expansion
+
   - `01_getting_started.ipynb`: Enhanced introduction with practical examples
   - `02_state_management.ipynb`: Comprehensive state management guide
   - `03_random_numbers.ipynb`: In-depth random number generation tutorial
-
 - **Neural Networks Tutorials**: Restructured and expanded
+
   - `01_module_basics.ipynb`: New comprehensive module system guide
   - `02_basic_layers.ipynb`: Enhanced layer documentation with examples
   - `03_activations_normalization.ipynb`: Detailed activation and normalization guide
   - `04_recurrent_networks.ipynb`: New RNN tutorial with practical examples
   - `05_dynamics_systems.ipynb`: New dynamical systems tutorial
-
 - **Examples**: Reorganized and enhanced
+
   - Renamed `10_image_classification.ipynb` to `01_image_classification.ipynb`
   - Renamed `11_sequence_modeling.ipynb` to `02_sequence_modeling.ipynb`
   - Added `03_brain_inspired_computing.ipynb`: New brain-inspired computing examples
   - Renamed `18_optimization_tricks.ipynb` to `04_optimization_tricks.ipynb`
   - Renamed `19_model_deployment.ipynb` to `05_model_deployment.ipynb`
-
 - **Transforms Tutorials**: Reorganized for better flow
+
   - `01_jit_compilation.ipynb`: New comprehensive JIT guide
   - `02_automatic_differentiation.ipynb`: Enhanced autodiff tutorial
   - `03_vectorization.ipynb`: Improved vmap/pmap guide
   - `04_loops_conditions.ipynb`: Enhanced control flow guide
   - `05_other_transforms.ipynb`: Other transformation utilities
-
 - **Advanced Tutorials**: Renumbered for clarity
+
   - `01_graph_operations.ipynb` (formerly `14_graph_operations.ipynb`)
   - `02_mixin_system.ipynb` (formerly `15_mixin_system.ipynb`)
   - `03_typing_system.ipynb` (formerly `16_typing_system.ipynb`)
   - `04_utilities.ipynb` (formerly `17_utilities.ipynb`)
-
 - **Migration Guides**: Updated and simplified
+
   - `01_migration_from_pytorch.ipynb`: Enhanced PyTorch migration guide
   - Removed outdated BrainPy integration notebook
-
 - **Supplementary**: Reorganized
+
   - `01_performance_optimization.ipynb`
   - `02_debugging_tips.ipynb`
   - `03_faq.ipynb`: Updated FAQ with new content
@@ -1044,9 +1053,6 @@ This release focuses on enhancing hidden state management for recurrent neural n
 - Updated benchmark scripts for performance testing
 - Improved test coverage across transformation modules
 
-
-
-
 ## Version 0.2.0
 
 This is a major release with significant refactoring, new features, and comprehensive documentation improvements.
@@ -1054,20 +1060,19 @@ This is a major release with significant refactoring, new features, and comprehe
 ### Breaking Changes
 
 - **Module Deprecations**: Deprecated `brainstate.transform`, `brainstate.transform`, and `brainstate.functional` modules in favor of `brainstate.transform` and `brainstate.nn`
+
   - Added deprecation proxies to guide users towards replacement modules
   - Updated all documentation and examples to use new module paths
-
 - **State Management**: Replaced `write_back_state_values` with `assign_state_vals_v2` for improved state management
-
 - **Import Path Changes**: Major refactoring of import paths across the codebase
+
   - Moved initialization references to use `brainstate.nn`
   - Updated random functions to use `brainstate.random`
   - Standardized imports across all modules
-
 - **Type System**: Implemented `JointTypes` and `OneOfTypes` generic aliases to enhance type checking and avoid metaclass conflicts
+
   - Support for subscript syntax
   - Improved type hints across modules
-
 - **Copyright**: Updated copyright notices to reflect new ownership by BrainX Ecosystem Limited
 
 ### New Features
@@ -1075,94 +1080,84 @@ This is a major release with significant refactoring, new features, and comprehe
 #### Neural Network Components
 
 - **Transposed Convolution Layers**: Complete implementations for upsampling operations
+
   - `ConvTranspose1d`, `ConvTranspose2d`, `ConvTranspose3d`
   - Support for both channels-first and channels-last data formats via `channel_first` parameter
   - Configurable stride for controllable upsampling factors
   - Grouped transposed convolution support
   - Automatic padding computation for 'SAME' and 'VALID' modes
-
 - **Convolution Enhancements**: Added support for both channels-first and channels-last data formats
+
   - New `channel_first` boolean parameter (default: `False`)
   - PyTorch-compatible format (e.g., `[B, C, H, W]`) when `channel_first=True`
   - Default JAX-style format (e.g., `[B, H, W, C]`) when `channel_first=False`
-
 - **Padding Layers**: Added padding layers for 1D, 2D, and 3D tensors with various modes
-
 - **Unpooling Layers**: Added `MaxUnpool1d`, `MaxUnpool2d`, and `MaxUnpool3d` with `return_indices` support
-
 - **Gradient Utilities**: Implemented `clip_grad_norm` function for gradient clipping in PyTree structures
-
 - **Embedding Enhancements**:
+
   - Added `padding_idx`, `max_norm`, and `norm_type` parameters
   - Improved gradient management with new `_contains_tracer` function
   - Optimized max_norm application with accessed mask for scaling
-
 - **BatchNorm Improvements**: Added `feature_axis` and `track_running_stats` parameters
-
 - **LoRA Layer**: Added `in_size` parameter for improved size handling
-
 - **Activation Functions**: Added new activation functions and improved signatures
 
 #### Transform & Compilation
 
 - **StatefulMapping**: Introduced for enhanced state management in vmap transformations
-
 - **Mixin Classes**: Added `Mode`, `JointMode`, `Batching`, and `Training` classes for computation behavior control
-
 - **Bounded Cache**: Implemented thread-safe bounded cache for JAX Jaxpr with:
+
   - Comprehensive validation
   - Statistics tracking
   - Enhanced error handling
-
 - **Input Validation**: Enhanced input size handling to support numpy integer types
-
 - **Context Parameters**: Update method now accepts additional context parameters for improved environment settings
 
 #### Random & Initialization
 
 - **Dependencies**: Integrated `braintools` for initialization and surrogate gradient functions
+
   - Updated all initialization references
   - Refactored to use `braintools.surrogate` for spike functions
-
 - **Random Functions**: Replaced `uniform_for_unit` with `jr.uniform` for consistency and performance
 
 #### Utilities & Infrastructure
 
 - **Filter Utilities**: Added comprehensive filter utilities for nested structures
-
 - **Pretty Representation**: Enhanced pretty_pytree module with:
+
   - Comprehensive documentation
   - Mapping functions
   - JAX integration
-
 - **Error Handling**: Improved state length validation by replacing assertions with `ValueError` exceptions
-
 - **Collective Operations**: Updated function signatures to return target in collective operations
 
 ### Documentation
 
 - **Comprehensive Docstrings**: Added detailed NumPy-style docstrings across all modules
+
   - Full parameter descriptions with types and default values
   - Multiple practical examples in code blocks
   - Comparison sections highlighting differences from PyTorch
   - Mathematical formulas where applicable
   - References to original papers
   - Best practices and use cases
-
 - **New Documentation Pages**:
+
   - `brainstate.environ` module documentation
   - `brainstate.transform` (renamed from compile.rst)
   - Random number generation module
   - Pretty representation module
   - State management tutorial notebook
-
 - **Enhanced Examples**: Updated documentation examples to use interactive prompts for clarity
-
 - **Module Descriptions**: Enhanced documentation with detailed descriptions, key features, and usage examples
 
 ### Testing
 
 - **Comprehensive Test Coverage**: Added extensive test suites for:
+
   - `_BoundedCache` and `StatefulFunction`
   - `brainstate.mixin` module
   - `brainstate.environ` module (context management, precision settings, callbacks)
@@ -1176,41 +1171,34 @@ This is a major release with significant refactoring, new features, and comprehe
   - Filter utilities
   - Struct module
   - Pretty representation
-
 - **Test Framework Updates**: Refactored tests to use `absltest` for better JAX compatibility
 
 ### Refactoring
 
 - **File Reorganization**:
+
   - Renamed `metrics.py` to `_metrics.py`
   - Renamed `_rate_rnns.py` to `_rnns.py`
   - Renamed `_init.py` to `init.py`
   - Reorganized graph module files
   - Cleaned up unused imports and classes
-
 - **Code Quality**:
+
   - Streamlined imports across all modules
   - Enhanced code formatting and whitespace consistency
   - Removed unnecessary inheritance and unused elements
   - Simplified type annotations
   - Improved method signatures for clarity
-
 - **Neuron & Synapse Classes**: Refactored to use brainpy module and updated initialization methods
-
 - **Base Classes**: Changed base class of `EINet` and `Net` from `DynamicsGroup` to `Module` for consistency
-
 - **Evaluation Functions**: Refactored and updated method names for consistency
 
 ### Infrastructure
 
 - **Version Bump**: Updated version to 0.2.0
-
 - **Development Dependencies**: Added `braintools` to development requirements
-
 - **Issue Templates**: Added bug report and feature request templates for improved issue tracking
-
 - **CI/CD**: Refactored CI configurations to update pip installation commands
-
 - **Git Ignore**: Updated to exclude example figures directory and build artifacts
 
 ### Bug Fixes
@@ -1220,9 +1208,6 @@ This is a major release with significant refactoring, new features, and comprehe
 - Improved deprecation handling in tests
 - Fixed precision checks in complex number handling
 
-
 ## Version 0.1.0
 
 The first version of the project.
-
-
