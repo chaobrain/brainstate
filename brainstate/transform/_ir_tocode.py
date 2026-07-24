@@ -30,7 +30,7 @@ import jax.numpy as jnp
 import numpy as np
 from jax._src.sharding_impls import UNSPECIFIED
 
-from brainstate._compatible_import import Literal, Var, Jaxpr
+from brainstate._compatible_import import Literal, Var, Jaxpr, scan_num_consts_carry
 from brainstate.transform._ir_utils import IRError, UnsupportedPrimitiveError
 
 
@@ -1099,8 +1099,7 @@ def _astify_scan(state, eqn):
 
     # the args to scan are [constants, carry, xs]
     # constants aren't exposed in the Python API, so we need to handle them specially (we use a lambda)
-    num_consts = eqn.params['num_consts']
-    num_carry = eqn.params['num_carry']
+    num_consts, num_carry = scan_num_consts_carry(eqn.params)
 
     # TODO: bring back map
     # if num_carry == 0:
@@ -1256,7 +1255,7 @@ def _astify_scan(state, eqn):
 
 def _astify_map(state, eqn):
     assert eqn.primitive.name == 'scan'
-    assert eqn.params['num_carry'] == 0
+    assert scan_num_consts_carry(eqn.params)[1] == 0
 
     jaxpr = eqn.params['jaxpr']
     jaxpr = constant_fold_jaxpr(jaxpr.jaxpr)

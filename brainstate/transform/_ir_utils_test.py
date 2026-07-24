@@ -19,7 +19,7 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
-from brainstate._compatible_import import Literal, Var
+from brainstate._compatible_import import Literal, Var, Jaxpr, ClosedJaxpr
 from brainstate.transform._ir_utils import (
     IRError, IRValidationError, UnsupportedPrimitiveError,
     IdentitySet, IdentityMap,
@@ -107,8 +107,16 @@ class TestValidationHelpers(unittest.TestCase):
         jaxpr, consts, was_closed = ensure_jaxpr(cj)
         self.assertTrue(was_closed)
         self.assertEqual(list(consts), list(cj.consts))
+
+        # jax >= 0.11 merged Jaxpr and ClosedJaxpr into a single class, and
+        # ``make_jaxpr(...).jaxpr is`` the closed object itself -- there is no
+        # longer a distinct "bare" Jaxpr to pass, so ``ensure_jaxpr`` reports it
+        # as closed. On older jax, ``cj.jaxpr`` is a bare Jaxpr (not closed).
         jaxpr2, consts2, was_closed2 = ensure_jaxpr(cj.jaxpr)
-        self.assertFalse(was_closed2)
+        if ClosedJaxpr is Jaxpr:  # jax >= 0.11.0
+            self.assertTrue(was_closed2)
+        else:
+            self.assertFalse(was_closed2)
         self.assertEqual(consts2, [])
 
     def test_ensure_jaxpr_rejects_other(self):

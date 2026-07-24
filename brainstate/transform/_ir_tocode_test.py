@@ -23,6 +23,7 @@ import jax
 import jax.numpy as jnp
 import pytest
 
+from brainstate._compatible_import import scan_num_consts_carry
 from brainstate.transform import fn_to_python_code, jaxpr_to_python_code
 from brainstate.transform import _ir_tocode
 
@@ -720,7 +721,7 @@ class TestScanMapAndClosedCall(unittest.TestCase):
 
         xs = jnp.float32([1., 2., 3.])
         folded, scan_eqn = self._scan_eqn(f, xs)
-        self.assertEqual(scan_eqn.params['num_carry'], 0)
+        self.assertEqual(scan_num_consts_carry(scan_eqn.params)[1], 0)
 
         state = _ir_tocode.SourcerorState()
         for v in folded.invars:
