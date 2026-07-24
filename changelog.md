@@ -1,6 +1,29 @@
 # Release Notes
 
 
+## Version 0.5.3 (2026-07-24)
+
+A compatibility patch release for JAX 0.11.0. JAX 0.11 shipped two breaking changes to the tracing internals that `brainstate.transform`'s intermediate-representation tooling relies on — the `scan` primitive dropped its `num_consts` / `num_carry` integer parameters, and the `Jaxpr` / `ClosedJaxpr` classes were merged into a single type — which broke 18 `transform` tests. This release restores full compatibility while advancing the supported floor to `jax>=0.8.0`. No public APIs are added, removed, or renamed, and behavior is unchanged on every supported JAX version.
+
+### Bug Fixes
+
+#### `brainstate.transform` (#232)
+
+- **`scan` primitive parameter change**: JAX 0.11 replaced the `scan` equation's `num_consts` / `num_carry` integer parameters with `ft_in` / `ft_out` `FlatTree` descriptors, so the IR code generator (`_astify_scan` / `_astify_map` in `_ir_tocode`) and the visualizer (`get_scan` in `_ir_visualize`) could no longer read the constant/carry split and raised on any traced `scan` — including `jax.lax.map`, which lowers to a `scan`. A new version-agnostic helper, `scan_num_consts_carry()` in `brainstate/_compatible_import.py`, recovers the two counts by shape-detecting the equation params (`ft_in.unpack()` on `>=0.11`, the legacy integer params otherwise), and both call sites now route through it.
+- **`Jaxpr` / `ClosedJaxpr` merge**: JAX 0.11 collapsed `Jaxpr` and `ClosedJaxpr` into one class (`ClosedJaxpr is Jaxpr`), so `isinstance` can no longer distinguish a bare jaxpr from a closed one and `ensure_jaxpr` classifies every jaxpr as closed. The affected assertion (`test_ensure_jaxpr_accepts_jaxpr`) is now version-aware. The `isinstance`-based branches in `_ir_inline` / `_ir_optim` remain correct because the merged class still carries `.consts` and `ClosedJaxpr(jaxpr, consts)` is preserved as a backward-compatible constructor (the inline / optimization suites were verified green).
+
+### Build & CI
+
+- **Minimum supported JAX raised to `jax>=0.8.0`** across every extra in `pyproject.toml` and in `requirements.txt`.
+- **CI matrix**: added a pinned `jax==0.10.0` entry and dropped the end-of-support `jax==0.7.0`; the unpinned (latest) entry now exercises 0.11.0.
+
+### Quality
+
+- `transform`: **1282 passed, 0 failed** on JAX 0.11.0 (previously 18 failed / 1264 passed), with no regressions.
+- Full module sweep green on 0.11.0: `util` (402), `graph` (223), `interop` (93), `nn` (1977), `random` (592).
+- `mypy` clean on all changed source files.
+
+
 ## Version 0.5.2 (2026-06-26)
 
 A small, additive feature release for `brainstate.transform`. It exposes `in_new_state_probe()`, a public predicate that lets state-bound, one-shot consumers cooperate with the eager discovery probe that `vmap_new_states` / `vmap2_new_states` / `pmap2_new_states` run to enumerate the random states a function creates before the real mapped pass. No public APIs are removed or renamed, and behavior is unchanged for code that does not call the new helper.
