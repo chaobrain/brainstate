@@ -9,8 +9,9 @@
 5. Every correction: reflect on the mistake, plan to avoid repeating it.
 6. All updates must be happened on the worktree branch, not main. 
 7. Use `brainstate.random` instead of `jax.random` directly for all random number generation. 
-8. Write spec and plan under `/mnt/d/codes/projects/brainstate/dev/superpowers` as gitignored files before implementation. This makes them available for reference during implementation, but not clutter the repo history.
+8. Write spec and plan under `<PROJECT_ROOT>/doc/specs` before implementation, so they're available for reference during implementation.
 9. Tests should >90% coverage, but focus on meaningful tests that cover edge cases and critical paths, not just trivial lines. 
+10. Maintain compatibility with JAX versions >= 0.8.0. Guard any version-specific behavior in `brainstate/_compatible_import.py`, preferring feature/shape detection over hard version checks.
 
 
 ## Docstring style (NumPy-doc)
