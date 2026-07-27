@@ -1,4 +1,4 @@
-Getting Started
+Getting started
 ===============
 
 Install BrainState, run a first end-to-end example, and build the mental model the

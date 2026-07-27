@@ -1,4 +1,4 @@
-Core Transformation Infrastructure
+Core transformation infrastructure
 ==================================
 
 .. currentmodule:: brainstate.transform

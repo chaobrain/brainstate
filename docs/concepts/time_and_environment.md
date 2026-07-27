@@ -1,4 +1,4 @@
-# Time and Environment
+# Time and environment
 
 Some quantities are not properties of any one layer but of the *run*: the simulation time step,
 whether the model is training or evaluating, the numerical precision, the target platform. Passing

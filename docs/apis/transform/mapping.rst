@@ -1,4 +1,4 @@
-Mapping and Vectorization
+Mapping and vectorization
 =========================
 
 .. currentmodule:: brainstate.transform
@@ -7,7 +7,7 @@ Transformations for vectorized and parallel computation across multiple data poi
 or devices. These functions enable efficient batch processing and multi-device
 scaling, essential for large-scale simulations and distributed training.
 
-Basic Vectorization
+Basic vectorization
 -------------------
 
 Vectorize computations across batch dimensions. ``vmap2`` is the recommended API
@@ -22,7 +22,7 @@ with enhanced state handling and control over batching axes.
    vmap2_new_states
    map
 
-Parallel Mapping
+Parallel mapping
 ---------------
 
 Execute computations in parallel across devices, or shard them with explicit mesh
@@ -35,7 +35,7 @@ control.
    pmap2_new_states
    shard_map
 
-Base Classes and Utilities
+Base classes and utilities
 --------------------------
 
 .. autosummary::

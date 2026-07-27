@@ -1,4 +1,4 @@
-Control Flow
+Control flow
 ============
 
 .. currentmodule:: brainstate.transform

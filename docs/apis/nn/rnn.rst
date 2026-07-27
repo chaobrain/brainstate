@@ -1,4 +1,4 @@
-Recurrent Cells
+Recurrent cells
 ===============
 
 .. currentmodule:: brainstate.nn

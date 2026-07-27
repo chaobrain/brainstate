@@ -1,4 +1,4 @@
-# The Graph Model
+# The graph model
 
 A BrainState model is an ordinary Python object graph: modules hold sub-modules in attributes,
 lists, and dicts, and {class}`~brainstate.State` objects sit at the leaves. The graph model is the

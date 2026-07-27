@@ -1,4 +1,4 @@
-Deep Learning
+Deep learning
 =============
 
 End-to-end deep-learning models built with BrainState.

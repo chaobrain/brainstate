@@ -1,4 +1,4 @@
-Debugging and Error Checking
+Debugging and error checking
 ============================
 
 .. currentmodule:: brainstate.transform

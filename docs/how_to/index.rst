@@ -1,4 +1,4 @@
-How-to Guides
+How-to guides
 =============
 
 Task-oriented recipes for users who already know the basics and need to accomplish a

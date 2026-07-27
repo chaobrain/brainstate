@@ -1,4 +1,4 @@
-Intermediate Representation (IR) Tooling
+Intermediate Representation (IR) tooling
 ========================================
 
 .. currentmodule:: brainstate.transform
@@ -7,7 +7,7 @@ Tools for optimizing, processing, generating code from, and visualizing JAX
 intermediate representations (Jaxpr). These utilities reduce computation overhead and
 improve runtime performance while preserving a function's semantics and interface.
 
-IR Optimization
+IR optimization
 ---------------
 
 Optimize Jaxpr intermediate representations by applying compiler optimizations such as
@@ -25,7 +25,7 @@ propagation, and algebraic simplification.
    algebraic_simplification
    optimize_jaxpr
 
-IR Processing and Transformation
+IR processing and transformation
 --------------------------------
 
 Tools for processing and transforming JAX intermediate representations, including
@@ -39,7 +39,7 @@ equation-to-Jaxpr conversion and JIT inlining operations.
    eqns_to_jaxpr
    inline_jit
 
-Code Generation
+Code generation
 ---------------
 
 Convert JAX functions and Jaxpr representations into readable Python code for

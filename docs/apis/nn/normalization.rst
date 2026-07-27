@@ -1,4 +1,4 @@
-Normalization Layers
+Normalization layers
 ====================
 
 .. currentmodule:: brainstate.nn

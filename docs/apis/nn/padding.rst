@@ -1,4 +1,4 @@
-Padding Layers
+Padding layers
 ==============
 
 .. currentmodule:: brainstate.nn

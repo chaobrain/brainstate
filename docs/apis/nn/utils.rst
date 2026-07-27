@@ -1,4 +1,4 @@
-Utility Functions
+Utility functions
 =================
 
 .. currentmodule:: brainstate.nn

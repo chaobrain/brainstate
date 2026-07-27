@@ -1,4 +1,4 @@
-Brain Dynamics
+Brain dynamics
 ==============
 
 Apply BrainState to computational neuroscience: neuron dynamics and numerical

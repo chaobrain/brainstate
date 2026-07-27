@@ -1,4 +1,4 @@
-# The Parameter Model
+# The parameter model
 
 A {class}`~brainstate.ParamState` is a bare trainable container: an array an optimizer is free to
 move anywhere in $\mathbb{R}^n$. That is often not what a model means. A rate must be positive, a
@@ -35,13 +35,14 @@ forward transform each time rather than storing a constrained copy that could dr
 
 The transform catalogue covers the common domains, and transforms compose:
 
-| Transform | Maps $\mathbb{R}$ (or $\mathbb{R}^n$) onto |
-|---|---|
-| `SoftplusT(lower)`, `ExpT(lower)` | $(\text{lower}, \infty)$ — positive quantities |
-| `SigmoidT(lower, upper)` | $(\text{lower}, \text{upper})$ — bounded scalars |
-| `SimplexT()` | the probability simplex — non-negative, sums to one |
-| `AffineT(scale, shift)` | a linear reparameterization |
-| `ChainT(t1, t2, ...)` | the composition $t_1 \circ t_2 \circ \cdots$ |
+
+| Transform                         | Maps$\mathbb{R}$ (or $\mathbb{R}^n$) onto            |
+| --------------------------------- | ---------------------------------------------------- |
+| `SoftplusT(lower)`, `ExpT(lower)` | $(\text{lower}, \infty)$ — positive quantities      |
+| `SigmoidT(lower, upper)`          | $(\text{lower}, \text{upper})$ — bounded scalars    |
+| `SimplexT()`                      | the probability simplex — non-negative, sums to one |
+| `AffineT(scale, shift)`           | a linear reparameterization                          |
+| `ChainT(t1, t2, ...)`             | the composition$t_1 \circ t_2 \circ \cdots$          |
 
 ## Regularization as a prior
 

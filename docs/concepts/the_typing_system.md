@@ -1,4 +1,4 @@
-# The Typing System
+# The typing system
 
 Scientific JAX code moves a small set of recurring shapes around: arrays with expected
 dimensions, nested PyTrees, random keys, dtypes, and the *filters* used to select states from a

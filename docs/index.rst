@@ -16,28 +16,24 @@ Features
    .. grid-item::
       :columns: 12 12 12 6
 
-      .. card:: State-based Transformation
-         :class-card: sd-border-0
-         :shadow: none
+      .. card:: State-based transformation
          :class-title: sd-fs-6
 
          .. div:: sd-font-normal
 
-            ``BrainState`` provides a concise interface to write `State-based <./apis/brainstate.html>`__
+            ``brainstate`` provides a concise interface to write `State-based <./apis/brainstate.html>`__
             programs with composable `transformation <./apis/transform/index.html>`__ capabilities.
 
 
    .. grid-item::
       :columns: 12 12 12 6
 
-      .. card:: Neural Network Support
-         :class-card: sd-border-0
-         :shadow: none
+      .. card:: Neural network support
          :class-title: sd-fs-6
 
          .. div:: sd-font-normal
 
-            ``BrainState`` implements a neural network module system for building and training `ANNs/SNNs <./apis/nn/index.html>`__.
+            ``brainstate`` implements a neural network module system for building and training `ANNs/SNNs <./apis/nn/index.html>`__.
 
 
 ----
@@ -66,6 +62,68 @@ Installation
        .. code-block:: bash
 
           pip install -U brainstate[tpu]
+
+    .. tab-item:: Ecosystem
+
+       .. code-block:: bash
+
+          pip install -U BrainX
+
+----
+
+Learn more
+^^^^^^^^^^^^^^^^^^^^^^
+
+.. grid::
+
+   .. grid-item::
+      :columns: 6 6 6 4
+
+      .. card:: :material-regular:`rocket_launch;2em` Getting started
+         :class-card: sd-text-black sd-bg-light
+         :link: getting_started/installation
+         :link-type: doc
+
+   .. grid-item::
+      :columns: 6 6 6 4
+
+      .. card:: :material-regular:`hub;2em` Tutorials
+         :class-card: sd-text-black sd-bg-light
+         :link: tutorials/core/01_state_and_pytrees
+         :link-type: doc
+
+   .. grid-item::
+      :columns: 6 6 6 4
+
+      .. card:: :material-regular:`library_books;2em` How-to guides
+         :class-card: sd-text-black sd-bg-light
+         :link: how_to/checkpoint_and_restore
+         :link-type: doc
+
+   .. grid-item::
+      :columns: 6 6 6 4
+
+      .. card:: :material-regular:`science;2em` Concepts
+         :class-card: sd-text-black sd-bg-light
+         :link: concepts/why_state_based
+         :link-type: doc
+
+   .. grid-item::
+      :columns: 6 6 6 4
+
+      .. card:: :material-regular:`data_exploration;2em` Examples
+         :class-card: sd-text-black sd-bg-light
+         :link: examples/deep_learning/index
+         :link-type: doc
+
+   .. grid-item::
+      :columns: 6 6 6 4
+
+      .. card:: :material-regular:`explore;2em` API reference
+         :class-card: sd-text-black sd-bg-light
+         :link: apis/brainstate
+         :link-type: doc
+
 
 
 ----
@@ -130,7 +188,7 @@ through automatically, with no manual bookkeeping. For a guided walkthrough, sta
 .. toctree::
    :hidden:
    :maxdepth: 1
-   :caption: Getting Started
+   :caption: Getting started
 
    getting_started/installation
    getting_started/quickstart
@@ -148,7 +206,7 @@ through automatically, with no manual bookkeeping. For a guided walkthrough, sta
 .. toctree::
    :hidden:
    :maxdepth: 1
-   :caption: How-to Guides
+   :caption: How-to guides
 
    how_to/checkpoint_and_restore
    how_to/inspect_and_edit_state_graph
@@ -186,7 +244,7 @@ through automatically, with no manual bookkeeping. For a guided walkthrough, sta
 .. toctree::
    :hidden:
    :maxdepth: 2
-   :caption: API Reference
+   :caption: API reference
 
    changelog.md
    apis/brainstate.rst
@@ -199,4 +257,3 @@ through automatically, with no manual bookkeeping. For a guided walkthrough, sta
    apis/typing.rst
    apis/mixin.rst
    apis/environ.rst
-

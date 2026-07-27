@@ -1,4 +1,4 @@
-# Why State-Based?
+# Why state-based?
 
 JAX is built on *pure functions*. A transformation like `jit`, `grad`, or `vmap` assumes that a
 function's output depends only on its explicit inputs and that calling it produces no side

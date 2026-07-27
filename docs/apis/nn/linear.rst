@@ -1,4 +1,4 @@
-Linear Layers
+Linear layers
 =============
 
 .. currentmodule:: brainstate.nn

@@ -1,4 +1,4 @@
-# Transformation Semantics
+# Transformation semantics
 
 BrainState's transformations — {func}`~brainstate.transform.jit`,
 {func}`~brainstate.transform.grad`, {func}`~brainstate.transform.vmap`, and the rest — share one
