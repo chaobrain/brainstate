@@ -76,6 +76,7 @@ __all__ = [
 
     # others
     'is_jit_primitive',
+    'scan_num_consts_carry',
     'Primitive',
     'jaxpr_as_fun',
     'get_aval',
@@ -454,6 +455,49 @@ def is_jit_primitive(eqn: JaxprEqn) -> bool:
         return eqn.primitive.name in ['pjit', 'xla_call']
     else:
         return eqn.primitive.name in ['jit', 'xla_call']
+
+
+def scan_num_consts_carry(eqn_params) -> tuple:
+    """Return ``(num_consts, num_carry)`` for a ``scan``/``map`` equation.
+
+    JAX exposes the constant/carry split of a ``scan`` primitive differently
+    across versions. JAX < 0.11 stores ``num_consts`` and ``num_carry`` as
+    integer params directly on the equation. JAX >= 0.11 removed those params in
+    favor of a ``ft_in`` FlatTree whose unpacked groups are
+    ``(consts, carry, xs)``; the two counts are recovered from the group
+    lengths. ``jax.lax.map`` lowers to a ``scan`` and is handled identically.
+
+    The JAX version is detected from the param *shape* (presence of
+    ``num_consts``) rather than from :data:`jax.__version_info__`, so this keeps
+    working if the exact release boundary shifts.
+
+    Parameters
+    ----------
+    eqn_params : dict
+        The ``params`` mapping of a ``scan`` :class:`JaxprEqn`.
+
+    Returns
+    -------
+    tuple of int
+        The ``(num_consts, num_carry)`` pair.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> import jax, jax.numpy as jnp
+        >>> from brainstate._compatible_import import scan_num_consts_carry
+        >>> def f(init, xs):
+        ...     return jax.lax.scan(lambda c, x: (c + x, c * x), init, xs)
+        >>> jaxpr = jax.make_jaxpr(f)(1.0, jnp.arange(4.0))
+        >>> scan_eqn = [e for e in jaxpr.jaxpr.eqns if e.primitive.name == 'scan'][0]
+        >>> scan_num_consts_carry(scan_eqn.params)
+        (0, 1)
+    """
+    if 'num_consts' in eqn_params:  # jax < 0.11.0
+        return eqn_params['num_consts'], eqn_params['num_carry']
+    consts, carry, _xs = eqn_params['ft_in'].unpack()  # jax >= 0.11.0
+    return len(consts), len(carry)
 
 
 # Resolve jax.shard_map across versions: it was promoted to the top level in

@@ -21,7 +21,7 @@ from typing import Tuple, Union, List
 import jax
 
 from brainstate._compatible_import import (
-    Var, ClosedJaxpr, Jaxpr, JaxprEqn, Literal, DropVar
+    Var, ClosedJaxpr, Jaxpr, JaxprEqn, Literal, DropVar, scan_num_consts_carry
 )
 from brainstate.transform._ir_utils import UnsupportedPrimitiveError
 
@@ -878,13 +878,17 @@ if pydot_is_installed:
             **GRAPH_STYLING,
         )
 
+        # jax >= 0.11 dropped the ``num_consts``/``num_carry`` scan params in
+        # favor of ``ft_in``/``ft_out``; resolve both across versions here.
+        num_consts, num_carry = scan_num_consts_carry(eqn.params)
+
         argument_nodes, argument_edges = get_scan_arguments(
             graph_id,
             parent_id,
             eqn.params["jaxpr"].jaxpr.invars,
             eqn.invars,
-            eqn.params["num_consts"],
-            eqn.params["num_carry"],
+            num_consts,
+            num_carry,
             show_avals,
         )
         graph.add_subgraph(argument_nodes)
@@ -962,7 +966,7 @@ if pydot_is_installed:
             eqn.params["jaxpr"].jaxpr.invars,
             eqn.params["jaxpr"].jaxpr.outvars,
             eqn.outvars,
-            eqn.params["num_carry"],
+            num_carry,
             show_avals,
         )
 
