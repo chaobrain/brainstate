@@ -214,6 +214,7 @@ through automatically, with no manual bookkeeping. For a guided walkthrough, sta
    how_to/collective_operations
    how_to/custom_states_and_mixins
    how_to/state_hooks
+   how_to/choose_parameter_transforms
    how_to/constrain_and_regularize_parameters
    how_to/interoperate_with_flax_equinox
    how_to/migrate_from_pytorch

@@ -13,6 +13,7 @@ specific goal.
    collective_operations
    custom_states_and_mixins
    state_hooks
+   choose_parameter_transforms
    constrain_and_regularize_parameters
    interoperate_with_flax_equinox
    migrate_from_pytorch
