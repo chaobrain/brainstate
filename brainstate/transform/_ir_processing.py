@@ -28,33 +28,29 @@ __all__ = [
 ]
 
 
-def eqns_to_jaxpr(
-    eqns: Sequence[JaxprEqn],
+def _resolve_jaxpr_vars(
+    eqns: List[JaxprEqn],
     invars: Sequence[Var] = None,
     outvars: Sequence[Var] = None,
     constvars: Sequence[Var] = None,
-) -> Jaxpr:
+) -> tuple:
     """
-    Convert a sequence of JaxprEqn into a Jaxpr.
+    Resolve the binder lists for a Jaxpr built from ``eqns``.
 
-    Parameters
-    ----------
-    eqns
-        Sequence of Jaxpr equations to convert
-    invars
-        Input variables. If None, will be inferred from equations
-    outvars
-        Output variables. If None, will be inferred from equations
-    constvars
-        Constant variables. If None, will be automatically extracted from equations
+    Any list left as ``None`` is inferred from the equations; provided lists are
+    validated instead. Factored out of :func:`eqns_to_jaxpr` so that
+    :func:`eqns_to_closed_jaxpr` can see the resolved ``constvars`` directly.
+
+    Reading them back off the constructed :class:`Jaxpr` is not an option: since
+    jax 0.11.1 an *open* Jaxpr reports ``constvars`` only for inputs that carry
+    attached constant *values*, so constvars-without-values read back as ``[]``
+    (see :func:`eqns_to_jaxpr`).
 
     Returns
     -------
-    Jaxpr
-        A Jaxpr object constructed from the equations
+    tuple
+        The resolved ``(constvars, invars, outvars)`` lists.
     """
-    eqns = list(eqns)
-
     # Insertion-ordered set of variables produced by the equations.
     produced_vars = IdentitySet()
     for eqn in eqns:
@@ -104,6 +100,50 @@ def eqns_to_jaxpr(
         outvars = list(outvars)
         check_all_vars(outvars, 'outvars')
 
+    return constvars, invars, outvars
+
+
+def eqns_to_jaxpr(
+    eqns: Sequence[JaxprEqn],
+    invars: Sequence[Var] = None,
+    outvars: Sequence[Var] = None,
+    constvars: Sequence[Var] = None,
+) -> Jaxpr:
+    """
+    Convert a sequence of JaxprEqn into a Jaxpr.
+
+    Parameters
+    ----------
+    eqns
+        Sequence of Jaxpr equations to convert
+    invars
+        Input variables. If None, will be inferred from equations
+    outvars
+        Output variables. If None, will be inferred from equations
+    constvars
+        Constant variables. If None, will be automatically extracted from equations
+
+    Returns
+    -------
+    Jaxpr
+        A Jaxpr object constructed from the equations
+
+    Notes
+    -----
+    ``constvars`` are always placed *before* ``invars`` in the resulting jaxpr's
+    binder list, but how they read back differs by jax version. jax 0.11.1
+    dropped ``Jaxpr``'s separate constvar count, so an input now counts as a
+    constvar only when a constant *value* is attached to it: on jax >= 0.11.1
+    the ``constvars`` passed here surface as leading ``jaxpr.invars`` and
+    ``jaxpr.constvars`` is empty. On jax < 0.11.1 they surface as
+    ``jaxpr.constvars``.
+
+    Either way the binder *order* is preserved, so pairing the result with its
+    constant values -- which is what :func:`eqns_to_closed_jaxpr` does -- yields
+    the same ``constvars``/``invars`` split on every supported jax version.
+    """
+    eqns = list(eqns)
+    constvars, invars, outvars = _resolve_jaxpr_vars(eqns, invars, outvars, constvars)
     return Jaxpr(
         constvars=constvars,
         invars=invars,
@@ -147,8 +187,13 @@ def eqns_to_closed_jaxpr(
     if the equations actually depend on these constants. In such cases, you should
     explicitly provide both constvars and consts from the original jaxpr.
     """
-    # Create jaxpr (will automatically extract constvars if not provided)
-    jaxpr = eqns_to_jaxpr(eqns, invars, outvars, constvars)
+    # Resolve the binder lists up front. The resolved ``constvars`` must be read
+    # from here rather than from the open jaxpr below: on jax >= 0.11.1 an open
+    # Jaxpr reports ``constvars`` only for inputs with attached values, so
+    # ``jaxpr.constvars`` would always be empty and the length check below would
+    # silently pass for any ``consts`` (see :func:`eqns_to_jaxpr`).
+    eqns = list(eqns)
+    constvars, invars, outvars = _resolve_jaxpr_vars(eqns, invars, outvars, constvars)
 
     # Handle consts
     if consts is None:
@@ -159,9 +204,14 @@ def eqns_to_closed_jaxpr(
         consts = list(consts)
 
     # Verify consts length matches constvars length
-    if len(consts) != len(jaxpr.constvars):
+    if len(consts) != len(constvars):
         raise IRValidationError(
-            f"consts length ({len(consts)}) does not match constvars length ({len(jaxpr.constvars)})"
+            f"consts length ({len(consts)}) does not match constvars length ({len(constvars)})"
         )
 
+    jaxpr = Jaxpr(constvars=constvars, invars=invars, outvars=outvars, eqns=eqns)
+
+    # Pairing the jaxpr with its constant values restores the
+    # constvars/invars split on jax >= 0.11.1, where the open jaxpr above
+    # carries the constvars as leading invars.
     return ClosedJaxpr(jaxpr, consts)

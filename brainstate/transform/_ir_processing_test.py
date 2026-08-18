@@ -139,8 +139,21 @@ class TestEqnsToJaxpr(unittest.TestCase):
 
         reconstructed = eqns_to_jaxpr(eqns, constvars=constvars)
 
-        # Verify constvars match
-        self.assertEqual(reconstructed.constvars, list(constvars))
+        # jax 0.11.1 dropped Jaxpr's separate ``_num_consts`` slot, so an input
+        # now counts as a constvar only when a constant *value* is attached to
+        # it; an open jaxpr reports the constvars passed here as leading invars
+        # instead. (jax 0.11.0 still tracked the count independently.) What is
+        # guaranteed on every version is that constvars come first in the
+        # binder list.
+        if jax.__version_info__ < (0, 11, 1):
+            self.assertEqual(reconstructed.constvars, list(constvars))
+        else:
+            self.assertEqual(reconstructed.constvars, [])
+            self.assertEqual(reconstructed.invars[:len(constvars)], list(constvars))
+
+        # Attaching the values restores the split identically on all versions.
+        closed = ClosedJaxpr(reconstructed, original_jaxpr.consts)
+        self.assertEqual(closed.jaxpr.constvars, list(constvars))
 
     def test_complex_function(self):
         """Test conversion with a complex function."""

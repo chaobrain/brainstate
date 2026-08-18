@@ -16,9 +16,11 @@
 """Forward-equivalence + round-trip conversion tests across nnx / linen / equinox.
 
 Each test builds a model in one framework, converts it, and asserts the converted model produces
-numerically identical output. ``pytest.importorskip`` skips a framework's tests when it is not
-installed.
+numerically identical output. :func:`_importorskip` skips a framework's tests when it is not
+usable.
 """
+
+import importlib
 
 import jax
 import jax.numpy as jnp
@@ -35,6 +37,23 @@ from brainstate.interop._errors import (ConversionError, MissingDependencyError,
                                         UnsupportedStructureError)
 
 TOL = dict(rtol=1e-4, atol=1e-4)
+
+
+def _importorskip(modname: str):
+    """Import an optional framework, skipping the test if it is not usable.
+
+    Broader than ``pytest.importorskip(..., exc_type=ImportError)``: an optional
+    framework can be *installed* yet raise something other than ``ImportError``
+    when it lags the installed jax. flax <= 0.12.8, for instance, raises
+    ``AttributeError`` on ``jax.experimental.hijax.MutableHiType`` under jax
+    0.11.1. Those tests should skip for the same reason a missing package does --
+    the framework is unavailable here, and that is not a brainstate defect.
+    """
+    try:
+        return importlib.import_module(modname)
+    except Exception as e:  # noqa: BLE001 - any failure means "unusable here"
+        pytest.skip(f"{modname} is unavailable ({type(e).__name__}: {e})",
+                    allow_module_level=True)
 
 
 def _key():
@@ -62,7 +81,7 @@ class NnxConversionTest(absltest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.nnx = pytest.importorskip('flax.nnx', exc_type=ImportError)
+        cls.nnx = _importorskip('flax.nnx')
 
     def _rngs(self):
         return self.nnx.Rngs(_key())
@@ -243,7 +262,7 @@ class LinenConversionTest(absltest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.nn = pytest.importorskip('flax.linen', exc_type=ImportError)
+        cls.nn = _importorskip('flax.linen')
 
     def _apply(self, module, variables, *args, **kw):
         return module.apply(variables, *args, **kw)
@@ -390,7 +409,7 @@ class EquinoxConversionTest(absltest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.eqx = pytest.importorskip('equinox', exc_type=ImportError)
+        cls.eqx = _importorskip('equinox')
 
     def test_linear(self):
         eqx = self.eqx
@@ -555,7 +574,7 @@ class CustomMappingTest(absltest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.nnx = pytest.importorskip('flax.nnx', exc_type=ImportError)
+        cls.nnx = _importorskip('flax.nnx')
 
     def test_register_custom_layer_mapping(self):
         nnx = self.nnx
@@ -596,7 +615,7 @@ class EngineErrorPathsTest(absltest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.nnx = pytest.importorskip('flax.nnx', exc_type=ImportError)
+        cls.nnx = _importorskip('flax.nnx')
 
     def test_empty_sequential_import(self):
         nnx = self.nnx
@@ -657,7 +676,7 @@ class EngineErrorPathsTest(absltest.TestCase):
 class PublicApiTest(absltest.TestCase):
 
     def test_supported_layers_lists_core_types(self):
-        pytest.importorskip('flax.nnx', exc_type=ImportError)
+        _importorskip('flax.nnx')
         table = interop.supported_layers('nnx')
         self.assertIn('nnx', table)
         self.assertIn('Linear', table['nnx'])
@@ -678,7 +697,7 @@ class NnxNormNoAffineTest(absltest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.nnx = pytest.importorskip('flax.nnx', exc_type=ImportError)
+        cls.nnx = _importorskip('flax.nnx')
 
     def _rngs(self):
         return self.nnx.Rngs(brainstate.random.split_key())
@@ -727,7 +746,7 @@ class EquinoxNormNoAffineTest(absltest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.eqx = pytest.importorskip('equinox', exc_type=ImportError)
+        cls.eqx = _importorskip('equinox')
 
     def test_layernorm_no_affine_import_export(self):
         eqx = self.eqx
@@ -762,7 +781,7 @@ class NnxConvInputDilationTest(absltest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.nnx = pytest.importorskip('flax.nnx', exc_type=ImportError)
+        cls.nnx = _importorskip('flax.nnx')
 
     def test_input_dilation_raises(self):
         nnx = self.nnx
@@ -776,8 +795,8 @@ class BiasOnlyBatchNormTest(absltest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.nnx = pytest.importorskip('flax.nnx', exc_type=ImportError)
-        cls.nn = pytest.importorskip('flax.linen', exc_type=ImportError)
+        cls.nnx = _importorskip('flax.nnx')
+        cls.nn = _importorskip('flax.linen')
 
     def test_bias_only_batchnorm_from_nnx(self):
         nnx = self.nnx
@@ -817,8 +836,8 @@ class TwoDBatchNormRoundTripTest(absltest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.nnx = pytest.importorskip('flax.nnx', exc_type=ImportError)
-        cls.nn = pytest.importorskip('flax.linen', exc_type=ImportError)
+        cls.nnx = _importorskip('flax.nnx')
+        cls.nn = _importorskip('flax.linen')
 
     def test_2d_batchnorm_nnx_round_trip(self):
         nnx = self.nnx
@@ -854,7 +873,7 @@ class LinenGroupNormGroupSizeTest(absltest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.nn = pytest.importorskip('flax.linen', exc_type=ImportError)
+        cls.nn = _importorskip('flax.linen')
 
     def test_groupnorm_group_size_only(self):
         nn = self.nn
@@ -874,7 +893,7 @@ class EquinoxRmsNormBiasTest(absltest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.eqx = pytest.importorskip('equinox', exc_type=ImportError)
+        cls.eqx = _importorskip('equinox')
 
     def test_nonzero_bias_raises(self):
         eqx = self.eqx
@@ -903,7 +922,7 @@ class NnxDtypePreservationTest(absltest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.nnx = pytest.importorskip('flax.nnx', exc_type=ImportError)
+        cls.nnx = _importorskip('flax.nnx')
 
     def _rngs(self):
         return self.nnx.Rngs(brainstate.random.split_key())
@@ -959,8 +978,8 @@ class DropoutEvalEquivalenceTest(absltest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.nnx = pytest.importorskip('flax.nnx', exc_type=ImportError)
-        cls.eqx = pytest.importorskip('equinox', exc_type=ImportError)
+        cls.nnx = _importorskip('flax.nnx')
+        cls.eqx = _importorskip('equinox')
 
     def test_to_nnx_dropout_deterministic(self):
         nnx = self.nnx
@@ -983,7 +1002,7 @@ class NnxConvChannelMismatchTest(absltest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.nnx = pytest.importorskip('flax.nnx', exc_type=ImportError)
+        cls.nnx = _importorskip('flax.nnx')
 
     def test_channel_mismatch_raises(self):
         nnx = self.nnx
