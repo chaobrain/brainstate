@@ -1,5 +1,38 @@
 # Release notes
 
+## Version 0.5.4 (2026-08-18)
+
+A compatibility patch release for JAX 0.11.1. The 0.11.1 point release removed `core.CallPrimitive` outright and completed the `Jaxpr` / `ClosedJaxpr` merge that began in 0.11.0, which broke `import brainstate` at the compatibility layer and silently disabled a validation check in the intermediate-representation tooling. This release restores full compatibility and hardens the optional-framework import path so that a third-party package lagging the installed JAX reports the version mismatch instead of an opaque traceback. No public APIs are added, removed, or renamed, and behavior is unchanged on every supported JAX version.
+
+### Bug Fixes
+
+#### `brainstate._compatible_import`
+
+- **`CallPrimitive` removal**: JAX 0.11.1 deleted `CallPrimitive` from both `jax.extend.core` and `jax._src.core`, replacing it with `create_call_primitive()` / `register_call_primitive_rules()`. Because the symbol is imported unconditionally on `jax>=0.10`, this made `import brainstate` fail immediately with `ImportError` on any 0.11.1 installation. The import is now attempted first and falls back to a thin `Primitive` subclass that applies `register_call_primitive_rules()` at construction, preserving both the `CallPrimitive` name — part of this module's public API — and its constructor behavior. JAX 0.11.0 still ships the original class and continues to use it.
+
+#### `brainstate.transform` (IR processing)
+
+- **Open-jaxpr `constvars` are no longer readable back**: JAX 0.11.1 dropped `Jaxpr`'s separate `_num_consts` slot, so an input now counts as a constvar only when a constant *value* is attached to it. `eqns_to_closed_jaxpr()` validated `len(consts)` against `jaxpr.constvars` read back off an intermediate *open* jaxpr, which on 0.11.1 is always empty. This both rejected valid `consts` and — more seriously — silently accepted mismatched ones, defeating the length check entirely. Binder resolution is now factored into `_resolve_jaxpr_vars()` so the check runs against the resolved `constvars`, and the returned `ClosedJaxpr(jaxpr, consts)` restores the `constvars` / `invars` split identically on every supported version. Note that the boundary is 0.11.1, not 0.11.0: 0.11.0 still tracked the constvar count independently of attached values.
+
+#### `brainstate.interop`
+
+- **Optional frameworks that are installed but unimportable**: `lazy_import()` caught only `ImportError`, so an optional framework that is present yet fails to import — as `flax<=0.12.8` does under JAX 0.11.1, raising `AttributeError` on `jax.experimental.hijax.MutableHiType` — surfaced as an opaque traceback through that framework's internals. Such failures now raise `InteropError` naming the package, the underlying error, and the installed JAX version, so the version mismatch is self-evident. `MissingDependencyError` continues to signal a genuinely absent package.
+
+### Build & CI
+
+- **CI matrix**: added a pinned `jax==0.11.0` entry, keeping one pinned entry per supported minor alongside the unpinned (latest) entry, which now exercises 0.11.1. The supported floor remains `jax>=0.8.0`; no packaging constraint changes were required.
+
+### Known Issues
+
+- **`flax` is not yet compatible with JAX 0.11.1.** The current release, `flax==0.12.8`, fails to import under 0.11.1 (`jax.experimental.hijax.MutableHiType` no longer exists). This is an upstream issue with no brainstate-side fix available. `brainstate.interop`'s `flax` conversions are therefore unavailable on 0.11.1 until `flax` ships a compatible release; `equinox` interop is unaffected. The corresponding tests skip cleanly rather than erroring, and users hitting this path now receive an actionable message. Pin `jax==0.11.0` if `flax` interop is required.
+
+### Quality
+
+- Full suite green on **JAX 0.11.1**: 5303 passed, 60 skipped, 0 failed (392 subtests).
+- Backward compatibility verified on **JAX 0.11.0**: 5342 passed, 21 skipped, 0 failed — the 39-test delta is exactly the `flax` interop suite, which runs on 0.11.0 and skips on 0.11.1.
+- Spot-checked on **JAX 0.10.0**: IR and interop suites, 211 passed, 0 failed, with `flax` interop exercised.
+
+
 ## Version 0.5.3 (2026-07-24)
 
 A compatibility patch release for JAX 0.11.0. JAX 0.11 shipped two breaking changes to the tracing internals that `brainstate.transform`'s intermediate-representation tooling relies on — the `scan` primitive dropped its `num_consts` / `num_carry` integer parameters, and the `Jaxpr` / `ClosedJaxpr` classes were merged into a single type — which broke 18 `transform` tests. This release restores full compatibility while advancing the supported floor to `jax>=0.8.0`. No public APIs are added, removed, or renamed, and behavior is unchanged on every supported JAX version.

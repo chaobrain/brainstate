@@ -184,7 +184,6 @@ else:
     from jax.extend.core import (
         DebugInfo,
         DropVar,
-        CallPrimitive,
         Effect,
         Effects,
         JaxprTypeError,
@@ -198,6 +197,32 @@ else:
         no_effects,
         valid_jaxtype,
     )
+
+    try:  # jax < 0.11.1
+        from jax.extend.core import CallPrimitive
+    except ImportError:  # jax >= 0.11.1
+        # ``core.CallPrimitive`` was deleted in jax 0.11.1. The blessed
+        # replacement is ``register_call_primitive_rules``, which attaches the
+        # standard call impl/abstract-eval/jvp/transpose/batching/DCE rules to a
+        # plain ``Primitive`` (it also sets ``multiple_results = True``). We keep
+        # the ``CallPrimitive`` name -- it is part of this module's public API --
+        # as a thin subclass that performs that registration at construction, so
+        # ``CallPrimitive('name')`` keeps behaving as it did on older jax.
+        from jax.extend.core import register_call_primitive_rules
+
+        class CallPrimitive(Primitive):
+            """Compatibility shim for jax's removed ``core.CallPrimitive``.
+
+            Constructing one registers the standard call-primitive rules, which
+            is what ``jax.extend.core.create_call_primitive`` does on jax >=
+            0.11.1.
+            """
+
+            call_primitive = True
+
+            def __init__(self, name: str):
+                super().__init__(name)
+                register_call_primitive_rules(self, name=name)
 
 if jax.__version_info__ < (0, 6, 0):
     from jax.util import safe_map, safe_zip, unzip2, wraps

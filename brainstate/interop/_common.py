@@ -36,7 +36,7 @@ import brainstate.nn as bnn
 import brainstate.random as brandom
 from brainstate.nn import init
 
-from ._errors import MissingDependencyError, MissingShapeError
+from ._errors import InteropError, MissingDependencyError, MissingShapeError
 
 __all__ = ['Context', 'FrameworkAdapter', 'lazy_import', 'new_key']
 
@@ -58,6 +58,13 @@ def lazy_import(module_name: str) -> ModuleType:
     -------
     module
         The imported module.
+
+    Raises
+    ------
+    MissingDependencyError
+        If the package is not installed.
+    InteropError
+        If the package is installed but fails to import.
     """
     top = module_name.split('.')[0]
     try:
@@ -65,6 +72,19 @@ def lazy_import(module_name: str) -> ModuleType:
     except ImportError as e:
         hint = _INSTALL_HINTS.get(top, f'pip install {top}')
         raise MissingDependencyError(top, hint) from e
+    except Exception as e:  # noqa: BLE001 - installed, but unusable here
+        # An optional framework can be installed yet fail to import when it lags
+        # the installed jax, raising something other than ImportError from its
+        # own module body (flax <= 0.12.8 raises AttributeError on
+        # ``jax.experimental.hijax.MutableHiType`` under jax 0.11.1). Without
+        # this branch the user sees an opaque traceback through flax internals
+        # rather than the actual problem, which is a version mismatch.
+        raise InteropError(
+            f"The optional dependency '{top}' is installed but could not be "
+            f"imported ({type(e).__name__}: {e}). This usually means its version "
+            f"is incompatible with the installed jax ({jax.__version__}); try "
+            f"upgrading '{top}', or pin an older jax."
+        ) from e
 
 
 def new_key() -> jax.Array:
