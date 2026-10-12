@@ -109,6 +109,8 @@ jobs:
             base="${{ env.DEPLOY_PATH }}"
             release="$base/releases/${{ steps.release.outputs.id }}"
             test -f "$release/index.html"
+            # scp-action untars as root, which keeps the runner's uid/gid 1001; make the release root-owned.
+            chown -R root:root "$release"
             ln -sfn "$release" "$base/current.next"
             mv -Tf "$base/current.next" "$base/current"
             current="$(readlink -f "$base/current")"
