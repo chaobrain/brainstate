@@ -303,7 +303,7 @@ class TestInlineJitConstructedEqns(unittest.TestCase):
         """A jit equation whose 'jaxpr' param is a bare Jaxpr (no consts) inlines correctly."""
         import numpy as np
         from jax._src import core as jcore
-        from brainstate._compatible_import import Jaxpr
+        from brainstate._compatible_import import Jaxpr, make_debug_info
         from brainstate.transform._ir_utils import make_var_factory
 
         inner_bare = jax.make_jaxpr(lambda a: a + 1.0)(jnp.float32(0.0)).jaxpr
@@ -311,7 +311,8 @@ class TestInlineJitConstructedEqns(unittest.TestCase):
         aval = jcore.ShapedArray((), np.float32)
         inv, outv = factory(aval), factory(aval)
         eqn = self._make_eqn(self._jit_primitive(), [inv], [outv], {'jaxpr': inner_bare})
-        jpr = Jaxpr(constvars=[], invars=[inv], outvars=[outv], eqns=[eqn])
+        jpr = Jaxpr(constvars=[], invars=[inv], outvars=[outv], eqns=[eqn],
+                    debug_info=make_debug_info("test"))
 
         res = inline_jit(jpr)
         inner = _as_jaxpr(res)
@@ -324,7 +325,7 @@ class TestInlineJitConstructedEqns(unittest.TestCase):
         """A jit equation that carries no jaxpr/call_jaxpr param is preserved verbatim."""
         import numpy as np
         from jax._src import core as jcore
-        from brainstate._compatible_import import Jaxpr, is_jit_primitive
+        from brainstate._compatible_import import Jaxpr, is_jit_primitive, make_debug_info
         from brainstate.transform._ir_utils import make_var_factory
 
         factory = make_var_factory()
@@ -332,7 +333,8 @@ class TestInlineJitConstructedEqns(unittest.TestCase):
         inv, outv = factory(aval), factory(aval)
         eqn = self._make_eqn(self._jit_primitive(), [inv], [outv], {})
         self.assertTrue(is_jit_primitive(eqn))
-        jpr = Jaxpr(constvars=[], invars=[inv], outvars=[outv], eqns=[eqn])
+        jpr = Jaxpr(constvars=[], invars=[inv], outvars=[outv], eqns=[eqn],
+                    debug_info=make_debug_info("test"))
 
         res = inline_jit(jpr)
         inner = _as_jaxpr(res)

@@ -798,15 +798,11 @@ class StatefulFunction(PrettyObject):
         """Create a function that transforms state values into JAX tracers.
 
         Must be called inside a ``jax.make_jaxpr()`` tracing context.
-        Requires JAX >= 0.6.0.
         """
         trace = trace_ctx.trace
 
         def wrapper(x):
-            if jax.__version_info__ < (0, 6, 1):
-                fn = lambda xx: trace.new_arg(shaped_abstractify(xx))
-            else:
-                fn = lambda xx: trace.new_arg(shaped_abstractify(xx), source_info=source_info_util.current())
+            fn = lambda xx: trace.new_arg(shaped_abstractify(xx), source_info=source_info_util.current())
             return jax.tree.map(fn, x._value)
 
         return wrapper

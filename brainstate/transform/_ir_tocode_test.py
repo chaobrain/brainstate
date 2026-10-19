@@ -1661,5 +1661,52 @@ class TestThreadLocalImportsSetApi(unittest.TestCase):
         self.assertIn('import bar', pi)
 
 
+
+class TestDebugInfo(unittest.TestCase):
+    """Constant folding keeps a DebugInfo (jax deprecates Jaxpr without one, jax-ml/jax#26480)."""
+
+    def _no_debuginfo_warning(self, fn):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            result = fn()
+        msgs = [str(w.message) for w in caught if 'missing a DebugInfo' in str(w.message)]
+        self.assertEqual(msgs, [])
+        return result
+
+    def test_constant_fold_prunes_unused_invar(self):
+        def f(x, y):
+            return x * 2.0
+
+        closed = jax.make_jaxpr(f)(1.0, 2.0)
+        folded = self._no_debuginfo_warning(lambda: _ir_tocode.constant_fold_jaxpr(closed.jaxpr))
+        self.assertEqual(len(folded.invars), 1)
+        self.assertEqual(folded.debug_info.func_src_info, closed.jaxpr.debug_info.func_src_info)
+
+    def test_constant_fold_prunes_all_invars(self):
+        def f(x):
+            return jnp.float32(3.0) * 2.0
+
+        closed = jax.make_jaxpr(f)(1.0)
+        folded = self._no_debuginfo_warning(lambda: _ir_tocode.constant_fold_jaxpr(closed.jaxpr))
+        self.assertEqual(len(folded.invars), 0)
+
+    def test_fn_to_python_code_no_warning(self):
+        def f(x, y):
+            return x + jax.lax.integer_pow(jnp.float32(2.0), 3)
+
+        src = self._no_debuginfo_warning(lambda: fn_to_python_code(f, jnp.float32(1.0), jnp.float32(2.0)))
+        gen = _exec_generated(src, 'f')
+        self.assertTrue(np.allclose(np.asarray(gen(jnp.float32(5.0))), 13.0))
+
+    def test_constant_fold_under_enable_checks(self):
+        def f(x, y):
+            return x + 1.0
+
+        closed = jax.make_jaxpr(f)(1.0, 2.0)
+        with jax.enable_checks(True):
+            folded = self._no_debuginfo_warning(lambda: _ir_tocode.constant_fold_jaxpr(closed.jaxpr))
+        self.assertEqual(len(folded.invars), 1)
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -766,5 +766,34 @@ class TestDeprecationFreeImports(unittest.TestCase):
                          f"Unexpected DropVar deprecation warning(s): {dropvar_warnings}")
 
 
+
+class TestMakeDebugInfo(unittest.TestCase):
+    """``make_debug_info`` builds a DebugInfo with unknown argument/result names."""
+
+    def test_fields(self):
+        info = compat.make_debug_info('my_pass', 'my_fn')
+        self.assertIsInstance(info, compat.DebugInfo)
+        self.assertEqual(info.traced_for, 'my_pass')
+        self.assertEqual(info.func_src_info, 'my_fn')
+        self.assertIsNone(info.arg_names)
+        self.assertIsNone(info.result_paths)
+
+    def test_default_name(self):
+        self.assertEqual(compat.make_debug_info('p').func_src_info, '<unknown>')
+
+    def test_jaxpr_construction_under_enable_checks(self):
+        import jax
+        closed = jax.make_jaxpr(lambda x, y: (x + y, x * y))(1.0, 2.0)
+        src = closed.jaxpr
+        with warnings.catch_warnings(record=True) as caught, jax.enable_checks(True):
+            warnings.simplefilter('always')
+            jaxpr = compat.Jaxpr(
+                constvars=[], invars=src.invars, outvars=src.outvars, eqns=src.eqns,
+                debug_info=compat.make_debug_info('test'),
+            )
+        self.assertEqual([str(w.message) for w in caught if 'missing a DebugInfo' in str(w.message)], [])
+        self.assertEqual(len(jaxpr.invars), 2)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

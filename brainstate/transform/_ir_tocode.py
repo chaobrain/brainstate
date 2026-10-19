@@ -761,7 +761,8 @@ def partial_eval_jaxpr(jaxpr, env):
 
     invars = tuple(var for var in jaxpr.invars if var in invars_still_used)
 
-    return jaxpr.replace(eqns=out_eqns, outvars=outvars, invars=invars, debug_info=None)
+    return jaxpr.replace(eqns=out_eqns, outvars=outvars, invars=invars,
+                         debug_info=jaxpr.debug_info.with_unknown_names())
 
 
 def _eval_eqn(eqn, vals) -> Union[Jaxpr, tuple, list, jax.Array]:

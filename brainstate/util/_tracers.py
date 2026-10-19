@@ -13,9 +13,6 @@
 # limitations under the License.
 
 
-import jax
-import jax.core
-
 from brainstate._compatible_import import get_opaque_trace_state
 from ._pretty_repr import PrettyRepr, PrettyType, PrettyAttr
 
@@ -26,8 +23,6 @@ __all__ = [
 
 def current_jax_trace():
     """Returns the Jax tracing state."""
-    if jax.__version_info__ <= (0, 4, 33):  # pragma: no cover
-        return jax.core.thread_local_state.trace_state.trace_stack.dynamic
     return get_opaque_trace_state(convention="nnx")
 
 

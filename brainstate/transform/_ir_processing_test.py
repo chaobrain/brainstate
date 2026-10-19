@@ -14,6 +14,7 @@
 # ==============================================================================
 
 import unittest
+import warnings
 
 import jax
 import jax.numpy as jnp
@@ -375,6 +376,46 @@ class TestProcessingValidation(unittest.TestCase):
         cj = jax.make_jaxpr(lambda x: x + 1.0)(jnp.float32(1.0))
         with self.assertRaises(IRValidationError):
             eqns_to_jaxpr(list(cj.jaxpr.eqns), invars=[123])
+
+
+
+class TestDebugInfo(unittest.TestCase):
+    """Built jaxprs carry a DebugInfo (jax deprecates Jaxpr without one, jax-ml/jax#26480)."""
+
+    def _no_debuginfo_warning(self, fn):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            result = fn()
+        msgs = [str(w.message) for w in caught if 'missing a DebugInfo' in str(w.message)]
+        self.assertEqual(msgs, [])
+        return result
+
+    def test_eqns_to_jaxpr_has_debug_info(self):
+        closed = jax.make_jaxpr(lambda x, y: x * y + x)(1.0, 2.0)
+        jaxpr = self._no_debuginfo_warning(lambda: eqns_to_jaxpr(closed.jaxpr.eqns))
+        self.assertEqual(jaxpr.debug_info.traced_for, 'eqns_to_jaxpr')
+
+    def test_eqns_to_jaxpr_empty(self):
+        jaxpr = self._no_debuginfo_warning(lambda: eqns_to_jaxpr([], invars=[], outvars=[]))
+        self.assertEqual(len(jaxpr.eqns), 0)
+        self.assertIsNotNone(jaxpr.debug_info)
+
+    def test_eqns_to_jaxpr_constvars_without_consts(self):
+        closed = jax.make_jaxpr(lambda x, y: x + y)(1.0, 2.0)
+        x, y = closed.jaxpr.invars
+        jaxpr = self._no_debuginfo_warning(
+            lambda: eqns_to_jaxpr(closed.jaxpr.eqns, invars=[y], outvars=closed.jaxpr.outvars, constvars=[x])
+        )
+        self.assertIsNone(jaxpr.debug_info.arg_names)
+
+    def test_eqns_to_closed_jaxpr_has_debug_info(self):
+        closed = jax.make_jaxpr(lambda x: jnp.sin(x) * 2.0)(1.0)
+        new = self._no_debuginfo_warning(
+            lambda: eqns_to_closed_jaxpr(closed.jaxpr.eqns, consts=closed.consts)
+        )
+        self.assertEqual(new.jaxpr.debug_info.traced_for, 'eqns_to_closed_jaxpr')
+        out = jax.core.eval_jaxpr(new.jaxpr, new.consts, jnp.float32(0.5))
+        self.assertTrue(jnp.allclose(out[0], jnp.sin(0.5) * 2.0))
 
 
 if __name__ == '__main__':

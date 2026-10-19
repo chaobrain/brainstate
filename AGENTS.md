@@ -11,7 +11,7 @@
 7. Use `brainstate.random` instead of `jax.random` directly for all random number generation. 
 8. Write spec and plan under `doc/specs` before implementation, so they're available for reference during implementation.
 9. Tests should >90% coverage, but focus on meaningful tests that cover edge cases and critical paths, not just trivial lines. 
-10. Maintain compatibility with JAX versions >= 0.8.0. Guard any version-specific behavior in `brainstate/_compatible_import.py`, preferring feature/shape detection over hard version checks.
+10. Maintain compatibility with JAX versions >= 0.9.0. Guard any version-specific behavior in `brainstate/_compatible_import.py`, preferring feature/shape detection over hard version checks.
 
 
 ## Docstring style (NumPy-doc)

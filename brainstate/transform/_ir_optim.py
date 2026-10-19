@@ -320,7 +320,8 @@ def common_subexpression_elimination(jaxpr: Jaxpr) -> Jaxpr:
             final_eqns.append(eqn)
 
     # Keep original outvars and invars
-    return jaxpr.replace(eqns=final_eqns, outvars=jaxpr.outvars, invars=jaxpr.invars, debug_info=None)
+    return jaxpr.replace(eqns=final_eqns, outvars=jaxpr.outvars, invars=jaxpr.invars,
+                         debug_info=jaxpr.debug_info.with_unknown_names())
 
 
 def copy_propagation(jaxpr: Jaxpr) -> Jaxpr:
