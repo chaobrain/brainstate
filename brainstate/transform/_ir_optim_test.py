@@ -15,6 +15,7 @@
 
 
 import unittest
+import warnings
 
 import jax
 import jax.numpy as jnp
@@ -1186,6 +1187,54 @@ class TestControlFlowPassthrough(unittest.TestCase):
         def f(x):
             return jax.lax.while_loop(lambda v: v < 5.0, lambda v: v + 1.0, x)
         self._roundtrip(f, jnp.float32(0.0))
+
+
+
+class TestDebugInfo(unittest.TestCase):
+    """Optimized jaxprs keep a DebugInfo (jax deprecates Jaxpr without one, jax-ml/jax#26480)."""
+
+    def _no_debuginfo_warning(self, fn):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            result = fn()
+        msgs = [str(w.message) for w in caught if 'missing a DebugInfo' in str(w.message)]
+        self.assertEqual(msgs, [])
+        return result
+
+    def test_cse_keeps_source_debug_info(self):
+        def f(x):
+            return jnp.sin(x) + jnp.sin(x)
+
+        closed = jax.make_jaxpr(f)(1.0)
+        result = self._no_debuginfo_warning(lambda: common_subexpression_elimination(closed.jaxpr))
+        self.assertEqual(result.debug_info.func_src_info, closed.jaxpr.debug_info.func_src_info)
+
+    def test_cse_duplicate_outputs(self):
+        def f(x):
+            return jnp.cos(x), jnp.cos(x)
+
+        closed = jax.make_jaxpr(f)(1.0)
+        result = self._no_debuginfo_warning(lambda: common_subexpression_elimination(closed.jaxpr))
+        self.assertEqual(len(result.outvars), 2)
+
+    def test_optimize_jaxpr_no_warning(self):
+        def f(x, y):
+            a = x * 1.0 + 0.0
+            return a + jnp.exp(y) + jnp.exp(y)
+
+        closed = jax.make_jaxpr(f)(1.0, 2.0)
+        result = self._no_debuginfo_warning(lambda: optimize_jaxpr(closed))
+        out = jax.core.eval_jaxpr(result.jaxpr, result.consts, 1.0, 2.0)
+        self.assertTrue(np.allclose(out[0], f(1.0, 2.0)))
+
+    def test_cse_under_enable_checks(self):
+        def f(x, y):
+            return jnp.sin(x) + jnp.sin(x) + y
+
+        closed = jax.make_jaxpr(f)(1.0, 2.0)
+        with jax.enable_checks(True):
+            result = self._no_debuginfo_warning(lambda: common_subexpression_elimination(closed.jaxpr))
+        self.assertIsNotNone(result.debug_info)
 
 
 if __name__ == '__main__':

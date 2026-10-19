@@ -331,7 +331,7 @@ class TestPartialEval(unittest.TestCase):
         from jax._src import core as jcore
         from jax._src.core import JaxprEqnContext
         from jax.extend import source_info_util
-        from brainstate._compatible_import import Jaxpr, JaxprEqn
+        from brainstate._compatible_import import Jaxpr, JaxprEqn, make_debug_info
 
         inner_cj = jax.make_jaxpr(lambda a, b: a + b)(jnp.float32(0.0), jnp.float32(0.0))
         factory = make_var_factory()
@@ -348,7 +348,8 @@ class TestPartialEval(unittest.TestCase):
             {'call_jaxpr': inner_cj}, set(),
             source_info_util.new_source_info(), ctx,
         )
-        outer = Jaxpr(constvars=[], invars=[], outvars=[out], eqns=[eqn])
+        outer = Jaxpr(constvars=[], invars=[], outvars=[out], eqns=[eqn],
+                      debug_info=make_debug_info("test"))
         folded = partial_eval_jaxpr(outer, {})
         # closed_call folds to the constant 5.0 (no surviving equations).
         self.assertEqual(len(folded.eqns), 0)

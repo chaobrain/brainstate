@@ -88,6 +88,7 @@ __all__ = [
 
     'trace_ctx',
     'DebugInfo',
+    'make_debug_info',
     'CallPrimitive',
     'Effect',
     'Effects',
@@ -109,11 +110,7 @@ __all__ = [
 
 
 def get_aval(x):
-    if jax.__version_info__ >= (0, 8, 0):
-        return jax.typeof(x)
-    else:
-        from jax.core import get_aval
-        return get_aval(x)
+    return jax.typeof(x)
 
 
 T = TypeVar("T")
@@ -121,40 +118,20 @@ T1 = TypeVar("T1")
 T2 = TypeVar("T2")
 T3 = TypeVar("T3")
 
-if jax.__version_info__ < (0, 5, 0):
-    from jax.lib.xla_client import Device
-else:
-    from jax import Device
-
-if jax.__version_info__ < (0, 8, 2):
-    from jax.core import mapped_aval
-else:
-    from jax.extend.core import mapped_aval
-if jax.__version_info__ < (0, 8, 0):
-    from jax.lib.xla_bridge import get_backend
-else:
-    from jax.extend.backend import get_backend
-
-if jax.__version_info__ < (0, 7, 1):
-    from jax.interpreters.batching import make_iota, to_elt, BatchTracer, BatchTrace
-else:
-    from jax._src.interpreters.batching import make_iota, to_elt, BatchTracer, BatchTrace
+from jax import Device
+from jax.extend.core import mapped_aval
+from jax.extend.backend import get_backend
+from jax._src.interpreters.batching import make_iota, to_elt, BatchTracer, BatchTrace
 
 # NOTE: ``DropVar`` is imported (version-conditionally) in the JAX-0.10 block
 # below -- from ``jax.extend.core`` on jax>=0.10 and ``jax.core`` on older
 # releases. Do not add an unconditional ``from jax.core import DropVar`` here:
 # on jax>=0.10 that path is deprecated and emits a DeprecationWarning at import.
 
-if jax.__version_info__ < (0, 4, 38):
-    from jax.core import (
-        extend_axis_env_nd, jaxpr_as_fun,
-        ClosedJaxpr, Primitive, Var, JaxprEqn, Jaxpr, ClosedJaxpr, Literal
-    )
-else:
-    from jax.extend.core import (
-        ClosedJaxpr, jaxpr_as_fun,
-        Primitive, Var, JaxprEqn, Jaxpr, ClosedJaxpr, Literal
-    )
+from jax.extend.core import (
+    ClosedJaxpr, jaxpr_as_fun,
+    Primitive, Var, JaxprEqn, Jaxpr, Literal
+)
 if jax.__version_info__ < (0, 10, 0):
     from jax.core import trace_ctx
 else:
@@ -224,226 +201,223 @@ else:
                 super().__init__(name)
                 register_call_primitive_rules(self, name=name)
 
-if jax.__version_info__ < (0, 6, 0):
-    from jax.util import safe_map, safe_zip, unzip2, wraps
 
-else:
-    def safe_map(f, *args):
-        """
-        Map a function over multiple sequences with length checking.
+def safe_map(f, *args):
+    """
+    Map a function over multiple sequences with length checking.
 
-        Applies a function to corresponding elements from multiple sequences,
-        ensuring all sequences have the same length.
+    Applies a function to corresponding elements from multiple sequences,
+    ensuring all sequences have the same length.
 
-        Parameters
-        ----------
-        f
-            Function to apply to elements from each sequence.
-        *args
-            Variable number of sequences to map over.
+    Parameters
+    ----------
+    f
+        Function to apply to elements from each sequence.
+    *args
+        Variable number of sequences to map over.
 
-        Returns
-        -------
-        list
-            Results of applying f to corresponding elements.
+    Returns
+    -------
+    list
+        Results of applying f to corresponding elements.
 
-        Raises
-        ------
-        AssertionError
-            If input sequences have different lengths.
+    Raises
+    ------
+    AssertionError
+        If input sequences have different lengths.
 
-        Examples
-        --------
-            >>> safe_map(lambda x, y: x + y, [1, 2, 3], [4, 5, 6])
-            [5, 7, 9]
+    Examples
+    --------
+        >>> safe_map(lambda x, y: x + y, [1, 2, 3], [4, 5, 6])
+        [5, 7, 9]
 
-            >>> safe_map(str.upper, ['a', 'b', 'c'])
-            ['A', 'B', 'C']
-        """
-        args = list(map(list, args))
-        n = len(args[0])
-        for arg in args[1:]:
-            assert len(arg) == n, f'length mismatch: {list(map(len, args))}'
-        return list(map(f, *args))
+        >>> safe_map(str.upper, ['a', 'b', 'c'])
+        ['A', 'B', 'C']
+    """
+    args = list(map(list, args))
+    n = len(args[0])
+    for arg in args[1:]:
+        assert len(arg) == n, f'length mismatch: {list(map(len, args))}'
+    return list(map(f, *args))
 
 
-    def safe_zip(*args):
-        """
-        Zip multiple sequences with length checking.
+def safe_zip(*args):
+    """
+    Zip multiple sequences with length checking.
 
-        Combines corresponding elements from multiple sequences into tuples,
-        ensuring all sequences have the same length.
+    Combines corresponding elements from multiple sequences into tuples,
+    ensuring all sequences have the same length.
 
-        Parameters
-        ----------
-        *args
-            Variable number of sequences to zip together.
+    Parameters
+    ----------
+    *args
+        Variable number of sequences to zip together.
 
-        Returns
-        -------
-        list
-            List of tuples containing corresponding elements.
+    Returns
+    -------
+    list
+        List of tuples containing corresponding elements.
 
-        Raises
-        ------
-        AssertionError
-            If input sequences have different lengths.
+    Raises
+    ------
+    AssertionError
+        If input sequences have different lengths.
 
-        Examples
-        --------
-            >>> safe_zip([1, 2, 3], ['a', 'b', 'c'])
-            [(1, 'a'), (2, 'b'), (3, 'c')]
+    Examples
+    --------
+        >>> safe_zip([1, 2, 3], ['a', 'b', 'c'])
+        [(1, 'a'), (2, 'b'), (3, 'c')]
 
-            >>> safe_zip([1, 2], [3, 4], [5, 6])
-            [(1, 3, 5), (2, 4, 6)]
-        """
-        args = list(map(list, args))
-        n = len(args[0])
-        for arg in args[1:]:
-            assert len(arg) == n, f'length mismatch: {list(map(len, args))}'
-        return list(zip(*args))
-
-
-    def unzip2(xys: Iterable[tuple[T1, T2]]) -> tuple[tuple[T1, ...], tuple[T2, ...]]:
-        """
-        Unzip sequence of length-2 tuples into two tuples.
-
-        Takes an iterable of 2-tuples and separates them into two tuples
-        containing the first and second elements respectively.
-
-        Parameters
-        ----------
-        xys
-            Iterable of 2-tuples to unzip.
-
-        Returns
-        -------
-        tuple
-            A 2-tuple containing:
-                - Tuple of all first elements
-                - Tuple of all second elements
-
-        Examples
-        --------
-            >>> pairs = [(1, 'a'), (2, 'b'), (3, 'c')]
-            >>> nums, letters = unzip2(pairs)
-            >>> nums
-            (1, 2, 3)
-            >>> letters
-            ('a', 'b', 'c')
-
-        Notes
-        -----
-            We deliberately don't use zip(*xys) because it is lazily evaluated,
-            is too permissive about inputs, and does not guarantee a length-2 output.
-        """
-        # Note: we deliberately don't use zip(*xys) because it is lazily evaluated,
-        # is too permissive about inputs, and does not guarantee a length-2 output.
-        xs: list[T1] = []
-        ys: list[T2] = []
-        for x, y in xys:
-            xs.append(x)
-            ys.append(y)
-        return tuple(xs), tuple(ys)
+        >>> safe_zip([1, 2], [3, 4], [5, 6])
+        [(1, 3, 5), (2, 4, 6)]
+    """
+    args = list(map(list, args))
+    n = len(args[0])
+    for arg in args[1:]:
+        assert len(arg) == n, f'length mismatch: {list(map(len, args))}'
+    return list(zip(*args))
 
 
-    def fun_name(fun: Callable):
-        name = getattr(fun, "__name__", None)
-        if name is not None:
-            return name
-        if isinstance(fun, partial):
-            return fun_name(fun.func)
-        else:
-            return "<unnamed function>"
+def unzip2(xys: Iterable[tuple[T1, T2]]) -> tuple[tuple[T1, ...], tuple[T2, ...]]:
+    """
+    Unzip sequence of length-2 tuples into two tuples.
+
+    Takes an iterable of 2-tuples and separates them into two tuples
+    containing the first and second elements respectively.
+
+    Parameters
+    ----------
+    xys
+        Iterable of 2-tuples to unzip.
+
+    Returns
+    -------
+    tuple
+        A 2-tuple containing:
+            - Tuple of all first elements
+            - Tuple of all second elements
+
+    Examples
+    --------
+        >>> pairs = [(1, 'a'), (2, 'b'), (3, 'c')]
+        >>> nums, letters = unzip2(pairs)
+        >>> nums
+        (1, 2, 3)
+        >>> letters
+        ('a', 'b', 'c')
+
+    Notes
+    -----
+        We deliberately don't use zip(*xys) because it is lazily evaluated,
+        is too permissive about inputs, and does not guarantee a length-2 output.
+    """
+    # Note: we deliberately don't use zip(*xys) because it is lazily evaluated,
+    # is too permissive about inputs, and does not guarantee a length-2 output.
+    xs: list[T1] = []
+    ys: list[T2] = []
+    for x, y in xys:
+        xs.append(x)
+        ys.append(y)
+    return tuple(xs), tuple(ys)
 
 
-    def wraps(
-        wrapped: Callable,
-        namestr: str | None = None,
-        docstr: str | None = None,
-        **kwargs,
-    ) -> Callable[[T], T]:
-        """
-        Enhanced function wrapper with fine-grained control.
+def fun_name(fun: Callable):
+    name = getattr(fun, "__name__", None)
+    if name is not None:
+        return name
+    if isinstance(fun, partial):
+        return fun_name(fun.func)
+    else:
+        return "<unnamed function>"
 
-        Like functools.wraps, but provides more control over the name and docstring
-        of the resulting function. Useful for creating custom decorators.
 
-        Parameters
-        ----------
-        wrapped
-            The function being wrapped.
-        namestr
-            Optional format string for the wrapper function name.
-            Can use {fun} placeholder for the original function name.
-        docstr
-            Optional format string for the wrapper function docstring.
-            Can use {fun}, {doc}, and other kwargs as placeholders.
-        **kwargs
-            Additional keyword arguments for format string substitution.
+def wraps(
+    wrapped: Callable,
+    namestr: str | None = None,
+    docstr: str | None = None,
+    **kwargs,
+) -> Callable[[T], T]:
+    """
+    Enhanced function wrapper with fine-grained control.
 
-        Returns
-        -------
-        Callable
-            A decorator function that applies the wrapping.
+    Like functools.wraps, but provides more control over the name and docstring
+    of the resulting function. Useful for creating custom decorators.
 
-        Examples
-        --------
-            >>> def my_decorator(func):
-            ...     @wraps(func, namestr="decorated_{fun}")
-            ...     def wrapper(*args, **kwargs):
-            ...         return func(*args, **kwargs)
-            ...     return wrapper
+    Parameters
+    ----------
+    wrapped
+        The function being wrapped.
+    namestr
+        Optional format string for the wrapper function name.
+        Can use {fun} placeholder for the original function name.
+    docstr
+        Optional format string for the wrapper function docstring.
+        Can use {fun}, {doc}, and other kwargs as placeholders.
+    **kwargs
+        Additional keyword arguments for format string substitution.
 
-            >>> @my_decorator
-            ... def example():
-            ...     pass
-            >>> example.__name__
-            'decorated_example'
-        """
+    Returns
+    -------
+    Callable
+        A decorator function that applies the wrapping.
 
-        def wrapper(fun: T) -> T:
-            # Copy each piece of metadata independently. A single shared
-            # try/except would abandon every remaining attribute the moment one
-            # copy failed (e.g. a read-only __dict__ on a builtin), leaving the
-            # wrapper with a partially-populated, inconsistent set of metadata.
-            try:
-                name = fun_name(wrapped)
-            except Exception:
-                name = getattr(wrapped, "__name__", "<unknown>")
-            try:
-                fun.__dict__.update(getattr(wrapped, "__dict__", {}))
-            except Exception:
-                pass
-            try:
-                fun.__annotations__ = getattr(wrapped, "__annotations__", {})
-            except Exception:
-                pass
-            try:
-                fun.__name__ = name if namestr is None else namestr.format(fun=name)
-            except Exception:
-                pass
-            try:
-                fun.__module__ = getattr(wrapped, "__module__", "<unknown module>")
-            except Exception:
-                pass
-            try:
-                doc = getattr(wrapped, "__doc__", "") or ""
-                fun.__doc__ = (doc if docstr is None
-                               else docstr.format(fun=name, doc=doc, **kwargs))
-            except Exception:
-                pass
-            try:
-                fun.__qualname__ = getattr(wrapped, "__qualname__", getattr(fun, "__name__", name))
-            except Exception:
-                pass
-            try:
-                fun.__wrapped__ = wrapped
-            except Exception:
-                pass
-            return fun
+    Examples
+    --------
+        >>> def my_decorator(func):
+        ...     @wraps(func, namestr="decorated_{fun}")
+        ...     def wrapper(*args, **kwargs):
+        ...         return func(*args, **kwargs)
+        ...     return wrapper
 
-        return wrapper
+        >>> @my_decorator
+        ... def example():
+        ...     pass
+        >>> example.__name__
+        'decorated_example'
+    """
+
+    def wrapper(fun: T) -> T:
+        # Copy each piece of metadata independently. A single shared
+        # try/except would abandon every remaining attribute the moment one
+        # copy failed (e.g. a read-only __dict__ on a builtin), leaving the
+        # wrapper with a partially-populated, inconsistent set of metadata.
+        try:
+            name = fun_name(wrapped)
+        except Exception:
+            name = getattr(wrapped, "__name__", "<unknown>")
+        try:
+            fun.__dict__.update(getattr(wrapped, "__dict__", {}))
+        except Exception:
+            pass
+        try:
+            fun.__annotations__ = getattr(wrapped, "__annotations__", {})
+        except Exception:
+            pass
+        try:
+            fun.__name__ = name if namestr is None else namestr.format(fun=name)
+        except Exception:
+            pass
+        try:
+            fun.__module__ = getattr(wrapped, "__module__", "<unknown module>")
+        except Exception:
+            pass
+        try:
+            doc = getattr(wrapped, "__doc__", "") or ""
+            fun.__doc__ = (doc if docstr is None
+                           else docstr.format(fun=name, doc=doc, **kwargs))
+        except Exception:
+            pass
+        try:
+            fun.__qualname__ = getattr(wrapped, "__qualname__", getattr(fun, "__name__", name))
+        except Exception:
+            pass
+        try:
+            fun.__wrapped__ = wrapped
+        except Exception:
+            pass
+        return fun
+
+    return wrapper
 
 
 def to_concrete_aval(aval):
@@ -474,12 +448,47 @@ def to_concrete_aval(aval):
     return jax.typeof(aval)
 
 
+def make_debug_info(traced_for: str, name: str = "<unknown>") -> DebugInfo:
+    """
+    Build a ``DebugInfo`` with unknown argument names and result paths.
+
+    JAX deprecates constructing a ``Jaxpr`` without a ``DebugInfo``
+    (https://github.com/jax-ml/jax/issues/26480). Use this for jaxprs that are
+    assembled from equations rather than traced from a Python function.
+
+    Parameters
+    ----------
+    traced_for : str
+        The transformation or utility that produced the jaxpr.
+    name : str, optional
+        The function name recorded as ``func_src_info``.
+
+    Returns
+    -------
+    DebugInfo
+        Debug info whose ``arg_names`` and ``result_paths`` are ``None``
+        (unknown), so it is valid for any number of inputs and outputs.
+
+    Notes
+    -----
+    The ``DebugInfo`` field layout is the same on all supported jax
+    versions (>= 0.9.0), so no version guard is needed.
+
+    Examples
+    --------
+    .. code-block:: python
+
+        >>> from brainstate._compatible_import import make_debug_info
+        >>> info = make_debug_info('my_pass', 'f')
+        >>> info.traced_for, info.func_src_info, info.arg_names
+        ('my_pass', 'f', None)
+    """
+    return DebugInfo(traced_for, name, None, None)
+
+
 def is_jit_primitive(eqn: JaxprEqn) -> bool:
     assert isinstance(eqn, JaxprEqn)
-    if jax.__version_info__ < (0, 7, 0):
-        return eqn.primitive.name in ['pjit', 'xla_call']
-    else:
-        return eqn.primitive.name in ['jit', 'xla_call']
+    return eqn.primitive.name in ['jit', 'xla_call']
 
 
 def scan_num_consts_carry(eqn_params) -> tuple:
@@ -525,16 +534,11 @@ def scan_num_consts_carry(eqn_params) -> tuple:
     return len(consts), len(carry)
 
 
-# Resolve jax.shard_map across versions: it was promoted to the top level in
-# JAX 0.8.0 (with the ``check_vma`` flag); older releases (0.6.x/0.7.x) expose
-# it as ``jax.experimental.shard_map.shard_map`` with a ``check_rep`` flag.
-jax_shard_map = getattr(jax, 'shard_map', None)
-if jax_shard_map is None:  # pragma: no cover - depends on installed jax
-    from jax.experimental.shard_map import shard_map as jax_shard_map
-_shard_map_params = set(inspect.signature(jax_shard_map).parameters)
-if 'check_vma' in _shard_map_params:
+# ``jax.shard_map`` takes a ``check_vma`` flag on all supported jax versions
+# (>= 0.9.0); detect it from the signature so a future rename degrades to
+# not passing the flag instead of a TypeError.
+jax_shard_map = jax.shard_map
+if 'check_vma' in inspect.signature(jax_shard_map).parameters:
     SHARD_MAP_CHECK_KW = 'check_vma'
-elif 'check_rep' in _shard_map_params:
-    SHARD_MAP_CHECK_KW = 'check_rep'
 else:  # pragma: no cover - unexpected jax signature
     SHARD_MAP_CHECK_KW = None

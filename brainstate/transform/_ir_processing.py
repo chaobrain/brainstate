@@ -17,7 +17,9 @@ from typing import Sequence, Dict, List, Set
 from collections import defaultdict
 from jax.extend.core.primitives import dot_general_p, conv_general_dilated_p
 
-from brainstate._compatible_import import is_jit_primitive, JaxprEqn, Jaxpr, ClosedJaxpr, Var, Literal
+from brainstate._compatible_import import (
+    is_jit_primitive, JaxprEqn, Jaxpr, ClosedJaxpr, Var, Literal, make_debug_info,
+)
 from brainstate._state import State
 from brainstate.transform._ir_utils import IdentitySet, IRValidationError, check_all_vars
 
@@ -149,6 +151,7 @@ def eqns_to_jaxpr(
         invars=invars,
         outvars=outvars,
         eqns=eqns,
+        debug_info=make_debug_info('eqns_to_jaxpr'),
     )
 
 
@@ -209,7 +212,8 @@ def eqns_to_closed_jaxpr(
             f"consts length ({len(consts)}) does not match constvars length ({len(constvars)})"
         )
 
-    jaxpr = Jaxpr(constvars=constvars, invars=invars, outvars=outvars, eqns=eqns)
+    jaxpr = Jaxpr(constvars=constvars, invars=invars, outvars=outvars, eqns=eqns,
+                  debug_info=make_debug_info('eqns_to_closed_jaxpr'))
 
     # Pairing the jaxpr with its constant values restores the
     # constvars/invars split on jax >= 0.11.1, where the open jaxpr above

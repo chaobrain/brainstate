@@ -1,5 +1,26 @@
 # Release notes
 
+## Unreleased
+
+Compatibility with JAX 0.11.2, and the supported floor is raised to `jax>=0.9.0`. No public APIs are added, removed, or renamed.
+
+### Bug Fixes
+
+#### `brainstate.transform` (IR processing)
+
+- **Jaxprs built without `DebugInfo`**: `eqns_to_jaxpr()`, `eqns_to_closed_jaxpr()`, common-subexpression elimination in `optimize_jaxpr()`, and the constant folding behind `fn_to_python_code()` / `jaxpr_to_python_code()` constructed `Jaxpr` objects without a `DebugInfo`, which JAX deprecates and will turn into an error ([jax-ml/jax#26480](https://github.com/jax-ml/jax/issues/26480)). Freshly assembled jaxprs now carry a `DebugInfo` from the new `brainstate._compatible_import.make_debug_info()` helper; rewritten jaxprs keep the source jaxpr's function name and location with argument/result names dropped (`DebugInfo.with_unknown_names()`), since passes such as constant folding may prune inputs.
+
+### Build & CI
+
+- **Supported floor raised to `jax>=0.9.0`** (was `jax>=0.8.0`) in `pyproject.toml` and `requirements.txt`; the pinned `jax==0.8.0` CI entry is dropped.
+- Removed compatibility branches for JAX < 0.9.0 from `brainstate._compatible_import`, `brainstate.transform._make_jaxpr`, and `brainstate.util._tracers`.
+- pytest now turns the `core.Jaxpr is missing a DebugInfo object` deprecation into an error so regressions fail CI.
+
+### Quality
+
+- Full suite (including slow tests) green on **JAX 0.11.2**: 5330 passed, 48 skipped, 0 failed (392 subtests).
+- Full suite (including slow tests) green on **JAX 0.9.0**: 5330 passed, 48 skipped, 0 failed (392 subtests).
+
 ## Version 0.5.4 (2026-08-18)
 
 A compatibility patch release for JAX 0.11.1. The 0.11.1 point release removed `core.CallPrimitive` outright and completed the `Jaxpr` / `ClosedJaxpr` merge that began in 0.11.0, which broke `import brainstate` at the compatibility layer and silently disabled a validation check in the intermediate-representation tooling. This release restores full compatibility and hardens the optional-framework import path so that a third-party package lagging the installed JAX reports the version mismatch instead of an opaque traceback. No public APIs are added, removed, or renamed, and behavior is unchanged on every supported JAX version.
