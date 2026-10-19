@@ -16,19 +16,7 @@
 
 ## Docstring style (NumPy-doc)
 
-All public classes, methods, functions must use [NumPy-style docstrings](https://numpydoc.readthedocs.io/en/latest/format.html). Canonical section order:
-
-1. **Short summary** – one-line imperative description (no blank line before).
-2. **Extended summary** – optional, follow blank line after short summary.
-3. **Parameters** – each entry: `name : type` on own line, description indented below.
-4. **Returns** / **Yields** – same format as Parameters.
-5. **Raises** – exception type and when raised.
-6. **See Also** – related functions / classes.
-7. **Notes** – implementation details, math, references.
-8. **References** – numbered bibliography entries (`.. [1]`).
-9. **Examples** – runnable, doctestable code snippets.
-
-### Rules for the Examples section
+All public classes, methods, functions must use [NumPy-style docstrings](https://numpydoc.readthedocs.io/en/latest/format.html). Rules for the Examples section
 
 - Wrap example code in `.. code-block:: python` directive so Sphinx render with syntax highlighting.
 - Prefix every input line with `>>>` (continuation lines with `...`) for `doctest` compatibility.
