@@ -26,6 +26,11 @@ and context management functionality, including:
 - Error handling and validation
 """
 
+import json
+import os
+import subprocess
+import sys
+import textwrap
 import threading
 import unittest
 import warnings
@@ -35,6 +40,10 @@ import jax.numpy as jnp
 import numpy as np
 
 import brainstate as bst
+
+# Directory that contains the ``brainstate`` package under test, so subprocesses
+# import the same copy as this test process rather than another installation.
+_BRAINSTATE_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(bst.__file__)))
 
 
 class TestEnvironmentCore(unittest.TestCase):
@@ -130,8 +139,9 @@ class TestEnvironmentCore(unittest.TestCase):
         result = bst.environ.get('custom1', default=None)
         self.assertIsNone(result)
 
-        # Default precision should be restored
-        self.assertEqual(bst.environ.get('precision'), bst.environ.DEFAULT_PRECISION)
+        # The import-time precision should be restored (DEFAULT_PRECISION
+        # unless JAX's x64 mode was already enabled at import)
+        self.assertEqual(bst.environ.get('precision'), bst.environ._INITIAL_PRECISION)
 
     def test_special_environment_keys(self):
         """Test special environment key constants."""
@@ -1449,6 +1459,174 @@ class TestEnvironAuditAppendix(unittest.TestCase):
         bst.environ.set(precision=16, env=env16)
         tol16 = bst.environ.tolerance(env=env16)
         self.assertEqual(tol16.dtype, np.float16)
+
+
+class TestImportRespectsJaxX64(unittest.TestCase):
+    """``import brainstate`` must start from, not override, JAX's x64 setting.
+
+    ``jax_enable_x64`` is process-global, so every scenario runs in a fresh
+    Python subprocess.
+    """
+
+    # Helper defined in every subprocess; prints a JSON snapshot as the last line.
+    _REPORT = textwrap.dedent("""
+        import json as _json
+        import jax as _jax
+        import jax.numpy as _jnp
+        import numpy as _np
+        import brainstate as _bst
+        def report(**extra):
+            out = {
+                'x64': bool(_jax.config.jax_enable_x64),
+                'precision': _bst.environ.get_precision(),
+                'dftype': _np.dtype(_bst.environ.dftype()).name,
+                'ditype': _np.dtype(_bst.environ.ditype()).name,
+                'array': _jnp.asarray(1.0).dtype.name,
+            }
+            out.update(extra)
+            print(_json.dumps(out))
+    """)
+
+    _ENABLE_X64 = "import jax\njax.config.update('jax_enable_x64', True)"
+
+    def _run(self, prelude, body='report()', x64_env=None):
+        """Run ``prelude`` before ``import brainstate``, then ``body``.
+
+        Parameters
+        ----------
+        prelude : str
+            Code executed before ``import brainstate``.
+        body : str
+            Code executed after the import; must call ``report(...)``.
+        x64_env : str, optional
+            Value for ``JAX_ENABLE_X64``; the variable is removed when None.
+
+        Returns
+        -------
+        dict
+            The JSON object printed by ``report``.
+        """
+        env = dict(os.environ)
+        env.pop('JAX_ENABLE_X64', None)
+        if x64_env is not None:
+            env['JAX_ENABLE_X64'] = x64_env
+        env['JAX_PLATFORMS'] = 'cpu'
+        env['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false'
+        env['PYTHONPATH'] = os.pathsep.join(
+            p for p in (_BRAINSTATE_ROOT, env.get('PYTHONPATH')) if p
+        )
+        code = '\n'.join([
+            'import warnings',
+            "warnings.simplefilter('ignore')",
+            textwrap.dedent(prelude),
+            self._REPORT,
+            textwrap.dedent(body),
+        ])
+        proc = subprocess.run(
+            [sys.executable, '-c', code],
+            env=env, capture_output=True, text=True, timeout=600,
+        )
+        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
+        return json.loads(proc.stdout.strip().splitlines()[-1])
+
+    def test_config_update_before_import_is_kept(self):
+        r = self._run(self._ENABLE_X64)
+        self.assertTrue(r['x64'])
+        self.assertEqual(r['precision'], 64)
+        self.assertEqual(r['dftype'], 'float64')
+        self.assertEqual(r['ditype'], 'int64')
+        self.assertEqual(r['array'], 'float64')
+
+    def test_env_var_is_kept(self):
+        r = self._run('', x64_env='1')
+        self.assertTrue(r['x64'])
+        self.assertEqual(r['precision'], 64)
+        self.assertEqual(r['dftype'], 'float64')
+        self.assertEqual(r['array'], 'float64')
+
+    def test_config_update_overrides_env_var(self):
+        r = self._run(
+            "import jax\njax.config.update('jax_enable_x64', False)",
+            x64_env='1',
+        )
+        self.assertFalse(r['x64'])
+        self.assertEqual(r['precision'], 32)
+        self.assertEqual(r['dftype'], 'float32')
+
+    def test_default_import_is_float32(self):
+        r = self._run('')
+        self.assertFalse(r['x64'])
+        self.assertEqual(r['precision'], 32)
+        self.assertEqual(r['dftype'], 'float32')
+        self.assertEqual(r['ditype'], 'int32')
+        self.assertEqual(r['array'], 'float32')
+
+    def test_explicit_set_still_drives_jax(self):
+        r = self._run(self._ENABLE_X64, body="""
+            _bst.environ.set(precision=32)
+            after_32 = bool(_jax.config.jax_enable_x64)
+            dtype_32 = _np.dtype(_bst.environ.dftype()).name
+            _bst.environ.set_precision(64)
+            report(after_32=after_32, dtype_32=dtype_32)
+        """)
+        self.assertFalse(r['after_32'])
+        self.assertEqual(r['dtype_32'], 'float32')
+        self.assertTrue(r['x64'])
+        self.assertEqual(r['precision'], 64)
+
+    def test_context_restores_import_precision(self):
+        r = self._run(self._ENABLE_X64, body="""
+            with _bst.environ.context(precision=32):
+                inside = bool(_jax.config.jax_enable_x64)
+            report(inside=inside)
+        """)
+        self.assertFalse(r['inside'])
+        self.assertTrue(r['x64'])
+        self.assertEqual(r['precision'], 64)
+
+    def test_reset_returns_to_import_precision_x64(self):
+        r = self._run(self._ENABLE_X64, body="""
+            _bst.environ.set(precision=32)
+            _bst.environ.reset()
+            report()
+        """)
+        self.assertTrue(r['x64'])
+        self.assertEqual(r['precision'], 64)
+        self.assertEqual(r['dftype'], 'float64')
+
+    def test_reset_returns_to_import_precision_default(self):
+        r = self._run('', body="""
+            _bst.environ.set(precision=64)
+            _bst.environ.reset()
+            report()
+        """)
+        self.assertFalse(r['x64'])
+        self.assertEqual(r['precision'], 32)
+        self.assertEqual(r['dftype'], 'float32')
+
+    def test_fresh_environments_start_from_import_precision(self):
+        r = self._run(self._ENABLE_X64, body="""
+            import threading
+            seen = []
+            t = threading.Thread(
+                target=lambda: seen.append(_bst.environ.get_precision()))
+            t.start()
+            t.join()
+            custom = _bst.environ.EnvironmentState()
+            custom_new = _bst.environ.get_precision(env=custom)
+            _bst.environ.set(precision=16, env=custom)
+            _bst.environ.reset(env=custom)
+            custom_reset = _bst.environ.get_precision(env=custom)
+            _bst.environ.pop('precision')
+            popped = _bst.environ.get_precision()
+            report(thread=seen[0], custom_new=custom_new,
+                   custom_reset=custom_reset, popped=popped)
+        """)
+        self.assertEqual(r['thread'], 64)
+        self.assertEqual(r['custom_new'], 64)
+        self.assertEqual(r['custom_reset'], 64)
+        self.assertEqual(r['popped'], 64)
+        self.assertTrue(r['x64'])
 
 
 if __name__ == '__main__':
