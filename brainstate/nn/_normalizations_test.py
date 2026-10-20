@@ -949,5 +949,50 @@ class TestNormalizationJitGrad(unittest.TestCase):
         _testing.assert_grad_finite(loss_fn, x)
 
 
+class TestBatchNormRegressions(parameterized.TestCase):
+    """Regression tests for BatchNorm statistics bugs."""
+
+    @parameterized.product(fit=[True, False])
+    def test_no_running_stats_uses_batch_statistics(self, fit):
+        """``track_running_stats=False`` normalizes with batch statistics in both modes."""
+        net = brainstate.nn.BatchNorm2d((6, 6, 3), track_running_stats=False, affine=False)
+        with brainstate.random.seed_context(0):
+            x = brainstate.random.randn(8, 6, 6, 3) * 3. + 2.
+        with brainstate.environ.context(fit=fit):
+            y = net(x)
+        mean = jnp.mean(x, axis=(0, 1, 2), keepdims=True)
+        var = jnp.var(x, axis=(0, 1, 2), keepdims=True)
+        expected = (x - mean) / jnp.sqrt(var + 1e-5)
+        assert_allclose(y, expected, rtol=1e-4, atol=1e-4)
+
+    def test_no_running_stats_without_fit_flag(self):
+        """``track_running_stats=False`` does not require the ``fit`` environment flag."""
+        net = brainstate.nn.BatchNorm1d((5, 4), track_running_stats=False, affine=False)
+        x = brainstate.random.randn(3, 5, 4)
+        y = net(x)
+        self.assertEqual(y.shape, x.shape)
+
+    @parameterized.product(feature_axis=[0, -1])
+    def test_running_stats_shape_preserved(self, feature_axis):
+        """Running statistics keep ``feature_shape`` when the feature axis is not last."""
+        in_size = (10, 20) if feature_axis == 0 else (20, 10)
+        net = brainstate.nn.BatchNorm1d(in_size, feature_axis=feature_axis)
+        expected_shape = net.running_mean.value.shape
+        with brainstate.random.seed_context(1):
+            x = brainstate.random.randn(4, *in_size)
+        with brainstate.environ.context(fit=True):
+            net(x)
+            net(x)
+        self.assertEqual(net.running_mean.value.shape, expected_shape)
+        self.assertEqual(net.running_var.value.shape, expected_shape)
+        axes = (0, 2) if feature_axis == 0 else (0, 1)
+        batch_mean = jnp.mean(x, axis=axes).reshape(expected_shape)
+        m = net.momentum
+        assert_allclose(net.running_mean.value, (1 - m) * batch_mean * (1 + m), rtol=1e-4, atol=1e-5)
+        with brainstate.environ.context(fit=False):
+            y = net(x)
+        self.assertEqual(y.shape, x.shape)
+
+
 if __name__ == '__main__':
     absltest.main()

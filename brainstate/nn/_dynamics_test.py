@@ -41,6 +41,7 @@ from brainstate.nn._dynamics import (
     _get_prefetch_delay_key,
     _get_output_delay_key,
 )
+from brainstate.nn._delay import StateWithDelay
 
 
 class _Neuron(Dynamics):
@@ -454,19 +455,16 @@ class TestInitMaybePrefetch(unittest.TestCase):
             at = dyn.prefetch_delay('V', 1.0 * u.ms)
             init_maybe_prefetch(at)  # PrefetchDelayAt branch: pass
 
-    def test_init_prefetch_delay_hits_key_arity_bug(self):
-        """Initializing a ``PrefetchDelay`` hits the key-arity bug (documents BUG).
+    def test_init_prefetch_delay_resolves_handler(self):
+        """Initializing a ``PrefetchDelay`` resolves the registered delay handler.
 
-        The intended behavior is to resolve the registered delay handler, but
-        ``_get_prefetch_item_delay`` calls ``_get_prefetch_delay_key(item)`` with
-        a single argument while that helper now requires ``(item, update_every)``,
-        so a ``TypeError`` is raised before the lookup can complete.
+        Regression test: ``_get_prefetch_item_delay`` used to call
+        ``_get_prefetch_delay_key(item)`` with a single argument and raise ``TypeError``.
         """
         with brainstate.environ.context(dt=0.1 * u.ms):
             dyn = _Neuron(3)
             dyn.prefetch_delay('V', 1.0 * u.ms)
-            with self.assertRaises(TypeError):
-                init_maybe_prefetch(dyn.prefetch('V').delay)
+            init_maybe_prefetch(dyn.prefetch('V').delay)  # should not raise
 
 
 class TestPrefetchItemDelayHelper(unittest.TestCase):
@@ -484,12 +482,37 @@ class TestPrefetchItemDelayHelper(unittest.TestCase):
         with self.assertRaises(AssertionError):
             _get_prefetch_item_delay(_Fake())
 
-    def test_key_helper_arity_bug_raises_type_error(self):
-        """The helper hits the key-arity bug and raises ``TypeError`` (documents BUG)."""
+    def test_helper_returns_registered_delay(self):
+        """The helper returns the ``StateWithDelay`` registered for the item."""
         with brainstate.environ.context(dt=0.1 * u.ms):
             dyn = _Neuron(3)
             dyn.prefetch_delay('V', 1.0 * u.ms)
-            with self.assertRaises(TypeError):
+            delay = _get_prefetch_item_delay(dyn.prefetch('V').delay)
+            self.assertIs(delay, dyn.get_after_update(_get_prefetch_delay_key('V', None)))
+            self.assertIsInstance(delay, StateWithDelay)
+
+    def test_helper_finds_delay_registered_with_update_every(self):
+        """A delay registered with ``update_every`` is found without knowing it."""
+        with brainstate.environ.context(dt=0.1 * u.ms):
+            dyn = _Neuron(3)
+            PrefetchDelayAt(dyn, 'V', 1.0 * u.ms, update_every=0.2 * u.ms)
+            delay = _get_prefetch_item_delay(dyn.prefetch('V').delay)
+            self.assertIs(delay, dyn.get_after_update(_get_prefetch_delay_key('V', 0.2 * u.ms)))
+
+    def test_helper_ambiguous_update_every_raises(self):
+        """Delays registered with several ``update_every`` values are ambiguous."""
+        with brainstate.environ.context(dt=0.1 * u.ms):
+            dyn = _Neuron(3)
+            PrefetchDelayAt(dyn, 'V', 1.0 * u.ms, update_every=0.2 * u.ms)
+            PrefetchDelayAt(dyn, 'V', 1.0 * u.ms, update_every=0.5 * u.ms)
+            with self.assertRaises(ValueError):
+                _get_prefetch_item_delay(dyn.prefetch('V').delay)
+
+    def test_helper_unregistered_delay_raises_key_error(self):
+        """Without a registered delay, the helper raises ``KeyError``."""
+        with brainstate.environ.context(dt=0.1 * u.ms):
+            dyn = _Neuron(3)
+            with self.assertRaises(KeyError):
                 _get_prefetch_item_delay(dyn.prefetch('V').delay)
 
 

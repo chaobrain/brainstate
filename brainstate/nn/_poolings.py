@@ -255,6 +255,9 @@ class _MaxPool(Module):
             in_size = tuple(in_size)
             self.in_size = in_size
             y = jax.eval_shape(self.update, jax.ShapeDtypeStruct((128,) + in_size, environ.dftype()))
+            if self.return_indices:
+                # ``update`` returns ``(pooled, indices)`` in this case
+                y = y[0]
             self.out_size = y.shape[1:]
 
     def update(self, x):
@@ -716,13 +719,20 @@ class _MaxUnpool(Module):
         """Perform N-dimensional max unpooling.
 
         The ``indices`` returned by :class:`MaxPool` are flat positions within the
-        *natural* (inferred) output shape, i.e. positions in the layout that the
-        original pre-pool input had. To support an arbitrary ``output_size`` (whose
-        spatial extent may differ from the natural one) without leaking values
-        across batch or channel elements, each stored flat index is first unraveled
-        into a multi-dimensional coordinate against the natural shape and then
-        re-raveled against the requested output shape. Coordinates that fall outside
-        the requested output are dropped.
+        layout of the *original* pre-pool input. That layout is resolved as follows:
+
+        - If ``output_size`` is a size that pools back to the spatial shape of ``x``
+          (e.g. the original, possibly non-divisible, input size), it is taken as the
+          original input layout and the values are scattered into it directly. As in
+          PyTorch, ``output_size`` must be given when the original input size is not
+          the natural size ``(L_in - 1) * stride - 2 * padding + kernel_size``.
+        - Otherwise the original layout is assumed to be the *natural* shape. To
+          support an arbitrary ``output_size`` (whose spatial extent may differ from
+          the natural one) without leaking values across batch or channel elements,
+          each stored flat index is first unraveled into a multi-dimensional
+          coordinate against the natural shape and then re-raveled against the
+          requested output shape. Coordinates that fall outside the requested output
+          are dropped.
         """
         x_dim = self.pool_dim + (0 if self.channel_axis is None else 1)
         if x.ndim < x_dim:
@@ -765,9 +775,10 @@ class _MaxUnpool(Module):
         flat_indices = indices.ravel()
         flat_values = x.ravel()
 
-        if output_shape == natural_shape:
-            # Fast path: natural-size round-trip, indices already match the output
-            # layout exactly, so scatter directly.
+        if output_shape == natural_shape or self._is_pool_compatible(output_shape, x.shape, spatial_axes):
+            # Fast path: ``output_shape`` is the layout of the original input (the
+            # natural size, or a non-natural size that pools back to ``x``), so the
+            # indices already match the output layout exactly; scatter directly.
             flat_output = jnp.zeros(int(np.prod(output_shape)), dtype=x.dtype)
             flat_output = flat_output.at[flat_indices].set(flat_values)
             return flat_output.reshape(output_shape)
@@ -794,6 +805,21 @@ class _MaxUnpool(Module):
         flat_output = flat_output.at[scatter_indices].set(flat_values)
         output = flat_output[:out_flat_size].reshape(output_shape)
         return output
+
+    def _is_pool_compatible(self, output_shape, input_shape, spatial_axes):
+        """Whether pooling ``output_shape`` would produce the spatial shape of ``input_shape``.
+
+        Such an ``output_shape`` is a valid size of the original pre-pool input, so the
+        stored flat indices are positions in exactly that layout.
+        """
+        for i, ax in enumerate(spatial_axes):
+            size = output_shape[ax] + 2 * self.padding[i] - self.kernel_size[i]
+            if size < 0 or size // self.stride[i] + 1 != input_shape[ax]:
+                return False
+        return all(
+            output_shape[ax] == input_shape[ax]
+            for ax in range(len(input_shape)) if ax not in spatial_axes
+        )
 
     def _get_spatial_dims(self, shape):
         """Extract spatial dimensions from input shape."""
@@ -888,7 +914,7 @@ class MaxUnpool1d(_MaxUnpool):
         >>> input = brainstate.random.randn(20, 50, 16)
         >>> output, indices = pool(input)
         >>> unpooled = unpool(output, indices)
-        >>> # unpooled will have shape (20, 100, 16) with zeros at non-maximal positions
+        >>> # unpooled will have shape (20, 50, 16) with zeros at non-maximal positions
     """
     __module__ = 'brainstate.nn'
 

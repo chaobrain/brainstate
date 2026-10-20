@@ -1810,5 +1810,72 @@ class TestAdaptivePoolHelperValidation(unittest.TestCase):
             nn.AdaptiveMaxPool2d((2, 2.5))
 
 
+class TestMaxUnpoolOddSizes(unittest.TestCase):
+    """Regression tests: unpooling inputs whose size is not divisible by the stride."""
+
+    def test_maxunpool1d_odd_size_with_output_size(self):
+        """Indices from an odd-sized input are placed back at their original positions."""
+        arr = jnp.arange(10.0).reshape(2, 5, 1)
+        pool = nn.MaxPool1d(2, 2, channel_axis=-1, return_indices=True)
+        pooled, indices = pool(arr)
+        unpool = nn.MaxUnpool1d(2, 2, channel_axis=-1)
+        expected = np.array([[0., 1., 0., 3., 0.],
+                             [0., 6., 0., 8., 0.]])
+        for output_size in [(2, 5, 1), (5,), 5]:
+            out = unpool(pooled, indices, output_size=output_size)
+            self.assertEqual(out.shape, (2, 5, 1))
+            np.testing.assert_array_equal(np.asarray(out[..., 0]), expected)
+
+    def test_maxunpool2d_odd_size_with_output_size(self):
+        """2-D unpooling of an odd-sized input matches a hand-computed reference."""
+        with seeded(3):
+            arr = brainstate.random.randn(2, 5, 7, 3)
+        pool = nn.MaxPool2d(2, 2, channel_axis=-1, return_indices=True)
+        pooled, indices = pool(arr)
+        unpool = nn.MaxUnpool2d(2, 2, channel_axis=-1)
+        out = unpool(pooled, indices, output_size=(5, 7))
+        self.assertEqual(out.shape, arr.shape)
+
+        x = np.asarray(arr)
+        ref = np.zeros_like(x)
+        for b in range(2):
+            for c in range(3):
+                for i in range(2):
+                    for j in range(3):
+                        win = x[b, 2 * i:2 * i + 2, 2 * j:2 * j + 2, c]
+                        di, dj = np.unravel_index(np.argmax(win), win.shape)
+                        ref[b, 2 * i + di, 2 * j + dj, c] = win[di, dj]
+        np.testing.assert_allclose(np.asarray(out), ref)
+
+    def test_maxunpool1d_odd_size_under_jit(self):
+        """The odd-size path also works inside ``jax.jit``."""
+        arr = jnp.arange(10.0).reshape(2, 5, 1)
+        pool = nn.MaxPool1d(2, 2, channel_axis=-1, return_indices=True)
+        unpool = nn.MaxUnpool1d(2, 2, channel_axis=-1)
+
+        @jax.jit
+        def f(a):
+            pooled, idx = pool(a)
+            return unpool(pooled, idx, output_size=(5,))
+
+        np.testing.assert_array_equal(
+            np.asarray(f(arr)[..., 0]),
+            np.array([[0., 1., 0., 3., 0.], [0., 6., 0., 8., 0.]]),
+        )
+
+
+class TestMaxPoolReturnIndicesInSize(unittest.TestCase):
+    """Regression test: ``return_indices=True`` combined with ``in_size``."""
+
+    def test_out_size_inferred(self):
+        for cls, in_size, expected in [
+            (nn.MaxPool1d, (10, 3), (5, 3)),
+            (nn.MaxPool2d, (8, 6, 3), (4, 3, 3)),
+            (nn.MaxPool3d, (4, 4, 4, 2), (2, 2, 2, 2)),
+        ]:
+            pool = cls(2, 2, channel_axis=-1, return_indices=True, in_size=in_size)
+            self.assertEqual(tuple(pool.out_size), expected)
+
+
 if __name__ == '__main__':
     absltest.main()

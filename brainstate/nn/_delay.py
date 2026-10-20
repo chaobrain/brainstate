@@ -348,6 +348,11 @@ InterpolationRegistry.register('polynomial2', _polynomial2_interpolation)
 InterpolationRegistry.register('polynomial3', _polynomial3_interpolation)
 
 
+# Relative tolerance under which a time ratio is treated as an exact integer.
+# It absorbs float round-off such as ``0.07 / 0.01 == 7.000000000000001``.
+_STEP_RTOL = 1e-6
+
+
 def _get_delay(delay_time, dt):
     if delay_time is None:
         return 0. * dt, 0
@@ -356,7 +361,11 @@ def _get_delay(delay_time, dt):
         f'The time_and_idx should have time dimension. '
         f'Got delay time unit {u.get_unit(delay_time)}, and dt unit {u.get_unit(dt)}.'
     )
-    delay_step = jnp.ceil(delay_step).astype(environ.ditype())
+    delay_step = jnp.asarray(u.get_magnitude(delay_step))
+    # round ratios that are integers up to float round-off, otherwise take ``ceil``
+    rounded = jnp.round(delay_step)
+    close = jnp.abs(delay_step - rounded) <= _STEP_RTOL * jnp.maximum(1., jnp.abs(rounded))
+    delay_step = jnp.where(close, rounded, jnp.ceil(delay_step)).astype(environ.ditype())
     return delay_time, delay_step
 
 
@@ -564,7 +573,15 @@ class Delay(Module):
                 if update_every < environ.get_dt():
                     raise ValueError(f"update_every must be >= dt ({environ.get_dt()}), got {update_every}")
                 self.update_every = update_every
-                self.update_every_step = int(update_every / environ.get_dt())
+                ratio = float(u.get_magnitude(update_every / environ.get_dt()))
+                self.update_every_step = int(round(ratio))
+                if abs(ratio - self.update_every_step) > _STEP_RTOL * max(1., abs(ratio)):
+                    warnings.warn(
+                        f"update_every ({update_every}) is not an integer multiple of "
+                        f"dt ({environ.get_dt()}); the buffer is updated every "
+                        f"{self.update_every_step} steps.",
+                        UserWarning,
+                    )
             else:
                 self.update_every = None
                 self.update_every_step = 1
