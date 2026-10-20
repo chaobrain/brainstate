@@ -10,7 +10,7 @@ Decisions already made:
 
 Workflow, per AGENTS.md:
 1. Create the worktree branch `fix/audit-high-medium`. Nothing is committed to main.
-2. Write a spec at `doc/specs/2026-10-audit-fixes.md`, a copy of this plan with the bug table.
+2. Write a spec at `docs/specs/2026-10-audit-fixes.md`, a copy of this plan with the bug table.
 3. For each bug, first write a failing regression test in the matching `*_test.py`, then make the fix.
 4. Use `brainstate.random` in tests, never `jax.random`.
 5. Version-specific code goes in `_compatible_import.py`, using feature detection.
