@@ -637,7 +637,9 @@ class RandomState(State):
         key = self.__get_key(key)
         dtype = dtype or environ.dftype()
         a = u.math.asarray(a, dtype=dtype)
-        r = jr.pareto(key, b=a, shape=_size2shape(size), dtype=dtype)
+        # ``jax.random.pareto`` samples Pareto I (support ``[1, inf)``); NumPy and the
+        # documented contract are Pareto II / Lomax (support ``[0, inf)``), so shift by 1.
+        r = jr.pareto(key, b=a, shape=_size2shape(size), dtype=dtype) - 1
         return r
 
     @named_scope('brainstate/random', static_argnums=_static(0, 2, 4), static_argnames=['dtype', 'size'])
@@ -1511,7 +1513,7 @@ class RandomState(State):
         r = zipf(
             self.__get_key(key),
             a,
-            shape=size,
+            shape=_size2shape(size),
             dtype=dtype or environ.ditype()
         )
         return r

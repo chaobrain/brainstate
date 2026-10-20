@@ -9,6 +9,13 @@ Compatibility with JAX 0.11.2, and the supported floor is raised to `jax>=0.9.0`
 #### `brainstate.environ`
 
 - **`import brainstate` no longer disables float64**: importing brainstate used to force `jax_enable_x64` to `False`, overriding users who had enabled it with `jax.config.update('jax_enable_x64', True)` or `JAX_ENABLE_X64=1`. The global environment now starts from JAX's setting (precision 64 if x64 is on, otherwise 32) and leaves the JAX config untouched at import. `reset()`, new threads, new `EnvironmentState()` objects and the `get_precision()` fallback use that import-time precision instead of a hard-coded 32. Explicit `set(precision=...)`, `set_precision()` and `context(precision=...)` still drive `jax_enable_x64`. With JAX's default (x64 off) nothing changes.
+- **Settings are process-global**: `EnvironmentState` was a `threading.local`, so worker threads started with empty settings (`get_dt()` raised `KeyError`) and default precision while JAX's `jax_enable_x64` is process-wide. Settings and registered callbacks are now shared by all threads; only the `context()` override stack stays per thread. Overlapping `context(precision=...)` blocks in different threads no longer switch x64 off for each other. **Behavior change:** code that relied on per-thread settings now sees shared values.
+
+#### `brainstate.random`
+
+- **`pareto()` now samples Pareto II / Lomax** (support `[0, inf)`), matching its documentation and `numpy.random.pareto`. It previously returned the Pareto I samples of `jax.random.pareto` (support `[1, inf)`), i.e. every sample was 1 too large. **Behavior change:** code that relied on the old samples should add 1.
+- **`multinomial()` no longer drops draws when `pvals` does not sum to 1**: as in NumPy, the last probability is implied as `1 - sum(pvals[:-1])`, so every row of counts sums to `n`.
+- **`zipf()` accepts a list `size`** (it is now normalized to a tuple before the static-shape `jit`).
 
 #### `brainstate.transform` (IR processing)
 

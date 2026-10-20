@@ -1517,5 +1517,52 @@ class TestRandomStateAuditFixes(unittest.TestCase):
         self.assertEqual(len(results), len(set(results)))
 
 
+class TestAuditHighMediumRandom(unittest.TestCase):
+    """Regression tests for the 2026-10 audit fixes (pareto, multinomial, size)."""
+
+    def test_pareto_is_lomax(self):
+        """pareto follows numpy (Lomax / Pareto II): support starts at 0, not 1."""
+        rs = RandomState(0)
+        out = np.asarray(rs.pareto(3.0, size=(20000,)))
+        self.assertTrue((out >= 0).all())
+        self.assertLess(out.min(), 0.01)
+        # Lomax mean is 1 / (a - 1) = 0.5 for a = 3.
+        np.testing.assert_allclose(out.mean(), 0.5, atol=0.05)
+
+    def test_multinomial_counts_sum_to_n_with_unnormalized_pvals(self):
+        """The last pval is implied as 1 - sum(rest) (numpy), so no draw is dropped."""
+        rs = RandomState(0)
+        out = np.asarray(rs.multinomial(100, [0.2, 0.3, 0.4], size=(50,)))
+        np.testing.assert_array_equal(out.sum(axis=-1), 100)
+        # The implied last category gets probability 0.5.
+        np.testing.assert_allclose(out[:, -1].mean() / 100, 0.5, atol=0.05)
+
+    def test_multinomial_last_pval_ignored(self):
+        """A too-large last pval is ignored, as in numpy."""
+        rs = RandomState(0)
+        out = np.asarray(rs.multinomial(50, [0.5, 0.5, 0.9], size=(20,)))
+        np.testing.assert_array_equal(out.sum(axis=-1), 50)
+        np.testing.assert_array_equal(out[:, -1], 0)
+
+    def test_multinomial_array_n_sums(self):
+        """Heterogeneous n with unnormalized pvals still sums row-wise to n."""
+        rs = RandomState(0)
+        n = jnp.array([5, 10, 20])
+        out = np.asarray(rs.multinomial(n, jnp.array([0.1, 0.2, 0.3])))
+        np.testing.assert_array_equal(out.sum(axis=-1), [5, 10, 20])
+
+    def test_zipf_list_size(self):
+        """zipf accepts a list ``size`` (normalized before the static-shape jit)."""
+        rs = RandomState(0)
+        self.assertEqual(rs.zipf(2.0, size=[3]).shape, (3,))
+        self.assertEqual(rs.zipf(2.0, size=4).shape, (4,))
+
+    def test_truncated_normal_size_forms(self):
+        """truncated_normal accepts int, list, and tuple sizes."""
+        rs = RandomState(0)
+        self.assertEqual(rs.truncated_normal(-1., 1., size=5).shape, (5,))
+        self.assertEqual(rs.truncated_normal(-1., 1., size=[2, 3]).shape, (2, 3))
+
+
 if __name__ == '__main__':
     unittest.main()
