@@ -348,7 +348,7 @@ class TestDataHierarchicalRepr(unittest.TestCase):
 
         # Root level uses '='
         self.assertIn("name='arrays'", result)
-        self.assertIn("vector=Array(shape=(5,), dtype=int", result)
+        self.assertRegex(result, r"vector=i(32|64)\[5\]")
 
     def test_array_formatting_jax(self):
         """Test repr with JAX arrays."""
@@ -358,7 +358,7 @@ class TestDataHierarchicalRepr(unittest.TestCase):
 
         # Root level uses '='
         self.assertIn("name='arrays'", result)
-        self.assertIn("vector=Array(shape=(3,), dtype=float", result)
+        self.assertIn("vector=f32[3]", result)
 
     def test_multidimensional_array_formatting(self):
         """Test repr with 2D arrays."""
@@ -367,7 +367,7 @@ class TestDataHierarchicalRepr(unittest.TestCase):
         result = repr(data)
 
         # Root level uses '='
-        self.assertIn("matrix=Array(shape=(3, 4), dtype=float", result)
+        self.assertRegex(result, r"matrix=f(32|64)\[3,4\]")
 
     def test_long_string_truncation(self):
         """Test that long strings are truncated."""
@@ -397,7 +397,7 @@ class TestDataHierarchicalRepr(unittest.TestCase):
         self.assertIn("name='mixed'", result)
         self.assertIn("number=42", result)
         self.assertIn("text='hello'", result)
-        self.assertIn("array=Array(shape=(3,), dtype=float", result)
+        self.assertRegex(result, r"array=f(32|64)\[3\]")
         self.assertIn("nested=", result)
         self.assertIn("none_val=None", result)
         self.assertIn("name='nested'", result)
@@ -457,7 +457,7 @@ class TestDataHierarchicalRepr(unittest.TestCase):
         self.assertIn("learning_rate=0.001", result)
         self.assertIn("layers=3", result)
         self.assertIn("epochs=100", result)
-        self.assertIn("weights=Array(shape=(10, 5), dtype=float", result)
+        self.assertRegex(result, r"weights=f(32|64)\[10,5\]")
 
 
 class TestModuleIsDataclassHelper(unittest.TestCase):

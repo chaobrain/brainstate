@@ -50,7 +50,8 @@ from brainstate._error import TraceContextError
 from brainstate._state_global_hooks import GlobalHookRegistry
 from brainstate._state_hook_manager import HookManager
 from brainstate.typing import ArrayLike, PyTree, Missing, Filter
-from brainstate.util import DictManager, PrettyObject, StateJaxTracer
+from brainstate.util import DictManager, PrettyObject, StateJaxTracer, PrettyType, PrettyAttr
+from brainstate.util._pretty_pytree import NestedStateRepr
 from brainstate.util.filter import Nothing
 
 __all__ = [
@@ -259,6 +260,17 @@ class _InvalidatedTraceValue:
 
 
 _INVALIDATED_TRACE_VALUE = _InvalidatedTraceValue()
+
+
+def _abstract_value(value: Any) -> Any:
+    """Abstract the array leaves of ``value`` for display in a ``repr``."""
+    try:
+        return jax.tree.map(shaped_abstractify, value)
+    except TypeError:
+        # e.g. the invalidated-trace sentinel, or any leaf that cannot be
+        # abstractified — show it raw rather than crash while building a repr
+        # (often inside an error message)
+        return value
 
 
 class State(Generic[A], PrettyObject):
@@ -795,17 +807,54 @@ class State(Generic[A], PrettyObject):
         metadata.pop('_level', None)
         return TreefyState(type(self), self._value, **metadata)
 
+    def __pretty_repr__(self):
+        """Yield the pretty representation of the state.
+
+        The (abstracted) value is shown as the leading positional item,
+        followed by any non-empty metadata. A dict value without metadata is
+        shown in brace form.
+
+        Yields
+        ------
+        PrettyType or PrettyAttr
+            The type header followed by the items.
+
+        Examples
+        --------
+        .. code-block:: python
+
+            >>> import jax.numpy as jnp
+            >>> import brainstate
+            >>> print(repr(brainstate.ParamState(jnp.zeros(3))))
+            ParamState(f32[3])
+            >>> print(repr(brainstate.ParamState({'w': jnp.zeros((2, 3)), 'b': jnp.zeros(3)})))
+            ParamState{b: f32[3], w: f32[2,3]}
+            >>> print(repr(brainstate.HiddenState(jnp.zeros(2), name='v')))
+            HiddenState(f32[2], name='v')
+        """
+        header, *items = super().__pretty_repr__()
+        if header.empty_repr == '...':
+            # already-seen object reported by ``yield_unique_pretty_repr_items``
+            yield header
+            return
+        value = [it for it in items if it.key == 'value']
+        others = [it for it in items if it.key != 'value']
+        if value and not others and isinstance(value[0].value, NestedStateRepr):
+            yield PrettyType(type(self), start='{', end='}', value_sep=': ')
+            for k, v in value[0].value.state.items():
+                key = k if isinstance(k, str) and k.isidentifier() else repr(k)
+                yield PrettyAttr(key, repr(v) if isinstance(v, str) else v)
+            return
+        yield header
+        for it in value:
+            yield PrettyAttr('', it.value)
+        yield from others
+
     def __pretty_repr_item__(self, k, v):
         if k in ['_level', '_source_info', '_been_writen', '_trace_state', '_hooks_manager']:
             return None
         if k == '_value':
-            try:
-                return 'value', jax.tree.map(shaped_abstractify, v)
-            except TypeError:
-                # e.g. the invalidated-trace sentinel, or any leaf that
-                # cannot be abstractified — show it raw rather than crash
-                # while building a repr (often inside an error message)
-                return 'value', v
+            return 'value', _abstract_value(v)
 
         if k == '_name':
             if self.name is None:
@@ -2656,13 +2705,12 @@ class TreefyState(Generic[A], PrettyObject):
         def __delattr__(self, name: str) -> None: ...
 
     def __pretty_repr_item__(self, k, v):
-        if k in ['_level', '_source_info', '_been_writen']:
+        if k in ['_level', '_source_info', '_been_writen', '_hooks_manager']:
             return None
-        if k == '_value':
-            return 'value', v
-
-        if k == '_name':
-            return None if v is None else ('name', v)
+        if k == 'value':
+            return 'value', _abstract_value(v)
+        if k in ('_name', 'tag'):
+            return None if v is None else (k.lstrip('_'), v)
         return k, v
 
     @property

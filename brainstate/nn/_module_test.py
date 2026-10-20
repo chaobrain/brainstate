@@ -1325,5 +1325,72 @@ class TestModuleTrainEval(unittest.TestCase):
         _testing.assert_allclose(out, x)
 
 
+class TestModuleReprGolden(unittest.TestCase):
+    """Golden output of the compact ``Module`` repr."""
+
+    def test_sequential(self):
+        model = Sequential(brainstate.nn.Linear(3, 4), brainstate.nn.ReLU(), brainstate.nn.Linear(4, 2))
+        self.assertEqual(
+            repr(model),
+            'Sequential(\n'
+            '  (3,) -> (2,),\n'
+            '  layers=[\n'
+            '    [0] Linear((3,) -> (4,), weight=ParamState{bias: f32[4], weight: f32[3,4]}),  # 16 params\n'
+            '    [1] ReLU(),\n'
+            '    [2] Linear((4,) -> (2,), weight=ParamState{bias: f32[2], weight: f32[4,2]}),  # 10 params\n'
+            '  ],\n'
+            ')  # 26 params (104 B)'
+        )
+
+    def test_shared_submodule_and_cycle(self):
+        class M(Module):
+            def __init__(self):
+                super().__init__()
+                self.a = brainstate.nn.Linear(2, 2)
+                self.b = self.a
+                self.me = self
+
+        self.assertEqual(
+            repr(M()),
+            'M(\n'
+            '  a=Linear((2,) -> (2,), weight=ParamState{bias: f32[2], weight: f32[2,2]}),  # 6 params\n'
+            '  b=<shared: .a>,\n'
+            '  me=<cycle: .>,\n'
+            ')  # 6 params (24 B)'
+        )
+
+    def test_in_out_size_merge_requires_both(self):
+        class OnlyIn(Module):
+            def __init__(self):
+                super().__init__()
+                self.in_size = (3,)
+
+        self.assertEqual(repr(OnlyIn()), 'OnlyIn(in_size=(3,))')
+
+        class Both(Module):
+            def __init__(self):
+                super().__init__()
+                self.in_size = (3,)
+                self.out_size = (5, 2)
+
+        self.assertEqual(repr(Both()), 'Both((3,) -> (5, 2))')
+
+    def test_named_module_quotes_name(self):
+        self.assertEqual(repr(Module(name='enc')), "Module(name='enc')")
+
+    def test_max_depth_collapses_children(self):
+        model = Sequential(brainstate.nn.Linear(3, 4), brainstate.nn.ReLU())
+        with brainstate.util.repr_options(max_depth=0):
+            self.assertEqual(
+                repr(model),
+                'Sequential((3,) -> (4,), layers=[Linear(...), ReLU(...)])  # 16 params (64 B)'
+            )
+
+    def test_print_colored_but_repr_plain(self):
+        model = brainstate.nn.Linear(2, 2)
+        with brainstate.util.repr_options(color=True):
+            self.assertNotIn('\x1b[', repr(model))
+
+
 if __name__ == '__main__':
     unittest.main()

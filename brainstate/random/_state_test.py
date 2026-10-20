@@ -757,10 +757,12 @@ class TestRandomStateMisc(unittest.TestCase):
         TRACE_CONTEXT.state_stack.pop()
 
     def test_repr_contains_value(self):
-        """The repr embeds the class name and the underlying key value."""
+        """The repr embeds the class name, the key type and the raw key bits."""
         text = repr(self.rs)
-        self.assertIn('RandomState', text)
-        self.assertIn(str(self.rs.value), text)
+        self.assertIn('RandomState(key<', text)
+        bits = np.asarray(jax.random.key_data(self.rs.value)).tolist()
+        self.assertIn(f'data={bits}', text)
+        self.assertEqual(str(self.rs), text)
 
     def test_clone_is_independent(self):
         """Cloning yields a distinct instance with a distinct key."""

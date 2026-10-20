@@ -400,6 +400,14 @@ class TestMapVmapWrapper(unittest.TestCase):
         self.assertNotIn('dict_vmap_states', text)
         self.assertNotIn('_call_state_axes', text)
 
+    def test_pretty_repr_item_drops_none_and_strips_underscore(self):
+        """Map's item hook builds on Module's: None hidden, ``_x`` shown as ``x``."""
+        m = Map(_ParamModule(), init_map_size=4)
+        self.assertIsNone(m.__pretty_repr_item__('spmd_axis_name', None))
+        self.assertEqual(m.__pretty_repr_item__('_in_size', (3,)), ('in_size', (3,)))
+        self.assertIsNone(m.__pretty_repr_item__('_init', True))
+        self.assertNotIn('=None', repr(m))
+
     def test_init_all_states_invalid_behavior_defensive(self):
         """A corrupted behavior triggers the defensive guard in init_all_states."""
         m = Map(_ParamModule(), init_map_size=2)

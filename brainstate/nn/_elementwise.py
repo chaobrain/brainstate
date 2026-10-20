@@ -96,8 +96,6 @@ class Threshold(ElementWiseBlock):
                         jnp.asarray(value, dtype=dtype))
         return u.maybe_decimal(out * unit)
 
-    def __repr__(self):
-        return f'{self.__class__.__name__}(threshold={self.threshold}, value={self.value})'
 
 
 class ReLU(ElementWiseBlock):
@@ -139,8 +137,6 @@ class ReLU(ElementWiseBlock):
     def __call__(self, x: ArrayLike) -> ArrayLike:
         return F.relu(x)
 
-    def __repr__(self):
-        return f'{self.__class__.__name__}()'
 
 
 class RReLU(ElementWiseBlock):
@@ -664,8 +660,6 @@ class GLU(ElementWiseBlock):
     def __call__(self, x: ArrayLike) -> ArrayLike:
         return F.glu(x, self.dim)
 
-    def __repr__(self):
-        return f'{self.__class__.__name__}(dim={self.dim})'
 
 
 class GELU(ElementWiseBlock):
@@ -710,8 +704,6 @@ class GELU(ElementWiseBlock):
     def __call__(self, x: ArrayLike) -> ArrayLike:
         return F.gelu(x, approximate=self.approximate)
 
-    def __repr__(self):
-        return f'{self.__class__.__name__}(approximate={self.approximate})'
 
 
 class Hardshrink(ElementWiseBlock):
@@ -757,8 +749,6 @@ class Hardshrink(ElementWiseBlock):
     def __call__(self, x: ArrayLike) -> ArrayLike:
         return F.hard_shrink(x, self.lambd)
 
-    def __repr__(self):
-        return f'{self.__class__.__name__}(lambd={self.lambd})'
 
 
 class LeakyReLU(ElementWiseBlock):
@@ -808,8 +798,6 @@ class LeakyReLU(ElementWiseBlock):
     def __call__(self, x: ArrayLike) -> ArrayLike:
         return F.leaky_relu(x, self.negative_slope)
 
-    def __repr__(self):
-        return f'{self.__class__.__name__}(negative_slope={self.negative_slope})'
 
 
 class LogSigmoid(ElementWiseBlock):
@@ -914,8 +902,6 @@ class Softshrink(ElementWiseBlock):
     def __call__(self, x: ArrayLike) -> ArrayLike:
         return F.soft_shrink(x, self.lambd)
 
-    def __repr__(self):
-        return f'{self.__class__.__name__}(lambd={self.lambd})'
 
 
 class PReLU(ElementWiseBlock):
@@ -987,8 +973,6 @@ class PReLU(ElementWiseBlock):
     def __call__(self, x: ArrayLike) -> ArrayLike:
         return F.prelu(x, self.weight.value)
 
-    def __repr__(self):
-        return f'{self.__class__.__name__}(num_parameters={self.num_parameters})'
 
 
 class Softsign(ElementWiseBlock):
@@ -1093,8 +1077,6 @@ class Softmin(ElementWiseBlock):
     def __call__(self, x: ArrayLike) -> ArrayLike:
         return F.softmin(x, -1 if self.dim is None else self.dim)
 
-    def __repr__(self):
-        return f'{self.__class__.__name__}(dim={self.dim})'
 
 
 class Softmax(ElementWiseBlock):
@@ -1154,8 +1136,6 @@ class Softmax(ElementWiseBlock):
     def __call__(self, x: ArrayLike) -> ArrayLike:
         return F.softmax(x, -1 if self.dim is None else self.dim)
 
-    def __repr__(self):
-        return f'{self.__class__.__name__}(dim={self.dim})'
 
 
 class Softmax2d(ElementWiseBlock):
@@ -1237,8 +1217,6 @@ class LogSoftmax(ElementWiseBlock):
     def __call__(self, x: ArrayLike) -> ArrayLike:
         return F.log_softmax(x, -1 if self.dim is None else self.dim)
 
-    def __repr__(self):
-        return f'{self.__class__.__name__}(dim={self.dim})'
 
 
 class Identity(ElementWiseBlock):

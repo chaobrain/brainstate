@@ -503,7 +503,7 @@ class Map(Module):
             '_call_state_axes'
         ]:
             return None
-        return name, value
+        return super().__pretty_repr_item__(name, value)
 
     def _integrate_state_axes(self, call_state_axes):
         if call_state_axes is None:

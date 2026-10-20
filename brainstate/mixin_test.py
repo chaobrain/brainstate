@@ -499,6 +499,20 @@ class TestBatching(unittest.TestCase):
         self.assertIn("64", repr(batching))
         self.assertIn("0", repr(batching))
 
+    def test_batching_repr_uses_constructor_names(self):
+        """The repr labels fields with the constructor argument names."""
+        batching = brainstate.mixin.Batching(batch_size=64, batch_axis=1)
+        self.assertEqual(repr(batching), 'Batching(batch_size=64, batch_axis=1)')
+
+    def test_mode_reprs_render_with_engine(self):
+        """Modes render through the pretty engine, nested modes included."""
+        joint = brainstate.mixin.JointMode(
+            brainstate.mixin.Training(), brainstate.mixin.Batching(batch_size=8)
+        )
+        self.assertEqual(repr(brainstate.mixin.Training()), 'Training')
+        self.assertEqual(repr(joint), 'JointMode(Training, Batching(batch_size=8, batch_axis=0))')
+        self.assertEqual(str(joint), repr(joint))
+
     def test_batching_is_mode(self):
         """Test Batching is a Mode."""
         batching = brainstate.mixin.Batching()

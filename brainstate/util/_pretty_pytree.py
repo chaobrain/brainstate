@@ -41,7 +41,7 @@ Examples
     >>> state = NestedDict({'layer1': {'weight': 1, 'bias': 2}})
     >>> flat = state.to_flat()
     >>> print(flat)
-    FlattedDict({('layer1', 'weight'): 1, ('layer1', 'bias'): 2})
+    {('layer1', 'weight'): 1, ('layer1', 'bias'): 2}
 """
 
 from collections import abc
@@ -91,7 +91,8 @@ class PrettyObject(PrettyRepr):
         ...     def __init__(self, value):
         ...         self.value = value
         >>> tree = MyTree(42)
-        >>> print(tree)  # Uses __pretty_repr__ for display
+        >>> print(tree)
+        MyTree(value=42)
     """
 
     def __pretty_repr__(self) -> Generator[Union[PrettyType, PrettyAttr], None, None]:
@@ -136,6 +137,12 @@ class PrettyObject(PrettyRepr):
 
 
 PrettyReprTree = PrettyObject
+
+
+def _quote_str(v: Any) -> Any:
+    # ``PrettyAttr`` inserts ``str`` values verbatim; quote string *data* so it
+    # is distinguishable from identifiers (``name='w'`` rather than ``name=w``).
+    return repr(v) if isinstance(v, str) else v
 
 
 # The empty node is a struct.dataclass to be compatible with JAX.
@@ -189,15 +196,15 @@ def flat_mapping(
         >>> xs = {'foo': 1, 'bar': {'a': 2, 'b': {}}}
         >>> flat_xs = flat_mapping(xs)
         >>> flat_xs
-        FlattedDict({('foo',): 1, ('bar', 'a'): 2})
+        {('foo',): 1, ('bar', 'a'): 2}
 
         >>> # With separator
         >>> flat_mapping(xs, sep='/')
-        FlattedDict({'foo': 1, 'bar/a': 2})
+        {'foo': 1, 'bar/a': 2}
 
         >>> # Keep empty nodes
         >>> flat_mapping(xs, keep_empty_nodes=True)
-        FlattedDict({('foo',): 1, ('bar', 'a'): 2, ('bar', 'b'): _EmptyNode()})
+        {('foo',): 1, ('bar', 'a'): 2, ('bar', 'b'): _EmptyNode()}
 
     Notes
     -----
@@ -267,12 +274,12 @@ def nest_mapping(
         ... }
         >>> xs = nest_mapping(flat_xs)
         >>> xs
-        NestedDict({'foo': 1, 'bar': {'a': 2}})
+        {'foo': 1, 'bar': {'a': 2}}
 
         >>> # With separator
         >>> flat_xs_str = {'foo': 1, 'bar/a': 2}
         >>> nest_mapping(flat_xs_str, sep='/')
-        NestedDict({'foo': 1, 'bar': {'a': 2}})
+        {'foo': 1, 'bar': {'a': 2}}
 
     See Also
     --------
@@ -421,6 +428,8 @@ class PrettyDict(dict, PrettyRepr):
             A formatted string representation using pretty printing.
         """
         return pretty_repr_object(self)
+
+    __repr__._uses_pretty_repr = True
 
     def __pretty_repr__(self) -> Generator[Union[PrettyType, PrettyAttr], None, None]:
         """Generate pretty representation items for this dictionary.
@@ -606,7 +615,7 @@ def _default_repr_attr(node: PrettyDict) -> Generator[PrettyAttr, None, None]:
         if isinstance(v, PrettyDict):
             v = NestedStateRepr(v)
 
-        yield PrettyAttr(repr(k), v)
+        yield PrettyAttr(repr(k), _quote_str(v))
 
 
 class NestedDict(PrettyDict):
@@ -634,13 +643,284 @@ class NestedDict(PrettyDict):
         ... })
         >>> flat = state.to_flat()
         >>> print(flat)
-        FlattedDict({('layer1', 'weight'): ..., ('layer1', 'bias'): ..., ...})
+        {
+          ('layer1', 'weight'): f32[3,3],
+          ('layer1', 'bias'): f32[3],
+          ('layer2', 'weight'): f32[3,1],
+        }
 
     See Also
     --------
     FlattedDict : The flattened counterpart with tuple keys.
     flat_mapping : Function to flatten a nested mapping.
     nest_mapping : Function to unflatten a flat mapping.
+    """
+    __module__ = 'brainstate.util'
+
+    def __or__(self, other: 'NestedDict') -> 'NestedDict':
+        if not other:
+            return self
+        if not isinstance(other, NestedDict):
+            raise TypeError(f'expected NestedDict; got {type(other).__qualname__}')
+        return NestedDict.merge(self, other)
+
+    def __sub__(self, other: 'NestedDict') -> 'NestedDict':
+        if not other:
+            return self
+
+        if not isinstance(other, NestedDict):
+            raise TypeError(f'expected NestedDict; got {type(other).__qualname__}')
+        self_flat = self.to_flat()
+        other_flat = other.to_flat()
+        diff = {k: v for k, v in self_flat.items() if k not in other_flat}
+        return NestedDict.from_flat(diff)
+
+    def to_flat(self) -> 'FlattedDict':
+        """
+        Flatten the nested mapping into a flat mapping.
+
+        Returns
+        -------
+        The flattened mapping.
+        """
+        return flat_mapping(self)
+
+    @classmethod
+    def from_flat(cls, flat_dict: abc.Mapping[PathParts, V] | Iterable[tuple[PathParts, V]]) -> 'NestedDict':
+        """
+        Create a :class:`NestedDict` from a flat mapping.
+
+        Parameters
+        ----------
+        flat_dict
+            The flat mapping.
+
+        Returns
+        -------
+        The :class:`NestedDict`.
+        """
+        nested_state = nest_mapping(dict(flat_dict))
+        return cls(nested_state)
+
+    def split(self, *filters: Filter) -> Union['NestedDict', Tuple['NestedDict', ...]]:
+        """
+        Split a :class:`NestedDict` into one or more :class:`NestedDict`'s. The
+        user must pass at least one `:class:`Filter` (i.e. :class:`State`),
+        and the filters must be exhaustive (i.e. they must cover all
+        :class:`State` types in the :class:`NestedDict`).
+
+        Example usage::
+
+          >>> import brainstate as brainstate
+
+          >>> class Model(brainstate.nn.Module):
+          ...   def __init__(self):
+          ...     super().__init__()
+          ...     self.batchnorm = brainstate.nn.BatchNorm1d([10, 3])
+          ...     self.linear = brainstate.nn.Linear(2, 3)
+          ...   def __call__(self, x):
+          ...     return self.linear(self.batchnorm(x))
+
+          >>> model = Model()
+          >>> state_map = brainstate.graph.treefy_states(model)
+          >>> param, others = state_map.treefy_split(brainstate.ParamState, ...)
+
+        Parameters
+        ----------
+        first
+            The first filter
+        *filters
+            The optional, additional filters to group the state into mutually exclusive substates.
+
+        Returns
+        -------
+        One or more ``States`` equal to the number of filters passed.
+        """
+        *states_, rest = _split_nested_mapping(self, *filters)
+        if rest:
+            raise ValueError(f'Non-exhaustive filters, got a non-empty remainder: {rest}.\n'
+                             f'Use `...` to match all remaining elements.')
+
+        states: NestedDict | Tuple[NestedDict, ...]
+        if len(states_) == 1:
+            states = states_[0]
+        else:
+            states = tuple(states_)
+        return states  # type: ignore[bad-return-type]
+
+    def filter(self, *filters: Filter) -> Union['NestedDict', Tuple['NestedDict', ...]]:
+        """
+        Filter a :class:`NestedDict` into one or more :class:`NestedDict`'s. The
+        user must pass at least one `:class:`Filter` (i.e. :class:`State`).
+        This method is similar to :meth:`split() <flax.nnx.NestedDict.state.split>`,
+        except the filters can be non-exhaustive.
+
+        Parameters
+        ----------
+        first
+            The first filter
+        *filters
+            The optional, additional filters to group the state into mutually exclusive substates.
+
+        Returns
+        -------
+        One or more ``States`` equal to the number of filters passed.
+        """
+        states_ = _split_nested_mapping(self, *filters)
+        assert len(states_) == len(filters) + 1, f'Expected {len(filters) + 1} states, got {len(states_)}'
+        if len(filters) == 1:
+            return states_[0]
+        else:
+            return tuple(states_[:-1])
+
+    @staticmethod
+    def merge(*states) -> 'NestedDict':
+        """
+        The inverse of :meth:`split()`.
+
+        ``merge`` takes one or more :class:`PrettyDict`'s and creates a new :class:`PrettyDict`.
+
+        Parameters
+        ----------
+        *states
+            Additional :class:`PrettyDict` objects.
+
+        Returns
+        -------
+        The merged :class:`PrettyDict`.
+        """
+        new_state: FlattedDict = FlattedDict()
+        for state in states:
+            if isinstance(state, NestedDict):
+                new_state.update(state.to_flat())  # type: ignore[attribute-error] # pytype is wrong here
+            elif isinstance(state, FlattedDict):
+                new_state.update(state)
+            else:
+                raise TypeError(f'Expected Nested or Flatted Mapping, got {type(state)} instead.')
+        return NestedDict.from_flat(new_state)
+
+    def to_pure_dict(self) -> Dict[str, Any]:
+        """Convert to a pure nested dictionary structure.
+
+        This method creates a standard Python dictionary with the same nested structure
+        as this NestedDict, without any special class wrappers.
+
+        Returns
+        -------
+        Dict[str, Any]
+            A pure nested dictionary representation.
+
+        Examples
+        --------
+            >>> nested = NestedDict({'a': {'b': 1, 'c': 2}})
+            >>> pure = nested.to_pure_dict()
+            >>> type(pure)
+            <class 'dict'>
+        """
+        # ``keep_empty_nodes=True`` so that empty nested mappings (e.g. ``{'a': {}}``)
+        # survive the flatten/nest round-trip; the default would silently drop them,
+        # contradicting this method's "same nested structure" contract. ``nest_mapping``
+        # restores the empty-node sentinel back to an empty ``dict``.
+        flat_values = flat_mapping(self, keep_empty_nodes=True)
+        return nest_mapping(flat_values).to_dict()
+
+    def replace_by_pure_dict(
+        self,
+        pure_dict: Dict[str, Any],
+        replace_fn: Optional[SetValueFn] = None
+    ) -> None:
+        """Replace values in this NestedDict using a pure dictionary.
+
+        This method updates the values in this NestedDict with values from a standard
+        Python dictionary. For :class:`State` objects with a ``replace`` method, the
+        replace method is called; otherwise, values are directly assigned.
+
+        Parameters
+        ----------
+        pure_dict
+            A pure dictionary with matching structure containing new values.
+        replace_fn
+            Optional custom function to replace values. Takes ``(old_value, new_value)``
+            and returns the updated value. Defaults to calling ``replace()`` method if
+            available, otherwise direct assignment.
+
+        Raises
+        ------
+        ValueError
+            If a key in ``pure_dict`` is not found in this NestedDict.
+
+        Examples
+        --------
+            >>> from brainstate._state import State
+            >>> nested = NestedDict({'a': State(1), 'b': 2})
+            >>> nested.replace_by_pure_dict({'a': 10, 'b': 20})
+            >>> nested['a'].value
+            10
+        """
+        if replace_fn is None:
+            replace_fn = lambda x, v: x.replace(v) if hasattr(x, 'replace') else v
+        current_flat = self.to_flat()
+        for kp, v in flat_mapping(pure_dict).items():
+            if kp not in current_flat:
+                raise ValueError(f'key in pure_dict not available in state: {kp}')
+            current_flat[kp] = replace_fn(current_flat[kp], v)
+        self.update(nest_mapping(current_flat))
+
+
+class FlattedDict(PrettyDict):
+    """
+    A pytree-like structure that contains a :class:`Mapping` from strings or integers to leaves.
+
+    A valid leaf type is either :class:`State`, ``jax.Array``, ``numpy.ndarray`` or Python variables.
+
+    A :class:`NestedDict` can be generated by either calling :func:`states()` or
+    :func:`nodes()` on the :class:`Module`.
+
+    Example usage::
+
+      >>> import brainstate as brainstate
+      >>> import jax.numpy as jnp
+      >>>
+      >>> class Model(brainstate.nn.Module):
+      ...   def __init__(self):
+      ...     super().__init__()
+      ...     self.batchnorm = brainstate.nn.BatchNorm1d([10, 3])
+      ...     self.linear = brainstate.nn.Linear(2, 3)
+      ...   def __call__(self, x):
+      ...     return self.linear(self.batchnorm(x))
+      >>>
+      >>> model = Model()
+
+      >>> # retrieve the states of the model
+      >>> model.states()  # with the same to the function of ``brainstate.graph.states()``
+      {
+        ('batchnorm', 'running_mean'): BatchState(f32[1,3]),
+        ('batchnorm', 'running_var'): BatchState(f32[1,3]),
+        ('batchnorm', 'weight'): NormalizationParamState{bias: f32[1,3], scale: f32[1,3]},
+        ('linear', 'weight'): ParamState{bias: f32[3], weight: f32[2,3]},
+      }
+
+      >>> # retrieve the nodes of the model
+      >>> model.nodes()  # with the same to the function of ``brainstate.graph.nodes()``
+      {
+        ('batchnorm',): BatchNorm1d(
+          (10, 3) -> (10, 3),
+          affine=True,
+          bias_initializer=Constant(value=0.0),
+          scale_initializer=Constant(value=1.0),
+          dtype=float32,
+          track_running_stats=True,
+          momentum=f32(0.99),
+          epsilon=f32(1e-05),
+          use_fast_variance=True,
+          feature_axes=(1,),
+          running_mean=BatchState(f32[1,3]),
+          running_var=BatchState(f32[1,3]),
+          weight=NormalizationParamState{bias: f32[1,3], scale: f32[1,3]},
+        ),  # 6 params
+        ('linear',): Linear((2,) -> (3,), weight=ParamState{bias: f32[3], weight: f32[2,3]}),  # 9 params
+        (): Model(batchnorm=<shared: [('batchnorm',)]>, linear=<shared: [('linear',)]>),  # 15 params
+      }
     """
     __module__ = 'brainstate.util'
 
@@ -1385,6 +1665,8 @@ class PrettyList(list, PrettyRepr):
         """
         return pretty_repr_object(self)
 
+    __repr__._uses_pretty_repr = True
+
     def tree_flatten(self) -> Tuple[list, Tuple]:
         """Flatten the list for JAX pytree operations.
 
@@ -1438,7 +1720,7 @@ def _list_repr_attr(node: PrettyList) -> Generator[PrettyAttr, None, None]:
             v = PrettyDict(v)
         if isinstance(v, PrettyDict):
             v = NestedStateRepr(v)
-        yield PrettyAttr('', v)
+        yield PrettyAttr('', _quote_str(v))
 
 
 def _list_repr_object(node: PrettyList) -> Generator[PrettyType, None, None]:
@@ -1523,4 +1805,4 @@ def _repr_attribute_general(node: Any) -> Generator[PrettyAttr, None, None]:
         if isinstance(v, PrettyDict):
             v = NestedStateRepr(v)
 
-        yield PrettyAttr(k, v)
+        yield PrettyAttr(k, _quote_str(v))

@@ -49,6 +49,15 @@ from ._pretty_repr import (
     PrettyRepr,
     PrettyMapping,
     MappingReprMixin,
+    pretty_repr_object,
+    pretty_format,
+    ReprOptions,
+    ReprSummary,
+    get_repr_options,
+    set_repr_options,
+    repr_options,
+    format_array_like,
+    format_bytes,
 )
 # Import tracer utilities
 from ._tracers import (
@@ -98,6 +107,15 @@ __all__ = [
     'PrettyAttr',
     'PrettyRepr',
     'PrettyMapping',
+    'pretty_repr_object',
+    'pretty_format',
+    'ReprOptions',
+    'ReprSummary',
+    'get_repr_options',
+    'set_repr_options',
+    'repr_options',
+    'format_array_like',
+    'format_bytes',
     'MappingReprMixin',
 
     # Other utilities

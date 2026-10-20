@@ -28,6 +28,8 @@ from typing import Any, Hashable, Sequence, Optional, TypeVar, Union, _GenericAl
 
 import jax
 
+from brainstate.util import PrettyAttr, PrettyRepr, PrettyType, pretty_format
+
 __all__ = [
     'Mixin',
     'ParamDesc',
@@ -396,8 +398,8 @@ class ParamDescriber(metaclass=NoSubclassMeta):
         str
             A string showing the class and stored parameters.
         """
-        args_str = ', '.join(repr(a) for a in self.args)
-        kwargs_str = ', '.join(f'{k}={v!r}' for k, v in self.kwargs.items())
+        args_str = ', '.join(pretty_format(a) for a in self.args)
+        kwargs_str = ', '.join(f'{k}={pretty_format(v)}' for k, v in self.kwargs.items())
         all_params = ', '.join(filter(None, [args_str, kwargs_str]))
         return f'ParamDescriber({self.cls.__name__}({all_params}))'
 
@@ -917,7 +919,7 @@ def __getattr__(name):
     )
 
 
-class Mode(Mixin):
+class Mode(Mixin, PrettyRepr):
     """
     Base class for computation behavior modes.
 
@@ -985,16 +987,16 @@ class Mode(Mixin):
         ...         return x  # No noise during evaluation
     """
 
-    def __repr__(self):
+    def __pretty_repr__(self):
         """
-        String representation of the mode.
+        Yield the pretty representation of the mode: its bare class name.
 
-        Returns
-        -------
-        str
-            The class name of the mode.
+        Yields
+        ------
+        PrettyType
+            The type header, without parentheses.
         """
-        return self.__class__.__name__
+        yield PrettyType(type(self), start='', end='')
 
     def _eq_key(self) -> Hashable:
         """
@@ -1148,7 +1150,7 @@ class JointMode(Mode):
         >>>
         >>> # Combine them
         >>> joint = brainstate.mixin.JointMode(training, batching)
-        >>> print(joint)  # JointMode(Training, Batching(in_size=32, axis=0))
+        >>> print(joint)  # JointMode(Training, Batching(batch_size=32, batch_axis=0))
         >>>
         >>> # Check if specific modes are present
         >>> assert joint.has(brainstate.mixin.Training)
@@ -1201,16 +1203,18 @@ class JointMode(Mode):
     def _eq_key(self) -> Hashable:
         return frozenset(self.modes)
 
-    def __repr__(self):
+    def __pretty_repr__(self):
         """
-        String representation showing all combined modes.
+        Yield the pretty representation showing all combined modes.
 
-        Returns
-        -------
-        str
-            A string showing the joint mode and its components.
+        Yields
+        ------
+        PrettyType or PrettyAttr
+            The type header followed by one positional item per mode.
         """
-        return f'{self.__class__.__name__}({", ".join([repr(m) for m in self.modes])})'
+        yield PrettyType(type(self))
+        for mode in self.modes:
+            yield PrettyAttr('', mode)
 
     def has(self, mode: type):
         """
@@ -1346,7 +1350,7 @@ class Batching(Mode):
         >>>
         >>> # Create a batching mode
         >>> batching = brainstate.mixin.Batching(batch_size=32, batch_axis=0)
-        >>> print(batching)  # Batching(in_size=32, axis=0)
+        >>> print(batching)  # Batching(batch_size=32, batch_axis=0)
         >>>
         >>> # Access batch parameters
         >>> print(f"Processing {batching.batch_size} samples at once")
@@ -1408,16 +1412,18 @@ class Batching(Mode):
     def _eq_key(self) -> Hashable:
         return (self.batch_size, self.batch_axis)
 
-    def __repr__(self):
+    def __pretty_repr__(self):
         """
-        String representation showing batch configuration.
+        Yield the pretty representation showing the batch configuration.
 
-        Returns
-        -------
-        str
-            A string showing the batch size and axis.
+        Yields
+        ------
+        PrettyType or PrettyAttr
+            The type header followed by ``batch_size`` and ``batch_axis``.
         """
-        return f'{self.__class__.__name__}(in_size={self.batch_size}, axis={self.batch_axis})'
+        yield PrettyType(type(self))
+        yield PrettyAttr('batch_size', self.batch_size)
+        yield PrettyAttr('batch_axis', self.batch_axis)
 
 
 class Training(Mode):

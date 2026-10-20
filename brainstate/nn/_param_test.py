@@ -1904,6 +1904,11 @@ class TestParamPrettyRepr(unittest.TestCase):
         param = Param(jnp.array([1.0]))
         self.assertEqual(param.__pretty_repr_item__('fit', True), ('fit', True))
 
+    def test_public_none_field_dropped(self):
+        """A public field with a None value is dropped, as for any Node."""
+        param = Param(jnp.array([1.0]))
+        self.assertIsNone(param.__pretty_repr_item__('reg', None))
+
     def test_private_none_field_dropped(self):
         """A leading-underscore field with a None value is dropped."""
         param = Param(jnp.array([1.0]))

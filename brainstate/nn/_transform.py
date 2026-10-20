@@ -15,13 +15,15 @@
 
 
 from abc import ABC, abstractmethod
-from typing import Sequence
+from typing import Any, Sequence, Tuple
 
 import brainunit as u
 import jax
 import jax.numpy as jnp
 from brainstate.typing import ArrayLike
 from jax import Array
+
+from brainstate.util import PrettyAttr, PrettyRepr, PrettyType
 
 __all__ = [
     'Transform',
@@ -86,7 +88,7 @@ def save_exp(x, max_value: float = 20.0):
     return u.math.exp(x)
 
 
-class Transform(ABC):
+class Transform(PrettyRepr, ABC):
     r"""
     Abstract base class for bijective parameter transformations.
 
@@ -126,9 +128,24 @@ class Transform(ABC):
     """
     __module__ = 'brainstate.nn'
 
-    def __repr__(self) -> str:
-        """Return a string representation of the transform."""
-        return f"{self.__class__.__name__}()"
+    def __pretty_repr__(self):
+        """Yield the pretty representation: the type and :meth:`_repr_items`."""
+        yield PrettyType(type(self))
+        for key, value in self._repr_items():
+            yield PrettyAttr(key, repr(value) if isinstance(value, str) else value)
+
+    def _repr_items(self) -> Sequence[Tuple[str, Any]]:
+        """Return the ``(name, value)`` pairs shown in the ``repr``.
+
+        Subclasses override this to report their constructor arguments; an
+        empty name renders the value positionally.
+
+        Returns
+        -------
+        sequence of tuple of (str, Any)
+            The items to display, in order.
+        """
+        return ()
 
     def __call__(self, x: ArrayLike) -> Array:
         r"""
@@ -250,8 +267,6 @@ class IdentityT(Transform):
     """Identity transformation (no-op)."""
     __module__ = 'brainstate.nn'
 
-    def __repr__(self):
-        return "IdentityT()"
 
     def forward(self, x: ArrayLike) -> Array:
         return x
@@ -344,8 +359,8 @@ class SigmoidT(Transform):
         self.width = upper - lower
         self.unit = u.get_unit(lower)
 
-    def __repr__(self) -> str:
-        return f"SigmoidT(lower={self.lower}, upper={self.lower + self.width})"
+    def _repr_items(self):
+        return [('lower', self.lower), ('upper', self.lower + self.width)]
 
     def forward(self, x: ArrayLike) -> Array:
         r"""
@@ -481,8 +496,8 @@ class SoftplusT(Transform):
         self.lower = lower
         self.unit = u.get_unit(lower)
 
-    def __repr__(self) -> str:
-        return f"SoftplusT(lower={self.lower})"
+    def _repr_items(self):
+        return [('lower', self.lower)]
 
     def forward(self, x: ArrayLike) -> Array:
         """
@@ -615,8 +630,8 @@ class NegSoftplusT(SoftplusT):
         """
         super().__init__(upper)
 
-    def __repr__(self) -> str:
-        return f"NegSoftplusT(upper={self.lower})"
+    def _repr_items(self):
+        return [('upper', self.lower)]
 
     def forward(self, x: ArrayLike) -> Array:
         """
@@ -698,8 +713,8 @@ class LogT(Transform):
         self.lower = lower
         self.unit = u.get_unit(lower)
 
-    def __repr__(self) -> str:
-        return f"LogT(lower={self.lower})"
+    def _repr_items(self):
+        return [('lower', self.lower)]
 
     def forward(self, x: ArrayLike) -> Array:
         return self.lower + save_exp(x) * self.unit
@@ -735,8 +750,8 @@ class ExpT(Transform):
         self.lower = lower
         self.unit = u.get_unit(lower)
 
-    def __repr__(self) -> str:
-        return f"ExpT(lower={self.lower})"
+    def _repr_items(self):
+        return [('lower', self.lower)]
 
     def forward(self, x: ArrayLike) -> Array:
         return self.lower + save_exp(x) * self.unit
@@ -764,8 +779,8 @@ class TanhT(Transform):
         self.width = upper - lower
         self.unit = u.get_unit(lower)
 
-    def __repr__(self) -> str:
-        return f"TanhT(lower={self.lower}, upper={self.lower + self.width})"
+    def _repr_items(self):
+        return [('lower', self.lower), ('upper', self.lower + self.width)]
 
     def forward(self, x: ArrayLike) -> Array:
         return self.lower + self.width * (jnp.tanh(x) + 1.0) / 2.0
@@ -790,8 +805,8 @@ class SoftsignT(Transform):
         self.width = upper - lower
         self.unit = u.get_unit(lower)
 
-    def __repr__(self) -> str:
-        return f"SoftsignT(lower={self.lower}, upper={self.lower + self.width})"
+    def _repr_items(self):
+        return [('lower', self.lower), ('upper', self.lower + self.width)]
 
     def forward(self, x: ArrayLike) -> Array:
         return self.lower + self.width * (x / (1.0 + u.math.abs(x)) + 1.0) / 2.0
@@ -863,8 +878,8 @@ class ClipT(Transform):
         self.lower = lower
         self.upper = upper
 
-    def __repr__(self) -> str:
-        return f"ClipT(lower={self.lower}, upper={self.upper})"
+    def _repr_items(self):
+        return [('lower', self.lower), ('upper', self.upper)]
 
     def forward(self, x: ArrayLike) -> Array:
         """
@@ -997,8 +1012,8 @@ class AffineT(Transform):
         self.a = scale
         self.b = shift
 
-    def __repr__(self) -> str:
-        return f"AffineT(scale={self.a}, shift={self.b})"
+    def _repr_items(self):
+        return [('scale', self.a), ('shift', self.b)]
 
     def forward(self, x: ArrayLike) -> Array:
         """
@@ -1128,9 +1143,8 @@ class ChainT(Transform):
         super().__init__()
         self.transforms: Sequence[Transform] = transforms
 
-    def __repr__(self) -> str:
-        transforms_str = ", ".join(repr(t) for t in self.transforms)
-        return f"ChainT({transforms_str})"
+    def _repr_items(self):
+        return [('', t) for t in self.transforms]
 
     def forward(self, x: ArrayLike) -> Array:
         """
@@ -1286,8 +1300,8 @@ class MaskedT(Transform):
         self.transform = transform
         self.safe_value = safe_value
 
-    def __repr__(self) -> str:
-        return f"MaskedT(mask=..., transform={repr(self.transform)})"
+    def _repr_items(self):
+        return [('mask', self.mask), ('transform', self.transform)]
 
     def forward(self, x: ArrayLike) -> Array:
         """
@@ -1356,6 +1370,9 @@ class ReluT(Transform):
     def __init__(self, lower_bound: float = 0.0):
         self.lower_bound = lower_bound
 
+    def _repr_items(self):
+        return [('lower_bound', self.lower_bound)]
+
     def forward(self, x: ArrayLike) -> Array:
         return u.math.relu(x) + self.lower_bound
 
@@ -1404,8 +1421,6 @@ class PositiveT(Transform):
         """Initialize the positive transformation."""
         super().__init__()
 
-    def __repr__(self) -> str:
-        return "PositiveT()"
 
     def forward(self, x: ArrayLike) -> Array:
         """Transform unbounded input to positive values."""
@@ -1450,8 +1465,6 @@ class NegativeT(Transform):
         """Initialize the negative transformation."""
         super().__init__()
 
-    def __repr__(self) -> str:
-        return "NegativeT()"
 
     def forward(self, x: ArrayLike) -> Array:
         """Transform unbounded input to negative values."""
@@ -1529,8 +1542,8 @@ class ScaledSigmoidT(Transform):
         self.beta = beta
         self.unit = u.get_unit(lower)
 
-    def __repr__(self) -> str:
-        return f"ScaledSigmoidT(lower={self.lower}, upper={self.lower + self.width}, beta={self.beta})"
+    def _repr_items(self):
+        return [('lower', self.lower), ('upper', self.lower + self.width), ('beta', self.beta)]
 
     def forward(self, x: ArrayLike) -> Array:
         """Transform unbounded input to bounded interval."""
@@ -1601,8 +1614,8 @@ class PowerT(Transform):
         super().__init__()
         self.lmbda = lmbda
 
-    def __repr__(self) -> str:
-        return f"PowerT(lmbda={self.lmbda})"
+    def _repr_items(self):
+        return [('lmbda', self.lmbda)]
 
     def forward(self, x: ArrayLike) -> Array:
         """Apply the power transformation."""
@@ -1647,8 +1660,6 @@ class OrderedT(Transform):
         """Initialize the ordered transformation."""
         super().__init__()
 
-    def __repr__(self) -> str:
-        return "OrderedT()"
 
     def forward(self, x: ArrayLike) -> Array:
         """Transform unconstrained input to ordered vectors."""
@@ -1701,8 +1712,6 @@ class SimplexT(Transform):
         """Initialize the simplex transformation."""
         super().__init__()
 
-    def __repr__(self) -> str:
-        return "SimplexT()"
 
     def forward(self, x: ArrayLike) -> Array:
         """Transform unconstrained input to simplex."""
@@ -1778,8 +1787,6 @@ class UnitVectorT(Transform):
         """Initialize the unit vector transformation."""
         super().__init__()
 
-    def __repr__(self) -> str:
-        return "UnitVectorT()"
 
     def forward(self, x: ArrayLike) -> Array:
         """Project input onto unit sphere."""

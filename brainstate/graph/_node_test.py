@@ -16,6 +16,7 @@
 import copy
 import unittest
 
+import brainunit as u
 import jax.numpy as jnp
 
 import brainstate
@@ -731,6 +732,76 @@ class TestCheckValidContext(unittest.TestCase):
                 self.p = brainstate.ParamState(jnp.zeros(1))
 
         self.assertIsNone(Outer().check_valid_context(lambda: 'ok'))
+
+
+class TestNodeReprSummary(unittest.TestCase):
+    """``__pretty_repr_summary__`` and the summary footer of ``Node`` reprs."""
+
+    def test_counts_params_and_other_states(self):
+        class Net(brainstate.graph.Node):
+            def __init__(self):
+                self.w = brainstate.ParamState(jnp.zeros((2, 3)))
+                self.b = brainstate.ParamState({'x': jnp.zeros(4, dtype=jnp.float16)})
+                self.h = brainstate.HiddenState(jnp.zeros(5, dtype=jnp.int32))
+
+        s = Net().__pretty_repr_summary__()
+        self.assertEqual((s.n_params, s.param_bytes), (10, 6 * 4 + 4 * 2))
+        self.assertEqual((s.n_state_values, s.state_bytes), (5, 20))
+
+    def test_shared_state_counted_once(self):
+        class Net(brainstate.graph.Node):
+            def __init__(self):
+                self.a = brainstate.ParamState(jnp.zeros(3))
+                self.b = self.a
+
+        self.assertEqual(Net().__pretty_repr_summary__().n_params, 3)
+
+    def test_quantity_and_non_array_leaves(self):
+        class Net(brainstate.graph.Node):
+            def __init__(self):
+                self.v = brainstate.HiddenState(jnp.zeros(4) * u.mV)
+                self.c = brainstate.ShortTermState(None)
+
+        s = Net().__pretty_repr_summary__()
+        self.assertEqual((s.n_state_values, s.state_bytes), (4, 16))
+
+    def test_summary_does_not_trigger_read_hooks(self):
+        class Net(brainstate.graph.Node):
+            def __init__(self):
+                self.w = brainstate.ParamState(jnp.zeros(3))
+
+        net = Net()
+        reads = []
+        net.w.register_hook('read', lambda ctx: reads.append(ctx))
+        repr(net)
+        self.assertEqual(reads, [])
+
+    def test_footer_in_repr(self):
+        class Net(brainstate.graph.Node):
+            def __init__(self):
+                self.w = brainstate.ParamState(jnp.zeros(3))
+
+        self.assertEqual(repr(Net()), 'Net(w=ParamState(f32[3]))  # 3 params (12 B)')
+        with brainstate.util.repr_options(summary=False):
+            self.assertEqual(repr(Net()), 'Net(w=ParamState(f32[3]))')
+
+    def test_stateless_node_has_no_footer(self):
+        class Empty(brainstate.graph.Node):
+            pass
+
+        self.assertEqual(repr(Empty()), 'Empty()')
+
+    def test_shared_and_cyclic_nodes(self):
+        class Leaf(brainstate.graph.Node):
+            pass
+
+        class Root(brainstate.graph.Node):
+            def __init__(self):
+                self.a = Leaf()
+                self.b = self.a
+                self.me = self
+
+        self.assertEqual(repr(Root()), 'Root(a=Leaf(), b=<shared: .a>, me=<cycle: .>)')
 
 
 if __name__ == '__main__':
