@@ -1,40 +1,145 @@
 # Release notes
 
-## Unreleased
+## Version 0.6.0 (2026-10-20)
 
-Compatibility with JAX 0.11.2, and the supported floor is raised to `jax>=0.9.0`. No public APIs are added, removed, or renamed.
+brainstate 0.6.0 replaces the pretty representation of modules and states, fixes about thirty correctness bugs found in an audit of the codebase, and supports JAX 0.9 through 0.12. The minimum supported versions are now Python 3.12 and JAX 0.9.0. A few of the fixes change results that existing code may depend on; read **Upgrade notes** before upgrading.
+
+### Highlights
+
+- **Compact, width-aware `repr`** for `Module`, `Node`, `State` and the `brainstate.util` containers. It summarises arrays by shape and dtype and adds a parameter-count footer, and can be configured with the new `brainstate.util.repr_options()` (#246).
+- **Correctness fixes** in `State` hooks, `environ`, `random`, `nn` and `transform` (#244).
+- **`import brainstate` respects `jax_enable_x64`**: importing the package no longer turns float64 off (#242).
+- **JAX 0.9.0–0.12.0 supported and tested in CI** (#240, #243).
+
+### Upgrade notes
+
+Most code needs no changes. Check the following if they apply to you:
+
+| Area | What changed | What to do |
+|---|---|---|
+| Python | The minimum Python version is now 3.12 (was 3.11). | Upgrade Python, or stay on brainstate 0.5.x. |
+| Dependencies | The minimum JAX version is now `jax>=0.9.0` (was `0.8.0`). | Upgrade JAX, or stay on brainstate 0.5.x. |
+| `brainstate.random.pareto()` | It now samples Pareto II (Lomax), with support `[0, inf)`, the same as `numpy.random.pareto`. Earlier samples were 1 too large. | To reproduce the old values, add 1 to the result. |
+| `nn.MaxPool*(return_indices=True)` | Indices now use a layout that does not depend on the input size. | Indices are unchanged for unpadded inputs whose size divides evenly. Otherwise, don't use them to index the input directly (`x.ravel()[indices]`). Pass them to `MaxUnpool*`. |
+| `brainstate.environ` | Settings are shared by all threads in the process. Only `context()` overrides are still per thread. | If code relied on each thread having its own settings, use `environ.context(...)` inside each thread. |
+| Float64 at import | brainstate no longer forces `jax_enable_x64=False` when imported. | Nothing to do with JAX's default. If you turned x64 on before importing brainstate, it now stays on. |
+| `mixin.Mode` equality | `Batching` instances are equal only if `batch_size` and `batch_axis` match. `JointMode` instances compare their component modes. | When a `Mode` is a static `jit` argument, a different batch size now triggers a retrace. |
+| `repr()` / `print()` output | The output format is different (see below). | Update any doctests or string comparisons that check `repr` output. |
+
+### New Features
+
+#### Pretty representation redesign (#246)
+
+`Node`, `nn.Module`, `State`, `TreefyState` and the `brainstate.util` containers now share one width-aware layout engine. A group goes on a single line when it fits within the line width. If it doesn't, each item goes on its own line and is followed by a comma. Arrays are shown as dtype and shape. Trailing comments give per-child and total parameter counts:
+
+```python
+>>> import brainstate
+>>> net = brainstate.nn.Sequential(
+...     brainstate.nn.Linear(3, 4), brainstate.nn.ReLU(), brainstate.nn.Linear(4, 2))
+>>> net
+Sequential(
+  (3,) -> (2,),
+  layers=[
+    [0] Linear((3,) -> (4,), weight=ParamState{bias: f32[4], weight: f32[3,4]}),  # 16 params
+    [1] ReLU(),
+    [2] Linear((4,) -> (2,), weight=ParamState{bias: f32[2], weight: f32[4,2]}),  # 10 params
+  ],
+)  # 26 params (104 B)
+```
+
+- **Formatting**:
+  - Arrays look like `f32[3,4]`, scalars like `f32(0.5)`, and `brainunit` quantities like `f32[3] mV`.
+  - Modules show their input and output sizes as `(3,) -> (4,)`.
+  - A state's value is shown positionally, and a dict value uses braces: `ParamState{...}`.
+  - Sequences of objects get `[i]` index labels.
+  - An object that has already appeared is shown as `<shared: path>`, and a reference back to an enclosing object as `<cycle: path>`.
+- **Summary**: the parameter and state-value counts and byte sizes are computed from unique states. Computing them does not trigger state read hooks.
+- **New options API** in `brainstate.util`:
+  - `ReprOptions` has the fields `width`, `max_depth`, `max_items`, `summary`, `color` and `short_dtypes`.
+  - `set_repr_options()` and `get_repr_options()` set and read the process-wide defaults.
+  - The `repr_options()` context manager applies a nestable override for the current thread only.
+
+  ```python
+  >>> with brainstate.util.repr_options(max_depth=0):
+  ...     print(repr(net))
+  Sequential((3,) -> (2,), layers=[Linear(...), ReLU(...), Linear(...)])  # 26 params (104 B)
+  ```
+
+- **`brainstate.util.pretty_format(value)`** formats any value with the same engine, including lists, dicts, dataclasses and arrays.
+- **Optional ANSI color**, applied only by `str()` and `print()`, never by `repr()`. Turn it on with `set_repr_options(color=True)` or `BRAINSTATE_REPR_COLOR=1`. The `NO_COLOR` environment variable turns it off.
+- The custom `__pretty_repr__` protocol is backward compatible.
+
+The redesign also fixes these representations:
+- `TreefyState` printed full arrays and its internal hook manager.
+- `nn.Map` and `nn.Param` printed attributes that were `None`.
+- `mixin.Batching` labelled `batch_size` as `in_size`.
+- `interop.PermuteAxes` printed as `Transpose`.
+- `HiData` subclasses printed as `HiData`.
 
 ### Bug Fixes
 
-#### `brainstate.environ`
+#### `brainstate.State` and hooks (#244)
 
-- **`import brainstate` no longer disables float64**: importing brainstate used to force `jax_enable_x64` to `False`, overriding users who had enabled it with `jax.config.update('jax_enable_x64', True)` or `JAX_ENABLE_X64=1`. The global environment now starts from JAX's setting (precision 64 if x64 is on, otherwise 32) and leaves the JAX config untouched at import. `reset()`, new threads, new `EnvironmentState()` objects and the `get_precision()` fallback use that import-time precision instead of a hard-coded 32. Explicit `set(precision=...)`, `set_precision()` and `context(precision=...)` still drive `jax_enable_x64`. With JAX's default (x64 off) nothing changes.
-- **Settings are process-global**: `EnvironmentState` was a `threading.local`, so worker threads started with empty settings (`get_dt()` raised `KeyError`) and default precision while JAX's `jax_enable_x64` is process-wide. Settings and registered callbacks are now shared by all threads; only the `context()` override stack stays per thread. Overlapping `context(precision=...)` blocks in different threads no longer switch x64 off for each other. **Behavior change:** code that relied on per-thread settings now sees shared values.
+- **Copying a state no longer shares its hooks or tags**:
+  - `State.update_from_ref()` used to replace the target's hook manager with the source's. It now keeps the target's own.
+  - `State.replace()` and `TreefyState.to_state()` now get a fresh hook manager.
+  - `copy()`, `replace()`, `copy_from()` and `to_state()` now copy the `tag` set instead of sharing it.
+- **Raising `HookCancellationError` in a hook cancels the write.** It used to be wrapped in `HookExecutionError`, so the write went ahead anyway. Logged hook errors now report the original exception.
+- **Hook registration and execution are thread-safe.** The hook cache is rebuilt under a lock, and callbacks run outside the lock, which prevents deadlocks.
+- **`StateTraceStack` no longer hides exceptions.** If an exception was raised inside the block, leaving the block now lets it propagate instead of replacing it with an "out of order" `RuntimeError`.
 
-#### `brainstate.random`
+#### `brainstate.mixin` (#244)
 
-- **`pareto()` now samples Pareto II / Lomax** (support `[0, inf)`), matching its documentation and `numpy.random.pareto`. It previously returned the Pareto I samples of `jax.random.pareto` (support `[1, inf)`), i.e. every sample was 1 too large. **Behavior change:** code that relied on the old samples should add 1.
-- **`multinomial()` no longer drops draws when `pvals` does not sum to 1**: as in NumPy, the last probability is implied as `1 - sum(pvals[:-1])`, so every row of counts sums to `n`.
-- **`zipf()` accepts a list `size`** (it is now normalized to a tuple before the static-shape `jit`).
+- **`Mode.__eq__` and `Mode.__hash__` take parameters into account**, so `Batching(2) != Batching(5)`. Before, `jit` could reuse code compiled for a different batch size. Comparing a mode with a non-`Mode` object returns `NotImplemented`.
 
-#### `brainstate.nn`
+#### `brainstate.environ` (#242, #244)
 
-- **`MaxUnpool*` works on odd-sized inputs without `output_size`**: `MaxPool*(return_indices=True)` returned flat positions in the original input, whose size `MaxUnpool` cannot know (sizes 4 and 5 both pool to 2), so values were misplaced, even across batch elements. Indices are now flat positions in a size-independent layout of `(out - 1) * stride + kernel_size - padding` per pooled axis, which `MaxUnpool` decodes exactly; the output defaults to the natural size and `output_size` is still honored. **Behavior change:** index values are unchanged for evenly divisible inputs without padding, but for odd or padded inputs `x.ravel()[indices]` no longer gathers the maxima.
+- **`import brainstate` no longer disables float64.** The global precision now starts from JAX's setting: 64 if x64 is on, otherwise 32. Importing the package doesn't change the JAX config. Explicit `set(precision=...)`, `set_precision()` and `context(precision=...)` still control `jax_enable_x64`.
+- **Settings are process-global.** Worker threads used to start with empty settings (`get_dt()` raised `KeyError`) while `jax_enable_x64` was set for the whole process. If `context(precision=...)` blocks overlap in different threads, one thread no longer turns x64 off while another still needs it.
 
-#### `brainstate.transform` (IR processing)
+#### `brainstate.random` (#244)
 
-- **Jaxprs built without `DebugInfo`**: `eqns_to_jaxpr()`, `eqns_to_closed_jaxpr()`, common-subexpression elimination in `optimize_jaxpr()`, and the constant folding behind `fn_to_python_code()` / `jaxpr_to_python_code()` constructed `Jaxpr` objects without a `DebugInfo`, which JAX deprecates and will turn into an error ([jax-ml/jax#26480](https://github.com/jax-ml/jax/issues/26480)). Freshly assembled jaxprs now carry a `DebugInfo` from the new `brainstate._compatible_import.make_debug_info()` helper; rewritten jaxprs keep the source jaxpr's function name and location with argument/result names dropped (`DebugInfo.with_unknown_names()`), since passes such as constant folding may prune inputs.
+- **`pareto()` samples Pareto II (Lomax)**, matching its documentation and NumPy (see Upgrade notes).
+- **`multinomial()` no longer drops draws when `pvals` does not sum to 1.** As in NumPy, the last probability is taken to be `1 - sum(pvals[:-1])`, so the counts in every row sum to `n`.
+- **`zipf()` accepts `size` as a list.**
+
+#### `brainstate.nn` (#244)
+
+- **`BatchNorm*` with `track_running_stats=False` now normalizes** using batch statistics. Before, it returned its input unchanged.
+- **`BatchNorm*` running statistics are no longer corrupted when `feature_axis` is not the last axis.**
+- **`MaxUnpool*` restores odd-sized and padded inputs correctly without `output_size`.** Before, values were misplaced, sometimes into other batch elements. `output_size` is still honored (see Upgrade notes for the change to the index format).
+- **`MaxPool*(return_indices=True, in_size=...)` no longer fails in the constructor.**
+- **`Delay` computes the correct number of steps for float delays.** If `delay / dt` is within 1e-6 of an integer, it is now rounded instead of rounded up, so `0.3 / 0.1` gives 3 steps instead of 4. `update_every` gets the same fix.
+- **`init_maybe_prefetch()` accepts `PrefetchDelay` targets** instead of raising `TypeError`.
+
+#### `brainstate.transform` (#244)
+
+- **IR optimizations keep side effects.**
+  - Dead-code elimination no longer removes equations with effects, such as `jax.debug.print`, host callbacks and `jit_error_if`.
+  - Constant folding no longer runs effectful equations, including those inside a nested `jit`, while the optimization pass is running.
+- **The `x - x → 0` and `0 * x → 0` simplifications only apply to 0-d integer outputs.** They used to produce outputs of the wrong shape and to turn `inf - inf` into 0 instead of NaN.
+- **`vmap_new_states`, `vmap2_new_states` and `pmap2_new_states` detect mapped tracers leaking into existing states.** When the function writes a mapped value into a state that existed before the call, that state is rolled back and a clear error is raised. States excluded with `state_to_exclude` are now cleaned up properly instead of keeping invalid tracers.
+- **Batched and unbatched leaves can be mixed in one state** under the mapping transforms. Unbatched leaves are broadcast.
+- **`jit` works out `static_argnums` from `static_argnames` (and the reverse) using the function signature, like `jax.jit`.** The same applies to `donate_argnums` and `donate_argnames`. A static argument passed by position is now treated as static.
+- **`StatefulFunction` and `make_jaxpr` accept negative `static_argnums`.**
+- **Python code generated for `scan` with constants runs correctly** (`fn_to_python_code()`, `jaxpr_to_python_code()`). This also covers bodies containing operations that only use constants, and nested jaxprs with unused inputs.
+- **Jaxprs built by brainstate always have a `DebugInfo` attached.** JAX has deprecated jaxprs without one and plans to make them an error ([jax-ml/jax#26480](https://github.com/jax-ml/jax/issues/26480)). This affects `eqns_to_jaxpr()`, `eqns_to_closed_jaxpr()`, `optimize_jaxpr()`, `fn_to_python_code()` and `jaxpr_to_python_code()` (#240).
 
 ### Build & CI
 
-- **Supported floor raised to `jax>=0.9.0`** (was `jax>=0.8.0`) in `pyproject.toml` and `requirements.txt`; the pinned `jax==0.8.0` CI entry is dropped.
-- Removed compatibility branches for JAX < 0.9.0 from `brainstate._compatible_import`, `brainstate.transform._make_jaxpr`, and `brainstate.util._tracers`.
-- pytest now turns the `core.Jaxpr is missing a DebugInfo object` deprecation into an error so regressions fail CI.
+- The minimum Python version is raised to 3.12 (`requires-python = '>=3.12'`). The Python 3.11 classifier is removed and a Python 3.15 classifier is added.
+- The minimum JAX version is raised to `jax>=0.9.0` in `pyproject.toml` and `requirements.txt`, and the code paths for older JAX versions are removed (#240).
+- The CI matrix tests JAX 0.9.0, 0.10.0, 0.11.0 and 0.12.0, plus the latest release. The `jax==0.8.0` entry is dropped (#240, #243).
+- Tests now fail if any code builds a jaxpr without `DebugInfo` (#240).
+- Interop tests are skipped, rather than failing, when an installed optional framework (for example Flax) requires a newer JAX than the one under test (#241).
+- Fixed file ownership in the documentation deployment workflow (#238).
 
 ### Quality
 
-- Full suite (including slow tests) green on **JAX 0.11.2**: 5330 passed, 48 skipped, 0 failed (392 subtests).
-- Full suite (including slow tests) green on **JAX 0.9.0**: 5330 passed, 48 skipped, 0 failed (392 subtests).
+- Full test suite, including slow tests, on Python 3.13:
+  - **JAX 0.12.0**: 5529 passed, 41 skipped, 0 failed (420 subtests).
+  - **JAX 0.9.0**: 5461 passed, 109 skipped, 0 failed (420 subtests). Most of the extra skips are Flax interop tests, because the installed Flax requires `jax>=0.11.1`, and visualization tests that need `pydot`.
+- `mypy` reports no issues in the 108 checked source files.
 
 ## Version 0.5.4 (2026-08-18)
 
