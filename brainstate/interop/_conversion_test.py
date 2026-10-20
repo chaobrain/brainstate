@@ -21,12 +21,15 @@ usable.
 """
 
 import importlib
+from importlib import metadata
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 from absl.testing import absltest
+from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name
 
 import brainstate
 import brainstate.nn as bnn
@@ -39,16 +42,87 @@ from brainstate.interop._errors import (ConversionError, MissingDependencyError,
 TOL = dict(rtol=1e-4, atol=1e-4)
 
 
+_JAX_DISTS = ('jax', 'jaxlib')
+
+
+def _unmet_jax_requirements(requires, installed):
+    """Return the ``jax``/``jaxlib`` requirement specs that ``installed`` does not satisfy.
+
+    ``requires`` are ``Requires-Dist`` strings (as published on PyPI); ``installed``
+    maps a distribution name to its installed version. Requirements that only apply
+    under an extra (``jaxlib; extra == "testing"``) are ignored.
+    """
+    unmet = []
+    for line in requires or ():
+        req = Requirement(line)
+        name = canonicalize_name(req.name)
+        if name not in _JAX_DISTS or name not in installed:
+            continue
+        if req.marker is not None and not req.marker.evaluate({'extra': ''}):
+            continue
+        if not req.specifier.contains(installed[name], prereleases=True):
+            unmet.append(f'{name}{req.specifier}')
+    return unmet
+
+
+def _jax_incompatibility(dist_name, *, requires=metadata.requires, version=metadata.version):
+    """Explain why ``dist_name`` (or any runtime dependency) mismatches the installed jax.
+
+    Walks the installed dependency graph of ``dist_name`` and checks each package's
+    declared ``jax``/``jaxlib`` requirement against the installed versions. Returns a
+    human-readable reason, or ``None`` when every requirement is met.
+    """
+    installed = {}
+    for name in _JAX_DISTS:
+        try:
+            installed[name] = version(name)
+        except metadata.PackageNotFoundError:
+            pass
+    seen = set()
+    stack = [dist_name]
+    while stack:
+        dist = canonicalize_name(stack.pop())
+        if dist in seen or dist in _JAX_DISTS:
+            continue
+        seen.add(dist)
+        try:
+            dist_requires = requires(dist) or []
+            dist_version = version(dist)
+        except metadata.PackageNotFoundError:
+            continue
+        unmet = _unmet_jax_requirements(dist_requires, installed)
+        if unmet:
+            have = ', '.join(f'{k} {v}' for k, v in installed.items())
+            return f"{dist} {dist_version} requires {', '.join(unmet)} (installed {have})"
+        for line in dist_requires:
+            req = Requirement(line)
+            if req.marker is None or req.marker.evaluate({'extra': ''}):
+                stack.append(req.name)
+    return None
+
+
 def _importorskip(modname: str):
     """Import an optional framework, skipping the test if it is not usable.
 
     Broader than ``pytest.importorskip(..., exc_type=ImportError)``: an optional
-    framework can be *installed* yet raise something other than ``ImportError``
-    when it lags the installed jax. flax <= 0.12.8, for instance, raises
-    ``AttributeError`` on ``jax.experimental.hijax.MutableHiType`` under jax
-    0.11.1. Those tests should skip for the same reason a missing package does --
-    the framework is unavailable here, and that is not a brainstate defect.
+    framework can be *installed* yet be incompatible with the installed jax.
+
+    * First, its package metadata is checked: if the framework or any of its
+      runtime dependencies declares a ``jax``/``jaxlib`` requirement the installed
+      version does not satisfy (e.g. flax 0.12.10 requires ``jax>=0.11.1`` while CI
+      pins jax 0.9.0), the test is skipped. Such a framework may import fine and
+      only fail later at runtime.
+    * Then, any exception raised on import also skips. flax <= 0.12.8, for
+      instance, raises ``AttributeError`` on ``jax.experimental.hijax.MutableHiType``
+      under jax 0.11.1.
+
+    Either way the framework is unavailable here, and that is not a brainstate defect.
     """
+    top_level = modname.partition('.')[0]
+    dist_name = metadata.packages_distributions().get(top_level, [top_level])[0]
+    reason = _jax_incompatibility(dist_name)
+    if reason is not None:
+        pytest.skip(f"{modname} is unavailable ({reason})", allow_module_level=True)
     try:
         return importlib.import_module(modname)
     except Exception as e:  # noqa: BLE001 - any failure means "unusable here"
@@ -1010,6 +1084,79 @@ class NnxConvChannelMismatchTest(absltest.TestCase):
         src = nnx.Conv(3, 4, (3, 3), rngs=nnx.Rngs(0))
         with self.assertRaises(ConversionError):
             interop.from_nnx(src, sample_input=(8, 8, 5))
+
+
+class JaxCompatibilitySkipTest(absltest.TestCase):
+    """The metadata check behind :func:`_importorskip` (no optional framework needed)."""
+
+    # Requires-Dist of flax 0.12.10 as published on PyPI.
+    FLAX_0_12_10 = [
+        'numpy>=1.23.2', 'jax>=0.11.1', 'msgpack', 'optax',
+        'jaxlib; extra == "testing"', 'jaxtyping; extra == "testing"',
+    ]
+
+    def test_ci_reproduction_flax_needs_newer_jax(self):
+        # CI's jax 0.9.0 leg: flax imports fine but fails at runtime -> must be reported.
+        unmet = _unmet_jax_requirements(self.FLAX_0_12_10, {'jax': '0.9.0', 'jaxlib': '0.9.0'})
+        self.assertEqual(unmet, ['jax>=0.11.1'])
+
+    def test_satisfied(self):
+        unmet = _unmet_jax_requirements(self.FLAX_0_12_10, {'jax': '0.12.0', 'jaxlib': '0.12.0'})
+        self.assertEqual(unmet, [])
+
+    def test_prerelease_jax_satisfies(self):
+        self.assertEqual(_unmet_jax_requirements(['jax>=0.11.1'], {'jax': '0.12.0.dev20261001'}), [])
+
+    def test_bare_requirement_always_satisfied(self):
+        self.assertEqual(_unmet_jax_requirements(['jax'], {'jax': '0.9.0'}), [])
+
+    def test_extra_only_requirements_ignored(self):
+        requires = ['jaxlib>=99; extra == "testing"', 'jax[cpu]>=99; extra == "cpu"']
+        self.assertEqual(_unmet_jax_requirements(requires, {'jax': '0.9.0', 'jaxlib': '0.9.0'}), [])
+
+    def test_jaxlib_mismatch_reported(self):
+        unmet = _unmet_jax_requirements(['jaxlib>=0.5.3'], {'jax': '0.5.3', 'jaxlib': '0.5.0'})
+        self.assertEqual(unmet, ['jaxlib>=0.5.3'])
+
+    def test_exclusion_spec(self):
+        requires = ['jax!=0.7.0,!=0.7.1,>=0.4.38']
+        self.assertEqual(len(_unmet_jax_requirements(requires, {'jax': '0.7.0'})), 1)
+        self.assertEqual(_unmet_jax_requirements(requires, {'jax': '0.7.2'}), [])
+
+    def test_non_jax_and_uninstalled_ignored(self):
+        # numpy is not jax; jaxlib is not installed, so its requirement cannot be checked.
+        self.assertEqual(_unmet_jax_requirements(['numpy>=99', 'jaxlib>=99'], {'jax': '0.9.0'}), [])
+
+    def test_unknown_distribution(self):
+        self.assertIsNone(_jax_incompatibility('brainstate-no-such-distribution'))
+
+    def _fake_metadata(self, graph, versions):
+        def requires(name):
+            if name not in graph:
+                raise metadata.PackageNotFoundError(name)
+            return graph[name]
+
+        def version(name):
+            if name not in versions:
+                raise metadata.PackageNotFoundError(name)
+            return versions[name]
+
+        return dict(requires=requires, version=version)
+
+    def test_transitive_mismatch_with_cycle(self):
+        graph = {
+            'pkg': ['dep', 'missing-dep', 'jax>=0.4', 'extra-only; extra == "docs"'],
+            'dep': ['pkg', 'jax>=99'],  # cycle back to pkg
+            'extra-only': ['jax>=999'],  # only reachable through an extra -> not walked
+        }
+        versions = {'pkg': '1.0', 'dep': '2.0', 'extra-only': '3.0', 'jax': '0.9.0', 'jaxlib': '0.9.0'}
+        reason = _jax_incompatibility('pkg', **self._fake_metadata(graph, versions))
+        self.assertEqual(reason, 'dep 2.0 requires jax>=99 (installed jax 0.9.0, jaxlib 0.9.0)')
+
+    def test_transitive_all_satisfied(self):
+        graph = {'pkg': ['dep', 'jax>=0.4'], 'dep': ['pkg', 'jaxlib>=0.4']}
+        versions = {'pkg': '1.0', 'dep': '2.0', 'jax': '0.9.0', 'jaxlib': '0.9.0'}
+        self.assertIsNone(_jax_incompatibility('pkg', **self._fake_metadata(graph, versions)))
 
 
 if __name__ == '__main__':
