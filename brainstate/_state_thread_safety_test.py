@@ -344,3 +344,82 @@ class TestHookThreadSafety(TestCase):
 if __name__ == '__main__':
     import unittest
     unittest.main()
+
+
+class TestGlobalHookRegistryStress(TestCase):
+    """Concurrent registration on the process-wide registry while states are read."""
+
+    def tearDown(self):
+        brainstate.clear_state_hooks()
+
+    def test_concurrent_global_register_unregister_with_readers(self):
+        from brainstate._state_global_hooks import register_state_hook, unregister_state_hook
+
+        states = [brainstate.State(jnp.ones(3)) for _ in range(4)]
+        errors = []
+        stop = threading.Event()
+        num_registrars, per_registrar = 4, 25
+        kept = []
+        kept_lock = threading.Lock()
+
+        def reader():
+            try:
+                while not stop.is_set():
+                    for st in states:
+                        _ = st.value
+            except Exception as e:  # pragma: no cover - reported below
+                errors.append(e)
+
+        def registrar(k):
+            try:
+                for i in range(per_registrar):
+                    h = register_state_hook('read', lambda ctx: None, name=f'g{k}_{i}')
+                    if i % 2:
+                        self.assertTrue(unregister_state_hook(h))
+                    else:
+                        with kept_lock:
+                            kept.append(h)
+            except Exception as e:  # pragma: no cover - reported below
+                errors.append(e)
+
+        readers = [threading.Thread(target=reader) for _ in range(4)]
+        registrars = [threading.Thread(target=registrar, args=(k,)) for k in range(num_registrars)]
+        for t in readers + registrars:
+            t.start()
+        for t in registrars:
+            t.join(30)
+        stop.set()
+        for t in readers:
+            t.join(30)
+
+        self.assertEqual(errors, [])
+        expected = num_registrars * ((per_registrar + 1) // 2)
+        self.assertEqual(len(brainstate.list_state_hooks('read')), expected)
+
+        # the cache is not stale: every kept hook fires on the next read
+        fired = []
+        brainstate.clear_state_hooks()
+        for i in range(expected):
+            register_state_hook('read', lambda ctx, i=i: fired.append(i))
+        _ = states[0].value
+        self.assertEqual(sorted(fired), list(range(expected)))
+
+    def test_global_hook_callback_can_wait_on_other_thread_reading_state(self):
+        """A global hook that waits on another thread's state read must not deadlock."""
+        from brainstate._state_global_hooks import register_state_hook
+
+        other = brainstate.State(jnp.zeros(2))
+        main = brainstate.State(jnp.ones(2))
+        done = []
+
+        def hook(ctx):
+            if ctx.state is main and not done:
+                done.append(True)
+                t = threading.Thread(target=lambda: other.value)
+                t.start()
+                t.join(5)
+                done.append(not t.is_alive())
+
+        register_state_hook('read', hook)
+        _ = main.value
+        self.assertEqual(done, [True, True])
