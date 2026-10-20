@@ -1597,5 +1597,40 @@ class TestNewStateProbeContext(unittest.TestCase):
         self.assertFalse(in_new_state_probe())
 
 
+class TestLeafBatchDimMixedLeaves(unittest.TestCase):
+    """A state may mix batched and unbatched leaves (``jax.vmap`` broadcasts)."""
+
+    def test_mixed_batched_and_unbatched_leaves(self):
+        import brainstate.transform._mapping_core as mc
+
+        class FakeBatchTracer:
+            def __init__(self, batch_dim):
+                self.batch_dim = batch_dim
+
+        original_bt = mc.BatchTracer
+        mc.BatchTracer = FakeBatchTracer
+        try:
+            self.assertEqual(leaf_batch_dim([FakeBatchTracer(0), jnp.ones(())]), 0)
+            self.assertIsNone(leaf_batch_dim([jnp.ones(()), jnp.ones(())]))
+        finally:
+            mc.BatchTracer = original_bt
+
+    def test_vmap2_state_with_mixed_leaves(self):
+        st = brainstate.ShortTermState({'a': jnp.zeros(()), 'b': jnp.zeros(())})
+
+        def f(x):
+            st.value = {'a': x * 2., 'b': jnp.ones(())}
+            return x
+
+        mapped = brainstate.transform.vmap2(
+            f, in_axes=0, out_axes=0,
+            state_out_axes={0: filter.OfType(brainstate.ShortTermState)},
+        )
+        mapped(jnp.arange(3.))
+        self.assertTrue(jnp.allclose(st.value['a'], jnp.arange(3.) * 2.))
+        self.assertEqual(st.value['b'].shape, (3,))
+        self.assertTrue(jnp.allclose(st.value['b'], 1.))
+
+
 if __name__ == "__main__":
     unittest.main()

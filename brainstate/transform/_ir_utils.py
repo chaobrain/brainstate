@@ -300,8 +300,8 @@ def partial_eval_jaxpr(jaxpr, env):
     -------
     Jaxpr
         A new ``Jaxpr`` with constant equations folded and now-unused invars
-        dropped. Blacklisted / control-flow primitives are passed through
-        untouched.
+        dropped. Blacklisted / control-flow primitives and equations with
+        side effects are passed through untouched.
     """
     env = dict(env)
     new_eqns = []
@@ -323,7 +323,9 @@ def partial_eval_jaxpr(jaxpr, env):
 
     for eqn in jaxpr.eqns:
         vals = [read(v) for v in eqn.invars]
-        if eqn.primitive.name in CONSTANT_FOLD_BLACKLIST:
+        if eqn.primitive.name in CONSTANT_FOLD_BLACKLIST or eqn.effects:
+            # ``eqn.effects`` also covers effects of nested sub-jaxprs (e.g. a
+            # ``jit`` wrapping ``debug_print``), which must run at runtime.
             new_eqns.append(eqn)
         elif vals and all(v is not None for v in vals):
             out = _eval_eqn(eqn, vals)

@@ -1489,3 +1489,34 @@ class TestInNewStateProbe(unittest.TestCase):
         # cached graph now binds to the real mapped state
         self.assertEqual(a._graph(), (6, 3))
         self.assertEqual(a._graph(), a.w.value.shape)
+
+
+class TestVmap2NewStatesNoTracerLeak(unittest.TestCase):
+    """``vmap2_new_states`` must not leave dead vmap tracers in pre-existing states."""
+
+    def test_preexisting_state_batched_write_raises_and_rolls_back(self):
+        counter = brainstate.ShortTermState(jnp.zeros(()))
+
+        class M(brainstate.nn.Module):
+            def init_all_states(self, **kw):
+                self.x = brainstate.ShortTermState(brainstate.random.rand(2))
+                counter.value = counter.value + self.x.value.sum()
+
+        with self.assertRaises(ValueError) as cm:
+            vmap2_new_states(M(), {}, axis_size=3)
+        self.assertIn('pre-existing', str(cm.exception))
+        self.assertNotIsInstance(counter.value, jax.core.Tracer)
+        self.assertTrue(jnp.allclose(counter.value, 0.0))
+
+    def test_preexisting_state_unbatched_write_is_kept(self):
+        counter = brainstate.ShortTermState(jnp.zeros(()))
+
+        class M(brainstate.nn.Module):
+            def init_all_states(self, **kw):
+                self.x = brainstate.ShortTermState(jnp.zeros(2))
+                counter.value = jnp.ones(())
+
+        m = M()
+        vmap2_new_states(m, {}, axis_size=3)
+        self.assertEqual(m.x.value.shape, (3, 2))
+        self.assertTrue(jnp.allclose(counter.value, 1.0))

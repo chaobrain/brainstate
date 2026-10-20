@@ -43,6 +43,8 @@ from ._mapping_core import (
     INIT_NO_BATCHING,
     _build_new_state_resolver,
     _resolve_new_state_axis,
+    rollback_leaked_preexisting_states,
+    raise_leaked_preexisting_states,
 )
 
 __all__ = [
@@ -845,20 +847,28 @@ def _map_new_states(
 
     # --- main pass: create batched states under the mapping primitive ----- #
     state_box: Dict[Any, list] = {}
+    # the stack watching the mapped pass + the states it created, for the
+    # post-call rollback of leaked pre-existing state writes
+    run_box: Dict[str, Any] = {'trace': None, 'created': []}
 
     def init_fn(rng_keys, _dummy=None):
         # ``_dummy`` is an ignored mapped placeholder used only when there are no
         # random states, so ``jax.pmap`` still has a mapped argument (#2).
         for rng, key in zip(rng_states, rng_keys):
             rng.restore_value(key)
+        run_trace = StateTraceStack(name='map_new_states:init')
+        run_box['trace'] = run_trace
         with catch_new_states() as catcher:
             # plain watcher (no new_arg): init runs under a raw jax.vmap /
             # jax.pmap here, and state writes of mapped tracers are
             # legitimate — an active StateTraceStack keeps the tracer-write
             # guard quiet (the extra stack level is undone by
             # unwind_new_state_levels, which is delta-based)
-            with StateTraceStack(name='map_new_states:init'):
-                module.init_all_states(**init_kwargs)
+            try:
+                with run_trace:
+                    module.init_all_states(**init_kwargs)
+            finally:
+                run_box['created'] = list(catcher.get_states())
         grouped_vals = defaultdict(list)
         grouped_states = defaultdict(list)
         for st in catcher.get_states():
@@ -909,6 +919,11 @@ def _map_new_states(
         # pass cannot leave key tracers in the random states
         for rng, key in zip(rng_states, rng_backups):
             rng.restore_value(key)
+        # roll back pre-existing states written with mapped tracers
+        leaked = rollback_leaked_preexisting_states(
+            run_box['trace'], list(run_box['created']) + list(rng_states)
+        )
+    raise_leaked_preexisting_states(leaked, f'{behavior}2_new_states')
 
     # scatter batched values into the freshly created state objects
     dict_vmap_states: Dict[Any, list] = defaultdict(list)

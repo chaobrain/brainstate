@@ -1176,3 +1176,76 @@ class TestVmapNewStatesFailureCases(unittest.TestCase):
         out = fn()
         self.assertEqual(out.shape, (4, 3))
         self.assertFalse(jnp.allclose(out[0], out[1]))
+
+
+class TestVmapNewStatesNoTracerLeak(unittest.TestCase):
+    """``vmap_new_states`` must not leave dead vmap tracers in any state."""
+
+    def test_preexisting_state_batched_write_raises_and_rolls_back(self):
+        counter = bst.ShortTermState(jnp.zeros(()))
+
+        @vmap_new_states(in_axes=0, axis_size=4)
+        def fn(x):
+            counter.value = counter.value + x
+            return bst.ShortTermState(x * 2.0).value
+
+        with self.assertRaises(ValueError) as cm:
+            fn(jnp.arange(4.0))
+        self.assertIn('pre-existing', str(cm.exception))
+        self.assertNotIsInstance(counter.value, jax.core.Tracer)
+        self.assertTrue(jnp.allclose(counter.value, 0.0))
+
+    def test_preexisting_state_unbatched_write_is_kept(self):
+        counter = bst.ShortTermState(jnp.zeros(()))
+
+        @vmap_new_states(in_axes=0, axis_size=4)
+        def fn(x):
+            counter.value = counter.value + 1.0
+            return bst.ShortTermState(x * 2.0).value
+
+        out = fn(jnp.arange(4.0))
+        self.assertTrue(jnp.allclose(out, jnp.arange(4.0) * 2.0))
+        self.assertNotIsInstance(counter.value, jax.core.Tracer)
+        self.assertTrue(jnp.allclose(counter.value, 1.0))
+
+    def test_preexisting_state_rolled_back_when_fun_raises(self):
+        counter = bst.ShortTermState(jnp.zeros(()))
+
+        @vmap_new_states(in_axes=0, axis_size=4)
+        def fn(x):
+            counter.value = counter.value + x
+            raise RuntimeError('boom')
+
+        with self.assertRaises(RuntimeError):
+            fn(jnp.arange(4.0))
+        self.assertNotIsInstance(counter.value, jax.core.Tracer)
+        self.assertTrue(jnp.allclose(counter.value, 0.0))
+
+    def test_excluded_batched_state_is_poisoned_and_unwound(self):
+        captured = {}
+
+        @vmap_new_states(in_axes=0, axis_size=4,
+                         state_to_exclude=OfType(NonBatchState))
+        def fn(x):
+            captured['ex'] = NonBatchState(x * 0.0)  # batched value, excluded
+            return bst.ShortTermState(x).value
+
+        fn(jnp.arange(4.0))
+        ex = captured['ex']
+        self.assertEqual(ex.stack_level, 0)
+        with self.assertRaises(bst.TraceContextError):
+            _ = ex.value
+
+    def test_excluded_concrete_state_stays_usable(self):
+        captured = {}
+
+        @vmap_new_states(in_axes=0, axis_size=4,
+                         state_to_exclude=OfType(NonBatchState))
+        def fn(x):
+            captured['ex'] = NonBatchState(jnp.ones(2))
+            return bst.ShortTermState(x).value
+
+        fn(jnp.arange(4.0))
+        ex = captured['ex']
+        self.assertEqual(ex.stack_level, 0)
+        self.assertTrue(jnp.allclose(ex.value, jnp.ones(2)))

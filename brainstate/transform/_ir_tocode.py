@@ -678,14 +678,18 @@ def jaxpr_to_py_ast(state: SourcerorState,
     return ast.FunctionDef(name=fn_name, args=ast_args, body=stmts, decorator_list=[])
 
 
-def constant_fold_jaxpr(jaxpr: Jaxpr):
+def constant_fold_jaxpr(jaxpr: Jaxpr, keep_invars: bool = False):
     """
     Given a jaxpr, return a new jaxpr with all constant folding done.
+
+    With ``keep_invars=True`` the signature is preserved (needed for nested
+    jaxprs whose call sites pass every argument); otherwise unused invars are
+    pruned.
     """
-    return partial_eval_jaxpr(jaxpr, {})
+    return partial_eval_jaxpr(jaxpr, {}, keep_invars=keep_invars)
 
 
-def partial_eval_jaxpr(jaxpr, env):
+def partial_eval_jaxpr(jaxpr, env, keep_invars: bool = False):
     env = env.copy()
     new_eqns = []
 
@@ -715,8 +719,10 @@ def partial_eval_jaxpr(jaxpr, env):
         vals = [read(var) for var in eqn.invars]
         if eqn.primitive.name in constant_fold_blacklist:
             new_eqns.append(eqn)
-        elif all(val is not None for val in vals):
-            # go ahead and eval it
+        elif all(val is not None and not isinstance(val, Var) for val in vals):
+            # go ahead and eval it (``env`` may also map a var to another
+            # ``Var``, e.g. a scan const to its outer variable: that is a
+            # substitution, not a concrete value, so it is not evaluated)
             out = _eval_eqn(eqn, vals)
 
             # two options: either it's a jaxpr result (partial eval) or it's a value or a list of values
@@ -749,17 +755,23 @@ def partial_eval_jaxpr(jaxpr, env):
     # sub in any constants for outvars
     outvars = tuple(read_or_self(var) for var in jaxpr.outvars)
 
-    invars_still_used = IdentitySet()
-    for eqn in out_eqns:
-        for var in eqn.invars:
+    if keep_invars:
+        # Sub-jaxprs keep their signature: only the invars bound by ``env`` are
+        # dropped, because callers pass every remaining argument (the scan
+        # wrapper unpacks ``(carry, x)``, call sites pass each non-literal arg).
+        invars = tuple(var for var in jaxpr.invars if var not in env)
+    else:
+        invars_still_used = IdentitySet()
+        for eqn in out_eqns:
+            for var in eqn.invars:
+                invars_still_used.add(var)
+        # Pass-through invars (forwarded directly to an output without appearing in
+        # any equation, e.g. the identity function) must be retained, otherwise the
+        # generated function loses parameters it still needs to return.
+        for var in outvars:
             invars_still_used.add(var)
-    # Pass-through invars (forwarded directly to an output without appearing in
-    # any equation, e.g. the identity function) must be retained, otherwise the
-    # generated function loses parameters it still needs to return.
-    for var in outvars:
-        invars_still_used.add(var)
 
-    invars = tuple(var for var in jaxpr.invars if var in invars_still_used)
+        invars = tuple(var for var in jaxpr.invars if var in invars_still_used)
 
     return jaxpr.replace(eqns=out_eqns, outvars=outvars, invars=invars,
                          debug_info=jaxpr.debug_info.with_unknown_names())
@@ -1116,9 +1128,9 @@ def _astify_scan(state, eqn):
     if num_consts != 0:
         # we want to construct an environment where we partial eval the function using the constants as the env
         env = dict(zip(jaxpr.jaxpr.invars, constant_args))
-        jaxpr = partial_eval_jaxpr(jaxpr.jaxpr, env)
+        jaxpr = partial_eval_jaxpr(jaxpr.jaxpr, env, keep_invars=True)
     else:
-        jaxpr = constant_fold_jaxpr(jaxpr.jaxpr)
+        jaxpr = constant_fold_jaxpr(jaxpr.jaxpr, keep_invars=True)
 
     fn_name = state.skolem('fn')
     fn_ast = jaxpr_to_py_ast(state, jaxpr, fn_name)
@@ -1242,7 +1254,7 @@ def _astify_scan(state, eqn):
             targets=_astify_outvars(state, eqn.outvars),
             value=ast.Call(
                 func=ast.Name(id='jax.lax.scan', ctx=ast.Load()),
-                args=[ast.Name(id=fn_name, ctx=ast.Load())] + [_astify_atom(state, v) for v in eqn.invars],
+                args=[ast.Name(id=fn_name, ctx=ast.Load())] + [_astify_atom(state, v) for v in carries + xs],
                 keywords=[ast.keyword(arg='length', value=length),
                           ast.keyword(arg='unroll', value=unroll),
                           ast.keyword(arg='reverse', value=reverse)]
@@ -1259,7 +1271,7 @@ def _astify_map(state, eqn):
     assert scan_num_consts_carry(eqn.params)[1] == 0
 
     jaxpr = eqn.params['jaxpr']
-    jaxpr = constant_fold_jaxpr(jaxpr.jaxpr)
+    jaxpr = constant_fold_jaxpr(jaxpr.jaxpr, keep_invars=True)
 
     fn_name = state.skolem('fn')
     fn_ast = jaxpr_to_py_ast(state, jaxpr, fn_name)
@@ -1290,7 +1302,7 @@ def _astify_closed_call(state, eqn):
     literal_args = {k: v.val
                     for k, v in zip(raw_jaxpr.invars, eqn.invars)
                     if isinstance(v, Literal)}
-    call_japr = partial_eval_jaxpr(raw_jaxpr, literal_args)
+    call_japr = partial_eval_jaxpr(raw_jaxpr, literal_args, keep_invars=True)
     fn_name = state.skolem('fn')
 
     fn_ast = jaxpr_to_py_ast(state, call_japr, fn_name)
@@ -1322,7 +1334,7 @@ def _astify_pjit(state, eqn):
     if jaxpr is None:
         jaxpr = eqn.params.get('call_jaxpr')
 
-    inner = constant_fold_jaxpr(jaxpr.jaxpr)
+    inner = constant_fold_jaxpr(jaxpr.jaxpr, keep_invars=True)
     name = eqn.params.get('name', 'jitted')
     if not isinstance(name, str) or not name.isidentifier():
         name = 'jitted'
@@ -1354,7 +1366,7 @@ register_prim_handler('jit', _astify_pjit)
 def _astify_remat(state: SourcerorState, eqn):
     # out = partial_eval_jaxpr(eqn.params['call_jaxpr'].jaxpr,
     #                          {var: val for var, val in zip(eqn.params['call_jaxpr'].jaxpr.invars, vals)})
-    call_japr = constant_fold_jaxpr(eqn.params['jaxpr'])
+    call_japr = constant_fold_jaxpr(eqn.params['jaxpr'], keep_invars=True)
     fn_name = state.skolem('fn')
 
     fn_ast = jaxpr_to_py_ast(state, call_japr, fn_name)

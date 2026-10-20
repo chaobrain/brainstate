@@ -52,6 +52,7 @@ function.
 """
 
 import functools
+import inspect
 import operator
 import threading
 from collections.abc import Hashable, Iterable, Sequence
@@ -143,6 +144,16 @@ def _check_input_ouput(x):
         )
 
 
+def _resolve_static_argnums(static_argnums, n_args: int) -> Tuple[int, ...]:
+    """Map negative ``static_argnums`` to positions in a call with ``n_args`` args.
+
+    Negative indices count from the end, as in :func:`jax.jit`. Indices that
+    stay negative (out of range) are kept as-is so the caller's bounds check
+    can report them.
+    """
+    return tuple(i + n_args if i < 0 else i for i in static_argnums)
+
+
 def get_arg_cache_key(
     static_argnums,
     static_argnames,
@@ -151,6 +162,7 @@ def get_arg_cache_key(
     fn_to_check: Callable = _check_input_ouput,
 ) -> CacheKey:
     # args
+    static_argnums = _resolve_static_argnums(static_argnums, len(args))
     static_args, dyn_args = [], []
     for i, arg in enumerate(args):
         if i in static_argnums:
@@ -369,6 +381,24 @@ class StatefulFunction(PrettyObject):
         # Unified compilation cache: CacheKey -> _CachedCompilation
         self._compilation_cache = BoundedCache(maxsize=128)
         self._cache_lock = threading.RLock()
+
+    def _static_arg_passed_by_name(self, argnum: int, kwargs: Dict) -> bool:
+        """Whether static positional ``argnum`` was passed as a static keyword.
+
+        ``jax.jit`` lets a parameter listed in both ``static_argnums`` and
+        ``static_argnames`` be passed either way, so a positional index beyond
+        ``len(args)`` is fine when the same parameter came in ``kwargs``.
+        """
+        if argnum < 0 or not self.static_argnames:
+            return False
+        try:
+            parameters = list(inspect.signature(self.fun).parameters.values())
+        except (ValueError, TypeError):
+            return False
+        if argnum >= len(parameters):
+            return False
+        name = parameters[argnum].name
+        return name in self.static_argnames and name in kwargs
 
     def __pretty_repr_item__(self, k, v):
         if k.startswith('_'):
@@ -912,11 +942,11 @@ class StatefulFunction(PrettyObject):
         # is empty: calling with only keyword arguments while ``static_argnums``
         # names a positional index (e.g. ``static_argnums=(0,)``) is still
         # out of range -- gating on ``and args`` silently skipped that case.
-        if self.static_argnums:
-            max_idx = max(self.static_argnums)
-            if max_idx >= len(args):
+        static_argnums = _resolve_static_argnums(self.static_argnums, len(args))
+        for i, idx in zip(self.static_argnums, static_argnums):
+            if not (0 <= idx < len(args)) and not self._static_arg_passed_by_name(i, kwargs):
                 raise ValueError(
-                    f'static_argnums contains index {max_idx}, but only '
+                    f'static_argnums contains index {i}, but only '
                     f'{len(args)} positional arguments were provided.'
                 )
 
@@ -956,7 +986,7 @@ class StatefulFunction(PrettyObject):
                         _result_holder,
                         static_kwargs,
                     ),
-                    static_argnums=self.static_argnums,
+                    static_argnums=static_argnums,
                     axis_env=self.axis_env,
                     return_shape=True,
                 )(*args, **dyn_kwargs)
@@ -1061,7 +1091,8 @@ class StatefulFunction(PrettyObject):
 
             # parameters
             kwargs = {k: v for k, v in kwargs.items() if k not in self.static_argnames}  # remove static kwargs
-            args = tuple(args[i] for i in range(len(args)) if i not in self.static_argnums)
+            static_argnums = _resolve_static_argnums(self.static_argnums, len(args))
+            args = tuple(args[i] for i in range(len(args)) if i not in static_argnums)
             args = jax.tree.flatten((args, kwargs, state_vals))[0]
 
             # calling the function,
