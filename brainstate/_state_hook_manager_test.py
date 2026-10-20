@@ -481,6 +481,79 @@ class TestHookManagerCoverage(TestCase):
             self.assertFalse(mgr.has_hooks(t))
 
 
+class TestHookErrorAndLockingRegressions(TestCase):
+    """Cancellation, error reporting and lock scope of hook execution."""
+
+    def test_raised_cancellation_cancels_write(self):
+        import jax.numpy as jnp
+        from brainstate._state_hook_core import HookCancellationError
+
+        s = brainstate.State(jnp.ones(3))
+
+        def veto(ctx):
+            raise HookCancellationError('nope')
+
+        s.register_hook('write_before', veto)
+        with self.assertRaises(HookCancellationError):
+            s.value = jnp.zeros(3)
+        self.assertTrue(bool((s.value == 1).all()))
+
+    def test_logged_error_reports_original_message(self):
+        messages = []
+        manager = HookManager(HookConfig(
+            on_error='log',
+            error_logger=lambda msg, err, hook, ctx: messages.append((msg, err)),
+        ))
+
+        def bad(ctx):
+            raise ValueError('original failure reason')
+
+        manager.register_hook('read', bad)
+        state = MockState()
+        manager.execute_read_hooks(1.0, weakref.ref(state))
+        self.assertEqual(len(messages), 1)
+        msg, err = messages[0]
+        self.assertIn('original failure reason', msg)
+        self.assertIsInstance(err, ValueError)
+
+    def test_callbacks_run_without_holding_lock(self):
+        manager = HookManager()
+        state = MockState()
+        acquired = []
+
+        def hook(ctx):
+            # another thread must be able to take the manager lock while a
+            # callback is running (otherwise cross-thread waits deadlock)
+            def try_lock():
+                ok = manager._lock.acquire(timeout=2)
+                acquired.append(ok)
+                if ok:
+                    manager._lock.release()
+
+            t = threading.Thread(target=try_lock)
+            t.start()
+            t.join()
+
+        manager.register_hook('read', hook)
+        manager.execute_read_hooks(1.0, weakref.ref(state))
+        self.assertEqual(acquired, [True])
+
+    def test_hook_registered_during_execution_is_picked_up(self):
+        manager = HookManager()
+        state = MockState()
+        calls = []
+
+        def first(ctx):
+            calls.append('first')
+            if len(calls) == 1:
+                manager.register_hook('read', lambda c: calls.append('second'))
+
+        manager.register_hook('read', first)
+        manager.execute_read_hooks(1.0, weakref.ref(state))
+        manager.execute_read_hooks(1.0, weakref.ref(state))
+        self.assertIn('second', calls)
+
+
 if __name__ == '__main__':
     import unittest
 

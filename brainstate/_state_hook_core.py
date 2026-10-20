@@ -150,6 +150,9 @@ class Hook:
         try:
             result = self.callback(context)
             return result
+        except HookCancellationError:
+            # Cancellation is control flow, not a failure: let the manager see it
+            raise
         except Exception as e:
             # Don't increment error count here - it's handled by HookManager._handle_hook_error
             raise HookExecutionError(f"Hook '{self.name}' execution failed") from e
