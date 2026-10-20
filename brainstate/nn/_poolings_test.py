@@ -1879,3 +1879,62 @@ class TestMaxPoolReturnIndicesInSize(unittest.TestCase):
 
 if __name__ == '__main__':
     absltest.main()
+
+class TestMaxUnpoolOddSizesFurther(unittest.TestCase):
+    """Further odd-size coverage: 3-D, channel-first, and omitted ``output_size``."""
+
+    @staticmethod
+    def _ref_unpool_3d(x, k=2):
+        # hand-computed PyTorch-semantics reference for (B, D, H, W, C)
+        ref = np.zeros_like(x)
+        B, D, H, W, C = x.shape
+        for b in range(B):
+            for c in range(C):
+                for i in range(D // k):
+                    for j in range(H // k):
+                        for l in range(W // k):
+                            win = x[b, k * i:k * i + k, k * j:k * j + k, k * l:k * l + k, c]
+                            di, dj, dl = np.unravel_index(np.argmax(win), win.shape)
+                            ref[b, k * i + di, k * j + dj, k * l + dl, c] = win[di, dj, dl]
+        return ref
+
+    def test_maxunpool3d_odd_size_with_output_size(self):
+        with seeded(5):
+            arr = brainstate.random.randn(2, 5, 3, 7, 2)
+        pool = nn.MaxPool3d(2, 2, channel_axis=-1, return_indices=True)
+        pooled, indices = pool(arr)
+        out = nn.MaxUnpool3d(2, 2, channel_axis=-1)(pooled, indices, output_size=(5, 3, 7))
+        self.assertEqual(out.shape, arr.shape)
+        np.testing.assert_allclose(np.asarray(out), self._ref_unpool_3d(np.asarray(arr)))
+
+    def test_maxunpool1d_odd_size_channel_first(self):
+        arr = jnp.arange(10.0).reshape(1, 2, 5)  # (B, C, L)
+        pool = nn.MaxPool1d(2, 2, channel_axis=1, return_indices=True)
+        pooled, indices = pool(arr)
+        out = nn.MaxUnpool1d(2, 2, channel_axis=1)(pooled, indices, output_size=(5,))
+        np.testing.assert_array_equal(
+            np.asarray(out[0]),
+            np.array([[0., 1., 0., 3., 0.], [0., 6., 0., 8., 0.]]),
+        )
+
+    def test_maxunpool_odd_size_preserves_all_maxima_with_output_size(self):
+        with seeded(7):
+            # strictly positive, so the zeros filled in by unpooling never win a re-pool
+            arr = brainstate.random.rand(3, 9, 4) + 0.1
+        pool = nn.MaxPool1d(2, 2, channel_axis=-1, return_indices=True)
+        pooled, indices = pool(arr)
+        out = nn.MaxUnpool1d(2, 2, channel_axis=-1)(pooled, indices, output_size=(9,))
+        # every pooled maximum appears exactly once, nothing else is non-zero
+        self.assertEqual(int((np.asarray(out) != 0).sum()), pooled.size)
+        np.testing.assert_allclose(np.sort(np.asarray(out)[np.asarray(out) != 0]),
+                                   np.sort(np.asarray(pooled).ravel()))
+        # re-pooling the unpooled tensor recovers the pooled values
+        np.testing.assert_allclose(np.asarray(nn.MaxPool1d(2, 2, channel_axis=-1)(out)), np.asarray(pooled))
+
+    def test_maxunpool_without_output_size_uses_natural_size(self):
+        arr = jnp.arange(10.0).reshape(2, 5, 1)
+        pool = nn.MaxPool1d(2, 2, channel_axis=-1, return_indices=True)
+        pooled, indices = pool(arr)
+        out = nn.MaxUnpool1d(2, 2, channel_axis=-1)(pooled, indices)
+        # natural size (2 - 1) * 2 + 2 = 4, not the original 5 (documented)
+        self.assertEqual(out.shape, (2, 4, 1))

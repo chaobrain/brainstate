@@ -855,7 +855,11 @@ class _MaxUnpool(Module):
         indices : Array
             Indices of maximum values from MaxPool1d
         output_size : int or tuple, optional
-            The targeted output size
+            The targeted output size. Pass the original input size whenever it
+            is not the natural size ``(in - 1) * stride - 2 * padding + kernel_size``
+            (e.g. an odd length pooled with stride 2). The indices refer to the
+            original input layout, so omitting ``output_size`` in that case
+            places values at wrong positions.
 
         Returns
         -------
