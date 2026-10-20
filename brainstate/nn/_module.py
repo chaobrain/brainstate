@@ -36,7 +36,7 @@ from brainstate._state import catch_new_states, NewStateCatcher, ParamState, Sho
 from brainstate.graph import Node, states, nodes, flatten
 from brainstate.mixin import ParamDescriber, ParamDesc, not_implemented, is_not_implemented
 from brainstate.typing import Size
-from brainstate.util import FlattedDict, NestedDict
+from brainstate.util import FlattedDict, NestedDict, PrettyAttr
 
 __all__ = [
     'Module',
@@ -238,6 +238,36 @@ class Module(Node, ParamDesc):
         if name.startswith('_'):
             name = name[1:]  # expose ``_name`` as ``name``, etc.
         return name, value
+
+    def __pretty_repr__(self):
+        """Yield the pretty representation of the module.
+
+        Same as :meth:`brainstate.graph.Node.__pretty_repr__`, except that when
+        both ``in_size`` and ``out_size`` are shown they are merged into one
+        leading positional item ``in_size -> out_size``.
+
+        Yields
+        ------
+        PrettyType or PrettyAttr
+            The type header followed by the attribute items.
+
+        Examples
+        --------
+        .. code-block:: python
+
+            >>> import brainstate
+            >>> print(repr(brainstate.nn.Dropout(0.5, in_size=(3,))))
+            Dropout((3,) -> (3,), prob=0.5, broadcast_dims=())
+        """
+        items = list(super().__pretty_repr__())
+        sizes = {
+            it.key: it for it in items[1:]
+            if isinstance(it, PrettyAttr) and it.key in ('in_size', 'out_size')
+        }
+        if len(sizes) == 2:
+            shape = PrettyAttr('', f"{sizes['in_size'].value!r} -> {sizes['out_size'].value!r}")
+            items = [items[0], shape] + [it for it in items[1:] if it.key not in sizes]
+        yield from items
 
     def __call__(self, *args, **kwargs):
         return self.update(*args, **kwargs)

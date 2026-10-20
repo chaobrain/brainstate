@@ -2994,5 +2994,46 @@ class TestHiddenStateSetGetBranches(unittest.TestCase):
         np.testing.assert_allclose(np.asarray(u.get_magnitude(got)), np.full((4, 3), 6.0))
 
 
+class TestStateReprFormat(unittest.TestCase):
+    """Compact ``State`` / ``TreefyState`` repr."""
+
+    def test_array_value_is_positional(self):
+        self.assertEqual(repr(brainstate.ParamState(jnp.zeros((2, 3)))), 'ParamState(f32[2,3])')
+        self.assertEqual(repr(brainstate.HiddenState(jnp.zeros(2, dtype=jnp.int32))), 'HiddenState(i32[2])')
+
+    def test_quantity_value(self):
+        self.assertEqual(repr(brainstate.HiddenState(jnp.zeros(3) * u.mV)), 'HiddenState(f32[3] mV)')
+
+    def test_dict_value_brace_form(self):
+        s = brainstate.ParamState({'weight': jnp.zeros((2, 3)), 'bias': jnp.zeros(3), 'a-b': jnp.zeros(1)})
+        self.assertEqual(repr(s), "ParamState{'a-b': f32[1], bias: f32[3], weight: f32[2,3]}")
+
+    def test_metadata_falls_back_to_parentheses(self):
+        s = brainstate.ParamState({'w': jnp.zeros(2)}, name='p', tag='t')
+        self.assertEqual(repr(s), "ParamState({'w': f32[2]}, name='p', tag={'t'})")
+
+    def test_scalar_and_python_values(self):
+        self.assertEqual(repr(brainstate.ShortTermState(jnp.asarray(1.5))), 'ShortTermState(f32[])')
+        self.assertEqual(repr(brainstate.ShortTermState(None)), 'ShortTermState(None)')
+
+    def test_treefy_state(self):
+        ref = brainstate.ParamState(jnp.zeros(3), name='w').to_state_ref()
+        text = repr(ref)
+        self.assertEqual(text, "TreefyState(type=ParamState, value=f32[3], name='w')")
+        self.assertNotIn('_hooks_manager', text)
+        self.assertNotIn('tag', text)
+
+    def test_repr_inside_jit(self):
+        texts = []
+
+        @jax.jit
+        def f(x):
+            texts.append(repr(brainstate.ShortTermState(x)))
+            return x
+
+        f(jnp.zeros(4))
+        self.assertEqual(texts, ['ShortTermState(f32[4])'])
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -32,6 +32,7 @@ from brainstate.util._pretty_repr import (
     yield_unique_pretty_repr_items,
     _default_repr_object,
     _default_repr_attr,
+    repr_options,
 )
 
 
@@ -357,7 +358,9 @@ class TestMappingReprMixin(unittest.TestCase):
                 return pretty_repr_object(self)
 
         text = repr(PrettyDict({'a': 1, 'b': 2}))
-        self.assertEqual(text, "{\n  'a': 1,\n  'b': 2\n}")
+        self.assertEqual(text, "{'a': 1, 'b': 2}")
+        with repr_options(width=8):
+            self.assertEqual(repr(PrettyDict({'a': 1, 'b': 2})), "{\n  'a': 1,\n  'b': 2,\n}")
 
 
 class TestPrettyMapping(unittest.TestCase):

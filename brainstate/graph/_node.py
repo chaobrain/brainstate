@@ -17,16 +17,19 @@
 
 from __future__ import annotations
 
+import math
 from abc import ABCMeta
 from copy import deepcopy
 from typing import Any, Callable, TypeVar, TYPE_CHECKING
 
+import brainunit as u
 import jax
+import numpy as np
 
 from brainstate._error import TraceContextError
-from brainstate._state import State, TreefyState
+from brainstate._state import State, TreefyState, ParamState
 from brainstate.typing import Key
-from brainstate.util import PrettyObject
+from brainstate.util import PrettyObject, ReprSummary
 from ._operations import treefy_split, treefy_merge
 from ._walk import register_graph_node_type, iter_leaf
 
@@ -115,6 +118,43 @@ class Node(PrettyObject, metaclass=GraphNodeMeta):
             return None
         return name, value
 
+    def __pretty_repr_summary__(self) -> ReprSummary:
+        """Summarise the size of the states reachable from this node.
+
+        Each :class:`~brainstate.State` is counted once even when it is shared
+        by several sub-nodes. Elements of :class:`~brainstate.ParamState`
+        values count as parameters; elements of every other state count as
+        state values. The raw stored value is inspected, so no state read
+        hooks are triggered.
+
+        Returns
+        -------
+        ReprSummary
+            Element counts and byte sizes, shown as ``# ...`` comments in the
+            node's ``repr``.
+
+        Examples
+        --------
+        .. code-block:: python
+
+            >>> import brainstate
+            >>> s = brainstate.nn.Linear(3, 4).__pretty_repr_summary__()
+            >>> s.n_params, s.param_bytes
+            (16, 64)
+        """
+        n_params = param_bytes = n_values = value_bytes = 0
+        for _, leaf in iter_leaf(self):
+            if not isinstance(leaf, State):
+                continue
+            size, nbytes = _value_size(vars(leaf).get('_value'))
+            if isinstance(leaf, ParamState):
+                n_params += size
+                param_bytes += nbytes
+            else:
+                n_values += size
+                value_bytes += nbytes
+        return ReprSummary(n_params, param_bytes, n_values, value_bytes)
+
     def __deepcopy__(self: G, memo=None) -> G:
         graphdef, state = treefy_split(self)
         # ``state`` is a pytree of ``TreefyState`` whose only leaves are the
@@ -155,6 +195,19 @@ class Node(PrettyObject, metaclass=GraphNodeMeta):
 # -------------------------------
 # Graph node helper functions
 # -------------------------------
+
+
+def _value_size(value: Any) -> tuple[int, int]:
+    """Return ``(n_elements, n_bytes)`` over the array leaves of ``value``."""
+    size = nbytes = 0
+    for leaf in jax.tree.leaves(value):
+        leaf = u.get_mantissa(leaf)
+        if not hasattr(leaf, 'shape') or not hasattr(leaf, 'dtype'):
+            continue
+        n = math.prod(leaf.shape)
+        size += n
+        nbytes += n * np.dtype(leaf.dtype).itemsize
+    return size, nbytes
 
 
 def _node_flatten(node: Node) -> tuple[list[tuple[str, Any]], tuple[type]]:

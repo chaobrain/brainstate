@@ -10,6 +10,7 @@ import dataclasses
 from typing import Any, Dict
 
 import brainstate
+from brainstate.util import PrettyAttr, PrettyRepr, PrettyType, format_array_like, pretty_repr_object
 from brainstate.util.struct import dataclass, field
 
 Array = brainstate.typing.ArrayLike
@@ -24,7 +25,7 @@ def is_dataclass(cls):
 
 
 @dataclass
-class HiData:
+class HiData(PrettyRepr):
     """
     Hierarchical state container for composed dynamics.
 
@@ -49,11 +50,7 @@ class HiData:
 
         >>> data = HiData(name='config', learning_rate=0.01, batch_size=32)
         >>> print(data)
-        ParamData(
-          name='config',
-          learning_rate=0.01,
-          batch_size=32
-        )
+        HiData(name='config', learning_rate=0.01, batch_size=32)
 
         Create nested Data objects:
 
@@ -62,17 +59,10 @@ class HiData:
         >>> model = HiData(name='model', weights=np.array([1, 2, 3]))
         >>> config = HiData(name='config', optimizer=optimizer, model=model)
         >>> print(config)
-        ParamData(
+        HiData(
           name='config',
-          optimizer=ParamData(
-            name='optimizer',
-            lr=0.001,
-            momentum=0.9
-          ),
-          model=ParamData(
-            name='model',
-            weights=Array(shape=(3,), dtype=int64)
-          )
+          optimizer=HiData(name='optimizer', lr=0.001, momentum=0.9),
+          model=HiData(name='model', weights=i64[3]),
         )
 
         Access children using attribute or dictionary syntax:
@@ -129,92 +119,36 @@ class HiData:
         return self.children.values()
 
     def __repr__(self) -> str:
-        """Return hierarchical string representation."""
-        return self._repr_recursive(indent=0)
+        """Return the hierarchical pretty representation."""
+        return pretty_repr_object(self)
 
-    def _repr_recursive(self, indent: int = 0) -> str:
+    __repr__._uses_pretty_repr = True
+
+    def __pretty_repr__(self):
+        """Yield the pretty representation: ``name`` followed by the children.
+
+        Nested ``HiData`` objects, containers and arrays are laid out by the
+        shared pretty-repr engine; other values whose ``repr`` is longer than
+        60 characters are truncated with ``...``.
+
+        Yields
+        ------
+        PrettyType or PrettyAttr
+            The type header followed by the items.
         """
-        Generate hierarchical representation with indentation.
+        yield PrettyType(type(self))
+        yield PrettyAttr('name', repr(self.name))
+        for key, value in self.children.items():
+            yield PrettyAttr(key, self._format_value(value))
 
-        Format:
-            HiData(
-              name='value',
-              child1=value1,
-              child2=HiData(
-                name='nested',
-                subchild=42
-              ),
-              child3=value3
-            )
-
-        Parameters
-        ----------
-        indent
-            Current indentation level.
-
-        Returns
-        -------
-        String representation of this HiData and its children.
-        """
-        indent_str = "  " * indent
-        name_str = f"'{self.name}'" if self.name else "None"
-
-        # All children use '=' separator
-        separator = "="
-
-        if not self.children:
-            # Empty Data object
-            return f"{indent_str}HiData(name={name_str})"
-
-        # Start with Data( and name parameter
-        lines = [f"{indent_str}HiData("]
-        lines.append(f"{indent_str}  name={name_str},")
-
-        # Add children as parameters
-        child_items = list(self.children.items())
-        for i, (key, value) in enumerate(child_items):
-            is_last = (i == len(child_items) - 1)
-            comma = "" if is_last else ","
-
-            if isinstance(value, HiData):
-                # Recursively format nested Data objects
-                nested_repr = value._repr_recursive(indent + 1)
-                # Remove the leading indent from nested_repr since we're adding it ourselves
-                nested_lines = nested_repr.split('\n')
-                nested_lines[0] = nested_lines[0].lstrip()
-                nested_repr = '\n'.join(nested_lines)
-                lines.append(f"{indent_str}  {key}{separator}{nested_repr}{comma}")
-            else:
-                # Format other values
-                value_repr = self._format_value(value)
-                lines.append(f"{indent_str}  {key}{separator}{value_repr}{comma}")
-
-        # Close with parenthesis
-        lines.append(f"{indent_str})")
-
-        return "\n".join(lines)
-
-    def _format_value(self, value: Any) -> str:
-        """
-        Format a non-HiData value for display.
-
-        Parameters
-        ----------
-        value
-            The value to format.
-
-        Returns
-        -------
-        Formatted string representation.
-        """
-        if value is None:
-            return "None"
-
-        # Handle arrays with shape information
-        if hasattr(value, 'shape') and hasattr(value, 'dtype'):
-            return f"Array(shape={value.shape}, dtype={value.dtype})"
-
-        # Handle other types
+    @staticmethod
+    def _format_value(value: Any) -> Any:
+        """Return ``value`` for the engine, or a truncated ``repr`` string."""
+        if (
+            isinstance(value, (PrettyRepr, list, tuple, dict))
+            or format_array_like(value) is not None
+        ):
+            return value
         value_str = repr(value)
         if len(value_str) > 60:
             return f"{value_str[:57]}..."

@@ -31,6 +31,8 @@ from typing import Callable, Sequence, Tuple
 import brainunit as u
 import numpy as np
 
+from brainstate.util import PrettyAttr, PrettyRepr, PrettyType
+
 __all__ = [
     'Transform',
     'Identity',
@@ -44,7 +46,7 @@ __all__ = [
 ]
 
 
-class Transform:
+class Transform(PrettyRepr):
     """Base class for an invertible array transform."""
 
     def forward(self, x):
@@ -55,8 +57,18 @@ class Transform:
         """Map a foreign-layout array back to the brainstate layout."""
         raise NotImplementedError
 
-    def __repr__(self):
-        return f"{type(self).__name__}()"
+    def __pretty_repr__(self):
+        """Yield the pretty representation: the type and :meth:`_repr_items`."""
+        yield PrettyType(type(self))
+        for key, value in self._repr_items():
+            yield PrettyAttr(key, repr(value) if isinstance(value, str) else value)
+
+    def _repr_items(self):
+        """Return the ``(name, value)`` pairs shown in the ``repr``.
+
+        An empty name renders the value positionally.
+        """
+        return ()
 
 
 class Identity(Transform):
@@ -88,8 +100,8 @@ class Transpose(Transform):
     def inverse(self, x):
         return u.math.transpose(x, self.inv_perm)
 
-    def __repr__(self):
-        return f"Transpose(perm={self.perm})"
+    def _repr_items(self):
+        return [('perm', self.perm)]
 
 
 class PermuteAxes(Transpose):
@@ -142,8 +154,8 @@ class AddScalar(Transform):
     def inverse(self, x):
         return u.math.subtract(x, u.Quantity(self.constant, unit=u.get_unit(x)))
 
-    def __repr__(self):
-        return f"AddScalar({self.constant})"
+    def _repr_items(self):
+        return [('', self.constant)]
 
 
 class ReorderBlocks(Transform):
@@ -177,8 +189,8 @@ class ReorderBlocks(Transform):
     def inverse(self, x):
         return self._apply(x, self.inv_order)
 
-    def __repr__(self):
-        return f"ReorderBlocks(axis={self.axis}, order={self.order})"
+    def _repr_items(self):
+        return [('axis', self.axis), ('order', self.order)]
 
 
 class SplitConcat(Transform):
@@ -207,8 +219,8 @@ class SplitConcat(Transform):
     def inverse(self, xs) -> object:
         return u.math.concatenate(list(xs), axis=self.axis)
 
-    def __repr__(self):
-        return f"SplitConcat(axis={self.axis}, sizes={self.sizes})"
+    def _repr_items(self):
+        return [('axis', self.axis), ('sizes', self.sizes)]
 
 
 class Chain(Transform):
@@ -233,5 +245,5 @@ class Chain(Transform):
             x = tf.inverse(x)
         return x
 
-    def __repr__(self):
-        return f"Chain({', '.join(map(repr, self.transforms))})"
+    def _repr_items(self):
+        return [('', t) for t in self.transforms]

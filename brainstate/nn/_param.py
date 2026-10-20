@@ -397,9 +397,8 @@ class Param(Module):
                     'precompute',
                     '_cache_invalidation_hook_handle'):
             return None
-        if name.startswith('_'):
-            return None if value is None else (name[1:], value)  # skip the first `_`
-        return name, value
+        # drops ``None`` / invisible attributes and exposes ``_x`` as ``x``
+        return super().__pretty_repr_item__(name, value)
 
     @classmethod
     def init(

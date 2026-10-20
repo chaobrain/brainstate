@@ -29,6 +29,7 @@ from jax import lax
 from brainstate import environ
 from brainstate._compatible_import import Tracer, concrete_or_error
 from brainstate._state import State
+from brainstate.util import PrettyAttr, PrettyType
 from brainstate.transform._named_scope import named_scope
 from brainstate.typing import DTypeLike, Size, SeedOrKey
 from ._impl import (
@@ -138,8 +139,29 @@ class RandomState(State):
 
         self._backup = None
 
-    def __repr__(self):
-        return f'{self.__class__.__name__}({self.value})'
+    def __pretty_repr__(self):
+        """Yield the pretty representation: the key type and its raw bits.
+
+        The stored key is inspected directly, so no read hooks run and a lazy
+        raw-key placeholder is not materialised. The key bits are shown when
+        they are concrete and short, since they identify the random stream.
+
+        Examples
+        --------
+        .. code-block:: python
+
+            >>> import brainstate
+            >>> print(repr(brainstate.random.RandomState(42)))
+            RandomState(key<fry>[], data=[0, 42])
+        """
+        key = vars(self).get('_value')
+        yield PrettyType(type(self))
+        yield PrettyAttr('', key)
+        data = jr.key_data(key) if _is_typed_key(key) else key
+        if isinstance(data, (np.ndarray, jax.Array)) and not isinstance(data, Tracer) and data.size <= 8:
+            yield PrettyAttr('data', np.asarray(data).tolist())
+        if self.name is not None:
+            yield PrettyAttr('name', repr(self.name))
 
     def check_if_deleted(self):
         # Lazily wrap a stored raw-key placeholder into a typed key on first read.
