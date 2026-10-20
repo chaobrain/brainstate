@@ -1520,3 +1520,87 @@ class TestVmap2NewStatesNoTracerLeak(unittest.TestCase):
         vmap2_new_states(m, {}, axis_size=3)
         self.assertEqual(m.x.value.shape, (3, 2))
         self.assertTrue(jnp.allclose(counter.value, 1.0))
+
+
+class TestMultiDeviceAuditRegressions(unittest.TestCase):
+    """Audit fixes exercised on real (simulated) multi-device pmap2 paths."""
+
+    def setUp(self):
+        self.n = jax.local_device_count()
+        if self.n < 2:
+            self.skipTest("Requires at least 2 devices")
+
+    def test_pmap2_state_with_mixed_batched_and_unbatched_leaves(self):
+        st = brainstate.ShortTermState({'a': jnp.zeros(4), 'b': jnp.ones(())})
+
+        @pmap2(in_axes=0, axis_name='d', state_out_axes={0: filter.OfType(brainstate.ShortTermState)})
+        def update(x):
+            st.value = {'a': st.value['a'] + x, 'b': st.value['b']}
+            return x.sum()
+
+        xs = jnp.arange(self.n * 4.).reshape(self.n, 4)
+        update(xs)
+        self.assertEqual(st.value['a'].shape, (self.n, 4))
+        self.assertTrue(jnp.allclose(st.value['a'], xs))
+        self.assertTrue(jnp.allclose(st.value['b'], 1.0))
+
+    def test_pmap2_of_jit_with_static_argname_passed_positionally(self):
+        @brainstate.transform.jit(static_argnames='k')
+        def scale(x, k):
+            return x * jnp.ones(k).sum()
+
+        out = pmap2(lambda x: scale(x, 3), in_axes=0)(jnp.ones((self.n, 2)))
+        self.assertEqual(out.shape, (self.n, 2))
+        self.assertTrue(jnp.allclose(out, 3.0))
+
+    def test_pmap2_new_states_rolls_back_preexisting_state(self):
+        counter = brainstate.ShortTermState(jnp.zeros(()))
+
+        class M(brainstate.nn.Module):
+            def init_all_states(self, **kw):
+                self.x = brainstate.ShortTermState(brainstate.random.rand(2))
+                counter.value = counter.value + self.x.value.sum()
+
+        with self.assertRaises(ValueError):
+            pmap2_new_states(M(), {}, axis_size=self.n)
+        self.assertNotIsInstance(counter.value, jax.core.Tracer)
+        self.assertTrue(jnp.allclose(counter.value, 0.0))
+
+    def test_pmap2_side_effect_runs_once_per_device(self):
+        calls = []
+
+        @pmap2(in_axes=0, axis_name='d')
+        def f(x):
+            jax.debug.callback(lambda v: calls.append(v), x.sum())
+            return x * 2
+
+        out = f(jnp.ones((self.n, 2)))
+        jax.effects_barrier()
+        self.assertTrue(jnp.allclose(out, 2.0))
+        self.assertEqual(len(calls), self.n)
+
+
+class TestNewStatesUnderOuterTrace(unittest.TestCase):
+    """Writes of live outer-trace values to pre-existing states are not leaks."""
+
+    def test_vmap2_new_states_inside_jit_keeps_outer_tracer_write(self):
+        counter = brainstate.ShortTermState(jnp.zeros(()))
+
+        class M(brainstate.nn.Module):
+            def __init__(self, v):
+                super().__init__()
+                self.v = v
+
+            def init_all_states(self, **kw):
+                self.x = brainstate.ShortTermState(jnp.zeros(2))
+                counter.value = self.v  # a tracer of the enclosing jit
+
+        @brainstate.transform.jit
+        def run(v):
+            m = M(v)
+            vmap2_new_states(m, {}, axis_size=3)
+            return m.x.value.sum() + counter.value
+
+        out = run(jnp.asarray(2.0))
+        self.assertTrue(jnp.allclose(out, 2.0))
+        self.assertTrue(jnp.allclose(counter.value, 2.0))

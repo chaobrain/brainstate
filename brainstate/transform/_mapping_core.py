@@ -96,7 +96,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from brainstate._compatible_import import BatchTracer
+from brainstate._compatible_import import BatchTracer, trace_ctx
 from brainstate._error import BatchAxisError
 from brainstate._state import State, StateTraceStack, TRACE_CONTEXT, NonBatchState
 from brainstate.util import filter as filter_module
@@ -576,13 +576,33 @@ def unwind_new_state_levels(states, base_level: int) -> None:
             st.decrease_stack_level()
 
 
+def _active_trace_ids() -> set:
+    """Ids of the current trace and all of its parents (``parent_trace`` chain)."""
+    ids = set()
+    trace = getattr(trace_ctx, 'trace', None)
+    while trace is not None and id(trace) not in ids:
+        ids.add(id(trace))
+        trace = getattr(trace, 'parent_trace', None)
+    return ids
+
+
 def _holds_dead_tracer(value) -> bool:
-    """Whether ``value`` contains a JAX tracer of an already finished trace."""
+    """Whether ``value`` contains a JAX tracer of an already finished trace.
+
+    A trace is finished if it was invalidated, or if it is no longer reachable
+    from the current trace. The second check is needed for ``jax.pmap``, whose
+    inner ``DynamicJaxprTrace`` is not invalidated when the call returns.
+    """
+    active = None
     for leaf in jax.tree.leaves(value):
         if isinstance(leaf, jax.core.Tracer):
             trace = getattr(leaf, '_trace', None)
             is_valid = getattr(trace, 'is_valid', None)
             if is_valid is not None and not is_valid():
+                return True
+            if active is None:
+                active = _active_trace_ids()
+            if trace is not None and active and id(trace) not in active:
                 return True
     return False
 
