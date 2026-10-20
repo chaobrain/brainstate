@@ -6,6 +6,10 @@ Compatibility with JAX 0.11.2, and the supported floor is raised to `jax>=0.9.0`
 
 ### Bug Fixes
 
+#### `brainstate.environ`
+
+- **`import brainstate` no longer disables float64**: importing brainstate used to force `jax_enable_x64` to `False`, overriding users who had enabled it with `jax.config.update('jax_enable_x64', True)` or `JAX_ENABLE_X64=1`. The global environment now starts from JAX's setting (precision 64 if x64 is on, otherwise 32) and leaves the JAX config untouched at import. `reset()`, new threads, new `EnvironmentState()` objects and the `get_precision()` fallback use that import-time precision instead of a hard-coded 32. Explicit `set(precision=...)`, `set_precision()` and `context(precision=...)` still drive `jax_enable_x64`. With JAX's default (x64 off) nothing changes.
+
 #### `brainstate.transform` (IR processing)
 
 - **Jaxprs built without `DebugInfo`**: `eqns_to_jaxpr()`, `eqns_to_closed_jaxpr()`, common-subexpression elimination in `optimize_jaxpr()`, and the constant folding behind `fn_to_python_code()` / `jaxpr_to_python_code()` constructed `Jaxpr` objects without a `DebugInfo`, which JAX deprecates and will turn into an error ([jax-ml/jax#26480](https://github.com/jax-ml/jax/issues/26480)). Freshly assembled jaxprs now carry a `DebugInfo` from the new `brainstate._compatible_import.make_debug_info()` helper; rewritten jaxprs keep the source jaxpr's function name and location with argument/result names dropped (`DebugInfo.with_unknown_names()`), since passes such as constant folding may prune inputs.

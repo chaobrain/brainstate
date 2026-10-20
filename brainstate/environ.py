@@ -144,6 +144,13 @@ DEFAULT_PRECISION = 32
 SUPPORTED_PLATFORMS = ('cpu', 'gpu', 'tpu')
 SUPPORTED_PRECISIONS = (8, 16, 32, 64, 'bf16')
 
+# Precision that every fresh environment starts from, read once at import from
+# JAX's own ``jax_enable_x64`` flag. Importing brainstate therefore never
+# overrides a user who enabled float64 beforehand (``jax.config.update`` or the
+# ``JAX_ENABLE_X64`` environment variable); with JAX's default (x64 off) this is
+# ``DEFAULT_PRECISION``.
+_INITIAL_PRECISION = 64 if config.jax_enable_x64 else DEFAULT_PRECISION
+
 # Sentinel value for missing arguments
 _NOT_PROVIDED = object()
 
@@ -176,9 +183,11 @@ class EnvironmentState(threading.local):
 
     def __post_init__(self):
         """Initialize with default settings."""
-        # Set default precision if not already set
+        # Start from the import-time precision if not already set. This also
+        # runs for each new thread (``threading.local``), keeping worker threads
+        # consistent with JAX's x64 setting at import.
         if PRECISION not in self.settings:
-            self.settings[PRECISION] = DEFAULT_PRECISION
+            self.settings[PRECISION] = _INITIAL_PRECISION
 
 
 # Global environment state
@@ -225,12 +234,18 @@ def reset(*, env: Optional[EnvironmentState] = None) -> None:
     Notes
     -----
     This operation cannot be undone. All custom settings will be lost.
+
+    Precision is restored to the value the environment had when brainstate was
+    imported: 64 if JAX's ``jax_enable_x64`` was enabled at that point (through
+    ``jax.config.update`` or ``JAX_ENABLE_X64``), otherwise
+    ``DEFAULT_PRECISION`` (32). Resetting the global environment also re-applies
+    that precision to JAX's ``jax_enable_x64`` flag.
     """
     global _ENV_STATE
     if env is None or env is _ENV_STATE:
         _ENV_STATE = EnvironmentState()
-        # Re-apply default precision to JAX
-        _set_jax_precision(DEFAULT_PRECISION)
+        # Re-apply the import-time precision to JAX
+        _set_jax_precision(_INITIAL_PRECISION)
     else:
         # Reset the custom env by clearing its state
         env.settings.clear()
@@ -239,8 +254,8 @@ def reset(*, env: Optional[EnvironmentState] = None) -> None:
         # Also drop the per-key locks: leaving them behind keeps stale
         # RLock objects around for keys that no longer have any settings.
         env.locks.clear()
-        # Re-initialize with default precision
-        env.settings[PRECISION] = DEFAULT_PRECISION
+        # Re-initialize with the import-time precision
+        env.settings[PRECISION] = _INITIAL_PRECISION
 
     warnings.warn(
         "Environment has been reset to default settings. "
@@ -1213,7 +1228,7 @@ def get_precision(*, env: Optional[EnvironmentState] = None) -> int:
     -----
     'bf16' (bfloat16) is reported as 16-bit precision.
     """
-    precision = get(PRECISION, default=DEFAULT_PRECISION, env=env)
+    precision = get(PRECISION, default=_INITIAL_PRECISION, env=env)
 
     if precision == 'bf16':
         return 16
@@ -1235,7 +1250,7 @@ def _validate_precision(precision: PrecisionType) -> None:
 
 def _get_precision(*, env: Optional['EnvironmentState'] = None) -> PrecisionType:
     """Get raw precision value (including 'bf16')."""
-    return get(PRECISION, default=DEFAULT_PRECISION, env=env)
+    return get(PRECISION, default=_INITIAL_PRECISION, env=env)
 
 
 def _set_jax_precision(precision: PrecisionType) -> None:
@@ -1820,7 +1835,3 @@ def list_registered_behaviors(*, env: Optional[EnvironmentState] = None) -> List
         env = _ENV_STATE
 
     return list(env.functions.keys())
-
-
-# Initialize default precision on module load
-set(precision=DEFAULT_PRECISION)
