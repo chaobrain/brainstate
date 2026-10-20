@@ -1938,3 +1938,87 @@ class TestMaxUnpoolOddSizesFurther(unittest.TestCase):
         out = nn.MaxUnpool1d(2, 2, channel_axis=-1)(pooled, indices)
         # natural size (2 - 1) * 2 + 2 = 4, not the original 5 (documented)
         self.assertEqual(out.shape, (2, 4, 1))
+
+
+class TestMaxUnpoolSizeIndependentIndices(unittest.TestCase):
+    """MaxUnpool decodes indices without knowing the original input size."""
+
+    @staticmethod
+    def _ref_unpool(x, k, s, p, out_shape):
+        # PyTorch-semantics reference for (B, *spatial, C) with symmetric padding p
+        x = np.asarray(x)
+        nd = x.ndim - 2
+        padded = np.pad(x, [(0, 0)] + [(p, p)] * nd + [(0, 0)], constant_values=-np.inf)
+        pooled_shape = [(x.shape[1 + d] + 2 * p - k) // s + 1 for d in range(nd)]
+        ref = np.zeros((x.shape[0],) + tuple(out_shape) + (x.shape[-1],), dtype=x.dtype)
+        for b in range(x.shape[0]):
+            for c in range(x.shape[-1]):
+                for o in np.ndindex(*pooled_shape):
+                    sl = tuple(slice(o[d] * s, o[d] * s + k) for d in range(nd))
+                    win = padded[(b,) + sl + (c,)]
+                    w = np.unravel_index(np.argmax(win), win.shape)
+                    coord = tuple(o[d] * s + w[d] - p for d in range(nd))
+                    if all(0 <= coord[d] < out_shape[d] for d in range(nd)):
+                        ref[(b,) + coord + (c,)] = win[w]
+        return ref
+
+    def test_1d_odd_size_without_output_size(self):
+        arr = jnp.arange(10.0).reshape(2, 5, 1)
+        pooled, idx = nn.MaxPool1d(2, 2, channel_axis=-1, return_indices=True)(arr)
+        out = nn.MaxUnpool1d(2, 2, channel_axis=-1)(pooled, idx)
+        self.assertEqual(out.shape, (2, 4, 1))
+        np.testing.assert_array_equal(np.asarray(out[..., 0]), [[0., 1., 0., 3.], [0., 6., 0., 8.]])
+
+    def test_2d_odd_size_without_output_size(self):
+        with seeded(11):
+            arr = brainstate.random.randn(2, 5, 7, 3)
+        pooled, idx = nn.MaxPool2d(2, 2, channel_axis=-1, return_indices=True)(arr)
+        out = nn.MaxUnpool2d(2, 2, channel_axis=-1)(pooled, idx)
+        self.assertEqual(out.shape, (2, 4, 6, 3))
+        np.testing.assert_allclose(np.asarray(out), self._ref_unpool(arr, 2, 2, 0, (4, 6)))
+
+    def test_3d_odd_size_without_output_size(self):
+        with seeded(12):
+            arr = brainstate.random.randn(1, 5, 3, 7, 2)
+        pooled, idx = nn.MaxPool3d(2, 2, channel_axis=-1, return_indices=True)(arr)
+        out = nn.MaxUnpool3d(2, 2, channel_axis=-1)(pooled, idx)
+        np.testing.assert_allclose(np.asarray(out), self._ref_unpool(arr, 2, 2, 0, (4, 2, 6)))
+
+    def test_odd_size_output_size_still_honored(self):
+        with seeded(13):
+            arr = brainstate.random.randn(2, 5, 7, 3)
+        pooled, idx = nn.MaxPool2d(2, 2, channel_axis=-1, return_indices=True)(arr)
+        out = nn.MaxUnpool2d(2, 2, channel_axis=-1)(pooled, idx, output_size=(5, 7))
+        np.testing.assert_allclose(np.asarray(out), self._ref_unpool(arr, 2, 2, 0, (5, 7)))
+
+    def test_padded_pooling_roundtrip(self):
+        with seeded(14):
+            arr = brainstate.random.randn(2, 6, 2)
+        pooled, idx = nn.MaxPool1d(3, 2, padding=1, channel_axis=-1, return_indices=True)(arr)
+        unpool = nn.MaxUnpool1d(3, 2, padding=1, channel_axis=-1)
+        np.testing.assert_allclose(np.asarray(unpool(pooled, idx, output_size=(6,))),
+                                   self._ref_unpool(arr, 3, 2, 1, (6,)))
+        # natural size (3 - 1) * 2 - 2 + 3 = 5
+        np.testing.assert_allclose(np.asarray(unpool(pooled, idx)),
+                                   self._ref_unpool(arr, 3, 2, 1, (5,)))
+
+    def test_overlapping_windows_odd_size(self):
+        with seeded(15):
+            arr = brainstate.random.randn(2, 8, 2)
+        pooled, idx = nn.MaxPool1d(3, 2, channel_axis=-1, return_indices=True)(arr)
+        out = nn.MaxUnpool1d(3, 2, channel_axis=-1)(pooled, idx)
+        # natural size (3 - 1) * 2 + 3 = 7 for an input of 8
+        np.testing.assert_allclose(np.asarray(out), self._ref_unpool(arr, 3, 2, 0, (7,)))
+
+    def test_divisible_unpadded_indices_unchanged(self):
+        """For evenly divisible inputs without padding, indices still gather the maxima."""
+        with seeded(16):
+            arr = brainstate.random.randn(2, 6, 4, 3)
+        pooled, idx = nn.MaxPool2d(2, 2, channel_axis=-1, return_indices=True)(arr)
+        np.testing.assert_allclose(np.asarray(arr).ravel()[np.asarray(idx)], np.asarray(pooled))
+
+    def test_odd_size_under_jit_without_output_size(self):
+        pool = nn.MaxPool1d(2, 2, channel_axis=-1, return_indices=True)
+        unpool = nn.MaxUnpool1d(2, 2, channel_axis=-1)
+        out = jax.jit(lambda a: unpool(*pool(a)))(jnp.arange(10.0).reshape(2, 5, 1))
+        np.testing.assert_array_equal(np.asarray(out[..., 0]), [[0., 1., 0., 3.], [0., 6., 0., 8.]])

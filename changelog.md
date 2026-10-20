@@ -17,6 +17,10 @@ Compatibility with JAX 0.11.2, and the supported floor is raised to `jax>=0.9.0`
 - **`multinomial()` no longer drops draws when `pvals` does not sum to 1**: as in NumPy, the last probability is implied as `1 - sum(pvals[:-1])`, so every row of counts sums to `n`.
 - **`zipf()` accepts a list `size`** (it is now normalized to a tuple before the static-shape `jit`).
 
+#### `brainstate.nn`
+
+- **`MaxUnpool*` works on odd-sized inputs without `output_size`**: `MaxPool*(return_indices=True)` returned flat positions in the original input, whose size `MaxUnpool` cannot know (sizes 4 and 5 both pool to 2), so values were misplaced, even across batch elements. Indices are now flat positions in a size-independent layout of `(out - 1) * stride + kernel_size - padding` per pooled axis, which `MaxUnpool` decodes exactly; the output defaults to the natural size and `output_size` is still honored. **Behavior change:** index values are unchanged for evenly divisible inputs without padding, but for odd or padded inputs `x.ravel()[indices]` no longer gathers the maxima.
+
 #### `brainstate.transform` (IR processing)
 
 - **Jaxprs built without `DebugInfo`**: `eqns_to_jaxpr()`, `eqns_to_closed_jaxpr()`, common-subexpression elimination in `optimize_jaxpr()`, and the constant folding behind `fn_to_python_code()` / `jaxpr_to_python_code()` constructed `Jaxpr` objects without a `DebugInfo`, which JAX deprecates and will turn into an error ([jax-ml/jax#26480](https://github.com/jax-ml/jax/issues/26480)). Freshly assembled jaxprs now carry a `DebugInfo` from the new `brainstate._compatible_import.make_debug_info()` helper; rewritten jaxprs keep the source jaxpr's function name and location with argument/result names dropped (`DebugInfo.with_unknown_names()`), since passes such as constant folding may prune inputs.

@@ -146,3 +146,27 @@ Workflow, per AGENTS.md:
 - `shard_map` and `checkify` re-trace on every call.
 - `closed_call` folding ignores consts.
 - Assorted docstring fixes.
+
+---
+
+## Addendum — MaxUnpool without `output_size` (index format)
+
+**Problem.** `MaxPool(return_indices=True)` returned flat positions in the
+*original* input (batch included). Several input sizes pool to the same shape
+(e.g. 4 and 5 with kernel 2 / stride 2), so `MaxUnpool` could not recover the
+layout and silently misplaced values (even across batch elements) unless the
+exact original `output_size` was passed.
+
+**Decision (approved).** Encode indices in a *size-independent* layout:
+
+- Each index is a flat position in a canvas whose dims are, per axis,
+  `C = (out - 1) * stride + kernel - pad_lo` (non-pooled axes: `C = out`).
+  The canvas depends only on the pooled shape and the pooling parameters, and
+  every element that can win a window has coordinate `< C`.
+- `MaxUnpool` rebuilds `C` from the pooled shape (assuming pool `pad_lo` ==
+  unpool `padding`), unravels against it, and re-ravels into the requested
+  output (natural size `C - padding`, or `output_size`), dropping coordinates
+  outside the output.
+- Shape/dtype of indices are unchanged. Values are unchanged for evenly
+  divisible inputs with `padding=0`. For odd or padded inputs,
+  `x.ravel()[indices]` no longer gathers the maxima (documented).
