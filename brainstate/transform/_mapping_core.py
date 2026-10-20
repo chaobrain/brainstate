@@ -96,7 +96,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from brainstate._compatible_import import BatchTracer
+from brainstate._compatible_import import BatchTracer, trace_ctx
 from brainstate._error import BatchAxisError
 from brainstate._state import State, StateTraceStack, TRACE_CONTEXT, NonBatchState
 from brainstate.util import filter as filter_module
@@ -576,6 +576,84 @@ def unwind_new_state_levels(states, base_level: int) -> None:
             st.decrease_stack_level()
 
 
+def _active_trace_ids() -> set:
+    """Ids of the current trace and all of its parents (``parent_trace`` chain)."""
+    ids = set()
+    trace = getattr(trace_ctx, 'trace', None)
+    while trace is not None and id(trace) not in ids:
+        ids.add(id(trace))
+        trace = getattr(trace, 'parent_trace', None)
+    return ids
+
+
+def _holds_dead_tracer(value) -> bool:
+    """Whether ``value`` contains a JAX tracer of an already finished trace.
+
+    A trace is finished if it was invalidated, or if it is no longer reachable
+    from the current trace. The second check is needed for ``jax.pmap``, whose
+    inner ``DynamicJaxprTrace`` is not invalidated when the call returns.
+    """
+    active = None
+    for leaf in jax.tree.leaves(value):
+        if isinstance(leaf, jax.core.Tracer):
+            trace = getattr(leaf, '_trace', None)
+            is_valid = getattr(trace, 'is_valid', None)
+            if is_valid is not None and not is_valid():
+                return True
+            if active is None:
+                active = _active_trace_ids()
+            if trace is not None and active and id(trace) not in active:
+                return True
+    return False
+
+
+def rollback_leaked_preexisting_states(trace_stack, skip_states) -> List[State]:
+    """Roll back pre-existing states left holding tracers of a finished mapping.
+
+    The new-states mapping paths run the user function under a raw
+    ``jax.vmap`` / ``jax.pmap``. Only the *newly created* (and random) states
+    are scattered back afterwards; a write to a state that existed *before* the
+    transform would otherwise keep a dead mapped tracer forever. Every such
+    state is restored to the value it held when first touched in the trace.
+
+    Parameters
+    ----------
+    trace_stack : StateTraceStack or None
+        The stack that watched the mapped pass. ``None`` is a no-op.
+    skip_states : iterable of State
+        States handled by the caller (new states, random states).
+
+    Returns
+    -------
+    list of State
+        The pre-existing states that were rolled back.
+    """
+    if trace_stack is None:
+        return []
+    skip = set(id(st) for st in skip_states)
+    leaked = []
+    for st, original, written in zip(
+        trace_stack.states, trace_stack.original_state_values, trace_stack.been_writen
+    ):
+        if written and id(st) not in skip and _holds_dead_tracer(st._value):
+            st.restore_value(original)
+            leaked.append(st)
+    return leaked
+
+
+def raise_leaked_preexisting_states(leaked, transform_name: str) -> None:
+    """Raise a ``ValueError`` describing rolled-back pre-existing states."""
+    if leaked:
+        names = ', '.join(type(st).__name__ for st in leaked)
+        raise ValueError(
+            f'{transform_name} only maps states created inside the function, but '
+            f'{len(leaked)} pre-existing state(s) ({names}) were written with '
+            f'batched values. These writes were rolled back. Create those states '
+            f'inside the function, or use brainstate.transform.vmap with '
+            f'out_states to vectorize over pre-existing states.'
+        )
+
+
 # ============================================================================ #
 # Phase 3b -- new-state output-axis resolver (shared by the new-states paths)
 # ============================================================================ #
@@ -758,11 +836,14 @@ def _strip_kwargs(dyn_kwargs):
 def leaf_batch_dim(value) -> Optional[int]:
     """Return the common ``batch_dim`` of a (possibly batched) pytree value.
 
-    Reads ``BatchTracer.batch_dim`` for batched leaves. Returns ``None`` when no
-    leaf is batched. Raises :class:`BatchAxisError` when leaves disagree.
+    Reads ``BatchTracer.batch_dim`` for batched leaves. Unbatched leaves are
+    ignored (they are broadcast along the batch axis on output, as in
+    ``jax.vmap``). Returns ``None`` when no leaf is batched. Raises
+    :class:`BatchAxisError` when batched leaves disagree.
     """
     leaves = jax.tree.leaves(value)
     dims = set(leaf.batch_dim if isinstance(leaf, BatchTracer) else None for leaf in leaves)
+    dims.discard(None)
     if len(dims) == 0:
         return None
     if len(dims) != 1:

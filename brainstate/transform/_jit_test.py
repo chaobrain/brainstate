@@ -357,3 +357,54 @@ class TestAotPathsDoNotWriteStates(unittest.TestCase):
 
     def test_lower_does_not_mark_states_written(self):
         self.assertFalse(self._written_in_outer(lambda jf, x: jf.lower(x)))
+
+
+class TestJitArgnamesInference(unittest.TestCase):
+    """``static_argnames``/``donate_argnames`` also cover positional passing."""
+
+    def test_static_argname_passed_positionally(self):
+        def f(x, n):
+            return jnp.ones(n) * x
+
+        jf = bst.transform.jit(f, static_argnames='n')
+        self.assertEqual(jf(1., 3).shape, (3,))
+        self.assertEqual(jf(1., 4).shape, (4,))
+        self.assertEqual(jf(1., n=5).shape, (5,))
+
+    def test_static_argnum_passed_by_keyword(self):
+        def f(x, n):
+            return jnp.ones(n) * x
+
+        jf = bst.transform.jit(f, static_argnums=1)
+        self.assertEqual(jf(1., n=3).shape, (3,))
+        self.assertEqual(jf(1., 4).shape, (4,))
+
+    def test_static_argname_with_name_option(self):
+        def f(x, n):
+            return jnp.ones(n) * x
+
+        jf = bst.transform.jit(f, static_argnames='n', name='my_f')
+        self.assertEqual(jf(1., 3).shape, (3,))
+
+    def test_static_argname_with_state(self):
+        st = bst.ShortTermState(jnp.zeros(()))
+
+        def f(x, n):
+            st.value = st.value + n
+            return x * n
+
+        jf = bst.transform.jit(f, static_argnames='n')
+        self.assertEqual(float(jf(2., 3)), 6.)
+        self.assertEqual(float(st.value), 3.)
+
+    def test_donate_argname_passed_positionally(self):
+        def f(x, y):
+            return x + y
+
+        jf = bst.transform.jit(f, donate_argnames='x')
+        out = jf(jnp.ones(3), jnp.ones(3))
+        self.assertTrue(jnp.allclose(out, 2.))
+
+    def test_uninspectable_callable(self):
+        jf = bst.transform.jit(jnp.add, static_argnames=())
+        self.assertTrue(jnp.allclose(jf(1., 2.), 3.))

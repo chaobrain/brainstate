@@ -808,6 +808,51 @@ class TestDelayUpdateFrequency(unittest.TestCase):
         self.assertEqual(int(delay.write_ptr.value), 20 % delay.max_length)
 
 
+class TestDelayStepRounding(unittest.TestCase):
+    """Regression tests: float round-off must not shift the delay step by one."""
+
+    def test_get_delay_exact_ratio_not_rounded_up(self):
+        """``0.07 / 0.01 == 7.000000000000001`` must give 7 steps, not 8."""
+        from brainstate.nn._delay import _get_delay
+        for k in [1, 3, 7, 9, 29, 57, 99, 113]:
+            _, step = _get_delay(k * 0.01, 0.01)
+            self.assertEqual(int(step), k, msg=f'k={k}')
+
+    def test_get_delay_float32_ratio(self):
+        """A float32 ratio such as ``9.000001`` gives 9 steps."""
+        from brainstate.nn._delay import _get_delay
+        for k in range(1, 200):
+            _, step = _get_delay(jnp.asarray(k * 0.01, dtype=jnp.float32), 0.01)
+            self.assertEqual(int(step), k, msg=f'k={k}')
+
+    def test_get_delay_fractional_ratio_rounds_up(self):
+        """A genuinely fractional ratio still uses ``ceil``."""
+        from brainstate.nn._delay import _get_delay
+        _, step = _get_delay(0.25, 0.1)
+        self.assertEqual(int(step), 3)
+        _, step = _get_delay(jnp.asarray([0.05, 0.1, 0.11]), 0.1)
+        self.assertEqual(step.tolist(), [1, 1, 2])
+
+    def test_delay_buffer_length(self):
+        """The buffer length of ``Delay`` follows the corrected step count."""
+        with brainstate.environ.context(dt=0.01):
+            delay = brainstate.nn.Delay(jnp.zeros((2,)), time=0.07)
+        self.assertEqual(delay.max_length, 8)
+
+    def test_update_every_step_rounded(self):
+        """``0.3 / 0.1 == 2.9999999999999996`` must give 3 steps, not 2."""
+        with brainstate.environ.context(dt=0.1):
+            delay = brainstate.nn.Delay(jnp.zeros((2,)), time=1.2, update_every=0.3)
+        self.assertEqual(delay.update_every_step, 3)
+
+    def test_update_every_not_multiple_of_dt_warns(self):
+        """A non-integer ``update_every / dt`` ratio warns."""
+        with brainstate.environ.context(dt=0.1):
+            with self.assertWarns(UserWarning):
+                delay = brainstate.nn.Delay(jnp.zeros((2,)), time=1.0, update_every=0.25)
+        self.assertEqual(delay.update_every_step, 2)
+
+
 class TestStateWithDelay(unittest.TestCase):
     """Tests for the state-bound delay buffer."""
 

@@ -24,7 +24,7 @@ description mixins, alignment interfaces, and custom type definitions for
 expressing complex type requirements.
 """
 
-from typing import Any, Sequence, Optional, TypeVar, Union, _GenericAlias
+from typing import Any, Hashable, Sequence, Optional, TypeVar, Union, _GenericAlias
 
 import jax
 
@@ -996,9 +996,23 @@ class Mode(Mixin):
         """
         return self.__class__.__name__
 
+    def _eq_key(self) -> Hashable:
+        """
+        Return the hashable parameters that distinguish modes of the same type.
+
+        Subclasses carrying parameters (e.g. :class:`Batching`) override this so
+        that instances with different parameters compare unequal.
+
+        Returns
+        -------
+        Hashable
+            The parameters used by ``__eq__`` and ``__hash__``.
+        """
+        return ()
+
     def __eq__(self, other: 'Mode'):
         """
-        Check equality of modes based on their type.
+        Check equality of modes based on their type and parameters.
 
         Parameters
         ----------
@@ -1008,27 +1022,28 @@ class Mode(Mixin):
         Returns
         -------
         bool
-            True if both modes are of the same class.
+            True if both modes are of the same class and have equal parameters.
+            ``NotImplemented`` if ``other`` is not a :class:`Mode`.
         """
-        assert isinstance(other, Mode)
-        return other.__class__ == self.__class__
+        if not isinstance(other, Mode):
+            return NotImplemented
+        return other.__class__ == self.__class__ and other._eq_key() == self._eq_key()
 
     def __hash__(self):
         """
-        Return a hash for the mode based on its type.
+        Return a hash for the mode based on its type and parameters.
 
         Defining ``__eq__`` would otherwise set ``__hash__`` to ``None`` and make
-        every Mode instance unhashable. This implementation is consistent with the
-        type-based ``__eq__``: instances of the same class compare equal and hash
-        equal, so a Mode can be used as a dict key, set member, or JAX
-        ``static_argname``.
+        every Mode instance unhashable. This implementation is consistent with
+        ``__eq__``: equal instances hash equal, so a Mode can be used as a dict
+        key, set member, or JAX ``static_argname``.
 
         Returns
         -------
         int
-            The hash of the mode's class.
+            The hash of the mode's class and parameters.
         """
-        return hash(self.__class__)
+        return hash((self.__class__, self._eq_key()))
 
     def is_a(self, mode: type):
         """
@@ -1182,6 +1197,9 @@ class JointMode(Mode):
 
         # Store the types of the modes for quick lookup
         self.types = set([m.__class__ for m in modes])
+
+    def _eq_key(self) -> Hashable:
+        return frozenset(self.modes)
 
     def __repr__(self):
         """
@@ -1386,6 +1404,9 @@ class Batching(Mode):
     def __init__(self, batch_size: int = 1, batch_axis: int = 0):
         self.batch_size = batch_size
         self.batch_axis = batch_axis
+
+    def _eq_key(self) -> Hashable:
+        return (self.batch_size, self.batch_axis)
 
     def __repr__(self):
         """

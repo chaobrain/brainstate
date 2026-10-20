@@ -41,6 +41,9 @@ from ._mapping_core import (  # noqa: E402
     _build_new_state_resolver,
     _resolve_new_state_axis,
     _new_state_probe,
+    _holds_dead_tracer,
+    rollback_leaked_preexisting_states,
+    raise_leaked_preexisting_states,
 )
 
 __all__ = [
@@ -333,18 +336,27 @@ def _vmap_new_states_transform(
         # ``state_out_axes`` here, so the resolver yields just [None, 0].
         ordered, axes_order = _build_new_state_resolver(None)
         new_states_box: Dict[Any, List[State]] = {}
+        # every state created in the mapped pass (including excluded ones) and
+        # the stack watching it, for the post-call leak cleanup
+        run_box: Dict[str, Any] = {'trace': None, 'created': []}
 
         def new_fun(args_, rng_keys_):
             for rng, key in zip(rng_states, rng_keys_):
                 rng.restore_value(key)
-            with catch_new_states(state_tag=state_tag, state_to_exclude=state_to_exclude) as catcher:
-                # plain watcher (no new_arg): ``fun`` runs under a raw
-                # jax.vmap here, and state writes of vmap tracers are
-                # legitimate — an active StateTraceStack keeps the
-                # tracer-write guard quiet (the extra stack level is undone
-                # by unwind_new_state_levels, which is delta-based)
-                with StateTraceStack(name='vmap_new_states:run'):
-                    out = fun(*args_)
+            run_trace = StateTraceStack(name='vmap_new_states:run')
+            run_box['trace'] = run_trace
+            with catch_new_states() as all_catcher:
+                with catch_new_states(state_tag=state_tag, state_to_exclude=state_to_exclude) as catcher:
+                    # plain watcher (no new_arg): ``fun`` runs under a raw
+                    # jax.vmap here, and state writes of vmap tracers are
+                    # legitimate — an active StateTraceStack keeps the
+                    # tracer-write guard quiet (the extra stack level is undone
+                    # by unwind_new_state_levels, which is delta-based)
+                    try:
+                        with run_trace:
+                            out = fun(*args_)
+                    finally:
+                        run_box['created'] = list(all_catcher.get_states())
             grouped_vals: Dict[Any, List] = defaultdict(list)
             grouped_states: Dict[Any, List] = defaultdict(list)
             for st in catcher.get_states():
@@ -356,21 +368,34 @@ def _vmap_new_states_transform(
             return out, tuple(grouped_vals.get(k, []) for k in axes_order)
 
         try:
-            with catch_new_states(state_to_exclude=state_to_exclude):
-                mapped = jax.vmap(
-                    new_fun,
-                    in_axes=(in_axes, 0 if len(rng_states) else None),
-                    out_axes=(out_axes, tuple(axes_order)),
-                    axis_size=axis_size,
-                    axis_name=axis_name,
-                    spmd_axis_name=spmd_axis_name,
-                )
-                outs, grouped_out_vals = mapped(args, rng_keys)
+            mapped = jax.vmap(
+                new_fun,
+                in_axes=(in_axes, 0 if len(rng_states) else None),
+                out_axes=(out_axes, tuple(axes_order)),
+                axis_size=axis_size,
+                axis_name=axis_name,
+                spmd_axis_name=spmd_axis_name,
+            )
+            outs, grouped_out_vals = mapped(args, rng_keys)
         finally:
             # restore the global RNG once -- also on failure, so a crashed
             # mapped pass cannot leave key tracers in the random states
             for rng, key in zip(rng_states, rng_backups):
                 rng.restore_value(key)
+            # pre-existing states written with mapped tracers are rolled back;
+            # states created inside ``fun`` but excluded from mapping are
+            # poisoned if they hold a dead tracer, and unwound either way
+            created = run_box['created']
+            leaked = rollback_leaked_preexisting_states(
+                run_box['trace'], list(created) + list(rng_states)
+            )
+            caught = set(id(st) for states in new_states_box.values() for st in states)
+            excluded = [st for st in created if id(st) not in caught]
+            for st in excluded:
+                if _holds_dead_tracer(st._value):
+                    st._invalidate_trace_value()
+            unwind_new_state_levels(excluded, base_level)
+        raise_leaked_preexisting_states(leaked, 'vmap_new_states')
 
         # restore vmapped new-state values + unwind trace levels (avoids leakage)
         all_new_states: List[State] = []

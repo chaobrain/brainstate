@@ -20,10 +20,16 @@ Provides:
 * a ``--run-slow`` command-line flag; tests marked ``@pytest.mark.slow`` are
   skipped unless it is supplied (keeps the default CI run fast),
 * an autouse fixture that seeds ``brainstate.random`` before every test so
-  randomized tests are deterministic and isolated from one another.
+  randomized tests are deterministic and isolated from one another,
+* 8 simulated CPU devices, so multi-device tests (``shard_map``, sharded
+  ``vmap2``) run on machines without accelerators.
 """
 
+import jax
 import pytest
+
+# Must run before the JAX backend is initialized (i.e. before any array is created).
+jax.config.update('jax_num_cpu_devices', 8)
 
 import brainstate
 

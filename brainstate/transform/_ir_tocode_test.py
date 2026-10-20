@@ -694,6 +694,45 @@ class TestControlFlowHandlers(unittest.TestCase):
         self.assertIn('jax.lax.scan', src)
         self.assertIn('def fn_', src)
 
+    def test_scan_with_consts_executes(self):
+        """Simple-branch scan (1 carry, 1 xs) with a closed-over constant runs."""
+        def f(w, c0, xs):
+            def body(c, e):
+                return c + e * w, c
+            return jax.lax.scan(body, c0, xs)
+        _roundtrip_check(self, f, jnp.float32(2.0), jnp.float32(0.5),
+                         jnp.float32([1., 2., 3.]))
+
+    def test_scan_body_op_on_const_only(self):
+        """A body equation depending only on a const (``w.T``) is not folded."""
+        def f(w, c0, xs):
+            def body(c, e):
+                return c + w.T @ e, c.sum()
+            return jax.lax.scan(body, c0, xs)
+        _roundtrip_check(self, f, jnp.ones((2, 2), jnp.float32),
+                         jnp.zeros(2, jnp.float32), jnp.ones((3, 2), jnp.float32))
+
+    def test_scan_body_ignores_xs(self):
+        """A body ignoring its ``x`` keeps the parameter in the generated code."""
+        def f(w, c0, xs):
+            def body(c, e):
+                return c * w, c
+            return jax.lax.scan(body, c0, xs)
+        _roundtrip_check(self, f, jnp.float32(2.0), jnp.float32(1.0),
+                         jnp.float32([1., 2., 3.]))
+
+    def test_nested_jit_unused_argument(self):
+        """A nested jit with an unused argument keeps its signature."""
+        def f(x, y):
+            return jax.jit(lambda a, b: a * 2.0)(x, y) + y
+        _roundtrip_check(self, f, jnp.float32(1.0), jnp.float32(5.0))
+
+    def test_remat_unused_argument(self):
+        """A checkpointed function with an unused argument keeps its signature."""
+        def f(x, y):
+            return jax.checkpoint(lambda a, b: a * a)(x, y) + y
+        _roundtrip_check(self, f, jnp.float32(2.0), jnp.float32(5.0))
+
 
 class TestScanMapAndClosedCall(unittest.TestCase):
     """Directly exercise the _astify_map and _astify_closed_call handlers.

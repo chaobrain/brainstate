@@ -2254,3 +2254,33 @@ class TestAuditFixes(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestNegativeStaticArgnums(unittest.TestCase):
+    """Negative ``static_argnums`` count from the end, as in ``jax.jit``."""
+
+    def test_stateful_function_negative_static_argnum(self):
+        def f(x, n):
+            return jnp.ones(n) * x
+
+        sf = brainstate.transform.StatefulFunction(f, static_argnums=-1)
+        out3 = sf(1., 3)
+        out4 = sf(1., 4)
+        self.assertEqual(out3.shape, (3,))
+        self.assertEqual(out4.shape, (4,))
+        self.assertNotEqual(sf.get_arg_cache_key(1., 3), sf.get_arg_cache_key(1., 4))
+
+    def test_make_jaxpr_negative_static_argnum(self):
+        def f(x, n):
+            return jnp.ones(n) * x
+
+        maker = brainstate.transform.make_jaxpr(f, static_argnums=-1)
+        jaxpr3, _ = maker(1., 3)
+        jaxpr4, _ = maker(1., 4)
+        self.assertEqual(jaxpr3.out_avals[0].shape, (3,))
+        self.assertEqual(jaxpr4.out_avals[0].shape, (4,))
+
+    def test_negative_static_argnum_out_of_range_raises(self):
+        sf = brainstate.transform.StatefulFunction(lambda x: x, static_argnums=-2)
+        with self.assertRaises(ValueError):
+            sf.make_jaxpr(1.)

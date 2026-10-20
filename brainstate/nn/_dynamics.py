@@ -820,7 +820,24 @@ def _get_prefetch_item_delay(target: Union[Prefetch, PrefetchDelay, PrefetchDela
         f'The target module should be an instance '
         f'of Dynamics. But got {target.module}.'
     )
-    delay = target.module.get_after_update(_get_prefetch_delay_key(target.item))
+    module = target.module
+    key = _get_prefetch_delay_key(target.item, None)
+    if not module.has_after_update(key):
+        # ``PrefetchDelay`` does not record ``update_every``; look up the delay
+        # registered for this item under any ``update_every`` value.
+        prefix = _get_prefetch_delay_key(target.item, '')
+        candidates = [
+            k for k in (module.after_updates or {})
+            if isinstance(k, str) and k.startswith(prefix)
+        ]
+        if len(candidates) == 1:
+            key = candidates[0]
+        elif len(candidates) > 1:
+            raise ValueError(
+                f'Multiple delays are registered for {target.item!r} with different '
+                f'update_every values: {candidates}. Cannot determine which one to use.'
+            )
+    delay = module.get_after_update(key)
     if not isinstance(delay, StateWithDelay):
         raise TypeError(f'The prefetch target should be a {StateWithDelay.__name__} when accessing '
                         f'its delay. But got {delay}.')

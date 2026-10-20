@@ -2812,6 +2812,71 @@ class TestStateAuditRegressions(unittest.TestCase):
                 self.assertEqual(len(TRACE_CONTEXT.state_stack), depth0 + 2)
         self.assertEqual(len(TRACE_CONTEXT.state_stack), depth0)
 
+    def test_a10_exit_out_of_order_during_exception_keeps_original_error(self):
+        from brainstate._state import StateTraceStack, TRACE_CONTEXT
+        depth0 = len(TRACE_CONTEXT.state_stack)
+        outer = StateTraceStack(name='outer')
+        outer.__enter__()
+        StateTraceStack(name='leaked').__enter__()  # never exited
+        with self.assertRaises(ValueError):
+            try:
+                raise ValueError('original')
+            except ValueError as e:
+                outer.__exit__(type(e), e, e.__traceback__)
+                raise
+        # outer and everything above it are removed
+        self.assertEqual(len(TRACE_CONTEXT.state_stack), depth0)
+
+
+class TestStateCopyIsolationRegressions(unittest.TestCase):
+    """Copies and reference round-trips must not share hooks or tags."""
+
+    def test_update_from_ref_keeps_own_hooks(self):
+        s = brainstate.State(jnp.ones(3))
+        s.register_hook('write_after', lambda ctx: None)
+        mgr = s._hooks_manager
+        ref = jax.tree.map(lambda x: x + 1, s.to_state_ref())
+        s.update_from_ref(ref)
+        self.assertIs(s._hooks_manager, mgr)
+        self.assertTrue(s.has_hooks('write_after'))
+        np.testing.assert_allclose(s.value, 2 * jnp.ones(3))
+
+    def test_update_from_ref_does_not_alias_other_manager(self):
+        s3 = brainstate.State(jnp.ones(3))
+        s4 = brainstate.State(jnp.zeros(3))
+        s4.update_from_ref(s3.to_state_ref())
+        self.assertIsNot(s4._hooks_manager, s3._hooks_manager)
+        s3.register_hook('read', lambda ctx: None)
+        self.assertFalse(s4.has_hooks('read'))
+
+    def test_to_state_has_fresh_hook_manager(self):
+        s = brainstate.State(jnp.ones(3))
+        s.register_hook('read', lambda ctx: None)
+        rebuilt = s.to_state_ref().to_state()
+        self.assertIsNot(rebuilt._hooks_manager, s._hooks_manager)
+        self.assertFalse(rebuilt.has_hooks('read'))
+
+    def test_replace_has_fresh_hook_manager(self):
+        s = brainstate.State(jnp.ones(3))
+        r = s.replace(jnp.zeros(3))
+        self.assertIsNot(r._hooks_manager, s._hooks_manager)
+        r.register_hook('read', lambda ctx: None)
+        self.assertFalse(s.has_hooks('read'))
+
+    def test_copy_replace_copy_from_do_not_share_tag_set(self):
+        s = brainstate.State(jnp.ones(3), tag='a')
+        c = s.copy()
+        c.add_tag('b')
+        r = s.replace(jnp.zeros(3))
+        r.add_tag('c')
+        d = brainstate.State(jnp.ones(3))
+        d.copy_from(s)
+        d.add_tag('d')
+        self.assertEqual(s.tag, {'a'})
+        self.assertEqual(c.tag, {'a', 'b'})
+        self.assertEqual(r.tag, {'a', 'c'})
+        self.assertEqual(d.tag, {'a', 'd'})
+
 
 class TestHiddenStateSetGetBranches(unittest.TestCase):
     """Cover the validation/unit branches of HiddenGroupState and HiddenTreeState.

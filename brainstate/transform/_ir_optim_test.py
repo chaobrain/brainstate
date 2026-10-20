@@ -1239,3 +1239,120 @@ class TestDebugInfo(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestEffectfulEquationsPreserved(unittest.TestCase):
+    """Optimizations must never drop or eagerly execute side effects."""
+
+    def test_dce_keeps_debug_print(self):
+        def f(x):
+            jax.debug.print('x={x}', x=x)
+            return x * 2
+
+        cj = jax.make_jaxpr(f)(jnp.float32(1.0))
+        opt = dead_code_elimination(cj.jaxpr)
+        self.assertIn('debug_print', [e.primitive.name for e in opt.eqns])
+
+    def test_dce_keeps_effectful_eqn_inputs(self):
+        def f(x):
+            y = x + 1.0
+            jax.debug.print('y={y}', y=y)
+            return x * 2
+
+        cj = jax.make_jaxpr(f)(jnp.float32(1.0))
+        opt = dead_code_elimination(cj.jaxpr)
+        names = [e.primitive.name for e in opt.eqns]
+        self.assertIn('debug_print', names)
+        self.assertIn('add', names)
+
+    def test_dce_keeps_jit_error_if_check(self):
+        def f(x):
+            brainstate.transform.jit_error_if(x < 0, 'negative')
+            return x * 2
+
+        cj = jax.make_jaxpr(f)(jnp.float32(1.0))
+        opt = dead_code_elimination(cj.jaxpr)
+        self.assertEqual(
+            [e.primitive.name for e in opt.eqns],
+            [e.primitive.name for e in cj.jaxpr.eqns],
+        )
+
+    def test_optimize_jaxpr_dce_keeps_debug_print(self):
+        def f(x):
+            jax.debug.print('x={x}', x=x)
+            return x * 2
+
+        cj = jax.make_jaxpr(f)(jnp.float32(1.0))
+        opt = optimize_jaxpr(cj.jaxpr, optimizations=['dce'])
+        self.assertIn('debug_print', [e.primitive.name for e in opt.eqns])
+
+    def test_constant_fold_does_not_execute_effectful_jit(self):
+        @jax.jit
+        def inner(y):
+            jax.debug.print('inner={y}', y=y)
+            return y + 1.0
+
+        def f(x):
+            return x + inner(3.0)
+
+        cj = jax.make_jaxpr(f)(jnp.float32(1.0))
+        opt = constant_fold(cj.jaxpr)
+        names = [e.primitive.name for e in opt.eqns]
+        self.assertTrue(any(n in ('jit', 'pjit') for n in names), names)
+
+    def test_constant_fold_still_folds_pure_jit(self):
+        @jax.jit
+        def inner(y):
+            return y + 1.0
+
+        def f(x):
+            return x + inner(3.0)
+
+        cj = jax.make_jaxpr(f)(jnp.float32(1.0))
+        opt = constant_fold(cj.jaxpr)
+        out = jax.core.eval_jaxpr(opt, [], jnp.float32(1.0))
+        np.testing.assert_allclose(np.asarray(out[0]), 5.0)
+
+
+class TestSubtractSelfSafety(unittest.TestCase):
+    """``x - x -> 0`` must keep the output shape and IEEE semantics."""
+
+    def test_float_x_minus_x_keeps_nan(self):
+        def f(x):
+            return x - x
+
+        cj = jax.make_jaxpr(f)(jnp.ones(3, dtype=jnp.float32))
+        opt = algebraic_simplification(cj.jaxpr)
+        x = jnp.array([1.0, np.inf, 3.0], dtype=jnp.float32)
+        out = np.asarray(jax.core.eval_jaxpr(opt, [], x)[0])
+        self.assertEqual(out.shape, (3,))
+        np.testing.assert_array_equal(np.isnan(out), [False, True, False])
+
+    def test_integer_vector_x_minus_x_keeps_shape(self):
+        def f(x):
+            return x - x
+
+        cj = jax.make_jaxpr(f)(jnp.ones(3, dtype=jnp.int32))
+        opt = algebraic_simplification(cj.jaxpr)
+        out = np.asarray(jax.core.eval_jaxpr(opt, [], jnp.arange(3, dtype=jnp.int32))[0])
+        self.assertEqual(out.shape, (3,))
+        np.testing.assert_array_equal(out, [0, 0, 0])
+
+    def test_integer_vector_zero_times_x_keeps_shape(self):
+        def f(x):
+            return jnp.int32(0) * x
+
+        cj = jax.make_jaxpr(f)(jnp.ones(3, dtype=jnp.int32))
+        opt = algebraic_simplification(cj.jaxpr)
+        out = np.asarray(jax.core.eval_jaxpr(opt, [], jnp.arange(3, dtype=jnp.int32))[0])
+        self.assertEqual(out.shape, (3,))
+
+    def test_integer_scalar_x_minus_x_folds(self):
+        def f(x):
+            return x - x
+
+        cj = jax.make_jaxpr(f)(jnp.int32(5))
+        opt = algebraic_simplification(cj.jaxpr)
+        self.assertFalse(any(e.primitive.name == 'sub' for e in opt.eqns))
+        out = jax.core.eval_jaxpr(opt, [], jnp.int32(7))
+        self.assertEqual(int(out[0]), 0)

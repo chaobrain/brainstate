@@ -255,6 +255,9 @@ class _MaxPool(Module):
             in_size = tuple(in_size)
             self.in_size = in_size
             y = jax.eval_shape(self.update, jax.ShapeDtypeStruct((128,) + in_size, environ.dftype()))
+            if self.return_indices:
+                # ``update`` returns ``(pooled, indices)`` in this case
+                y = y[0]
             self.out_size = y.shape[1:]
 
     def update(self, x):
@@ -282,9 +285,30 @@ class _MaxPool(Module):
         )
 
     def _pooling_with_indices(self, x, window_shape, stride, padding):
-        """Perform max pooling and return both pooled values and indices."""
-        total_size = x.size
-        flat_indices = jnp.arange(total_size, dtype=jnp.int32).reshape(x.shape)
+        """Perform max pooling and return both pooled values and indices.
+
+        Indices are flat positions in a size-independent layout whose size along
+        each axis is ``(out - 1) * stride + window - pad_lo``. It depends only on the
+        pooled shape and the pooling parameters (not on the original input size, which
+        several sizes can share), so :class:`MaxUnpool` can always decode it. For an
+        evenly divisible input without padding it is exactly the input layout.
+        """
+        layout = []
+        for size, k, s, (lo, hi) in zip(x.shape, window_shape, stride, padding):
+            out = (size + lo + hi - k) // s + 1
+            layout.append((out - 1) * s + k - lo)
+        total_size = int(np.prod(layout))
+
+        # flat index of every input element in ``layout``; elements beyond the layout
+        # are never covered by a window, so their (colliding) values are never selected
+        flat_indices = jnp.zeros(x.shape, dtype=jnp.int32)
+        multiplier = 1
+        for axis in reversed(range(x.ndim)):
+            coord = jnp.arange(x.shape[axis], dtype=jnp.int32)
+            shape = [1] * x.ndim
+            shape[axis] = x.shape[axis]
+            flat_indices = flat_indices + coord.reshape(shape) * multiplier
+            multiplier *= layout[axis]
 
         init_val = jnp.asarray(self.init_value, dtype=x.dtype)
         init_idx = jnp.array(total_size, dtype=flat_indices.dtype)
@@ -398,7 +422,10 @@ class MaxPool1d(_MaxPool):
         Axis of the spatial channels for which pooling is skipped.
         If ``None``, there is no channel axis. Default: -1
     return_indices : bool, optional
-        If True, will return the max indices along with the outputs.
+        If True, will return the max indices along with the outputs. Useful
+        for the matching ``MaxUnpool``. Indices are flat positions in a layout of
+        size ``(out - 1) * stride + kernel_size - padding`` per pooled axis, which
+        equals the input layout for evenly divisible, unpadded inputs.
         Useful for MaxUnpool1d. Default: False
     name : str, optional
         The object name.
@@ -488,7 +515,10 @@ class MaxPool2d(_MaxPool):
         Axis of the spatial channels for which pooling is skipped.
         If ``None``, there is no channel axis. Default: -1
     return_indices : bool, optional
-        If True, will return the max indices along with the outputs.
+        If True, will return the max indices along with the outputs. Useful
+        for the matching ``MaxUnpool``. Indices are flat positions in a layout of
+        size ``(out - 1) * stride + kernel_size - padding`` per pooled axis, which
+        equals the input layout for evenly divisible, unpadded inputs.
         Useful for MaxUnpool2d. Default: False
     name : str, optional
         The object name.
@@ -584,7 +614,10 @@ class MaxPool3d(_MaxPool):
         Axis of the spatial channels for which pooling is skipped.
         If ``None``, there is no channel axis. Default: -1
     return_indices : bool, optional
-        If True, will return the max indices along with the outputs.
+        If True, will return the max indices along with the outputs. Useful
+        for the matching ``MaxUnpool``. Indices are flat positions in a layout of
+        size ``(out - 1) * stride + kernel_size - padding`` per pooled axis, which
+        equals the input layout for evenly divisible, unpadded inputs.
         Useful for MaxUnpool3d. Default: False
     name : str, optional
         The object name.
@@ -715,31 +748,38 @@ class _MaxUnpool(Module):
     def _unpool_nd(self, x, indices, output_size=None):
         """Perform N-dimensional max unpooling.
 
-        The ``indices`` returned by :class:`MaxPool` are flat positions within the
-        *natural* (inferred) output shape, i.e. positions in the layout that the
-        original pre-pool input had. To support an arbitrary ``output_size`` (whose
-        spatial extent may differ from the natural one) without leaking values
-        across batch or channel elements, each stored flat index is first unraveled
-        into a multi-dimensional coordinate against the natural shape and then
-        re-raveled against the requested output shape. Coordinates that fall outside
-        the requested output are dropped.
+        The ``indices`` returned by :class:`MaxPool` are flat positions in a
+        size-independent layout whose spatial size along each pooled axis is
+        ``(L_in - 1) * stride + kernel_size - padding`` (``L_in`` being the pooled
+        size); the other axes keep the size of ``x``. Each index is unraveled
+        against that layout and re-raveled into the requested output, so values
+        never leak across batch or channel elements and no knowledge of the
+        original input size is needed. Coordinates that fall outside the output are
+        dropped.
+
+        The output defaults to the natural size
+        ``(L_in - 1) * stride - 2 * padding + kernel_size``; pass ``output_size`` to
+        recover the original size (e.g. an odd length pooled with stride 2).
         """
         x_dim = self.pool_dim + (0 if self.channel_axis is None else 1)
         if x.ndim < x_dim:
             raise ValueError(f'Expected input with >= {x_dim} dimensions, but got {x.ndim}.')
 
-        # Natural output shape: the layout the stored ``indices`` are flat positions in.
         spatial_axes = self._get_spatial_axes(x.ndim)
         spatial_dims = self._get_spatial_dims(x.shape)
-        natural_spatial_shape = self._compute_output_shape(spatial_dims, None)
-        natural_shape = list(x.shape)
-        for i, size in enumerate(natural_spatial_shape):
-            natural_shape[spatial_axes[i]] = size
-        natural_shape = tuple(natural_shape)
+
+        # Layout the stored indices are flat positions in (see ``MaxPool``).
+        index_shape = list(x.shape)
+        for i, ax in enumerate(spatial_axes):
+            index_shape[ax] = (spatial_dims[i] - 1) * self.stride[i] + self.kernel_size[i] - self.padding[i]
+        index_shape = tuple(index_shape)
 
         # Determine the requested output shape.
         if output_size is None:
-            output_shape = natural_shape
+            output_shape = list(x.shape)
+            for i, size in enumerate(self._compute_output_shape(spatial_dims, None)):
+                output_shape[spatial_axes[i]] = size
+            output_shape = tuple(output_shape)
         else:
             # Use provided output size
             if isinstance(output_size, (list, tuple)):
@@ -761,21 +801,20 @@ class _MaxUnpool(Module):
                     output_shape[spatial_axes[i]] = output_size
                 output_shape = tuple(output_shape)
 
-        # Flatten values and the stored within-natural-layout indices.
         flat_indices = indices.ravel()
         flat_values = x.ravel()
+        out_flat_size = int(np.prod(output_shape))
 
-        if output_shape == natural_shape:
-            # Fast path: natural-size round-trip, indices already match the output
-            # layout exactly, so scatter directly.
-            flat_output = jnp.zeros(int(np.prod(output_shape)), dtype=x.dtype)
+        if output_shape == index_shape:
+            # Fast path: the output layout is the index layout; scatter directly.
+            flat_output = jnp.zeros(out_flat_size, dtype=x.dtype)
             flat_output = flat_output.at[flat_indices].set(flat_values)
             return flat_output.reshape(output_shape)
 
-        # General path: map each natural-layout flat index to its multi-dimensional
-        # coordinate, then re-flatten against the requested output shape so that
-        # every value stays within its own batch / channel element.
-        coords = jnp.unravel_index(flat_indices, natural_shape)
+        # General path: map each flat index to its multi-dimensional coordinate,
+        # then re-flatten against the requested output shape so that every value
+        # stays within its own batch / channel element.
+        coords = jnp.unravel_index(flat_indices, index_shape)
 
         # Determine which coordinates remain inside the requested output bounds.
         in_bounds = jnp.ones(flat_indices.shape, dtype=bool)
@@ -785,15 +824,12 @@ class _MaxUnpool(Module):
         # Clip coordinates so ravel stays valid, then route out-of-bounds entries to
         # a throwaway slot appended to the flat output (dropped after the scatter).
         clipped_coords = tuple(jnp.minimum(coord, dim - 1) for coord, dim in zip(coords, output_shape))
-        out_flat_size = int(np.prod(output_shape))
         new_flat = jnp.ravel_multi_index(clipped_coords, output_shape, mode='clip')
-        dump_slot = out_flat_size
-        scatter_indices = jnp.where(in_bounds, new_flat, dump_slot)
+        scatter_indices = jnp.where(in_bounds, new_flat, out_flat_size)
 
         flat_output = jnp.zeros(out_flat_size + 1, dtype=x.dtype)
         flat_output = flat_output.at[scatter_indices].set(flat_values)
-        output = flat_output[:out_flat_size].reshape(output_shape)
-        return output
+        return flat_output[:out_flat_size].reshape(output_shape)
 
     def _get_spatial_dims(self, shape):
         """Extract spatial dimensions from input shape."""
@@ -829,7 +865,9 @@ class _MaxUnpool(Module):
         indices : Array
             Indices of maximum values from MaxPool1d
         output_size : int or tuple, optional
-            The targeted output size
+            The targeted output size. Defaults to the natural size
+            ``(in - 1) * stride - 2 * padding + kernel_size``; pass the original
+            input size (e.g. an odd length pooled with stride 2) to recover it.
 
         Returns
         -------
@@ -888,7 +926,7 @@ class MaxUnpool1d(_MaxUnpool):
         >>> input = brainstate.random.randn(20, 50, 16)
         >>> output, indices = pool(input)
         >>> unpooled = unpool(output, indices)
-        >>> # unpooled will have shape (20, 100, 16) with zeros at non-maximal positions
+        >>> # unpooled will have shape (20, 50, 16) with zeros at non-maximal positions
     """
     __module__ = 'brainstate.nn'
 

@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import functools
+import inspect
 from collections.abc import Iterable, Sequence
 from typing import Any, Callable, Union
 
@@ -26,7 +27,7 @@ from jax.stages import Traced
 from brainstate._compatible_import import Device
 from brainstate._utils import set_module_as
 from brainstate.typing import Missing
-from ._make_jaxpr import StatefulFunction, _ensure_index_tuple
+from ._make_jaxpr import StatefulFunction, _ensure_index_tuple, _ensure_str_tuple
 
 __all__ = ['jit']
 
@@ -50,6 +51,34 @@ class JittedFunction(Callable):
         pass
 
 
+def _infer_argnums_and_argnames(fun: Callable, argnums, argnames):
+    """Infer the missing one of ``argnums``/``argnames`` from ``fun``'s signature.
+
+    Mirrors :func:`jax.jit`: when only one of the two is given, the other is
+    derived from the positional-or-keyword parameters, so an argument is
+    treated the same whether it is passed positionally or by keyword. When
+    both (or neither) are given, or the signature cannot be inspected, they
+    are returned unchanged.
+    """
+    if (argnums is None) == (argnames is None):
+        return argnums, argnames
+    try:
+        parameters = list(inspect.signature(fun).parameters.values())
+    except (ValueError, TypeError):
+        return argnums, argnames
+    positional = [
+        (i, p.name) for i, p in enumerate(parameters)
+        if p.kind == inspect.Parameter.POSITIONAL_OR_KEYWORD
+    ]
+    if argnums is None:
+        names = set(_ensure_str_tuple(argnames))
+        argnums = tuple(i for i, name in positional if name in names)
+    else:
+        nums = set(_ensure_index_tuple(argnums))
+        argnames = tuple(name for i, name in positional if i in nums)
+    return argnums, argnames
+
+
 def _get_jitted_fun(
     fun: Callable,
     name: str,
@@ -65,6 +94,8 @@ def _get_jitted_fun(
     inline,
     **kwargs
 ) -> JittedFunction:
+    static_argnums, static_argnames = _infer_argnums_and_argnames(fun, static_argnums, static_argnames)
+    donate_argnums, donate_argnames = _infer_argnums_and_argnames(fun, donate_argnums, donate_argnames)
     static_argnums = tuple() if static_argnums is None else _ensure_index_tuple(static_argnums)
     donate_argnums = tuple() if donate_argnums is None else _ensure_index_tuple(donate_argnums)
     # the internal calling convention prepends a state-values argument and

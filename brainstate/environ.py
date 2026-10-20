@@ -66,7 +66,7 @@ import re
 import threading
 import warnings
 from collections import defaultdict
-from typing import Any, Callable, Dict, Hashable, Optional, Union, ContextManager, List
+from typing import Any, Callable, Dict, Hashable, Optional, Union, ContextManager, List, Tuple
 
 import brainunit as u
 import numpy as np
@@ -156,42 +156,61 @@ _NOT_PROVIDED = object()
 
 
 @dataclasses.dataclass
-class EnvironmentState(threading.local):
+class EnvironmentState:
     """
-    Thread-local storage for environment configuration.
+    Storage for environment configuration.
 
-    This class maintains separate configuration states for different threads,
-    ensuring thread-safe environment management in concurrent applications.
+    Global settings and registered callbacks are shared by all threads of the
+    process, so a value set in the main thread (e.g. ``dt``) is visible from
+    worker threads. Only the stack of temporary :func:`context` overrides is
+    kept per thread, so a context entered in one thread never leaks into
+    another.
 
     Attributes
     ----------
     settings : Dict[Hashable, Any]
-        Global default environment settings.
+        Global default environment settings, shared by all threads.
     contexts : defaultdict[Hashable, List[Any]]
-        Stack of context-specific settings for nested contexts.
+        Stack of context-specific settings for nested contexts. Per thread.
     functions : Dict[Hashable, Callable]
-        Registered callback functions for environment changes.
+        Registered callback functions for environment changes, shared by all
+        threads.
     locks : Dict[str, threading.RLock]
         Reentrant thread locks for synchronized access to critical sections.
         These must be reentrant: ``context()`` holds a key's lock across its
         restore path while calling ``get()``, which re-acquires the same lock.
     """
     settings: Dict[Hashable, Any] = dataclasses.field(default_factory=dict)
-    contexts: defaultdict[Hashable, List[Any]] = dataclasses.field(default_factory=lambda: defaultdict(list))
     functions: Dict[Hashable, Callable] = dataclasses.field(default_factory=dict)
     locks: Dict[str, threading.RLock] = dataclasses.field(default_factory=lambda: defaultdict(threading.RLock))
+    _local: threading.local = dataclasses.field(default_factory=threading.local, init=False, repr=False, compare=False)
 
     def __post_init__(self):
         """Initialize with default settings."""
-        # Start from the import-time precision if not already set. This also
-        # runs for each new thread (``threading.local``), keeping worker threads
-        # consistent with JAX's x64 setting at import.
+        # Start from the import-time precision if not already set, so a fresh
+        # environment is consistent with JAX's x64 setting at import.
         if PRECISION not in self.settings:
             self.settings[PRECISION] = _INITIAL_PRECISION
+
+    @property
+    def contexts(self) -> defaultdict:
+        """The calling thread's stack of context-specific settings."""
+        try:
+            return self._local.contexts
+        except AttributeError:
+            self._local.contexts = defaultdict(list)
+            return self._local.contexts
 
 
 # Global environment state
 _ENV_STATE = EnvironmentState()
+
+# ``jax_enable_x64`` is process-wide while ``context()`` stacks are per thread.
+# Active precision overrides of the global environment (from any thread) are
+# tracked here, so exiting one thread's ``context(precision=...)`` restores the
+# most recent still-active override instead of the base precision.
+_PRECISION_LOCK = threading.RLock()
+_PRECISION_OVERRIDES: List[Tuple[object, PrecisionType]] = []
 
 
 def reset(*, env: Optional[EnvironmentState] = None) -> None:
@@ -371,6 +390,10 @@ def context(*, env: Optional[EnvironmentState] = None, **kwargs) -> ContextManag
     - Settings are restored in reverse order when exiting
     - Thread-safe: each thread maintains its own context stack
     - When using a custom env, JAX config is only updated if env is the global environment
+    - ``precision`` maps to JAX's process-wide ``jax_enable_x64`` flag, so a
+      precision context in one thread also changes the JAX dtype mode of other
+      threads. On exit, the most recent precision context still active in any
+      thread wins; when none remain, the global ``precision`` setting is restored.
     """
     # Use global state if no env provided
     if env is None:
@@ -389,12 +412,14 @@ def context(*, env: Optional[EnvironmentState] = None, **kwargs) -> ContextManag
         )
 
     # Handle precision changes (only update JAX config for global env)
-    original_precision = None
+    precision_token = None
     if PRECISION in kwargs:
-        original_precision = _get_precision(env=env)
         _validate_precision(kwargs[PRECISION])
         if env is _ENV_STATE:
-            _set_jax_precision(kwargs[PRECISION])
+            precision_token = object()
+            with _PRECISION_LOCK:
+                _PRECISION_OVERRIDES.append((precision_token, kwargs[PRECISION]))
+                _set_jax_precision(kwargs[PRECISION])
 
     try:
         # Push new values onto context stacks
@@ -434,9 +459,16 @@ def context(*, env: Optional[EnvironmentState] = None, **kwargs) -> ContextManag
                             RuntimeWarning
                         )
 
-        # Restore precision if it was changed (only update JAX config for global env)
-        if original_precision is not None and env is _ENV_STATE:
-            _set_jax_precision(original_precision)
+        # Restore precision if it was changed (only update JAX config for global env):
+        # fall back to the latest override still active in any thread, else the
+        # global setting
+        if precision_token is not None:
+            with _PRECISION_LOCK:
+                _PRECISION_OVERRIDES[:] = [o for o in _PRECISION_OVERRIDES if o[0] is not precision_token]
+                if _PRECISION_OVERRIDES:
+                    _set_jax_precision(_PRECISION_OVERRIDES[-1][1])
+                else:
+                    _set_jax_precision(env.settings.get(PRECISION, _INITIAL_PRECISION))
 
 
 def get(

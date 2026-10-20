@@ -26,6 +26,7 @@ This test suite covers all functionality in the mixin module including:
 
 import unittest
 
+import jax
 import jax.numpy as jnp
 
 import brainstate
@@ -1187,6 +1188,35 @@ class TestModeHashable(unittest.TestCase):
         """JointMode (a Mode subclass) is also hashable."""
         joint = brainstate.mixin.JointMode(brainstate.mixin.Training())
         self.assertIsInstance(hash(joint), int)
+
+    def test_batching_equality_uses_parameters(self):
+        """Batching instances with different parameters are not equal."""
+        B = brainstate.mixin.Batching
+        self.assertEqual(B(2, 0), B(2, 0))
+        self.assertEqual(hash(B(2, 0)), hash(B(2, 0)))
+        self.assertNotEqual(B(2), B(5))
+        self.assertNotEqual(B(2, 0), B(2, 1))
+
+    def test_joint_mode_equality_uses_components(self):
+        """JointMode compares its component modes, ignoring order."""
+        J, T, B = brainstate.mixin.JointMode, brainstate.mixin.Training, brainstate.mixin.Batching
+        self.assertEqual(J(T(), B(2)), J(B(2), T()))
+        self.assertEqual(hash(J(T(), B(2))), hash(J(B(2), T())))
+        self.assertNotEqual(J(T(), B(2)), J(B(9)))
+        self.assertNotEqual(J(T(), B(2)), J(T(), B(3)))
+
+    def test_compare_with_non_mode(self):
+        """Comparing a Mode with a non-Mode returns False instead of raising."""
+        t = brainstate.mixin.Training()
+        self.assertFalse(t == None)  # noqa: E711
+        self.assertTrue(t != 'training')
+        self.assertNotIn(t, [None, 1])
+
+    def test_jit_static_mode_retraces_on_parameter_change(self):
+        """A Batching static argument with a new batch_size triggers a new trace."""
+        f = jax.jit(lambda x, m: x * m.batch_size, static_argnums=1)
+        self.assertEqual(float(f(1.0, brainstate.mixin.Batching(2))), 2.0)
+        self.assertEqual(float(f(1.0, brainstate.mixin.Batching(5))), 5.0)
 
 
 if __name__ == '__main__':

@@ -301,21 +301,20 @@ class HookManager:
         if not hooks:
             return
 
-        with self._lock:
-            context = ReadHookContext(
-                operation='read',
-                state_ref=state_ref,
-                value=value,
-            )
+        context = ReadHookContext(
+            operation='read',
+            state_ref=state_ref,
+            value=value,
+        )
 
-            for hook in hooks:
-                if not hook.enabled:
-                    continue
+        for hook in hooks:
+            if not hook.enabled:
+                continue
 
-                try:
-                    hook.execute(context)
-                except Exception as e:
-                    self._handle_hook_error(hook, e, context)
+            try:
+                hook.execute(context)
+            except Exception as e:
+                self._handle_hook_error(hook, e, context)
 
     def execute_write_before_hooks(
         self,
@@ -350,42 +349,41 @@ class HookManager:
         if not hooks:
             return new_value
 
-        with self._lock:
-            # Start with the original new value
-            transformed_value = new_value
+        # Start with the original new value
+        transformed_value = new_value
 
-            for hook in hooks:
-                if not hook.enabled:
-                    continue
+        for hook in hooks:
+            if not hook.enabled:
+                continue
 
-                # Create context with current transformation state
-                context = MutableWriteHookContext(
-                    operation='write_before',
-                    state_ref=state_ref,
-                    value=new_value,  # Always pass original value
-                    old_value=old_value,
-                    transformed_value=transformed_value,  # Chain previous transformation
-                )
+            # Create context with current transformation state
+            context = MutableWriteHookContext(
+                operation='write_before',
+                state_ref=state_ref,
+                value=new_value,  # Always pass original value
+                old_value=old_value,
+                transformed_value=transformed_value,  # Chain previous transformation
+            )
 
-                try:
-                    hook.execute(context)
+            try:
+                hook.execute(context)
 
-                    # Check for cancellation
-                    if context.cancel:
-                        reason = context.cancel_reason or "Hook cancelled the operation"
-                        raise HookCancellationError(f"{hook.name}: {reason}")
+                # Check for cancellation
+                if context.cancel:
+                    reason = context.cancel_reason or "Hook cancelled the operation"
+                    raise HookCancellationError(f"{hook.name}: {reason}")
 
-                    # Update transformed value for next hook if this hook set it
-                    if context.transformed_value is not None:
-                        transformed_value = context.transformed_value
+                # Update transformed value for next hook if this hook set it
+                if context.transformed_value is not None:
+                    transformed_value = context.transformed_value
 
-                except HookCancellationError:
-                    # Re-raise cancellation errors
-                    raise
-                except Exception as e:
-                    self._handle_hook_error(hook, e, context)
+            except HookCancellationError:
+                # Re-raise cancellation errors
+                raise
+            except Exception as e:
+                self._handle_hook_error(hook, e, context)
 
-            return transformed_value
+        return transformed_value
 
     def execute_write_after_hooks(
         self,
@@ -408,22 +406,21 @@ class HookManager:
         if not hooks:
             return
 
-        with self._lock:
-            context = WriteHookContext(
-                operation='write_after',
-                state_ref=state_ref,
-                value=new_value,
-                old_value=old_value,
-            )
+        context = WriteHookContext(
+            operation='write_after',
+            state_ref=state_ref,
+            value=new_value,
+            old_value=old_value,
+        )
 
-            for hook in hooks:
-                if not hook.enabled:
-                    continue
+        for hook in hooks:
+            if not hook.enabled:
+                continue
 
-                try:
-                    hook.execute(context)
-                except Exception as e:
-                    self._handle_hook_error(hook, e, context)
+            try:
+                hook.execute(context)
+            except Exception as e:
+                self._handle_hook_error(hook, e, context)
 
     def execute_restore_hooks(
         self,
@@ -446,22 +443,21 @@ class HookManager:
         if not hooks:
             return
 
-        with self._lock:
-            context = RestoreHookContext(
-                operation='restore',
-                state_ref=state_ref,
-                value=new_value,
-                old_value=old_value,
-            )
+        context = RestoreHookContext(
+            operation='restore',
+            state_ref=state_ref,
+            value=new_value,
+            old_value=old_value,
+        )
 
-            for hook in hooks:
-                if not hook.enabled:
-                    continue
+        for hook in hooks:
+            if not hook.enabled:
+                continue
 
-                try:
-                    hook.execute(context)
-                except Exception as e:
-                    self._handle_hook_error(hook, e, context)
+            try:
+                hook.execute(context)
+            except Exception as e:
+                self._handle_hook_error(hook, e, context)
 
     def execute_init_hooks(
         self,
@@ -484,23 +480,22 @@ class HookManager:
         if not hooks:
             return
 
-        with self._lock:
-            from ._state_hook_context import InitHookContext
-            context = InitHookContext(
-                operation='init',
-                state_ref=state_ref,
-                value=value,
-                init_metadata=init_metadata or {},
-            )
+        from ._state_hook_context import InitHookContext
+        context = InitHookContext(
+            operation='init',
+            state_ref=state_ref,
+            value=value,
+            init_metadata=init_metadata or {},
+        )
 
-            for hook in hooks:
-                if not hook.enabled:
-                    continue
+        for hook in hooks:
+            if not hook.enabled:
+                continue
 
-                try:
-                    hook.execute(context)
-                except Exception as e:
-                    self._handle_hook_error(hook, e, context)
+            try:
+                hook.execute(context)
+            except Exception as e:
+                self._handle_hook_error(hook, e, context)
 
     # Private methods
 
@@ -524,10 +519,14 @@ class HookManager:
 
         This method rebuilds the cache if it's invalid.
         """
-        if not self._cache_valid:
-            self._rebuild_cache()
-
-        return self._hook_cache.get(hook_type, [])
+        # Rebuild under the lock so a concurrent ``register_hook`` (which appends
+        # and invalidates under the same lock) can never be overwritten by a cache
+        # built from stale lists. The returned list is a fresh snapshot, so the
+        # caller can run callbacks on it without holding the lock.
+        with self._lock:
+            if not self._cache_valid:
+                self._rebuild_cache()
+            return self._hook_cache.get(hook_type, [])
 
     def _rebuild_cache(self) -> None:
         """Rebuild the hook cache with sorted, enabled hooks."""
@@ -571,19 +570,23 @@ class HookManager:
         HookExecutionError
             If on_error='raise'
         """
-        # Track errors
-        hook._error_count += 1
+        # Report the user's exception, not the ``HookExecutionError`` wrapper
+        error = error.__cause__ if isinstance(error, HookExecutionError) and error.__cause__ else error
 
-        # Disable hook if configured and error threshold exceeded
-        if self.config.disable_on_error and hook._error_count >= self.config.max_errors_per_hook:
-            hook.enabled = False
-            self._invalidate_cache()
-            error_msg = (
-                f"Hook '{hook.name}' disabled after {hook._error_count} errors. "
-                f"Last error: {error}"
-            )
-        else:
-            error_msg = f"Hook '{hook.name}' error #{hook._error_count}: {error}"
+        with self._lock:
+            # Track errors
+            hook._error_count += 1
+
+            # Disable hook if configured and error threshold exceeded
+            if self.config.disable_on_error and hook._error_count >= self.config.max_errors_per_hook:
+                hook.enabled = False
+                self._invalidate_cache()
+                error_msg = (
+                    f"Hook '{hook.name}' disabled after {hook._error_count} errors. "
+                    f"Last error: {error}"
+                )
+            else:
+                error_msg = f"Hook '{hook.name}' error #{hook._error_count}: {error}"
 
         # Handle based on configuration
         if self.config.on_error == 'raise':

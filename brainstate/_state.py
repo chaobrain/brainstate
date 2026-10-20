@@ -716,6 +716,13 @@ class State(Generic[A], PrettyObject):
             The state reference.
         """
         metadata = state_ref.get_metadata()
+        # Hooks and source info are per-state identity, not data: keep our own
+        # instead of adopting the reference's (which may be a fresh, empty
+        # manager after a pytree round trip, or another state's manager).
+        metadata.pop('_hooks_manager', None)
+        metadata.pop('_source_info', None)
+        if metadata.get('tag') is not None:
+            metadata['tag'] = set(metadata['tag'])
         variable_vars = vars(self)
         variable_vars.update(**metadata)
         if metadata.pop('_been_writen', True):
@@ -748,6 +755,11 @@ class State(Generic[A], PrettyObject):
 
         # get and update attributes
         attributes = vars(self).copy()
+        # the new state owns its hooks, trace state, and tag set
+        attributes['_hooks_manager'] = HookManager()
+        attributes['_trace_state'] = StateJaxTracer()
+        if attributes.get('tag') is not None:
+            attributes['tag'] = set(attributes['tag'])
         attributes.update(**kwargs)
         # return new instance with updated attributes
         obj = object.__new__(type(self))
@@ -770,6 +782,8 @@ class State(Generic[A], PrettyObject):
         # HookManager instance: registering/removing a hook on one would silently
         # mutate the other. Hooks are per-state behaviour and must not alias.
         attributes['_hooks_manager'] = HookManager()
+        if attributes.get('tag') is not None:
+            attributes['tag'] = set(attributes['tag'])
         # update the metadata
         vars(obj).update(attributes)
         return obj
@@ -874,6 +888,8 @@ class State(Generic[A], PrettyObject):
         del other_vars['_level']
         del other_vars['_source_info']
         other_vars.pop('_hooks_manager', None)
+        if other_vars.get('tag') is not None:
+            other_vars['tag'] = set(other_vars['tag'])
 
         # update the metadata
         vars_dict = vars(self)
@@ -2135,6 +2151,15 @@ class StateTraceStack(Generic[A]):
         # LIFO order, or if ``__exit__`` runs twice. Verify the top is ``self``
         # before removing it.
         stack = TRACE_CONTEXT.state_stack
+        if exc_type is not None:
+            # An exception is propagating: never replace it with an ordering
+            # error. Remove ourselves and anything left above us (contexts that
+            # were skipped by the exception) so the stack is not leaked.
+            for i in range(len(stack) - 1, -1, -1):
+                if stack[i] is self:
+                    del stack[i:]
+                    break
+            return
         if not stack or stack[-1] is not self:
             raise RuntimeError(
                 f"{type(self).__name__} is being exited out of order: it is not "
@@ -2674,6 +2699,11 @@ class TreefyState(Generic[A], PrettyObject):
         # reconstructed state must be given a fresh one (mirroring ``State.copy``);
         # otherwise splitting a merged state again raises ``KeyError('_trace_state')``.
         metadata.pop('_trace_state', None)
+        # the reconstructed state is a new state: it gets its own hook manager
+        # (mirroring ``State.copy``) instead of aliasing the reference's
+        metadata['_hooks_manager'] = HookManager()
+        if metadata.get('tag') is not None:
+            metadata['tag'] = set(metadata['tag'])
         vars(state).update(
             **metadata,
             _value=self.value,

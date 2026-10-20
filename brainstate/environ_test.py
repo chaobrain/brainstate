@@ -870,12 +870,62 @@ class TestThreadSafety(unittest.TestCase):
         # Should have no errors
         self.assertEqual(len(errors), 0)
 
-        # Each thread should have written its values
+        # Settings are process-global: values written by worker threads are
+        # visible from the main thread
         for i in range(5):
-            try:
-                final_value = bst.environ.get(f'thread_{i}')
-            except KeyError:
-                pass
+            self.assertEqual(bst.environ.get(f'thread_{i}'), 9)
+
+    def test_worker_thread_sees_main_thread_settings(self):
+        """Settings and precision set in the main thread are visible in workers."""
+        from concurrent.futures import ThreadPoolExecutor
+        bst.environ.set(dt=0.1, precision=64)
+        try:
+            with ThreadPoolExecutor(1) as ex:
+                dt, prec, dtype = ex.submit(
+                    lambda: (bst.environ.get_dt(), bst.environ.get_precision(), bst.environ.dftype())
+                ).result()
+            self.assertEqual(dt, 0.1)
+            self.assertEqual(prec, 64)
+            self.assertEqual(dtype, jnp.float64)
+        finally:
+            bst.environ.set(precision=32)
+
+    def test_context_stack_is_per_thread(self):
+        """A context entered in one thread does not leak into another."""
+        from concurrent.futures import ThreadPoolExecutor
+        bst.environ.set(dt=0.1)
+        with bst.environ.context(dt=0.5):
+            with ThreadPoolExecutor(1) as ex:
+                other = ex.submit(bst.environ.get_dt).result()
+            self.assertEqual(bst.environ.get_dt(), 0.5)
+        self.assertEqual(other, 0.1)
+
+    def test_overlapping_precision_contexts_across_threads(self):
+        """Exiting one thread's precision context keeps x64 for another active one."""
+        import jax
+        bst.environ.set(precision=32)
+        a_entered, a_exit, b_checked = threading.Event(), threading.Event(), threading.Event()
+        seen = {}
+
+        def thread_a():
+            with bst.environ.context(precision=64):
+                a_entered.set()
+                a_exit.wait(5)
+
+        def thread_b():
+            a_entered.wait(5)
+            with bst.environ.context(precision=64):
+                a_exit.set()
+                t.join(5)  # A has exited its context
+                seen['x64'] = jax.config.jax_enable_x64
+            b_checked.set()
+
+        t = threading.Thread(target=thread_a)
+        t2 = threading.Thread(target=thread_b)
+        t.start(); t2.start()
+        t2.join(10)
+        self.assertTrue(seen['x64'])
+        self.assertFalse(jax.config.jax_enable_x64)
 
     def test_concurrent_context_operations(self):
         """Test concurrent context operations from multiple threads."""

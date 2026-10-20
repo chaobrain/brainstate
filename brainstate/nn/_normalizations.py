@@ -446,28 +446,38 @@ class _BatchNorm(Module):
         else:
             reduction_axes = tuple(i for i in range(x.ndim) if i not in self.feature_axes)
 
-        # fitting phase
-        fit_phase = environ.get('fit', desc='Whether this is a fitting process. Bool.')
+        def batch_stats():
+            return _compute_stats(
+                x,
+                reduction_axes,
+                dtype=self.dtype,
+                axis_name=self.axis_name,
+                axis_index_groups=self.axis_index_groups,
+                use_fast_variance=self.use_fast_variance,
+                mask=mask,
+            )
 
         # compute the running mean and variance
         if self.track_running_stats:
+            # fitting phase
+            fit_phase = environ.get('fit', desc='Whether this is a fitting process. Bool.')
             if fit_phase:
-                mean, var = _compute_stats(
-                    x,
-                    reduction_axes,
-                    dtype=self.dtype,
-                    axis_name=self.axis_name,
-                    axis_index_groups=self.axis_index_groups,
-                    use_fast_variance=self.use_fast_variance,
-                    mask=mask,
+                mean, var = batch_stats()
+                # batch statistics have the reduced axes removed; restore ``feature_shape``
+                # so that the running statistics do not broadcast to a wrong shape
+                stats_shape = self.running_mean.value.shape
+                self.running_mean.value = (
+                    self.momentum * self.running_mean.value + (1 - self.momentum) * mean.reshape(stats_shape)
                 )
-                self.running_mean.value = self.momentum * self.running_mean.value + (1 - self.momentum) * mean
-                self.running_var.value = self.momentum * self.running_var.value + (1 - self.momentum) * var
+                self.running_var.value = (
+                    self.momentum * self.running_var.value + (1 - self.momentum) * var.reshape(stats_shape)
+                )
             else:
                 mean = self.running_mean.value
                 var = self.running_var.value
         else:
-            mean, var = None, None
+            # without running statistics, always normalize with the batch statistics
+            mean, var = batch_stats()
 
         # normalize
         return _normalize(

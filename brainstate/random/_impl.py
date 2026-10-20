@@ -37,7 +37,8 @@ def _categorical(key, p, shape):
     shape = shape or p.shape[:-1]
     s = jnp.cumsum(p, axis=-1)
     r = jr.uniform(key, shape=shape + (1,))
-    return jnp.sum(s < r, axis=-1)
+    # Clip so rounding in ``cumsum`` can never yield the out-of-range index K.
+    return jnp.minimum(jnp.sum(s < r, axis=-1), p.shape[-1] - 1)
 
 
 @partial(jit, static_argnames=('n_max', 'shape'))
@@ -83,6 +84,10 @@ def multinomial(
         broadcast_shape = lax.broadcast_shapes(u.math.shape(n), u.math.shape(p)[:-1])
         n = jnp.broadcast_to(n, broadcast_shape)
         p = jnp.broadcast_to(p, broadcast_shape + u.math.shape(p)[-1:])
+    # As in NumPy, the last probability is implied as ``1 - sum(p[..., :-1])`` so the
+    # categories always cover the unit interval and no draw falls past the last one.
+    p = jnp.asarray(p)
+    p = p.at[..., -1].set(jnp.maximum(1 - jnp.sum(p[..., :-1], axis=-1), 0))
     shape = shape or p.shape[:-1]
     if n_max == 0:
         return jnp.zeros(shape + p.shape[-1:], dtype=jnp.result_type(int))

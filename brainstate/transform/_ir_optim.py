@@ -176,6 +176,8 @@ def dead_code_elimination(jaxpr: Jaxpr) -> Jaxpr:
     1. Backward pass: Mark all variables that are transitively used
     2. Forward pass: Keep only equations that produce marked variables
 
+    Equations with side effects (non-empty ``eqn.effects``) are always kept.
+
     Examples
     --------
     >>> # Given a jaxpr with unused intermediate computations
@@ -188,14 +190,19 @@ def dead_code_elimination(jaxpr: Jaxpr) -> Jaxpr:
     used_vars = IdentitySet(jaxpr.outvars)
     used_vars.update(jaxpr.invars)
 
+    # Equations with side effects (debug prints, callbacks, ``jit_error_if``
+    # checks, ...) are live regardless of whether their outputs are used.
+    def is_live(eqn):
+        return bool(eqn.effects) or any(outvar in used_vars for outvar in eqn.outvars)
+
     # Backward pass: mark variables as used if they're inputs to used equations
     # We need to iterate until convergence
     changed = True
     while changed:
         changed = False
         for eqn in reversed(jaxpr.eqns):
-            # If any output is used, all inputs must be kept
-            if any(outvar in used_vars for outvar in eqn.outvars):
+            # If the equation is live, all inputs must be kept
+            if is_live(eqn):
                 for invar in eqn.invars:
                     if invar not in used_vars and not isinstance(invar, Literal):
                         used_vars.add(invar)
@@ -204,7 +211,7 @@ def dead_code_elimination(jaxpr: Jaxpr) -> Jaxpr:
     # Forward pass: keep only equations that produce used outputs
     new_eqns = []
     for eqn in jaxpr.eqns:
-        if any(outvar in used_vars for outvar in eqn.outvars):
+        if is_live(eqn):
             new_eqns.append(eqn)
 
     # Keep all input and output variables unchanged
@@ -452,11 +459,11 @@ def algebraic_simplification(jaxpr: Jaxpr) -> Jaxpr:
 
     Subtraction:
         - ``x - 0 = x``
-        - ``x - x = 0``
+        - ``x - x = 0`` (integer scalars only)
 
     Multiplication:
-        - ``0 * x = 0``
-        - ``x * 0 = 0``
+        - ``0 * x = 0`` (integer scalars only)
+        - ``x * 0 = 0`` (integer scalars only)
         - ``1 * x = x``
         - ``x * 1 = x``
 
@@ -503,6 +510,11 @@ def algebraic_simplification(jaxpr: Jaxpr) -> Jaxpr:
     def is_one(var):
         return is_constant_value(var, 1)
 
+    def is_integer_scalar(var):
+        """Whether ``var`` is a 0-d integer, where folding to a literal is safe."""
+        aval = var.aval
+        return aval.shape == () and np.issubdtype(np.dtype(aval.dtype), np.integer)
+
     def make_literal(value, aval):
         """Create a literal whose value matches the aval's dtype."""
         return literal_with_dtype(value, aval)
@@ -532,7 +544,9 @@ def algebraic_simplification(jaxpr: Jaxpr) -> Jaxpr:
                 if is_zero(rhs):  # x - 0 = x
                     var_map[outvar] = lhs
                     simplified = True
-                elif id(lhs) == id(rhs):  # x - x = 0
+                elif id(lhs) == id(rhs) and is_integer_scalar(outvar):  # x - x = 0
+                    # Unsafe for floats (``inf - inf = nan``); a literal is
+                    # also always 0-d, so non-scalar outputs are skipped.
                     var_map[outvar] = make_literal(0, outvar.aval)
                     simplified = True
 
@@ -540,8 +554,7 @@ def algebraic_simplification(jaxpr: Jaxpr) -> Jaxpr:
             elif eqn.primitive.name == 'mul':
                 # ``0 * x = 0`` is only IEEE-safe for integer dtypes: for floats
                 # ``0 * inf`` and ``0 * nan`` are ``nan``, not ``0``.
-                out_is_integer = np.issubdtype(np.dtype(outvar.aval.dtype), np.integer)
-                if (is_zero(lhs) or is_zero(rhs)) and out_is_integer:
+                if (is_zero(lhs) or is_zero(rhs)) and is_integer_scalar(outvar):
                     var_map[outvar] = make_literal(0, outvar.aval)
                     simplified = True
                 elif is_one(lhs):  # 1 * x = x
