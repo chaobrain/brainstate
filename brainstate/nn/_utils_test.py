@@ -555,6 +555,15 @@ class TestNNPackageGetattr(unittest.TestCase):
         self.assertIs(obj, brainpy.state.IF)
         self.assertTrue(any(issubclass(w.category, DeprecationWarning) for w in caught))
 
+    def test_every_deprecated_name_resolves_in_brainpy(self):
+        """Every ``_DEPRECATED_NAMES`` target exists in ``brainpy.state``."""
+        brainpy = pytest.importorskip("brainpy", exc_type=ImportError)
+        from brainstate.nn import _DEPRECATED_NAMES
+        for name, target in _DEPRECATED_NAMES.items():
+            with self.subTest(name=name):
+                self.assertEqual(target, f'brainpy.state.{name}')
+                self.assertTrue(hasattr(brainpy.state, name))
+
     def test_unknown_attribute_raises(self):
         """An unrecognized attribute raises ``AttributeError``."""
         with self.assertRaises(AttributeError):

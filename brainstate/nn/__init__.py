@@ -358,7 +358,6 @@ _DEPRECATED_NAMES = {
     'LIFRef': 'brainpy.state.LIFRef',
     'ALIF': 'brainpy.state.ALIF',
     'LeakyRateReadout': 'brainpy.state.LeakyRateReadout',
-    'LeakySpikeReadout': 'brainpy.state.LeakySpikeReadout',
     'STP': 'brainpy.state.STP',
     'STD': 'brainpy.state.STD',
     'Synapse': 'brainpy.state.Synapse',
