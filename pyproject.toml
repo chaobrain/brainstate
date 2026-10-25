@@ -26,7 +26,7 @@ name = "brainstate"
 description = "A State-based Transformation System for Brain Modeling."
 readme = 'README.md'
 requires-python = '>=3.12'
-authors = [{ name = 'BrainState Developers', email = 'chao.brain@qq.com' }]
+authors = [{ name = 'BrainState Developers', email = 'chaobrain@outlook.com' }]
 classifiers = [
     'Natural Language :: English',
     'Operating System :: OS Independent',
