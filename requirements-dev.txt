@@ -2,7 +2,7 @@
 optax
 tqdm
 numba
-braintools>=0.3.0
+braintools>=0.4.0
 braincell
 matplotlib
 brainpy>=2.9.0
@@ -15,4 +15,4 @@ flax
 equinox
 
 # type checking
-mypy>=2.3.1
+mypy>=2.4.0
