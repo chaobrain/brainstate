@@ -5,7 +5,7 @@ absl-py
 # document requirements
 pandoc
 Jinja2
-sphinx>=9.0.4
+sphinx>=9.1.1
 myst-nb
 sphinx_thebe
 sphinx-autodoc-typehints
