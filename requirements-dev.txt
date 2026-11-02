@@ -15,4 +15,4 @@ flax
 equinox
 
 # type checking
-mypy>=2.4.0
+mypy>=2.4.1
