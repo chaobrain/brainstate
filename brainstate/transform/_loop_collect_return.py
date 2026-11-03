@@ -20,7 +20,7 @@ from typing import Callable, Optional, TypeVar, Tuple, Any
 import jax
 import jax.numpy as jnp
 
-from brainstate._compatible_import import get_aval, mapped_aval
+from brainstate._compatible_import import get_aval, mapped_aval, set_row, stacked_zeros_like
 from brainstate._utils import set_module_as
 from ._make_jaxpr import StatefulFunction
 from ._progress_bar import ProgressBar
@@ -415,7 +415,8 @@ def checkpointed_scan(
             "f in checkpointed_scan must return a two-tuple (carry, out), but its "
             f"return has structure {jax.tree.structure(out_info)}."
         )
-    data2collection = jax.tree.map(lambda x: jnp.zeros((length,) + x.shape, x.dtype), out_info[1])
+    # the type of the body's outputs: their sharding and varying manual axes (#255)
+    data2collection = jax.tree.map(lambda x: stacked_zeros_like(x, length), out_info[1])
     del out_info
 
     def wrapped_cond_fun(inp):
@@ -439,7 +440,7 @@ def checkpointed_scan(
         pred = i < length
         new_collect = jax.tree.map(
             # lambda x, update: x.at[i].set(jax.lax.select(pred, update, x[i])),
-            lambda x, update: jax.lax.select(pred, x.at[i].set(update), x),
+            lambda x, update: jax.lax.select(pred, set_row(x, i, update), x),
             prev_collect,
             out4updates,
         )
