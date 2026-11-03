@@ -106,6 +106,10 @@ __all__ = [
     # shard_map
     'jax_shard_map',
     'SHARD_MAP_CHECK_KW',
+
+    # sharded and varying types
+    'stacked_zeros_like',
+    'set_row',
 ]
 
 
@@ -542,3 +546,65 @@ if 'check_vma' in inspect.signature(jax_shard_map).parameters:
     SHARD_MAP_CHECK_KW = 'check_vma'
 else:  # pragma: no cover - unexpected jax signature
     SHARD_MAP_CHECK_KW = None
+
+
+# ---------------------------------------------------------------------------
+# sharded and varying types (brainstate#255)
+# ---------------------------------------------------------------------------
+
+def _varying_axes(x) -> frozenset:
+    """The manual mesh axes over which ``x`` (an aval or a ``ShapeDtypeStruct``) varies.
+
+    jax >= 0.12 records them as ``manual_axis_type.varying``; earlier releases as ``vma``.
+    """
+    mat = getattr(x, 'manual_axis_type', None)
+    if mat is not None and getattr(mat, 'varying', None) is not None:
+        return frozenset(mat.varying)
+    return frozenset(getattr(x, 'vma', None) or ())
+
+
+def _sharded_spec(sharding):
+    """``sharding.spec`` when it splits some dimension over a mesh axis, else ``None``."""
+    spec = getattr(sharding, 'spec', None)
+    if spec is None or getattr(sharding, 'mesh', None) is None:
+        return None
+    return spec if any(a is not None for a in spec) else None
+
+
+def stacked_zeros_like(x, length: int):
+    """Zeros of shape ``(length,) + x.shape`` with the type of ``x`` on the trailing axes.
+
+    ``x`` is an aval or a ``ShapeDtypeStruct``. When it is split over mesh axes (an
+    explicit-sharding mesh), the result is split the same way, with the leading axis
+    replicated; inside ``shard_map`` it varies over the same manual axes. A plain
+    ``jnp.zeros`` drops both, so a buffer that collects ``x`` per step would not match
+    it. ``jnp.zeros(..., out_sharding=NamedSharding(AbstractMesh, ...))`` drops the
+    sharding inside a trace, hence ``jax.sharding.reshard``.
+    """
+    import jax.numpy as jnp
+    z = jnp.zeros((length,) + tuple(x.shape), x.dtype)
+    sharding = getattr(x, 'sharding', None)
+    spec = _sharded_spec(sharding)
+    if spec is not None and hasattr(jax.sharding, 'reshard'):
+        z = jax.sharding.reshard(z, jax.sharding.NamedSharding(sharding.mesh, jax.sharding.PartitionSpec(None, *spec)))
+    axes = _varying_axes(x)
+    if axes:
+        axes = tuple(sorted(axes))
+        if hasattr(jax.lax, 'pcast'):
+            z = jax.lax.pcast(z, axes, to='varying')
+        else:  # pragma: no cover - jax < 0.7
+            z = jax.lax.pvary(z, axes)
+    return z
+
+
+def set_row(buffer, i, update):
+    """``buffer.at[i].set(update)``, keeping the sharding of a sharded ``buffer``.
+
+    Under an explicit-sharding mesh, reverse mode may bring ``update`` without the
+    sharding of ``buffer`` (a cotangent), which the scatter cannot resolve; the output
+    sharding is given explicitly then.
+    """
+    sharding = getattr(jax.typeof(buffer), 'sharding', None)
+    if _sharded_spec(sharding) is not None:
+        return buffer.at[i].set(update, out_sharding=sharding)
+    return buffer.at[i].set(update)
