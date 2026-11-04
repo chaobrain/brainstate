@@ -1,5 +1,19 @@
 # Release notes
 
+## Version 0.6.1 (2026-11-04)
+
+brainstate 0.6.1 is a patch release. It fixes `checkpointed_scan` under `shard_map` and removes a deprecated name that could not resolve.
+
+### Bug Fixes
+
+- **`brainstate.transform.checkpointed_scan` keeps the sharding and varying manual axes of its outputs** (#255, #256). The stacked output buffer used to be built with `jnp.zeros`, which lost both. A body that is, or calls, a `shard_map` step therefore raised a sharding type error. The buffer now takes the type of the body's outputs, and the row update keeps it (`stacked_zeros_like` and `set_row` in `brainstate/_compatible_import.py`). Results are unchanged where it worked before.
+- **`brainstate.nn.LeakySpikeReadout` is removed** (#249). It was a deprecated redirect to `brainpy.state.LeakySpikeReadout`, which does not exist, so it raised `AttributeError` after its deprecation warning. A new test checks that every remaining deprecated name in `brainstate.nn` resolves in `brainpy.state`.
+
+### Maintenance
+
+- The package author email is now `chaobrain@outlook.com`.
+- Development dependencies: `brainpy>=2.9.0` for the tests, plus routine updates (#251).
+
 ## Version 0.6.0 (2026-10-20)
 
 brainstate 0.6.0 replaces the pretty representation of modules and states, fixes about thirty correctness bugs found in an audit of the codebase, and supports JAX 0.9 through 0.12. The minimum supported versions are now Python 3.12 and JAX 0.9.0. A few of the fixes change results that existing code may depend on; read **Upgrade notes** before upgrading.
