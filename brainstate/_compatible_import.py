@@ -607,9 +607,9 @@ def set_row(buffer, i, update):
     sharding = getattr(jax.typeof(buffer), 'sharding', None)
     if _sharded_spec(sharding) is not None:
         setter = buffer.at[i].set
-        # ``out_sharding`` was added after the oldest JAX versions supported
-        # by brainstate.  Detect the keyword instead of branching on a version
-        # number so compatible backports continue to work.
-        if 'out_sharding' in inspect.signature(setter).parameters:
+        # `out_sharding` is unavailable on older supported JAX releases.
+        try:
             return setter(update, out_sharding=sharding)
+        except TypeError:
+            pass
     return buffer.at[i].set(update)
