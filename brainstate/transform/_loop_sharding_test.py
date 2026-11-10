@@ -35,13 +35,14 @@ import brainstate
 
 _N_DEV = len(jax.devices())
 _EXPLICIT = getattr(getattr(jax.sharding, 'AxisType', None), 'Explicit', None)
+_HAS_EXPLICIT_MESH = _EXPLICIT is not None and 'axis_types' in inspect.signature(jax.make_mesh).parameters
 
 
 def _mesh(shape, names):
     return jax.make_mesh(shape, names, axis_types=(_EXPLICIT,) * len(shape))
 
 
-@unittest.skipIf(_N_DEV < 8 or _EXPLICIT is None, 'needs 8 devices and explicit mesh axes')
+@unittest.skipIf(_N_DEV < 8 or not _HAS_EXPLICIT_MESH, 'needs 8 devices and explicit mesh axes')
 class TestCheckpointedScanSharded(unittest.TestCase):
 
     def setUp(self):
@@ -115,7 +116,7 @@ class TestCheckpointedScanSharded(unittest.TestCase):
         np.testing.assert_allclose(g, g0, rtol=1e-5, atol=1e-6)
 
 
-@unittest.skipIf(_N_DEV < 4 or _EXPLICIT is None, 'needs 4 devices and explicit mesh axes')
+@unittest.skipIf(_N_DEV < 4 or not _HAS_EXPLICIT_MESH, 'needs 4 devices and explicit mesh axes')
 class TestCheckpointedScanInShardMap(unittest.TestCase):
 
     def test_varying_outputs(self):
