@@ -606,5 +606,10 @@ def set_row(buffer, i, update):
     """
     sharding = getattr(jax.typeof(buffer), 'sharding', None)
     if _sharded_spec(sharding) is not None:
-        return buffer.at[i].set(update, out_sharding=sharding)
+        setter = buffer.at[i].set
+        # `out_sharding` is unavailable on older supported JAX releases.
+        try:
+            return setter(update, out_sharding=sharding)
+        except TypeError:  # pragma: no cover - legacy JAX only
+            pass  # pragma: no cover - legacy JAX only
     return buffer.at[i].set(update)
