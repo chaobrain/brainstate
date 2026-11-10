@@ -36,7 +36,11 @@ import brainstate
 
 _N_DEV = len(jax.devices())
 _EXPLICIT = getattr(getattr(jax.sharding, 'AxisType', None), 'Explicit', None)
-_HAS_EXPLICIT_MESH = _EXPLICIT is not None and 'axis_types' in inspect.signature(jax.make_mesh).parameters
+_HAS_EXPLICIT_MESH = (
+    jax.__version_info__ >= (0, 11, 0)
+    and _EXPLICIT is not None
+    and 'axis_types' in inspect.signature(jax.make_mesh).parameters
+)
 
 
 def _mesh(shape, names):
