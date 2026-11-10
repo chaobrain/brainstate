@@ -24,7 +24,8 @@ import os
 
 os.environ.setdefault('XLA_FLAGS', '--xla_force_host_platform_device_count=8')
 
-import inspect`r`nimport unittest
+import inspect
+import unittest
 
 import jax
 import jax.numpy as jnp
