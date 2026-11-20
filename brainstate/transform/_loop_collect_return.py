@@ -404,12 +404,18 @@ def checkpointed_scan(
     write_state_vals = state_trace.get_write_state_values(True)
 
     # initialize the collected values/dataa
-    out_info = stateful_fun.get_out_shapes_by_cache(cache_key)[0]
+    # Older JAX releases omit sharding and manual-axis variation from the
+    # ShapeDtypeStruct returned by make_jaxpr(return_shape=True). The traced
+    # output avals retain both; use them to type the collection buffers.
+    out_info = jax.tree.unflatten(
+        stateful_fun.get_out_treedef_by_cache(cache_key),
+        stateful_fun.get_jaxpr_by_cache(cache_key).out_avals,
+    )[0]
     # ``f`` is user-supplied; validate its (carry, out) two-tuple contract with a
     # real exception. An ``assert len(out_info) == 2`` was both stripped under
     # ``python -O`` and, for a non-tuple return (e.g. ``return c + x``), raised an
     # opaque ``TypeError: len() of unsized object`` because ``out_info`` is then a
-    # bare ``ShapeDtypeStruct``. Check the structure explicitly.
+    # bare abstract array. Check the structure explicitly.
     if not isinstance(out_info, (tuple, list)) or len(out_info) != 2:
         raise ValueError(
             "f in checkpointed_scan must return a two-tuple (carry, out), but its "
