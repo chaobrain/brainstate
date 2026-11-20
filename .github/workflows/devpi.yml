@@ -1,0 +1,49 @@
+# 保存为目标包仓库默认分支的 .github/workflows/devpi.yml。
+# 目标仓库须获准使用 chaobrain-pypi runner。
+name: Publish to Chaobrain devpi
+
+on:
+  push:
+    tags: ["**"]
+  schedule:
+    - cron: "0 18 * * *" # 每天北京时间 02:00
+
+permissions:
+  contents: read
+
+concurrency:
+  group: devpi-${{ github.repository }}
+  queue: max
+
+jobs:
+  publish:
+    if: github.repository_owner == 'chaobrain' && (github.event_name != 'push' || !github.event.deleted)
+    runs-on: [self-hosted, Linux, X64, chaobrain-pypi]
+    timeout-minutes: 360
+    env:
+      PYPI_RUNTIME_DIR: ${{ vars.PYPI_RUNTIME_DIR || '/mnt/16T/ci-runner/chaobrain-pypi' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Publish tag
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          "$PYPI_RUNTIME_DIR/devpi_plugins/.venv/bin/python" \
+            "$PYPI_RUNTIME_DIR/devpi_plugins/ci-runner/tasks.py" tag \
+            --runtime-dir "$PYPI_RUNTIME_DIR" \
+            --repo "$GITHUB_REPOSITORY" --checkout "$GITHUB_WORKSPACE" \
+            --run-id "$GITHUB_RUN_ID" --tag "$GITHUB_REF_NAME"
+
+      - name: Check branches and tags and build changed branches
+        if: github.event_name == 'schedule'
+        shell: bash
+        run: |
+          "$PYPI_RUNTIME_DIR/devpi_plugins/.venv/bin/python" \
+            "$PYPI_RUNTIME_DIR/devpi_plugins/ci-runner/tasks.py" nightly \
+            --runtime-dir "$PYPI_RUNTIME_DIR" \
+            --repo "$GITHUB_REPOSITORY" --checkout "$GITHUB_WORKSPACE" \
+            --run-id "$GITHUB_RUN_ID"
