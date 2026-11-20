@@ -598,13 +598,21 @@ def stacked_zeros_like(x, length: int):
 
 
 def set_row(buffer, i, update):
-    """``buffer.at[i].set(update)``, keeping the sharding of a sharded ``buffer``.
+    """Replace one collection row, preserving sharding through reverse mode.
 
-    Under an explicit-sharding mesh, reverse mode may bring ``update`` without the
-    sharding of ``buffer`` (a cotangent), which the scatter cannot resolve; the output
-    sharding is given explicitly then.
+    A contiguous update avoids the scatter/gather transpose's implicit mesh
+    conversions on older JAX. The caller masks writes beyond the scan length;
+    dynamic_update_slice clamps such indices rather than dropping the write.
     """
     sharding = getattr(jax.typeof(buffer), 'sharding', None)
-    if _sharded_spec(sharding) is not None:
-        return buffer.at[i].set(update, out_sharding=sharding)
-    return buffer.at[i].set(update)
+    # Both releases expose the same scatter API, but their transpose introduces
+    # an Auto mesh inside an Explicit one. Use a contiguous update on 0.9/0.10;
+    # newer JAX requires the explicitly sharded scatter for cotangent updates.
+    if tuple(map(int, jax.__version__.split('.')[:2])) >= (0, 11):
+        if _sharded_spec(sharding) is not None:
+            return buffer.at[i].set(update, out_sharding=sharding)
+        return buffer.at[i].set(update)
+    return jax.lax.dynamic_update_slice(
+        buffer, jax.lax.expand_dims(update, (0,)),
+        (i,) + (0,) * (buffer.ndim - 1),
+    )
