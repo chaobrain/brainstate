@@ -17,6 +17,8 @@ env:
 
 jobs:
   build:
+    outputs:
+      docs-artifact-id: ${{ steps.docs-artifact.outputs.artifact-id }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -51,9 +53,11 @@ jobs:
           test -f docs/_build/html/index.html
 
       - name: Upload documentation artifact
+        id: docs-artifact
         uses: actions/upload-artifact@v7
         with:
           name: docs-html
+          retention-days: 1
           path: docs/_build/html/
           if-no-files-found: error
 
@@ -127,3 +131,18 @@ jobs:
           key:      ${{ secrets.DEPLOY_SSH_KEY }}
           script: |
             nginx -t && systemctl reload nginx || true
+
+  cleanup-docs-artifact:
+    name: Delete deployed documentation artifact
+    needs: [build, deploy]
+    if: ${{ needs.deploy.result == 'success' && needs.build.outputs.docs-artifact-id != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Delete this run's documentation artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ARTIFACT_ID: ${{ needs.build.outputs.docs-artifact-id }}
+        run: gh api --method DELETE "repos/$GH_REPO/actions/artifacts/$ARTIFACT_ID"
